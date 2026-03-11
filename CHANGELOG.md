@@ -16,8 +16,8 @@
 * Let `__index` and `__newindex` chain through `UserData` in addition to
   `Table`.
 * Implement "dead keys" to make table iteration behavior match PUC-Rio Lua.
-* Implement `gc_arena::Collect` for `piccolo_util::UserDataMethods` and
-  `piccolo_util::StaticUserDataMethods`.
+* Implement `gc_arena::Collect` for `ottavino_util::UserDataMethods` and
+  `ottavino_util::StaticUserDataMethods`.
 * Implement `string.sub`, `string.lower`, `string.upper`, `string.reverse` by
   @Jengamon.
 * Better match PUC-Rio Lua behavior with longstring newlines.
@@ -37,20 +37,20 @@ problems with unrestricted Rust stack usage. The `Executor` API also has a
 bunch more weird powers that other implementations of Lua can't have, like "tail
 resuming" other coroutines and "tail yield".
 
-There is a new `piccolo-util` crate that adds support for some very common use
-cases that are not trivial to do in `piccolo` proper:
+There is a new `ottavino-util` crate that adds support for some very common use
+cases that are not trivial to do in `ottavino` proper:
 
 * Serde support for convenient conversion between Rust types and Lua tables.
 * "Freeze" system to safely support the common case where you need to pass
-  a non-'static (and non-'gc) value into Lua. Not specific to piccolo, it is
+  a non-'static (and non-'gc) value into Lua. Not specific to ottavino, it is
   actually a general way of safely erasing a single lifetime parameter from a
   type (and replacing it with a runtime check).
 * Super quick and simple way to wrap Rust types into a Lua userdata with
   methods.
 
-`piccolo-util` will always be an **optional** dependency, and it may contain
-code that is more opinionated or limited than vanilla `piccolo` should be.
-`piccolo-util` will have opionions about things, and those opinions may be
+`ottavino-util` will always be an **optional** dependency, and it may contain
+code that is more opinionated or limited than vanilla `ottavino` should be.
+`ottavino-util` will have opionions about things, and those opinions may be
 different than yours... if it is in your way or incomplete for your use, you can
 always use it as a starting point for something better.
 
@@ -59,8 +59,8 @@ improvements, and more!
 
 - New `Executor` API that enables safe thread recursion and "tail resume" /
   "tail yield".
-- New `piccolo-util` crate with very commonly requested, useful features that
-  are too opinionated or limited to belong in `piccolo` proper.
+- New `ottavino-util` crate with very commonly requested, useful features that
+  are too opinionated or limited to belong in `ottavino` proper.
 - API changes to `Stack` to support a single, unified thread stack shared
   between Lua and callbacks, similar to PUC-Rio Lua et al.
 - Upvalues no longer keep entire threads alive and instead use new gc-arena

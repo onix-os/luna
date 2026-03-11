@@ -1,5 +1,5 @@
 use gc_arena::{Collect, Rootable};
-use piccolo::{Callback, CallbackReturn, Context, Singleton, Table, UserData};
+use ottavino::{Callback, CallbackReturn, Context, Singleton, Table, UserData};
 
 #[derive(Collect)]
 #[collect(no_drop)]

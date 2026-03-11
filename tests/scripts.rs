@@ -3,7 +3,7 @@ use std::{
     io::{stdout, Read, Write},
 };
 
-use piccolo::{io, Closure, Executor, ExternError, Lua};
+use ottavino::{io, Closure, Executor, ExternError, Lua};
 
 fn run_lua_code(name: &str, code: &[u8]) -> Result<(), ExternError> {
     let mut lua = Lua::full();

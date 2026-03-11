@@ -1,11 +1,9 @@
-[![crates.io](https://img.shields.io/crates/v/piccolo)](https://crates.io/crates/piccolo)
-[![docs.rs](https://docs.rs/piccolo/badge.svg)](https://docs.rs/piccolo)
-[![Build Status](https://img.shields.io/circleci/project/github/kyren/piccolo.svg)](https://circleci.com/gh/kyren/piccolo)
+[![crates.io](https://img.shields.io/crates/v/ottavino)](https://crates.io/crates/ottavino)
+[![docs.rs](https://docs.rs/ottavino/badge.svg)](https://docs.rs/ottavino)
+[![Build Status](https://img.shields.io/circleci/project/github/lumen-oss/ottavino.svg)](https://circleci.com/gh/lumen-oss/ottavino)
 [![Chat](https://img.shields.io/discord/865004050357682246)](https://discord.gg/CSJCVTvgNB)
 
-## piccolo - An experimental stackless Lua VM implemented in pure Rust
-
-**(After *four* years, now UN-paused!)**
+## ottavino - a fork of `piccolo` with an extended standard library
 
 Project Goals, in roughly descending priority:
   * Be an arguably working, useful Lua interpreter.
@@ -21,8 +19,8 @@ Project Goals, in roughly descending priority:
   * Don't be obnoxiously slow (for example, avoid abstractions that would make
     the interpreter fundamentally slower than PUC-Rio Lua).
 
-You read more about the design of `piccolo` (and try it out a live REPL!) in
-[this blog post](https://kyju.org/blog/piccolo-a-stackless-lua-interpreter/).
+You read more about the design of `ottavino` (and try it out a live REPL!) in
+[this blog post](https://kyju.org/blog/ottavino-a-stackless-lua-interpreter/).
 
 ## API Instability
 
@@ -32,11 +30,11 @@ these will be very common.
 
 ## Safety
 
-The goal with `piccolo` is to have the majority of it written in safe Rust.
+The goal with `ottavino` is to have the majority of it written in safe Rust.
 Currently, there are a few sources of unsafety, but crucially these sources
-of unsafety are *isolated*. `piccolo` will avoid at all costs relying on
+of unsafety are *isolated*. `ottavino` will avoid at all costs relying on
 abstractions which *leak* unsafety, it should always be possible to interact
-with even low level details of `piccolo` without using `unsafe`.
+with even low level details of `ottavino` without using `unsafe`.
 
 The current primary sources of unsafety:
   * The particularly weird requirements of Lua tables require using hashbrown's
@@ -50,18 +48,18 @@ The current primary sources of unsafety:
     `Value` as small as possible and allow potential future smaller `Value`
     representations.
 
-*(`piccolo` makes no attempt yet to guard against side channel attacks like
+*(`ottavino` makes no attempt yet to guard against side channel attacks like
 spectre, so even if the VM is memory safe, running untrusted scripts may carry
 additional risk. With no JIT or callback API to accurately measure time, this
 might be practically impossible anwyay.)*
 
 ## A unique system for Rust <-> GC interaction
 
-*The garbage collector system for `piccolo` is now in its [own repo](
-https://github.com/kyren/gc-arena), and also on crates.io. See the README in the
+*The garbage collector system for `ottavino` is now in its [own repo](
+https://github.com/lumen-oss/gc-arena), and also on crates.io. See the README in the
 linked repo for more detail about the GC design.*
 
-`piccolo` has a real, cycle detecting, incremental garbage collector with
+`ottavino` has a real, cycle detecting, incremental garbage collector with
 zero-cost `Gc` pointers (they are machine pointer sized and implement `Copy`)
 that are usable from safe Rust. It achieves this by combining two things:
 
@@ -80,7 +78,7 @@ problematic. No garbage collection can take place during a call to `mutate`, so
 we have to make sure to regularly return from the `mutate` call to allow garbage
 collection to take place.
 
-The VM in `piccolo` is thus written in what is sometimes called "stackless"
+The VM in `ottavino` is thus written in what is sometimes called "stackless"
 or "trampoline" style. It does not rely on the rust stack for Lua -> Rust and
 Rust -> Lua nesting, instead callbacks can either have some kind of immediate
 result (return values, yield values from a coroutine, resume a thread, error),
@@ -137,7 +135,7 @@ state machine for a rust `async` block, then we could use rust `async` (or more
 directly, unstable Rust coroutines) to implement our `Sequence` state machines.
 
 Unfortunately, implementing a trait like this for a Rust async (coroutine) state
-machine is not currently possible. HOWEVER, `piccolo` is currently still able to
+machine is not currently possible. HOWEVER, `ottavino` is currently still able to
 provide a safe way to implement `Sequence` using async blocks by using a clever
 trick: a shadow stack.
 
@@ -165,7 +163,7 @@ state. In addition, these running callbacks are themselves *proper* garbage
 collected values, and all of the GC values they hold will be collected if they
 are (for example) forgotten as part of a suspended Lua coroutine. Without async
 sequences, this would require writing complex state machines by hand, so this is
-*critical* for very complex uses of `piccolo`.
+*critical* for very complex uses of `ottavino`.
 
 ## Executor "fuel" and VM memory tracking
 
@@ -192,7 +190,7 @@ limits.
 *Assuming* that both of these mechanisms work correctly, and *assuming* that all
 callback / userdata APIs also follow the same rules, this allows for completely
 sandboxing untrusted scripts not only in memory safety and API access but also
-in CPU and RAM usage. These are big assumptions though, and `piccolo` is still
+in CPU and RAM usage. These are big assumptions though, and `ottavino` is still
 very much WIP, so ensuring this is done correctly is an ongoing effort.
 
 ## What currently works
@@ -254,7 +252,7 @@ consider *almost definite* non-goals.
   * PUC-Rio Lua behaves differently on systems depending on the OS, environment,
     compilation settings, system locale, etc. (In certain versions of PUC-Rio Lua,
     even the behavior of the *lexer* changes depending on the system locale!)
-    `piccolo` is more or less aiming to emulate PUC-Rio Lua behavior with the
+    `ottavino` is more or less aiming to emulate PUC-Rio Lua behavior with the
     "C" locale set with the default settings in `luaconf.h` on 64-bit Linux.
   * The specific format of error messages.
   * The specific iteration order of tables, and the specific behavior of the
@@ -269,7 +267,7 @@ consider *almost definite* non-goals.
 * Perfectly matching all of the (sometimes quite exotic) garbage collector
   corner case behavior in PUC-Rio Lua.
 
-## Why is it called 'piccolo'?
+## Why is it called 'ottavino'?
 
 It's a cute little "pico" Lua, get it?
 
@@ -284,7 +282,7 @@ renaming it.
 
 ## License
 
-`piccolo` is licensed under either of:
+`ottavino` is licensed under either of:
 
 * MIT license [LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT
 * Creative Commons CC0 1.0 Universal Public Domain Dedication

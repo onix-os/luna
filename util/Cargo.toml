@@ -1,6 +1,6 @@
 [package]
-name = "piccolo-util"
-description = "Utilities for the `piccolo` library"
+name = "ottavino-util"
+description = "Utilities for the `ottavino` library"
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
@@ -12,7 +12,7 @@ repository.workspace = true
 serde = { workspace = true, optional = true }
 thiserror.workspace = true
 gc-arena.workspace = true
-piccolo.workspace = true
+ottavino.workspace = true
 
 [features]
 default = ["serde"]

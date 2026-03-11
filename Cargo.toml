@@ -13,7 +13,7 @@ version = "0.3.3"
 edition = "2021"
 authors = ["kyren <catherine@kyju.org>"]
 license = "MIT"
-repository = "https://github.com/kyren/piccolo"
+repository = "https://github.com/kyren/ottavino"
 
 [workspace.dependencies]
 ahash = "0.8"
@@ -25,10 +25,10 @@ rand = { version = "0.8", features = ["small_rng"] }
 serde = "1.0"
 thiserror = "1.0"
 
-piccolo = { path = "./", version = "0.3.3" }
+ottavino = { path = "./", version = "0.3.3" }
 
 [package]
-name = "piccolo"
+name = "ottavino"
 description = "Stackless Lua VM implemented in pure Rust"
 readme = "README.md"
 version.workspace = true

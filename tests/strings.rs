@@ -1,6 +1,6 @@
 use std::io::{stdout, Write};
 
-use piccolo::{Closure, Executor, ExternError, Lua};
+use ottavino::{Closure, Executor, ExternError, Lua};
 
 fn run_lua_file(name: &str) -> Result<(), ExternError> {
     let source = std::fs::read(name).expect("could not read test file");

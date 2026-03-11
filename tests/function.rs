@@ -1,4 +1,4 @@
-use piccolo::{Callback, CallbackReturn, Executor, ExternError, Function, Lua, Variadic};
+use ottavino::{Callback, CallbackReturn, Executor, ExternError, Function, Lua, Variadic};
 
 #[test]
 fn function_compose_bind() -> Result<(), ExternError> {

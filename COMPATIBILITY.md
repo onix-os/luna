@@ -11,10 +11,10 @@
 "Unimplemented" means there is no implementation (when used, `nil` is found) _or_
 that calling the implementation with the corresponding arguments will error where in PUC-Lua it does not.
 
-"Will Not Implement" is for functions that will not be implemented due to a fundamental difference between piccolo and PUC-Lua.
+"Will Not Implement" is for functions that will not be implemented due to a fundamental difference between ottavino and PUC-Lua.
 
 "Low Importance" is for things that, while technically implementable, will
-likely not be implemented due to differences between piccolo and PUC-Lua.
+likely not be implemented due to differences between ottavino and PUC-Lua.
 
 **NOTE**: `(a[, b, c])` corresponds to the Lua docs' `(a[, b[, c]])` usage.
 
@@ -36,11 +36,11 @@ likely not be implemented due to differences between piccolo and PUC-Lua.
 | ⚫️    | `error(message, level)`                                        |                                                                                                                                        |       |
 | ⚫️    | `_G` (value)                                                   |                                                                                                                                        |       |
 | 🔵     | `getmetatable(object)`                                         |                                                                                                                                        |       |
-| 🟡     | `ipairs(t)`                                                    | PUC-Lua returns `iter, table, 0`, where as piccolo returns `iter, table`.                                                              |       |
+| 🟡     | `ipairs(t)`                                                    | PUC-Lua returns `iter, table, 0`, where as ottavino returns `iter, table`.                                                              |       |
 | ⚫️    | `load(chunk[, chunkname, mode, env])`                          |                                                                                                                                        |       |
 | ⚫️    | `loadfile([filename, mode, env])`                              |                                                                                                                                        |       |
 | 🔵     | `next(table [, index])`                                        |                                                                                                                                        |       |
-| 🔵     | `pairs(t)`                                                     | By default, PUC-Lua return `iter, table, nil` where as piccolo returns `iter, table`.                                                  |       |
+| 🔵     | `pairs(t)`                                                     | By default, PUC-Lua return `iter, table, nil` where as ottavino returns `iter, table`.                                                  |       |
 | 🔵     | `pcall(f, args...)`                                            |                                                                                                                                        |       |
 | 🔵     | `print(args...)`                                               |                                                                                                                                        |       |
 | ⚫️    | `rawequal(v1, v2)`                                             |                                                                                                                                        |       |
@@ -50,7 +50,7 @@ likely not be implemented due to differences between piccolo and PUC-Lua.
 | 🔵     | `select(index, args...)`                                       |                                                                                                                                        |       |
 | 🔵     | `setmetatable(table, metatable)`                               |                                                                                                                                        |       |
 | 🔵    | `tonumber(e[, base])`                                          |                                                                                                                                        |       |
-| 🟡     | `tostring(v)`                                                  | piccolo does not use the metatable field `__name` by default, while PUC-Lua does.                                                      |       |
+| 🟡     | `tostring(v)`                                                  | ottavino does not use the metatable field `__name` by default, while PUC-Lua does.                                                      |       |
 | 🔵     | `type(v)`                                                      |                                                                                                                                        |       |
 | 🔵    | `_VERSION` (value)                                             |                                                                                                                                        |       |
 | ⚫️    | `warn(msg, args...)`                                           |                                                                                                                                        |       |
@@ -82,7 +82,7 @@ likely not be implemented due to differences between piccolo and PUC-Lua.
 | ❗     | `loadlib(libname, funcname)`         |                                                                                                 |       |
 | ⚫️️   | `path` (value)                       |                                                                                                 |       |
 | ⚫️️   | `preload` (value)                    |                                                                                                 |       |
-| ⚫️️   | `searchers` (value)                  | This implementation will _definitely_ differ from PUC-Lua as piccolo does not support C loaders |       |
+| ⚫️️   | `searchers` (value)                  | This implementation will _definitely_ differ from PUC-Lua as ottavino does not support C loaders |       |
 | ⚫️️   | `searchpath(name, path[, sep, rep])` |                                                                                                 |       |
 
 ## String

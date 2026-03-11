@@ -82,7 +82,7 @@ impl<'gc> Registry<'gc> {
     /// "Stash" a value with a `'gc` branding lifetime in the global registry, creating a `'static`
     /// handle to it.
     ///
-    /// This works for any type that implements the [`Stashable`] trait, which all common `piccolo`
+    /// This works for any type that implements the [`Stashable`] trait, which all common `ottavino`
     /// types do.
     ///
     /// Values stashed in the global registry produce handles without the `'gc` lifetime branding,

@@ -1,4 +1,4 @@
-use piccolo::{FromMultiValue, FromValue, IntoMultiValue, IntoValue, Lua, Table, Value};
+use ottavino::{FromMultiValue, FromValue, IntoMultiValue, IntoValue, Lua, Table, Value};
 
 #[test]
 fn test_conversions() {

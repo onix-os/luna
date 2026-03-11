@@ -1,4 +1,4 @@
-// string.format implementation for piccolo
+// string.format implementation for ottavino
 // Implements Lua 5.4 string.format semantics
 
 use gc_arena::Gc;
