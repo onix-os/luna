@@ -5,6 +5,12 @@
 
 ## ottavino - a fork of `piccolo` with an extended standard library
 
+Due to the recent inactivity on `piccolo` we are developing a temporary, parallel fork
+called `ottavino` (piccolo in Italian) to increase compatibility with various rockspecs.
+
+As piccolo's standard library receives more contributions, we will deprecate this crate and
+move back to the original project :)
+
 Project Goals, in roughly descending priority:
   * Be an arguably working, useful Lua interpreter.
   * Be an easy way to *confidently* sandbox untrusted Lua scripts.

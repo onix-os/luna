@@ -9,7 +9,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.3.3"
+version = "0.4.0"
 edition = "2021"
 authors = ["kyren <catherine@kyju.org>"]
 license = "MIT"
@@ -25,11 +25,11 @@ rand = { version = "0.8", features = ["small_rng"] }
 serde = "1.0"
 thiserror = "1.0"
 
-ottavino = { path = "./", version = "0.3.3" }
+ottavino = { path = "./", version = "0.4.0" }
 
 [package]
 name = "ottavino"
-description = "Stackless Lua VM implemented in pure Rust"
+description = "Fork of `piccolo` with extended standard library."
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
