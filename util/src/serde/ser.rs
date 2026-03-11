@@ -18,17 +18,10 @@ impl ser::Error for Error {
 
 #[derive(Debug, Copy, Clone)]
 #[non_exhaustive]
+#[derive(Default)]
 pub struct Options {
     /// If true, serialize the special `none` marker instead of `nil`.
     pub serialize_none: bool,
-}
-
-impl Default for Options {
-    fn default() -> Self {
-        Self {
-            serialize_none: false,
-        }
-    }
 }
 
 impl Options {

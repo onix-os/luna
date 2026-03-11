@@ -3,10 +3,7 @@
 
 use gc_arena::Gc;
 
-use crate::{Function, String, Value};
-
-/// Error type for format errors
-pub struct FormatError(pub String<'static>);
+use crate::{Function, Value};
 
 /// Returns the arg indices (1-based, matching args slice) that correspond to `%s` specifiers.
 /// Used by mod.rs to pre-convert table/userdata args via __tostring.
@@ -19,28 +16,46 @@ pub fn find_string_arg_positions(fmt_bytes: &[u8]) -> Vec<usize> {
         while pos < fmt_bytes.len() && fmt_bytes[pos] != b'%' {
             pos += 1;
         }
-        if pos >= fmt_bytes.len() { break; }
+        if pos >= fmt_bytes.len() {
+            break;
+        }
         pos += 1;
-        if pos >= fmt_bytes.len() { break; }
-        if fmt_bytes[pos] == b'%' { pos += 1; continue; }
+        if pos >= fmt_bytes.len() {
+            break;
+        }
+        if fmt_bytes[pos] == b'%' {
+            pos += 1;
+            continue;
+        }
         // skip flags
         while pos < fmt_bytes.len() && matches!(fmt_bytes[pos], b'-' | b'+' | b' ' | b'#' | b'0') {
             pos += 1;
         }
         // skip width
-        while pos < fmt_bytes.len() && fmt_bytes[pos].is_ascii_digit() { pos += 1; }
+        while pos < fmt_bytes.len() && fmt_bytes[pos].is_ascii_digit() {
+            pos += 1;
+        }
         // skip precision
         if pos < fmt_bytes.len() && fmt_bytes[pos] == b'.' {
             pos += 1;
-            while pos < fmt_bytes.len() && fmt_bytes[pos].is_ascii_digit() { pos += 1; }
+            while pos < fmt_bytes.len() && fmt_bytes[pos].is_ascii_digit() {
+                pos += 1;
+            }
         }
         if pos < fmt_bytes.len() {
             let spec = fmt_bytes[pos];
             pos += 1;
             match spec {
-                b'q' | b'p' => { arg_index += 1; } // these handle any type, skip
-                b's' => { positions.push(arg_index); arg_index += 1; }
-                _ => { arg_index += 1; }
+                b'q' | b'p' => {
+                    arg_index += 1;
+                } // these handle any type, skip
+                b's' => {
+                    positions.push(arg_index);
+                    arg_index += 1;
+                }
+                _ => {
+                    arg_index += 1;
+                }
             }
         }
     }
@@ -82,14 +97,12 @@ pub fn format_value<'gc>(
 
         // Parse flags: [-+ #0]
         let flags_start = pos;
-        while pos < fmt_bytes.len()
-            && matches!(fmt_bytes[pos], b'-' | b'+' | b' ' | b'#' | b'0')
-        {
+        while pos < fmt_bytes.len() && matches!(fmt_bytes[pos], b'-' | b'+' | b' ' | b'#' | b'0') {
             pos += 1;
         }
 
         // Parse width
-        let mut width_start = pos;
+        let width_start = pos;
         while pos < fmt_bytes.len() && fmt_bytes[pos].is_ascii_digit() {
             pos += 1;
         }
@@ -151,7 +164,10 @@ pub fn format_value<'gc>(
         match fmt_char {
             'q' => {
                 if !flags_str.is_empty() || width.is_some() || precision.is_some() {
-                    return Err("specifier '%q' cannot have modifiers (width, precision, flags)".to_string());
+                    return Err(
+                        "specifier '%q' cannot have modifiers (width, precision, flags)"
+                            .to_string(),
+                    );
                 }
             }
             'c' => {
@@ -182,13 +198,12 @@ pub fn format_value<'gc>(
 
         // Get the argument (except for %q which may handle all types)
         let arg = if fmt_char == 'q' {
-            args.get(arg_index)
-                .copied()
-                .unwrap_or(Value::Nil)
+            args.get(arg_index).copied().unwrap_or(Value::Nil)
         } else {
-            let a = args.get(arg_index).copied().ok_or_else(|| {
-                format!("bad argument #{} to 'format' (no value)", arg_index + 1)
-            })?;
+            let a = args
+                .get(arg_index)
+                .copied()
+                .ok_or_else(|| format!("bad argument #{} to 'format' (no value)", arg_index + 1))?;
             a
         };
         arg_index += 1;
@@ -196,7 +211,9 @@ pub fn format_value<'gc>(
         match fmt_char {
             'd' | 'i' => {
                 let n = value_to_integer(arg)?;
-                let s = format_integer(n, width, precision, has_minus, has_plus, has_space, has_zero);
+                let s = format_integer(
+                    n, width, precision, has_minus, has_plus, has_space, has_zero,
+                );
                 result.extend_from_slice(s.as_bytes());
             }
             'u' => {
@@ -207,7 +224,14 @@ pub fn format_value<'gc>(
                 } else {
                     let s = format!("{}", n as u64);
                     let s = apply_precision_digits(&s, precision);
-                    let s = apply_width_str(&s, width, has_minus, has_zero && precision.is_none(), false, None);
+                    let s = apply_width_str(
+                        &s,
+                        width,
+                        has_minus,
+                        has_zero && precision.is_none(),
+                        false,
+                        None,
+                    );
                     result.extend_from_slice(s.as_bytes());
                 }
             }
@@ -220,7 +244,14 @@ pub fn format_value<'gc>(
                     s
                 };
                 let s = apply_precision_digits(&s, precision);
-                let s = apply_width_str(&s, width, has_minus, has_zero && precision.is_none(), false, None);
+                let s = apply_width_str(
+                    &s,
+                    width,
+                    has_minus,
+                    has_zero && precision.is_none(),
+                    false,
+                    None,
+                );
                 result.extend_from_slice(s.as_bytes());
             }
             'x' => {
@@ -228,7 +259,11 @@ pub fn format_value<'gc>(
                 let s = format!("{:x}", n as u64);
                 let prefix = if has_hash && n != 0 { "0x" } else { "" };
                 let s = apply_precision_digits(&s, precision);
-                let padchar = if has_zero && precision.is_none() { b'0' } else { b' ' };
+                let padchar = if has_zero && precision.is_none() {
+                    b'0'
+                } else {
+                    b' '
+                };
                 let s = apply_width_with_prefix(&s, prefix, width, has_minus, padchar);
                 result.extend_from_slice(s.as_bytes());
             }
@@ -237,7 +272,11 @@ pub fn format_value<'gc>(
                 let s = format!("{:X}", n as u64);
                 let prefix = if has_hash && n != 0 { "0X" } else { "" };
                 let s = apply_precision_digits(&s, precision);
-                let padchar = if has_zero && precision.is_none() { b'0' } else { b' ' };
+                let padchar = if has_zero && precision.is_none() {
+                    b'0'
+                } else {
+                    b' '
+                };
                 let s = apply_width_with_prefix(&s, prefix, width, has_minus, padchar);
                 result.extend_from_slice(s.as_bytes());
             }
@@ -263,7 +302,9 @@ pub fn format_value<'gc>(
                 let n = value_to_float(arg)?;
                 let prec = precision.unwrap_or(6);
                 let upper = fmt_char == 'G';
-                let s = format_float_g(n, prec, upper, has_plus, has_space, has_zero, has_hash, width);
+                let s = format_float_g(
+                    n, prec, upper, has_plus, has_space, has_zero, has_hash, width,
+                );
                 result.extend_from_slice(s.as_bytes());
             }
             'a' | 'A' => {
@@ -275,7 +316,10 @@ pub fn format_value<'gc>(
             'c' => {
                 let n = value_to_integer(arg)?;
                 if !(0..=127).contains(&n) {
-                    return Err(format!("bad argument #{} to 'format' (value out of range for %%c)", arg_index));
+                    return Err(format!(
+                        "bad argument #{} to 'format' (value out of range for %%c)",
+                        arg_index
+                    ));
                 }
                 let ch = n as u8;
                 apply_width(&mut result, &[ch], width, has_minus, b' ');
@@ -288,7 +332,10 @@ pub fn format_value<'gc>(
                     if prec < s_bytes.len() {
                         // Lua: %.Ns truncates to N chars. But if string has NUL, error
                         if s_bytes[..prec].contains(&0) {
-                            return Err(format!("bad argument #{} to 'format' (string contains zeros)", arg_index));
+                            return Err(format!(
+                                "bad argument #{} to 'format' (string contains zeros)",
+                                arg_index
+                            ));
                         }
                         &s_bytes[..prec]
                     } else {
@@ -298,7 +345,10 @@ pub fn format_value<'gc>(
                 } else {
                     // Check for NUL in string for %s without precision
                     if width.is_some() && s_bytes.contains(&0) {
-                        return Err(format!("bad argument #{} to 'format' (string contains zeros)", arg_index));
+                        return Err(format!(
+                            "bad argument #{} to 'format' (string contains zeros)",
+                            arg_index
+                        ));
                     }
                     s_bytes
                 };
@@ -318,7 +368,10 @@ pub fn format_value<'gc>(
                 apply_width(&mut result, s.as_bytes(), width, has_minus, b' ');
             }
             _ => {
-                return Err(format!("invalid option '%{}' to 'format' (invalid conversion)", fmt_char));
+                return Err(format!(
+                    "invalid option '%{}' to 'format' (invalid conversion)",
+                    fmt_char
+                ));
             }
         }
     }
@@ -336,7 +389,10 @@ fn value_to_integer<'gc>(v: Value<'gc>) -> Result<i64, std::string::String> {
                 Err("number has no integer representation".to_string())
             }
         }
-        _ => Err(format!("bad argument to 'format' (number expected, got {})", v.type_name())),
+        _ => Err(format!(
+            "bad argument to 'format' (number expected, got {})",
+            v.type_name()
+        )),
     }
 }
 
@@ -344,7 +400,10 @@ fn value_to_float<'gc>(v: Value<'gc>) -> Result<f64, std::string::String> {
     match v {
         Value::Integer(i) => Ok(i as f64),
         Value::Number(n) => Ok(n),
-        _ => Err(format!("bad argument to 'format' (number expected, got {})", v.type_name())),
+        _ => Err(format!(
+            "bad argument to 'format' (number expected, got {})",
+            v.type_name()
+        )),
     }
 }
 
@@ -364,20 +423,25 @@ fn value_to_string<'gc>(
             let interned = ctx.intern(s.as_bytes());
             Ok(interned.as_bytes())
         }
-        Value::Nil => {
-            Ok(ctx.intern(b"nil").as_bytes())
-        }
-        Value::Boolean(b) => {
-            Ok(ctx.intern(if b { b"true" } else { b"false" }).as_bytes())
-        }
-        _ => Err(format!("bad argument to 'format' (string expected, got {})", v.type_name())),
+        Value::Nil => Ok(ctx.intern(b"nil").as_bytes()),
+        Value::Boolean(b) => Ok(ctx.intern(if b { b"true" } else { b"false" }).as_bytes()),
+        _ => Err(format!(
+            "bad argument to 'format' (string expected, got {})",
+            v.type_name()
+        )),
     }
 }
 
 fn format_number(n: f64) -> std::string::String {
-    if n.is_nan() { return "-nan".to_string(); }
+    if n.is_nan() {
+        return "-nan".to_string();
+    }
     if n.is_infinite() {
-        return if n > 0.0 { "inf".to_string() } else { "-inf".to_string() };
+        return if n > 0.0 {
+            "inf".to_string()
+        } else {
+            "-inf".to_string()
+        };
     }
     // Use %g style: 14 significant digits
     let s = format!("{:.14}", n);
@@ -439,9 +503,21 @@ fn apply_width_str(
         if w > len {
             let pad = if zero_pad { '0' } else { ' ' };
             if left_align {
-                format!("{}{}", s, std::iter::repeat(pad).take(w - len).collect::<std::string::String>())
+                format!(
+                    "{}{}",
+                    s,
+                    std::iter::repeat(pad)
+                        .take(w - len)
+                        .collect::<std::string::String>()
+                )
             } else {
-                format!("{}{}", std::iter::repeat(pad).take(w - len).collect::<std::string::String>(), s)
+                format!(
+                    "{}{}",
+                    std::iter::repeat(pad)
+                        .take(w - len)
+                        .collect::<std::string::String>(),
+                    s
+                )
             }
         } else {
             s.to_string()
@@ -463,11 +539,32 @@ fn apply_width_with_prefix(
         if w > total {
             let padding = w - total;
             if left_align {
-                format!("{}{}{}", prefix, s, std::iter::repeat(pad as char).take(padding).collect::<std::string::String>())
+                format!(
+                    "{}{}{}",
+                    prefix,
+                    s,
+                    std::iter::repeat(pad as char)
+                        .take(padding)
+                        .collect::<std::string::String>()
+                )
             } else if pad == b'0' {
-                format!("{}{}{}", prefix, std::iter::repeat('0').take(padding).collect::<std::string::String>(), s)
+                format!(
+                    "{}{}{}",
+                    prefix,
+                    std::iter::repeat('0')
+                        .take(padding)
+                        .collect::<std::string::String>(),
+                    s
+                )
             } else {
-                format!("{}{}{}", std::iter::repeat(pad as char).take(padding).collect::<std::string::String>(), prefix, s)
+                format!(
+                    "{}{}{}",
+                    std::iter::repeat(pad as char)
+                        .take(padding)
+                        .collect::<std::string::String>(),
+                    prefix,
+                    s
+                )
             }
         } else {
             format!("{}{}", prefix, s)
@@ -487,9 +584,21 @@ fn format_integer(
     zero_pad: bool,
 ) -> std::string::String {
     let is_neg = n < 0;
-    let abs_val = if is_neg { format!("{}", n.wrapping_neg() as u64) } else { format!("{}", n as u64) };
+    let abs_val = if is_neg {
+        format!("{}", n.wrapping_neg() as u64)
+    } else {
+        format!("{}", n as u64)
+    };
 
-    let sign = if is_neg { "-" } else if has_plus { "+" } else if has_space { " " } else { "" };
+    let sign = if is_neg {
+        "-"
+    } else if has_plus {
+        "+"
+    } else if has_space {
+        " "
+    } else {
+        ""
+    };
 
     // Apply precision (minimum digit count)
     let digits = if let Some(prec) = precision {
@@ -516,12 +625,31 @@ fn format_integer(
         if w > len {
             let padding = w - len;
             if left_align {
-                format!("{}{}", full, std::iter::repeat(' ').take(padding).collect::<std::string::String>())
+                format!(
+                    "{}{}",
+                    full,
+                    std::iter::repeat(' ')
+                        .take(padding)
+                        .collect::<std::string::String>()
+                )
             } else if use_zero {
                 // zero padding goes between sign and digits
-                format!("{}{}{}", sign, std::iter::repeat('0').take(padding).collect::<std::string::String>(), digits)
+                format!(
+                    "{}{}{}",
+                    sign,
+                    std::iter::repeat('0')
+                        .take(padding)
+                        .collect::<std::string::String>(),
+                    digits
+                )
             } else {
-                format!("{}{}", std::iter::repeat(' ').take(padding).collect::<std::string::String>(), full)
+                format!(
+                    "{}{}",
+                    std::iter::repeat(' ')
+                        .take(padding)
+                        .collect::<std::string::String>(),
+                    full
+                )
             }
         } else {
             full
@@ -545,10 +673,26 @@ fn format_float_f(
         return apply_width_str(s, width, false, false, false, None);
     }
     if n.is_infinite() {
-        let s = if n > 0.0 { if has_plus { "+inf" } else { "inf" } } else { "-inf" };
+        let s = if n > 0.0 {
+            if has_plus {
+                "+inf"
+            } else {
+                "inf"
+            }
+        } else {
+            "-inf"
+        };
         return apply_width_str(s, width, false, false, false, None);
     }
-    let sign = if n < 0.0 { "-" } else if has_plus { "+" } else if has_space { " " } else { "" };
+    let sign = if n < 0.0 {
+        "-"
+    } else if has_plus {
+        "+"
+    } else if has_space {
+        " "
+    } else {
+        ""
+    };
     let abs_n = n.abs();
     let mut digits = format!("{:.prec$}", abs_n, prec = prec);
     // With # flag and prec==0, always include a decimal point
@@ -561,9 +705,22 @@ fn format_float_f(
         if w > len {
             let padding = w - len;
             if zero_pad {
-                format!("{}{}{}", sign, std::iter::repeat('0').take(padding).collect::<std::string::String>(), digits)
+                format!(
+                    "{}{}{}",
+                    sign,
+                    std::iter::repeat('0')
+                        .take(padding)
+                        .collect::<std::string::String>(),
+                    digits
+                )
             } else {
-                format!("{}{}", std::iter::repeat(' ').take(padding).collect::<std::string::String>(), full)
+                format!(
+                    "{}{}",
+                    std::iter::repeat(' ')
+                        .take(padding)
+                        .collect::<std::string::String>(),
+                    full
+                )
             }
         } else {
             full
@@ -588,14 +745,38 @@ fn format_float_e(
     }
     if n.is_infinite() {
         let s = if n > 0.0 {
-            if upper { if has_plus { "+INF" } else { "INF" } } else { if has_plus { "+inf" } else { "inf" } }
+            if upper {
+                if has_plus {
+                    "+INF"
+                } else {
+                    "INF"
+                }
+            } else {
+                if has_plus {
+                    "+inf"
+                } else {
+                    "inf"
+                }
+            }
         } else {
-            if upper { "-INF" } else { "-inf" }
+            if upper {
+                "-INF"
+            } else {
+                "-inf"
+            }
         };
         return apply_width_str(s, width, false, false, false, None);
     }
     // Format using the C-style %e format
-    let sign = if n < 0.0 { "-" } else if has_plus { "+" } else if has_space { " " } else { "" };
+    let sign = if n < 0.0 {
+        "-"
+    } else if has_plus {
+        "+"
+    } else if has_space {
+        " "
+    } else {
+        ""
+    };
     // Use the scientific notation format
     let formatted = format_scientific(n.abs(), prec, upper);
     let full = format!("{}{}", sign, formatted);
@@ -604,9 +785,22 @@ fn format_float_e(
         if w > len {
             let padding = w - len;
             if zero_pad {
-                format!("{}{}{}", sign, std::iter::repeat('0').take(padding).collect::<std::string::String>(), formatted)
+                format!(
+                    "{}{}{}",
+                    sign,
+                    std::iter::repeat('0')
+                        .take(padding)
+                        .collect::<std::string::String>(),
+                    formatted
+                )
             } else {
-                format!("{}{}", std::iter::repeat(' ').take(padding).collect::<std::string::String>(), full)
+                format!(
+                    "{}{}",
+                    std::iter::repeat(' ')
+                        .take(padding)
+                        .collect::<std::string::String>(),
+                    full
+                )
             }
         } else {
             full
@@ -651,19 +845,47 @@ fn format_float_g(
     }
     if n.is_infinite() {
         let s = if n > 0.0 {
-            if upper { if has_plus { "+INF" } else { "INF" } } else { if has_plus { "+inf" } else { "inf" } }
+            if upper {
+                if has_plus {
+                    "+INF"
+                } else {
+                    "INF"
+                }
+            } else {
+                if has_plus {
+                    "+inf"
+                } else {
+                    "inf"
+                }
+            }
         } else {
-            if upper { "-INF" } else { "-inf" }
+            if upper {
+                "-INF"
+            } else {
+                "-inf"
+            }
         };
         return apply_width_str(s, width, false, false, false, None);
     }
 
     let prec = if prec == 0 { 1 } else { prec };
-    let sign = if n < 0.0 { "-" } else if has_plus { "+" } else if has_space { " " } else { "" };
+    let sign = if n < 0.0 {
+        "-"
+    } else if has_plus {
+        "+"
+    } else if has_space {
+        " "
+    } else {
+        ""
+    };
     let abs_n = n.abs();
 
     // Determine if we should use %e or %f style
-    let exp = if abs_n == 0.0 { 0 } else { abs_n.log10().floor() as i32 };
+    let exp = if abs_n == 0.0 {
+        0
+    } else {
+        abs_n.log10().floor() as i32
+    };
     let use_exp = exp < -4 || exp >= prec as i32;
 
     let formatted = if use_exp {
@@ -675,7 +897,11 @@ fn format_float_g(
             s
         }
     } else {
-        let f_prec = if prec > (exp + 1) as usize { prec - (exp + 1) as usize } else { 0 };
+        let f_prec = if prec > (exp + 1) as usize {
+            prec - (exp + 1) as usize
+        } else {
+            0
+        };
         let s = format!("{:.prec$}", abs_n, prec = f_prec);
         if !has_hash {
             remove_trailing_zeros_f(&s)
@@ -691,9 +917,22 @@ fn format_float_g(
         if w > len {
             let padding = w - len;
             if zero_pad {
-                format!("{}{}{}", sign, std::iter::repeat('0').take(padding).collect::<std::string::String>(), formatted)
+                format!(
+                    "{}{}{}",
+                    sign,
+                    std::iter::repeat('0')
+                        .take(padding)
+                        .collect::<std::string::String>(),
+                    formatted
+                )
             } else {
-                format!("{}{}", std::iter::repeat(' ').take(padding).collect::<std::string::String>(), full)
+                format!(
+                    "{}{}",
+                    std::iter::repeat(' ')
+                        .take(padding)
+                        .collect::<std::string::String>(),
+                    full
+                )
             }
         } else {
             full
@@ -745,9 +984,25 @@ fn format_hex_float(
     }
     if n.is_infinite() {
         let s = if n > 0.0 {
-            if upper { if has_plus { "+INF" } else { "INF" } } else { if has_plus { "+inf" } else { "inf" } }
+            if upper {
+                if has_plus {
+                    "+INF"
+                } else {
+                    "INF"
+                }
+            } else {
+                if has_plus {
+                    "+inf"
+                } else {
+                    "inf"
+                }
+            }
         } else {
-            if upper { "-INF" } else { "-inf" }
+            if upper {
+                "-INF"
+            } else {
+                "-inf"
+            }
         };
         return apply_width_str(s, width, false, false, false, None);
     }
@@ -783,7 +1038,14 @@ fn format_hex_float(
             if prec == 0 {
                 format!("{}{}0{}+0", sign, prefix0, prefix1)
             } else {
-                format!("{}{}0.{:0>prec$}{}+0", sign, prefix0, "", prefix1, prec = prec)
+                format!(
+                    "{}{}0.{:0>prec$}{}+0",
+                    sign,
+                    prefix0,
+                    "",
+                    prefix1,
+                    prec = prec
+                )
             }
         } else {
             format!("{}{}0{}+0", sign, prefix0, prefix1)
@@ -805,7 +1067,14 @@ fn format_hex_float(
         } else if prec <= 13 {
             format!("{}.{}", lead_digit, &rest_digits[..prec])
         } else {
-            format!("{}.{}{}", lead_digit, rest_digits, std::iter::repeat('0').take(prec - 13).collect::<std::string::String>())
+            format!(
+                "{}.{}{}",
+                lead_digit,
+                rest_digits,
+                std::iter::repeat('0')
+                    .take(prec - 13)
+                    .collect::<std::string::String>()
+            )
         }
     } else {
         // Default: trim trailing zeros from the fractional part
@@ -824,7 +1093,13 @@ fn format_hex_float(
     };
 
     let hex_part = if upper {
-        format!("{}{}{}{}", sign, prefix0, mantissa_str.to_uppercase(), exp_str)
+        format!(
+            "{}{}{}{}",
+            sign,
+            prefix0,
+            mantissa_str.to_uppercase(),
+            exp_str
+        )
     } else {
         format!("{}{}{}{}", sign, prefix0, mantissa_str, exp_str)
     };
@@ -833,7 +1108,10 @@ fn format_hex_float(
 }
 
 /// Format a value with %q (quoted)
-fn format_quoted_value<'gc>(v: Value<'gc>, result: &mut Vec<u8>) -> Result<(), std::string::String> {
+fn format_quoted_value<'gc>(
+    v: Value<'gc>,
+    result: &mut Vec<u8>,
+) -> Result<(), std::string::String> {
     match v {
         Value::String(s) => {
             format_quoted_string(s.as_bytes(), result);
@@ -885,10 +1163,18 @@ fn format_quoted_string(s: &[u8], result: &mut Vec<u8>) {
     while i < s.len() {
         let next_is_digit = i + 1 < s.len() && s[i + 1].is_ascii_digit();
         match s[i] {
-            b'"' => { result.extend_from_slice(b"\\\""); }
-            b'\\' => { result.extend_from_slice(b"\\\\"); }
-            b'\n' => { result.extend_from_slice(b"\\n"); }
-            b'\r' => { result.extend_from_slice(b"\\r"); }
+            b'"' => {
+                result.extend_from_slice(b"\\\"");
+            }
+            b'\\' => {
+                result.extend_from_slice(b"\\\\");
+            }
+            b'\n' => {
+                result.extend_from_slice(b"\\n");
+            }
+            b'\r' => {
+                result.extend_from_slice(b"\\r");
+            }
             b'\0' => {
                 if next_is_digit {
                     result.extend_from_slice(b"\\000");
@@ -903,7 +1189,9 @@ fn format_quoted_string(s: &[u8], result: &mut Vec<u8>) {
                     result.extend_from_slice(format!("\\{}", c).as_bytes());
                 }
             }
-            c => { result.push(c); }
+            c => {
+                result.push(c);
+            }
         }
         i += 1;
     }

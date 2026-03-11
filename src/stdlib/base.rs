@@ -348,7 +348,9 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
             let chunk = match stack.consume::<Value>(ctx)? {
                 Value::String(s) => s,
                 _ => {
-                    return Err("bad argument #1 to 'load' (string expected)".into_value(ctx).into());
+                    return Err("bad argument #1 to 'load' (string expected)"
+                        .into_value(ctx)
+                        .into());
                 }
             };
             match Closure::load(ctx, None, chunk.as_bytes()) {
@@ -375,7 +377,7 @@ impl<'gc> Sequence<'gc> for CheckToString {
         self: Pin<&mut Self>,
         ctx: Context<'gc>,
         _exec: Execution<'gc, '_>,
-        mut stack: Stack<'gc, '_>,
+        stack: Stack<'gc, '_>,
     ) -> Result<SequencePoll<'gc>, Error<'gc>> {
         match stack.get(0) {
             Value::String(_) => Ok(SequencePoll::Return),

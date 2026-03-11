@@ -96,7 +96,7 @@ where
             let userdata: UserData = stack.from_front(ctx)?;
             let args: A = stack.consume(ctx)?;
             let this = userdata.downcast::<U>()?;
-            let ret = method(&this, ctx, exec, args)?;
+            let ret = method(this, ctx, exec, args)?;
             stack.replace(ctx, ret);
             Ok(CallbackReturn::Return)
         });
@@ -128,7 +128,7 @@ where
             let userdata: UserData = stack.from_front(ctx)?;
             let args: A = stack.consume(ctx)?;
             let mut this = userdata.downcast_write::<U>(&ctx)?;
-            let ret = method(&mut this, ctx, exec, args)?;
+            let ret = method(this, ctx, exec, args)?;
             stack.replace(ctx, ret);
             Ok(CallbackReturn::Return)
         });

@@ -49,7 +49,7 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
         "len",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
             let s = stack.consume::<String>(ctx)?;
-            stack.replace(ctx, s.len() as i64);
+            stack.replace(ctx, s.len());
             Ok(CallbackReturn::Return)
         }),
     );
@@ -104,9 +104,9 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                         buf.push(i as u8);
                     }
                     _ => {
-                        return Err(
-                            "bad argument to 'char' (number expected)".into_value(ctx).into()
-                        );
+                        return Err("bad argument to 'char' (number expected)"
+                            .into_value(ctx)
+                            .into());
                     }
                 }
             }
@@ -131,7 +131,11 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
         "lower",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
             let s = stack.consume::<String>(ctx)?;
-            let lower: Vec<u8> = s.as_bytes().iter().map(|b| b.to_ascii_lowercase()).collect();
+            let lower: Vec<u8> = s
+                .as_bytes()
+                .iter()
+                .map(|b| b.to_ascii_lowercase())
+                .collect();
             stack.replace(ctx, make_string(ctx, &lower));
             Ok(CallbackReturn::Return)
         }),
@@ -142,7 +146,11 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
         "upper",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
             let s = stack.consume::<String>(ctx)?;
-            let upper: Vec<u8> = s.as_bytes().iter().map(|b| b.to_ascii_uppercase()).collect();
+            let upper: Vec<u8> = s
+                .as_bytes()
+                .iter()
+                .map(|b| b.to_ascii_uppercase())
+                .collect();
             stack.replace(ctx, make_string(ctx, &upper));
             Ok(CallbackReturn::Return)
         }),
@@ -163,8 +171,7 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
         ctx,
         "rep",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
-            let (s, n, sep) =
-                stack.consume::<(String, i64, Option<String>)>(ctx)?;
+            let (s, n, sep) = stack.consume::<(String, i64, Option<String>)>(ctx)?;
             if n <= 0 {
                 stack.replace(ctx, ctx.intern(b""));
                 return Ok(CallbackReturn::Return);
@@ -175,9 +182,9 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
             let rep_n = n as usize;
             let sep_total = sep_bytes.len().saturating_mul(rep_n.saturating_sub(1));
             let s_total = s_bytes.len().saturating_mul(rep_n);
-            let total = s_total.checked_add(sep_total).ok_or_else(|| {
-                "resulting string too large".into_value(ctx)
-            })?;
+            let total = s_total
+                .checked_add(sep_total)
+                .ok_or_else(|| "resulting string too large".into_value(ctx))?;
             // Cap at ~1GiB like PUC-Rio Lua
             if total > 0x40000000 {
                 return Err("resulting string too large".into_value(ctx).into());
@@ -316,11 +323,7 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                     }
                     Ok(Some(m)) => {
                         // Advance iterator
-                        let next_pos = if m.end > m.start {
-                            m.end
-                        } else {
-                            m.end + 1
-                        };
+                        let next_pos = if m.end > m.start { m.end } else { m.end + 1 };
                         state.pos.set(next_pos);
                         state.last_end.set(Some(m.end));
 
@@ -363,13 +366,9 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                 Value::String(repl_s) => {
                     // String replacement – no async needed
                     let repl_bytes = repl_s.as_bytes().to_vec();
-                    let (result, count) = gsub_string(
-                        &src_bytes,
-                        &pat_bytes,
-                        &repl_bytes,
-                        max_subs,
-                    )
-                    .map_err(|e| e.into_value(ctx))?;
+                    let (result, count) =
+                        gsub_string(&src_bytes, &pat_bytes, &repl_bytes, max_subs)
+                            .map_err(|e| e.into_value(ctx))?;
                     let res_str = make_string(ctx, &result);
                     stack.replace(ctx, (res_str, count));
                     Ok(CallbackReturn::Return)
@@ -411,11 +410,19 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                         if v.to_bool() {
                             match v {
                                 Value::String(s) => result.extend_from_slice(s.as_bytes()),
-                                Value::Integer(i) => result.extend_from_slice(i.to_string().as_bytes()),
+                                Value::Integer(i) => {
+                                    result.extend_from_slice(i.to_string().as_bytes())
+                                }
                                 Value::Number(n) => result.extend_from_slice(
                                     Value::Number(n).display().to_string().as_bytes(),
                                 ),
-                                _ => return Err("invalid replacement value (string/number expected)".into_value(ctx).into()),
+                                _ => {
+                                    return Err(
+                                        "invalid replacement value (string/number expected)"
+                                            .into_value(ctx)
+                                            .into(),
+                                    )
+                                }
                             }
                         } else {
                             result.extend_from_slice(&src_bytes[m.start..m.end]);
@@ -479,7 +486,9 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                                         for cap in &m.captures {
                                             match cap {
                                                 pattern::Capture::Substring(cs, ce) => {
-                                                    stack.push_back(ctx.intern(&src[*cs..*ce]).into());
+                                                    stack.push_back(
+                                                        ctx.intern(&src[*cs..*ce]).into(),
+                                                    );
                                                 }
                                                 pattern::Capture::Position(p) => {
                                                     stack.push_back(Value::Integer(*p as i64));
@@ -504,11 +513,18 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                                     let v = locals.fetch(&ret_val);
                                     if v.to_bool() {
                                         match v {
-                                            Value::String(s) => result.extend_from_slice(s.as_bytes()),
-                                            Value::Integer(i) => result.extend_from_slice(i.to_string().as_bytes()),
+                                            Value::String(s) => {
+                                                result.extend_from_slice(s.as_bytes())
+                                            }
+                                            Value::Integer(i) => {
+                                                result.extend_from_slice(i.to_string().as_bytes())
+                                            }
                                             Value::Number(n) => {
                                                 result.extend_from_slice(
-                                                    Value::Number(n).display().to_string().as_bytes(),
+                                                    Value::Number(n)
+                                                        .display()
+                                                        .to_string()
+                                                        .as_bytes(),
                                                 );
                                             }
                                             _ => result.extend_from_slice(&match_bytes),
@@ -548,14 +564,16 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
             let all: Vec<Value> = stack.drain(..).collect();
             if all.is_empty() {
-                return Err("bad argument #1 to 'format' (string expected)".into_value(ctx).into());
+                return Err("bad argument #1 to 'format' (string expected)"
+                    .into_value(ctx)
+                    .into());
             }
             let fmt_str = match all[0] {
                 Value::String(s) => s,
                 _ => {
-                    return Err(
-                        "bad argument #1 to 'format' (string expected)".into_value(ctx).into()
-                    )
+                    return Err("bad argument #1 to 'format' (string expected)"
+                        .into_value(ctx)
+                        .into())
                 }
             };
 
@@ -589,14 +607,15 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
             // Stash each arg individually using the crate's stash mechanism
             let seq = async_sequence(&ctx, |locals, mut seq| {
                 // Stash all args as StashedValue ('static handles)
-                let mut stashed_args: Vec<StashedValue> = all.iter().map(|&v| {
-                    locals.stash(&ctx, v)
-                }).collect();
+                let mut stashed_args: Vec<StashedValue> =
+                    all.iter().map(|&v| locals.stash(&ctx, v)).collect();
 
                 async move {
                     // For each %s position that needs __tostring, call it
                     for &arg_i in &s_positions {
-                        if arg_i >= stashed_args.len() { continue; }
+                        if arg_i >= stashed_args.len() {
+                            continue;
+                        }
 
                         // Check if this arg needs __tostring call
                         let call_stash_opt = seq.try_enter(|ctx, locals, _, _| {
@@ -622,7 +641,7 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
 
                         if let Some(call_stash) = call_stash_opt {
                             // Push the arg value onto the stack for the call
-                            seq.try_enter(|ctx, locals, _, mut stack| {
+                            seq.try_enter(|_, locals, _, mut stack| {
                                 stack.drain(..);
                                 stack.push_back(locals.fetch(&stashed_args[arg_i]));
                                 Ok(())
@@ -633,7 +652,9 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                             seq.try_enter(|ctx, locals, _, mut stack| {
                                 let result = stack.pop_front().unwrap_or(Value::Nil);
                                 if !matches!(result, Value::String(_)) {
-                                    return Err("'__tostring' must return a string".into_value(ctx).into());
+                                    return Err("'__tostring' must return a string"
+                                        .into_value(ctx)
+                                        .into());
                                 }
                                 stashed_args[arg_i] = locals.stash(&ctx, result);
                                 Ok(())
@@ -643,9 +664,8 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
 
                     // All __tostring conversions done; run format
                     seq.try_enter(|ctx, locals, _, mut stack| {
-                        let args: Vec<Value> = stashed_args.iter()
-                            .map(|sv| locals.fetch(sv))
-                            .collect();
+                        let args: Vec<Value> =
+                            stashed_args.iter().map(|sv| locals.fetch(sv)).collect();
                         match format::format_value(&fmt_bytes, &args, ctx) {
                             Ok(bytes) => {
                                 let s = make_string(ctx, &bytes);
@@ -694,15 +714,14 @@ pub fn find_plain(src: &[u8], pat: &[u8], init: usize) -> Option<usize> {
     if pat.len() > src.len() - init {
         return None;
     }
-    src[init..].windows(pat.len()).position(|w| w == pat).map(|p| p + init)
+    src[init..]
+        .windows(pat.len())
+        .position(|w| w == pat)
+        .map(|p| p + init)
 }
 
 /// sub_bytes: implement Lua string.sub semantics on raw bytes.
-fn sub_bytes(
-    string: &[u8],
-    i: i64,
-    j: Option<i64>,
-) -> Result<&[u8], std::num::TryFromIntError> {
+fn sub_bytes(string: &[u8], i: i64, j: Option<i64>) -> Result<&[u8], std::num::TryFromIntError> {
     let i = match i {
         i if i > 0 => i.saturating_sub(1).try_into()?,
         0 => 0,

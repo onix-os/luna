@@ -8,9 +8,7 @@ use crate::{async_sequence, SequenceReturn, Stack};
 use gc_arena::Rootable;
 
 use crate::{
-    registry::Singleton,
-    table::InvalidTableKey,
-    Callback, CallbackReturn, Context, Function, IntoValue, Table, Value,
+    table::InvalidTableKey, Callback, CallbackReturn, Context, Function, IntoValue, Table, Value,
 };
 
 /// An enum of every possible Lua metamethod.
@@ -803,7 +801,9 @@ fn estimate_concatenated_len<'gc>(
     for value in values {
         let value_len = match value {
             // ilog10 panics for values <= 0; use wrapping_abs to handle i64::MIN
-            Value::Integer(i) => i.wrapping_abs().max(1).ilog10() as usize + i.is_negative() as usize,
+            Value::Integer(i) => {
+                i.wrapping_abs().max(1).ilog10() as usize + i.is_negative() as usize
+            }
             Value::Number(_n) => 10,
             Value::String(s) => s.as_bytes().len(),
             _ => return Ok(None),

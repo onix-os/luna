@@ -100,16 +100,11 @@ fn match_class(c: u8, cl: u8) -> bool {
         b'z' => c == 0,
         _ => return c == cl, // not a class: match literally
     };
-    if cl.is_ascii_uppercase() { !res } else { res }
-}
-
-/// Return whether `cl` is a recognized class letter
-#[inline]
-fn is_class_letter(cl: u8) -> bool {
-    matches!(
-        cl.to_ascii_lowercase(),
-        b'a' | b'c' | b'd' | b'g' | b'l' | b'p' | b's' | b'u' | b'w' | b'x' | b'z'
-    )
+    if cl.is_ascii_uppercase() {
+        !res
+    } else {
+        res
+    }
 }
 
 /// Match `c` against a single pattern element at `pat[pp]`.
@@ -186,7 +181,11 @@ fn matchset(c: u8, pat: &[u8], pp: usize) -> bool {
             i += 1;
         }
     }
-    if negated { !matched } else { matched }
+    if negated {
+        !matched
+    } else {
+        matched
+    }
 }
 
 /// Core recursive match function.
@@ -302,7 +301,10 @@ fn match_open_capture(ms: &mut MatchState, si: usize, pp: usize) -> Option<usize
         ms.err = Some("too many captures".to_string());
         return None;
     }
-    ms.capture[n] = CapState { start: si, kind: CapKind::Unfinished };
+    ms.capture[n] = CapState {
+        start: si,
+        kind: CapKind::Unfinished,
+    };
     ms.level = n + 1;
     let result = match_impl(ms, si, pp);
     if result.is_none() {
@@ -337,7 +339,10 @@ fn match_position_capture(ms: &mut MatchState, si: usize, pp: usize) -> Option<u
         ms.err = Some("too many captures".to_string());
         return None;
     }
-    ms.capture[n] = CapState { start: si, kind: CapKind::Position };
+    ms.capture[n] = CapState {
+        start: si,
+        kind: CapKind::Position,
+    };
     ms.level = n + 1;
     let result = match_impl(ms, si, pp);
     if result.is_none() {
@@ -414,7 +419,10 @@ fn match_backref(ms: &mut MatchState, si: usize, pp: usize) -> Option<usize> {
 /// Check if pattern has no special characters (plain text).
 pub fn is_plain(pat: &[u8]) -> bool {
     !pat.iter().any(|&c| {
-        matches!(c, b'%' | b'.' | b'[' | b'*' | b'+' | b'-' | b'?' | b'^' | b'$' | b'(')
+        matches!(
+            c,
+            b'%' | b'.' | b'[' | b'*' | b'+' | b'-' | b'?' | b'^' | b'$' | b'('
+        )
     })
 }
 
@@ -472,7 +480,10 @@ fn find_plain(src: &[u8], pat: &[u8], init: usize) -> Option<usize> {
     if pat.len() > src.len().saturating_sub(init) {
         return None;
     }
-    src[init..].windows(pat.len()).position(|w| w == pat).map(|p| init + p)
+    src[init..]
+        .windows(pat.len())
+        .position(|w| w == pat)
+        .map(|p| init + p)
 }
 
 /// Validate a pattern for obvious errors before matching.
@@ -632,18 +643,24 @@ pub fn find_next(
                     if next > src.len() {
                         return Ok(None);
                     }
-                    return Ok(Some(MatchResult { start: next, end: next, captures: vec![] }));
+                    return Ok(Some(MatchResult {
+                        start: next,
+                        end: next,
+                        captures: vec![],
+                    }));
                 }
             }
-            return Ok(Some(MatchResult { start: init, end: init, captures: vec![] }));
-        }
-        return Ok(
-            find_plain(src, pat, init).map(|pos| MatchResult {
-                start: pos,
-                end: pos + pat.len(),
+            return Ok(Some(MatchResult {
+                start: init,
+                end: init,
                 captures: vec![],
-            }),
-        );
+            }));
+        }
+        return Ok(find_plain(src, pat, init).map(|pos| MatchResult {
+            start: pos,
+            end: pos + pat.len(),
+            captures: vec![],
+        }));
     }
 
     if !anchored {
@@ -668,7 +685,11 @@ pub fn find_next(
                 continue;
             }
             let caps = ms.get_captures();
-            return Ok(Some(MatchResult { start: si, end, captures: caps }));
+            return Ok(Some(MatchResult {
+                start: si,
+                end,
+                captures: caps,
+            }));
         }
         if let Some(err) = ms.err.take() {
             return Err(err);

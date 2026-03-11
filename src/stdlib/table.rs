@@ -69,7 +69,9 @@ pub fn load_table<'gc>(ctx: Context<'gc>) {
         Callback::from_fn_with(&ctx, unpack, move |unpack, ctx, _exec, mut stack| {
             // Validate that the first argument is a table
             if !matches!(stack.get(0), Value::Table(_)) {
-                return Err("bad argument #1 to 'concat' (table expected)".into_value(ctx).into());
+                return Err("bad argument #1 to 'concat' (table expected)"
+                    .into_value(ctx)
+                    .into());
             }
             let sep = stack.remove(1).unwrap_or_default();
 
@@ -87,7 +89,10 @@ pub fn load_table<'gc>(ctx: Context<'gc>) {
                 start_idx: Cell<i64>,
             }
 
-            let root = ConcatRoot { sep, start_idx: Cell::new(start_idx) };
+            let root = ConcatRoot {
+                sep,
+                start_idx: Cell::new(start_idx),
+            };
 
             let then_impl = Callback::from_fn_with(&ctx, root, |root, ctx, _, mut stack| {
                 // Only reject nil values (cannot have __concat metamethods)
