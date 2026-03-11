@@ -63,16 +63,16 @@ impl<'gc> Value<'gc> {
                     Value::Integer(i) => write!(fmt, "{}", i),
                     Value::Number(f) => write!(fmt, "{}", f),
                     Value::String(s) => write!(fmt, "{}", s.display_lossy()),
-                    Value::Table(t) => write!(fmt, "<table {:p}>", Gc::as_ptr(t.into_inner())),
+                    Value::Table(t) => write!(fmt, "table: 0x{:x}", Gc::as_ptr(t.into_inner()) as usize),
                     Value::Function(Function::Closure(c)) => {
-                        write!(fmt, "<function {:p}>", Gc::as_ptr(c.into_inner()))
+                        write!(fmt, "function: 0x{:x}", Gc::as_ptr(c.into_inner()) as usize)
                     }
                     Value::Function(Function::Callback(c)) => {
-                        write!(fmt, "<function {:p}>", Gc::as_ptr(c.into_inner()))
+                        write!(fmt, "function: 0x{:x}", Gc::as_ptr(c.into_inner()) as usize)
                     }
-                    Value::Thread(t) => write!(fmt, "<thread {:p}>", Gc::as_ptr(t.into_inner())),
+                    Value::Thread(t) => write!(fmt, "thread: 0x{:x}", Gc::as_ptr(t.into_inner()) as usize),
                     Value::UserData(u) => {
-                        write!(fmt, "<userdata {:p}>", Gc::as_ptr(u.into_inner()))
+                        write!(fmt, "userdata: 0x{:x}", Gc::as_ptr(u.into_inner()) as usize)
                     }
                 }
             }

@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::mem;
 use std::pin::Pin;
 
@@ -66,11 +67,43 @@ pub fn load_table<'gc>(ctx: Context<'gc>) {
         ctx,
         "concat",
         Callback::from_fn_with(&ctx, unpack, move |unpack, ctx, _exec, mut stack| {
+            // Validate that the first argument is a table
+            if !matches!(stack.get(0), Value::Table(_)) {
+                return Err("bad argument #1 to 'concat' (table expected)".into_value(ctx).into());
+            }
             let sep = stack.remove(1).unwrap_or_default();
 
-            let then_impl = Callback::from_fn_with(&ctx, sep, |sep, ctx, _, mut stack| {
+            // Read start index (stack[1] is now `i` after sep removal)
+            let start_idx: i64 = match stack.get(1) {
+                Value::Integer(i) => i,
+                _ => 1,
+            };
+
+            #[derive(Collect)]
+            #[collect(no_drop)]
+            struct ConcatRoot<'gc> {
+                sep: Value<'gc>,
+                #[collect(require_static)]
+                start_idx: Cell<i64>,
+            }
+
+            let root = ConcatRoot { sep, start_idx: Cell::new(start_idx) };
+
+            let then_impl = Callback::from_fn_with(&ctx, root, |root, ctx, _, mut stack| {
+                // Only reject nil values (cannot have __concat metamethods)
+                for (offset, val) in stack[..].iter().enumerate() {
+                    if matches!(val, Value::Nil) {
+                        let idx = root.start_idx.get() + offset as i64;
+                        return Err(format!(
+                            "invalid value (nil) at index {} in table for 'concat'",
+                            idx
+                        )
+                        .into_value(ctx)
+                        .into());
+                    }
+                }
                 let values = &stack[..];
-                match concat_separated(ctx, values, *sep)? {
+                match concat_separated(ctx, values, root.sep)? {
                     ConcatMetaResult::Value(v) => {
                         stack.replace(ctx, v);
                         Ok(CallbackReturn::Return)

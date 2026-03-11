@@ -5,8 +5,8 @@ use gc_arena::Collect;
 use crate::{
     meta_ops::{self, MetaResult},
     table::NextValue,
-    BoxSequence, Callback, CallbackReturn, Context, Error, Execution, IntoValue, MetaMethod,
-    Sequence, SequencePoll, Stack, String, Table, TypeError, Value, Variadic,
+    BoxSequence, Callback, CallbackReturn, Closure, Context, Error, Execution, IntoValue,
+    MetaMethod, Sequence, SequencePoll, Stack, String, Table, TypeError, Value, Variadic,
 };
 
 pub fn load_base<'gc>(ctx: Context<'gc>) {
@@ -84,7 +84,7 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
                         stack.replace(ctx, Variadic(call.args));
                         Ok(CallbackReturn::Call {
                             function: call.function,
-                            then: None,
+                            then: Some(BoxSequence::new(&ctx, CheckToString)),
                         })
                     }
                 }
@@ -341,6 +341,47 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
     );
 
     ctx.set_global("_VERSION", "piccolo");
+
+    ctx.set_global(
+        "load",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let chunk = match stack.consume::<Value>(ctx)? {
+                Value::String(s) => s,
+                _ => {
+                    return Err("bad argument #1 to 'load' (string expected)".into_value(ctx).into());
+                }
+            };
+            match Closure::load(ctx, None, chunk.as_bytes()) {
+                Ok(closure) => {
+                    stack.replace(ctx, closure);
+                    Ok(CallbackReturn::Return)
+                }
+                Err(e) => {
+                    let err_str = ctx.intern(e.to_string().as_bytes());
+                    stack.replace(ctx, (Value::Nil, err_str));
+                    Ok(CallbackReturn::Return)
+                }
+            }
+        }),
+    );
+}
+
+#[derive(Collect)]
+#[collect(require_static)]
+struct CheckToString;
+
+impl<'gc> Sequence<'gc> for CheckToString {
+    fn poll(
+        self: Pin<&mut Self>,
+        ctx: Context<'gc>,
+        _exec: Execution<'gc, '_>,
+        mut stack: Stack<'gc, '_>,
+    ) -> Result<SequencePoll<'gc>, Error<'gc>> {
+        match stack.get(0) {
+            Value::String(_) => Ok(SequencePoll::Return),
+            _ => Err("'__tostring' must return a string".into_value(ctx).into()),
+        }
+    }
 }
 
 #[derive(Collect)]

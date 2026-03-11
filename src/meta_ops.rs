@@ -5,8 +5,12 @@ use thiserror::Error;
 
 use crate::async_callback::{AsyncSequence, Locals};
 use crate::{async_sequence, SequenceReturn, Stack};
+use gc_arena::Rootable;
+
 use crate::{
-    table::InvalidTableKey, Callback, CallbackReturn, Context, Function, IntoValue, Table, Value,
+    registry::Singleton,
+    table::InvalidTableKey,
+    Callback, CallbackReturn, Context, Function, IntoValue, Table, Value,
 };
 
 /// An enum of every possible Lua metamethod.
@@ -218,6 +222,20 @@ pub fn index<'gc>(
             }
 
             idx
+        }
+        Value::String(_) => {
+            use crate::stdlib::StringMetatable;
+            let mt = ctx.singleton::<Rootable![StringMetatable<'_>]>();
+            let string_lib = mt.0.get_value(ctx, "__index");
+            if string_lib.is_nil() {
+                return Err(MetaOperatorError::Unary(MetaMethod::Index, "string"));
+            }
+            // string_lib is the string table; do a direct lookup
+            if let Value::Table(t) = string_lib {
+                let v = t.get_value(ctx, key);
+                return Ok(MetaResult::Value(v));
+            }
+            string_lib
         }
         _ => {
             return Err(MetaOperatorError::Unary(
@@ -784,8 +802,8 @@ fn estimate_concatenated_len<'gc>(
     let mut len = 0usize;
     for value in values {
         let value_len = match value {
-            // ilog10 panics for values <= 0
-            Value::Integer(i) => i.abs().max(1).ilog10() as usize + i.is_negative() as usize,
+            // ilog10 panics for values <= 0; use wrapping_abs to handle i64::MIN
+            Value::Integer(i) => i.wrapping_abs().max(1).ilog10() as usize + i.is_negative() as usize,
             Value::Number(_n) => 10,
             Value::String(s) => s.as_bytes().len(),
             _ => return Ok(None),

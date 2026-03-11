@@ -3,7 +3,7 @@ do
     local i = 0
     local t = setmetatable({}, {
         __concat = function(a, b) i = i + 1 return i .. "(" .. tostring(a) .. tostring(b) .. ")" end,
-        __tostring = function(this) i = i + 1 return i end
+        __tostring = function(this) i = i + 1 return tostring(i) end
     })
 
     assert(t..t..t..t == "6(74(51(23)))")
