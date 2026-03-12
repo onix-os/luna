@@ -1,6 +1,6 @@
 use std::ops;
 
-use gc_arena::{
+use ottavino_gc_arena::{
     arena::{CollectionPhase, Root},
     metrics::Metrics,
     Arena, Collect, Mutation, Rootable,
@@ -24,8 +24,8 @@ use crate::{
 /// It is a cheap, copyable reference type that references internal state variables inside a [`Lua`]
 /// instance.
 ///
-/// As a convenience, it also contains the [`gc_arena::Mutation`] reference provided by `gc-arena`
-/// when mutating a [`gc_arena::Arena`]. This allows code that uses ottavino to accept a single `ctx:
+/// As a convenience, it also contains the [`ottavino_gc_arena::Mutation`] reference provided by `gc-arena`
+/// when mutating a [`ottavino_gc_arena::Arena`]. This allows code that uses ottavino to accept a single `ctx:
 /// Context<'gc>` parameter, rather than having to accept both the ottavino `ctx` *and* the usual
 /// `mc: &Mutation<'gc>` parameter.
 ///
@@ -33,7 +33,7 @@ use crate::{
 /// to `Mutation` that can be used like so:
 ///
 /// ```
-/// # use gc_arena::Gc;
+/// # use ottavino_gc_arena::Gc;
 /// # use ottavino::Lua;
 /// # let mut lua = Lua::empty();
 /// lua.enter(|ctx| {
@@ -195,7 +195,7 @@ impl Lua {
         self.gc_metrics().total_allocation()
     }
 
-    /// Finish the current collection cycle completely, calls `gc_arena::Arena::collect_all()`.
+    /// Finish the current collection cycle completely, calls `ottavino_gc_arena::Arena::collect_all()`.
     pub fn gc_collect(&mut self) {
         if self.arena.collection_phase() != CollectionPhase::Sweeping {
             self.arena.mark_all().unwrap().finalize(|fc, root| {

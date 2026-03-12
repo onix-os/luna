@@ -1,6 +1,6 @@
 use std::fmt::{self, Debug};
 
-use gc_arena::Collect;
+use ottavino_gc_arena::Collect;
 
 /// An index that points to a register in the stack relative to the current frame.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Collect)]

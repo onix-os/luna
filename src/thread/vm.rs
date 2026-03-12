@@ -1,5 +1,5 @@
 use allocator_api2::vec;
-use gc_arena::allocator_api::MetricsAlloc;
+use ottavino_gc_arena::allocator_api::MetricsAlloc;
 
 use crate::{
     meta_ops::{self, ConcatMetaResult, MetaResult},

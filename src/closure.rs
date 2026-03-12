@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 
 use allocator_api2::{boxed, vec, SliceExt};
-use gc_arena::{allocator_api::MetricsAlloc, lock::Lock, Collect, Gc, Mutation};
+use ottavino_gc_arena::{allocator_api::MetricsAlloc, lock::Lock, Collect, Gc, Mutation};
 use thiserror::Error;
 
 use crate::{

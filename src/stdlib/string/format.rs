@@ -1,7 +1,7 @@
 // string.format implementation for ottavino
 // Implements Lua 5.4 string.format semantics
 
-use gc_arena::Gc;
+use ottavino_gc_arena::Gc;
 
 use crate::{Function, Value};
 

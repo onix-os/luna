@@ -1,7 +1,7 @@
 use std::{fmt, hash::Hash, i64, mem};
 
 use allocator_api2::vec;
-use gc_arena::{allocator_api::MetricsAlloc, Collect, Gc, Mutation};
+use ottavino_gc_arena::{allocator_api::MetricsAlloc, Collect, Gc, Mutation};
 use hashbrown::{hash_map, HashMap};
 use thiserror::Error;
 

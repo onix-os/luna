@@ -9,7 +9,7 @@ use std::{
     task::{self, Poll, RawWaker, RawWakerVTable, Waker},
 };
 
-use gc_arena::{Collect, DynamicRootSet, Mutation};
+use ottavino_gc_arena::{Collect, DynamicRootSet, Mutation};
 
 use crate::{
     stash::{Fetchable, Stashable},
@@ -127,7 +127,7 @@ impl AsyncSequence {
     /// Enter the garbage collector context within an async sequence.
     ///
     /// Unfortunately, today's Rust does not provide any way for generator (async block) state
-    /// machines to possibly implement [`gc_arena::Collect`]. Therefore, we must ensure that garbage
+    /// machines to possibly implement [`ottavino_gc_arena::Collect`]. Therefore, we must ensure that garbage
     /// collected values **cannot** be directly stored by the enclosing async block. We guard all
     /// access to the garbage collector context to prevent this from happening, similar to the
     /// interface we use from the outside of the `Lua` context (like `Lua::enter`).
@@ -282,7 +282,7 @@ impl AsyncSequence {
 /// collected, *even if* there are reference cycles between the held locals and the sequence itself.
 ///
 /// The same cannot be said for registry stashed values! An async sequence has its own
-/// [`gc_arena::DynamicRootSet`] which is what allows ownership of stashed values to be tied to
+/// [`ottavino_gc_arena::DynamicRootSet`] which is what allows ownership of stashed values to be tied to
 /// that *particular* async sequence. If GC values are instead stashed in the global registry, for
 /// example with [`Context::stash`], then those values will live as long as *the global registry
 /// itself*, which is as long as the whole `Lua` instance is alive. If such a stashed value is held

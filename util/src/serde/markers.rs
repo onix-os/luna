@@ -1,4 +1,4 @@
-use gc_arena::{Collect, Rootable};
+use ottavino_gc_arena::{Collect, Rootable};
 use ottavino::{Callback, CallbackReturn, Context, Singleton, Table, UserData};
 
 #[derive(Collect)]

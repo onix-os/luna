@@ -1,6 +1,6 @@
 use std::pin::Pin;
 
-use gc_arena::{Collect, Gc, Mutation};
+use ottavino_gc_arena::{Collect, Gc, Mutation};
 
 use crate::{
     BoxSequence, Callback, CallbackReturn, Closure, Context, Error, Execution, IntoMultiValue,

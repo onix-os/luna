@@ -4,7 +4,7 @@ use std::{
 };
 
 use allocator_api2::vec;
-use gc_arena::{
+use ottavino_gc_arena::{
     allocator_api::MetricsAlloc, lock::RefLock, Collect, Finalization, Gc, GcWeak, Mutation,
 };
 use thiserror::Error;

@@ -11,7 +11,7 @@ repository.workspace = true
 [dependencies]
 serde = { workspace = true, optional = true }
 thiserror.workspace = true
-gc-arena.workspace = true
+ottavino-gc-arena.workspace = true
 ottavino.workspace = true
 
 [features]

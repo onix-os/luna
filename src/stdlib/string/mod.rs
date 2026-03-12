@@ -3,7 +3,7 @@ mod pattern;
 
 use std::cell::Cell;
 
-use gc_arena::{Collect, Gc, Rootable};
+use ottavino_gc_arena::{Collect, Gc, Rootable};
 
 use crate::{
     async_sequence, meta_ops, Callback, CallbackReturn, Context, Error, IntoValue, SequenceReturn,

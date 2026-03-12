@@ -1,6 +1,6 @@
 use std::hash::{Hash, Hasher};
 
-use gc_arena::Collect;
+use ottavino_gc_arena::Collect;
 
 use crate::compiler::string_utils::{read_float, read_integer, trim_whitespace};
 

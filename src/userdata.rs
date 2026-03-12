@@ -3,7 +3,7 @@ use std::{
     mem,
 };
 
-use gc_arena::{arena::Root, barrier, lock, Collect, Gc, Mutation, Rootable, Static};
+use ottavino_gc_arena::{arena::Root, barrier, lock, Collect, Gc, Mutation, Rootable, Static};
 use thiserror::Error;
 
 use crate::{
@@ -39,7 +39,7 @@ pub type UserDataInner<'gc> = AnyInner<UserDataMetaState<'gc>>;
 /// There is no automatic mechanism to provide internal mutability on the held value. If the held
 /// value needs to be internally mutable and is `'static`, consider normal mechanisms for Rust
 /// internal mutability like [`std::cell::RefCell`]. If the type is a GC type and needs to be
-/// internally mutable, use the mechanisms in `gc-arena` for this like [`gc_arena::lock::RefLock`]
+/// internally mutable, use the mechanisms in `gc-arena` for this like [`ottavino_gc_arena::lock::RefLock`]
 /// instead.
 ///
 /// Internally, `UserData` simply wraps an [`Any`] type with an optional metatable. For more
@@ -136,11 +136,11 @@ impl<'gc> UserData<'gc> {
     /// Downcast the `UserData` and get a reference to it wrapped in [`barrier::Write`].
     ///
     /// If the type matches, this also triggers a write barrier on the held `Gc` pointer, allowing
-    /// you to safely mutate the held GC value through mechanisms provided by `gc_arena`.
+    /// you to safely mutate the held GC value through mechanisms provided by `ottavino_gc_arena`.
     ///
     /// This is ONLY ever useful if the held type is a non-'static GC type, and usually only useful
-    /// when the type is something like [`gc_arena::lock::RefLock`], where this would allow you to
-    /// call [`gc_arena::barrier::Write::unlock`] on it to get safe mutability.
+    /// when the type is something like [`ottavino_gc_arena::lock::RefLock`], where this would allow you to
+    /// call [`ottavino_gc_arena::barrier::Write::unlock`] on it to get safe mutability.
     pub fn downcast_write<R>(
         self,
         mc: &Mutation<'gc>,

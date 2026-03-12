@@ -1,6 +1,6 @@
 use std::{f64, fmt, i64};
 
-use gc_arena::{Collect, Gc};
+use ottavino_gc_arena::{Collect, Gc};
 
 use crate::{Callback, Closure, Constant, Function, String, Table, Thread, UserData};
 
@@ -265,7 +265,7 @@ impl<'gc> From<UserData<'gc>> for Value<'gc> {
 
 #[cfg(test)]
 mod tests {
-    use gc_arena::Rootable;
+    use ottavino_gc_arena::Rootable;
 
     use crate::table::Table;
     use crate::{Lua, UserData};

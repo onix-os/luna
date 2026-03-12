@@ -17,7 +17,7 @@ use std::{fs::read_dir, io::BufRead, path::PathBuf, sync::mpsc::channel};
 use crate::collected_print::print_callback;
 
 mod collected_print {
-    use gc_arena::Collect;
+    use ottavino_gc_arena::Collect;
     use ottavino::{
         meta_ops::{self, MetaResult},
         BoxSequence, Callback, CallbackReturn, Context, Execution, Sequence, SequencePoll, Stack,

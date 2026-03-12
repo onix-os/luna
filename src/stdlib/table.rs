@@ -3,7 +3,7 @@ use std::mem;
 use std::pin::Pin;
 
 use anyhow::Context as _;
-use gc_arena::Collect;
+use ottavino_gc_arena::Collect;
 
 use crate::{
     async_callback::{AsyncSequence, Locals},

@@ -6,7 +6,7 @@ use std::{
 };
 
 use ahash::AHasher;
-use gc_arena::{
+use ottavino_gc_arena::{
     allocator_api::MetricsAlloc, barrier::Unlock, lock::RefLock, metrics::Metrics, Collect,
     Collection, Gc, GcWeak, Mutation, Static,
 };
@@ -365,7 +365,7 @@ impl<'gc> InternedStringSet<'gc> {
 
 #[cfg(test)]
 mod tests {
-    use gc_arena::arena::rootless_mutate;
+    use ottavino_gc_arena::arena::rootless_mutate;
 
     use super::*;
 

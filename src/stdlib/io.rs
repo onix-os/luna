@@ -3,7 +3,7 @@ use std::{
     pin::Pin,
 };
 
-use gc_arena::Collect;
+use ottavino_gc_arena::Collect;
 
 use crate::{
     meta_ops::{self, MetaResult},

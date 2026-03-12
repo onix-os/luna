@@ -1,7 +1,7 @@
 use std::{any::TypeId, hash::BuildHasherDefault};
 
 use ahash::AHasher;
-use gc_arena::{
+use ottavino_gc_arena::{
     allocator_api::MetricsAlloc, arena::Root, lock::RefLock, Collect, DynamicRootSet, Gc, Mutation,
     Rootable,
 };

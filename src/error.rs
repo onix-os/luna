@@ -1,6 +1,6 @@
 use std::{error::Error as StdError, fmt, string::String as StdString, sync::Arc};
 
-use gc_arena::{Collect, Gc, Rootable};
+use ottavino_gc_arena::{Collect, Gc, Rootable};
 use thiserror::Error;
 
 use crate::{

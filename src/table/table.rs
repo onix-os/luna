@@ -4,7 +4,7 @@ use std::{
     i64, mem,
 };
 
-use gc_arena::{lock::RefLock, Collect, Gc, Mutation};
+use ottavino_gc_arena::{lock::RefLock, Collect, Gc, Mutation};
 
 use crate::{Context, FromValue, IntoValue, TypeError, Value};
 

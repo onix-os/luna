@@ -1,6 +1,6 @@
 use std::fmt;
 
-use gc_arena::{DynamicRoot, DynamicRootSet, Mutation, Rootable};
+use ottavino_gc_arena::{DynamicRoot, DynamicRootSet, Mutation, Rootable};
 
 use crate::{
     callback::CallbackInner,

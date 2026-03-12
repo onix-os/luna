@@ -1,6 +1,6 @@
 use std::{char, fmt};
 
-use gc_arena::Collect;
+use ottavino_gc_arena::Collect;
 use thiserror::Error;
 
 use crate::compiler::string_utils::{

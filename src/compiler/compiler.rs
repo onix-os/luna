@@ -4,7 +4,7 @@ use std::{
 };
 
 use ahash::HashMap;
-use gc_arena::Collect;
+use ottavino_gc_arena::Collect;
 use thiserror::Error;
 
 use crate::{

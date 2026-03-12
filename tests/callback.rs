@@ -1,6 +1,5 @@
 use std::pin::Pin;
 
-use gc_arena::Collect;
 use ottavino::{
     BoxSequence, Callback, CallbackReturn, Closure, Context, Error, Execution, Executor,
     ExternError, Function, IntoValue, Lua, Sequence, SequencePoll, Stack, String, Thread, Value,

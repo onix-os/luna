@@ -1,4 +1,4 @@
-use gc_arena::{lock::Lock, Collect, Gc, Rootable};
+use ottavino_gc_arena::{lock::Lock, Collect, Gc, Rootable};
 use ottavino::{Callback, CallbackReturn, Closure, Executor, Lua, UserData, Value};
 
 #[derive(Collect)]

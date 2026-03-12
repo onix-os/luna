@@ -4,7 +4,7 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use gc_arena::{
+use ottavino_gc_arena::{
     arena::Root,
     barrier::{self, Write},
     Collect, Gc, Mutation, Rootable,
@@ -187,7 +187,7 @@ impl<'gc, M> Any<'gc, M> {
 
 #[cfg(test)]
 mod tests {
-    use gc_arena::arena::rootless_mutate;
+    use ottavino_gc_arena::arena::rootless_mutate;
 
     use super::*;
 

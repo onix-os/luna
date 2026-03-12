@@ -1,11 +1,11 @@
 use std::io::Write;
 
-use gc_arena::Collect;
+use ottavino_gc_arena::Collect;
 use thiserror::Error;
 
 use crate::async_callback::{AsyncSequence, Locals};
 use crate::{async_sequence, SequenceReturn, Stack};
-use gc_arena::Rootable;
+use ottavino_gc_arena::Rootable;
 
 use crate::{
     table::InvalidTableKey, Callback, CallbackReturn, Context, Function, IntoValue, Table, Value,

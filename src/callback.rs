@@ -5,7 +5,7 @@ use std::{
 };
 
 use allocator_api2::boxed;
-use gc_arena::{allocator_api::MetricsAlloc, Collect, Gc, Mutation};
+use ottavino_gc_arena::{allocator_api::MetricsAlloc, Collect, Gc, Mutation};
 
 use crate::{Context, Error, Execution, Function, Stack, Thread};
 
@@ -112,7 +112,7 @@ impl<'gc> Callback<'gc> {
                 C::needs_trace()
             }
 
-            fn trace(&self, cc: &gc_arena::Collection) {
+            fn trace(&self, cc: &ottavino_gc_arena::Collection) {
                 self.callback.trace(cc)
             }
         }
@@ -320,7 +320,7 @@ pub trait Sequence<'gc>: Collect {
 pub struct BoxSequence<'gc>(Pin<boxed::Box<dyn Sequence<'gc> + 'gc, MetricsAlloc<'static>>>);
 
 unsafe impl<'gc> Collect for BoxSequence<'gc> {
-    fn trace(&self, cc: &gc_arena::Collection) {
+    fn trace(&self, cc: &ottavino_gc_arena::Collection) {
         // SAFETY: We have to manually implement `Collect` for `BoxSequence<'gc>` because `gc-arena`
         // does not provide `Collect` impls for `Pin<T>`.
         self.0.as_ref().get_ref().trace(cc);

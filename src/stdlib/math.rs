@@ -1,4 +1,4 @@
-use gc_arena::Mutation;
+use ottavino_gc_arena::Mutation;
 
 use crate::{
     async_sequence, meta_ops, Callback, CallbackReturn, Context, FromMultiValue, IntoMultiValue,

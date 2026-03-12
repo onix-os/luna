@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use gc_arena::{arena::Root, barrier, Collect, Rootable, Static};
+use ottavino_gc_arena::{arena::Root, barrier, Collect, Rootable, Static};
 use ottavino::{
     Callback, CallbackReturn, Context, Error, Execution, FromMultiValue, IntoMultiValue,
     MetaMethod, Table, UserData,

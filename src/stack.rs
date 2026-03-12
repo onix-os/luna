@@ -5,7 +5,7 @@ use std::{
 };
 
 use allocator_api2::vec;
-use gc_arena::allocator_api::MetricsAlloc;
+use ottavino_gc_arena::allocator_api::MetricsAlloc;
 
 use crate::{Context, FromMultiValue, FromValue, IntoMultiValue, IntoValue, TypeError, Value};
 
