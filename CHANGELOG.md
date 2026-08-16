@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.5.1] - 2026-08-16
+
+### <!-- 0 -->⛰️  Features
+
+- Make searchers a real hook for require
+- Add getregistry, uservalues and upvalue ids
+
+### <!-- 1 -->🐛 Bug Fixes
+
+- Report the language version and add _LUNA
+
+### <!-- 6 -->🧪 Testing
+
+- Cover the closed stdlib divergences
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Point internal deps at 0.5.0
+
 ## [0.5.0] - 2026-08-16
 
 ### <!-- 0 -->⛰️  Features
