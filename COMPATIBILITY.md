@@ -75,7 +75,7 @@ bounded here instead. Each raises an ordinary catchable error.
 | 🔵    | `load(chunk[, chunkname, mode, env])`                          |                                                                                                                                        |       |
 | 🔵    | `loadfile([filename, mode, env])`                              |                                                                                                                                        |       |
 | 🔵     | `next(table [, index])`                                        |                                                                                                                                        |       |
-| 🟡     | `pairs(t)`                                                     | Returns `iter, table`; PUC-Lua returns `iter, table, nil`. The third value is `nil` either way, so `for k, v in pairs(t)` is unaffected. | |
+| 🔵     | `pairs(t)`                                                     | | |
 | 🔵     | `pcall(f, args...)`                                            |                                                                                                                                        |       |
 | 🔵     | `print(args...)`                                               |                                                                                                                                        |       |
 | 🔵    | `rawequal(v1, v2)`                                             |                                                                                                                                        |       |
@@ -87,7 +87,7 @@ bounded here instead. Each raises an ordinary catchable error.
 | 🔵    | `tonumber(e[, base])`                                          |                                                                                                                                        |       |
 | 🔵     | `tostring(v)`                                                  | | |
 | 🔵     | `type(v)`                                                      |                                                                                                                                        |       |
-| 🟡    | `_VERSION` (value)                                             | `"luna"`, not `"Lua 5.4"`. The language targeted is 5.4. | |
+| 🔵    | `_VERSION` (value)                                             | `"Lua 5.4"`, the language version, so version detection works. Which *implementation* is answering is a separate question, and `_LUNA` — luna's own addition, absent in PUC-Lua — carries the crate version for it. | |
 | 🔵    | `warn(msg, args...)`                                           |                                                                                                                                        |       |
 | 🔵    | `xpcall(f, msgh, args...)`                                     |                                                                                                                                        |       |
 
@@ -117,7 +117,7 @@ bounded here instead. Each raises an ordinary catchable error.
 | ❗     | `loadlib(libname, funcname)`         |                                                                                                 |       |
 | 🔵   | `path` (value)                       |                                                                                                 |       |
 | 🔵   | `preload` (value)                    |                                                                                                 |       |
-| 🟡   | `searchers` (value)                  | Two entries — `preload`, then the Lua file searcher — reflecting what `require` consults. Descriptive rather than a hook: replacing an entry does not change `require`, whose search is native. PUC-Lua's C and all-in-one searchers do not exist here. |       |
+| 🔵   | `searchers` (value)                  | Two entries — `preload`, then the Lua file searcher — and `require` really walks the list, so inserting or replacing an entry changes what it consults. A searcher returns a loader plus an optional extra value, or a string saying why it declined, which is collected into the "not found" message. PUC-Lua's C and all-in-one searchers do not exist here. |       |
 | 🔵   | `searchpath(name, path[, sep, rep])` | Returns the path found, or `nil` plus the list of candidates tried.                              |       |
 
 ## String
@@ -306,11 +306,11 @@ weaken or strengthen entries. PUC-Rio calls this undefined; this is luna's answe
 
 ## Debug
 
-Mostly implemented, including the parts that need a dispatch point inside the opcode loop
-(`sethook`) and a register-to-name table from the compiler (`getlocal`/`setlocal`). What is missing
-is the registry and uservalue accessors, and the call and return hook masks — those would have to
-fire from every path that pushes or pops a frame, several of which have no context to call Lua
-from, so they are rejected rather than accepted and silently ignored.
+Implemented apart from `debug()` itself, the interactive prompt. That includes the parts needing a
+dispatch point inside the opcode loop (`sethook`) and a register-to-name table from the compiler
+(`getlocal`/`setlocal`). The one refusal is the call and return hook masks — they would have to fire
+from every path that pushes or pops a frame, several of which have no context to call Lua from, so
+they are rejected rather than accepted and silently ignored.
 
 Note for anyone sandboxing: `debug.setlocal` writes into another frame's stack slot, so a script
 holding `debug` can rewrite its caller's variables. `Lua::load_debug` is separate from
@@ -323,14 +323,14 @@ holding `debug` can rewrite its caller's variables. `Lua::load_debug` is separat
 | 🟡     | `getinfo([thread, ]f[, what])`            | Level or function. Reports `source`, `short_src`, `what`, `currentline`, `linedefined`, `lastlinedefined`, `nparams`, `isvararg`, `nups`, `func`. No `name`/`namewhat`. The `what` filter argument is ignored; every field is always returned.                                                        |       |
 | 🟡     | `getlocal([thread, ]f, local)`            | Takes a level, not a function: naming a function's parameters without an activation is the less useful half. Locals are indexed in declaration order and filtered to those live at the frame's current instruction. Needs `debug_locals` to have been on when the chunk compiled — it is by default. No `thread` argument. |       |
 | 🔵     | `getmetatable(value)`                     | Ignores `__metatable`, which is the point of it.                                                                                                                                                          |       |
-| ⚫️    | `getregistry()`                           |                                                                                                                                                                                                           |       |
+| 🟡     | `getregistry()`                           | A table the host and its scripts can share, with `_G` at index 2 as `LUA_RIDX_GLOBALS`. luna has no C API, so nothing else lives in it and nothing internal reads it — unlike PUC-Rio, where it also holds `_LOADED` and the main thread. |       |
 | 🟡     | `getupvalue(f, up)`                       | luna keeps no upvalue names, so the returned name is the index as a string.                                                                                                                               |       |
-| ⚫️    | `getuservalue(u, n)`                      |                                                                                                                                                                                                           |       |
+| 🟡     | `getuservalue(u, n)`                      | Returns the value and whether one was there. PUC-Rio fixes the count when the userdata is created; luna's are built from Rust and declare no count, so any index from 1 answers. |       |
 | 🟡     | `sethook([thread, ] hook, mask[, count])` | Line (`"l"`) and count hooks. Call (`"c"`) and return (`"r"`) masks are **rejected with an error** rather than accepted and ignored — they would have to fire from every path that pushes or pops a frame, several of which have no context to call Lua from. No `thread` argument: a hook is per-`Lua`. A hook is suppressed while it runs, so one that runs Lua cannot trigger itself. |       |
 | 🟡     | `setlocal([thread, ]level, local, value)` | As `getlocal`; writes through to the variable and returns its name. No `thread` argument.                                                                                                  |       |
 | 🟡     | `setmetatable(value, table)`              | Tables only, not any value. Interesting thing to note is that this is _not_ the base library `setmetatable`, as `debug.setmetatable`'s first argument accepts any Lua value, while `setmetatable`'s first argument _must_ be a table. |       |
 | 🟡     | `setupvalue(f, up, value)`                | As `getupvalue`, the returned name is the index.                                                                                                                                                          |       |
-| ⚫️    | `setuservalue(udata, value, n)`           |                                                                                                                                                                                                           |       |
+| 🟡     | `setuservalue(udata, value, n)`           | As `getuservalue` — any index from 1 is accepted rather than a fixed count. |       |
 | 🟡     | `traceback([thread,][message, level])`    | Lua frames only — a Rust callback has no frame to describe. A non-string message is returned untouched, as PUC-Rio does. No `thread` or `level` argument.                                                  |       |
-| ⚫️    | `upvalueid(f, n)`                         |                                                                                                                                                                                                           |       |
-| ⚫️    | `upvaluejoin(f1, n1, f2, n2)`             |                                                                                                                                                                                                           |       |
+| 🟡     | `upvalueid(f, n)`                         | A full userdata, not a light one — luna has no light userdata. It holds the upvalue, so the address cannot be recycled under a live id, and the same upvalue always answers with the same object, so `==` and `rawequal` both work. |       |
+| 🔵     | `upvaluejoin(f1, n1, f2, n2)`             |                                                                                                                                                                                                           |       |
