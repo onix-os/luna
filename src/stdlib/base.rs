@@ -296,7 +296,7 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
     // replaces this global, the same way it would replace `print`.
     ctx.set_global(
         "warn",
-        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+        Callback::from_fn(&ctx, |_ctx, _, mut stack| {
             let mut message = std::string::String::new();
             for i in 0..stack.len() {
                 match stack.get(i) {

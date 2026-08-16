@@ -18,7 +18,7 @@ pub const DEFAULT_MAX_CALL_DEPTH: usize = 100_000;
 use crate::{
     finalizers::Finalizers,
     stash::{Fetchable, Stashable},
-    stdlib::{load_base, load_coroutine, load_io, load_math, load_string, load_table},
+    stdlib::{load_base, load_coroutine, load_io, load_math, load_os, load_string, load_table},
     string::InternedStringSet,
     thread::BadThreadMode,
     Error, ExternError, FromMultiValue, FromValue, Fuel, IntoValue, Registry, RuntimeError,
@@ -179,6 +179,7 @@ impl Lua {
     pub fn full() -> Self {
         let mut lua = Lua::core();
         lua.load_io();
+        lua.load_os();
         lua
     }
 
@@ -204,6 +205,16 @@ impl Lua {
     pub fn load_io(&mut self) {
         self.enter(|ctx| {
             load_io(ctx);
+        })
+    }
+
+    /// Load the `os` library: time, dates, the environment, and file removal and renaming.
+    ///
+    /// Separate from [`Lua::load_core`] because it reaches outside the sandbox — a script with
+    /// `os` can read the environment and delete files.
+    pub fn load_os(&mut self) {
+        self.enter(|ctx| {
+            load_os(ctx);
         })
     }
 
