@@ -1,4 +1,10 @@
-use std::{array, iter, ops, string::String as StdString};
+use std::{
+    array,
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    hash::Hash,
+    iter, ops,
+    string::String as StdString,
+};
 
 use crate::{
     Callback, Closure, Context, Function, String, Table, Thread, TypeError, UserData, Value,
@@ -541,3 +547,95 @@ macro_rules! smaller_tuples_too {
 }
 
 smaller_tuples_too!(impl_tuple, P, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A);
+
+// Maps and sets.
+//
+// A Rust map is the shape most host data arrives in, and without these every call site has to
+// write the `Table::set` loop out and the matching `Table::iter` loop back.
+//
+// Note that `Vec<T>` and `&[T]` above become *tables* whatever `T` is, including `u8`: a byte
+// string has to be built with `ctx.intern(bytes)` or `String::from_slice`, not by converting a
+// `Vec<u8>`. Rust's coherence rules do not allow a byte-string impl to sit beside the generic one.
+macro_rules! impl_map_conversion {
+    ($map:ident, $($bound:path),+) => {
+        impl<'gc, K, V> IntoValue<'gc> for $map<K, V>
+        where
+            K: IntoValue<'gc>,
+            V: IntoValue<'gc>,
+        {
+            fn into_value(self, ctx: Context<'gc>) -> Value<'gc> {
+                let table = Table::new(&ctx);
+                for (k, v) in self {
+                    table.set(ctx, k, v).unwrap();
+                }
+                table.into()
+            }
+        }
+
+        impl<'gc, K, V> FromValue<'gc> for $map<K, V>
+        where
+            K: FromValue<'gc> $(+ $bound)+,
+            V: FromValue<'gc>,
+        {
+            fn from_value(ctx: Context<'gc>, value: Value<'gc>) -> Result<Self, TypeError> {
+                if let Value::Table(table) = value {
+                    let mut map = $map::new();
+                    for (k, v) in table.iter() {
+                        map.insert(K::from_value(ctx, k)?, V::from_value(ctx, v)?);
+                    }
+                    Ok(map)
+                } else {
+                    Err(TypeError {
+                        expected: "table",
+                        found: value.type_name(),
+                    })
+                }
+            }
+        }
+    };
+}
+
+impl_map_conversion!(HashMap, Eq, Hash);
+impl_map_conversion!(BTreeMap, Ord);
+
+/// A set becomes a table used as one: every element is a key with the value `true`.
+macro_rules! impl_set_conversion {
+    ($set:ident, $($bound:path),+) => {
+        impl<'gc, T: IntoValue<'gc>> IntoValue<'gc> for $set<T> {
+            fn into_value(self, ctx: Context<'gc>) -> Value<'gc> {
+                let table = Table::new(&ctx);
+                for v in self {
+                    table.set(ctx, v, true).unwrap();
+                }
+                table.into()
+            }
+        }
+
+        impl<'gc, T> FromValue<'gc> for $set<T>
+        where
+            T: FromValue<'gc> $(+ $bound)+,
+        {
+            fn from_value(ctx: Context<'gc>, value: Value<'gc>) -> Result<Self, TypeError> {
+                if let Value::Table(table) = value {
+                    let mut set = $set::new();
+                    for (k, v) in table.iter() {
+                        // Only truthy entries are members, so a table with a key set back to
+                        // `false` reads as the set without it.
+                        if v.to_bool() {
+                            set.insert(T::from_value(ctx, k)?);
+                        }
+                    }
+                    Ok(set)
+                } else {
+                    Err(TypeError {
+                        expected: "table",
+                        found: value.type_name(),
+                    })
+                }
+            }
+        }
+    };
+}
+
+impl_set_conversion!(HashSet, Eq, Hash);
+impl_set_conversion!(BTreeSet, Ord);
