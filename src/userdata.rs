@@ -19,6 +19,11 @@ pub struct BadUserDataType;
 #[collect(no_drop)]
 pub struct UserDataMeta<'gc> {
     pub metatable: Option<Table<'gc>>,
+    /// Lua-side values attached to this userdata, indexed from 1, or `None` until one is set.
+    ///
+    /// A table rather than a `Vec` so that `UserDataMeta` stays `Copy`, which is what lets it live
+    /// in a [`lock::Lock`] and be read without a borrow flag.
+    pub user_values: Option<Table<'gc>>,
 }
 
 pub type UserDataMetaState<'gc> = lock::Lock<UserDataMeta<'gc>>;
@@ -188,6 +193,36 @@ impl<'gc> UserData<'gc> {
         let old_metatable = mem::replace(&mut v.metatable, metatable);
         md.set(v);
         old_metatable
+    }
+
+    /// The `n`th Lua-side value attached to this userdata, indexed from 1.
+    ///
+    /// `None` if nothing has been attached at that index. These are `debug.getuservalue`'s values;
+    /// they are separate from the payload, which is Rust data.
+    pub fn user_value(self, ctx: crate::Context<'gc>, n: i64) -> Option<crate::Value<'gc>> {
+        let values = self.0.metadata().get().user_values?;
+        let value = values.get_value(ctx, crate::Value::Integer(n));
+        (!value.is_nil()).then_some(value)
+    }
+
+    /// Attaches `value` as the `n`th Lua-side value, replacing whatever was there.
+    ///
+    /// Unlike PUC-Rio, where the count is fixed when the userdata is created, any index from 1 is
+    /// accepted: luna's userdata are built from Rust and never declare a count.
+    pub fn set_user_value(self, ctx: crate::Context<'gc>, n: i64, value: crate::Value<'gc>) {
+        let mc: &Mutation<'gc> = &ctx;
+        let values = match self.0.metadata().get().user_values {
+            Some(values) => values,
+            None => {
+                let values = Table::new(mc);
+                let md = self.0.write_metadata(mc).unlock();
+                let mut v = md.get();
+                v.user_values = Some(values);
+                md.set(v);
+                values
+            }
+        };
+        values.set_raw(mc, crate::Value::Integer(n), value).ok();
     }
 }
 

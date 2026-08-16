@@ -14,7 +14,51 @@
 //! prototype. That table is not free — it costs about 47% of a prototype's memory on locals-dense
 //! code — so `Context::set_debug_locals(false)` turns it off for chunks compiled afterwards.
 
-use crate::{Callback, CallbackReturn, Closure, Context, Function, IntoValue, Table, Value};
+use ottavino_gc_arena::{Collect, Gc, Rootable};
+
+use crate::{
+    closure::UpValue, Callback, CallbackReturn, Closure, Context, Function, IntoValue, Singleton,
+    Table, UserData, Value,
+};
+
+/// The table `debug.getregistry` hands back.
+///
+/// PUC-Rio's registry is where C code stashes values out of reach of scripts. luna has no C API, so
+/// this is simply a table the host and its scripts can share without putting anything in `_G`; the
+/// globals table sits at index 2, where PUC-Rio's `LUA_RIDX_GLOBALS` puts it. Nothing in luna reads
+/// it, so a host is free to own it entirely.
+#[derive(Copy, Clone, Collect)]
+#[collect(no_drop)]
+pub struct LuaRegistry<'gc>(pub Table<'gc>);
+
+impl<'gc> Singleton<'gc> for LuaRegistry<'gc> {
+    fn create(ctx: Context<'gc>) -> Self {
+        let registry = Table::new(&ctx);
+        registry.set(ctx, 2, ctx.globals()).ok();
+        LuaRegistry(registry)
+    }
+}
+
+/// Identifies one upvalue, for `debug.upvalueid`.
+///
+/// PUC-Rio returns a light userdata holding the address. luna has no light userdata, so this is a
+/// real userdata holding the upvalue itself — which also keeps the upvalue alive, so the address
+/// cannot be recycled underneath an id that is still reachable. Two ids for the same upvalue are
+/// the *same* object, so `==` and `rawequal` both answer correctly.
+#[derive(Copy, Clone, Collect)]
+#[collect(no_drop)]
+struct UpValueIds<'gc>(Table<'gc>);
+
+impl<'gc> Singleton<'gc> for UpValueIds<'gc> {
+    fn create(ctx: Context<'gc>) -> Self {
+        let ids = Table::new(&ctx);
+        // Weak values: an id that nothing holds any more may go, and the next request rebuilds it.
+        let meta = Table::new(&ctx);
+        meta.set_field(ctx, "__mode", "v");
+        ids.set_metatable(ctx, Some(meta));
+        UpValueIds(ids)
+    }
+}
 
 /// Format one frame the way `debug.traceback` does.
 fn describe(closure: Closure<'_>, line: crate::compiler::LineNumber) -> std::string::String {
@@ -192,7 +236,8 @@ pub fn load_debug<'gc>(ctx: Context<'gc>) {
                 .and_then(|i| upvalues.get(i))
             {
                 // luna keeps no upvalue names, so the name slot is the index.
-                Some(up) => {
+                Some(slot) => {
+                    let up = slot.get();
                     // An open upvalue still aliases a live stack slot; read through it.
                     let value = match up.get() {
                         crate::closure::UpValueState::Closed(v) => v,
@@ -220,7 +265,8 @@ pub fn load_debug<'gc>(ctx: Context<'gc>) {
                 .ok()
                 .and_then(|i| upvalues.get(i))
             {
-                Some(up) => {
+                Some(slot) => {
+                    let up = slot.get();
                     match up.get() {
                         crate::closure::UpValueState::Open(open) => open.set(&ctx, value),
                         crate::closure::UpValueState::Closed(_) => {
@@ -337,6 +383,118 @@ pub fn load_debug<'gc>(ctx: Context<'gc>) {
             let (t, mt): (Table, Option<Table>) = stack.consume(ctx)?;
             t.set_metatable(ctx, mt);
             stack.replace(ctx, t);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    debug.set_field(
+        ctx,
+        "getregistry",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let LuaRegistry(registry) = *ctx.singleton::<Rootable![LuaRegistry<'_>]>();
+            stack.replace(ctx, registry);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    debug.set_field(
+        ctx,
+        "getuservalue",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let (value, n): (Value, Option<i64>) = stack.consume(ctx)?;
+            let n = n.unwrap_or(1);
+            match value {
+                // A second return says whether the userdata has a value there at all, which is how
+                // a script tells "absent" from "present and nil".
+                Value::UserData(u) if n >= 1 => {
+                    let value = u.user_value(ctx, n);
+                    stack.replace(ctx, (value.unwrap_or(Value::Nil), value.is_some()));
+                }
+                Value::UserData(_) => stack.replace(ctx, (Value::Nil, false)),
+                _ => stack.replace(ctx, Value::Nil),
+            }
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    debug.set_field(
+        ctx,
+        "setuservalue",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let (udata, value, n): (UserData, Value, Option<i64>) = stack.consume(ctx)?;
+            let n = n.unwrap_or(1);
+            if n < 1 {
+                return Err("bad argument #3 to 'setuservalue' (index out of range)"
+                    .into_value(ctx)
+                    .into());
+            }
+            udata.set_user_value(ctx, n, value);
+            stack.replace(ctx, udata);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    debug.set_field(
+        ctx,
+        "upvalueid",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let (function, index): (Function, i64) = stack.consume(ctx)?;
+            let Function::Closure(closure) = function else {
+                stack.replace(ctx, Value::Nil);
+                return Ok(CallbackReturn::Return);
+            };
+            let Some(slot) = usize::try_from(index - 1)
+                .ok()
+                .and_then(|i| closure.upvalues().get(i))
+            else {
+                return Err("bad argument #2 to 'upvalueid' (index out of range)"
+                    .into_value(ctx)
+                    .into());
+            };
+
+            // Keyed by the upvalue's address, so the same upvalue always answers with the same id
+            // however many closures reach it — which is the entire purpose of `upvalueid`.
+            let upvalue = slot.get();
+            let key = Value::Integer(Gc::as_ptr(upvalue.into_inner()) as usize as i64);
+            let UpValueIds(ids) = *ctx.singleton::<Rootable![UpValueIds<'_>]>();
+            let id = match ids.get_value(ctx, key) {
+                Value::Nil => {
+                    let id =
+                        Value::UserData(UserData::new::<Rootable![UpValue<'_>]>(&ctx, upvalue));
+                    ids.set(ctx, key, id).ok();
+                    id
+                }
+                existing => existing,
+            };
+            stack.replace(ctx, id);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    debug.set_field(
+        ctx,
+        "upvaluejoin",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let (f1, n1, f2, n2): (Function, i64, Function, i64) = stack.consume(ctx)?;
+            let (Function::Closure(c1), Function::Closure(c2)) = (f1, f2) else {
+                return Err("bad argument to 'upvaluejoin' (Lua function expected)"
+                    .into_value(ctx)
+                    .into());
+            };
+            let index = |n: i64, c: Closure<'_>, arg: &'static str| {
+                usize::try_from(n - 1)
+                    .ok()
+                    .filter(|i| *i < c.upvalues().len())
+                    .ok_or_else(|| {
+                        crate::Error::from_value(
+                            format!("bad argument {arg} to 'upvaluejoin' (index out of range)")
+                                .into_value(ctx),
+                        )
+                    })
+            };
+            let (i1, i2) = (index(n1, c1, "#2")?, index(n2, c2, "#4")?);
+            c1.set_upvalue(&ctx, i1, c2.upvalues()[i2].get());
+            stack.clear();
             Ok(CallbackReturn::Return)
         }),
     );
