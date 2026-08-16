@@ -35,6 +35,11 @@ fn line_of(proto: &crate::FunctionPrototype<'_>, pc: usize) -> LineNumber {
 ///
 /// The same position the executor attaches to a [`VMError`], for the errors the VM raises without
 /// leaving the opcode loop.
+///
+/// Kept out of line because it is a cold path — one `format!` and an allocation per raised error —
+/// inside `run_vm`, which is the interpreter's dispatch loop.
+#[cold]
+#[inline(never)]
 fn positioned_error<'gc>(
     proto: &crate::FunctionPrototype<'gc>,
     pc: usize,
