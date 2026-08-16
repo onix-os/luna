@@ -27,27 +27,23 @@ impl<'gc> Finalizers<'gc> {
     /// Register a table whose metatable carries a `__gc` handler.
     pub(crate) fn register_table(&self, mc: &Mutation<'gc>, ptr: Gc<'gc, TableInner<'gc>>) {
         let mut state = self.0.borrow_mut(mc);
-        let weak = Gc::downgrade(ptr);
-        if !state
-            .finalizable_tables
-            .iter()
-            .any(|&existing| GcWeak::ptr_eq(existing, weak))
+        if state
+            .registered
+            .insert((RegistryKind::Table, Gc::as_ptr(ptr) as *const ()))
         {
-            state.finalizable_tables.push(weak);
+            state.finalizable_tables.push(Gc::downgrade(ptr));
         }
     }
 
     pub(crate) fn register_userdata(&self, mc: &Mutation<'gc>, ptr: Gc<'gc, UserDataInner<'gc>>) {
         let mut state = self.0.borrow_mut(mc);
-        let weak = Gc::downgrade(ptr);
         // Re-attaching a metatable must not enrol the same object twice, or its handler would run
         // once per registration.
-        if !state
-            .finalizable
-            .iter()
-            .any(|&existing| GcWeak::ptr_eq(existing, weak))
+        if state
+            .registered
+            .insert((RegistryKind::Userdata, Gc::as_ptr(ptr) as *const ()))
         {
-            state.finalizable.push(weak);
+            state.finalizable.push(Gc::downgrade(ptr));
         }
     }
 
@@ -58,13 +54,11 @@ impl<'gc> Finalizers<'gc> {
     /// Register a table whose keys are held weakly.
     pub(crate) fn register_weak_keys(&self, mc: &Mutation<'gc>, ptr: Gc<'gc, TableInner<'gc>>) {
         let mut state = self.0.borrow_mut(mc);
-        let weak = Gc::downgrade(ptr);
-        if !state
-            .weak_key_tables
-            .iter()
-            .any(|&existing| GcWeak::ptr_eq(existing, weak))
+        if state
+            .registered
+            .insert((RegistryKind::WeakKeys, Gc::as_ptr(ptr) as *const ()))
         {
-            state.weak_key_tables.push(weak);
+            state.weak_key_tables.push(Gc::downgrade(ptr));
         }
     }
 
@@ -113,31 +107,68 @@ impl<'gc> Finalizers<'gc> {
         // userdata with a handler is *resurrected* here — which is what makes it safe to hand to
         // the host afterwards — and queued for the handler to run outside the arena.
         let mut queued = Vec::new();
-        state.finalizable.retain(|&weak| {
+
+        // Taken out so the `registered` set can be pruned from inside the same pass. A registry
+        // entry and its set entry must go together: the collector can hand a freed address to a new
+        // object, and a set entry left behind would refuse to register it.
+        let mut finalizable = std::mem::take(&mut state.finalizable);
+        finalizable.retain(|&weak| {
             let Some(ptr) = weak.upgrade(fc) else {
                 // Already collected in an earlier cycle with nothing to run.
+                state
+                    .registered
+                    .remove(&(RegistryKind::Userdata, weak.as_ptr() as *const ()));
                 return false;
             };
             if Gc::is_dead(fc, ptr) {
                 queued.push(Value::UserData(UserData::from_inner(ptr)));
                 // Dropped from the registry so the handler runs exactly once, as in PUC-Rio, even
                 // if the handler resurrects the object.
+                state
+                    .registered
+                    .remove(&(RegistryKind::Userdata, Gc::as_ptr(ptr) as *const ()));
                 false
             } else {
                 true
             }
         });
-        state.finalizable_tables.retain(|&weak| {
+        state.finalizable = finalizable;
+
+        let mut finalizable_tables = std::mem::take(&mut state.finalizable_tables);
+        finalizable_tables.retain(|&weak| {
             let Some(ptr) = weak.upgrade(fc) else {
+                state
+                    .registered
+                    .remove(&(RegistryKind::Table, weak.as_ptr() as *const ()));
                 return false;
             };
             if Gc::is_dead(fc, ptr) {
                 queued.push(Value::Table(Table::from_inner(ptr)));
+                state
+                    .registered
+                    .remove(&(RegistryKind::Table, Gc::as_ptr(ptr) as *const ()));
                 false
             } else {
                 true
             }
         });
+        state.finalizable_tables = finalizable_tables;
+
+        // Weak-key tables were never pruned at all, so the ephemeron pass walked every table ever
+        // declared `__mode = "k"` for the life of the state.
+        let mut weak_key_tables = std::mem::take(&mut state.weak_key_tables);
+        weak_key_tables.retain(|&weak| {
+            if weak.upgrade(fc).is_some() {
+                true
+            } else {
+                state
+                    .registered
+                    .remove(&(RegistryKind::WeakKeys, weak.as_ptr() as *const ()));
+                false
+            }
+        });
+        state.weak_key_tables = weak_key_tables;
+
         state.pending.extend(queued);
     }
 
@@ -196,4 +227,23 @@ struct FinalizersState<'gc> {
     ephemeron_roots: Vec<Value<'gc>>,
     /// Resurrected and awaiting their handler.
     pending: Vec<Value<'gc>>,
+    // Which objects are already in one of the registries above, so registering is a hash lookup
+    // rather than a scan of everything registered so far.
+    //
+    // Scanning made registration quadratic: 20,000 tables carrying `__gc` cost 82ms to create, and
+    // the cost grew with the square of the count. The tag separates the registries, because one
+    // table can be both finalizable and weak-keyed.
+    //
+    // Entries are removed exactly when the matching registry entry is dropped. That matters: an
+    // address freed by the collector can be handed straight back to a new object, and a stale entry
+    // here would silently refuse to register it.
+    #[collect(require_static)]
+    registered: std::collections::HashSet<(RegistryKind, *const ())>,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+enum RegistryKind {
+    Userdata,
+    Table,
+    WeakKeys,
 }
