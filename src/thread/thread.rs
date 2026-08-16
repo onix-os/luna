@@ -81,6 +81,7 @@ impl<'gc> Thread<'gc> {
                 frames: vec::Vec::new_in(MetricsAlloc::new(&ctx)),
                 stack: vec::Vec::new_in(MetricsAlloc::new(&ctx)),
                 open_upvalues: vec::Vec::new_in(MetricsAlloc::new(&ctx)),
+                running: false,
             }),
         );
         ctx.finalizers().register_thread(&ctx, p);
@@ -97,6 +98,7 @@ impl<'gc> Thread<'gc> {
 
     pub fn mode(self) -> ThreadMode {
         match self.0.try_borrow() {
+            Ok(state) if state.running => ThreadMode::Running,
             Ok(state) => state.mode(),
             Err(_) => ThreadMode::Running,
         }
@@ -330,6 +332,10 @@ pub struct ThreadState<'gc> {
     pub(super) frames: vec::Vec<Frame<'gc>, MetricsAlloc<'gc>>,
     pub(super) stack: vec::Vec<Value<'gc>, MetricsAlloc<'gc>>,
     pub(super) open_upvalues: vec::Vec<UpValue<'gc>, MetricsAlloc<'gc>>,
+    // Set while an `Executor` is running a native on this thread's behalf. A thread being stepped
+    // is normally detectable because its state is borrowed, but a native runs with its thread
+    // released so that re-entrant Lua can reach open upvalues, and it must still report `Running`.
+    pub(super) running: bool,
 }
 
 impl<'gc> ThreadState<'gc> {
