@@ -1,11 +1,13 @@
 use std::cell::RefCell;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
+use std::pin::Pin;
 
 use ottavino_gc_arena::{lock::Lock, Collect, Gc, Rootable};
 
 use crate::{
-    Callback, CallbackReturn, Context, IntoValue, Singleton, String, Table, UserData, Value,
-    Variadic,
+    meta_ops::{self, MetaResult},
+    BoxSequence, Callback, CallbackReturn, Context, Error, Execution, Function, IntoValue,
+    Sequence, SequencePoll, Singleton, Stack, String, Table, UserData, Value, Variadic,
 };
 
 /// What a file handle wraps.
@@ -320,21 +322,93 @@ fn write_all<'gc>(
     result.map_err(|e| e.to_string().into_value(ctx).into())
 }
 
+/// `print` formats through `__tostring`, so a value can hand back a string only by way of a call
+/// into Lua. The arguments are walked one at a time, and each such call suspends the walk here.
+#[derive(Collect)]
+#[collect(no_drop)]
+struct Print<'gc> {
+    values: std::vec::Vec<Value<'gc>>,
+    index: usize,
+    out: std::vec::Vec<u8>,
+}
+
+impl<'gc> Sequence<'gc> for Print<'gc> {
+    fn poll(
+        self: Pin<&mut Self>,
+        ctx: Context<'gc>,
+        _exec: Execution<'gc, '_>,
+        mut stack: Stack<'gc, '_>,
+    ) -> Result<SequencePoll<'gc>, Error<'gc>> {
+        let Value::String(s) = stack.get(0) else {
+            return Err("'__tostring' must return a string".into_value(ctx).into());
+        };
+        stack.clear();
+
+        let this = self.get_mut();
+        this.push(s.as_bytes());
+        match print_advance(ctx, this, &mut stack)? {
+            None => Ok(SequencePoll::Return),
+            Some(function) => Ok(SequencePoll::Call {
+                function,
+                bottom: 0,
+            }),
+        }
+    }
+}
+
+impl<'gc> Print<'gc> {
+    /// Appends one already-formatted argument, tab-separated from the ones before it.
+    fn push(&mut self, bytes: &[u8]) {
+        if self.index > 0 {
+            self.out.push(b'\t');
+        }
+        self.out.extend_from_slice(bytes);
+        self.index += 1;
+    }
+}
+
+/// Formats arguments until one needs a `__tostring` call, whose function is then handed back;
+/// writes the line and returns `None` once the last argument is done.
+fn print_advance<'gc>(
+    ctx: Context<'gc>,
+    state: &mut Print<'gc>,
+    stack: &mut Stack<'gc, '_>,
+) -> Result<Option<Function<'gc>>, Error<'gc>> {
+    while state.index < state.values.len() {
+        match meta_ops::tostring(ctx, state.values[state.index])? {
+            MetaResult::Value(Value::String(s)) => state.push(s.as_bytes()),
+            MetaResult::Value(other) => state.push(other.display().to_string().as_bytes()),
+            MetaResult::Call(call) => {
+                stack.replace(ctx, Variadic(call.args));
+                return Ok(Some(call.function));
+            }
+        }
+    }
+
+    let mut out = std::io::stdout().lock();
+    let _ = out.write_all(&state.out);
+    let _ = writeln!(out);
+    let _ = out.flush();
+    Ok(None)
+}
+
 /// Loads `print` and the `io` library.
 pub fn load_io<'gc>(ctx: Context<'gc>) {
     ctx.set_global(
         "print",
-        Callback::from_fn(&ctx, |_ctx, _, mut stack| {
-            let mut out = std::io::stdout().lock();
-            for (i, value) in stack.drain(..).enumerate() {
-                if i > 0 {
-                    let _ = write!(out, "\t");
-                }
-                let _ = write!(out, "{}", value.display());
-            }
-            let _ = writeln!(out);
-            let _ = out.flush();
-            Ok(CallbackReturn::Return)
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let mut state = Print {
+                values: stack.drain(..).collect(),
+                index: 0,
+                out: std::vec::Vec::new(),
+            };
+            Ok(match print_advance(ctx, &mut state, &mut stack)? {
+                None => CallbackReturn::Return,
+                Some(function) => CallbackReturn::Call {
+                    function,
+                    then: Some(BoxSequence::new(&ctx, state)),
+                },
+            })
         }),
     );
 
