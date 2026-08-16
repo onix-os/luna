@@ -172,8 +172,8 @@ pub struct Lua {
     arena: Arena<Rootable![State<'_>]>,
     // Host-side configuration rather than collected state: nothing in the arena reads it.
     memory_limit: Option<usize>,
-    // The arena has no stop switch to read back, so the flag lives here.
-    gc_running: bool,
+    // Whether `enter` collects on its own, or the host has taken the schedule over.
+    gc_automatic: bool,
 }
 
 impl Default for Lua {
@@ -188,7 +188,7 @@ impl Lua {
         Lua {
             arena: Arena::<Rootable![State<'_>]>::new(|mc| State::new(mc)),
             memory_limit: None,
-            gc_running: true,
+            gc_automatic: true,
         }
     }
 
@@ -288,35 +288,28 @@ impl Lua {
         assert!(self.arena.collection_phase() == CollectionPhase::Sleeping);
     }
 
-    /// Run one incremental slice of collection.
-    pub fn gc_step(&mut self) {
-        // `enter` already performs a slice when there is debt; forcing one through an empty
-        // closure is the same path.
-        self.enter(|_| ());
-    }
-
     /// Stop the collector pacing itself.
     ///
-    /// Implemented by driving the sleep threshold up rather than by a flag in the arena, which has
-    /// no stop switch of its own: with nothing ever owed, no slice is ever due.
+    /// This suspends only the *automatic* schedule. Debt keeps accruing, so an explicit
+    /// [`Lua::gc_step`] or [`Lua::gc_collect`] still has work to do — which is the point, and did
+    /// not used to be true. Stopping was previously implemented by driving the arena's sleep
+    /// threshold to `usize::MAX`, which meant nothing was ever owed and a manual step silently did
+    /// nothing either. Suspending the schedule and leaving the debt alone is the honest version.
     pub fn gc_stop(&mut self) {
-        self.arena
-            .metrics()
-            .set_pacing(ottavino_gc_arena::metrics::Pacing::default().with_min_sleep(usize::MAX));
-        self.gc_running = false;
+        self.gc_automatic = false;
     }
 
-    /// Resume normal pacing after [`Lua::gc_stop`].
+    /// Resume automatic pacing after [`Lua::gc_stop`].
     pub fn gc_restart(&mut self) {
-        self.arena
-            .metrics()
-            .set_pacing(ottavino_gc_arena::metrics::Pacing::default());
-        self.gc_running = true;
+        self.gc_automatic = true;
     }
 
     /// Whether the collector is pacing itself.
+    ///
+    /// The same question as [`Lua::gc_is_automatic`]; both spellings exist because Lua asks it as
+    /// `collectgarbage("isrunning")` and Rust asks it about the schedule.
     pub fn gc_is_running(&self) -> bool {
-        self.gc_running
+        self.gc_automatic
     }
 
     pub fn gc_metrics(&self) -> &Metrics {
@@ -332,14 +325,12 @@ impl Lua {
     /// Garbage collection takes place *in-between* calls to `Lua::enter`, no garbage will be
     /// collected concurrently with accessing the arena.
     ///
-    /// Automatically triggers garbage collection before returning if the allocation debt is larger
-    /// than a small constant.
+    /// Runs one incremental slice of collection before returning, unless the host has taken the
+    /// schedule over with [`Lua::set_gc_pacing`].
     pub fn enter<F, T>(&mut self, f: F) -> T
     where
         F: for<'gc> FnOnce(Context<'gc>) -> T,
     {
-        const COLLECTOR_GRANULARITY: f64 = 1024.0;
-
         let r = self.arena.mutate(move |mc, state| f(state.ctx(mc)));
 
         // Carry out whatever `collectgarbage` asked for while it was running. It could not do this
@@ -352,28 +343,88 @@ impl Lua {
         match request {
             GcRequest::None => {}
             GcRequest::Collect => self.gc_collect(),
-            GcRequest::Step => self.gc_step(),
+            GcRequest::Step => self.gc_step(None),
             GcRequest::Stop => self.gc_stop(),
             GcRequest::Restart => self.gc_restart(),
         }
 
-        if self.arena.metrics().allocation_debt() > COLLECTOR_GRANULARITY {
-            if self.arena.collection_phase() == CollectionPhase::Sweeping {
-                self.arena.collect_debt();
-            } else {
-                if let Some(marked) = self.arena.mark_debt() {
-                    marked.finalize(|fc, root| {
-                        root.finalizers.prepare(fc);
-                    });
-                    self.arena.mark_all().unwrap().finalize(|fc, root| {
-                        root.finalizers.finalize(fc);
-                    });
-                    // Immediately transition to `CollectionPhase::Sweeping`.
-                    self.arena.mark_all().unwrap().start_sweeping();
-                }
+        // Collection is a *separate* job from running the mutator, and only happens here when the
+        // host has not taken it over. A host that calls `gc_step` itself owns the schedule; see
+        // `Lua::set_gc_pacing`.
+        if self.gc_automatic {
+            self.gc_step(Some(Self::AUTOMATIC_GRANULARITY));
+        }
+
+        r
+    }
+
+    /// How much debt must accumulate before an automatic step does any work.
+    const AUTOMATIC_GRANULARITY: f64 = 1024.0;
+
+    /// Run one slice of collection.
+    ///
+    /// `threshold` is the allocation debt below which the slice does nothing — that is the
+    /// automatic schedule, where collection is paid for in proportion to what was allocated.
+    ///
+    /// `None` means *make progress now*, and is what an explicit call should mean. It matters
+    /// because the arena's incremental work is debt-driven: a host that has stopped the collector
+    /// is not allocating, so no debt accrues, and a purely debt-driven step would stall halfway
+    /// through a cycle forever. With `None` the phase is advanced directly instead.
+    ///
+    /// This is the whole of luna's collector schedule. The VM hands control back between
+    /// `Executor::step` calls and the host decides what to spend here, which is what makes fuel
+    /// metering and the memory ceiling possible — a collector running on its own schedule could
+    /// not be paced this way.
+    pub fn gc_step(&mut self, threshold: Option<f64>) {
+        let forced = threshold.is_none();
+        if let Some(threshold) = threshold {
+            if self.arena.metrics().allocation_debt() <= threshold {
+                return;
             }
         }
-        r
+
+        if self.arena.collection_phase() == CollectionPhase::Sweeping {
+            if forced {
+                self.arena.collect_all();
+            } else {
+                self.arena.collect_debt();
+            }
+            return;
+        }
+
+        let marked = if forced {
+            Some(self.arena.mark_all().unwrap())
+        } else {
+            self.arena.mark_debt()
+        };
+
+        if let Some(marked) = marked {
+            marked.finalize(|fc, root| {
+                root.finalizers.prepare(fc);
+            });
+            self.arena.mark_all().unwrap().finalize(|fc, root| {
+                root.finalizers.finalize(fc);
+            });
+            // Immediately transition to `CollectionPhase::Sweeping`.
+            self.arena.mark_all().unwrap().start_sweeping();
+        }
+    }
+
+    /// Whether `enter` collects on its own.
+    ///
+    /// True unless the host has taken the schedule over with [`Lua::set_gc_pacing`].
+    pub fn gc_is_automatic(&self) -> bool {
+        self.gc_automatic
+    }
+
+    /// Decide whether the collector paces itself, or the host does.
+    ///
+    /// With `false`, `enter` stops collecting and nothing is reclaimed until [`Lua::gc_step`] or
+    /// [`Lua::gc_collect`] is called. That is the point: a game can spend a frame budget on it, a
+    /// shell can spend idle time, and neither has to accept a collection at a moment it did not
+    /// choose.
+    pub fn set_gc_pacing(&mut self, automatic: bool) {
+        self.gc_automatic = automatic;
     }
 
     /// A version of `Lua::enter` that expects failure and automatically converts [`Error`] into
