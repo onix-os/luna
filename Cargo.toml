@@ -32,8 +32,8 @@ serde = "1.0"
 serde_json = "1.0"
 thiserror = "1.0"
 
-luna = { path = "./", version = "0.4.0" }
-luna-derive = { path = "./derive", version = "0.4.0" }
+luna = { path = "./", version = "0.5.0" }
+luna-derive = { path = "./derive", version = "0.5.0" }
 
 [package]
 name = "luna"
