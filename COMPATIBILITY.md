@@ -187,9 +187,10 @@ I'm not going over these with a fine-tooth comb, if it exists (and takes the spe
 
 ## I/O
 
-File handles are real: `io.open` returns a userdata with a metatable, backed by `std::fs`. `popen` shells
-out through `std::process`. What is missing is the default-stream plumbing — `io.input`/`io.output`
-and the buffering controls — not the file operations themselves.
+File handles are real: `io.open` returns a userdata with a metatable, backed by `std::fs`. `popen`
+shells out through `std::process`, and `io.input`/`io.output` redirect the default streams that
+`io.read`, `io.write`, `io.lines()` and `io.flush` use. The one thing that does not do what it says
+is `setvbuf`, below.
 
 | Status | Function                      | Differences                                                                                                                 | Notes |
 | ------ | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----- |

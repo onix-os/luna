@@ -164,3 +164,22 @@ fn conversion_errors_carry_the_argument_position() {
     assert_eq!(found.argument, 2);
     assert_eq!(found.source.found, "table");
 }
+
+/// `rawlen` is defined on strings as well as tables — on a string it is the only way to get the
+/// length without going through `__len` on the string metatable.
+#[test]
+fn rawlen_accepts_strings() -> Result<(), ExternError> {
+    assert_eq!(
+        eval::<bool>(
+            r#"
+            assert(rawlen("abcd") == 4)
+            assert(rawlen({1, 2, 3}) == 3)
+            -- and still refuses what has no raw length
+            assert(not pcall(rawlen, 42))
+            return true
+        "#
+        )?,
+        true
+    );
+    Ok(())
+}

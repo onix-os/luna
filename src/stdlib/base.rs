@@ -281,8 +281,20 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
     ctx.set_global(
         "rawlen",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
-            let table: Table = stack.consume(ctx)?;
-            stack.replace(ctx, table.length(&ctx));
+            // Strings as well as tables: `rawlen` is defined on both, and on a string it is the
+            // only way to get the length without going through `__len` on the string metatable.
+            let length = match stack.consume::<Value>(ctx)? {
+                Value::Table(t) => t.length(&ctx),
+                Value::String(s) => s.len(),
+                other => {
+                    return Err(
+                        format!("table or string expected, got {}", other.type_name())
+                            .into_value(ctx)
+                            .into(),
+                    )
+                }
+            };
+            stack.replace(ctx, length);
             Ok(CallbackReturn::Return)
         }),
     );
