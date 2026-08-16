@@ -515,7 +515,10 @@ impl Lua {
     fn mark_ephemerons(&mut self) {
         // Nothing to resolve, and the loop below costs a full mark per round, so a program with no
         // weak-key tables must not enter it at all.
-        if !self.arena.mutate(|_, root| root.finalizers.has_ephemerons()) {
+        if !self
+            .arena
+            .mutate(|_, root| root.finalizers.has_ephemerons())
+        {
             return;
         }
 

@@ -5,6 +5,7 @@ pub mod closure;
 pub mod compiler;
 pub mod constant;
 pub mod conversion;
+pub mod dump;
 pub mod error;
 pub mod finalizers;
 pub mod fuel;

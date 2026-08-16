@@ -112,7 +112,7 @@ what a 5.4 conformance pass actually asks about rather than a summary.
 | ------ | --------------------------------- | ----------- | ----- |
 | 🔵   | `byte(s[, i, j])`                 |             |       |
 | 🔵   | `char(args...)`                   |             |       |
-| ⚫️️   | `dump(function[, strip])`         |             |       |
+| 🟡   | `dump(function[, strip])`         | Chunks only — a nested function reaches `_ENV` through its parent and cannot be reloaded on its own, so it is refused rather than dumped unusably. `strip` drops local names. | |
 | 🔵   | `find(s, pattern[, init, plain])` |             |       |
 | 🔵   | `format(formatstring, args...)`   |             |       |
 | 🔵   | `gmatch(s, pattern[, init])`      |             |       |

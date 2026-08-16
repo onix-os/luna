@@ -24,6 +24,12 @@ pub enum CompilerError {
     Parsing(#[from] compiler::ParseError),
     #[error("compile error")]
     Compilation(#[from] compiler::CompileError),
+    #[error("bad binary chunk")]
+    Dump(#[from] crate::dump::DumpError),
+    // Reachable only for a binary chunk: source always compiles to a prototype whose only upvalue
+    // is `_ENV`, but a chunk read off disk can claim otherwise.
+    #[error("chunk cannot be a top-level function")]
+    NotTopLevel(#[from] ClosureError),
 }
 
 /// A compiled Lua function.
@@ -337,8 +343,14 @@ impl<'gc> Closure<'gc> {
         source: &[u8],
         env: Table<'gc>,
     ) -> Result<Closure<'gc>, CompilerError> {
-        let proto = FunctionPrototype::compile(ctx, name.unwrap_or("<anonymous>"), source)?;
-        Ok(Closure::new(&ctx, proto, Some(env)).unwrap())
+        // A dumped chunk is loaded rather than compiled. It is checked on the way in — see
+        // `crate::dump` — because nothing about the bytes is trustworthy.
+        let proto = if crate::dump::is_binary_chunk(source) {
+            crate::dump::undump(ctx, source)?
+        } else {
+            FunctionPrototype::compile(ctx, name.unwrap_or("<anonymous>"), source)?
+        };
+        Ok(Closure::new(&ctx, proto, Some(env))?)
     }
 
     pub fn prototype(self) -> Gc<'gc, FunctionPrototype<'gc>> {

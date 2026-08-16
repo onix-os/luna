@@ -159,6 +159,38 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
 
     string_lib.set_field(
         ctx,
+        "dump",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let (function, strip): (crate::Function, Option<bool>) = stack.consume(ctx)?;
+            let crate::Function::Closure(closure) = function else {
+                // A Rust callback has no bytecode to write out, which is what PUC-Rio says about
+                // C functions too.
+                return Err("unable to dump given function".into_value(ctx).into());
+            };
+            // Loading produces a *top-level* function, and luna only builds one from a prototype
+            // whose sole upvalue is `_ENV`. A nested function reaches `_ENV` through its parent
+            // instead, so it has no meaning on its own — refusing here beats handing back bytes
+            // that cannot be loaded. Chunks are what precompilation actually wants anyway.
+            let upvalues = &closure.prototype().upvalues;
+            let loadable = upvalues.is_empty()
+                || (upvalues.len() == 1
+                    && upvalues[0] == crate::types::UpValueDescriptor::Environment);
+            if !loadable {
+                return Err(
+                    "unable to dump this function: only a chunk, whose one upvalue is _ENV, can be \
+                     loaded back"
+                        .into_value(ctx)
+                        .into(),
+                );
+            }
+            let bytes = crate::dump::dump(&closure.prototype(), strip.unwrap_or(false));
+            stack.replace(ctx, ctx.intern(&bytes));
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    string_lib.set_field(
+        ctx,
         "reverse",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
             let s = stack.consume::<String>(ctx)?;

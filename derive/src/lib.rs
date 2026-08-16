@@ -166,10 +166,7 @@ fn from_value_body(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream>
 }
 
 /// Only named fields make sense as table keys; a tuple struct has nothing to call them.
-fn named_fields<'a>(
-    fields: &'a Fields,
-    input: &DeriveInput,
-) -> syn::Result<Vec<&'a syn::Field>> {
+fn named_fields<'a>(fields: &'a Fields, input: &DeriveInput) -> syn::Result<Vec<&'a syn::Field>> {
     match fields {
         Fields::Named(named) => Ok(named.named.iter().collect()),
         Fields::Unit => Ok(Vec::new()),

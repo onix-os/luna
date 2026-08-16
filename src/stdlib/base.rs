@@ -590,16 +590,33 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
                 }
             };
 
-            // There is no bytecode loader, so "b" is refused rather than silently treated as
-            // source. "t" and "bt" both mean "text is acceptable", which is all luna can do.
+            // `mode` is how a host refuses one form or the other. A binary chunk is arbitrary code
+            // just as source is, so a host that only ever meant to accept text says so here.
+            // Binary is opt-in, which is a deliberate deviation from PUC-Rio's "bt" default. The
+            // loader checks every index and span, but it cannot prove a hand-written program obeys
+            // every invariant the compiler would have maintained, so accepting bytecode is a
+            // decision a host should make on purpose. See `crate::dump`.
+            let binary = crate::dump::is_binary_chunk(chunk.as_bytes());
             match mode {
-                None | Some(Value::Nil) => {}
+                None | Some(Value::Nil) => {
+                    if binary {
+                        return Err(
+                            "bad argument #1 to 'load' (binary chunks need mode 'b')"
+                                .into_value(ctx)
+                                .into(),
+                        );
+                    }
+                }
                 Some(Value::String(s)) => {
                     let mode = s.display_lossy().to_string();
-                    if !mode.contains('t') {
-                        return Err("bad argument #3 to 'load' (luna cannot load binary chunks)"
-                            .into_value(ctx)
-                            .into());
+                    let allowed = if binary { mode.contains('b') } else { mode.contains('t') };
+                    if !allowed {
+                        let refused = if binary { "binary" } else { "text" };
+                        return Err(format!(
+                            "bad argument #3 to 'load' (a {refused} chunk is not allowed by mode '{mode}')"
+                        )
+                        .into_value(ctx)
+                        .into());
                     }
                 }
                 Some(_) => {
