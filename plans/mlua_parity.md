@@ -8,14 +8,14 @@ embedding Lua in Rust — as a pure-Rust VM, with no FFI.
 | **luna** | ~26k LOC |
 | **mlua** | 0.12.0 (~23k LOC) |
 | **Surveyed** | 2026-08-16 at `dd31437` |
-| **Status refreshed** | 2026-08-16, after the implementation pass below |
+| **Status refreshed** | 2026-08-16, re-probed against a running build — see §0.1 |
 
 ## Where this stands
 
 **Most of this document has been implemented.** The survey below is kept as written — it is the
 evidence for each gap, and the file:line citations are still where the work happened — but the
-status of each item is now recorded in §0.1. Read that first; the tables after it describe the
-tree as it was *before* the work, not as it is now.
+current state is the parity map in §0.1. Read that first; the tables after it describe the tree as
+it was *before* the work, not as it is now.
 
 Verified against a running build rather than assumed: every item marked done below has a test in
 `tests/`, and the whole suite passes under `make verify`.
@@ -48,37 +48,78 @@ trust — and re-checked again after the implementation pass.
 
 ---
 
-## 0.1 Status after implementation
+## 0.1 Parity map
 
-Done, each with tests:
+Refreshed 2026-08-16 against a running build: every "yes" below was exercised, not assumed. The
+survey in §1 onward is kept as written — it is the evidence for each gap and the file:line citations
+are where the work happened — but it describes the tree *before* the implementation pass. This
+section is the current state.
 
-| Area | What landed | Tests |
+### The language
+
+Complete. A 25-item Lua 5.4 conformance probe passes in full: integer/float subtypes and overflow,
+`//`, bitwise operators, `goto`, `<const>`, `<close>`, varargs, metamethods, coroutines, patterns
+including frontier `%f`, `string.pack`, `utf8`, proper tail calls (2,000,000 deep, no frame growth).
+See COMPATIBILITY.md's Language section for the itemised list.
+
+### Standard library
+
+| Library | luna | mlua (PUC-Lua) | Gap |
+|---|---|---|---|
+| base | all of it | all | `_VERSION` is `"luna"`; `pairs` returns 2 values not 3 |
+| string | all, including `pack`/`unpack`/`packsize` | all | `string.dump` — needs a bytecode format |
+| table | all | all | `sort` and `move` are Lua polyfills, not native |
+| math | all | all | — |
+| coroutine | all | all | — |
+| utf8 | all | all | — |
+| os | all but `setlocale` | all | `date` is UTC-only (no tz database); `execute` is `/bin/sh`, so POSIX-only |
+| io | files, `lines`, `popen`, `seek`, `type` | all | `input`/`output` default streams, `flush`, `tmpfile`, `setvbuf` |
+| package | `require`, `path`, `preload`, `loaded` | all | `config`, `searchers`, `searchpath`, `cpath`, `loadlib` (the last two are C-only) |
+| debug | `traceback`, `getinfo`, up/setupvalue, get/setmetatable | all | `sethook`, `getlocal`, `getregistry`, `upvalueid`, `uservalue` |
+
+### Metamethods
+
+All of them, including `__gc`, `__close`, `__metatable`, `__name`, `__pairs`. The one gap is
+`__mode`: weak *values* work, weak *keys* are deliberately unimplemented rather than silently wrong
+(see COMPATIBILITY.md).
+
+### The Rust embedding API
+
+| Capability | luna | mlua | Notes |
+|---|---|---|---|
+| Call Lua from Rust, Rust from Lua | yes | yes | |
+| Userdata with methods and metamethods | yes | yes | `UserRef<T>` covers the common shape without a derive |
+| Serde both directions | yes | yes | `SerializeValue` takes a value out into any format |
+| Scoped / non-`'static` userdata | yes | yes | luna's is lifetime-branded rather than runtime-checked |
+| Sandboxing | yes | yes | `load(env)`, frozen tables, `interceptall` |
+| Memory ceiling | yes | only with a custom allocator | luna's is byte-exact and needs no allocator |
+| **Interrupt running Lua** | **yes, `Fuel`** | **no** | mlua has no preemption; this is the largest capability difference in luna's favour |
+| **Host-paced incremental GC** | **yes** | **no** | collection in slices, between `Executor::step` calls |
+| No C toolchain, no `unsafe` boundary | yes | no | |
+| `Send`/`Sync` `Lua` | no | yes | architectural; one `Lua` per thread + message passing |
+| Real async (foreign futures) | no | yes | needs a `Waker` through `Executor::step` |
+| Derive macros for userdata | no | yes | wants a proc-macro crate |
+| Argument position in errors | no | yes | `Stack::consume` drops it |
+
+### What remains, in priority order
+
+| Item | Why it is still open | Size |
 |---|---|---|
-| **Whole libraries** | `io` (file handles over `std::fs`, `popen`), `os` (UTC dates hand-rolled, no new crates), `package`/`require` (no C searcher), `utf8`, `debug` (`traceback`, `getinfo`, upvalues) | `io_lib`, `os_lib`, `package_lib`, `utf8_lib`, `debug_lib` |
-| **Base functions** | `xpcall`, `dofile`, `loadfile`, `rawequal`, `warn`, `_G`, `coroutine.wrap`/`close`/`isyieldable`, `string.pack`/`unpack`/`packsize` | `stdlib_batch`, `string_pack` |
-| **The sandbox escape** | `load` honours `chunkname`, `mode` and **`env`** | `load` |
-| **Diagnostics** | `chunk:line:` on runtime errors, `error(msg, level)` with levels 0/1/2, real messages instead of "operator error" | `error_positions` |
-| **Metamethods** | `__close` on every scope exit including error unwinding, `__metatable` protection, `__name`, metatables on strings, `getmetatable` on any value | `close_attribute`, `metamethods` |
-| **Numeric semantics** | exact integer/float comparison past 2^53, `%.14g` float printing with `.0`, `modf`/`fmod`/`tointeger`/`randomseed`, integer-preserving string arithmetic, bitwise ops rejecting strings | `numeric_semantics`, `metamethods` |
-| **Control plane** | memory ceiling, recursion ceiling, frozen tables, `collectgarbage` verbs, `table.clear`, `table.interceptall` | `sandbox`, `recursion`, `gc_control` |
-| **Rust API** | map/set conversions, `Either`, `prelude`, `Result` alias, wide integer and runtime string conversions, `UserRef<T>` | `rust_api`, `conversions_map` |
-| **Correctness fixes** | serde deserializer recursion guard (was a **process crash** on a cyclic table), `gsub` following `__index`, `gmatch` `init`, `ipairs` returning three values | `serde_recursion`, `metamethods` |
-| **Re-entrancy** | a nested `Executor` may be driven from a callback; a thread's value stack has its own lock, so natives run on the real stack and re-entrant Lua can still reach open upvalues in it | `reentrancy` |
-| **`__gc` finalizers** | on tables and userdata, via the two-stage prepare/finalize split; registered only when a metatable carries `__gc`; resurrection does not re-finalize; an erroring handler is reported through `warn` and does not abort the sweep | `gc_finalizers` |
-| **`__mode` weak values** | by representation, not by clearing — slots hold `GcWeak`, so a cleared entry cannot be read as a dangling one. Weak *keys* deliberately not implemented, and documented rather than silently ignored | `weak_tables` |
-| **Threading** | `SerializeValue` takes a Lua value out into any serde format; the one-`Lua`-per-thread pattern documented with a worked example | `serialize_value` |
+| **Real async** | Awaiting foreign futures needs a real `Waker` plumbed through `Executor::step`, and `Lua::enter` reconciled with being held across an await. The stackless design helps once started. | Large |
+| **`Send`/`Sync` `Lua`** | The arena's ownership model is what makes the re-entrancy guarantees sound; changing it is a gc-arena change. One `Lua` per thread and message passing is the answer. | Architectural |
+| **Weak keys (`__mode = "k"`)** | Needs ephemeron marking — the collector must iterate to a fixed point. Without it the naive version leaks in exactly the case weak keys are used for. | Medium |
+| **Derive macros** | Wants a proc-macro crate in the workspace. `UserRef` removed the sharpest edge without one. | Medium |
+| **`string.dump`** | Needs a versioned bytecode format *and* a validating loader, designed from scratch — a malformed chunk must not be able to corrupt the VM. | Medium |
+| **`debug.sethook` / `getlocal`** | `sethook` needs a dispatch point in the opcode loop; `getlocal` needs a register→name table the compiler does not emit. `Fuel` already covers the count-hook use case, better. | Medium |
+| **`Error::BadArgument`** | Argument position is dropped by `Stack::consume`; threading it through `FromMultiValue` is wider than it looks. | Small |
+| **`io.input`/`output`/`flush`/`tmpfile`, `setvbuf`** | Default-stream plumbing. No design problem, just unwritten. | Small |
+| **`package.config`/`searchers`/`searchpath`** | Same. `cpath`/`loadlib` are C-only and out of scope. | Small |
+| **Native `table.sort`/`move`** | Currently Lua polyfills. Correct but slower than they need to be. | Small |
+| **serde option surface** | The recursion crash is fixed and both directions work; the options are not built. | Small |
 
-Still open, and why:
-
-| Item | Why it is still open |
-|---|---|
-| **Real async** | Awaiting foreign futures needs a real `Waker` plumbed through `Executor::step` and `Lua::enter` reconciled with being held across an await. Large, and tractable — the stackless design helps once started. |
-| **`Send`/`Sync` `Lua`** | Architectural: the arena's ownership model is what makes the re-entrancy guarantees sound. One `Lua` per thread and message passing. |
-| **Derive macros** | Wants a proc-macro crate in the workspace; `UserRef` removed the sharpest edge without one. |
-| **`string.dump`** | Needs a versioned bytecode format and a validating loader designed from scratch. |
-| **`debug.sethook`, `getlocal`** | `sethook` needs a dispatch point in the opcode loop; `getlocal` needs a register→name table the compiler does not emit. `Fuel` already covers the count-hook use case, better. |
-| **`Error::BadArgument`** | Argument position is dropped by `Stack::consume`; threading it through `FromMultiValue` is a wider change than it looks. |
-| **serde options** | The recursion crash is fixed and `SerializeValue` now takes a Lua value out into any serde format (`serialize_value`); the wider option surface is not built. |
+Out of scope permanently, because they exist only because mlua binds a C library: the backend
+matrix (`lua51`…`lua55`, `luajit`, `luau`), `mlua-sys`, module mode, `lua_State` access, C function
+creation, `package.loadlib`, `os.setlocale`, and the Luau-only value types. See Appendix A.
 
 ---
 

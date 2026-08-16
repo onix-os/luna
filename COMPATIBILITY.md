@@ -18,29 +18,50 @@ likely not be implemented due to differences between luna and PUC-Lua.
 
 **NOTE**: `(a[, b, c])` corresponds to the Lua docs' `(a[, b[, c]])` usage.
 
+## Language
+
+The Lua 5.4 language itself is complete. Every item here is exercised by `tests/`, and the list is
+what a 5.4 conformance pass actually asks about rather than a summary.
+
+| Status | Feature | Notes |
+| ------ | ------- | ----- |
+| 🔵 | Integers and floats as distinct subtypes | `math.type`, integer overflow wraps to `math.mininteger`, `//` and `%` follow the integer/float rules |
+| 🔵 | Integer division `//`, and `%` on both subtypes | |
+| 🔵 | Bitwise `&` `\|` `~` `<<` `>>` and unary `~` | Reject strings, as 5.4 does — no coercion |
+| 🔵 | `goto` and labels | Including jumping out of nested loops |
+| 🔵 | `<const>` and `<close>` attributes | `<close>` runs on every exit: normal, `break`/`return`, error unwinding, and coroutine close |
+| 🔵 | Varargs, `...`, `select('#', ...)` | `nil`s counted correctly |
+| 🔵 | Full metamethod set | See Metamethods below |
+| 🔵 | Coroutines | Full round-trip resume/yield with values in both directions, `close`, `isyieldable`, `running`, status transitions |
+| 🔵 | Proper tail calls | The stackless design makes these free; unbounded tail recursion does not grow the frame stack |
+| 🔵 | Lexical scoping and upvalues | Including upvalues shared between closures, and read/write from re-entrant Rust callbacks |
+| 🔵 | String coercion in arithmetic | Integer-preserving, as in 5.4 |
+| 🔵 | Long strings and long comments, `\z`, `\x`, `\u{}` escapes | |
+| 🟡 | Source positions | Runtime errors carry `chunk:line:`. There is no column information, and `getinfo` reports no `name`/`namewhat` |
+
 ## Base
 
 | Status | Function                                                       | Differences                                                                                                                            | Notes |
 | ------ | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----- |
 | 🔵     | `assert(v[, message])`                                         |                                                                                                                                        |       |
 | 🔵     | `collectgarbage("count")`                                      |                                                                                                                                        |       |
-| 🔵    | `collectgarbage("collect")`                                    |                                                                                                                                        |       |
+| 🔵    | `collectgarbage("collect")`                                    | Collection cannot run while the arena is borrowed, so the verb is a request carried out at the slice boundary — which it also forces, so the effect lands before the next statement. | |
 | 🔵    | `collectgarbage("stop")`                                       |                                                                                                                                        |       |
 | 🔵    | `collectgarbage("restart")`                                    |                                                                                                                                        |       |
 | 🟡    | `collectgarbage("step"[, memkb])`                              | `memkb` is ignored; a step is one incremental slice.                                                                                                                                        |       |
-| 🟡    | `collectgarbage("isrunning")`                                  | Answers from the collector's debt rather than a stored flag.                                                                                                                                        |       |
+| 🔵    | `collectgarbage("isrunning")`                                  | | |
 | 🤷‍♀️     | `collectgarbage("incremental"[, gcpause, stepmult, stepsize])` |                                                                                                                                        |       |
 | 🤷‍♀️     | `collectgarbage("generational"[, minormult, majormult])`       |                                                                                                                                        |       |
 | 🔵    | `dofile([filename])`                                           |                                                                                                                                        |       |
-| 🟡     | `error(message)`                                               | Due to `level` not being implemented for, all calls here give the same result as PUC-Lua `error(message, 0)` (or any invalid `level`). |       |
-| 🟡    | `error(message, level)`                                        | The `level` argument is accepted and ignored: luna has no source positions to prefix yet.                                                                                                                                        |       |
+| 🔵     | `error(message)`                                               | | |
+| 🔵    | `error(message, level)`                                        | Levels 0, 1 and 2 all resolve. `level` counts every activation, so a native caller (`pcall(error, "x")`) contributes no position, as in PUC-Rio. | |
 | 🔵    | `_G` (value)                                                   |                                                                                                                                        |       |
 | 🔵     | `getmetatable(object)`                                         |                                                                                                                                        |       |
-| 🟡     | `ipairs(t)`                                                    | PUC-Lua returns `iter, table, 0`, where as luna returns `iter, table`.                                                              |       |
+| 🔵     | `ipairs(t)`                                                    | | |
 | 🔵    | `load(chunk[, chunkname, mode, env])`                          |                                                                                                                                        |       |
 | 🔵    | `loadfile([filename, mode, env])`                              |                                                                                                                                        |       |
 | 🔵     | `next(table [, index])`                                        |                                                                                                                                        |       |
-| 🔵     | `pairs(t)`                                                     | By default, PUC-Lua return `iter, table, nil` where as luna returns `iter, table`.                                                  |       |
+| 🟡     | `pairs(t)`                                                     | Returns `iter, table`; PUC-Lua returns `iter, table, nil`. The third value is `nil` either way, so `for k, v in pairs(t)` is unaffected. | |
 | 🔵     | `pcall(f, args...)`                                            |                                                                                                                                        |       |
 | 🔵     | `print(args...)`                                               |                                                                                                                                        |       |
 | 🔵    | `rawequal(v1, v2)`                                             |                                                                                                                                        |       |
@@ -50,9 +71,9 @@ likely not be implemented due to differences between luna and PUC-Lua.
 | 🔵     | `select(index, args...)`                                       |                                                                                                                                        |       |
 | 🔵     | `setmetatable(table, metatable)`                               |                                                                                                                                        |       |
 | 🔵    | `tonumber(e[, base])`                                          |                                                                                                                                        |       |
-| 🟡     | `tostring(v)`                                                  | luna does not use the metatable field `__name` by default, while PUC-Lua does.                                                      |       |
+| 🔵     | `tostring(v)`                                                  | | |
 | 🔵     | `type(v)`                                                      |                                                                                                                                        |       |
-| 🔵    | `_VERSION` (value)                                             |                                                                                                                                        |       |
+| 🟡    | `_VERSION` (value)                                             | `"luna"`, not `"Lua 5.4"`. The language targeted is 5.4. | |
 | 🔵    | `warn(msg, args...)`                                           |                                                                                                                                        |       |
 | 🔵    | `xpcall(f, msgh, args...)`                                     |                                                                                                                                        |       |
 
@@ -114,7 +135,7 @@ likely not be implemented due to differences between luna and PUC-Lua.
 | 🔵   | `char(args..)`               |             |       |
 | 🔵   | `charpattern` (value)        |             |       |
 | 🔵   | `codes(s[, lax])`            |             |       |
-| ⚫️️   | `codepoints(s[, i, j, lax])` |             |       |
+| 🔵   | `codepoint(s[, i, j, lax])`  |             |       |
 | 🔵   | `len(s[, i, j, lax])`        |             |       |
 | 🔵   | `offset(s, n[, i])`          |             |       |
 
@@ -166,17 +187,19 @@ I'm not going over these with a fine-tooth comb, if it exists (and takes the spe
 
 ## I/O
 
-I see a module in the code repo that is labelled the IO library, but it only creates the `print` global, which is not the IO module (as understood from the Lua Manual).
+File handles are real: `io.open` returns a userdata with a metatable, backed by `std::fs`. `popen` shells
+out through `std::process`. What is missing is the default-stream plumbing — `io.input`/`io.output`
+and the buffering controls — not the file operations themselves.
 
 | Status | Function                      | Differences                                                                                                                 | Notes |
 | ------ | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----- |
 | 🔵    | `close([file])`               |                                                                                                                             |       |
 | ⚫️    | `flush()`                     |                                                                                                                             |       |
-| ⚫️    | `input([file])`               |                                                                                                                             |       |
+| ⚫️    | `input([file])`               | No default-input stream; `io.read` reads stdin.                                                                             |       |
 | 🔵    | `lines([filename, args...])`  |                                                                                                                             |       |
 | 🔵    | `open(filename [, mode])`     |                                                                                                                             |       |
-|        | `output([file])`              |                                                                                                                             |       |
-| ⚫️/❗ | `popen(prog[, mode])`         | Might be classifiable as "C weirdness" or it's just creating another process which kinda feels as icky as the OS module imo |       |
+| ⚫️    | `output([file])`              | No default-output stream; `io.write` goes to stdout.                                                                        |       |
+| 🔵    | `popen(prog[, mode])`         | Over `std::process`, not C `popen`. Read and write modes; `close` reports the exit status.                                  |       |
 | 🔵    | `read(args...)`               |                                                                                                                             |       |
 | ⚫️    | `tmpfile()`                   |                                                                                                                             |       |
 | 🔵    | `type(obj)`                   |                                                                                                                             |       |
@@ -198,7 +221,7 @@ IMO this module is best in its current state, but I cannot stop one from downloa
 | 🔵    | `clock()`                       |                                                                                                                                                                                            |       |
 | 🟡    | `date([format, time])`          | Always UTC: luna ships no time-zone database, and `!` is accepted and ignored.                                                                                                                                                                                            |       |
 | 🔵    | `difftime(t2, t1)`              |                                                                                                                                                                                            |       |
-| ❗     | `execute([command])`            | Because PUC-Lua requires this to be isomorphic to ISO C `system`, I can simply put this under C weirdness!                                                                                 |       |
+| 🟡    | `execute([command])`            | Runs through `/bin/sh -c` rather than ISO C `system`, so it is POSIX-only. With no argument, reports that a shell is available. |       |
 | 🔵    | `exit([code, close])`           | Probably a❗, but I cannae tell you want to do                                                                                                                                             |       |
 | 🔵    | `getenv(varname)`               | ...what is this a shell script?                                                                                                                                                            |       |
 | 🔵    | `remove(filename)`              |                                                                                                                                                                                            |       |
