@@ -24,6 +24,14 @@ enum Level {
     Warn,
 }
 
+/// A generic type used to fail to compile at all: `'gc` was spliced in beside the already-bracketed
+/// generics, producing `impl<'gc, <T>>`.
+#[derive(FromValue, IntoValue, Debug, PartialEq)]
+struct Pair<T> {
+    first: T,
+    second: T,
+}
+
 #[test]
 fn a_struct_becomes_a_table_keyed_by_field_name() {
     let mut lua = Lua::core();
@@ -139,4 +147,38 @@ fn derived_values_come_back_from_lua() -> Result<(), ExternError> {
     })?;
     assert_eq!(lua.execute::<Point>(&executor)?, Point { x: 11, y: 13 });
     Ok(())
+}
+
+#[test]
+fn a_generic_struct_round_trips() {
+    let mut lua = Lua::core();
+    lua.enter(|ctx| {
+        let value = Pair {
+            first: 3_i64,
+            second: 4_i64,
+        }
+        .into_value(ctx);
+        assert_eq!(
+            Pair::<i64>::from_value(ctx, value).unwrap(),
+            Pair {
+                first: 3,
+                second: 4
+            }
+        );
+
+        // Nesting proves the bound on `T` is emitted: the inner `Pair` has to convert too.
+        let value = Pair {
+            first: Pair {
+                first: 1_i64,
+                second: 2_i64,
+            },
+            second: Pair {
+                first: 3_i64,
+                second: 4_i64,
+            },
+        }
+        .into_value(ctx);
+        let back = Pair::<Pair<i64>>::from_value(ctx, value).unwrap();
+        assert_eq!(back.second.first, 3);
+    });
 }

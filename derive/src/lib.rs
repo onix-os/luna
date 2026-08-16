@@ -14,7 +14,23 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{spanned::Spanned, Data, DeriveInput, Fields};
+use syn::{parse_quote, spanned::Spanned, Data, DeriveInput, Fields, GenericParam, Generics};
+
+/// Builds the impl's generics from the type's own: `'gc` is prepended, and every type parameter
+/// gains `bound` — a field of type `T` can only be converted if `T` converts too.
+///
+/// `'gc` cannot simply be written into the `impl<...>` list beside the split-off generics, because
+/// `impl_generics` renders its own angle brackets and `impl<'gc, <T>>` does not parse.
+fn impl_generics(generics: &Generics, bound: &syn::TypeParamBound) -> Generics {
+    let mut generics = generics.clone();
+    for param in &mut generics.params {
+        if let GenericParam::Type(ty) = param {
+            ty.bounds.push(bound.clone());
+        }
+    }
+    generics.params.insert(0, parse_quote!('gc));
+    generics
+}
 
 /// Derive [`IntoValue`](https://docs.rs/luna/latest/luna/trait.IntoValue.html): a struct becomes a
 /// table keyed by field name, a fieldless enum becomes its variant name.
@@ -24,9 +40,11 @@ pub fn derive_into_value(input: TokenStream) -> TokenStream {
     match into_value_body(&input) {
         Ok(body) => {
             let name = &input.ident;
-            let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+            let generics = impl_generics(&input.generics, &parse_quote!(luna::IntoValue<'gc>));
+            let (impl_generics, _, where_clause) = generics.split_for_impl();
+            let (_, ty_generics, _) = input.generics.split_for_impl();
             quote! {
-                impl<'gc, #impl_generics> luna::IntoValue<'gc> for #name #ty_generics
+                impl #impl_generics luna::IntoValue<'gc> for #name #ty_generics
                 #where_clause
                 {
                     fn into_value(self, ctx: luna::Context<'gc>) -> luna::Value<'gc> {
@@ -48,9 +66,11 @@ pub fn derive_from_value(input: TokenStream) -> TokenStream {
     match from_value_body(&input) {
         Ok(body) => {
             let name = &input.ident;
-            let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+            let generics = impl_generics(&input.generics, &parse_quote!(luna::FromValue<'gc>));
+            let (impl_generics, _, where_clause) = generics.split_for_impl();
+            let (_, ty_generics, _) = input.generics.split_for_impl();
             quote! {
-                impl<'gc, #impl_generics> luna::FromValue<'gc> for #name #ty_generics
+                impl #impl_generics luna::FromValue<'gc> for #name #ty_generics
                 #where_clause
                 {
                     fn from_value(
