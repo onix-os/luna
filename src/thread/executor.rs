@@ -14,7 +14,7 @@ use crate::{
 
 use super::{
     close::CloseSequence,
-    thread::{Frame, LuaFrame, ThreadState},
+    thread::{Frame, LuaFrame, StackVec, ThreadState},
     vm::run_vm,
 };
 
@@ -283,11 +283,15 @@ impl<'gc> Executor<'gc> {
                 // Take the results from the res_thread and return them to our top
                 // thread.
                 let mut res_state = res_thread.into_inner().borrow_mut(&ctx);
-                match res_state.take_result() {
+                let res_stack = res_state.stack;
+                let mut res_stack = res_stack.borrow_mut(&ctx);
+                let top_stack = top_state.stack;
+                let mut top_stack = top_stack.borrow_mut(&ctx);
+                match res_state.take_result(&mut res_stack) {
                     Ok(vals) => {
-                        let bottom = top_state.stack.len();
-                        top_state.stack.extend(vals);
-                        top_state.return_to(bottom);
+                        let bottom = top_stack.len();
+                        top_stack.extend(vals);
+                        top_state.return_to(&mut top_stack, bottom);
                     }
                     Err(err) => {
                         top_state.frames.push(Frame::Error(err.into()));
@@ -301,13 +305,13 @@ impl<'gc> Executor<'gc> {
                     ctx: Context<'gc>,
                     thread_stack: &mut vec::Vec<Thread<'gc>, MetricsAlloc<'gc>>,
                     top_state: &mut ThreadState<'gc>,
+                    // As `do_resume`: the caller holds this stack already.
+                    stack: &mut StackVec<'gc>,
                     to_thread: Option<Thread<'gc>>,
                     bottom: usize,
                 ) {
                     if let Some(to_thread) = to_thread {
-                        if let Err(err) =
-                            to_thread.resume(ctx, Variadic(top_state.stack.drain(bottom..)))
-                        {
+                        if let Err(err) = to_thread.resume(ctx, Variadic(stack.drain(bottom..))) {
                             top_state.frames.push(Frame::Error(err.into()));
                         } else {
                             top_state.frames.push(Frame::Yielded);
@@ -324,11 +328,13 @@ impl<'gc> Executor<'gc> {
                     ctx: Context<'gc>,
                     thread_stack: &mut vec::Vec<Thread<'gc>, MetricsAlloc<'gc>>,
                     top_state: &mut ThreadState<'gc>,
+                    // Passed in rather than borrowed here: the caller already holds this stack,
+                    // and re-locking it would be a double borrow of the same object.
+                    stack: &mut StackVec<'gc>,
                     thread: Thread<'gc>,
                     bottom: usize,
                 ) {
-                    if let Err(err) = thread.resume(ctx, Variadic(top_state.stack.drain(bottom..)))
-                    {
+                    if let Err(err) = thread.resume(ctx, Variadic(stack.drain(bottom..))) {
                         top_state.frames.push(Frame::Error(err.into()));
                     } else {
                         // Tail call the thread resume if we can.
@@ -361,7 +367,7 @@ impl<'gc> Executor<'gc> {
                                 vec::Vec::new_in(MetricsAlloc::new(&ctx)),
                             );
                             scratch.clear();
-                            scratch.extend(top_state.stack.drain(bottom..));
+                            scratch.extend(top_state.stack.borrow_mut(&ctx).drain(bottom..));
                             top_state.running = true;
                             scratch
                         };
@@ -376,12 +382,14 @@ impl<'gc> Executor<'gc> {
                             Stack::new(&mut scratch, 0),
                         );
                         let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
-                        top_state.stack.append(&mut scratch);
+                        let top_stack = top_state.stack;
+                        let mut top_stack = top_stack.borrow_mut(&ctx);
+                        top_stack.append(&mut scratch);
                         top_state.running = false;
                         state.scratch = scratch;
                         match result {
                             Ok(CallbackReturn::Return) => {
-                                top_state.return_to(bottom);
+                                top_state.return_to(&mut top_stack, bottom);
                             }
                             Ok(CallbackReturn::Sequence(sequence)) => {
                                 top_state.frames.push(Frame::Sequence {
@@ -398,7 +406,7 @@ impl<'gc> Executor<'gc> {
                                         pending_error: None,
                                     });
                                 }
-                                top_state.push_call(bottom, function);
+                                top_state.push_call(&mut top_stack, bottom, function);
                             }
                             Ok(CallbackReturn::Yield { to_thread, then }) => {
                                 if let Some(sequence) = then {
@@ -412,6 +420,7 @@ impl<'gc> Executor<'gc> {
                                     ctx,
                                     &mut state.thread_stack,
                                     top_state,
+                                    &mut top_stack,
                                     to_thread,
                                     bottom,
                                 );
@@ -424,10 +433,17 @@ impl<'gc> Executor<'gc> {
                                         pending_error: None,
                                     });
                                 }
-                                do_resume(ctx, &mut state.thread_stack, top_state, thread, bottom);
+                                do_resume(
+                                    ctx,
+                                    &mut state.thread_stack,
+                                    top_state,
+                                    &mut top_stack,
+                                    thread,
+                                    bottom,
+                                );
                             }
                             Err(err) => {
-                                top_state.stack.truncate(bottom);
+                                top_stack.truncate(bottom);
                                 top_state.frames.push(Frame::Error(err))
                             }
                         }
@@ -448,7 +464,7 @@ impl<'gc> Executor<'gc> {
                                 vec::Vec::new_in(MetricsAlloc::new(&ctx)),
                             );
                             scratch.clear();
-                            scratch.extend(top_state.stack.drain(bottom..));
+                            scratch.extend(top_state.stack.borrow_mut(&ctx).drain(bottom..));
                             top_state.running = true;
                             scratch
                         };
@@ -464,7 +480,9 @@ impl<'gc> Executor<'gc> {
                             sequence.poll(ctx, exec, Stack::new(&mut scratch, 0))
                         };
                         let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
-                        top_state.stack.append(&mut scratch);
+                        let top_stack = top_state.stack;
+                        let mut top_stack = top_stack.borrow_mut(&ctx);
+                        top_stack.append(&mut scratch);
                         top_state.running = false;
                         state.scratch = scratch;
 
@@ -477,7 +495,7 @@ impl<'gc> Executor<'gc> {
                                 });
                             }
                             Ok(SequencePoll::Return) => {
-                                top_state.return_to(bottom);
+                                top_state.return_to(&mut top_stack, bottom);
                             }
                             Ok(SequencePoll::Call {
                                 function,
@@ -488,10 +506,10 @@ impl<'gc> Executor<'gc> {
                                     sequence,
                                     pending_error: None,
                                 });
-                                top_state.push_call(bottom + rel_bottom, function);
+                                top_state.push_call(&mut top_stack, bottom + rel_bottom, function);
                             }
                             Ok(SequencePoll::TailCall(function)) => {
-                                top_state.push_call(bottom, function);
+                                top_state.push_call(&mut top_stack, bottom, function);
                             }
                             Ok(SequencePoll::Yield {
                                 to_thread,
@@ -506,6 +524,7 @@ impl<'gc> Executor<'gc> {
                                     ctx,
                                     &mut state.thread_stack,
                                     top_state,
+                                    &mut top_stack,
                                     to_thread,
                                     bottom + rel_bottom,
                                 );
@@ -515,6 +534,7 @@ impl<'gc> Executor<'gc> {
                                     ctx,
                                     &mut state.thread_stack,
                                     top_state,
+                                    &mut top_stack,
                                     to_thread,
                                     bottom,
                                 );
@@ -532,15 +552,23 @@ impl<'gc> Executor<'gc> {
                                     ctx,
                                     &mut state.thread_stack,
                                     top_state,
+                                    &mut top_stack,
                                     thread,
                                     bottom + rel_bottom,
                                 );
                             }
                             Ok(SequencePoll::TailResume(thread)) => {
-                                do_resume(ctx, &mut state.thread_stack, top_state, thread, bottom);
+                                do_resume(
+                                    ctx,
+                                    &mut state.thread_stack,
+                                    top_state,
+                                    &mut top_stack,
+                                    thread,
+                                    bottom,
+                                );
                             }
                             Err(error) => {
-                                top_state.stack.truncate(bottom);
+                                top_stack.truncate(bottom);
                                 top_state.frames.push(Frame::Error(error));
                             }
                         }
@@ -549,9 +577,11 @@ impl<'gc> Executor<'gc> {
                         let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
                         top_state.frames.push(frame);
 
+                        // One borrow of the stack for the whole VM slice, not one per opcode.
+                        let stack = top_state.stack;
                         let lua_frame = LuaFrame {
                             state: top_state,
-                            thread: top_thread,
+                            stack: stack.borrow_mut(&ctx),
                             fuel,
                         };
                         match run_vm(ctx, lua_frame, Self::VM_GRANULARITY) {
@@ -584,12 +614,14 @@ impl<'gc> Executor<'gc> {
                             .expect("normal thread must have frame above error")
                         {
                             Frame::Lua { bottom, .. } => {
-                                top_state.close_upvalues(&ctx, bottom);
+                                let stack = top_state.stack;
+                                let mut stack = stack.borrow_mut(&ctx);
+                                top_state.close_upvalues(&ctx, &stack, bottom);
                                 // An error unwinding past a `<close>` variable still has to run its
                                 // handler — that is the case cleanup exists for. The handler gets
                                 // the in-flight error, and the sequence re-raises it afterwards.
-                                let to_close = top_state.take_to_be_closed(bottom);
-                                top_state.stack.truncate(bottom);
+                                let to_close = top_state.take_to_be_closed(&stack, bottom);
+                                stack.truncate(bottom);
                                 if to_close.is_empty() {
                                     top_state.frames.push(Frame::Error(err));
                                 } else {
