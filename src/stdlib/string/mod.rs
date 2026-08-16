@@ -491,13 +491,26 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
         ctx,
         "gmatch",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
-            let (s, pat) = stack.consume::<(String, String)>(ctx)?;
+            let (s, pat, init) = stack.consume::<(String, String, Option<i64>)>(ctx)?;
+            // `init` follows the same convention as `find`: 1-based, negative counts from the end.
+            let start = match init {
+                None => 0,
+                Some(i) => {
+                    let len = s.as_bytes().len() as i64;
+                    let at = if i < 0 {
+                        (len + i + 1).max(1)
+                    } else {
+                        i.max(1)
+                    };
+                    (at - 1).clamp(0, len) as usize
+                }
+            };
             let state = Gc::new(
                 &ctx,
                 GmatchState {
                     source: s,
                     pattern: pat,
-                    pos: Cell::new(0),
+                    pos: Cell::new(start),
                     last_end: Cell::new(None),
                 },
             );

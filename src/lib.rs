@@ -29,7 +29,7 @@ pub use self::{
     callback::{BoxSequence, Callback, CallbackFn, CallbackReturn, Sequence, SequencePoll},
     closure::{Closure, CompilerError, FunctionPrototype},
     constant::Constant,
-    conversion::{FromMultiValue, FromValue, IntoMultiValue, IntoValue, Variadic},
+    conversion::{Either, FromMultiValue, FromValue, IntoMultiValue, IntoValue, Variadic},
     error::{Error, ExternError, RuntimeError, TypeError},
     fuel::Fuel,
     function::Function,
@@ -47,3 +47,35 @@ pub use self::{
     userdata::UserData,
     value::Value,
 };
+
+/// The result of most luna operations that can raise a Lua error.
+pub type Result<'gc, T> = std::result::Result<T, Error<'gc>>;
+
+/// Everything an embedder normally wants, under names that do not collide with `std`.
+///
+/// `use luna::*` pulls in `String`, `Error`, `Table` and `Function` under bare names, which shadow
+/// `std::string::String` and `std::error::Error` and make the resulting code hard to read. The
+/// prelude renames the two that clash and leaves the rest alone:
+///
+/// ```
+/// use luna::prelude::*;
+///
+/// let mut lua = Lua::core();
+/// lua.enter(|ctx| {
+///     let t = LuaTable::new(&ctx);
+///     t.set(ctx, "answer", 42).unwrap();
+/// });
+/// ```
+pub mod prelude {
+    pub use crate::{
+        BoxSequence, Callback, CallbackReturn, Context, Execution, Executor, Fuel, Lua,
+        SequencePoll, Variadic,
+    };
+
+    pub use crate::{
+        Closure as LuaClosure, Error as LuaError, Function as LuaFunction, String as LuaString,
+        Table as LuaTable, Thread as LuaThread, UserData as LuaUserData, Value as LuaValue,
+    };
+
+    pub use crate::{FromMultiValue, FromValue, IntoMultiValue, IntoValue};
+}

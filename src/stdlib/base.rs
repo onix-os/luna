@@ -485,8 +485,13 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
 
     ctx.set_global(
         "ipairs",
-        Callback::from_fn_with(&ctx, inext, move |inext, ctx, _, mut stack| {
-            stack.into_front(ctx, *inext);
+        Callback::from_fn_with(&ctx, inext, move |inext, ctx, mut _exec, mut stack| {
+            // Three values, as the manual specifies: iterator, state, control. Returning two made
+            // generic `for` work but broke `local f, s, var = ipairs(t)`, which is how iterator
+            // combinator libraries take them apart.
+            let table = stack.get(0);
+            stack.replace(ctx, (*inext, table, 0));
+            let _ = &mut _exec;
             Ok(CallbackReturn::Return)
         }),
     );
