@@ -33,7 +33,7 @@ mod collected_print {
         Callback::from_fn(
             &ctx,
             move |ctx: Context<'_>, _: Execution<'_, '_>, mut stack: Stack<'_, '_>| {
-                stack[..].reverse();
+                stack.reverse();
 
                 Ok(CallbackReturn::Sequence(BoxSequence::new(
                     &ctx,

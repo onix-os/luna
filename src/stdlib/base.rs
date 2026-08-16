@@ -76,7 +76,7 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
             } else {
                 match meta_ops::tostring(ctx, stack.get(0))? {
                     MetaResult::Value(v) => {
-                        stack[0] = v;
+                        stack.set(0, v);
                         stack.drain(1..);
                         Ok(CallbackReturn::Return)
                     }

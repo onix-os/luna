@@ -1,5 +1,4 @@
 use std::hash::{Hash, Hasher};
-use std::mem;
 
 use allocator_api2::vec;
 use ottavino_gc_arena::{allocator_api::MetricsAlloc, lock::RefLock, Collect, Gc, Mutation};
@@ -9,7 +8,7 @@ use crate::{
     compiler::{FunctionRef, LineNumber},
     thread::BadThreadMode,
     BoxSequence, CallbackReturn, Closure, Context, Error, FromMultiValue, Fuel, Function,
-    IntoMultiValue, SequencePoll, Stack, String, Thread, ThreadMode, Value, Variadic,
+    IntoMultiValue, SequencePoll, Stack, String, Thread, ThreadMode, Variadic,
 };
 
 use super::{
@@ -45,20 +44,10 @@ pub struct BadExecutorMode {
 #[collect(no_drop)]
 pub struct ExecutorState<'gc> {
     thread_stack: vec::Vec<Thread<'gc>, MetricsAlloc<'gc>>,
-    // Where a native's arguments and results live while it runs. Held here rather than allocated
-    // per call, since every callback and every sequence step uses it.
-    scratch: vec::Vec<Value<'gc>, MetricsAlloc<'gc>>,
-    // The Lua frames below the running native, innermost first, refilled before each call.
-    // Pooled for the same reason as `scratch`: a traceback should not cost an allocation per call.
-    frame_snapshot: vec::Vec<(Closure<'gc>, usize), MetricsAlloc<'gc>>,
 }
 
 pub type ExecutorInner<'gc> = RefLock<ExecutorState<'gc>>;
 
-/// The Lua frame a native is returning to, as an owned snapshot.
-///
-/// Taken before the native runs, because it runs with its thread unborrowed and there is no live
-/// frame slice left to point at.
 /// `chunk:line` for the innermost Lua frame, if there is one.
 ///
 /// Taken where an error is first raised rather than where it is caught: unwinding pops one frame
@@ -82,23 +71,6 @@ fn error_position<'gc>(frames: &[Frame<'gc>]) -> Option<std::string::String> {
     Some(format!("{}:{}", proto.chunk_name.display_lossy(), line))
 }
 
-/// Record the Lua frames, innermost first, into a reused buffer.
-///
-/// A native runs with its thread released, so there is no live frame slice to point at; the whole
-/// chain is copied out first. `error(msg, level)`, `debug.getinfo` and `debug.traceback` all read
-/// it, so it has to be the chain rather than just the nearest frame.
-fn snapshot_lua_frames<'gc>(
-    frames: &[Frame<'gc>],
-    into: &mut vec::Vec<(Closure<'gc>, usize), MetricsAlloc<'gc>>,
-) {
-    into.clear();
-    for frame in frames.iter().rev() {
-        if let Frame::Lua { closure, pc, .. } = frame {
-            into.push((*closure, *pc));
-        }
-    }
-}
-
 /// The entry-point for the Lua VM.
 ///
 /// An `Executor` runs networks of [`Thread`]s that may depend on each other and may yield
@@ -110,9 +82,10 @@ fn snapshot_lua_frames<'gc>(
 /// An `Executor` is not reentrant: calling a method on the *same* `Executor` from within a
 /// callback that it is itself running (other than `Executor::mode`) will panic.
 ///
-/// A *separate* `Executor` may be driven from inside a callback. A native runs with its thread
-/// released, so Lua run that way can read and write open upvalues belonging to the suspended outer
-/// thread. Prefer `CallbackReturn::Call` where the shape of the code allows it — it keeps
+/// A *separate* `Executor` may be driven from inside a callback, and Lua run that way can read and
+/// write open upvalues belonging to the suspended outer thread. That works because a thread's value
+/// stack is a separate object with its own lock: a native holds no borrow on it between operations,
+/// so a re-entrant upvalue access simply takes the lock in between. Prefer `CallbackReturn::Call` where the shape of the code allows it — it keeps
 /// everything on one `Executor` and one fuel budget — but a nested `Executor` is supported for the
 /// cases where there is no continuation to hand back, such as a callback several Rust frames below
 /// the code that needs to call Lua.
@@ -155,8 +128,6 @@ impl<'gc> Executor<'gc> {
             mc,
             RefLock::new(ExecutorState {
                 thread_stack: vec::Vec::new_in(MetricsAlloc::new(mc)),
-                scratch: vec::Vec::new_in(MetricsAlloc::new(mc)),
-                frame_snapshot: vec::Vec::new_in(MetricsAlloc::new(mc)),
             }),
         ));
         executor.reset(mc, thread)?;
@@ -359,34 +330,31 @@ impl<'gc> Executor<'gc> {
                         // still points into *this* thread's stack; holding the thread borrowed
                         // across the call turns that into a panic. Detaching also means a callback
                         // cannot reach the frames below `bottom`.
-                        let mut scratch = {
-                            let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
-                            snapshot_lua_frames(&top_state.frames, &mut state.frame_snapshot);
-                            let mut scratch = mem::replace(
-                                &mut state.scratch,
-                                vec::Vec::new_in(MetricsAlloc::new(&ctx)),
-                            );
-                            scratch.clear();
-                            scratch.extend(top_state.stack.borrow_mut(&ctx).drain(bottom..));
+                        let inner = top_thread.into_inner();
+                        let stack = {
+                            let top_state = &mut *inner.borrow_mut(&ctx);
                             top_state.running = true;
-                            scratch
+                            top_state.stack
                         };
+                        // The frames stay borrowed for the duration of the call. Nothing a native
+                        // does reaches them any more: an open upvalue locks only the stack, which
+                        // is a separate object, so a re-entrant read no longer needs this lock.
+                        let frames = inner.borrow();
                         let result = callback.call(
                             ctx,
                             Execution {
                                 executor: self,
                                 fuel,
                                 threads: &state.thread_stack,
-                                lua_frames: &state.frame_snapshot,
+                                lua_frames: &frames.frames,
                             },
-                            Stack::new(&mut scratch, 0),
+                            Stack::new(ctx, stack, bottom),
                         );
+                        drop(frames);
                         let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
                         let top_stack = top_state.stack;
                         let mut top_stack = top_stack.borrow_mut(&ctx);
-                        top_stack.append(&mut scratch);
                         top_state.running = false;
-                        state.scratch = scratch;
                         match result {
                             Ok(CallbackReturn::Return) => {
                                 top_state.return_to(&mut top_stack, bottom);
@@ -455,36 +423,29 @@ impl<'gc> Executor<'gc> {
                     }) => {
                         fuel.consume(Self::FUEL_PER_SEQ_STEP);
 
-                        // Detached for the same reason as a callback, above.
-                        let mut scratch = {
-                            let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
-                            snapshot_lua_frames(&top_state.frames, &mut state.frame_snapshot);
-                            let mut scratch = mem::replace(
-                                &mut state.scratch,
-                                vec::Vec::new_in(MetricsAlloc::new(&ctx)),
-                            );
-                            scratch.clear();
-                            scratch.extend(top_state.stack.borrow_mut(&ctx).drain(bottom..));
+                        let inner = top_thread.into_inner();
+                        let stack = {
+                            let top_state = &mut *inner.borrow_mut(&ctx);
                             top_state.running = true;
-                            scratch
+                            top_state.stack
                         };
+                        let frames = inner.borrow();
                         let exec = Execution {
                             executor: self,
                             fuel,
                             threads: &state.thread_stack,
-                            lua_frames: &state.frame_snapshot,
+                            lua_frames: &frames.frames,
                         };
                         let poll = if let Some(err) = pending_error {
-                            sequence.error(ctx, exec, err, Stack::new(&mut scratch, 0))
+                            sequence.error(ctx, exec, err, Stack::new(ctx, stack, bottom))
                         } else {
-                            sequence.poll(ctx, exec, Stack::new(&mut scratch, 0))
+                            sequence.poll(ctx, exec, Stack::new(ctx, stack, bottom))
                         };
+                        drop(frames);
                         let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
                         let top_stack = top_state.stack;
                         let mut top_stack = top_stack.borrow_mut(&ctx);
-                        top_stack.append(&mut scratch);
                         top_state.running = false;
-                        state.scratch = scratch;
 
                         match poll {
                             Ok(SequencePoll::Pending) => {
@@ -755,9 +716,8 @@ pub struct Execution<'gc, 'a> {
     executor: Executor<'gc>,
     fuel: &'a mut Fuel,
     threads: &'a [Thread<'gc>],
-    // A snapshot rather than a borrow of the frame stack: a native runs with its thread
-    // unborrowed, so there is no live slice to point at.
-    lua_frames: &'a [(Closure<'gc>, usize)],
+    // The live frame stack, borrowed for the duration of the native.
+    lua_frames: &'a [Frame<'gc>],
 }
 
 impl<'gc, 'a> Execution<'gc, 'a> {
@@ -801,7 +761,19 @@ impl<'gc, 'a> Execution<'gc, 'a> {
     /// The Lua frame `level` steps above this native: 0 is the function that called it, 1 that
     /// function's caller. This is the `level` argument of `error`.
     pub fn lua_frame_at(&self, level: usize) -> Option<UpperLuaFrame<'gc>> {
-        let Some((closure, pc)) = self.lua_frames.get(level).copied() else {
+        // Filtered on lookup rather than pre-collected: this is read by `error(msg, level)`,
+        // `debug.getinfo` and `debug.traceback` only, so paying per lookup beats paying per native
+        // call — which is what snapshotting the chain up front cost.
+        let Some((closure, pc)) = self
+            .lua_frames
+            .iter()
+            .rev()
+            .filter_map(|f| match f {
+                Frame::Lua { closure, pc, .. } => Some((*closure, *pc)),
+                _ => None,
+            })
+            .nth(level)
+        else {
             return None;
         };
 

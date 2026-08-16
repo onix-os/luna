@@ -351,13 +351,11 @@ pub struct ThreadState<'gc> {
     // Stack slots holding to-be-closed values, ascending. Kept beside `open_upvalues` because they
     // are closed by the same rule: on every exit past their level, whichever route it takes.
     pub(super) to_be_closed: vec::Vec<usize, MetricsAlloc<'gc>>,
-    // Set while an `Executor` is running a native on this thread's behalf. A thread being stepped
-    // is normally detectable because its state is borrowed, but a native runs with its thread
-    // released so that re-entrant Lua can reach open upvalues, and it must still report `Running`.
+    // Set while an `Executor` is running a native on this thread's behalf.
     //
-    // This stays. It reads like a vestige of the borrow-derived check it replaced, but releasing
-    // the thread across a native is permanent — see PLAN.md, Phase 3 — so there is no lock to
-    // infer the answer from any more.
+    // This stays, and is not a vestige. A native holds the frames borrowed *shared*, and a shared
+    // borrow is exactly what `Thread::mode` takes to look, so the lock cannot distinguish a thread
+    // being stepped from one merely being inspected. The flag can.
     pub(super) running: bool,
     // Read from the `Lua` state when the thread is created.
     pub(super) max_call_depth: usize,

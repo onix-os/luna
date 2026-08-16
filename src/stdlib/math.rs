@@ -103,7 +103,7 @@ pub fn load_cmp<'gc>(ctx: Context<'gc>, math: Table<'gc>) {
                     for i in 1..args {
                         let (call, bottom) = seq.try_enter(|ctx, locals, _, mut stack| {
                             let bottom = args;
-                            match meta_ops::less_than(ctx, locals.fetch(&max), stack[i])? {
+                            match meta_ops::less_than(ctx, locals.fetch(&max), stack.get(i))? {
                                 meta_ops::MetaResult::Value(v) => {
                                     stack.resize(bottom);
                                     stack.push_back(v);

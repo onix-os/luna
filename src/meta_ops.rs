@@ -899,7 +899,7 @@ pub fn concat_many<'gc>(
             for i in (1..args).into_iter().rev() {
                 let call = seq.try_enter(|ctx, locals, _, mut stack| {
                     let bottom = i - 1;
-                    let call = concat(ctx, stack[i - 1], stack[i])?;
+                    let call = concat(ctx, stack.get(i - 1), stack.get(i))?;
                     let p = prepare_async_metaop(ctx, &mut stack, locals, bottom, call, 1);
                     Ok(p)
                 })?;
@@ -981,7 +981,7 @@ pub fn concat_separated<'gc>(
                 for i in (1..args).into_iter().rev() {
                     let call = seq.try_enter(|ctx, locals, _, mut stack| {
                         let bottom = i;
-                        let call = concat(ctx, locals.fetch(&sep), stack[i])?;
+                        let call = concat(ctx, locals.fetch(&sep), stack.get(i))?;
                         let p = prepare_async_metaop(ctx, &mut stack, locals, bottom, call, 1);
                         Ok(p)
                     })?;
@@ -989,7 +989,7 @@ pub fn concat_separated<'gc>(
 
                     let call = seq.try_enter(|ctx, locals, _, mut stack| {
                         let bottom = i - 1;
-                        let call = concat(ctx, stack[i - 1], stack[i])?;
+                        let call = concat(ctx, stack.get(i - 1), stack.get(i))?;
                         let p = prepare_async_metaop(ctx, &mut stack, locals, bottom, call, 1);
                         Ok(p)
                     })?;

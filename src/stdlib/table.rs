@@ -96,7 +96,8 @@ pub fn load_table<'gc>(ctx: Context<'gc>) {
 
             let then_impl = Callback::from_fn_with(&ctx, root, |root, ctx, _, mut stack| {
                 // Only reject nil values (cannot have __concat metamethods)
-                for (offset, val) in stack[..].iter().enumerate() {
+                let values = stack.to_vec();
+                for (offset, val) in values.iter().enumerate() {
                     if matches!(val, Value::Nil) {
                         let idx = root.start_idx.get() + offset as i64;
                         return Err(format!(
@@ -107,8 +108,7 @@ pub fn load_table<'gc>(ctx: Context<'gc>) {
                         .into());
                     }
                 }
-                let values = &stack[..];
-                match concat_separated(ctx, values, root.sep)? {
+                match concat_separated(ctx, &values, root.sep)? {
                     ConcatMetaResult::Value(v) => {
                         stack.replace(ctx, v);
                         Ok(CallbackReturn::Return)
@@ -607,7 +607,7 @@ impl<'gc> Sequence<'gc> for Pack<'gc> {
 
             while *index < *batch_end {
                 if let Some(call) =
-                    meta_ops::new_index(ctx, table, (*index as i64 + 1).into(), stack[*index])?
+                    meta_ops::new_index(ctx, table, (*index as i64 + 1).into(), stack.get(*index))?
                 {
                     stack.extend(call.args);
                     return Ok(SequencePoll::Call {
