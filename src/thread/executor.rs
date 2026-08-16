@@ -48,6 +48,9 @@ pub struct ExecutorState<'gc> {
     // Where a native's arguments and results live while it runs. Held here rather than allocated
     // per call, since every callback and every sequence step uses it.
     scratch: vec::Vec<Value<'gc>, MetricsAlloc<'gc>>,
+    // The Lua frames below the running native, innermost first, refilled before each call.
+    // Pooled for the same reason as `scratch`: a traceback should not cost an allocation per call.
+    frame_snapshot: vec::Vec<(Closure<'gc>, usize), MetricsAlloc<'gc>>,
 }
 
 pub type ExecutorInner<'gc> = RefLock<ExecutorState<'gc>>;
@@ -61,7 +64,10 @@ pub type ExecutorInner<'gc> = RefLock<ExecutorState<'gc>>;
 /// Taken where an error is first raised rather than where it is caught: unwinding pops one frame
 /// per step, so by the time the error leaves the executor there is nothing left to ask.
 fn error_position<'gc>(frames: &[Frame<'gc>]) -> Option<std::string::String> {
-    let (closure, pc) = upper_lua_frames(frames)[0]?;
+    let (closure, pc) = frames.iter().rev().find_map(|f| match f {
+        Frame::Lua { closure, pc, .. } => Some((*closure, *pc)),
+        _ => None,
+    })?;
     let proto = closure.prototype();
     // `pc` has already been advanced past the faulting instruction.
     let faulting = pc.saturating_sub(1);
@@ -76,24 +82,21 @@ fn error_position<'gc>(frames: &[Frame<'gc>]) -> Option<std::string::String> {
     Some(format!("{}:{}", proto.chunk_name.display_lossy(), line))
 }
 
-/// The nearest two Lua frames, innermost first.
+/// Record the Lua frames, innermost first, into a reused buffer.
 ///
-/// Two rather than one because `error(msg, 2)` — blame my caller, the idiom every argument-checking
-/// function uses — needs the frame above. A fixed array rather than a `Vec` so that taking this
-/// snapshot before every native call costs no allocation.
-fn upper_lua_frames<'gc>(frames: &[Frame<'gc>]) -> [Option<(Closure<'gc>, usize)>; 2] {
-    let mut found = [None; 2];
-    let mut at = 0;
+/// A native runs with its thread released, so there is no live frame slice to point at; the whole
+/// chain is copied out first. `error(msg, level)`, `debug.getinfo` and `debug.traceback` all read
+/// it, so it has to be the chain rather than just the nearest frame.
+fn snapshot_lua_frames<'gc>(
+    frames: &[Frame<'gc>],
+    into: &mut vec::Vec<(Closure<'gc>, usize), MetricsAlloc<'gc>>,
+) {
+    into.clear();
     for frame in frames.iter().rev() {
         if let Frame::Lua { closure, pc, .. } = frame {
-            found[at] = Some((*closure, *pc));
-            at += 1;
-            if at == found.len() {
-                break;
-            }
+            into.push((*closure, *pc));
         }
     }
-    found
 }
 
 /// The entry-point for the Lua VM.
@@ -153,6 +156,7 @@ impl<'gc> Executor<'gc> {
             RefLock::new(ExecutorState {
                 thread_stack: vec::Vec::new_in(MetricsAlloc::new(mc)),
                 scratch: vec::Vec::new_in(MetricsAlloc::new(mc)),
+                frame_snapshot: vec::Vec::new_in(MetricsAlloc::new(mc)),
             }),
         ));
         executor.reset(mc, thread)?;
@@ -349,9 +353,9 @@ impl<'gc> Executor<'gc> {
                         // still points into *this* thread's stack; holding the thread borrowed
                         // across the call turns that into a panic. Detaching also means a callback
                         // cannot reach the frames below `bottom`.
-                        let (upper_frame, mut scratch) = {
+                        let mut scratch = {
                             let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
-                            let upper_frame = upper_lua_frames(&top_state.frames);
+                            snapshot_lua_frames(&top_state.frames, &mut state.frame_snapshot);
                             let mut scratch = mem::replace(
                                 &mut state.scratch,
                                 vec::Vec::new_in(MetricsAlloc::new(&ctx)),
@@ -359,7 +363,7 @@ impl<'gc> Executor<'gc> {
                             scratch.clear();
                             scratch.extend(top_state.stack.drain(bottom..));
                             top_state.running = true;
-                            (upper_frame, scratch)
+                            scratch
                         };
                         let result = callback.call(
                             ctx,
@@ -367,7 +371,7 @@ impl<'gc> Executor<'gc> {
                                 executor: self,
                                 fuel,
                                 threads: &state.thread_stack,
-                                upper_frames: upper_frame,
+                                lua_frames: &state.frame_snapshot,
                             },
                             Stack::new(&mut scratch, 0),
                         );
@@ -436,9 +440,9 @@ impl<'gc> Executor<'gc> {
                         fuel.consume(Self::FUEL_PER_SEQ_STEP);
 
                         // Detached for the same reason as a callback, above.
-                        let (upper_frame, mut scratch) = {
+                        let mut scratch = {
                             let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
-                            let upper_frame = upper_lua_frames(&top_state.frames);
+                            snapshot_lua_frames(&top_state.frames, &mut state.frame_snapshot);
                             let mut scratch = mem::replace(
                                 &mut state.scratch,
                                 vec::Vec::new_in(MetricsAlloc::new(&ctx)),
@@ -446,13 +450,13 @@ impl<'gc> Executor<'gc> {
                             scratch.clear();
                             scratch.extend(top_state.stack.drain(bottom..));
                             top_state.running = true;
-                            (upper_frame, scratch)
+                            scratch
                         };
                         let exec = Execution {
                             executor: self,
                             fuel,
                             threads: &state.thread_stack,
-                            upper_frames: upper_frame,
+                            lua_frames: &state.frame_snapshot,
                         };
                         let poll = if let Some(err) = pending_error {
                             sequence.error(ctx, exec, err, Stack::new(&mut scratch, 0))
@@ -721,7 +725,7 @@ pub struct Execution<'gc, 'a> {
     threads: &'a [Thread<'gc>],
     // A snapshot rather than a borrow of the frame stack: a native runs with its thread
     // unborrowed, so there is no live slice to point at.
-    upper_frames: [Option<(Closure<'gc>, usize)>; 2],
+    lua_frames: &'a [(Closure<'gc>, usize)],
 }
 
 impl<'gc, 'a> Execution<'gc, 'a> {
@@ -730,7 +734,7 @@ impl<'gc, 'a> Execution<'gc, 'a> {
             executor: self.executor,
             fuel: self.fuel,
             threads: self.threads,
-            upper_frames: self.upper_frames,
+            lua_frames: self.lua_frames,
         }
     }
 
@@ -765,15 +769,30 @@ impl<'gc, 'a> Execution<'gc, 'a> {
     /// The Lua frame `level` steps above this native: 0 is the function that called it, 1 that
     /// function's caller. This is the `level` argument of `error`.
     pub fn lua_frame_at(&self, level: usize) -> Option<UpperLuaFrame<'gc>> {
-        let Some((closure, pc)) = self.upper_frames.get(level).copied().flatten() else {
+        let Some((closure, pc)) = self.lua_frames.get(level).copied() else {
             return None;
         };
 
         let proto = closure.prototype();
-        // The previously executed instruction for a callback should be the Call opcode.
-        let call_opcode = pc - 1;
+        // Attribute to the Call that invoked this native. Whether the frame's `pc` still points at
+        // that Call or has already moved past it depends on the call site, so look rather than
+        // assume an offset: step back one if that is where the call actually is.
+        let is_call = |i: usize| {
+            proto.opcodes.get(i).is_some_and(|op| {
+                matches!(
+                    op.decode(),
+                    crate::opcode::Operation::Call { .. }
+                        | crate::opcode::Operation::TailCall { .. }
+                )
+            })
+        };
+        let call_opcode = match pc.checked_sub(1) {
+            Some(prev) if is_call(prev) => prev,
+            _ => pc,
+        };
 
         Some(UpperLuaFrame {
+            closure,
             chunk_name: proto.chunk_name,
             current_function: proto.reference,
             current_line: match proto
@@ -793,6 +812,7 @@ pub struct CurrentThread<'gc> {
 }
 
 pub struct UpperLuaFrame<'gc> {
+    pub closure: Closure<'gc>,
     pub chunk_name: String<'gc>,
     pub current_function: FunctionRef<String<'gc>>,
     pub current_line: LineNumber,

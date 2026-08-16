@@ -29,8 +29,8 @@ use crate::{
     finalizers::Finalizers,
     stash::{Fetchable, Stashable},
     stdlib::{
-        load_base, load_coroutine, load_io, load_math, load_os, load_package, load_string,
-        load_table, load_utf8,
+        load_base, load_coroutine, load_debug, load_io, load_math, load_os, load_package,
+        load_string, load_table, load_utf8,
     },
     string::InternedStringSet,
     thread::BadThreadMode,
@@ -205,6 +205,7 @@ impl Lua {
         lua.load_io();
         lua.load_os();
         lua.load_package();
+        lua.load_debug();
         lua
     }
 
@@ -241,6 +242,16 @@ impl Lua {
     pub fn load_os(&mut self) {
         self.enter(|ctx| {
             load_os(ctx);
+        })
+    }
+
+    /// Load the `debug` library.
+    ///
+    /// Separate from the core, like `os`: it hands scripts introspection over the running program.
+    /// `sethook`, `getlocal` and `setlocal` are absent — see the module docs for why.
+    pub fn load_debug(&mut self) {
+        self.enter(|ctx| {
+            load_debug(ctx);
         })
     }
 
