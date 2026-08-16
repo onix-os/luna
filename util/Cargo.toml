@@ -14,5 +14,10 @@ thiserror.workspace = true
 ottavino-gc-arena.workspace = true
 luna.workspace = true
 
+[dev-dependencies]
+# Dev-only, so it never reaches a consumer: a concrete serde backend to test `SerializeValue`
+# against, since "serializes into any format" is not testable without one.
+serde_json.workspace = true
+
 [features]
 default = ["serde"]

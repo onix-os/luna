@@ -127,7 +127,7 @@ where
         let callback = Callback::from_fn(&ctx, move |ctx, exec, mut stack| {
             let userdata: UserData = stack.from_front(ctx)?;
             let args: A = stack.consume(ctx)?;
-            let mut this = userdata.downcast_write::<U>(&ctx)?;
+            let this = userdata.downcast_write::<U>(&ctx)?;
             let ret = method(this, ctx, exec, args)?;
             stack.replace(ctx, ret);
             Ok(CallbackReturn::Return)

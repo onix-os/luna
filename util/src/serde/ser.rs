@@ -498,3 +498,115 @@ impl<'gc> ser::SerializeStructVariant for SerializeStructVariant<'gc> {
         Ok(enclosing.into())
     }
 }
+
+/// A `Value` paired with the context needed to read it, so it can be serialized into any serde
+/// format.
+///
+/// This is the direction `to_value` does not cover: `to_value` builds a Lua value from Rust data,
+/// while this takes a Lua value and writes it out as JSON, TOML, or anything else with a serde
+/// backend. It is what makes a value crossing a thread boundary practical — serialize on the
+/// worker, send owned bytes, deserialize on the other side.
+///
+/// A bare `impl Serialize for Value` is not possible: reading a table needs the arena context, and
+/// a weak-valued table needs it to know which entries are still live. Pairing the two is the honest
+/// spelling.
+///
+/// ```
+/// # use luna::{Lua, Table, Context};
+/// # use luna_util::serde::SerializeValue;
+/// # let mut lua = Lua::core();
+/// lua.enter(|ctx| {
+///     let table = Table::new(&ctx);
+///     table.set(ctx, "name", "luna").unwrap();
+///     let json = serde_json::to_string(&SerializeValue::new(ctx, table.into())).unwrap();
+///     assert_eq!(json, r#"{"name":"luna"}"#);
+/// });
+/// ```
+#[derive(Copy, Clone)]
+pub struct SerializeValue<'gc> {
+    ctx: Context<'gc>,
+    value: Value<'gc>,
+    depth: usize,
+}
+
+/// Cyclic tables have no serde representation, and the recursion is not bounded by the input's
+/// size. Matches the deserializer's limit.
+const MAX_DEPTH: usize = 128;
+
+impl<'gc> SerializeValue<'gc> {
+    pub fn new(ctx: Context<'gc>, value: Value<'gc>) -> Self {
+        Self {
+            ctx,
+            value,
+            depth: 0,
+        }
+    }
+
+    fn nested(self, value: Value<'gc>) -> Self {
+        Self {
+            ctx: self.ctx,
+            value,
+            depth: self.depth + 1,
+        }
+    }
+}
+
+/// Whether a table is a `1..=n` sequence, and so serializes as an array rather than a map.
+fn sequence_length<'gc>(ctx: Context<'gc>, table: Table<'gc>) -> Option<usize> {
+    let length = table.length(&ctx);
+    if length < 0 {
+        return None;
+    }
+    let mut counted = 0usize;
+    for (key, _) in table.iter(ctx) {
+        match key.to_integer() {
+            Some(i) if i >= 1 && i <= length => counted += 1,
+            _ => return None,
+        }
+    }
+    (counted == length as usize).then_some(counted)
+}
+
+impl<'gc> ser::Serialize for SerializeValue<'gc> {
+    fn serialize<S: ser::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use ser::{Error as _, SerializeMap, SerializeSeq};
+
+        if self.depth > MAX_DEPTH {
+            return Err(S::Error::custom(
+                "table nests deeper than 128 levels, or is cyclic",
+            ));
+        }
+
+        match self.value {
+            Value::Nil => serializer.serialize_unit(),
+            Value::Boolean(b) => serializer.serialize_bool(b),
+            Value::Integer(i) => serializer.serialize_i64(i),
+            Value::Number(n) => serializer.serialize_f64(n),
+            Value::String(s) => match s.to_str() {
+                Ok(s) => serializer.serialize_str(s),
+                Err(_) => serializer.serialize_bytes(s.as_bytes()),
+            },
+            Value::Table(t) => match sequence_length(self.ctx, t) {
+                Some(length) => {
+                    let mut seq = serializer.serialize_seq(Some(length))?;
+                    for i in 1..=length {
+                        let element = t.get_value(self.ctx, Value::Integer(i as i64));
+                        seq.serialize_element(&self.nested(element))?;
+                    }
+                    seq.end()
+                }
+                None => {
+                    let mut map = serializer.serialize_map(None)?;
+                    for (key, value) in t.iter(self.ctx) {
+                        map.serialize_entry(&self.nested(key), &self.nested(value))?;
+                    }
+                    map.end()
+                }
+            },
+            other => Err(S::Error::custom(format!(
+                "cannot serialize a {}",
+                other.type_name()
+            ))),
+        }
+    }
+}

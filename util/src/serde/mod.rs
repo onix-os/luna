@@ -6,7 +6,7 @@ use luna::Lua;
 
 pub use self::{
     de::from_value,
-    ser::{to_value, to_value_with, Options as SerOptions},
+    ser::{to_value, to_value_with, Options as SerOptions, SerializeValue},
 };
 
 pub trait LuaSerdeExt {
