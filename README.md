@@ -67,6 +67,29 @@ make verify     # the full local gate
 
 A Nix dev shell with the pinned toolchain is in [`flake.nix`](flake.nix).
 
+## Features
+
+luna's defaults are the whole library and nothing optional. Two features add API surface that not
+every embedder wants to compile:
+
+| Feature | Adds | Costs |
+| --- | --- | --- |
+| `async` | `AsyncSequence::await_future`, `Lua::execute_async` — awaiting foreign futures from a callback | Nothing but code. It is `std::task` throughout; choosing a runtime stays yours |
+| `derive` | `#[derive(FromValue)]`, `#[derive(IntoValue)]` | `syn`, `quote` and `proc-macro2` in the build |
+
+```rust
+# use luna::{FromValue, IntoValue};
+#[derive(FromValue, IntoValue)]
+struct Point {
+    x: i64,
+    y: i64,
+}
+```
+
+A struct becomes a table keyed by field name; a fieldless enum becomes its variant's name as a
+string. A tuple struct or a variant carrying data is a *compile* error naming the problem, rather
+than a guess at what the table should look like.
+
 ## Threads
 
 `Lua` is not `Send`, and that is a deliberate boundary rather than a gap waiting to be closed. The

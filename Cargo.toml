@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "derive",
     "util",
 ]
 default-members = [
@@ -31,6 +32,7 @@ serde_json = "1.0"
 thiserror = "1.0"
 
 luna = { path = "./", version = "0.4.0" }
+luna-derive = { path = "./derive", version = "0.4.0" }
 
 [package]
 name = "luna"
@@ -50,6 +52,7 @@ ottavino-gc-arena.workspace = true
 hashbrown.workspace = true
 rand.workspace = true
 thiserror.workspace = true
+luna-derive = { workspace = true, optional = true }
 
 [[example]]
 name = "async"
@@ -61,6 +64,9 @@ default = []
 # Off by default because it adds API surface, not because it costs dependencies: the whole
 # implementation is `std::task`, and choosing a runtime stays the embedder's decision.
 async = []
+# `#[derive(FromValue, IntoValue)]`. Off by default because it pulls syn, quote and proc-macro2
+# into the build — three crates a host writing its conversions by hand should not compile.
+derive = ["dep:luna-derive"]
 
 [dev-dependencies]
 # Only the REPL example needs a dependency, and only for line editing and history. Argument

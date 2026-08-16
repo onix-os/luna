@@ -98,7 +98,7 @@ All of them, including `__gc`, `__close`, `__metatable`, `__name`, `__pairs`. Th
 | No C toolchain, no `unsafe` boundary | yes | no | |
 | `Send`/`Sync` `Lua` | no | yes | architectural; one `Lua` per thread + message passing |
 | Real async (foreign futures) | no | yes | needs a `Waker` through `Executor::step` |
-| Derive macros for userdata | no | yes | wants a proc-macro crate |
+| Derive macros | yes, `derive` feature | yes | `FromValue`/`IntoValue`; userdata methods stay runtime-registered via `UserMethods` |
 | Argument position in errors | yes | yes | `BadArgument` carries it as data, not only in the message |
 
 ### What remains, in priority order

@@ -24,6 +24,13 @@ pub mod types;
 pub mod userdata;
 pub mod value;
 
+/// `#[derive(FromValue)]` and `#[derive(IntoValue)]`, behind the `derive` feature.
+///
+/// A struct becomes a table keyed by field name; a fieldless enum becomes its variant name as a
+/// string. Anything else is a compile error rather than a guess.
+#[cfg(feature = "derive")]
+pub use luna_derive::{FromValue, IntoValue};
+
 pub use self::{
     async_callback::{async_sequence, SequenceReturn},
     callback::{

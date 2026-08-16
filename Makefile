@@ -94,8 +94,10 @@ clean:
 # included it would be red on arrival and stop being run. Put it back once that is cleared.
 verify: fmt-check check test rustdoc
 
-# Order matters: luna-util depends on luna, so the registry has to have the new luna first.
+# Order matters: luna depends on luna-derive and luna-util depends on luna, so each has to be in
+# the registry before the one that needs it.
 publish:
+	@$(CARGO) publish -p $(PROJECT_NAME)-derive
 	@$(CARGO) publish -p $(PROJECT_NAME)
 	@$(CARGO) publish -p $(PROJECT_NAME)-util
 
@@ -132,7 +134,7 @@ help:
 	@echo "  print-name   Echo the package name parsed from Cargo.toml"
 	@echo "  clean        Remove Cargo build artifacts"
 	@echo "  verify       Run the full local gate"
-	@echo "  publish      Publish $(PROJECT_NAME) then $(PROJECT_NAME)-util to crates.io"
+	@echo "  publish      Publish $(PROJECT_NAME)-derive, $(PROJECT_NAME), then $(PROJECT_NAME)-util"
 	@echo "  release      Release a new version"
 	@echo
 
