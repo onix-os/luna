@@ -50,6 +50,8 @@ bounded here instead. Each raises an ordinary catchable error.
 | String length | 1 GiB | address space | Applies to `..`, `string.rep` and `string.format`; PUC-Lua's equivalent is an out-of-memory abort |
 | `__index`/`__newindex` chain | 2,000 links | 2,000 (`MAXTAGLOOP` is 2,000 in 5.4) | A cyclic chain errors with `'__index' chain too long` rather than looping |
 | Execution time | `Fuel` | none | The host, not the script, decides how long a slice runs. PUC-Lua has no equivalent — infinite tail recursion runs forever there |
+| `table.sort` length | 2^31 | 2^31 | PUC-Lua's own "array too big". A table's border is not a count — `t[1]=true; t[1<<62]=true` reports `#t` as 2^62 — so a border past a million sorts through the interruptible Lua path rather than preallocating |
+| `os.time` fields | each fits an `i32` | C `int` | Rejected with `field 'year' is out-of-bound`, as PUC-Lua does |
 
 ## Base
 
