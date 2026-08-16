@@ -194,7 +194,7 @@ impl<'gc, T: FromValue<'gc>> FromValue<'gc> for Option<T> {
 impl<'gc, T: FromValue<'gc>> FromValue<'gc> for Vec<T> {
     fn from_value(ctx: Context<'gc>, value: Value<'gc>) -> Result<Self, TypeError> {
         if let Value::Table(table) = value {
-            (1..=table.length())
+            (1..=table.length(&ctx))
                 .into_iter()
                 .map(|i| table.get(ctx, i))
                 .collect()
@@ -592,7 +592,7 @@ macro_rules! impl_map_conversion {
             fn from_value(ctx: Context<'gc>, value: Value<'gc>) -> Result<Self, TypeError> {
                 if let Value::Table(table) = value {
                     let mut map = $map::new();
-                    for (k, v) in table.iter() {
+                    for (k, v) in table.iter(ctx) {
                         map.insert(K::from_value(ctx, k)?, V::from_value(ctx, v)?);
                     }
                     Ok(map)
@@ -630,7 +630,7 @@ macro_rules! impl_set_conversion {
             fn from_value(ctx: Context<'gc>, value: Value<'gc>) -> Result<Self, TypeError> {
                 if let Value::Table(table) = value {
                     let mut set = $set::new();
-                    for (k, v) in table.iter() {
+                    for (k, v) in table.iter(ctx) {
                         // Only truthy entries are members, so a table with a key set back to
                         // `false` reads as the set without it.
                         if v.to_bool() {

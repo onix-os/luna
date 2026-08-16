@@ -6,7 +6,10 @@
 use luna::{Closure, Executor, ExternError, Lua, Value};
 use serde::de::IgnoredAny;
 
-fn returned_value(source: &[u8], f: impl FnOnce(Value<'_>)) -> Result<(), ExternError> {
+fn returned_value(
+    source: &[u8],
+    f: impl for<'gc> FnOnce(luna::Context<'gc>, Value<'gc>),
+) -> Result<(), ExternError> {
     let mut lua = Lua::core();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, None, source)?;
@@ -15,7 +18,7 @@ fn returned_value(source: &[u8], f: impl FnOnce(Value<'_>)) -> Result<(), Extern
     lua.finish(&executor).unwrap();
     lua.try_enter(|ctx| {
         let value: Value = ctx.fetch(&executor).take_result::<Value>(ctx)??;
-        f(value);
+        f(ctx, value);
         Ok(())
     })
 }
@@ -28,8 +31,8 @@ fn a_self_referential_table_errors_instead_of_overflowing() -> Result<(), Extern
             t.self = t
             return t
         "#[..],
-        |value| {
-            let err = luna_util::serde::from_value::<IgnoredAny>(value)
+        |ctx, value| {
+            let err = luna_util::serde::from_value::<IgnoredAny>(ctx, value)
                 .expect_err("a cyclic table must not deserialize");
             assert!(
                 err.to_string().contains("nests deeper"),
@@ -49,8 +52,8 @@ fn mutually_referential_tables_error_too() -> Result<(), ExternError> {
             b.other = a
             return a
         "#[..],
-        |value| {
-            assert!(luna_util::serde::from_value::<IgnoredAny>(value).is_err());
+        |ctx, value| {
+            assert!(luna_util::serde::from_value::<IgnoredAny>(ctx, value).is_err());
         },
     )
 }
@@ -66,8 +69,9 @@ fn deep_but_finite_nesting_still_works() -> Result<(), ExternError> {
             node.leaf = true
             return root
         "#[..],
-        |value| {
-            luna_util::serde::from_value::<IgnoredAny>(value).expect("finite nesting must decode");
+        |ctx, value| {
+            luna_util::serde::from_value::<IgnoredAny>(ctx, value)
+                .expect("finite nesting must decode");
         },
     )
 }

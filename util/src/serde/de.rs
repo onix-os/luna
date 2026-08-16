@@ -1,6 +1,6 @@
 use std::fmt;
 
-use luna::{table::NextValue, Table, Value};
+use luna::{table::NextValue, Context, Table, Value};
 use serde::de;
 use thiserror::Error;
 
@@ -61,19 +61,23 @@ impl Drop for DepthGuard {
     }
 }
 
-pub fn from_value<'gc, T: de::Deserialize<'gc>>(value: Value<'gc>) -> Result<T, Error> {
+pub fn from_value<'gc, T: de::Deserialize<'gc>>(
+    ctx: Context<'gc>,
+    value: Value<'gc>,
+) -> Result<T, Error> {
     // A fresh top-level call starts from zero even if a previous one unwound oddly.
     DEPTH.with(|d| d.set(0));
-    T::deserialize(Deserializer::from_value(value))
+    T::deserialize(Deserializer::from_value(ctx, value))
 }
 
 pub struct Deserializer<'gc> {
+    ctx: Context<'gc>,
     value: Value<'gc>,
 }
 
 impl<'gc> Deserializer<'gc> {
-    pub fn from_value(value: Value<'gc>) -> Self {
-        Self { value }
+    pub fn from_value(ctx: Context<'gc>, value: Value<'gc>) -> Self {
+        Self { ctx, value }
     }
 }
 
@@ -94,7 +98,7 @@ impl<'gc> de::Deserializer<'gc> for Deserializer<'gc> {
                 }
             }
             Value::Table(t) => {
-                if is_sequence(t) {
+                if is_sequence(self.ctx, t) {
                     self.deserialize_seq(visitor)
                 } else {
                     self.deserialize_map(visitor)
@@ -313,7 +317,7 @@ impl<'gc> de::Deserializer<'gc> for Deserializer<'gc> {
         if let Value::Table(table) = self.value {
             // Held for the whole visit, so nesting is what is measured rather than total calls.
             let _guard = DepthGuard::enter()?;
-            visitor.visit_seq(Seq::new(table))
+            visitor.visit_seq(Seq::new(self.ctx, table))
         } else {
             Err(Error::TypeError {
                 expected: "table",
@@ -328,6 +332,7 @@ impl<'gc> de::Deserializer<'gc> for Deserializer<'gc> {
     {
         if let Value::Table(table) = self.value {
             visitor.visit_seq(Tuple::new(
+                self.ctx,
                 table,
                 len.try_into()
                     .map_err(|_| de::Error::custom("tuple length out of range"))?,
@@ -358,7 +363,7 @@ impl<'gc> de::Deserializer<'gc> for Deserializer<'gc> {
     {
         if let Value::Table(table) = self.value {
             let _guard = DepthGuard::enter()?;
-            visitor.visit_map(Map::new(table))
+            visitor.visit_map(Map::new(self.ctx, table))
         } else {
             Err(Error::TypeError {
                 expected: "table",
@@ -389,12 +394,14 @@ impl<'gc> de::Deserializer<'gc> for Deserializer<'gc> {
         V: de::Visitor<'gc>,
     {
         match self.value {
-            Value::Table(table) => match table.next(Value::Nil) {
-                NextValue::Found { key, value } => visitor.visit_enum(Enum::new(key, value)),
+            Value::Table(table) => match table.next(&self.ctx, Value::Nil) {
+                NextValue::Found { key, value } => {
+                    visitor.visit_enum(Enum::new(self.ctx, key, value))
+                }
                 NextValue::Last => Err(de::Error::custom("enum table has no entries")),
                 NextValue::NotFound => unreachable!(),
             },
-            v => visitor.visit_enum(UnitEnum::new(v)),
+            v => visitor.visit_enum(UnitEnum::new(self.ctx, v)),
         }
     }
 
@@ -414,13 +421,14 @@ impl<'gc> de::Deserializer<'gc> for Deserializer<'gc> {
 }
 
 pub struct Seq<'gc> {
+    ctx: Context<'gc>,
     table: Table<'gc>,
     ind: i64,
 }
 
 impl<'gc> Seq<'gc> {
-    fn new(table: Table<'gc>) -> Self {
-        Self { table, ind: 1 }
+    fn new(ctx: Context<'gc>, table: Table<'gc>) -> Self {
+        Self { ctx, table, ind: 1 }
     }
 }
 
@@ -431,11 +439,11 @@ impl<'gc> de::SeqAccess<'gc> for Seq<'gc> {
     where
         T: de::DeserializeSeed<'gc>,
     {
-        let v = self.table.get_raw(Value::Integer(self.ind));
+        let v = self.table.get_raw(&self.ctx, Value::Integer(self.ind));
         if v.is_nil() {
             Ok(None)
         } else {
-            let res = Some(seed.deserialize(Deserializer::from_value(v))?);
+            let res = Some(seed.deserialize(Deserializer::from_value(self.ctx, v))?);
             self.ind = self
                 .ind
                 .checked_add(1)
@@ -446,14 +454,20 @@ impl<'gc> de::SeqAccess<'gc> for Seq<'gc> {
 }
 
 pub struct Tuple<'gc> {
+    ctx: Context<'gc>,
     table: Table<'gc>,
     len: i64,
     ind: i64,
 }
 
 impl<'gc> Tuple<'gc> {
-    fn new(table: Table<'gc>, len: i64) -> Self {
-        Self { table, len, ind: 1 }
+    fn new(ctx: Context<'gc>, table: Table<'gc>, len: i64) -> Self {
+        Self {
+            ctx,
+            table,
+            len,
+            ind: 1,
+        }
     }
 }
 
@@ -467,8 +481,8 @@ impl<'gc> de::SeqAccess<'gc> for Tuple<'gc> {
         if self.ind > self.len {
             Ok(None)
         } else {
-            let v = self.table.get_raw(Value::Integer(self.ind));
-            let res = Some(seed.deserialize(Deserializer::from_value(v))?);
+            let v = self.table.get_raw(&self.ctx, Value::Integer(self.ind));
+            let res = Some(seed.deserialize(Deserializer::from_value(self.ctx, v))?);
             self.ind += 1;
             Ok(res)
         }
@@ -476,14 +490,16 @@ impl<'gc> de::SeqAccess<'gc> for Tuple<'gc> {
 }
 
 pub struct Map<'gc> {
+    ctx: Context<'gc>,
     table: Table<'gc>,
     key: Value<'gc>,
     value: Value<'gc>,
 }
 
 impl<'gc> Map<'gc> {
-    fn new(table: Table<'gc>) -> Self {
+    fn new(ctx: Context<'gc>, table: Table<'gc>) -> Self {
         Self {
+            ctx,
             table,
             key: Value::Nil,
             value: Value::Nil,
@@ -498,11 +514,11 @@ impl<'gc> de::MapAccess<'gc> for Map<'gc> {
     where
         K: de::DeserializeSeed<'gc>,
     {
-        match self.table.next(self.key) {
+        match self.table.next(&self.ctx, self.key) {
             NextValue::Found { key, value } => {
                 self.key = key;
                 self.value = value;
-                seed.deserialize(Deserializer::from_value(self.key))
+                seed.deserialize(Deserializer::from_value(self.ctx, self.key))
                     .map(Some)
             }
             NextValue::Last => Ok(None),
@@ -514,18 +530,19 @@ impl<'gc> de::MapAccess<'gc> for Map<'gc> {
     where
         V: de::DeserializeSeed<'gc>,
     {
-        seed.deserialize(Deserializer::from_value(self.value))
+        seed.deserialize(Deserializer::from_value(self.ctx, self.value))
     }
 }
 
 pub struct Enum<'gc> {
+    ctx: Context<'gc>,
     key: Value<'gc>,
     value: Value<'gc>,
 }
 
 impl<'gc> Enum<'gc> {
-    fn new(key: Value<'gc>, value: Value<'gc>) -> Self {
-        Self { key, value }
+    fn new(ctx: Context<'gc>, key: Value<'gc>, value: Value<'gc>) -> Self {
+        Self { ctx, key, value }
     }
 }
 
@@ -538,19 +555,20 @@ impl<'gc> de::EnumAccess<'gc> for Enum<'gc> {
         V: de::DeserializeSeed<'gc>,
     {
         Ok((
-            seed.deserialize(Deserializer::from_value(self.key))?,
-            Variant::new(self.value),
+            seed.deserialize(Deserializer::from_value(self.ctx, self.key))?,
+            Variant::new(self.ctx, self.value),
         ))
     }
 }
 
 pub struct Variant<'gc> {
+    ctx: Context<'gc>,
     value: Value<'gc>,
 }
 
 impl<'gc> Variant<'gc> {
-    fn new(value: Value<'gc>) -> Self {
-        Self { value }
+    fn new(ctx: Context<'gc>, value: Value<'gc>) -> Self {
+        Self { ctx, value }
     }
 }
 
@@ -558,21 +576,25 @@ impl<'gc> de::VariantAccess<'gc> for Variant<'gc> {
     type Error = Error;
 
     fn unit_variant(self) -> Result<(), Error> {
-        de::Deserialize::deserialize(Deserializer::from_value(self.value))
+        de::Deserialize::deserialize(Deserializer::from_value(self.ctx, self.value))
     }
 
     fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Error>
     where
         T: de::DeserializeSeed<'gc>,
     {
-        seed.deserialize(Deserializer::from_value(self.value))
+        seed.deserialize(Deserializer::from_value(self.ctx, self.value))
     }
 
     fn tuple_variant<V>(self, len: usize, visitor: V) -> Result<V::Value, Error>
     where
         V: de::Visitor<'gc>,
     {
-        de::Deserializer::deserialize_tuple(Deserializer::from_value(self.value), len, visitor)
+        de::Deserializer::deserialize_tuple(
+            Deserializer::from_value(self.ctx, self.value),
+            len,
+            visitor,
+        )
     }
 
     fn struct_variant<V>(
@@ -583,17 +605,18 @@ impl<'gc> de::VariantAccess<'gc> for Variant<'gc> {
     where
         V: de::Visitor<'gc>,
     {
-        de::Deserializer::deserialize_map(Deserializer::from_value(self.value), visitor)
+        de::Deserializer::deserialize_map(Deserializer::from_value(self.ctx, self.value), visitor)
     }
 }
 
 pub struct UnitEnum<'gc> {
+    ctx: Context<'gc>,
     key: Value<'gc>,
 }
 
 impl<'gc> UnitEnum<'gc> {
-    fn new(key: Value<'gc>) -> Self {
-        Self { key }
+    fn new(ctx: Context<'gc>, key: Value<'gc>) -> Self {
+        Self { ctx, key }
     }
 }
 
@@ -606,7 +629,7 @@ impl<'gc> de::EnumAccess<'gc> for UnitEnum<'gc> {
         V: de::DeserializeSeed<'gc>,
     {
         Ok((
-            seed.deserialize(Deserializer::from_value(self.key))?,
+            seed.deserialize(Deserializer::from_value(self.ctx, self.key))?,
             UnitVariant::new(),
         ))
     }
@@ -662,8 +685,8 @@ impl<'de> de::VariantAccess<'de> for UnitVariant {
     }
 }
 
-fn is_sequence<'gc>(table: Table<'gc>) -> bool {
-    let mut key = match table.next(Value::Nil) {
+fn is_sequence<'gc>(ctx: Context<'gc>, table: Table<'gc>) -> bool {
+    let mut key = match table.next(&ctx, Value::Nil) {
         NextValue::Found { key, value: _ } => key,
         NextValue::Last => return true,
         NextValue::NotFound => unreachable!(),
@@ -681,7 +704,7 @@ fn is_sequence<'gc>(table: Table<'gc>) -> bool {
             return false;
         };
 
-        key = match table.next(key) {
+        key = match table.next(&ctx, key) {
             NextValue::Found { key, value: _ } => key,
             NextValue::Last => return true,
             NextValue::NotFound => unreachable!(),

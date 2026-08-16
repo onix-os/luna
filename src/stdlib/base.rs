@@ -282,7 +282,7 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
         "rawlen",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
             let table: Table = stack.consume(ctx)?;
-            stack.replace(ctx, table.length());
+            stack.replace(ctx, table.length(&ctx));
             Ok(CallbackReturn::Return)
         }),
     );
@@ -386,7 +386,7 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
         table: Table<'gc>,
         index: Value<'gc>,
     ) -> Result<(Value<'gc>, Value<'gc>), Value<'gc>> {
-        match table.next(index) {
+        match table.next(&ctx, index) {
             NextValue::Found { key, value } => Ok((key, value)),
             NextValue::Last => Ok((Value::Nil, Value::Nil)),
             NextValue::NotFound => Err("invalid table key".into_value(ctx)),

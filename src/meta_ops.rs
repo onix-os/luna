@@ -21,6 +21,7 @@ use crate::{
 pub enum MetaMethod {
     Close,
     Gc,
+    Mode,
     Metatable,
     Name,
     Len,
@@ -58,6 +59,7 @@ impl MetaMethod {
             MetaMethod::Call => "__call",
             MetaMethod::Close => "__close",
             MetaMethod::Gc => "__gc",
+            MetaMethod::Mode => "__mode",
             MetaMethod::Metatable => "__metatable",
             MetaMethod::Name => "__name",
             MetaMethod::Pairs => "__pairs",
@@ -92,6 +94,7 @@ impl MetaMethod {
         match self {
             MetaMethod::Close => "close",
             MetaMethod::Gc => "finalize",
+            MetaMethod::Mode => "set the weakness of",
             MetaMethod::Metatable => "protect the metatable of",
             MetaMethod::Name => "name",
             MetaMethod::Len => "determine length of",
@@ -438,7 +441,7 @@ pub fn len<'gc>(ctx: Context<'gc>, v: Value<'gc>) -> Result<MetaResult<'gc, 1>, 
 
     match v {
         Value::String(s) => Ok(MetaResult::Value(s.len().into())),
-        Value::Table(t) => Ok(MetaResult::Value(t.length().into())),
+        Value::Table(t) => Ok(MetaResult::Value(t.length(&ctx).into())),
         f => Err(MetaOperatorError::Unary(MetaMethod::Len, f.type_name())),
     }
 }

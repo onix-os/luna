@@ -12,7 +12,7 @@ fn async_sequence_works() -> Result<(), ExternError> {
             let seq = async_sequence(&ctx, |_, mut seq| async move {
                 let (table, length) = seq.try_enter(|ctx, locals, _, mut stack| {
                     let table: Table = stack.consume(ctx)?;
-                    let length = table.length();
+                    let length = table.length(&ctx);
                     Ok((locals.stash(&ctx, table), length))
                 })?;
 

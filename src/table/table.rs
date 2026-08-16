@@ -97,7 +97,7 @@ impl<'gc> Table<'gc> {
     }
 
     pub fn get_value<K: IntoValue<'gc>>(self, ctx: Context<'gc>, key: K) -> Value<'gc> {
-        self.get_raw(key.into_value(ctx))
+        self.get_raw(&ctx, key.into_value(ctx))
     }
 
     /// A convenience method over [`Table::set`] for setting a string field of a table.
@@ -114,8 +114,11 @@ impl<'gc> Table<'gc> {
     }
 
     /// Get a value from this table without any automatic type conversion.
-    pub fn get_raw(self, key: Value<'gc>) -> Value<'gc> {
-        self.0.borrow().raw_table.get(key)
+    ///
+    /// Takes a `Mutation` because a table declared `__mode = "v"` holds its values weakly, and the
+    /// only safe way to read one is to upgrade it.
+    pub fn get_raw(self, mc: &Mutation<'gc>, key: Value<'gc>) -> Value<'gc> {
+        self.0.borrow().raw_table.get(mc, key)
     }
 
     /// Set a value in this table without any automatic type conversion.
@@ -128,7 +131,7 @@ impl<'gc> Table<'gc> {
         if self.0.borrow().readonly {
             return Err(InvalidTableKey::ReadOnly);
         }
-        self.0.borrow_mut(&mc).raw_table.set(key, value)
+        self.0.borrow_mut(&mc).raw_table.set(&mc, key, value)
     }
 
     /// Remove every entry, releasing the memory rather than leaving tombstones behind.
@@ -178,8 +181,8 @@ impl<'gc> Table<'gc> {
     ///
     /// If a table has exactly one border, it is called a 'sequence', and this border is the table's
     /// length.
-    pub fn length(self) -> i64 {
-        self.0.borrow().raw_table.length()
+    pub fn length(self, mc: &Mutation<'gc>) -> i64 {
+        self.0.borrow().raw_table.length(mc)
     }
 
     /// Returns the next value after this key in table iteration order.
@@ -198,15 +201,15 @@ impl<'gc> Table<'gc> {
     /// If given `Nil`, it will return the first pair in the table. If given a key that is present
     /// in the table, it will return the next pair in iteration order. If given a key that is not
     /// present in the table, the behavior is unspecified.
-    pub fn next(self, key: Value<'gc>) -> NextValue<'gc> {
-        self.0.borrow().raw_table.next(key)
+    pub fn next(self, mc: &Mutation<'gc>, key: Value<'gc>) -> NextValue<'gc> {
+        self.0.borrow().raw_table.next(mc, key)
     }
 
     /// Iterate over the key-value pairs of the table.
     ///
     /// Internally uses the `Table::next` method and thus matches the behavior of Lua.
-    pub fn iter(self) -> Iter<'gc> {
-        Iter::new(self)
+    pub fn iter(self, ctx: Context<'gc>) -> Iter<'gc> {
+        Iter::new(ctx, self)
     }
 
     pub fn metatable(self) -> Option<Table<'gc>> {
@@ -226,21 +229,34 @@ impl<'gc> Table<'gc> {
             if !mt.get_value(ctx, crate::MetaMethod::Gc).is_nil() {
                 ctx.finalizers().register_table(&ctx, self.0);
             }
+            // `__mode` is read once, here. Changing it afterwards does not retroactively weaken
+            // entries — PUC-Rio calls that undefined, and this is luna's answer.
+            if let Value::String(mode) = mt.get_value(ctx, crate::MetaMethod::Mode) {
+                if mode.as_bytes().contains(&b'v') {
+                    self.0.borrow_mut(&ctx).raw_table.make_values_weak(&ctx);
+                }
+            }
         }
         mem::replace(&mut self.0.borrow_mut(&ctx).metatable, metatable)
     }
 }
 
-#[derive(Copy, Clone, Collect)]
-#[collect(no_drop)]
+/// Iteration over a table's entries.
+///
+/// Not `Collect`: it holds a `Context`, which is a borrow into the arena rather than something
+/// collected, and an iterator does not outlive the `enter` that made it.
+#[derive(Copy, Clone)]
 pub struct Iter<'gc> {
+    // Held because a weak table's slots can only be read by upgrading them.
+    ctx: Context<'gc>,
     table: Table<'gc>,
     prev: Option<Value<'gc>>,
 }
 
 impl<'gc> Iter<'gc> {
-    pub fn new(table: Table<'gc>) -> Self {
+    pub fn new(ctx: Context<'gc>, table: Table<'gc>) -> Self {
         Self {
+            ctx,
             table,
             prev: Some(Value::Nil),
         }
@@ -251,22 +267,13 @@ impl<'gc> Iterator for Iter<'gc> {
     type Item = (Value<'gc>, Value<'gc>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.table.next(self.prev.take()?) {
+        match self.table.next(&self.ctx, self.prev.take()?) {
             NextValue::Found { key, value } => {
                 self.prev = Some(key);
                 Some((key, value))
             }
             _ => None,
         }
-    }
-}
-
-impl<'gc> IntoIterator for Table<'gc> {
-    type Item = (Value<'gc>, Value<'gc>);
-    type IntoIter = Iter<'gc>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
     }
 }
 

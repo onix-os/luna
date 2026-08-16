@@ -3,7 +3,7 @@ use std::mem;
 use std::pin::Pin;
 
 use anyhow::Context as _;
-use ottavino_gc_arena::Collect;
+use ottavino_gc_arena::{Collect, Mutation};
 
 use crate::{
     async_callback::{AsyncSequence, Locals},
@@ -295,7 +295,7 @@ fn table_remove_impl<'gc>(
     if !use_fallback {
         // Try the fast path
         let mut inner = table.into_inner().borrow_mut(&ctx);
-        match array_remove_shift(&mut inner.raw_table, index) {
+        match array_remove_shift(&ctx, &mut inner.raw_table, index) {
             (RawArrayOpResult::Success(val), len) => {
                 // Consume fuel after the operation to avoid computing length twice
                 let start_idx = index.unwrap_or(len as i64).try_into().unwrap_or(0);
@@ -424,6 +424,7 @@ fn table_insert_impl<'gc>(
     if !use_fallback {
         // Try the fast path
         match array_insert_shift(
+            &ctx,
             &mut table.into_inner().borrow_mut(&ctx).raw_table,
             index,
             value,
@@ -787,6 +788,7 @@ enum RawArrayOpResult<T> {
 //
 // Additionally, always returns the computed length of the array from before the operation.
 fn array_remove_shift<'gc>(
+    mc: &Mutation<'gc>,
     table: &mut RawTable<'gc>,
     key: Option<i64>,
 ) -> (RawArrayOpResult<Value<'gc>>, usize) {
@@ -824,7 +826,7 @@ fn array_remove_shift<'gc>(
         RawArrayOpResult::Success(value)
     }
 
-    let length = table.length() as usize;
+    let length = table.length(mc) as usize;
     (inner(table, length, key), length)
 }
 
@@ -837,6 +839,7 @@ fn array_remove_shift<'gc>(
 //
 // Additionally, always returns the computed length of the array from before the operation.
 fn array_insert_shift<'gc>(
+    mc: &Mutation<'gc>,
     table: &mut RawTable<'gc>,
     key: Option<i64>,
     value: Value<'gc>,
@@ -880,6 +883,6 @@ fn array_insert_shift<'gc>(
         RawArrayOpResult::Success(())
     }
 
-    let length = table.length() as usize;
+    let length = table.length(mc) as usize;
     (inner(table, length, key, value), length)
 }
