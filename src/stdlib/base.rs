@@ -452,7 +452,10 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
                 }
             }
 
-            stack.replace(ctx, (*next, table));
+            // Three values, as PUC-Rio returns: the iterator, the state, and an explicit nil
+            // control. `for k, v in pairs(t)` reads the first two either way, but code that
+            // destructures `local f, s, var = pairs(t)` needs the third to exist.
+            stack.replace(ctx, (*next, table, Value::Nil));
             Ok(CallbackReturn::Return)
         }),
     );
@@ -554,7 +557,14 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
         }),
     );
 
-    ctx.set_global("_VERSION", "luna");
+    // The *language* version, as PUC-Rio reports it. Scripts feature-detect with
+    // `_VERSION == "Lua 5.4"`, and answering with an implementation name silently sends them down
+    // the wrong branch.
+    ctx.set_global("_VERSION", "Lua 5.4");
+
+    // Which implementation, kept separate from which language. PUC-Rio has no equivalent — there is
+    // nothing to detect there — so a script tests `_LUNA` to reach anything luna does differently.
+    ctx.set_global("_LUNA", env!("CARGO_PKG_VERSION"));
 
     ctx.set_global(
         "load",
