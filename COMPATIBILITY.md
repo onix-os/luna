@@ -243,26 +243,38 @@ IMO this module is best in its current state, but I cannot stop one from downloa
 | 🔵 | `__pairs` | | |
 | 🔵 | `__close` | Runs on every scope exit, including error unwinding and coroutine close. | |
 | 🔵 | `__gc` | On tables and userdata. Runs during collection, once per object; may resurrect, and is not re-run if it does. An erroring handler is reported through `warn` and does not abort collection. As in PUC-Rio, an object with a finalizer needs two collection cycles to be reclaimed. | |
-| 🟡 | `__mode` | **`"v"` only.** See below. | |
+| 🔵 | `__mode` | `"v"`, `"k"` and `"kv"`. Weak keys use ephemeron marking. See below. | |
 
 ### `__mode`
 
-Weak *values* are implemented, and implemented by representation rather than by clearing: a weak
-table's slots hold weak pointers, so a cleared entry cannot be read as a dangling one. Entries whose
-value has been collected vanish from `get`, `next`, iteration and `#`.
+Weak *values* and weak *keys* are both implemented, by representation rather than by clearing: a
+weak table's slots hold weak pointers, so a cleared entry cannot be read as a dangling one. Entries
+whose weak side has been collected vanish from `get`, `next`, iteration and `#`.
 
-Weak *keys* are **not implemented**, and a `__mode` containing `"k"` is accepted and ignored — the
-keys stay strong. This is deliberate and worth understanding before relying on it:
+| Mode | Keys | Values |
+| --- | --- | --- |
+| `"v"` | strong | weak |
+| `"k"` | weak | weak during marking, restored for entries whose key survived (see below) |
+| `"kv"` | weak | weak |
 
-- Correct weak keys need *ephemeron* semantics — a key must be kept alive only if it is reachable
-  independently of the table, which requires the collector to iterate marking to a fixed point.
-  luna does not do this yet.
-- The naive version, without ephemerons, leaks precisely in the case weak keys are usually reached
-  for: an object → metadata table where the metadata refers back to the object. The value is strong,
-  so it pins the key, so the entry is never collected. Shipping that quietly would be worse than not
-  shipping it.
+**Weak keys use real ephemeron marking.** The naive implementation — weak key, strong value — leaks
+in exactly the case weak keys are reached for: an object-to-metadata table where the metadata refers
+back to the object. The value is strong, so it keeps the key alive, so the entry can never be
+collected. luna therefore holds a `"k"` table's values weakly *during marking*, so that marking
+cannot reach a key through its own value, and then puts back the values of entries whose key
+survived independently. That pass repeats until the set of live keys stops growing, because reviving
+one value can make another table's key reachable. `tests/weak_tables.rs` pins the cases a single
+pass would get wrong: a value referring to its own key, two entries referring to each other's keys,
+and an anchored chain that must survive end to end.
 
-So `__mode = "k"` behaves as a normal strong table, and `__mode = "kv"` behaves as weak-valued.
+`"kv"` is deliberately *not* given that treatment: with both sides weak, a value must die when
+nothing else holds it however alive its key is, so restoring it would be wrong.
+
+**What it costs.** A weak-key table's values survive one collection cycle longer than strictly
+necessary, the same as an object with a `__gc` handler, because the pass roots them for the rest of
+the cycle it runs in. Carrying weak keys also widened the table's internal key representation, which
+measures at about 3% on VM throughput and 6% on native-call throughput — paid by every table, not
+only weak ones.
 
 `__mode` is read once, when the metatable is attached. Changing it afterwards does not retroactively
 weaken or strengthen entries. PUC-Rio calls this undefined; this is luna's answer.
