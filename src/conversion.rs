@@ -238,14 +238,22 @@ macro_rules! impl_int_from {
                             Ok(i)
                         } else {
                             Err(TypeError {
-                                expected: stringify!($i),
-                                found: "integer out of range",
+                                expected: "number",
+                                found: "an integer out of range",
                             })
                         }
                     } else {
                         Err(TypeError {
-                            expected: stringify!($i),
-                            found: value.type_name(),
+                            // Not `stringify!($i)`: this reaches a Lua programmer, who has no
+                            // `i64`. A value that is already a number and only lacks an exact
+                            // integer form gets said separately, as `luaL_checkinteger` does —
+                            // `string.rep("x", 1.5)` is a different mistake from `string.rep("x", {})`.
+                            expected: "number",
+                            found: if value.to_number().is_some() {
+                                "a number with no integer representation"
+                            } else {
+                                value.type_name()
+                            },
                         })
                     }
                 }
@@ -267,7 +275,7 @@ macro_rules! impl_float_from {
                         Ok(n as $f)
                     } else {
                         Err(TypeError {
-                            expected: stringify!($f),
+                            expected: "number",
                             found: value.type_name(),
                         })
                     }
