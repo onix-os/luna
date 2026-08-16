@@ -567,3 +567,73 @@ fn mode_kv_is_weak_on_both_sides() -> Result<(), ExternError> {
     );
     Ok(())
 }
+
+/// `table.insert` had its own array fast path, which stored strongly and so pinned every value a
+/// weak-value table was ever filled with through it.
+#[test]
+fn table_insert_into_a_weak_value_table_still_releases() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"
+            local t = setmetatable({{}}, {{ __mode = "v" }})
+            local function fill()
+                for _ = 1, 50 do table.insert(t, {{ payload = true }}) end
+            end
+            fill()
+            {CHURN}
+            collectgarbage("collect")
+            collectgarbage("collect")
+            local n = 0
+            for _ in pairs(t) do n = n + 1 end
+            return n
+        "#
+        ))?,
+        0
+    );
+    Ok(())
+}
+
+#[test]
+fn table_insert_into_a_weak_value_table_keeps_what_is_held() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"
+            local t = setmetatable({{}}, {{ __mode = "v" }})
+            local held = {{}}
+            for i = 1, 50 do held[i] = {{ payload = true }} table.insert(t, held[i]) end
+            {CHURN}
+            collectgarbage("collect")
+            local n = 0
+            for _ in pairs(t) do n = n + 1 end
+            return n
+        "#
+        ))?,
+        50
+    );
+    Ok(())
+}
+
+/// Lua 5.4 §2.5.4: a string is a *value*, so it is never removed from a weak table — two equal
+/// strings are the same string, and one of them being unreferenced says nothing about the other.
+#[test]
+fn a_string_value_is_never_removed() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"
+            local t = setmetatable({{}}, {{ __mode = "v" }})
+            local function fill()
+                -- Built at runtime and over the interning threshold, so it is a fresh allocation
+                -- with no other reference to it.
+                t.held = string.rep("z", 60)
+            end
+            fill()
+            {CHURN}
+            collectgarbage("collect")
+            collectgarbage("collect")
+            return (t.held == string.rep("z", 60)) and 1 or 0
+        "#
+        ))?,
+        1
+    );
+    Ok(())
+}

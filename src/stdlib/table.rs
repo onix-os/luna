@@ -415,7 +415,10 @@ fn table_remove_impl<'gc>(
                 || !mt.get_value(ctx, MetaMethod::Index).is_nil()
                 || !mt.get_value(ctx, MetaMethod::NewIndex).is_nil()
         })
-        .unwrap_or(false);
+        .unwrap_or(false)
+        // A weak-value table keeps its entries in the map part, where they can be held weakly. The
+        // array fast path would store the value strongly and it would never be released.
+        || table.into_inner().borrow().raw_table.has_weak_values();
 
     if !use_fallback {
         // Try the fast path
@@ -544,7 +547,10 @@ fn table_insert_impl<'gc>(
                 || !mt.get_value(ctx, MetaMethod::Index).is_nil()
                 || !mt.get_value(ctx, MetaMethod::NewIndex).is_nil()
         })
-        .unwrap_or(false);
+        .unwrap_or(false)
+        // A weak-value table keeps its entries in the map part, where they can be held weakly. The
+        // array fast path would store the value strongly and it would never be released.
+        || table.into_inner().borrow().raw_table.has_weak_values();
 
     if !use_fallback {
         // Try the fast path

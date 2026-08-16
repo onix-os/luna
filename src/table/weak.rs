@@ -38,7 +38,11 @@ impl<'gc> WeakValue<'gc> {
             v @ (Value::Nil | Value::Boolean(_) | Value::Integer(_) | Value::Number(_)) => {
                 WeakValue::Immediate(v)
             }
-            Value::String(s) => WeakValue::String(Gc::downgrade(s.into_inner())),
+            // A string is a *value* in the sense of Lua 5.4 §2.5.4: collectable, but never removed
+            // from a weak table, because two equal strings are the same string and one of them
+            // being unreferenced says nothing. Held strongly for the same reason weak string keys
+            // are.
+            v @ Value::String(_) => WeakValue::Immediate(v),
             Value::Table(t) => WeakValue::Table(Gc::downgrade(t.into_inner())),
             Value::Function(Function::Closure(c)) => {
                 WeakValue::Closure(Gc::downgrade(c.into_inner()))
