@@ -341,6 +341,10 @@ pub struct ThreadState<'gc> {
     // Set while an `Executor` is running a native on this thread's behalf. A thread being stepped
     // is normally detectable because its state is borrowed, but a native runs with its thread
     // released so that re-entrant Lua can reach open upvalues, and it must still report `Running`.
+    //
+    // This stays. It reads like a vestige of the borrow-derived check it replaced, but releasing
+    // the thread across a native is permanent — see PLAN.md, Phase 3 — so there is no lock to
+    // infer the answer from any more.
     pub(super) running: bool,
     // Read from the `Lua` state when the thread is created.
     pub(super) max_call_depth: usize,

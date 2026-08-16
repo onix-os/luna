@@ -64,20 +64,21 @@ Done, each with tests:
 | **Rust API** | map/set conversions, `Either`, `prelude`, `Result` alias, wide integer and runtime string conversions, `UserRef<T>` | `rust_api`, `conversions_map` |
 | **Correctness fixes** | serde deserializer recursion guard (was a **process crash** on a cyclic table), `gsub` following `__index`, `gmatch` `init`, `ipairs` returning three values | `serde_recursion`, `metamethods` |
 | **Re-entrancy** | a nested `Executor` may be driven from a callback; natives run with their thread released | `reentrancy` |
+| **`__gc` finalizers** | on tables and userdata, via the two-stage prepare/finalize split; registered only when a metatable carries `__gc`; resurrection does not re-finalize; an erroring handler is reported through `warn` and does not abort the sweep | `gc_finalizers` |
+| **`__mode` weak values** | by representation, not by clearing — slots hold `GcWeak`, so a cleared entry cannot be read as a dangling one. Weak *keys* deliberately not implemented, and documented rather than silently ignored | `weak_tables` |
+| **Threading** | `SerializeValue` takes a Lua value out into any serde format; the one-`Lua`-per-thread pattern documented with a worked example | `serialize_value` |
 
 Still open, and why:
 
 | Item | Why it is still open |
 |---|---|
-| **`__gc` finalizers** | gc-arena makes `#[collect(no_drop)]` and `Drop` mutually exclusive, so a GC-typed payload can never have a destructor. `src/finalizers.rs` has the right prepare/finalize shape; only threads are registered. |
-| **`__mode` weak tables** | Needs the collector to skip tracing the weak side and then clear dead entries. Getting that wrong is an unsoundness, not a bug, so it wants a careful pass of its own. |
 | **Real async** | Awaiting foreign futures needs a real `Waker` plumbed through `Executor::step` and `Lua::enter` reconciled with being held across an await. Large, and tractable — the stackless design helps once started. |
 | **`Send`/`Sync` `Lua`** | Architectural: the arena's ownership model is what makes the re-entrancy guarantees sound. One `Lua` per thread and message passing. |
 | **Derive macros** | Wants a proc-macro crate in the workspace; `UserRef` removed the sharpest edge without one. |
 | **`string.dump`** | Needs a versioned bytecode format and a validating loader designed from scratch. |
 | **`debug.sethook`, `getlocal`** | `sethook` needs a dispatch point in the opcode loop; `getlocal` needs a register→name table the compiler does not emit. `Fuel` already covers the count-hook use case, better. |
 | **`Error::BadArgument`** | Argument position is dropped by `Stack::consume`; threading it through `FromMultiValue` is a wider change than it looks. |
-| **serde options, `impl Serialize for Value`** | The crash is fixed; the option surface is not built. |
+| **serde options** | The recursion crash is fixed and `SerializeValue` now takes a Lua value out into any serde format (`serialize_value`); the wider option surface is not built. |
 
 ---
 
