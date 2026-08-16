@@ -23,7 +23,47 @@ impl de::Error for Error {
     }
 }
 
+/// How deeply a Lua value may nest before deserialization gives up.
+///
+/// Without a bound, `local t = {} t.self = t` recurses until the *process* dies — a crash, not an
+/// error a host can catch. The limit is generous enough that no honest document reaches it.
+const MAX_DEPTH: usize = 128;
+
+thread_local! {
+    /// Nesting depth of the deserialization in progress.
+    ///
+    /// Held here rather than threaded through every `Deserializer`, `SeqAccess` and `MapAccess`
+    /// because they are constructed in a dozen places and none of them otherwise care. Restored by
+    /// `Drop`, so an early return or a panic cannot leave it raised.
+    static DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+struct DepthGuard;
+
+impl DepthGuard {
+    fn enter() -> Result<Self, Error> {
+        DEPTH.with(|d| {
+            if d.get() >= MAX_DEPTH {
+                Err(Error::Message(format!(
+                    "value nests deeper than {MAX_DEPTH} levels (is it cyclic?)"
+                )))
+            } else {
+                d.set(d.get() + 1);
+                Ok(DepthGuard)
+            }
+        })
+    }
+}
+
+impl Drop for DepthGuard {
+    fn drop(&mut self) {
+        DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+    }
+}
+
 pub fn from_value<'gc, T: de::Deserialize<'gc>>(value: Value<'gc>) -> Result<T, Error> {
+    // A fresh top-level call starts from zero even if a previous one unwound oddly.
+    DEPTH.with(|d| d.set(0));
     T::deserialize(Deserializer::from_value(value))
 }
 
@@ -271,6 +311,8 @@ impl<'gc> de::Deserializer<'gc> for Deserializer<'gc> {
         V: de::Visitor<'gc>,
     {
         if let Value::Table(table) = self.value {
+            // Held for the whole visit, so nesting is what is measured rather than total calls.
+            let _guard = DepthGuard::enter()?;
             visitor.visit_seq(Seq::new(table))
         } else {
             Err(Error::TypeError {
@@ -315,6 +357,7 @@ impl<'gc> de::Deserializer<'gc> for Deserializer<'gc> {
         V: de::Visitor<'gc>,
     {
         if let Value::Table(table) = self.value {
+            let _guard = DepthGuard::enter()?;
             visitor.visit_map(Map::new(table))
         } else {
             Err(Error::TypeError {
