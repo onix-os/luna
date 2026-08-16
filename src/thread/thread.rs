@@ -482,8 +482,27 @@ impl<'gc> ThreadState<'gc> {
     /// `bottom` must be the bottom of the popped, returning frame, and the return values are taken
     /// from the top of the stack starting at `bottom`.
     pub(super) fn return_to(&mut self, stack: &mut StackVec<'gc>, bottom: usize) {
+        let return_len = stack.len() - bottom;
+        self.return_values_to(stack, bottom, return_len);
+    }
+
+    /// [`Self::return_to`] for a returning frame that left its own registers on the stack above the
+    /// `return_len` values it returned, so the height of the stack does not give their count.
+    ///
+    /// Whatever sits above them is dead. Only the returns a caller asked for and did not get are
+    /// written as `Nil`; the frame's remaining registers keep what they held, since a Lua frame
+    /// writes a register before it reads one. What the stack must be is the right *height*, which
+    /// is fixed at `base + stack_size` for as long as the frame is not variable.
+    pub(super) fn return_values_to(
+        &mut self,
+        stack: &mut StackVec<'gc>,
+        bottom: usize,
+        return_len: usize,
+    ) {
         match self.frames.last_mut() {
-            Some(Frame::Sequence { .. }) => {}
+            Some(Frame::Sequence { .. }) => {
+                stack.truncate(bottom + return_len);
+            }
             Some(Frame::Lua {
                 expected_return,
                 is_variable,
@@ -492,25 +511,34 @@ impl<'gc> ThreadState<'gc> {
                 pc,
                 ..
             }) => {
-                let return_len = stack.len() - bottom;
+                let frame_top = *base + *stack_size;
                 match expected_return.take() {
                     Some(LuaReturn::Normal(ret_count)) => {
-                        let return_len = ret_count
-                            .to_constant()
-                            .map(|c| c as usize)
-                            .unwrap_or(return_len);
-
-                        stack.truncate(bottom + return_len);
-
                         *is_variable = ret_count.is_variable();
-                        if !ret_count.is_variable() {
-                            stack.resize(*base + *stack_size, Value::Nil);
+                        match ret_count.to_constant() {
+                            Some(wanted) => {
+                                let want_top = bottom + wanted as usize;
+                                if bottom + return_len < want_top {
+                                    if stack.len() < want_top {
+                                        stack.resize(want_top, Value::Nil);
+                                    }
+                                    stack[bottom + return_len..want_top].fill(Value::Nil);
+                                }
+                                stack.resize(frame_top, Value::Nil);
+                            }
+                            None => stack.truncate(bottom + return_len),
                         }
                     }
                     Some(LuaReturn::Meta(meta_ret)) => {
-                        let meta_val = stack.get(bottom).copied().unwrap_or_default();
-                        stack.truncate(bottom);
-                        stack.resize(*base + *stack_size, Value::Nil);
+                        // A metamethod (or a `<close>` sequence) is called with the frame's own
+                        // registers below it, so its values start where the frame ends.
+                        debug_assert_eq!(bottom, frame_top);
+                        let meta_val = if return_len > 0 {
+                            stack[bottom]
+                        } else {
+                            Value::Nil
+                        };
+                        stack.resize(frame_top, Value::Nil);
                         *is_variable = false;
                         match meta_ret {
                             MetaReturn::None => {}
@@ -528,6 +556,7 @@ impl<'gc> ThreadState<'gc> {
                 }
             }
             None => {
+                stack.truncate(bottom + return_len);
                 self.frames.push(Frame::Result { bottom });
             }
             _ => panic!("return frame must be sequence or lua frame"),
@@ -671,6 +700,16 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
             sequence: BoxSequence::new(&ctx, CloseSequence::new(values, None)),
             pending_error: None,
         });
+    }
+
+    /// Raise `error` at the current instruction.
+    ///
+    /// The error frame goes above the still-current Lua frame, which is the shape the executor
+    /// builds when the VM returns a `VMError`, so unwinding, `<close>` handlers and `pcall` all
+    /// see it as an ordinary runtime error. The VM must end its slice straight after.
+    pub(super) fn raise(&mut self, error: Error<'gc>) {
+        debug_assert!(matches!(self.state.frames.last(), Some(Frame::Lua { .. })));
+        self.state.frames.push(Frame::Error(error));
     }
 
     /// How many frames are on this thread. Read before the register borrow is taken.
@@ -1076,9 +1115,11 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
 
         self.fuel.consume(count_fuel(Self::FUEL_PER_ITEM, count));
 
+        // Not truncated to the returned values here: the frame being left keeps the height it
+        // already had, and `return_values_to` trims or grows that to whatever the frame below
+        // needs, rather than rebuilding it a `Nil` at a time.
         self.stack.copy_within(start..start + count, bottom);
-        self.stack.truncate(bottom + count);
-        self.state.return_to(&mut self.stack, bottom);
+        self.state.return_values_to(&mut self.stack, bottom, count);
 
         Ok(())
     }

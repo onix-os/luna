@@ -31,6 +31,23 @@ fn line_of(proto: &crate::FunctionPrototype<'_>, pc: usize) -> LineNumber {
     }
 }
 
+/// A catchable runtime error carrying the `chunk:line` of the instruction before `pc`.
+///
+/// The same position the executor attaches to a [`VMError`], for the errors the VM raises without
+/// leaving the opcode loop.
+fn positioned_error<'gc>(
+    proto: &crate::FunctionPrototype<'gc>,
+    pc: usize,
+    message: &'static str,
+) -> crate::Error<'gc> {
+    let at = format!(
+        "{}:{}",
+        proto.chunk_name.display_lossy(),
+        line_of(proto, pc.saturating_sub(1))
+    );
+    crate::RuntimeError::new(anyhow::anyhow!(message).context(at)).into()
+}
+
 pub(super) fn run_vm<'gc>(
     ctx: Context<'gc>,
     mut lua_frame: LuaFrame<'gc, '_>,
@@ -283,7 +300,8 @@ pub(super) fn run_vm<'gc>(
 
             Operation::Closure { proto, dest } => {
                 let proto = current_prototype.prototypes[proto.0 as usize];
-                let mut upvalues = vec::Vec::new_in(MetricsAlloc::new(&ctx));
+                let mut upvalues =
+                    vec::Vec::with_capacity_in(proto.upvalues.len(), MetricsAlloc::new(&ctx));
                 for &desc in proto.upvalues.iter() {
                     match desc {
                         UpValueDescriptor::Environment => {
@@ -304,6 +322,19 @@ pub(super) fn run_vm<'gc>(
             }
 
             Operation::NumericForPrep { base, jump } => {
+                // Rejected at preparation, where PUC-Lua's `forprep` rejects it, and for both the
+                // integer and the float loop: a zero step never reaches the limit, so the loop
+                // would otherwise run forever.
+                if registers.stack_frame[base.0 as usize + 2].to_number() == Some(0.0) {
+                    let pc = *registers.pc;
+                    lua_frame.raise(positioned_error(
+                        &current_prototype,
+                        pc,
+                        "'for' step is zero",
+                    ));
+                    break;
+                }
+
                 registers.stack_frame[base.0 as usize] = raw_subtract(
                     registers.stack_frame[base.0 as usize],
                     registers.stack_frame[base.0 as usize + 2],

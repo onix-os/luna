@@ -207,6 +207,7 @@ impl<'gc, 'a> Stack<'gc, 'a> {
             values,
             start,
             next: start,
+            back: end,
             end,
         }
     }
@@ -278,10 +279,14 @@ impl<'gc, 'a> Stack<'gc, 'a> {
 }
 
 /// The iterator returned by [`Stack::drain`]. Holds the stack lock while it lives.
+///
+/// `next` and `back` are the two cursors; `start..end` is the range that goes on drop, whichever
+/// end the values were taken from.
 pub struct Drain<'gc, 'a> {
     values: RefMut<'a, StackVec<'gc>>,
     start: usize,
     next: usize,
+    back: usize,
     end: usize,
 }
 
@@ -289,7 +294,7 @@ impl<'gc, 'a> Iterator for Drain<'gc, 'a> {
     type Item = Value<'gc>;
 
     fn next(&mut self) -> Option<Value<'gc>> {
-        if self.next < self.end {
+        if self.next < self.back {
             let value = self.values[self.next];
             self.next += 1;
             Some(value)
@@ -299,7 +304,7 @@ impl<'gc, 'a> Iterator for Drain<'gc, 'a> {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.end - self.next;
+        let remaining = self.back - self.next;
         (remaining, Some(remaining))
     }
 }
@@ -308,9 +313,9 @@ impl<'gc, 'a> ExactSizeIterator for Drain<'gc, 'a> {}
 
 impl<'gc, 'a> DoubleEndedIterator for Drain<'gc, 'a> {
     fn next_back(&mut self) -> Option<Value<'gc>> {
-        if self.next < self.end {
-            self.end -= 1;
-            Some(self.values[self.end])
+        if self.next < self.back {
+            self.back -= 1;
+            Some(self.values[self.back])
         } else {
             None
         }
@@ -320,7 +325,7 @@ impl<'gc, 'a> DoubleEndedIterator for Drain<'gc, 'a> {
 impl<'gc, 'a> Drop for Drain<'gc, 'a> {
     fn drop(&mut self) {
         // The whole range goes, iterated or not, matching `Vec::drain`.
-        self.values.drain(self.start..self.end.max(self.next));
+        self.values.drain(self.start..self.end);
     }
 }
 
