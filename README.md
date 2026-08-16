@@ -90,6 +90,36 @@ What this rules out is sharing a *single* interpreter between threads — that n
 the whole state in any implementation, PUC-Rio included, so little is lost. What it does not rule
 out is parallelism: N threads with N interpreters scale linearly, with no global lock between them.
 
+## Binary size
+
+Measured on x86-64 Linux, stripped, `lto = true`, `codegen-units = 1`, `panic = "abort"`, as the
+delta over an identical binary that does not use luna:
+
+| What you use | Added |
+| --- | --- |
+| `Lua::empty()` — VM, GC, values, tables, strings | 428 KB |
+| + `Closure::load` (the Lua source compiler) | 595 KB |
+| + `Lua::core()` (base, string, table, math, coroutine) | 794 KB |
+| + `Lua::full()` (io, os, package, utf8, debug) | 928 KB |
+
+The tiers are real measurements of separate binaries, not estimates. Because luna is pure Rust with
+no FFI, the linker can see the whole program: skip `Closure::load` and the parser and code generator
+are gone; use `Lua::core()` and you do not pay for `io`/`os`/`package`. Of the dependency tree, the
+entire cost is around 40 KB — gc-arena, anyhow, hashbrown, allocator-api2, ahash, rand and getrandom
+combined. The rest is luna's own code.
+
+`opt-level = "s"` is worth setting if size matters:
+
+| `opt-level` | `Lua::core()` | VM speed |
+| --- | --- | --- |
+| `3` (cargo's default) | 794 KB | baseline |
+| `"s"` | **600 KB** | ~19% slower |
+| `"z"` | 557 KB | ~2.4x slower |
+
+**Use `"s"`, not `"z"`.** The extra 43 KB `"z"` saves costs a 2.4x slower VM: `run_vm` is a single
+large dispatch loop and `"z"` turns off the inlining it depends on. `"s"` gives most of the size
+win for a fraction of the cost.
+
 ## Safety
 
 Most of luna is safe Rust. The unsafe parts are isolated and never leak into the public API —
