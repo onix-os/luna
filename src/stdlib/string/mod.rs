@@ -410,7 +410,7 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                 .checked_add(sep_total)
                 .ok_or_else(|| "resulting string too large".into_value(ctx))?;
             // Cap at ~1GiB like PUC-Rio Lua
-            if total > 0x40000000 {
+            if total > crate::string::MAX_STRING_LENGTH {
                 return Err("resulting string too large".into_value(ctx).into());
             }
             let mut buf = Vec::with_capacity(total);
