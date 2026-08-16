@@ -379,16 +379,12 @@ pub fn format_value<'gc>(
     Ok(result)
 }
 
+/// The numeric specifiers take whatever `luaL_checkinteger`/`luaL_checknumber` take, which means a
+/// numeric string coerces the same way it would in arithmetic. A non-numeric one is still an error.
 fn value_to_integer<'gc>(v: Value<'gc>) -> Result<i64, std::string::String> {
-    match v {
-        Value::Integer(i) => Ok(i),
-        Value::Number(n) => {
-            if n.fract() == 0.0 && n.is_finite() {
-                Ok(n as i64)
-            } else {
-                Err("number has no integer representation".to_string())
-            }
-        }
+    match v.to_numeric() {
+        Some(Value::Integer(i)) => Ok(i),
+        Some(Value::Number(n)) => float_to_integer(n),
         _ => Err(format!(
             "bad argument to 'format' (number expected, got {})",
             v.type_name()
@@ -396,10 +392,20 @@ fn value_to_integer<'gc>(v: Value<'gc>) -> Result<i64, std::string::String> {
     }
 }
 
+/// A float only converts when it is integral *and* inside the integer range; `n as i64` saturates,
+/// so the range has to be tested before the cast.
+fn float_to_integer(n: f64) -> Result<i64, std::string::String> {
+    if n.floor() == n && n >= -9_223_372_036_854_775_808.0 && n < 9_223_372_036_854_775_808.0 {
+        Ok(n as i64)
+    } else {
+        Err("number has no integer representation".to_string())
+    }
+}
+
 fn value_to_float<'gc>(v: Value<'gc>) -> Result<f64, std::string::String> {
-    match v {
-        Value::Integer(i) => Ok(i as f64),
-        Value::Number(n) => Ok(n),
+    match v.to_numeric() {
+        Some(Value::Integer(i)) => Ok(i as f64),
+        Some(Value::Number(n)) => Ok(n),
         _ => Err(format!(
             "bad argument to 'format' (number expected, got {})",
             v.type_name()
@@ -1146,8 +1152,10 @@ fn format_quoted_value<'gc>(
             format_quoted_string(s.as_bytes(), result);
         }
         Value::Integer(n) => {
+            // The one integer whose decimal form does not read back as an integer: `9223372036854775808`
+            // overflows to a float, so PUC writes the hex literal, which wraps into range.
             if n == i64::MIN {
-                result.extend_from_slice(b"(math.mininteger)");
+                result.extend_from_slice(b"0x8000000000000000");
             } else {
                 result.extend_from_slice(n.to_string().as_bytes());
             }
@@ -1162,15 +1170,10 @@ fn format_quoted_value<'gc>(
                     result.extend_from_slice(b"-1e9999");
                 }
             } else {
-                // Use enough precision to reproduce the exact float (%q format)
-                let s = format_float_g(n, 17, false, false, false, false, false, None);
-                // Verify round-trip; fall back to full precision if needed
-                let out = if s.parse::<f64>().map_or(false, |x| x == n) {
-                    s
-                } else {
-                    format!("{:.17}", n)
-                };
-                result.extend_from_slice(out.as_bytes());
+                // A hex float, as PUC's `quotefloat` writes: it is exact, and it still reads back
+                // as a float when the value happens to be integral.
+                let s = format_hex_float(n, None, false, false, false, false, None);
+                result.extend_from_slice(s.as_bytes());
             }
         }
         Value::Boolean(b) => {
@@ -1192,24 +1195,11 @@ fn format_quoted_string(s: &[u8], result: &mut Vec<u8>) {
     while i < s.len() {
         let next_is_digit = i + 1 < s.len() && s[i + 1].is_ascii_digit();
         match s[i] {
-            b'"' => {
-                result.extend_from_slice(b"\\\"");
-            }
-            b'\\' => {
-                result.extend_from_slice(b"\\\\");
-            }
-            b'\n' => {
-                result.extend_from_slice(b"\\n");
-            }
-            b'\r' => {
-                result.extend_from_slice(b"\\r");
-            }
-            b'\0' => {
-                if next_is_digit {
-                    result.extend_from_slice(b"\\000");
-                } else {
-                    result.extend_from_slice(b"\\0");
-                }
+            // PUC escapes these three by writing the character itself after a backslash, so a
+            // newline comes out as a backslash followed by a real newline.
+            c @ (b'"' | b'\\' | b'\n') => {
+                result.push(b'\\');
+                result.push(c);
             }
             c if c < 32 || c == 127 => {
                 if next_is_digit {

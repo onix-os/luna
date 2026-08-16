@@ -209,14 +209,25 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
 
             let mut out = Vec::new();
             let mut arg = 0;
+            // Every option reserves its width before writing it, so a format that repeats a wide
+            // `c` cannot allocate its way past the string length cap.
+            let grow = |out: &Vec<u8>, add: usize| {
+                pack::room(out.len(), add)
+                    .map(|_| ())
+                    .map_err(|e| Error::from(e.into_value(ctx)))
+            };
             for item in &parsed.items {
                 match item {
-                    pack::Item::Padding => out.push(0),
+                    pack::Item::Padding => {
+                        grow(&out, 1)?;
+                        out.push(0);
+                    }
                     pack::Item::Int { size, .. } => {
                         let v = stack.get(arg).to_integer().ok_or_else(|| {
                             "bad argument to 'pack' (number expected)".into_value(ctx)
                         })?;
                         arg += 1;
+                        grow(&out, *size)?;
                         pack::write_int(&mut out, v, *size, parsed.little_endian);
                     }
                     pack::Item::Float => {
@@ -224,6 +235,7 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                             "bad argument to 'pack' (number expected)".into_value(ctx)
                         })? as f32;
                         arg += 1;
+                        grow(&out, 4)?;
                         let bytes = if parsed.little_endian {
                             v.to_le_bytes()
                         } else {
@@ -236,6 +248,7 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                             "bad argument to 'pack' (number expected)".into_value(ctx)
                         })?;
                         arg += 1;
+                        grow(&out, 8)?;
                         let bytes = if parsed.little_endian {
                             v.to_le_bytes()
                         } else {
@@ -249,6 +262,7 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                             v => ctx.intern(v.display().to_string().as_bytes()),
                         };
                         arg += 1;
+                        grow(&out, size + s.as_bytes().len())?;
                         pack::write_int(
                             &mut out,
                             s.as_bytes().len() as i64,
@@ -263,6 +277,7 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                             v => ctx.intern(v.display().to_string().as_bytes()),
                         };
                         arg += 1;
+                        grow(&out, s.as_bytes().len() + 1)?;
                         out.extend_from_slice(s.as_bytes());
                         out.push(0);
                     }
@@ -276,6 +291,7 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                         if bytes.len() > *size {
                             return Err("string longer than given size".into_value(ctx).into());
                         }
+                        grow(&out, *size)?;
                         out.extend_from_slice(bytes);
                         out.resize(out.len() + (*size - bytes.len()), 0);
                     }
@@ -306,29 +322,32 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
             let (format, data, pos): (String, String, Option<i64>) = stack.consume(ctx)?;
             let parsed = pack::parse_format(format.as_bytes()).map_err(|e| e.into_value(ctx))?;
             let bytes = data.as_bytes();
-            let mut at = pos.unwrap_or(1).max(1) as usize - 1;
+            let mut at = unpack_init(bytes.len(), pos.unwrap_or(1)).ok_or_else(|| {
+                "bad argument #3 to 'unpack' (initial position out of string)".into_value(ctx)
+            })?;
 
-            let short = || "data string too short".into_value(ctx);
+            let short = || Error::from("data string too short".into_value(ctx));
+            // Every width below is checked against the remaining data before it is sliced: a
+            // length read out of the data itself can be large enough to overflow `at + n`.
+            let room = |at: usize, n: usize| at.checked_add(n).filter(|e| *e <= bytes.len());
             let mut out: Vec<Value> = Vec::new();
 
             for item in &parsed.items {
                 match item {
-                    pack::Item::Padding => at += 1,
+                    pack::Item::Padding => {
+                        at = room(at, 1).ok_or_else(short)?;
+                    }
                     pack::Item::Int { size, signed } => {
-                        if at + size > bytes.len() {
-                            return Err(short().into());
-                        }
-                        out.push(Value::Integer(pack::read_int(
-                            &bytes[at..],
-                            *size,
-                            *signed,
-                            parsed.little_endian,
-                        )));
-                        at += size;
+                        let end = room(at, *size).ok_or_else(short)?;
+                        let v =
+                            pack::read_int(&bytes[at..end], *size, *signed, parsed.little_endian)
+                                .map_err(|e| e.into_value(ctx))?;
+                        out.push(Value::Integer(v));
+                        at = end;
                     }
                     pack::Item::Float => {
-                        if at + 4 > bytes.len() {
-                            return Err(short().into());
+                        if room(at, 4).is_none() {
+                            return Err(short());
                         }
                         let raw: [u8; 4] = bytes[at..at + 4].try_into().unwrap();
                         let v = if parsed.little_endian {
@@ -340,8 +359,8 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                         at += 4;
                     }
                     pack::Item::Double => {
-                        if at + 8 > bytes.len() {
-                            return Err(short().into());
+                        if room(at, 8).is_none() {
+                            return Err(short());
                         }
                         let raw: [u8; 8] = bytes[at..at + 8].try_into().unwrap();
                         let v = if parsed.little_endian {
@@ -353,17 +372,14 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                         at += 8;
                     }
                     pack::Item::LenString { size } => {
-                        if at + size > bytes.len() {
-                            return Err(short().into());
-                        }
-                        let len = pack::read_int(&bytes[at..], *size, false, parsed.little_endian)
-                            as usize;
-                        at += size;
-                        if at + len > bytes.len() {
-                            return Err(short().into());
-                        }
-                        out.push(ctx.intern(&bytes[at..at + len]).into());
-                        at += len;
+                        let head = room(at, *size).ok_or_else(short)?;
+                        let len =
+                            pack::read_int(&bytes[at..head], *size, false, parsed.little_endian)
+                                .map_err(|e| e.into_value(ctx))?
+                                as usize;
+                        let end = room(head, len).ok_or_else(short)?;
+                        out.push(ctx.intern(&bytes[head..end]).into());
+                        at = end;
                     }
                     pack::Item::ZeroString => {
                         let end = bytes[at..]
@@ -375,11 +391,9 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                         at = end + 1;
                     }
                     pack::Item::FixedString { size } => {
-                        if at + size > bytes.len() {
-                            return Err(short().into());
-                        }
-                        out.push(ctx.intern(&bytes[at..at + size]).into());
-                        at += size;
+                        let end = room(at, *size).ok_or_else(short)?;
+                        out.push(ctx.intern(&bytes[at..end]).into());
+                        at = end;
                     }
                 }
             }
@@ -611,27 +625,29 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                     Ok(CallbackReturn::Return)
                 }
                 Value::Table(t) => {
-                    // Table replacement: synchronous raw table lookup (no __index metamethod)
+                    // Table replacement: table lookup, no Lua call, so no async needed.
+                    let pp = pattern::prepare(&pat_bytes).map_err(|e| e.into_value(ctx))?;
+                    let anchored = is_anchored(&pat_bytes);
                     let mut result: Vec<u8> = Vec::new();
-                    let mut pos = 0usize;
+                    let mut at = 0usize;
                     let mut count = 0i64;
-                    let mut last_end: Option<usize> = None;
+                    let mut last_match: Option<usize> = None;
 
-                    loop {
-                        if count >= max_subs {
-                            result.extend_from_slice(&src_bytes[pos..]);
-                            break;
-                        }
-                        let m = pattern::find_next(&src_bytes, &pat_bytes, pos, last_end)
+                    while count < max_subs {
+                        let found = pattern::match_at(&src_bytes, &pat_bytes, pp, at)
                             .map_err(|e| e.into_value(ctx))?;
-                        let m = match m {
-                            None => {
-                                result.extend_from_slice(&src_bytes[pos..]);
-                                break;
+                        let m = match found {
+                            Some(m) if Some(m.end) != last_match => m,
+                            _ if at < src_bytes.len() => {
+                                result.push(src_bytes[at]);
+                                at += 1;
+                                if anchored {
+                                    break;
+                                }
+                                continue;
                             }
-                            Some(m) => m,
+                            _ => break,
                         };
-                        result.extend_from_slice(&src_bytes[pos..m.start]);
 
                         // Key = first capture or whole match
                         let key_bytes = if m.captures.is_empty() {
@@ -666,13 +682,13 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                         }
 
                         count += 1;
-                        last_end = Some(m.end);
-                        pos = if m.end > m.start { m.end } else { m.end + 1 };
-                        if is_anchored(&pat_bytes) || pos > src_bytes.len() {
-                            result.extend_from_slice(src_bytes.get(pos..).unwrap_or_default());
+                        last_match = Some(m.end);
+                        at = m.end;
+                        if anchored {
                             break;
                         }
                     }
+                    result.extend_from_slice(&src_bytes[at..]);
                     let res_str = make_string(ctx, &result);
                     stack.replace(ctx, (res_str, count));
                     Ok(CallbackReturn::Return)
@@ -691,28 +707,33 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                                 locals.fetch(&pat_ref).as_bytes().to_vec()
                             });
 
+                            let pp = seq.try_enter(|ctx, _, _, _| {
+                                pattern::prepare(&pat)
+                                    .map_err(|e: std::string::String| e.into_value(ctx).into())
+                            })?;
+                            let anchored = is_anchored(&pat);
                             let mut result: Vec<u8> = Vec::new();
-                            let mut pos = 0usize;
+                            let mut at = 0usize;
                             let mut count = 0i64;
-                            let mut last_end: Option<usize> = None;
+                            let mut last_match: Option<usize> = None;
 
-                            loop {
-                                if count >= max_subs {
-                                    result.extend_from_slice(&src[pos..]);
-                                    break;
-                                }
-                                let m_opt = seq.try_enter(|ctx, _, _, _| {
-                                    pattern::find_next(&src, &pat, pos, last_end)
+                            while count < max_subs {
+                                let found = seq.try_enter(|ctx, _, _, _| {
+                                    pattern::match_at(&src, &pat, pp, at)
                                         .map_err(|e: std::string::String| e.into_value(ctx).into())
                                 })?;
-                                let m = match m_opt {
-                                    None => {
-                                        result.extend_from_slice(&src[pos..]);
-                                        break;
+                                let m = match found {
+                                    Some(m) if Some(m.end) != last_match => m,
+                                    _ if at < src.len() => {
+                                        result.push(src[at]);
+                                        at += 1;
+                                        if anchored {
+                                            break;
+                                        }
+                                        continue;
                                     }
-                                    Some(m) => m,
+                                    _ => break,
                                 };
-                                result.extend_from_slice(&src[pos..m.start]);
 
                                 // Push the match / captures onto the stack and call f
                                 let call_fn = seq.try_enter(|ctx, locals, _, mut stack| {
@@ -773,13 +794,13 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                                 });
 
                                 count += 1;
-                                last_end = Some(m.end);
-                                pos = if m.end > m.start { m.end } else { m.end + 1 };
-                                if is_anchored(&pat) || pos > src.len() {
-                                    result.extend_from_slice(src.get(pos..).unwrap_or_default());
+                                last_match = Some(m.end);
+                                at = m.end;
+                                if anchored {
                                     break;
                                 }
                             }
+                            result.extend_from_slice(&src[at..]);
 
                             seq.enter(move |ctx, _, _, mut stack| {
                                 let res_str = make_string(ctx, &result);
@@ -942,6 +963,21 @@ fn normalise_init(len: usize, init: i64) -> usize {
     }
 }
 
+/// Turn `string.unpack`'s 1-based `pos` argument into a 0-based offset, following PUC's
+/// `posrelatI`: negative counts back from the end, and 0 or a position before the start means one.
+/// `None` means the position is past the end of the data, which PUC rejects.
+fn unpack_init(len: usize, pos: i64) -> Option<usize> {
+    let start = if pos > 0 {
+        usize::try_from(pos).unwrap_or(usize::MAX)
+    } else if pos == 0 || pos.unsigned_abs() > len as u64 {
+        1
+    } else {
+        len - pos.unsigned_abs() as usize + 1
+    };
+    let at = start - 1;
+    (at <= len).then_some(at)
+}
+
 /// Plain (non-pattern) substring search.
 pub fn find_plain(src: &[u8], pat: &[u8], init: usize) -> Option<usize> {
     if init > src.len() {
@@ -992,36 +1028,34 @@ fn gsub_string(
     repl: &[u8],
     max_subs: i64,
 ) -> Result<(Vec<u8>, i64), std::string::String> {
-    let mut result = Vec::new();
-    let mut pos = 0usize;
-    let mut count = 0i64;
-    let mut last_end: Option<usize> = None;
+    let pp = pattern::prepare(pat)?;
     let anchored = is_anchored(pat);
+    let mut result = Vec::new();
+    let mut at = 0usize;
+    let mut count = 0i64;
+    let mut last_match: Option<usize> = None;
 
-    loop {
-        if count >= max_subs {
-            result.extend_from_slice(&src[pos..]);
-            break;
-        }
-        let m = pattern::find_next(src, pat, pos, last_end)?;
-        let m = match m {
-            None => {
-                result.extend_from_slice(&src[pos..]);
-                break;
+    while count < max_subs {
+        match pattern::match_at(src, pat, pp, at)? {
+            Some(m) if Some(m.end) != last_match => {
+                count += 1;
+                let replacement =
+                    pattern::apply_replacement(repl, src, m.start, m.end, &m.captures)?;
+                result.extend_from_slice(&replacement);
+                last_match = Some(m.end);
+                at = m.end;
             }
-            Some(m) => m,
-        };
-        result.extend_from_slice(&src[pos..m.start]);
-        let replacement = pattern::apply_replacement(repl, src, m.start, m.end, &m.captures)?;
-        result.extend_from_slice(&replacement);
-        count += 1;
-        last_end = Some(m.end);
-        pos = if m.end > m.start { m.end } else { m.end + 1 };
-        if anchored || pos > src.len() {
-            result.extend_from_slice(src.get(pos..).unwrap_or_default());
+            _ if at < src.len() => {
+                result.push(src[at]);
+                at += 1;
+            }
+            _ => break,
+        }
+        if anchored {
             break;
         }
     }
+    result.extend_from_slice(&src[at..]);
     Ok((result, count))
 }
 
