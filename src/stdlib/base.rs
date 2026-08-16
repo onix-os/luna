@@ -122,6 +122,88 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
         }),
     );
 
+    // Reads a file the way `luaL_loadfile` does, BOM and shebang included — `crate::io` has done
+    // that since before anything called it.
+    fn read_chunk_file(path: &str) -> Result<Vec<u8>, std::io::Error> {
+        let mut reader = crate::io::buffered_read(std::fs::File::open(path)?)?;
+        let mut source = Vec::new();
+        std::io::Read::read_to_end(&mut reader, &mut source)?;
+        Ok(source)
+    }
+
+    ctx.set_global(
+        "loadfile",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let (path, _mode, env): (String, Option<Value>, Option<Value>) = stack.consume(ctx)?;
+            let path = path.display_lossy().to_string();
+
+            let env = match env {
+                None | Some(Value::Nil) => ctx.globals(),
+                Some(Value::Table(t)) => t,
+                Some(_) => {
+                    return Err("bad argument #3 to 'loadfile' (table expected)"
+                        .into_value(ctx)
+                        .into())
+                }
+            };
+
+            match read_chunk_file(&path) {
+                Ok(source) => match Closure::load_with_env(ctx, Some(&path), &source, env) {
+                    Ok(closure) => stack.replace(ctx, closure),
+                    Err(err) => {
+                        let msg = ctx.intern(err.to_string().as_bytes());
+                        stack.replace(ctx, (Value::Nil, msg));
+                    }
+                },
+                Err(err) => {
+                    let msg = ctx.intern(format!("cannot open {path}: {err}").as_bytes());
+                    stack.replace(ctx, (Value::Nil, msg));
+                }
+            }
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    // Unlike `loadfile`, a failure here is raised rather than returned, and the chunk is called
+    // with whatever extra arguments were passed.
+    ctx.set_global(
+        "dofile",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let path: String = stack.from_front(ctx)?;
+            let path = path.display_lossy().to_string();
+
+            let source = read_chunk_file(&path)
+                .map_err(|err| format!("cannot open {path}: {err}").into_value(ctx))?;
+            let closure = Closure::load(ctx, Some(&path), &source)
+                .map_err(|err| err.to_string().into_value(ctx))?;
+
+            Ok(CallbackReturn::Call {
+                function: closure.into(),
+                then: None,
+            })
+        }),
+    );
+
+    ctx.set_global(
+        "xpcall",
+        Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let function = meta_ops::call(ctx, stack.get(0))?;
+            let handler = meta_ops::call(ctx, stack.get(1))?;
+            stack.pop_front();
+            stack.pop_front();
+            Ok(CallbackReturn::Call {
+                function,
+                then: Some(BoxSequence::new(
+                    &ctx,
+                    XPCall {
+                        handler,
+                        handled: false,
+                    },
+                )),
+            })
+        }),
+    );
+
     ctx.set_global(
         "type",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
@@ -193,6 +275,49 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
     // The globals table under its conventional name. `_ENV` already works; this is the name that
     // scripts and probes reach for.
     ctx.set_global("_G", ctx.globals());
+
+    // Raw identity, without consulting `__eq`.
+    ctx.set_global(
+        "rawequal",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let (a, b): (Value, Value) = stack.consume(ctx)?;
+            // `meta_ops::equal` only reaches for `__eq` once raw identity has already failed, so a
+            // deferred call is itself the answer: not raw-equal.
+            let equal = match meta_ops::equal(ctx, a, b)? {
+                MetaResult::Value(v) => v.to_bool(),
+                MetaResult::Call(_) => false,
+            };
+            stack.replace(ctx, equal);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    // Writes to stderr, like PUC-Rio's default warning handler. A host that wants its own sink
+    // replaces this global, the same way it would replace `print`.
+    ctx.set_global(
+        "warn",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let mut message = std::string::String::new();
+            for i in 0..stack.len() {
+                match stack.get(i) {
+                    Value::String(s) => message.push_str(&s.display_lossy().to_string()),
+                    other => {
+                        return Err(TypeError {
+                            expected: "string",
+                            found: other.type_name(),
+                        }
+                        .into())
+                    }
+                }
+            }
+            // A message starting with "@" is a control message in PUC-Rio, not output.
+            if !message.starts_with('@') {
+                eprintln!("Lua warning: {message}");
+            }
+            stack.clear();
+            Ok(CallbackReturn::Return)
+        }),
+    );
 
     ctx.set_global(
         "getmetatable",
@@ -441,6 +566,45 @@ impl<'gc> Sequence<'gc> for CheckToString {
             Value::String(_) => Ok(SequencePoll::Return),
             _ => Err("'__tostring' must return a string".into_value(ctx).into()),
         }
+    }
+}
+
+/// `xpcall`'s message handler runs at the frame that intercepted the error, before unwinding
+/// continues — which is the whole reason to prefer it over `pcall`.
+#[derive(Collect)]
+#[collect(no_drop)]
+pub struct XPCall<'gc> {
+    handler: crate::Function<'gc>,
+    handled: bool,
+}
+
+impl<'gc> Sequence<'gc> for XPCall<'gc> {
+    fn poll(
+        mut self: Pin<&mut Self>,
+        ctx: Context<'gc>,
+        _exec: Execution<'gc, '_>,
+        mut stack: Stack<'gc, '_>,
+    ) -> Result<SequencePoll<'gc>, Error<'gc>> {
+        // Reached either because the protected call returned, or because the handler we asked for
+        // has just finished.
+        stack.into_front(ctx, !self.handled);
+        self.handled = false;
+        Ok(SequencePoll::Return)
+    }
+
+    fn error(
+        mut self: Pin<&mut Self>,
+        ctx: Context<'gc>,
+        _exec: Execution<'gc, '_>,
+        error: Error<'gc>,
+        mut stack: Stack<'gc, '_>,
+    ) -> Result<SequencePoll<'gc>, Error<'gc>> {
+        self.handled = true;
+        stack.replace(ctx, error.to_value(ctx));
+        Ok(SequencePoll::Call {
+            bottom: 0,
+            function: self.handler,
+        })
     }
 }
 
