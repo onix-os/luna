@@ -1,4 +1,5 @@
 mod format;
+mod pack;
 mod pattern;
 
 use std::cell::Cell;
@@ -7,7 +8,7 @@ use ottavino_gc_arena::{Collect, Gc, Rootable};
 
 use crate::{
     async_sequence, meta_ops, Callback, CallbackReturn, Context, Error, IntoValue, SequenceReturn,
-    Singleton, String, Table, Value,
+    Singleton, String, Table, Value, Variadic,
 };
 
 #[derive(Copy, Clone, Collect)]
@@ -163,6 +164,197 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
             let s = stack.consume::<String>(ctx)?;
             let rev: Vec<u8> = s.as_bytes().iter().copied().rev().collect();
             stack.replace(ctx, ctx.intern(&rev));
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    string_lib.set_field(
+        ctx,
+        "pack",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let format: String = stack.from_front(ctx)?;
+            let parsed = pack::parse_format(format.as_bytes()).map_err(|e| e.into_value(ctx))?;
+
+            let mut out = Vec::new();
+            let mut arg = 0;
+            for item in &parsed.items {
+                match item {
+                    pack::Item::Padding => out.push(0),
+                    pack::Item::Int { size, .. } => {
+                        let v = stack.get(arg).to_integer().ok_or_else(|| {
+                            "bad argument to 'pack' (number expected)".into_value(ctx)
+                        })?;
+                        arg += 1;
+                        pack::write_int(&mut out, v, *size, parsed.little_endian);
+                    }
+                    pack::Item::Float => {
+                        let v = stack.get(arg).to_number().ok_or_else(|| {
+                            "bad argument to 'pack' (number expected)".into_value(ctx)
+                        })? as f32;
+                        arg += 1;
+                        let bytes = if parsed.little_endian {
+                            v.to_le_bytes()
+                        } else {
+                            v.to_be_bytes()
+                        };
+                        out.extend_from_slice(&bytes);
+                    }
+                    pack::Item::Double => {
+                        let v = stack.get(arg).to_number().ok_or_else(|| {
+                            "bad argument to 'pack' (number expected)".into_value(ctx)
+                        })?;
+                        arg += 1;
+                        let bytes = if parsed.little_endian {
+                            v.to_le_bytes()
+                        } else {
+                            v.to_be_bytes()
+                        };
+                        out.extend_from_slice(&bytes);
+                    }
+                    pack::Item::LenString { size } => {
+                        let s: String = match stack.get(arg) {
+                            Value::String(s) => s,
+                            v => ctx.intern(v.display().to_string().as_bytes()),
+                        };
+                        arg += 1;
+                        pack::write_int(
+                            &mut out,
+                            s.as_bytes().len() as i64,
+                            *size,
+                            parsed.little_endian,
+                        );
+                        out.extend_from_slice(s.as_bytes());
+                    }
+                    pack::Item::ZeroString => {
+                        let s: String = match stack.get(arg) {
+                            Value::String(s) => s,
+                            v => ctx.intern(v.display().to_string().as_bytes()),
+                        };
+                        arg += 1;
+                        out.extend_from_slice(s.as_bytes());
+                        out.push(0);
+                    }
+                    pack::Item::FixedString { size } => {
+                        let s: String = match stack.get(arg) {
+                            Value::String(s) => s,
+                            v => ctx.intern(v.display().to_string().as_bytes()),
+                        };
+                        arg += 1;
+                        let bytes = s.as_bytes();
+                        if bytes.len() > *size {
+                            return Err("string longer than given size".into_value(ctx).into());
+                        }
+                        out.extend_from_slice(bytes);
+                        out.resize(out.len() + (*size - bytes.len()), 0);
+                    }
+                }
+            }
+
+            stack.replace(ctx, ctx.intern(&out));
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    string_lib.set_field(
+        ctx,
+        "packsize",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let format: String = stack.consume(ctx)?;
+            let parsed = pack::parse_format(format.as_bytes()).map_err(|e| e.into_value(ctx))?;
+            let size = pack::packed_size(&parsed).map_err(|e| e.into_value(ctx))?;
+            stack.replace(ctx, size as i64);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    string_lib.set_field(
+        ctx,
+        "unpack",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let (format, data, pos): (String, String, Option<i64>) = stack.consume(ctx)?;
+            let parsed = pack::parse_format(format.as_bytes()).map_err(|e| e.into_value(ctx))?;
+            let bytes = data.as_bytes();
+            let mut at = pos.unwrap_or(1).max(1) as usize - 1;
+
+            let short = || "data string too short".into_value(ctx);
+            let mut out: Vec<Value> = Vec::new();
+
+            for item in &parsed.items {
+                match item {
+                    pack::Item::Padding => at += 1,
+                    pack::Item::Int { size, signed } => {
+                        if at + size > bytes.len() {
+                            return Err(short().into());
+                        }
+                        out.push(Value::Integer(pack::read_int(
+                            &bytes[at..],
+                            *size,
+                            *signed,
+                            parsed.little_endian,
+                        )));
+                        at += size;
+                    }
+                    pack::Item::Float => {
+                        if at + 4 > bytes.len() {
+                            return Err(short().into());
+                        }
+                        let raw: [u8; 4] = bytes[at..at + 4].try_into().unwrap();
+                        let v = if parsed.little_endian {
+                            f32::from_le_bytes(raw)
+                        } else {
+                            f32::from_be_bytes(raw)
+                        };
+                        out.push(Value::Number(v as f64));
+                        at += 4;
+                    }
+                    pack::Item::Double => {
+                        if at + 8 > bytes.len() {
+                            return Err(short().into());
+                        }
+                        let raw: [u8; 8] = bytes[at..at + 8].try_into().unwrap();
+                        let v = if parsed.little_endian {
+                            f64::from_le_bytes(raw)
+                        } else {
+                            f64::from_be_bytes(raw)
+                        };
+                        out.push(Value::Number(v));
+                        at += 8;
+                    }
+                    pack::Item::LenString { size } => {
+                        if at + size > bytes.len() {
+                            return Err(short().into());
+                        }
+                        let len = pack::read_int(&bytes[at..], *size, false, parsed.little_endian)
+                            as usize;
+                        at += size;
+                        if at + len > bytes.len() {
+                            return Err(short().into());
+                        }
+                        out.push(ctx.intern(&bytes[at..at + len]).into());
+                        at += len;
+                    }
+                    pack::Item::ZeroString => {
+                        let end = bytes[at..]
+                            .iter()
+                            .position(|b| *b == 0)
+                            .map(|p| at + p)
+                            .ok_or_else(|| "unfinished string for format 'z'".into_value(ctx))?;
+                        out.push(ctx.intern(&bytes[at..end]).into());
+                        at = end + 1;
+                    }
+                    pack::Item::FixedString { size } => {
+                        if at + size > bytes.len() {
+                            return Err(short().into());
+                        }
+                        out.push(ctx.intern(&bytes[at..at + size]).into());
+                        at += size;
+                    }
+                }
+            }
+
+            // Lua returns the position just past what was read, as the last value.
+            out.push(Value::Integer(at as i64 + 1));
+            stack.replace(ctx, Variadic(out));
             Ok(CallbackReturn::Return)
         }),
     );
