@@ -72,44 +72,19 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
         "char",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
             let mut buf = Vec::with_capacity(stack.len());
-            for v in stack.drain(..) {
-                match v {
-                    Value::Integer(i) => {
-                        if !(0..=255).contains(&i) {
-                            return Err("bad argument to 'char' (value out of range)"
-                                .into_value(ctx)
-                                .into());
-                        }
-                        buf.push(i as u8);
-                    }
-                    Value::Number(n) => {
-                        let i = n as i64;
-                        if !(0..=255).contains(&i) || (i as f64) != n {
-                            return Err("bad argument to 'char' (value out of range)"
-                                .into_value(ctx)
-                                .into());
-                        }
-                        buf.push(i as u8);
-                    }
-                    Value::String(s) => {
-                        // Coerce string to number
-                        let s_str = std::str::from_utf8(s.as_bytes()).unwrap_or("");
-                        let i: i64 = s_str.trim().parse().map_err(|_| {
-                            "bad argument to 'char' (number expected)".into_value(ctx)
-                        })?;
-                        if !(0..=255).contains(&i) {
-                            return Err("bad argument to 'char' (value out of range)"
-                                .into_value(ctx)
-                                .into());
-                        }
-                        buf.push(i as u8);
-                    }
-                    _ => {
-                        return Err("bad argument to 'char' (number expected)"
-                            .into_value(ctx)
-                            .into());
-                    }
+            // `str_char` takes each argument through `luaL_checkinteger` and only then range-checks
+            // it, so a non-integral number is reported as such rather than as being out of range.
+            for (i, v) in stack.drain(..).enumerate() {
+                let bad = |what: &str| {
+                    Error::from(
+                        format!("bad argument #{} to 'char' ({})", i + 1, what).into_value(ctx),
+                    )
+                };
+                let c = check_integer(v, true).map_err(|e| bad(&e))?;
+                if !(0..=255).contains(&c) {
+                    return Err(bad("value out of range"));
                 }
+                buf.push(c as u8);
             }
             stack.replace(ctx, ctx.intern(&buf));
             Ok(CallbackReturn::Return)
@@ -216,24 +191,30 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                     .map(|_| ())
                     .map_err(|e| Error::from(e.into_value(ctx)))
             };
+            // Argument one is the format, so the value at `arg` is Lua's argument `arg + 2`.
+            let bad = |arg: usize, what: &str| {
+                Error::from(
+                    format!("bad argument #{} to 'pack' ({})", arg + 2, what).into_value(ctx),
+                )
+            };
+            let present = |arg: usize| arg < stack.len();
             for item in &parsed.items {
                 match item {
                     pack::Item::Padding => {
                         grow(&out, 1)?;
                         out.push(0);
                     }
-                    pack::Item::Int { size, .. } => {
-                        let v = stack.get(arg).to_integer().ok_or_else(|| {
-                            "bad argument to 'pack' (number expected)".into_value(ctx)
-                        })?;
+                    pack::Item::Int { size, signed } => {
+                        let v = check_integer(stack.get(arg), present(arg))
+                            .map_err(|e| bad(arg, &e))?;
+                        pack::check_int_range(v, *size, *signed).map_err(|e| bad(arg, &e))?;
                         arg += 1;
                         grow(&out, *size)?;
                         pack::write_int(&mut out, v, *size, parsed.little_endian);
                     }
                     pack::Item::Float => {
-                        let v = stack.get(arg).to_number().ok_or_else(|| {
-                            "bad argument to 'pack' (number expected)".into_value(ctx)
-                        })? as f32;
+                        let v = check_number(stack.get(arg), present(arg))
+                            .map_err(|e| bad(arg, &e))? as f32;
                         arg += 1;
                         grow(&out, 4)?;
                         let bytes = if parsed.little_endian {
@@ -244,9 +225,8 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                         out.extend_from_slice(&bytes);
                     }
                     pack::Item::Double => {
-                        let v = stack.get(arg).to_number().ok_or_else(|| {
-                            "bad argument to 'pack' (number expected)".into_value(ctx)
-                        })?;
+                        let v =
+                            check_number(stack.get(arg), present(arg)).map_err(|e| bad(arg, &e))?;
                         arg += 1;
                         grow(&out, 8)?;
                         let bytes = if parsed.little_endian {
@@ -257,40 +237,40 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                         out.extend_from_slice(&bytes);
                     }
                     pack::Item::LenString { size } => {
-                        let s: String = match stack.get(arg) {
-                            Value::String(s) => s,
-                            v => ctx.intern(v.display().to_string().as_bytes()),
-                        };
+                        let s = check_lstring(ctx, stack.get(arg), present(arg))
+                            .map_err(|e| bad(arg, &e))?;
+                        let len = s.as_bytes().len();
+                        // The length prefix is written at `size` bytes, so a longer string would
+                        // record a truncated count and the payload could never be read back.
+                        if *size < 8 && len >= 1usize << (size * 8) {
+                            return Err(bad(arg, "string length does not fit in given size"));
+                        }
                         arg += 1;
-                        grow(&out, size + s.as_bytes().len())?;
-                        pack::write_int(
-                            &mut out,
-                            s.as_bytes().len() as i64,
-                            *size,
-                            parsed.little_endian,
-                        );
+                        grow(&out, size + len)?;
+                        pack::write_int(&mut out, len as i64, *size, parsed.little_endian);
                         out.extend_from_slice(s.as_bytes());
                     }
                     pack::Item::ZeroString => {
-                        let s: String = match stack.get(arg) {
-                            Value::String(s) => s,
-                            v => ctx.intern(v.display().to_string().as_bytes()),
-                        };
+                        let s = check_lstring(ctx, stack.get(arg), present(arg))
+                            .map_err(|e| bad(arg, &e))?;
+                        // A zero-terminated string is read back up to its first zero, so an
+                        // embedded one would silently truncate whatever follows it.
+                        if s.as_bytes().contains(&0) {
+                            return Err(bad(arg, "string contains zeros"));
+                        }
                         arg += 1;
                         grow(&out, s.as_bytes().len() + 1)?;
                         out.extend_from_slice(s.as_bytes());
                         out.push(0);
                     }
                     pack::Item::FixedString { size } => {
-                        let s: String = match stack.get(arg) {
-                            Value::String(s) => s,
-                            v => ctx.intern(v.display().to_string().as_bytes()),
-                        };
-                        arg += 1;
+                        let s = check_lstring(ctx, stack.get(arg), present(arg))
+                            .map_err(|e| bad(arg, &e))?;
                         let bytes = s.as_bytes();
                         if bytes.len() > *size {
-                            return Err("string longer than given size".into_value(ctx).into());
+                            return Err(bad(arg, "string longer than given size"));
                         }
+                        arg += 1;
                         grow(&out, *size)?;
                         out.extend_from_slice(bytes);
                         out.resize(out.len() + (*size - bytes.len()), 0);
@@ -960,6 +940,48 @@ fn normalise_init(len: usize, init: i64) -> usize {
     } else {
         let abs: usize = init.unsigned_abs().try_into().unwrap_or(0);
         len.saturating_sub(abs)
+    }
+}
+
+/// PUC's `luaL_checkinteger`. A value that *is* a number but has no exact integer is a different
+/// mistake from one that is not a number at all, and `interror` reports them differently.
+fn check_integer(v: Value, present: bool) -> Result<i64, std::string::String> {
+    match v.to_integer() {
+        Some(i) => Ok(i),
+        None if v.to_number().is_some() => Err("number has no integer representation".to_owned()),
+        None => Err(format!("number expected, got {}", type_of(v, present))),
+    }
+}
+
+/// PUC's `luaL_checknumber`.
+fn check_number(v: Value, present: bool) -> Result<f64, std::string::String> {
+    v.to_number()
+        .ok_or_else(|| format!("number expected, got {}", type_of(v, present)))
+}
+
+/// PUC's `luaL_checklstring`: a string passes through, a number converts to the text `tostring`
+/// would give it, and nothing else is a string at all.
+///
+/// Accepting everything here let a table reach `string.pack` as its address, writing a different
+/// byte sequence on every run into what is supposed to be a stable binary record.
+fn check_lstring<'gc>(
+    ctx: Context<'gc>,
+    v: Value<'gc>,
+    present: bool,
+) -> Result<String<'gc>, std::string::String> {
+    match v {
+        Value::String(s) => Ok(s),
+        Value::Integer(_) | Value::Number(_) => Ok(ctx.intern(v.display().to_string().as_bytes())),
+        _ => Err(format!("string expected, got {}", type_of(v, present))),
+    }
+}
+
+/// The type name PUC puts in an argument error, which distinguishes an absent argument from `nil`.
+fn type_of(v: Value, present: bool) -> &'static str {
+    if present {
+        v.type_name()
+    } else {
+        "no value"
     }
 }
 

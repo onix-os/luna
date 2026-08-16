@@ -167,7 +167,7 @@ pub fn packed_size(format: &Format) -> Result<usize, std::string::String> {
             Item::FixedString { size } => *size,
             Item::Padding => 1,
             Item::LenString { .. } | Item::ZeroString => {
-                return Err("variable-size format in packsize".to_owned())
+                return Err("variable-length format".to_owned())
             }
         };
         total = room(total, size)?;
@@ -183,6 +183,31 @@ pub fn room(total: usize, add: usize) -> Result<usize, std::string::String> {
     match total.checked_add(add) {
         Some(t) if t <= crate::string::MAX_STRING_LENGTH => Ok(t),
         _ => Err("format result too large".to_owned()),
+    }
+}
+
+/// Refuse a value that an option narrower than a Lua integer cannot hold, as PUC's `str_pack` does.
+///
+/// Without this the extra bits are simply dropped, so `string.pack("i1", 300)` answers `"\44"` and
+/// the corruption only surfaces wherever the bytes are read back. An option 8 bytes or wider has
+/// nothing to check: every Lua integer fits.
+pub fn check_int_range(value: i64, size: usize, signed: bool) -> Result<(), std::string::String> {
+    if size >= NATIVE_SIZE {
+        return Ok(());
+    }
+    if signed {
+        let lim = 1i64 << (size * 8 - 1);
+        if -lim <= value && value < lim {
+            return Ok(());
+        }
+        Err("integer overflow".to_owned())
+    } else {
+        // Unsigned takes the whole width, but reads the value as unsigned first, so a negative
+        // one becomes enormous and fails.
+        if (value as u64) < 1u64 << (size * 8) {
+            return Ok(());
+        }
+        Err("unsigned overflow".to_owned())
     }
 }
 

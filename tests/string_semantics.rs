@@ -499,3 +499,325 @@ fn narrow_integers_are_unchanged_by_the_wide_integer_check() {
         assert_eq!(text(expr), want, "{expr}");
     }
 }
+
+// 9. Packing an integer an option cannot hold is an error, not a silent truncation.
+
+#[test]
+fn a_signed_option_narrower_than_eight_bytes_rejects_what_it_cannot_hold() {
+    // `string.pack("i1", 300)` used to answer "\44" and only show up as corruption wherever the
+    // bytes were read back.
+    let fits = [
+        ("i1", "127"),
+        ("i1", "-128"),
+        ("i2", "32767"),
+        ("i2", "-32768"),
+        ("i4", "(1 << 31) - 1"),
+        ("i4", "-(1 << 31)"),
+        ("i7", "(1 << 55) - 1"),
+        ("i7", "-(1 << 55)"),
+        ("b", "-128"),
+        ("h", "-32768"),
+    ];
+    for (format, value) in fits {
+        assert_eq!(
+            text(&format!(r#"#string.pack("<{format}", {value})"#)),
+            text(&format!(r#"string.packsize("<{format}")"#)),
+            "{format} should accept {value}"
+        );
+    }
+    let overflows = [
+        ("i1", "128"),
+        ("i1", "-129"),
+        ("i1", "300"),
+        ("i2", "32768"),
+        ("i2", "-32769"),
+        ("i4", "1 << 31"),
+        ("i4", "-(1 << 31) - 1"),
+        ("i7", "1 << 55"),
+        ("i7", "-(1 << 55) - 1"),
+        ("b", "200"),
+        ("h", "40000"),
+    ];
+    for (format, value) in overflows {
+        let message = attempt(&format!(r#"string.pack("<{format}", {value})"#));
+        assert!(
+            message.contains("integer overflow"),
+            "{format} with {value} gave {message}"
+        );
+    }
+}
+
+#[test]
+fn an_unsigned_option_takes_its_whole_width_but_no_more() {
+    // Unsigned reads the value as unsigned first, so the full width is available and a negative
+    // number becomes enormous rather than wrapping.
+    for (format, value) in [
+        ("I1", "255"),
+        ("I2", "65535"),
+        ("I4", "(1 << 32) - 1"),
+        ("B", "255"),
+        ("H", "65535"),
+    ] {
+        assert_eq!(
+            text(&format!(r#"#string.pack("<{format}", {value})"#)),
+            text(&format!(r#"string.packsize("<{format}")"#)),
+            "{format} should accept {value}"
+        );
+    }
+    for (format, value) in [
+        ("I1", "256"),
+        ("I1", "-1"),
+        ("I2", "65536"),
+        ("I2", "-1"),
+        ("I4", "1 << 32"),
+        ("I7", "1 << 56"),
+    ] {
+        let message = attempt(&format!(r#"string.pack("<{format}", {value})"#));
+        assert!(
+            message.contains("unsigned overflow"),
+            "{format} with {value} gave {message}"
+        );
+    }
+}
+
+#[test]
+fn options_eight_bytes_and_wider_take_any_integer() {
+    // Every Lua integer fits, so PUC skips the check entirely at these widths.
+    for (format, value) in [
+        ("i8", "math.maxinteger"),
+        ("i8", "math.mininteger"),
+        ("I8", "-1"),
+        ("i16", "math.mininteger"),
+        ("I16", "-1"),
+        ("l", "math.mininteger"),
+        ("j", "math.maxinteger"),
+        ("T", "-1"),
+    ] {
+        assert_eq!(
+            text(&format!(r#"#string.pack("<{format}", {value})"#)),
+            text(&format!(r#"string.packsize("<{format}")"#)),
+            "{format} should accept {value}"
+        );
+    }
+}
+
+#[test]
+fn an_integer_that_fits_still_round_trips_unchanged() {
+    assert_eq!(
+        eval::<String>(
+            r#"
+            local cases = {
+                {"<i1", 127}, {"<i1", -128}, {"<I1", 255},
+                {"<i2", 32767}, {"<i2", -32768}, {"<I2", 65535},
+                {">i2", -32768}, {">I2", 65535},
+                {"<i4", -2147483648}, {"<I4", 4294967295},
+                {"<i7", (1 << 55) - 1}, {">i7", -(1 << 55)}, {"<I7", (1 << 56) - 1},
+                {"<i8", math.mininteger}, {"<i16", math.mininteger},
+                {"<b", -128}, {"<B", 255}, {"<h", -32768}, {"<H", 65535},
+            }
+            for _, c in ipairs(cases) do
+                local got = string.unpack(c[1], string.pack(c[1], c[2]))
+                if got ~= c[2] then
+                    return c[1] .. " gave " .. tostring(got) .. " for " .. tostring(c[2])
+                end
+            end
+            return "all"
+        "#
+        )
+        .unwrap(),
+        "all"
+    );
+}
+
+#[test]
+fn the_range_check_keeps_lua_s_own_argument_coercion() {
+    // `luaL_checkinteger` accepts a numeric string and an integral float, and the range check
+    // applies to whatever they convert to.
+    assert_eq!(
+        text(r#"string.unpack("<i1", string.pack("<i1", "100"))"#),
+        "100"
+    );
+    assert_eq!(
+        text(r#"string.unpack("<i1", string.pack("<i1", 100.0))"#),
+        "100"
+    );
+    assert!(attempt(r#"string.pack("<i1", "300")"#).contains("integer overflow"));
+}
+
+#[test]
+fn packsize_rejects_the_variable_length_options() {
+    // These have no fixed width, so `packsize` cannot answer at all.
+    for format in ["z", "s", "s4", "i4z", "i4s1i4"] {
+        let message = attempt(&format!(r#"string.packsize("{format}")"#));
+        assert!(
+            message.contains("variable-length format"),
+            "packsize {format} gave {message}"
+        );
+    }
+    assert_eq!(text(r#"string.packsize("i4")"#), "4");
+    assert_eq!(text(r#"string.packsize("")"#), "0");
+}
+
+#[test]
+fn packing_a_float_option_with_a_non_number_is_an_error_not_a_panic() {
+    for expr in [
+        r#"string.pack("f", "abc")"#,
+        r#"string.pack("d", "abc")"#,
+        r#"string.pack("f", {})"#,
+        r#"string.pack("d", nil)"#,
+        r#"string.pack("f")"#,
+        r#"string.pack("f", true)"#,
+    ] {
+        assert!(attempt(expr).contains("number expected"), "{expr}");
+    }
+    // Values C cannot represent exactly behave as C does rather than failing: `1e300` has no
+    // `float`, so it packs as infinity, and arbitrary bytes unpack to NaN.
+    assert_eq!(
+        text(r#"string.unpack("<f", string.pack("<f", 1e300))"#),
+        "inf"
+    );
+    assert_eq!(
+        text(r#"string.unpack("<d", string.pack("<d", math.huge))"#),
+        "inf"
+    );
+    assert_eq!(
+        text(r#"string.pack("<f", "1.5") == string.pack("<f", 1.5)"#),
+        "true"
+    );
+    // Arbitrary bytes read back as NaN, which is the one value not equal to itself.
+    assert_eq!(
+        text(
+            r#"(select(1, string.unpack("<d", string.rep("\255", 8)))) ~= string.unpack("<d", string.rep("\255", 8))"#
+        ),
+        "true"
+    );
+}
+
+// 10. The string options take strings and numbers, and nothing else.
+
+#[test]
+fn a_string_option_rejects_anything_that_is_not_a_string_or_number() {
+    // A table used to pack as its own address, so the bytes written into a supposedly stable
+    // binary record differed on every run and could never be reproduced.
+    for format in ["z", "s1", "s4", "c8"] {
+        for (value, want) in [
+            ("{}", "string expected, got table"),
+            ("true", "string expected, got boolean"),
+            ("nil", "string expected, got nil"),
+            ("print", "string expected, got function"),
+        ] {
+            let message = attempt(&format!(r#"string.pack("{format}", {value})"#));
+            assert!(
+                message.contains(want) && message.contains("#2 to 'pack'"),
+                "pack {format} with {value} gave {message}"
+            );
+        }
+        let missing = attempt(&format!(r#"string.pack("{format}")"#));
+        assert!(
+            missing.contains("string expected, got no value"),
+            "pack {format} with nothing gave {missing}"
+        );
+    }
+}
+
+#[test]
+fn a_number_still_packs_through_a_string_option_as_its_text() {
+    // This is real PUC behaviour, not an oversight: `luaL_checklstring` converts a number in place.
+    assert_eq!(text(r#"string.pack("z", 42)"#), "42\0");
+    assert_eq!(text(r#"string.pack("z", 2.5)"#), "2.5\0");
+    assert_eq!(text(r#"string.pack("z", 2.0)"#), "2.0\0");
+    assert_eq!(text(r#"string.unpack("z", string.pack("z", 42))"#), "42");
+    assert_eq!(
+        text(r#"string.unpack("<s1", string.pack("<s1", 42))"#),
+        "42"
+    );
+    assert_eq!(text(r#"string.unpack("c2", string.pack("c2", 42))"#), "42");
+}
+
+#[test]
+fn a_zero_terminated_string_may_not_contain_zeros() {
+    // `z` is read back up to its first zero, so an embedded one silently drops the rest.
+    for value in [r#""a\0b""#, r#""\0""#, r#""ab\0""#] {
+        let message = attempt(&format!(r#"string.pack("z", {value})"#));
+        assert!(
+            message.contains("string contains zeros"),
+            "pack z with {value} gave {message}"
+        );
+    }
+    assert_eq!(text(r#"string.unpack("z", string.pack("z", "ab"))"#), "ab");
+}
+
+#[test]
+fn a_length_prefixed_string_must_fit_its_length_prefix() {
+    // The prefix is written at the option's width, so a longer string recorded a truncated count
+    // and the payload could never be read back.
+    assert_eq!(text(r#"#string.pack("<s1", string.rep("x", 255))"#), "256");
+    assert_eq!(
+        text(r#"#string.pack("<s2", string.rep("x", 65535))"#),
+        "65537"
+    );
+    for (format, len) in [("s1", 256), ("s1", 300), ("s2", 65536), ("s3", 16777216)] {
+        let message = attempt(&format!(
+            r#"string.pack("<{format}", string.rep("x", {len}))"#
+        ));
+        assert!(
+            message.contains("string length does not fit in given size"),
+            "pack {format} with {len} bytes gave {message}"
+        );
+    }
+    // Eight bytes and wider can hold any length luna allows at all.
+    assert_eq!(text(r#"#string.pack("<s8", string.rep("x", 300))"#), "308");
+    assert_eq!(
+        text(
+            r#"string.unpack("<s2", string.pack("<s2", string.rep("x", 65535))) == string.rep("x", 65535)"#
+        ),
+        "true"
+    );
+}
+
+// 11. A number with no integer representation is its own mistake, not "number expected".
+
+#[test]
+fn a_non_integral_number_is_reported_as_having_no_integer_representation() {
+    for expr in [
+        r#"string.pack("i1", 1.5)"#,
+        r#"string.pack("i8", 1.5)"#,
+        r#"string.pack("i1", "1.5")"#,
+        r#"string.char(1.5)"#,
+        r#"string.char(65, 2.5)"#,
+    ] {
+        let message = attempt(expr);
+        assert!(
+            message.contains("number has no integer representation"),
+            "{expr} gave {message}"
+        );
+    }
+    // A value that is not a number at all keeps the other message, with its type named.
+    assert!(attempt(r#"string.pack("i1", {})"#).contains("number expected, got table"));
+    assert!(attempt(r#"string.char({})"#).contains("number expected, got table"));
+    assert!(attempt(r#"string.pack("i1")"#).contains("number expected, got no value"));
+    assert!(attempt(r#"string.pack("f", {})"#).contains("number expected, got table"));
+    // The range check still applies once the value is known to be an integer.
+    assert!(attempt(r#"string.char(300)"#).contains("value out of range"));
+    assert!(attempt(r#"string.char(-1)"#).contains("value out of range"));
+}
+
+#[test]
+fn a_float_with_no_fraction_is_still_accepted_where_an_integer_is_wanted() {
+    assert_eq!(text(r#"string.char(65.0)"#), "A");
+    assert_eq!(
+        text(r#"string.unpack("<i1", string.pack("<i1", 2.0))"#),
+        "2"
+    );
+    assert_eq!(text(r#"string.rep("x", 2.0)"#), "xx");
+    assert_eq!(text(r#"string.sub("abc", 2.0)"#), "bc");
+    assert_eq!(text(r#"string.byte("abc", 2.0)"#), "98");
+    assert_eq!(text(r#"("abc"):find("b", 1.0)"#), "2");
+    assert_eq!(text(r#"string.unpack("<i1", "\5", 1.0)"#), "5");
+    // And a numeric string coerces, as `luaL_checkinteger` does.
+    assert_eq!(
+        text(r#"string.unpack("<i1", string.pack("<i1", "100"))"#),
+        "100"
+    );
+    assert_eq!(text(r#"string.char("65")"#), "A");
+}
