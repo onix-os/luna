@@ -456,14 +456,39 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
     ctx.set_global(
         "collectgarbage",
         Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            // Everything but "count" is a *request*: acting on the collector needs `&mut Lua`,
+            // which no callback has, so the host carries it out when the slice ends.
             match stack.consume::<Option<String>>(ctx)? {
                 Some(arg) if arg == "count" => {
                     stack.into_back(ctx, ctx.metrics().total_allocation() as f64 / 1024.0);
                 }
+                Some(arg) if arg == "collect" => {
+                    ctx.request_gc(crate::GcRequest::Collect);
+                    stack.into_back(ctx, 0);
+                }
+                Some(arg) if arg == "step" => {
+                    ctx.request_gc(crate::GcRequest::Step);
+                    stack.into_back(ctx, true);
+                }
+                Some(arg) if arg == "stop" => {
+                    ctx.request_gc(crate::GcRequest::Stop);
+                    stack.into_back(ctx, 0);
+                }
+                Some(arg) if arg == "restart" => {
+                    ctx.request_gc(crate::GcRequest::Restart);
+                    stack.into_back(ctx, 0);
+                }
+                Some(arg) if arg == "isrunning" => {
+                    // The request has not been carried out yet, so answer from the arena: a
+                    // stopped collector is one that is never owed anything.
+                    stack.into_back(ctx, ctx.metrics().allocation_debt() > 0.0);
+                }
                 Some(_) => {
                     return Err("bad argument to 'collectgarbage'".into_value(ctx).into());
                 }
-                None => {}
+                None => {
+                    ctx.request_gc(crate::GcRequest::Collect);
+                }
             }
             Ok(CallbackReturn::Return)
         }),

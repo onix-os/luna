@@ -15,6 +15,16 @@ use ottavino_gc_arena::{
 /// instead of running until the machine is out of memory.
 pub const DEFAULT_MAX_CALL_DEPTH: usize = 100_000;
 
+/// What a `collectgarbage` call is waiting for the host to do.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum GcRequest {
+    None,
+    Collect,
+    Stop,
+    Restart,
+    Step,
+}
+
 use crate::{
     finalizers::Finalizers,
     stash::{Fetchable, Stashable},
@@ -88,6 +98,11 @@ impl<'gc> Context<'gc> {
         self.state.max_call_depth.set(depth);
     }
 
+    /// Ask the host to act on the collector before the next slice.
+    pub fn request_gc(self, request: GcRequest) {
+        self.state.gc_request.set(request);
+    }
+
     pub fn interned_strings(self) -> InternedStringSet<'gc> {
         self.state.strings
     }
@@ -157,6 +172,8 @@ pub struct Lua {
     arena: Arena<Rootable![State<'_>]>,
     // Host-side configuration rather than collected state: nothing in the arena reads it.
     memory_limit: Option<usize>,
+    // The arena has no stop switch to read back, so the flag lives here.
+    gc_running: bool,
 }
 
 impl Default for Lua {
@@ -171,6 +188,7 @@ impl Lua {
         Lua {
             arena: Arena::<Rootable![State<'_>]>::new(|mc| State::new(mc)),
             memory_limit: None,
+            gc_running: true,
         }
     }
 
@@ -259,6 +277,37 @@ impl Lua {
         assert!(self.arena.collection_phase() == CollectionPhase::Sleeping);
     }
 
+    /// Run one incremental slice of collection.
+    pub fn gc_step(&mut self) {
+        // `enter` already performs a slice when there is debt; forcing one through an empty
+        // closure is the same path.
+        self.enter(|_| ());
+    }
+
+    /// Stop the collector pacing itself.
+    ///
+    /// Implemented by driving the sleep threshold up rather than by a flag in the arena, which has
+    /// no stop switch of its own: with nothing ever owed, no slice is ever due.
+    pub fn gc_stop(&mut self) {
+        self.arena
+            .metrics()
+            .set_pacing(ottavino_gc_arena::metrics::Pacing::default().with_min_sleep(usize::MAX));
+        self.gc_running = false;
+    }
+
+    /// Resume normal pacing after [`Lua::gc_stop`].
+    pub fn gc_restart(&mut self) {
+        self.arena
+            .metrics()
+            .set_pacing(ottavino_gc_arena::metrics::Pacing::default());
+        self.gc_running = true;
+    }
+
+    /// Whether the collector is pacing itself.
+    pub fn gc_is_running(&self) -> bool {
+        self.gc_running
+    }
+
     pub fn gc_metrics(&self) -> &Metrics {
         self.arena.metrics()
     }
@@ -281,6 +330,22 @@ impl Lua {
         const COLLECTOR_GRANULARITY: f64 = 1024.0;
 
         let r = self.arena.mutate(move |mc, state| f(state.ctx(mc)));
+
+        // Carry out whatever `collectgarbage` asked for while it was running. It could not do this
+        // itself: acting on the collector needs `&mut Lua`, and a callback only has a `Context`.
+        let request = self.arena.mutate(|_, state| {
+            let request = state.gc_request.get();
+            state.gc_request.set(GcRequest::None);
+            request
+        });
+        match request {
+            GcRequest::None => {}
+            GcRequest::Collect => self.gc_collect(),
+            GcRequest::Step => self.gc_step(),
+            GcRequest::Stop => self.gc_stop(),
+            GcRequest::Restart => self.gc_restart(),
+        }
+
         if self.arena.metrics().allocation_debt() > COLLECTOR_GRANULARITY {
             if self.arena.collection_phase() == CollectionPhase::Sweeping {
                 self.arena.collect_debt();
@@ -374,6 +439,9 @@ struct State<'gc> {
     strings: InternedStringSet<'gc>,
     finalizers: Finalizers<'gc>,
     max_call_depth: Gc<'gc, Cell<usize>>,
+    // What `collectgarbage` asked for. A callback has no `&mut Lua`, so it leaves a request here
+    // and `Lua::enter` carries it out once `arena.mutate` has returned.
+    gc_request: Gc<'gc, Cell<GcRequest>>,
 }
 
 impl<'gc> State<'gc> {
@@ -384,6 +452,7 @@ impl<'gc> State<'gc> {
             strings: InternedStringSet::new(mc),
             finalizers: Finalizers::new(mc),
             max_call_depth: Gc::new(mc, Cell::new(DEFAULT_MAX_CALL_DEPTH)),
+            gc_request: Gc::new(mc, Cell::new(GcRequest::None)),
         }
     }
 

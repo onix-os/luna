@@ -33,7 +33,7 @@ pub use self::{
     error::{Error, ExternError, RuntimeError, TypeError},
     fuel::Fuel,
     function::Function,
-    lua::{Context, Lua},
+    lua::{Context, GcRequest, Lua},
     meta_ops::MetaMethod,
     registry::{Registry, Singleton},
     stack::Stack,
