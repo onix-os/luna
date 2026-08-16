@@ -190,6 +190,10 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
         }),
     );
 
+    // The globals table under its conventional name. `_ENV` already works; this is the name that
+    // scripts and probes reach for.
+    ctx.set_global("_G", ctx.globals());
+
     ctx.set_global(
         "getmetatable",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
@@ -345,15 +349,69 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
     ctx.set_global(
         "load",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
-            let chunk = match stack.consume::<Value>(ctx)? {
+            let (chunk, chunk_name, mode, env) =
+                stack.consume::<(Value, Option<Value>, Option<Value>, Option<Value>)>(ctx)?;
+
+            let chunk = match chunk {
                 Value::String(s) => s,
+                // A reader function is the other form PUC-Rio accepts. Refusing it by name beats
+                // accepting it and compiling something the caller did not write.
+                Value::Function(_) => {
+                    return Err(
+                        "bad argument #1 to 'load' (reader functions are not supported)"
+                            .into_value(ctx)
+                            .into(),
+                    );
+                }
                 _ => {
                     return Err("bad argument #1 to 'load' (string expected)"
                         .into_value(ctx)
                         .into());
                 }
             };
-            match Closure::load(ctx, None, chunk.as_bytes()) {
+
+            let chunk_name = match chunk_name {
+                None | Some(Value::Nil) => None,
+                Some(Value::String(s)) => Some(s.display_lossy().to_string()),
+                Some(_) => {
+                    return Err("bad argument #2 to 'load' (string expected)"
+                        .into_value(ctx)
+                        .into());
+                }
+            };
+
+            // There is no bytecode loader, so "b" is refused rather than silently treated as
+            // source. "t" and "bt" both mean "text is acceptable", which is all luna can do.
+            match mode {
+                None | Some(Value::Nil) => {}
+                Some(Value::String(s)) => {
+                    let mode = s.display_lossy().to_string();
+                    if !mode.contains('t') {
+                        return Err("bad argument #3 to 'load' (luna cannot load binary chunks)"
+                            .into_value(ctx)
+                            .into());
+                    }
+                }
+                Some(_) => {
+                    return Err("bad argument #3 to 'load' (string expected)"
+                        .into_value(ctx)
+                        .into());
+                }
+            }
+
+            // The whole point of the fourth argument: a chunk loaded into a restricted table must
+            // not be able to reach the real globals.
+            let env = match env {
+                None | Some(Value::Nil) => ctx.globals(),
+                Some(Value::Table(t)) => t,
+                Some(_) => {
+                    return Err("bad argument #4 to 'load' (table expected)"
+                        .into_value(ctx)
+                        .into());
+                }
+            };
+
+            match Closure::load_with_env(ctx, chunk_name.as_deref(), chunk.as_bytes(), env) {
                 Ok(closure) => {
                     stack.replace(ctx, closure);
                     Ok(CallbackReturn::Return)
