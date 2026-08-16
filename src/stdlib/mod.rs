@@ -6,8 +6,10 @@ mod os;
 mod package;
 mod string;
 mod table;
+mod utf8;
 
 pub use self::{
     base::load_base, coroutine::load_coroutine, io::load_io, math::load_math, os::load_os,
     package::load_package, string::load_string, string::StringMetatable, table::load_table,
+    utf8::load_utf8,
 };

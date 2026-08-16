@@ -20,7 +20,7 @@ use crate::{
     stash::{Fetchable, Stashable},
     stdlib::{
         load_base, load_coroutine, load_io, load_math, load_os, load_package, load_string,
-        load_table,
+        load_table, load_utf8,
     },
     string::InternedStringSet,
     thread::BadThreadMode,
@@ -205,6 +205,7 @@ impl Lua {
             load_math(ctx);
             load_string(ctx);
             load_table(ctx);
+            load_utf8(ctx);
         })
     }
 
