@@ -4,9 +4,13 @@
 //! `getupvalue`/`setupvalue` go through `Closure::upvalues`, which luna exposes directly — mlua has
 //! no equivalent and has to route through Lua's own `debug` table to reach them.
 //!
-//! **Not here:** `sethook` needs a dispatch point inside the opcode loop, which the stackless design
-//! makes awkward; `Fuel` already covers the count-hook use case and covers it better. `getlocal`
-//! and `setlocal` need a register→name table the compiler does not emit yet.
+//! `sethook` supports line and count hooks. The dispatch point in the opcode loop costs nothing
+//! when no hook is installed — the flag is read once per VM slice, leaving one predictable branch,
+//! measured at no change to VM throughput. Call and return hooks are *rejected* rather than
+//! silently ignored: they would have to fire from every path that pushes or pops a frame, several
+//! of which have no `Context` to call Lua with.
+//!
+//! **Not here:** `getlocal` and `setlocal` need a register→name table the compiler does not emit.
 
 use crate::{Callback, CallbackReturn, Closure, Context, Function, IntoValue, Table, Value};
 
@@ -185,6 +189,56 @@ pub fn load_debug<'gc>(ctx: Context<'gc>) {
                 }
                 None => stack.replace(ctx, Value::Nil),
             }
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    debug.set_field(
+        ctx,
+        "sethook",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let (hook, mask, count): (Value, Option<crate::String>, Option<i64>) =
+                stack.consume(ctx)?;
+
+            // No arguments clears the hook, as in PUC-Rio.
+            if hook.is_nil() {
+                ctx.set_debug_hook(Value::Nil, false, 0);
+                return Ok(CallbackReturn::Return);
+            }
+
+            let mask = mask
+                .map(|m| m.display_lossy().to_string())
+                .unwrap_or_default();
+            // Call and return hooks would have to fire from every path that pushes or pops a
+            // frame, several of which have no `Context` to call Lua with. Rejecting the mask is
+            // the honest answer: accepting one that never fires would be worse than saying no.
+            if mask.contains('c') || mask.contains('r') {
+                return Err(
+                    "call and return hooks are not implemented; only 'l' and a count are"
+                        .into_value(ctx)
+                        .into(),
+                );
+            }
+
+            let count = count.unwrap_or(0).max(0) as u32;
+            let line = mask.contains('l');
+            if !line && count == 0 {
+                return Err("a hook needs the 'l' mask or a count"
+                    .into_value(ctx)
+                    .into());
+            }
+
+            ctx.set_debug_hook(hook, line, count);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    debug.set_field(
+        ctx,
+        "gethook",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let mask = if ctx.hook_line() { "l" } else { "" };
+            stack.replace(ctx, (ctx.debug_hook(), ctx.intern(mask.as_bytes())));
             Ok(CallbackReturn::Return)
         }),
     );

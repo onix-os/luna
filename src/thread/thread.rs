@@ -663,6 +663,56 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
         });
     }
 
+    /// How many frames are on this thread. Read before the register borrow is taken.
+    pub(super) fn frame_depth(&self) -> usize {
+        self.state.frames.len()
+    }
+
+    /// Call the installed debug hook with `event` and `line`.
+    ///
+    /// Set up exactly like a metamethod call — the hook is Lua, so it cannot run inside the opcode
+    /// loop; a frame is pushed and the slice ends, with the executor running it and resuming here.
+    ///
+    /// `#[inline(never)]` so the hooked path cannot bloat the loop it is branched out of: the loop
+    /// pays for the branch, not for this.
+    #[inline(never)]
+    pub(super) fn fire_hook(
+        &mut self,
+        ctx: Context<'gc>,
+        event: &'static str,
+        line: Option<crate::compiler::LineNumber>,
+    ) -> Result<bool, VMError> {
+        // A variable stack means a call is mid-construction and pushing another would corrupt it,
+        // so the hook is skipped for that instruction rather than misreporting.
+        let ready = matches!(
+            self.state.frames.last(),
+            Some(Frame::Lua {
+                is_variable: false,
+                ..
+            })
+        );
+        let Ok(function) = meta_ops::call(ctx, ctx.debug_hook()) else {
+            return Ok(false);
+        };
+        if !ready {
+            return Ok(false);
+        }
+
+        // Suppressed until execution returns to this depth, so a hook that runs Lua — which is
+        // most of them — cannot trigger itself.
+        ctx.suppress_hook_at(self.state.frames.len());
+
+        let args = [
+            Value::String(ctx.intern(event.as_bytes())),
+            match line {
+                Some(line) => Value::Integer(line.0 as i64),
+                None => Value::Nil,
+            },
+        ];
+        self.call_meta_function(ctx, function, &args, MetaReturn::None)?;
+        Ok(true)
+    }
+
     /// returns a view of the Lua frame's registers
     pub(super) fn registers<'b>(&'b mut self) -> LuaRegisters<'gc, 'b> {
         match self.state.frames.last_mut() {
@@ -892,7 +942,7 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
     ///
     /// Nothing at all in the frame is invalidated, other than optionally placing the return value.
     pub(super) fn call_meta_function(
-        mut self,
+        &mut self,
         _ctx: Context<'gc>,
         func: Function<'gc>,
         args: &[Value<'gc>],

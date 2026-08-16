@@ -3,6 +3,7 @@ use std::ops;
 
 use ottavino_gc_arena::{
     arena::{CollectionPhase, Root},
+    lock::Lock,
     metrics::Metrics,
     Arena, Collect, Gc, Mutation, Rootable,
 };
@@ -96,6 +97,81 @@ impl<'gc> Context<'gc> {
 
     pub fn set_max_call_depth(self, depth: usize) {
         self.state.max_call_depth.set(depth);
+    }
+
+    /// Whether a debug hook is installed and not currently running.
+    ///
+    /// A hook that runs Lua would otherwise trigger itself, so it is suppressed for the duration of
+    /// its own call — the same rule PUC-Rio applies.
+    pub fn hook_enabled(self) -> bool {
+        self.state.hook_enabled.get() && self.state.hook_depth.get() == usize::MAX
+    }
+
+    /// The installed hook function, or `nil`.
+    pub fn debug_hook(self) -> Value<'gc> {
+        self.state.hook.get()
+    }
+
+    /// Install a debug hook. `count` of zero disables the count hook.
+    ///
+    /// `line` selects the per-line hook. Call and return hooks are not implemented — see
+    /// COMPATIBILITY.md — and `debug.sethook` rejects those masks rather than accepting a mask it
+    /// will never honour.
+    pub fn set_debug_hook(self, hook: Value<'gc>, line: bool, count: u32) {
+        self.state.hook.set(&self, hook);
+        self.state.hook_line.set(line);
+        self.state.hook_count.set(count);
+        self.state.hook_countdown.set(count);
+        self.state.hook_last.set((usize::MAX, u64::MAX));
+        self.state
+            .hook_enabled
+            .set(!hook.is_nil() && (line || count > 0));
+    }
+
+    /// Whether the line hook is selected.
+    pub fn hook_line(self) -> bool {
+        self.state.hook_line.get()
+    }
+
+    /// Whether the line hook should fire for this position, recording it if so.
+    pub fn hook_line_changed(self, depth: usize, line: u64) -> bool {
+        if self.state.hook_last.get() == (depth, line) {
+            false
+        } else {
+            self.state.hook_last.set((depth, line));
+            true
+        }
+    }
+
+    /// Count down towards the next count-hook firing, reporting whether it should fire now.
+    pub fn hook_tick(self) -> bool {
+        let count = self.state.hook_count.get();
+        if count == 0 {
+            return false;
+        }
+        let remaining = self.state.hook_countdown.get().saturating_sub(1);
+        if remaining == 0 {
+            self.state.hook_countdown.set(count);
+            true
+        } else {
+            self.state.hook_countdown.set(remaining);
+            false
+        }
+    }
+
+    /// Suppress the hook while the frames it pushed are running.
+    ///
+    /// Recorded as the frame depth that fired rather than a flag, so `clear_hook_at` can end the
+    /// suppression precisely when execution returns to that depth — a flag would have to guess.
+    pub fn suppress_hook_at(self, depth: usize) {
+        self.state.hook_depth.set(depth);
+    }
+
+    /// End hook suppression if execution has returned to or above the depth that fired it.
+    pub fn clear_hook_at(self, depth: usize) {
+        if self.state.hook_depth.get() != usize::MAX && depth <= self.state.hook_depth.get() {
+            self.state.hook_depth.set(usize::MAX);
+        }
     }
 
     /// Ask the host to act on the collector before the next slice.
@@ -662,6 +738,23 @@ struct State<'gc> {
     // What `collectgarbage` asked for. A callback has no `&mut Lua`, so it leaves a request here
     // and `Lua::enter` carries it out once `arena.mutate` has returned.
     gc_request: Gc<'gc, Cell<GcRequest>>,
+    // Whether a debug hook is installed. Read once per VM slice and branched on per instruction,
+    // so the cost when no hook exists is one predictable branch — measured, see PLAN.md Phase 3.
+    hook_enabled: Gc<'gc, Cell<bool>>,
+    // The hook function itself, and the frame depth at which it fired — `usize::MAX` when it is not
+    // running. A hook runs Lua, which would trigger the hook again; suppressing by depth rather
+    // than a bool is what lets the suppression end exactly when the hook's own frames do.
+    hook: Gc<'gc, Lock<Value<'gc>>>,
+    hook_depth: Gc<'gc, Cell<usize>>,
+    // Instructions between count-hook firings, and how many are left. Zero disables the count hook.
+    hook_line: Gc<'gc, Cell<bool>>,
+    // The (frame depth, line) the line hook last fired for. Persisted across VM slices — a
+    // per-slice value would re-fire the same line every time the hook returned, forever — and
+    // keyed by depth so that entering or leaving a function reports its line even if the number
+    // happens to match.
+    hook_last: Gc<'gc, Cell<(usize, u64)>>,
+    hook_count: Gc<'gc, Cell<u32>>,
+    hook_countdown: Gc<'gc, Cell<u32>>,
 }
 
 impl<'gc> State<'gc> {
@@ -673,6 +766,13 @@ impl<'gc> State<'gc> {
             finalizers: Finalizers::new(mc),
             max_call_depth: Gc::new(mc, Cell::new(DEFAULT_MAX_CALL_DEPTH)),
             gc_request: Gc::new(mc, Cell::new(GcRequest::None)),
+            hook_enabled: Gc::new(mc, Cell::new(false)),
+            hook: Gc::new(mc, Lock::new(Value::Nil)),
+            hook_depth: Gc::new(mc, Cell::new(usize::MAX)),
+            hook_line: Gc::new(mc, Cell::new(false)),
+            hook_last: Gc::new(mc, Cell::new((usize::MAX, u64::MAX))),
+            hook_count: Gc::new(mc, Cell::new(0)),
+            hook_countdown: Gc::new(mc, Cell::new(0)),
         }
     }
 

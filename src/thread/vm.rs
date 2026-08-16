@@ -2,6 +2,7 @@ use allocator_api2::vec;
 use ottavino_gc_arena::allocator_api::MetricsAlloc;
 
 use crate::{
+    compiler::LineNumber,
     meta_ops::{self, ConcatMetaResult, MetaResult},
     opcode::{Operation, RCIndex},
     table::RawTable,
@@ -16,6 +17,20 @@ use super::{thread::LuaFrame, VMError};
 // changed.
 //
 // Returns the number of instructions that were run.
+/// The source line an opcode index belongs to.
+///
+/// Only ever called with a hook installed, so the binary search is off the normal path entirely.
+fn line_of(proto: &crate::FunctionPrototype<'_>, pc: usize) -> LineNumber {
+    match proto
+        .opcode_line_numbers
+        .binary_search_by_key(&pc, |(opi, _)| *opi)
+    {
+        Ok(i) => proto.opcode_line_numbers[i].1,
+        Err(0) => LineNumber(0),
+        Err(i) => proto.opcode_line_numbers[i - 1].1,
+    }
+}
+
 pub(super) fn run_vm<'gc>(
     ctx: Context<'gc>,
     mut lua_frame: LuaFrame<'gc, '_>,
@@ -28,6 +43,15 @@ pub(super) fn run_vm<'gc>(
     let current_function = lua_frame.closure();
     let current_prototype = current_function.prototype();
     let current_upvalues = current_function.upvalues();
+    // Suppression ends when execution returns to the depth that fired the hook, which is exactly
+    // when the hook's own frames are gone. Checked once per slice, before the register borrow.
+    ctx.clear_hook_at(lua_frame.frame_depth());
+
+    // Read once per slice, not per instruction: with no hook installed this leaves a single
+    // always-false branch in the loop, which is what Phase 3 set out to measure.
+    let hook_enabled = ctx.hook_enabled();
+    let frame_depth = lua_frame.frame_depth();
+
     let mut registers = lua_frame.registers();
     let mut instructions_run = 0;
 
@@ -43,6 +67,31 @@ pub(super) fn run_vm<'gc>(
     }
 
     loop {
+        // Before the instruction, not after: a line hook reports the line that is *about* to run,
+        // and firing pushes a call, so the instruction has to still be there when we come back.
+        if hook_enabled {
+            let line = ctx
+                .hook_line()
+                .then(|| line_of(&current_prototype, *registers.pc));
+            let fire_line = line.is_some_and(|line| ctx.hook_line_changed(frame_depth, line.0));
+            let fire_count = ctx.hook_tick();
+
+            if fire_line || fire_count {
+                let (event, line) = if fire_line {
+                    ("line", line)
+                } else {
+                    ("count", None)
+                };
+                if lua_frame.fire_hook(ctx, event, line)? {
+                    // Fired: a call frame is on top, so this slice is over — the same exit a
+                    // metamethod call takes.
+                    break;
+                }
+                // Declined, but the frame was still borrowed mutably to find that out.
+                registers = lua_frame.registers();
+            }
+        }
+
         let op = current_prototype.opcodes[*registers.pc].decode();
         *registers.pc += 1;
 
