@@ -212,6 +212,15 @@ impl<'gc> Table<'gc> {
         Iter::new(ctx, self)
     }
 
+    /// Revive the values of entries whose key is still alive. See `Finalizers::mark_ephemerons`.
+    pub(crate) fn revive_live_entries(
+        self,
+        fc: &ottavino_gc_arena::Finalization<'gc>,
+        roots: &mut Vec<Value<'gc>>,
+    ) -> usize {
+        self.0.borrow().raw_table.revive_live_entries(fc, roots)
+    }
+
     pub fn metatable(self) -> Option<Table<'gc>> {
         self.0.borrow().metatable
     }
@@ -232,7 +241,16 @@ impl<'gc> Table<'gc> {
             // `__mode` is read once, here. Changing it afterwards does not retroactively weaken
             // entries — PUC-Rio calls that undefined, and this is luna's answer.
             if let Value::String(mode) = mt.get_value(ctx, crate::MetaMethod::Mode) {
-                if mode.as_bytes().contains(&b'v') {
+                let mode = mode.as_bytes();
+                if mode.contains(&b'k') {
+                    self.0.borrow_mut(&ctx).raw_table.make_keys_weak(&ctx);
+                    // Ephemeron revival is for `"k"` alone. Under `"kv"` the value is weak in its
+                    // own right and must die when nothing else holds it, however alive its key is,
+                    // so putting values back would be exactly wrong.
+                    if !mode.contains(&b'v') {
+                        ctx.finalizers().register_weak_keys(&ctx, self.0);
+                    }
+                } else if mode.contains(&b'v') {
                     self.0.borrow_mut(&ctx).raw_table.make_values_weak(&ctx);
                 }
             }

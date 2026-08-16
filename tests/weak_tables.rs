@@ -143,17 +143,14 @@ fn a_strong_table_keeps_everything() -> Result<(), ExternError> {
     Ok(())
 }
 
-/// Weak keys are documented as not implemented — a `__mode` of `"k"` leaves keys strong. This test
-/// exists so that stays a decision rather than drifting into a silent surprise; see
-/// COMPATIBILITY.md, "`__mode`". If weak keys are ever implemented with ephemeron semantics, this
-/// test should be rewritten, not deleted.
+/// A weak key with nothing else referring to it goes away.
 #[test]
-fn weak_keys_are_not_implemented_and_keep_their_entries() -> Result<(), ExternError> {
+fn a_weak_key_disappears_with_its_object() -> Result<(), ExternError> {
     assert_eq!(
         eval(&format!(
             r#"
             local t = setmetatable({{}}, {{ __mode = "k" }})
-            local function fill() t[{{ id = 1 }}] = "metadata" end
+            local function fill() t[{{}}] = "metadata" end
             fill()
             {CHURN}
             collectgarbage("collect")
@@ -163,24 +160,133 @@ fn weak_keys_are_not_implemented_and_keep_their_entries() -> Result<(), ExternEr
             return n
         "#
         ))?,
+        0
+    );
+    Ok(())
+}
+
+/// A key held elsewhere keeps its entry — and its value, which is the half that needs the
+/// finalizer pass to put back what weak storage took away.
+#[test]
+fn a_held_key_keeps_its_entry_and_value() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"
+            local t = setmetatable({{}}, {{ __mode = "k" }})
+            local keep = {{}}
+            t[keep] = {{ payload = 7 }}
+            {CHURN}
+            collectgarbage("collect")
+            collectgarbage("collect")
+            return (t[keep] ~= nil and t[keep].payload == 7) and 1 or 0
+        "#
+        ))?,
         1
     );
     Ok(())
 }
 
-/// `"kv"` degrades to weak-valued rather than erroring, which is the half luna can do correctly.
+/// The case that makes weak keys hard, and the reason for ephemeron marking: the value refers back
+/// to its own key. Holding values strongly would make the value keep the key alive, so the entry
+/// could never be collected — a leak precisely where weak keys are supposed to help.
 #[test]
-fn mode_kv_behaves_as_weak_valued() -> Result<(), ExternError> {
+fn a_value_referring_to_its_own_key_is_still_collected() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"
+            local t = setmetatable({{}}, {{ __mode = "k" }})
+            local function cycle()
+                local k = {{}}
+                t[k] = {{ owner = k }}
+            end
+            cycle()
+            {CHURN}
+            collectgarbage("collect")
+            collectgarbage("collect")
+            local n = 0
+            for _ in pairs(t) do n = n + 1 end
+            return n
+        "#
+        ))?,
+        0
+    );
+    Ok(())
+}
+
+/// Two entries whose values refer to each other's keys: neither is reachable from outside, so both
+/// must go. A single marking pass without iteration would keep them.
+#[test]
+fn mutually_referring_entries_are_collected() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"
+            local t = setmetatable({{}}, {{ __mode = "k" }})
+            local function chain()
+                local a, b = {{}}, {{}}
+                t[a] = {{ b }}
+                t[b] = {{ a }}
+            end
+            chain()
+            {CHURN}
+            collectgarbage("collect")
+            collectgarbage("collect")
+            local n = 0
+            for _ in pairs(t) do n = n + 1 end
+            return n
+        "#
+        ))?,
+        0
+    );
+    Ok(())
+}
+
+/// A chain of ephemerons: the value of one entry is the key of the next. Anchoring the first must
+/// keep the whole chain, which is what iterating to a fixed point buys.
+#[test]
+fn an_anchored_chain_survives_end_to_end() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"
+            local t = setmetatable({{}}, {{ __mode = "k" }})
+            local head = {{}}
+            local function build()
+                local a, b = {{}}, {{}}
+                t[head] = a
+                t[a] = b
+                t[b] = "end"
+            end
+            build()
+            {CHURN}
+            collectgarbage("collect")
+            collectgarbage("collect")
+            local n = 0
+            for _ in pairs(t) do n = n + 1 end
+            return n
+        "#
+        ))?,
+        3
+    );
+    Ok(())
+}
+
+/// `"kv"` is both: keys weak *and* values weak, so an entry goes when either side does.
+#[test]
+fn mode_kv_is_weak_on_both_sides() -> Result<(), ExternError> {
     assert_eq!(
         eval(&format!(
             r#"
             local t = setmetatable({{}}, {{ __mode = "kv" }})
-            local function fill() t.entry = {{ payload = true }} end
+            local held = {{}}
+            local function fill()
+                t.entry = {{ payload = true }}   -- string key, value unreachable
+                t[held] = {{ payload = true }}   -- key held, value unreachable
+            end
             fill()
             {CHURN}
             collectgarbage("collect")
             collectgarbage("collect")
-            return t.entry == nil and 1 or 0
+            -- both values are gone even though one key is held
+            return (t.entry == nil and t[held] == nil) and 1 or 0
         "#
         ))?,
         1

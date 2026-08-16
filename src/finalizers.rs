@@ -55,6 +55,53 @@ impl<'gc> Finalizers<'gc> {
     ///
     /// This stage can cause resurrection, so the arena must be *fully re-marked* before stage two
     /// (`Finalizers::finalize`).
+    /// Register a table whose keys are held weakly.
+    pub(crate) fn register_weak_keys(&self, mc: &Mutation<'gc>, ptr: Gc<'gc, TableInner<'gc>>) {
+        let mut state = self.0.borrow_mut(mc);
+        let weak = Gc::downgrade(ptr);
+        if !state
+            .weak_key_tables
+            .iter()
+            .any(|&existing| GcWeak::ptr_eq(existing, weak))
+        {
+            state.weak_key_tables.push(weak);
+        }
+    }
+
+    /// One round of ephemeron marking: revive the value of every entry whose key is still alive.
+    ///
+    /// Returns how many entries have a live key. The caller re-marks and calls again until that
+    /// count stops growing, which is the fixed point: reviving a value can make another table's
+    /// key reachable, which keeps *that* entry's value, and so on.
+    ///
+    /// The count is the termination signal rather than "did anything get revived", because a
+    /// revival does not necessarily survive the next full mark — asking that question instead
+    /// loops forever. Live keys only ever increase, so this always terminates.
+    /// Whether any weak-key table exists at all.
+    ///
+    /// Checked before the fixed-point loop, which costs a full re-mark per round: a program that
+    /// never writes `__mode = "k"` must not pay for the machinery.
+    pub(crate) fn has_ephemerons(&self) -> bool {
+        !self.0.borrow().weak_key_tables.is_empty()
+    }
+
+    pub(crate) fn mark_ephemerons(&self, fc: &Finalization<'gc>) -> usize {
+        let mut state = self.0.borrow_mut(fc);
+        let tables = state.weak_key_tables.clone();
+        state.ephemeron_roots.clear();
+
+        let mut live = 0;
+        let mut roots = Vec::new();
+        for weak in tables {
+            let Some(table) = weak.upgrade(fc) else {
+                continue;
+            };
+            live += crate::Table::from_inner(table).revive_live_entries(fc, &mut roots);
+        }
+        state.ephemeron_roots = roots;
+        live
+    }
+
     pub(crate) fn prepare(&self, fc: &Finalization<'gc>) {
         let mut state = self.0.borrow_mut(fc);
         for &ptr in &state.threads {
@@ -137,6 +184,16 @@ struct FinalizersState<'gc> {
     /// Tables whose metatable carries `__gc`. Kept apart from userdata so neither path pays for
     /// the other's indirection.
     finalizable_tables: Vec<GcWeak<'gc, TableInner<'gc>>>,
+    // Tables declared `__mode = "k"`. Visited during finalization to put back the values of
+    // entries whose key survived — the ephemeron step.
+    weak_key_tables: Vec<GcWeak<'gc, TableInner<'gc>>>,
+    // The values of live-keyed entries, held strongly for the rest of the cycle.
+    //
+    // Resurrecting a value marks it, but every later `mark_all` re-marks from the roots and a
+    // value reachable only through a weak slot goes white again. Rooting it here is what makes it
+    // survive to the sweep. Rebuilt each round, so a value whose key has died simply stops being
+    // added and is collected on the following cycle.
+    ephemeron_roots: Vec<Value<'gc>>,
     /// Resurrected and awaiting their handler.
     pending: Vec<Value<'gc>>,
 }

@@ -5,5 +5,5 @@ mod weak;
 pub use self::{
     raw::{InvalidTableKey, NextValue, RawTable},
     table::{Table, TableInner, TableState},
-    weak::WeakValue,
+    weak::{CanonicalKeyRepr, WeakKey, WeakValue},
 };

@@ -6,7 +6,9 @@ use ottavino_gc_arena::{allocator_api::MetricsAlloc, Collect, Gc, Mutation};
 use thiserror::Error;
 
 use crate::{
-    table::WeakValue, Callback, Closure, Function, String, Table, Thread, UserData, Value,
+    table::CanonicalKeyRepr,
+    table::{WeakKey, WeakValue},
+    Callback, Closure, Function, String, Table, Thread, UserData, Value,
 };
 
 #[derive(Debug, Copy, Clone, Error)]
@@ -50,11 +52,17 @@ pub struct RawTable<'gc> {
     // table iterates differently between runs of the same binary, which is no use to anything
     // building an ordered structure out of a table. Slots for removed keys are left in place and
     // skipped, and compacted when the map is next grown.
-    order: vec::Vec<CanonicalKey<'gc>, MetricsAlloc<'gc>>,
+    // Holds `Key` rather than `CanonicalKey` so that a weak-key table's order does not itself keep
+    // the keys alive — a strong entry here would defeat the whole point of `__mode = "k"`.
+    order: vec::Vec<Key<'gc>, MetricsAlloc<'gc>>,
     // Set by `__mode = "v"`. Weak tables keep everything in the map part, so there is no second
     // representation to keep in step.
     #[collect(require_static)]
     weak_values: bool,
+    // Set by `__mode = "k"`. Entries whose key has been collected read as absent and are dropped
+    // when next encountered.
+    #[collect(require_static)]
+    weak_keys: bool,
     #[collect(require_static)]
     hash_builder: ahash::random_state::RandomState,
 }
@@ -104,6 +112,7 @@ impl<'gc> RawTable<'gc> {
             map,
             order: vec::Vec::new_in(MetricsAlloc::new(mc)),
             weak_values: false,
+            weak_keys: false,
             hash_builder,
         }
     }
@@ -115,9 +124,17 @@ impl<'gc> RawTable<'gc> {
         let map = &mut self.map;
         let hash_builder = &self.hash_builder;
         let mut next = 0;
+        let weak_keys = self.weak_keys;
         self.order.retain(|&key| {
-            let hash = hash_builder.hash_one(key);
-            match map.raw_table_mut().find(hash, |(k, _)| k.eq(key)) {
+            let hash = match key {
+                Key::Weak(_, hash) => hash,
+                other => match other.live_key() {
+                    Some(k) => hash_builder.hash_one(k),
+                    None => return false,
+                },
+            };
+            let _ = weak_keys;
+            match map.raw_table_mut().find(hash, |(k, _)| k.same(key)) {
                 Some(bucket) => {
                     unsafe { bucket.as_mut() }.1 .1 = next;
                     next += 1;
@@ -147,6 +164,27 @@ impl<'gc> RawTable<'gc> {
             }
         } else {
             Value::Nil
+        }
+    }
+
+    /// The hash an entry is stored under.
+    ///
+    /// A weak key carries its own: it cannot be recomputed once the object it named is gone, and
+    /// rehashing on growth needs it regardless.
+    fn hash_of(&self, key: &Key<'gc>) -> u64 {
+        match key {
+            Key::Live(k) => self.hash_builder.hash_one(*k),
+            Key::Weak(_, hash) => *hash,
+            Key::Dead(ptr) => self.hash_builder.hash_one(*ptr as usize),
+        }
+    }
+
+    /// Hold this key the way this table holds keys.
+    fn wrap_key(&self, key: CanonicalKey<'gc>, hash: u64) -> Key<'gc> {
+        if self.weak_keys {
+            Key::Weak(weaken(key), hash)
+        } else {
+            Key::Live(key)
         }
     }
 
@@ -200,6 +238,7 @@ impl<'gc> RawTable<'gc> {
         // entry. The slot is built first: `wrap` reads `self`, which the raw-table borrow below
         // would otherwise rule out.
         let slot = self.wrap(value);
+        let stored_key = self.wrap_key(table_key, hash);
         let next_order = self.order.len();
         let raw_map = self.map.raw_table_mut();
         if let Some(bucket) = raw_map.find(hash, |(k, _)| k.eq(table_key)) {
@@ -210,10 +249,10 @@ impl<'gc> RawTable<'gc> {
             }
             return Ok(mem::replace(&mut v.0, slot).get(mc));
         } else if raw_map
-            .try_insert_no_grow(hash, (Key::Live(table_key), (slot, next_order)))
+            .try_insert_no_grow(hash, (stored_key, (slot, next_order)))
             .is_ok()
         {
-            self.order.push(table_key);
+            self.order.push(stored_key);
             return Ok(Value::Nil);
         }
 
@@ -292,11 +331,12 @@ impl<'gc> RawTable<'gc> {
 
         // Now we can insert the new key value pair
         let slot = self.wrap(value);
+        let stored_key = self.wrap_key(table_key, hash);
         self.map
             .raw_table_mut()
-            .try_insert_no_grow(hash, (Key::Live(table_key), (slot, self.order.len())))
+            .try_insert_no_grow(hash, (stored_key, (slot, self.order.len())))
             .unwrap();
-        self.order.push(table_key);
+        self.order.push(stored_key);
 
         Ok(Value::Nil)
     }
@@ -395,17 +435,22 @@ impl<'gc> RawTable<'gc> {
         // behind by keys that have been removed.
         let from_order = |from: usize| -> NextValue<'gc> {
             for &candidate in &self.order[from.min(self.order.len())..] {
+                // A weak key whose object has been collected reads as absent: the entry is skipped
+                // here and dropped the next time the map is rebuilt.
+                let Some(key_value) = candidate.to_value(mc) else {
+                    continue;
+                };
                 if let Some((_, &(value, _))) = self
                     .map
                     .raw_entry()
-                    .from_hash(self.hash_builder.hash_one(candidate), |k| k.eq(candidate))
+                    .from_hash(self.hash_of(&candidate), |k| k.same(candidate))
                 {
                     // A weak slot whose value has been collected reads as absent, so iteration
                     // skips it rather than yielding a hole.
                     let value = value.get(mc);
                     if !value.is_nil() {
                         return NextValue::Found {
-                            key: candidate.to_value(),
+                            key: key_value,
                             value,
                         };
                     }
@@ -593,11 +638,90 @@ impl<'gc> CanonicalKey<'gc> {
 #[collect(no_drop)]
 enum Key<'gc> {
     Live(CanonicalKey<'gc>),
+    /// A key held weakly, for `__mode = "k"`, with the hash it was inserted under.
+    ///
+    /// The hash is stored because it cannot be recomputed: rehashing on growth needs the hash of
+    /// the *original* key, and a weak key may no longer have one to hash.
+    Weak(WeakKey<'gc>, #[collect(require_static)] u64),
     Dead(#[collect(require_static)] *const ()),
 }
 
+impl<'gc> CanonicalKeyRepr<'gc> {
+    fn to_canonical(self) -> CanonicalKey<'gc> {
+        match self {
+            CanonicalKeyRepr::Boolean(b) => CanonicalKey::Boolean(b),
+            CanonicalKeyRepr::Integer(i) => CanonicalKey::Integer(i),
+            CanonicalKeyRepr::Number(n) => CanonicalKey::Number(n),
+            CanonicalKeyRepr::Callback(c) => CanonicalKey::Callback(c),
+        }
+    }
+}
+
+/// Hold a key weakly. Keys with no separate allocation stay as they are.
+fn weaken<'gc>(key: CanonicalKey<'gc>) -> WeakKey<'gc> {
+    match key {
+        CanonicalKey::Boolean(b) => WeakKey::Immediate(CanonicalKeyRepr::Boolean(b)),
+        CanonicalKey::Integer(i) => WeakKey::Immediate(CanonicalKeyRepr::Integer(i)),
+        CanonicalKey::Number(n) => WeakKey::Immediate(CanonicalKeyRepr::Number(n)),
+        CanonicalKey::Callback(c) => WeakKey::Immediate(CanonicalKeyRepr::Callback(c)),
+        CanonicalKey::String(s) => WeakKey::String(Gc::downgrade(s.into_inner())),
+        CanonicalKey::Table(t) => WeakKey::Table(Gc::downgrade(t.into_inner())),
+        CanonicalKey::Closure(c) => WeakKey::Closure(Gc::downgrade(c.into_inner())),
+        CanonicalKey::Thread(t) => WeakKey::Thread(Gc::downgrade(t.into_inner())),
+        CanonicalKey::UserData(u) => WeakKey::UserData(Gc::downgrade(u.into_inner())),
+    }
+}
+
+/// The allocation a key names, when it has one.
+fn canonical_ptr<'gc>(key: CanonicalKey<'gc>) -> Option<*const ()> {
+    Some(match key {
+        CanonicalKey::Boolean(_) | CanonicalKey::Integer(_) | CanonicalKey::Number(_) => {
+            return None
+        }
+        CanonicalKey::String(s) => Gc::as_ptr(s.into_inner()) as *const (),
+        CanonicalKey::Table(t) => Gc::as_ptr(t.into_inner()) as *const (),
+        CanonicalKey::Closure(c) => Gc::as_ptr(c.into_inner()) as *const (),
+        CanonicalKey::Callback(c) => Gc::as_ptr(c.into_inner()) as *const (),
+        CanonicalKey::Thread(t) => Gc::as_ptr(t.into_inner()) as *const (),
+        CanonicalKey::UserData(u) => Gc::as_ptr(u.into_inner()) as *const (),
+    })
+}
+
 impl<'gc> Key<'gc> {
+    /// The allocation this key names, however it is held.
+    fn as_ptr(self) -> Option<*const ()> {
+        match self {
+            Key::Live(k) => canonical_ptr(k),
+            Key::Weak(w, _) => w.as_ptr(),
+            Key::Dead(p) => Some(p),
+        }
+    }
+
+    /// Whether two stored keys name the same thing, without upgrading either.
+    fn same(self, other: Key<'gc>) -> bool {
+        match (self.as_ptr(), other.as_ptr()) {
+            (Some(a), Some(b)) => a == b,
+            (None, None) => match (self.live_key(), other.live_key()) {
+                (Some(a), Some(b)) => a == b,
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    /// The key as a value, or `None` once the object it named has been collected.
+    fn to_value(self, mc: &Mutation<'gc>) -> Option<Value<'gc>> {
+        match self {
+            Key::Live(k) => Some(k.to_value()),
+            Key::Weak(w, _) => w.to_value(mc),
+            Key::Dead(_) => None,
+        }
+    }
+
     fn kill(self) -> Option<Key<'gc>> {
+        if let Key::Weak(w, _) = self {
+            return w.as_ptr().map(Key::Dead);
+        }
         if let Key::Live(v) = self {
             match v {
                 CanonicalKey::Boolean(_) | CanonicalKey::Integer(_) | CanonicalKey::Number(_) => {
@@ -625,16 +749,30 @@ impl<'gc> Key<'gc> {
         self.live_key().is_none()
     }
 
+    /// The key as a value, when that is knowable without upgrading.
+    ///
+    /// A weak key holding an object answers `None`: reading it needs a `Mutation`, and every
+    /// caller here only wants to know whether the key is an array index, which an object never is.
     fn live_key(self) -> Option<CanonicalKey<'gc>> {
         match self {
             Key::Live(v) => Some(v),
-            Key::Dead(_) => None,
+            Key::Weak(WeakKey::Immediate(repr), _) => Some(repr.to_canonical()),
+            Key::Weak(..) | Key::Dead(_) => None,
         }
     }
 
     fn eq(self, key: CanonicalKey<'gc>) -> bool {
         match (self, key) {
             (Key::Live(a), b) => a == b,
+            // By address, exactly as a dead key is: a weak key must answer this without upgrading,
+            // because it may be looked up after the object it named has been collected.
+            (Key::Weak(w, _), b) => match (w, b) {
+                (WeakKey::Immediate(a), b) => a.to_canonical() == b,
+                (w, b) => match (w.as_ptr(), canonical_ptr(b)) {
+                    (Some(a), Some(b)) => a == b,
+                    _ => false,
+                },
+            },
             (Key::Dead(a), b) => match b {
                 CanonicalKey::String(s) => a == Gc::as_ptr(s.into_inner()) as *const (),
                 CanonicalKey::Table(t) => a == Gc::as_ptr(t.into_inner()) as *const (),
@@ -713,10 +851,10 @@ impl<'gc> RawTable<'gc> {
         }
 
         // Entries already in the map were stored strongly; weaken them in place.
-        let keys: Vec<CanonicalKey<'gc>> = self.order.iter().copied().collect();
+        let keys: Vec<Key<'gc>> = self.order.iter().copied().collect();
         for key in keys {
-            let hash = self.hash_builder.hash_one(key);
-            if let Some(bucket) = self.map.raw_table_mut().find(hash, |(k, _)| k.eq(key)) {
+            let hash = self.hash_of(&key);
+            if let Some(bucket) = self.map.raw_table_mut().find(hash, |(k, _)| k.same(key)) {
                 let (_, v) = unsafe { bucket.as_mut() };
                 if let Slot::Strong(value) = v.0 {
                     v.0 = Slot::Weak(WeakValue::new(value));
@@ -728,6 +866,71 @@ impl<'gc> RawTable<'gc> {
     /// Whether this table holds its values weakly.
     pub fn has_weak_values(&self) -> bool {
         self.weak_values
+    }
+
+    /// Revive the value of every entry whose key is still alive, reporting whether anything moved.
+    pub(crate) fn revive_live_entries(
+        &self,
+        fc: &ottavino_gc_arena::Finalization<'gc>,
+        roots: &mut Vec<Value<'gc>>,
+    ) -> usize {
+        if !self.weak_keys {
+            return 0;
+        }
+        let mut live_count = 0;
+        for (key, (slot, _)) in &self.map {
+            let alive = match key {
+                Key::Weak(w, _) => !w.is_dead(fc),
+                // A strong key in a weak-key table is one with nothing to collect, so it is
+                // always alive.
+                Key::Live(_) => true,
+                Key::Dead(_) => false,
+            };
+            if alive {
+                live_count += 1;
+                if let Slot::Weak(value) = slot {
+                    value.resurrect_if_dead(fc);
+                    if let Some(value) = value.get(fc) {
+                        roots.push(value);
+                    }
+                }
+            }
+        }
+        live_count
+    }
+
+    /// Whether this table holds its keys weakly.
+    pub fn has_weak_keys(&self) -> bool {
+        self.weak_keys
+    }
+
+    /// Hold this table's keys weakly, for `__mode = "k"`.
+    ///
+    /// Values are weakened too, which is not an implementation shortcut but the ephemeron rule: if
+    /// values were traced strongly, a value referring back to its own key would keep that key
+    /// alive and the entry could never be collected — the exact leak weak keys exist to avoid.
+    /// The values are put back by the finalizer pass, for entries whose key survived on its own.
+    pub fn make_keys_weak(&mut self, mc: &Mutation<'gc>) {
+        if self.weak_keys {
+            return;
+        }
+        self.weak_keys = true;
+        self.make_values_weak(mc);
+
+        // Existing entries were stored strongly; weaken them in place, keeping the hash they were
+        // inserted under so lookups and growth still find them.
+        let keys: Vec<Key<'gc>> = self.order.iter().copied().collect();
+        for (position, key) in keys.into_iter().enumerate() {
+            let Some(canonical) = key.live_key() else {
+                continue;
+            };
+            let hash = self.hash_of(&key);
+            let weak = Key::Weak(weaken(canonical), hash);
+            if let Some(bucket) = self.map.raw_table_mut().find(hash, |(k, _)| k.same(key)) {
+                unsafe { bucket.as_mut() }.0 = weak;
+            }
+            self.order[position] = weak;
+        }
     }
     /// Drop every entry and release the buckets, unlike setting each key to nil.
     pub fn clear(&mut self) {

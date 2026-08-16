@@ -365,6 +365,7 @@ impl Lua {
     /// Finish the current collection cycle completely, calls `ottavino_gc_arena::Arena::collect_all()`.
     pub fn gc_collect(&mut self) {
         if self.arena.collection_phase() != CollectionPhase::Sweeping {
+            self.mark_ephemerons();
             self.arena.mark_all().unwrap().finalize(|fc, root| {
                 root.finalizers.prepare(fc);
             });
@@ -481,14 +482,20 @@ impl Lua {
             return;
         }
 
-        let marked = if forced {
-            Some(self.arena.mark_all().unwrap())
+        // `mark_debt` answers `Some` only once marking has *completed*, so reaching here means the
+        // arena is fully marked either way and the ephemeron pass costs nothing extra to start.
+        let reached_marked = if forced {
+            true
         } else {
-            self.arena.mark_debt()
+            self.arena.mark_debt().is_some()
         };
 
-        if let Some(marked) = marked {
-            marked.finalize(|fc, root| {
+        if reached_marked {
+            // Ephemerons resolve before anything decides what is dead. An incremental collection
+            // needs this just as much as a forced one — skipping it here was enough to let a
+            // live-keyed value be swept.
+            self.mark_ephemerons();
+            self.arena.mark_all().unwrap().finalize(|fc, root| {
                 root.finalizers.prepare(fc);
             });
             self.arena.mark_all().unwrap().finalize(|fc, root| {
@@ -496,6 +503,33 @@ impl Lua {
             });
             // Immediately transition to `CollectionPhase::Sweeping`.
             self.arena.mark_all().unwrap().start_sweeping();
+        }
+    }
+
+    /// Run ephemeron marking to a fixed point.
+    ///
+    /// A weak-key table holds its values weakly so that marking cannot reach a key through its own
+    /// value; this puts the values back for entries whose key survived independently. Each round
+    /// can make another key reachable, so it repeats until nothing new appears. Monotone — it only
+    /// ever revives — so it always terminates.
+    fn mark_ephemerons(&mut self) {
+        // Nothing to resolve, and the loop below costs a full mark per round, so a program with no
+        // weak-key tables must not enter it at all.
+        if !self.arena.mutate(|_, root| root.finalizers.has_ephemerons()) {
+            return;
+        }
+
+        let mut previous = usize::MAX;
+        loop {
+            let live = self
+                .arena
+                .mark_all()
+                .unwrap()
+                .finalize(|fc, root| root.finalizers.mark_ephemerons(fc));
+            if live == previous {
+                break;
+            }
+            previous = live;
         }
     }
 
