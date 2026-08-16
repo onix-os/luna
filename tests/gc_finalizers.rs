@@ -175,3 +175,60 @@ fn tables_without_a_handler_are_unaffected() -> Result<(), ExternError> {
     );
     Ok(())
 }
+
+/// A host can attach a destructor without going through Lua: `__gc` is looked up as a value and
+/// called like any other function, so a Rust `Callback` works there.
+#[test]
+fn a_rust_callback_can_be_the_handler() -> Result<(), ExternError> {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use luna::{Callback, CallbackReturn, Table, Value};
+
+    let ran = Rc::new(Cell::new(0));
+    let seen = ran.clone();
+
+    let mut lua = Lua::core();
+    lua.enter(|ctx| {
+        let make = Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let mt = Table::new(&ctx);
+            let counter = seen.clone();
+            mt.set_field(
+                ctx,
+                "__gc",
+                Callback::from_fn(&ctx, move |_, _, _| {
+                    counter.set(counter.get() + 1);
+                    Ok(CallbackReturn::Return)
+                }),
+            );
+            let t = Table::new(&ctx);
+            t.set_metatable(ctx, Some(mt));
+            // Returns something else, so the table itself is not kept alive by the result.
+            stack.replace(ctx, Value::Boolean(true));
+            Ok(CallbackReturn::Return)
+        });
+        ctx.set_global("make_native", make);
+    });
+
+    let executor = lua.try_enter(|ctx| {
+        let closure = Closure::load(
+            ctx,
+            None,
+            format!(
+                r#"
+                make_native()
+                {CHURN}
+                collectgarbage("collect")
+                collectgarbage("collect")
+                return 0
+            "#
+            )
+            .as_bytes(),
+        )?;
+        Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+    })?;
+    lua.execute::<i64>(&executor)?;
+
+    assert_eq!(ran.get(), 1, "the Rust handler should have run once");
+    Ok(())
+}
