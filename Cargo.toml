@@ -11,7 +11,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 authors = ["Trim Bresilla <kushtrimbresilla@gmail.com>"]
 license = "MIT"
@@ -32,8 +32,8 @@ serde = "1.0"
 serde_json = "1.0"
 thiserror = "1.0"
 
-luna = { path = "./", version = "0.4.0" }
-luna-derive = { path = "./derive", version = "0.4.0" }
+luna = { path = "./", version = "0.5.0" }
+luna-derive = { path = "./derive", version = "0.5.0" }
 
 [package]
 name = "luna"

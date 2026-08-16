@@ -4,7 +4,9 @@ use std::{
 };
 
 use allocator_api2::{boxed, vec, SliceExt};
-use ottavino_gc_arena::{allocator_api::MetricsAlloc, lock::Lock, Collect, Gc, Mutation};
+use ottavino_gc_arena::{
+    allocator_api::MetricsAlloc, barrier::Unlock, lock::Lock, Collect, Gc, Mutation,
+};
 use thiserror::Error;
 
 use crate::{
@@ -247,7 +249,10 @@ pub enum ClosureError {
 #[collect(no_drop)]
 pub struct ClosureInner<'gc> {
     proto: Gc<'gc, FunctionPrototype<'gc>>,
-    upvalues: vec::Vec<UpValue<'gc>, MetricsAlloc<'gc>>,
+    /// Each slot is a `Lock` so that `debug.upvaluejoin` can repoint one closure's upvalue at
+    /// another's. `UpValue` is `Copy`, so reading a slot is a plain load with no borrow flag —
+    /// which matters, because the VM reads these on every upvalue access.
+    upvalues: vec::Vec<Lock<UpValue<'gc>>, MetricsAlloc<'gc>>,
 }
 
 /// As [`FunctionPrototype`]: the upvalue *count*, not every captured value. Walking them would
@@ -299,10 +304,10 @@ impl<'gc> Closure<'gc> {
             if proto.upvalues.len() > 1 || proto.upvalues[0] != UpValueDescriptor::Environment {
                 return Err(ClosureError::HasUpValues);
             } else if let Some(environment) = environment {
-                upvalues.push(UpValue(Gc::new(
+                upvalues.push(Lock::new(UpValue(Gc::new(
                     mc,
                     Lock::new(UpValueState::Closed(Value::Table(environment))),
-                )));
+                ))));
             } else {
                 return Err(ClosureError::RequiresEnv);
             }
@@ -314,7 +319,7 @@ impl<'gc> Closure<'gc> {
     pub fn from_parts(
         mc: &Mutation<'gc>,
         proto: Gc<'gc, FunctionPrototype<'gc>>,
-        upvalues: vec::Vec<UpValue<'gc>, MetricsAlloc<'gc>>,
+        upvalues: vec::Vec<Lock<UpValue<'gc>>, MetricsAlloc<'gc>>,
     ) -> Self {
         Self(Gc::new(mc, ClosureInner { proto, upvalues }))
     }
@@ -357,7 +362,18 @@ impl<'gc> Closure<'gc> {
         self.0.proto
     }
 
-    pub fn upvalues(self) -> &'gc [UpValue<'gc>] {
+    pub fn upvalues(self) -> &'gc [Lock<UpValue<'gc>>] {
         &Gc::as_ref(self.0).upvalues
+    }
+
+    /// Repoints upvalue `index` at `upvalue`, so this closure shares it with whoever else holds it.
+    ///
+    /// `debug.upvaluejoin`. Nothing here validates that the two closures agree about what the slot
+    /// means — that is the caller's business, and is why the `debug` library is separable.
+    pub fn set_upvalue(self, mc: &Mutation<'gc>, index: usize, upvalue: UpValue<'gc>) {
+        // The barrier covers the whole `ClosureInner`, which is what the slot lives in. Taken
+        // immediately before the write, as in `string.rs`.
+        Gc::write(mc, self.0);
+        unsafe { self.0.upvalues[index].unlock_unchecked() }.set(upvalue);
     }
 }

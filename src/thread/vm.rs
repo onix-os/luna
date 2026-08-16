@@ -1,5 +1,5 @@
 use allocator_api2::vec;
-use ottavino_gc_arena::allocator_api::MetricsAlloc;
+use ottavino_gc_arena::{allocator_api::MetricsAlloc, lock::Lock};
 
 use crate::{
     compiler::LineNumber,
@@ -192,7 +192,7 @@ pub(super) fn run_vm<'gc>(
             }
 
             Operation::GetUpTable { dest, table, key } => {
-                let table = registers.get_upvalue(&ctx, current_upvalues[table.0 as usize]);
+                let table = registers.get_upvalue(&ctx, current_upvalues[table.0 as usize].get());
                 let key = get_rc(&registers.stack_frame, &current_prototype.constants, key);
                 match meta_ops::index(ctx, table, key)? {
                     MetaResult::Value(v) => {
@@ -211,7 +211,7 @@ pub(super) fn run_vm<'gc>(
             }
 
             Operation::SetUpTable { table, key, value } => {
-                let table = registers.get_upvalue(&ctx, current_upvalues[table.0 as usize]);
+                let table = registers.get_upvalue(&ctx, current_upvalues[table.0 as usize].get());
                 let key = get_rc(&registers.stack_frame, &current_prototype.constants, key);
                 let value = get_rc(&registers.stack_frame, &current_prototype.constants, value);
                 if let Some(call) = meta_ops::new_index(ctx, table, key, value)? {
@@ -313,10 +313,12 @@ pub(super) fn run_vm<'gc>(
                             return Err(VMError::BadEnvUpValue.into());
                         }
                         UpValueDescriptor::ParentLocal(reg) => {
-                            upvalues.push(registers.open_upvalue(&ctx, reg));
+                            upvalues.push(Lock::new(registers.open_upvalue(&ctx, reg)));
                         }
                         UpValueDescriptor::Outer(uvindex) => {
-                            upvalues.push(current_upvalues[uvindex.0 as usize]);
+                            // Its own slot, holding the same upvalue: the two closures share the
+                            // variable, but repointing one slot later must not repoint the other.
+                            upvalues.push(Lock::new(current_upvalues[uvindex.0 as usize].get()));
                         }
                     }
                 }
@@ -485,13 +487,13 @@ pub(super) fn run_vm<'gc>(
 
             Operation::GetUpValue { source, dest } => {
                 registers.stack_frame[dest.0 as usize] =
-                    registers.get_upvalue(&ctx, current_upvalues[source.0 as usize]);
+                    registers.get_upvalue(&ctx, current_upvalues[source.0 as usize].get());
             }
 
             Operation::SetUpValue { source, dest } => {
                 registers.set_upvalue(
                     &ctx,
-                    current_upvalues[dest.0 as usize],
+                    current_upvalues[dest.0 as usize].get(),
                     registers.stack_frame[source.0 as usize],
                 );
             }
