@@ -1,7 +1,9 @@
 use std::{
     fmt,
+    future::Future,
     hash::{Hash, Hasher},
     pin::Pin,
+    task,
 };
 
 use allocator_api2::boxed;
@@ -272,6 +274,44 @@ pub enum SequencePoll<'gc> {
     /// Once the given thread returns, the return values will be returned to the caller of this
     /// sequence.
     TailResume(Thread<'gc>),
+    /// This `Sequence` is waiting on a foreign future and must not be polled until it completes.
+    ///
+    /// Unlike [`SequencePoll::Pending`], which asks to be polled again immediately, this hands the
+    /// future *out* — the arena cannot be borrowed while it is awaited, so the host polls it
+    /// between slices and drives this executor again afterwards. See
+    /// `Lua::execute_async` (the `async` feature).
+    ///
+    /// The variant exists whether or not the `async` feature is on. Making it conditional would
+    /// make every `match` on this enum conditional too, for the sake of one unreachable arm.
+    Waiting(PendingFuture),
+}
+
+/// A foreign future parked outside the arena, waiting to be polled by the host.
+///
+/// Type-erased to `Output = ()` on purpose: the value the awaiting code actually wants travels back
+/// through a cell that code owns, so nothing here has to know the output type.
+#[derive(Collect)]
+#[collect(require_static)]
+pub struct PendingFuture(Pin<Box<dyn Future<Output = ()>>>);
+
+impl PendingFuture {
+    pub fn new(future: impl Future<Output = ()> + 'static) -> Self {
+        PendingFuture(Box::pin(future))
+    }
+}
+
+impl Future for PendingFuture {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<()> {
+        self.0.as_mut().poll(cx)
+    }
+}
+
+impl fmt::Debug for PendingFuture {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.write_str("PendingFuture(..)")
+    }
 }
 
 /// A callback that can suspend itself, waiting on other actions to complete before being resumed.

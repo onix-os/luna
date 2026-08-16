@@ -26,7 +26,9 @@ pub mod value;
 
 pub use self::{
     async_callback::{async_sequence, SequenceReturn},
-    callback::{BoxSequence, Callback, CallbackFn, CallbackReturn, Sequence, SequencePoll},
+    callback::{
+        BoxSequence, Callback, CallbackFn, CallbackReturn, PendingFuture, Sequence, SequencePoll,
+    },
     closure::{Closure, CompilerError, FunctionPrototype},
     constant::Constant,
     conversion::{Either, FromMultiValue, FromValue, IntoMultiValue, IntoValue, Variadic},

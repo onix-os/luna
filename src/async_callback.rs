@@ -193,6 +193,51 @@ impl AsyncSequence {
         });
     }
 
+    /// Await a foreign future — a timer, a socket, anything outside luna — and return its output.
+    ///
+    /// The future is handed *out* to whatever is driving this `Lua`, because it cannot be polled
+    /// while the arena is borrowed. Drive with [`Lua::execute_async`](crate::Lua::execute_async);
+    /// the synchronous drivers refuse rather than spin.
+    ///
+    /// The future must be `'static`, like the sequence future itself, so it cannot capture `'gc`
+    /// values. Stash anything it needs with [`Locals`] first and fetch it afterwards.
+    ///
+    /// ```no_run
+    /// # use luna::{async_sequence, SequenceReturn};
+    /// # async fn timer() {}
+    /// # fn f(mc: &ottavino_gc_arena::Mutation<'_>) {
+    /// async_sequence(mc, |_, mut seq| async move {
+    ///     seq.await_future(timer()).await;
+    ///     Ok(SequenceReturn::Return)
+    /// });
+    /// # }
+    /// ```
+    #[cfg(feature = "async")]
+    pub async fn await_future<T: 'static>(
+        &mut self,
+        future: impl std::future::Future<Output = T> + 'static,
+    ) -> T {
+        use std::{cell::RefCell, rc::Rc};
+
+        // The output travels back through a cell this future owns rather than through the parked
+        // future's type, which lets the executor store one erased `Output = ()` future and stay
+        // ignorant of `T`.
+        let slot = Rc::new(RefCell::new(None));
+        let write = slot.clone();
+        let erased = crate::PendingFuture::new(async move {
+            *write.borrow_mut() = Some(future.await);
+        });
+
+        let mut erased = Some(erased);
+        self.shared.visit(move |shared| {
+            shared.set_next_op(SequenceOp::Await(erased.take().expect("parked twice")));
+        });
+        wait_once().await;
+
+        let value = slot.borrow_mut().take();
+        value.expect("a parked future was resumed before it completed")
+    }
+
     /// Call the given Lua function with arguments / returns starting at `bottom` in the Stack.
     pub async fn call(
         &mut self,
@@ -391,6 +436,8 @@ where
             Poll::Pending => Ok(
                 match next_op.expect("`await` of a future other than `AsyncSequence` methods") {
                     SequenceOp::Pending => SequencePoll::Pending,
+                    #[cfg(feature = "async")]
+                    SequenceOp::Await(future) => SequencePoll::Waiting(future),
                     SequenceOp::Call { function, bottom } => {
                         SequencePoll::Call { function, bottom }
                     }
@@ -432,6 +479,9 @@ where
 
 enum SequenceOp<'gc> {
     Pending,
+    /// Hand a foreign future out to the host, which polls it outside the arena.
+    #[cfg(feature = "async")]
+    Await(crate::PendingFuture),
     Call {
         function: Function<'gc>,
         bottom: usize,

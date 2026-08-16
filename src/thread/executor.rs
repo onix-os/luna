@@ -8,7 +8,7 @@ use crate::{
     compiler::{FunctionRef, LineNumber},
     thread::BadThreadMode,
     BoxSequence, CallbackReturn, Closure, Context, Error, FromMultiValue, Fuel, Function,
-    IntoMultiValue, SequencePoll, Stack, String, Thread, ThreadMode, Variadic,
+    IntoMultiValue, PendingFuture, SequencePoll, Stack, String, Thread, ThreadMode, Variadic,
 };
 
 use super::{
@@ -44,6 +44,10 @@ pub struct BadExecutorMode {
 #[collect(no_drop)]
 pub struct ExecutorState<'gc> {
     thread_stack: vec::Vec<Thread<'gc>, MetricsAlloc<'gc>>,
+    // A foreign future a sequence is waiting on. Parked here rather than kept inside the sequence
+    // because it has to be polled with the arena *not* borrowed, which only the host can do.
+    #[collect(require_static)]
+    pending: Option<PendingFuture>,
 }
 
 pub type ExecutorInner<'gc> = RefLock<ExecutorState<'gc>>;
@@ -128,6 +132,7 @@ impl<'gc> Executor<'gc> {
             mc,
             RefLock::new(ExecutorState {
                 thread_stack: vec::Vec::new_in(MetricsAlloc::new(mc)),
+                pending: None,
             }),
         ));
         executor.reset(mc, thread)?;
@@ -528,6 +533,19 @@ impl<'gc> Executor<'gc> {
                                     bottom,
                                 );
                             }
+                            Ok(SequencePoll::Waiting(future)) => {
+                                // Park the future and put the sequence back unchanged: when the
+                                // host has awaited it, this sequence is polled again exactly as if
+                                // it had returned `Pending`. Ending the slice here is what gets the
+                                // future out to somewhere the arena is not borrowed.
+                                top_state.frames.push(Frame::Sequence {
+                                    bottom,
+                                    sequence,
+                                    pending_error: None,
+                                });
+                                state.pending = Some(future);
+                                break false;
+                            }
                             Err(error) => {
                                 top_stack.truncate(bottom);
                                 top_state.frames.push(Frame::Error(error));
@@ -677,6 +695,26 @@ impl<'gc> Executor<'gc> {
         let mut state = self.0.borrow_mut(mc);
         state.thread_stack.truncate(1);
         state.thread_stack[0].reset(mc).unwrap();
+    }
+
+    /// Take the foreign future this executor is waiting on, if any.
+    ///
+    /// A sequence that returns [`SequencePoll::Waiting`] parks its future here and the slice ends.
+    /// The future must be polled with the arena *not* borrowed, so only a host outside `enter` can
+    /// drive it — see `Lua::execute_async` (the `async` feature), which is what normally calls this.
+    ///
+    /// Taking the future does not disturb the sequence: it is already back on the frame stack and
+    /// will be polled again on the next step, as though it had returned `Pending`.
+    pub fn take_pending_future(self, mc: &Mutation<'gc>) -> Option<PendingFuture> {
+        self.0.borrow_mut(mc).pending.take()
+    }
+
+    /// Whether this executor is waiting on a foreign future.
+    pub fn is_waiting(self) -> bool {
+        self.0
+            .try_borrow()
+            .map(|state| state.pending.is_some())
+            .unwrap_or(false)
     }
 
     /// Reset this `Executor` entirely and begins running the given thread.

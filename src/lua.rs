@@ -446,7 +446,20 @@ impl Lua {
         loop {
             let mut fuel = Fuel::with(FUEL_PER_GC);
 
-            if self.enter(|ctx| ctx.fetch(executor).step(ctx, &mut fuel))? {
+            let finished = self.enter(|ctx| ctx.fetch(executor).step(ctx, &mut fuel))?;
+
+            // A sequence awaiting a foreign future cannot make progress here: polling it needs the
+            // arena released, which only `finish_async` does. Stopping the executor and saying so
+            // beats looping forever on a slice that can never advance.
+            if self.enter(|ctx| ctx.fetch(executor).is_waiting()) {
+                self.enter(|ctx| ctx.fetch(executor).stop(&ctx));
+                return Err(BadThreadMode {
+                    found: crate::ThreadMode::Waiting,
+                    expected: Some(crate::ThreadMode::Normal),
+                });
+            }
+
+            if finished {
                 break;
             }
 
@@ -576,6 +589,64 @@ impl Lua {
         executor: &StashedExecutor,
     ) -> Result<R, ExternError> {
         self.finish(executor).map_err(RuntimeError::new)?;
+        self.try_enter(|ctx| ctx.fetch(executor).take_result::<R>(ctx)?)
+    }
+
+    /// Run the given executor to completion, awaiting any foreign futures it waits on.
+    ///
+    /// The asynchronous counterpart of [`Lua::finish`], and the only place in luna that awaits.
+    /// A sequence that calls
+    /// [`AsyncSequence::await_future`](crate::async_callback::AsyncSequence::await_future) parks
+    /// its future and ends its slice; this takes the future *outside* `enter` — where the arena is
+    /// not borrowed — awaits it, and steps again.
+    ///
+    /// The fuel budget is per slice, as in `finish`, and a slice that ends by parking a future has
+    /// not spent the rest of its fuel. Waiting on I/O therefore never looks like a runaway script.
+    #[cfg(feature = "async")]
+    pub async fn finish_async(&mut self, executor: &StashedExecutor) -> Result<(), BadThreadMode> {
+        const FUEL_PER_GC: i32 = 4096;
+
+        loop {
+            let mut fuel = Fuel::with(FUEL_PER_GC);
+            let finished = self.enter(|ctx| ctx.fetch(executor).step(ctx, &mut fuel))?;
+
+            // Taken and awaited with the arena released. Nothing else may hold a `'gc` value here.
+            let parked = self.enter(|ctx| ctx.fetch(executor).take_pending_future(&ctx));
+            if let Some(future) = parked {
+                future.await;
+                continue;
+            }
+
+            if self.enter(|ctx| ctx.finalizers().has_pending()) {
+                self.run_finalizers();
+            }
+
+            if let Some(limit) = self.memory_limit() {
+                if self.total_memory() > limit {
+                    self.gc_collect();
+                    self.gc_collect();
+                }
+                if self.total_memory() > limit {
+                    self.enter(|ctx| ctx.fetch(executor).stop(&ctx));
+                    return Ok(());
+                }
+            }
+
+            if finished {
+                return Ok(());
+            }
+        }
+    }
+
+    /// [`Lua::execute`] for an executor that may await foreign futures.
+    #[cfg(feature = "async")]
+    pub async fn execute_async<R: for<'gc> FromMultiValue<'gc>>(
+        &mut self,
+        executor: &StashedExecutor,
+    ) -> Result<R, ExternError> {
+        self.finish_async(executor)
+            .await
+            .map_err(RuntimeError::new)?;
         self.try_enter(|ctx| ctx.fetch(executor).take_result::<R>(ctx)?)
     }
 }

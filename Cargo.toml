@@ -51,6 +51,17 @@ hashbrown.workspace = true
 rand.workspace = true
 thiserror.workspace = true
 
+[[example]]
+name = "async"
+required-features = ["async"]
+
+[features]
+default = []
+# Lets a callback `.await` a foreign future — a timer, a socket, anything with a `Future` impl.
+# Off by default because it adds API surface, not because it costs dependencies: the whole
+# implementation is `std::task`, and choosing a runtime stays the embedder's decision.
+async = []
+
 [dev-dependencies]
 # Only the REPL example needs a dependency, and only for line editing and history. Argument
 # parsing is one flag and one positional, done by hand rather than by pulling clap's dozen crates
