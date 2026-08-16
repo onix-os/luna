@@ -1,4 +1,7 @@
-use std::hash::{Hash, Hasher};
+use std::{
+    fmt,
+    hash::{Hash, Hasher},
+};
 
 use allocator_api2::{boxed, vec, SliceExt};
 use ottavino_gc_arena::{allocator_api::MetricsAlloc, lock::Lock, Collect, Gc, Mutation};
@@ -30,7 +33,7 @@ pub enum CompilerError {
 ///
 /// If a prototype has only an single (optional) `_ENV` upvalue, then it can be turned into an
 /// executable `Closure` by binding it with its environment with [`Closure::new`].
-#[derive(Debug, Collect)]
+#[derive(Collect)]
 #[collect(no_drop)]
 pub struct FunctionPrototype<'gc> {
     pub chunk_name: String<'gc>,
@@ -43,6 +46,26 @@ pub struct FunctionPrototype<'gc> {
     pub opcode_line_numbers: boxed::Box<[(usize, LineNumber)], MetricsAlloc<'gc>>,
     pub upvalues: boxed::Box<[UpValueDescriptor], MetricsAlloc<'gc>>,
     pub prototypes: boxed::Box<[Gc<'gc, FunctionPrototype<'gc>>], MetricsAlloc<'gc>>,
+}
+
+/// A summary rather than a dump.
+///
+/// Deriving this printed every opcode, constant and nested prototype, which is almost never what a
+/// caller wants and costs several KB of binary in `Debug` impls for the opcode representation. The
+/// fields are all public if the detail is actually wanted.
+impl<'gc> fmt::Debug for FunctionPrototype<'gc> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("FunctionPrototype")
+            .field("chunk_name", &self.chunk_name)
+            .field("fixed_params", &self.fixed_params)
+            .field("has_varargs", &self.has_varargs)
+            .field("stack_size", &self.stack_size)
+            .field("opcodes", &self.opcodes.len())
+            .field("constants", &self.constants.len())
+            .field("upvalues", &self.upvalues.len())
+            .field("prototypes", &self.prototypes.len())
+            .finish()
+    }
 }
 
 impl<'gc> FunctionPrototype<'gc> {
@@ -184,11 +207,22 @@ pub enum ClosureError {
     RequiresEnv,
 }
 
-#[derive(Debug, Collect)]
+#[derive(Collect)]
 #[collect(no_drop)]
 pub struct ClosureInner<'gc> {
     proto: Gc<'gc, FunctionPrototype<'gc>>,
     upvalues: vec::Vec<UpValue<'gc>, MetricsAlloc<'gc>>,
+}
+
+/// As [`FunctionPrototype`]: the upvalue *count*, not every captured value. Walking them would
+/// print the whole reachable object graph, and would instantiate `Debug` for all of it.
+impl<'gc> fmt::Debug for ClosureInner<'gc> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("ClosureInner")
+            .field("proto", &*self.proto)
+            .field("upvalues", &self.upvalues.len())
+            .finish()
+    }
 }
 
 /// A garbage collected pointer to an executable Lua function.

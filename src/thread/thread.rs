@@ -1,5 +1,6 @@
 use std::{
     cell::RefMut,
+    fmt,
     hash::{Hash, Hasher},
 };
 
@@ -342,7 +343,7 @@ pub(super) enum Frame<'gc> {
 /// this vector without taking a lock on the frames, which the executor may be holding.
 pub(super) type StackVec<'gc> = vec::Vec<Value<'gc>, MetricsAlloc<'gc>>;
 
-#[derive(Debug, Collect)]
+#[derive(Collect)]
 #[collect(no_drop)]
 pub struct ThreadState<'gc> {
     pub(super) frames: vec::Vec<Frame<'gc>, MetricsAlloc<'gc>>,
@@ -359,6 +360,24 @@ pub struct ThreadState<'gc> {
     pub(super) running: bool,
     // Read from the `Lua` state when the thread is created.
     pub(super) max_call_depth: usize,
+}
+
+/// Sizes rather than contents.
+///
+/// Deriving this dumped the whole stack and frame chain — which pulls in `Debug` for every value,
+/// closure and opcode reachable from a running thread. That is a lot of binary for output nobody
+/// reads; `mode` and the sizes are what is actually useful.
+impl<'gc> fmt::Debug for ThreadState<'gc> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("ThreadState")
+            .field("mode", &self.mode())
+            .field("frames", &self.frames.len())
+            .field("stack", &self.stack.try_borrow().map(|s| s.len()).ok())
+            .field("open_upvalues", &self.open_upvalues.len())
+            .field("to_be_closed", &self.to_be_closed.len())
+            .field("running", &self.running)
+            .finish()
+    }
 }
 
 impl<'gc> ThreadState<'gc> {
