@@ -495,11 +495,17 @@ pub fn equal<'gc>(
         (Value::Boolean(_), _) => Value::Boolean(false).into(),
 
         (Value::Integer(a), Value::Integer(b)) => Value::Boolean(a == b).into(),
-        (Value::Integer(a), Value::Number(b)) => Value::Boolean(a as f64 == b).into(),
+        (Value::Integer(a), Value::Number(b)) => {
+            Value::Boolean(crate::constant::cmp_int_float(a, b) == Some(std::cmp::Ordering::Equal))
+                .into()
+        }
         (Value::Integer(_), _) => Value::Boolean(false).into(),
 
         (Value::Number(a), Value::Number(b)) => Value::Boolean(a == b).into(),
-        (Value::Number(a), Value::Integer(b)) => Value::Boolean(b as f64 == a).into(),
+        (Value::Number(a), Value::Integer(b)) => {
+            Value::Boolean(crate::constant::cmp_int_float(b, a) == Some(std::cmp::Ordering::Equal))
+                .into()
+        }
         (Value::Number(_), _) => Value::Boolean(false).into(),
 
         (Value::String(a), Value::String(b)) => Value::Boolean(a == b).into(),

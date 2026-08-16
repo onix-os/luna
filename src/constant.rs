@@ -14,6 +14,32 @@ pub enum Constant<S> {
     String(S),
 }
 
+/// Compare an integer with a float exactly.
+///
+/// `i as f64` loses precision above 2^53, which made `math.maxinteger == math.maxinteger + 0.0`
+/// answer `true` and silently corrupted sorts and range checks on large integer ids. Comparing
+/// through the float's own integral part keeps every bit.
+pub(crate) fn cmp_int_float(i: i64, f: f64) -> Option<std::cmp::Ordering> {
+    use std::cmp::Ordering;
+    if f.is_nan() {
+        return None;
+    }
+    // Anything past the i64 range settles it without further arithmetic.
+    if f >= 9_223_372_036_854_775_808.0 {
+        return Some(Ordering::Less);
+    }
+    if f < -9_223_372_036_854_775_808.0 {
+        return Some(Ordering::Greater);
+    }
+    // `trunc` is exactly representable, so this comparison is lossless; the fraction breaks ties.
+    let truncated = f.trunc() as i64;
+    Some(i.cmp(&truncated).then(if f > f.trunc() {
+        Ordering::Less
+    } else {
+        Ordering::Equal
+    }))
+}
+
 impl<S> Constant<S> {
     pub fn to_bool(&self) -> bool {
         match self {
@@ -97,21 +123,30 @@ impl<S: AsRef<[u8]>> Constant<S> {
     pub fn add(&self, rhs: &Self) -> Option<Self> {
         Some(match (self, rhs) {
             (&Self::Integer(a), &Self::Integer(b)) => Self::Integer(a.wrapping_add(b)),
-            (a, b) => Self::Number(a.to_number()? + b.to_number()?),
+            (a, b) => match (a.to_numeric()?, b.to_numeric()?) {
+                (Self::Integer(x), Self::Integer(y)) => Self::Integer(x.wrapping_add(y)),
+                (x, y) => Self::Number(x.to_number()? + y.to_number()?),
+            },
         })
     }
 
     pub fn subtract(&self, rhs: &Self) -> Option<Self> {
         Some(match (self, rhs) {
             (&Self::Integer(a), &Self::Integer(b)) => Self::Integer(a.wrapping_sub(b)),
-            (a, b) => Self::Number(a.to_number()? - b.to_number()?),
+            (a, b) => match (a.to_numeric()?, b.to_numeric()?) {
+                (Self::Integer(x), Self::Integer(y)) => Self::Integer(x.wrapping_sub(y)),
+                (x, y) => Self::Number(x.to_number()? - y.to_number()?),
+            },
         })
     }
 
     pub fn multiply(&self, rhs: &Self) -> Option<Self> {
         Some(match (self, rhs) {
             (&Self::Integer(a), &Self::Integer(b)) => Self::Integer(a.wrapping_mul(b)),
-            (a, b) => Self::Number(a.to_number()? * b.to_number()?),
+            (a, b) => match (a.to_numeric()?, b.to_numeric()?) {
+                (Self::Integer(x), Self::Integer(y)) => Self::Integer(x.wrapping_mul(y)),
+                (x, y) => Self::Number(x.to_number()? * y.to_number()?),
+            },
         })
     }
 
@@ -176,39 +211,58 @@ impl<S: AsRef<[u8]>> Constant<S> {
 
     // Bitwise operators
 
+    /// An integer operand for a bitwise operator.
+    ///
+    /// Unlike `to_integer`, a string is refused. PUC-Rio raises for `"10" | 1`, and being more
+    /// permissive than that means code written against luna breaks elsewhere and a class of typo
+    /// goes undetected.
+    fn to_integer_bitwise(&self) -> Option<i64> {
+        match self {
+            Self::Integer(i) => Some(*i),
+            Self::Number(_) => self.to_integer(),
+            _ => None,
+        }
+    }
+
     pub fn bitwise_not(&self) -> Option<Self> {
-        Some(Self::Integer(!self.to_integer()?))
+        Some(Self::Integer(!self.to_integer_bitwise()?))
     }
 
     pub fn bitwise_and(&self, rhs: &Self) -> Option<Self> {
-        Some(Self::Integer(self.to_integer()? & rhs.to_integer()?))
+        Some(Self::Integer(
+            self.to_integer_bitwise()? & rhs.to_integer_bitwise()?,
+        ))
     }
 
     pub fn bitwise_or(&self, rhs: &Self) -> Option<Self> {
-        Some(Self::Integer(self.to_integer()? | rhs.to_integer()?))
+        Some(Self::Integer(
+            self.to_integer_bitwise()? | rhs.to_integer_bitwise()?,
+        ))
     }
 
     pub fn bitwise_xor(&self, rhs: &Self) -> Option<Self> {
-        Some(Self::Integer(self.to_integer()? ^ rhs.to_integer()?))
+        Some(Self::Integer(
+            self.to_integer_bitwise()? ^ rhs.to_integer_bitwise()?,
+        ))
     }
 
     pub fn shift_left(&self, rhs: &Self) -> Option<Self> {
-        let rhs = rhs.to_integer()?;
+        let rhs = rhs.to_integer_bitwise()?;
         if rhs < 0 {
             return None;
         }
         let rhs = rhs.try_into().ok().unwrap_or(u32::MAX);
         Some(Self::Integer(
-            self.to_integer()?.checked_shl(rhs).unwrap_or(0),
+            self.to_integer_bitwise()?.checked_shl(rhs).unwrap_or(0),
         ))
     }
 
     pub fn shift_right(&self, rhs: &Self) -> Option<Self> {
-        let rhs = rhs.to_integer()?;
+        let rhs = rhs.to_integer_bitwise()?;
         if rhs < 0 {
             return None;
         }
-        let lhs = self.to_integer()? as u64;
+        let lhs = self.to_integer_bitwise()? as u64;
         let rhs = rhs.try_into().ok().unwrap_or(u32::MAX);
         Some(Self::Integer(lhs.checked_shr(rhs).unwrap_or(0) as i64))
     }
@@ -224,11 +278,15 @@ impl<S: AsRef<[u8]>> Constant<S> {
             (Self::Boolean(_), _) => false,
 
             (Self::Integer(a), Self::Integer(b)) => a == b,
-            (Self::Integer(a), Self::Number(b)) => *a as f64 == *b,
+            (Self::Integer(a), Self::Number(b)) => {
+                cmp_int_float(*a, *b) == Some(std::cmp::Ordering::Equal)
+            }
             (Self::Integer(_), _) => false,
 
             (Self::Number(a), Self::Number(b)) => a == b,
-            (Self::Number(a), Self::Integer(b)) => *b as f64 == *a,
+            (Self::Number(a), Self::Integer(b)) => {
+                cmp_int_float(*b, *a) == Some(std::cmp::Ordering::Equal)
+            }
             (Self::Number(_), _) => false,
 
             (Self::String(a), Self::String(b)) => a.as_ref() == b.as_ref(),
@@ -239,9 +297,13 @@ impl<S: AsRef<[u8]>> Constant<S> {
     pub fn less_than(&self, rhs: &Self) -> Option<bool> {
         Some(match (self, rhs) {
             (Self::Integer(a), Self::Integer(b)) => a < b,
-            (Self::Integer(a), Self::Number(b)) => (*a as f64) < *b,
+            (Self::Integer(a), Self::Number(b)) => {
+                cmp_int_float(*a, *b).is_some_and(|o| o == std::cmp::Ordering::Less)
+            }
             (Self::Number(a), Self::Number(b)) => a < b,
-            (Self::Number(a), Self::Integer(b)) => *a < *b as f64,
+            (Self::Number(a), Self::Integer(b)) => {
+                cmp_int_float(*b, *a).is_some_and(|o| o == std::cmp::Ordering::Greater)
+            }
             (Self::String(a), Self::String(b)) => a.as_ref() < b.as_ref(),
             _ => return None,
         })
@@ -250,9 +312,13 @@ impl<S: AsRef<[u8]>> Constant<S> {
     pub fn less_equal(&self, rhs: &Self) -> Option<bool> {
         Some(match (self, rhs) {
             (Self::Integer(a), Self::Integer(b)) => a <= b,
-            (Self::Integer(a), Self::Number(b)) => (*a as f64) <= *b,
+            (Self::Integer(a), Self::Number(b)) => {
+                cmp_int_float(*a, *b).is_some_and(|o| o != std::cmp::Ordering::Greater)
+            }
             (Self::Number(a), Self::Number(b)) => a <= b,
-            (Self::Number(a), Self::Integer(b)) => *a <= *b as f64,
+            (Self::Number(a), Self::Integer(b)) => {
+                cmp_int_float(*b, *a).is_some_and(|o| o != std::cmp::Ordering::Less)
+            }
             (Self::String(a), Self::String(b)) => a.as_ref() <= b.as_ref(),
             _ => return None,
         })
