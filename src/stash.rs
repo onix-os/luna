@@ -276,6 +276,20 @@ pub enum StashedValue {
 }
 
 impl StashedValue {
+    /// The Lua type name, as `type()` reports it.
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            StashedValue::Nil => "nil",
+            StashedValue::Boolean(_) => "boolean",
+            StashedValue::Integer(_) | StashedValue::Number(_) => "number",
+            StashedValue::String(_) => "string",
+            StashedValue::Table(_) => "table",
+            StashedValue::Function(_) => "function",
+            StashedValue::Thread(_) => "thread",
+            StashedValue::UserData(_) => "userdata",
+        }
+    }
+
     pub fn to_bool(self) -> bool {
         match self {
             StashedValue::Nil => false,
@@ -385,10 +399,26 @@ impl Fetchable for StashedValue {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum StashedError {
     Lua(StashedValue),
     Runtime(RuntimeError),
 }
+
+/// A stashed Lua error keeps its value in the arena, so the value itself cannot be shown from
+/// outside an `enter`. The type name is what is left to say; `fetch` it to see the value.
+impl fmt::Display for StashedError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            StashedError::Lua(value) => write!(f, "lua error: {}", value.type_name()),
+            StashedError::Runtime(error) => write!(f, "{error}"),
+        }
+    }
+}
+
+// No `std::error::Error` impl: it would make `StashedError: Into<anyhow::Error>`, which collides
+// with the blanket `From<E>` below and with core's reflexive `From<T> for T`. `Debug` and `Display`
+// are what callers actually need to unwrap, log, and store one.
 
 impl From<StashedValue> for StashedError {
     fn from(error: StashedValue) -> Self {
