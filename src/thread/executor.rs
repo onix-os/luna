@@ -561,12 +561,12 @@ impl<'gc> Executor<'gc> {
                                 // by replacing the error with a string, so that Rust callers can
                                 // still `root_cause().downcast_ref()` to the typed cause.
                                 let positioned = match error_position(&top_state.frames) {
-                                    Some(at) => {
-                                        let message = format!("{at}: {err}");
-                                        Error::from(crate::RuntimeError::new(
-                                            anyhow::Error::new(err).context(message),
-                                        ))
-                                    }
+                                    // The context is the position alone, not `position: message` — the
+                                    // error it wraps is its own source, and a chain-printing
+                                    // formatter would otherwise repeat the message verbatim.
+                                    Some(at) => Error::from(crate::RuntimeError::new(
+                                        anyhow::Error::new(err).context(at),
+                                    )),
                                     None => Error::from(err),
                                 };
                                 top_state.frames.push(Frame::Error(positioned));
