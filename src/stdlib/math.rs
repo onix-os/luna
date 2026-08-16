@@ -41,7 +41,8 @@ pub fn load_baseline<'gc>(ctx: Context<'gc>, math: Table<'gc>) {
         "abs",
         callback("abs", &ctx, |_, v: Value| {
             if let Value::Integer(i) = v {
-                Some(Value::Integer(i.abs()))
+                // `mininteger` has no positive counterpart; PUC-Rio wraps rather than trapping.
+                Some(Value::Integer(i.wrapping_abs()))
             } else {
                 Some(Value::Number(v.to_number()?.abs()))
             }
@@ -197,16 +198,24 @@ pub fn load_float<'gc>(ctx: Context<'gc>, math: Table<'gc>) {
         }
     }
 
+    // An integer is its own floor and its own ceiling. Rounding it through f64 first loses the
+    // low bits of anything past 2^53, which turned `maxinteger - 1` into `maxinteger`.
     math.set_field(
         ctx,
         "ceil",
-        callback("ceil", &ctx, |_, v: f64| Some(to_int(v.ceil().into()))),
+        callback("ceil", &ctx, |_, v: Value| match v {
+            Value::Integer(i) => Some(Value::Integer(i)),
+            v => Some(to_int(v.to_number()?.ceil().into())),
+        }),
     );
 
     math.set_field(
         ctx,
         "floor",
-        callback("floor", &ctx, |_, v: f64| Some(to_int(v.floor().into()))),
+        callback("floor", &ctx, |_, v: Value| match v {
+            Value::Integer(i) => Some(Value::Integer(i)),
+            v => Some(to_int(v.to_number()?.floor().into())),
+        }),
     );
 
     math.set_field(
@@ -262,8 +271,8 @@ pub fn load_float<'gc>(ctx: Context<'gc>, math: Table<'gc>) {
                             .into_value(ctx)
                             .into());
                     };
-                    let result = (f % g).abs();
-                    stack.replace(ctx, if f < 0.0 { -result } else { result });
+                    // Rust's `%` on f64 is C's `fmod`, which already takes the sign of `f`.
+                    stack.replace(ctx, f % g);
                 }
             }
             Ok(CallbackReturn::Return)

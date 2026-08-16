@@ -173,6 +173,12 @@ pub fn read_float(s: &[u8]) -> Option<f64> {
 }
 
 pub fn read_dec_float(s: &[u8]) -> Option<f64> {
+    // `l_str2d` refuses any string holding an 'n', which is how PUC-Rio keeps "inf", "infinity"
+    // and "nan" from becoming numbers. Rust's parser accepts all three. Hex floats never reach
+    // here, so no valid spelling of a decimal float is lost.
+    if s.iter().any(|&c| c == b'n' || c == b'N') {
+        return None;
+    }
     let s = str::from_utf8(s).ok()?;
     str::parse(s).ok()
 }
