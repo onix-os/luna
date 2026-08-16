@@ -67,6 +67,29 @@ make verify     # the full local gate
 
 A Nix dev shell with the pinned toolchain is in [`flake.nix`](flake.nix).
 
+## Threads
+
+`Lua` is not `Send`, and that is a deliberate boundary rather than a gap waiting to be closed. The
+arena owns every value behind a `'gc` lifetime brand, and that ownership is exactly what lets luna
+guarantee a value can never outlive its collector without a line of `unsafe` in the VM. Making the
+state movable between threads means changing that model, not adding an `impl`.
+
+The supported pattern is **one `Lua` per thread, with values crossing as owned Rust data**:
+
+- Anything the script returns converts to ordinary Rust types through the same `FromMultiValue`
+  machinery callbacks use, and those cross a channel freely.
+- For values with no fixed Rust type, `luna_util::serde::SerializeValue` pairs a value with its
+  context and serializes it into any serde format; `from_value` reads one back on the other side.
+- `Stashed*` handles let work be suspended and resumed across `enter` boundaries on the owning
+  thread, so a worker can interleave several scripts without holding a borrow.
+
+[`examples/worker_thread.rs`](examples/worker_thread.rs) is a working version: a `Lua` living on a
+worker thread, fed source over a channel and replying with results.
+
+What this rules out is sharing a *single* interpreter between threads — that needs a lock around
+the whole state in any implementation, PUC-Rio included, so little is lost. What it does not rule
+out is parallelism: N threads with N interpreters scale linearly, with no global lock between them.
+
 ## Safety
 
 Most of luna is safe Rust. The unsafe parts are isolated and never leak into the public API —

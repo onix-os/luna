@@ -142,3 +142,48 @@ fn a_strong_table_keeps_everything() -> Result<(), ExternError> {
     );
     Ok(())
 }
+
+/// Weak keys are documented as not implemented — a `__mode` of `"k"` leaves keys strong. This test
+/// exists so that stays a decision rather than drifting into a silent surprise; see
+/// COMPATIBILITY.md, "`__mode`". If weak keys are ever implemented with ephemeron semantics, this
+/// test should be rewritten, not deleted.
+#[test]
+fn weak_keys_are_not_implemented_and_keep_their_entries() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"
+            local t = setmetatable({{}}, {{ __mode = "k" }})
+            local function fill() t[{{ id = 1 }}] = "metadata" end
+            fill()
+            {CHURN}
+            collectgarbage("collect")
+            collectgarbage("collect")
+            local n = 0
+            for _ in pairs(t) do n = n + 1 end
+            return n
+        "#
+        ))?,
+        1
+    );
+    Ok(())
+}
+
+/// `"kv"` degrades to weak-valued rather than erroring, which is the half luna can do correctly.
+#[test]
+fn mode_kv_behaves_as_weak_valued() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"
+            local t = setmetatable({{}}, {{ __mode = "kv" }})
+            local function fill() t.entry = {{ payload = true }} end
+            fill()
+            {CHURN}
+            collectgarbage("collect")
+            collectgarbage("collect")
+            return t.entry == nil and 1 or 0
+        "#
+        ))?,
+        1
+    );
+    Ok(())
+}

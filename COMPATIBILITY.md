@@ -207,26 +207,63 @@ IMO this module is best in its current state, but I cannot stop one from downloa
 | 🔵    | `time([table])`                 |                                                                                                                                                                                            |       |
 | 🔵    | `tmpname()`                     |                                                                                                                                                                                            |       |
 
+## Metamethods
+
+| Status | Metamethod | Implementation Notes / Differences | Notes |
+| ------ | ---------- | ---------------------------------- | ----- |
+| 🔵 | `__index`, `__newindex` | Both the table and function forms, chained. | |
+| 🔵 | arithmetic, `__concat`, `__len`, `__eq`, `__lt`, `__le`, `__unm` | | |
+| 🔵 | `__call` | | |
+| 🔵 | `__tostring`, `__name` | | |
+| 🔵 | `__metatable` | Protects the metatable from `getmetatable` and `setmetatable`. | |
+| 🔵 | `__pairs` | | |
+| 🔵 | `__close` | Runs on every scope exit, including error unwinding and coroutine close. | |
+| 🔵 | `__gc` | On tables and userdata. Runs during collection, once per object; may resurrect, and is not re-run if it does. An erroring handler is reported through `warn` and does not abort collection. As in PUC-Rio, an object with a finalizer needs two collection cycles to be reclaimed. | |
+| 🟡 | `__mode` | **`"v"` only.** See below. | |
+
+### `__mode`
+
+Weak *values* are implemented, and implemented by representation rather than by clearing: a weak
+table's slots hold weak pointers, so a cleared entry cannot be read as a dangling one. Entries whose
+value has been collected vanish from `get`, `next`, iteration and `#`.
+
+Weak *keys* are **not implemented**, and a `__mode` containing `"k"` is accepted and ignored — the
+keys stay strong. This is deliberate and worth understanding before relying on it:
+
+- Correct weak keys need *ephemeron* semantics — a key must be kept alive only if it is reachable
+  independently of the table, which requires the collector to iterate marking to a fixed point.
+  luna does not do this yet.
+- The naive version, without ephemerons, leaks precisely in the case weak keys are usually reached
+  for: an object → metadata table where the metadata refers back to the object. The value is strong,
+  so it pins the key, so the entry is never collected. Shipping that quietly would be worse than not
+  shipping it.
+
+So `__mode = "k"` behaves as a normal strong table, and `__mode = "kv"` behaves as weak-valued.
+
+`__mode` is read once, when the metatable is attached. Changing it afterwards does not retroactively
+weaken or strengthen entries. PUC-Rio calls this undefined; this is luna's answer.
+
 ## Debug
 
-As stated on the repository main page, this library for the most part is not
-implemented nor are there plans to implement due to differences between the implementations. This sections is mostly so that people might get an idea of what _is_ implemented, and what is theoretically _possible_ to implement.
+Partly implemented. The introspection that reads the frame chain or a closure works; the parts that
+need either a hook point inside the opcode loop or a register-to-name table the compiler does not
+emit do not. `Fuel` covers the count-hook use case, and covers it better.
 
 | Status | Function                                  | Implementation Notes / Differences                                                                                                                                                                        | Notes |
 | ------ | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
 | ⚫️    | `debug()`                                 |                                                                                                                                                                                                           |       |
 | ❗     | `gethook([thread])`                       |                                                                                                                                                                                                           |       |
-| ⚫️    | `getinfo([thread, ]f[, what])`            |                                                                                                                                                                                                           |       |
+| 🟡     | `getinfo([thread, ]f[, what])`            | Level or function. Reports `source`, `short_src`, `what`, `currentline`, `linedefined`, `lastlinedefined`, `nparams`, `isvararg`, `nups`, `func`. No `name`/`namewhat`. The `what` filter argument is ignored; every field is always returned.                                                        |       |
 | ⚫️    | `getlocal([thread, ]f, local)`            |                                                                                                                                                                                                           |       |
-| ⚫️    | `getmetatable(value)`                     |                                                                                                                                                                                                           |       |
+| 🔵     | `getmetatable(value)`                     | Ignores `__metatable`, which is the point of it.                                                                                                                                                          |       |
 | ⚫️    | `getregistry()`                           |                                                                                                                                                                                                           |       |
-| ⚫️    | `getupvalue(f, up)`                       |                                                                                                                                                                                                           |       |
+| 🟡     | `getupvalue(f, up)`                       | luna keeps no upvalue names, so the returned name is the index as a string.                                                                                                                               |       |
 | ⚫️    | `getuservalue(u, n)`                      |                                                                                                                                                                                                           |       |
 | ❗     | `sethook([thread, ] hook, mask[, count])` |                                                                                                                                                                                                           |       |
 | ⚫️    | `setlocal([thread, ]level, local, value)` |                                                                                                                                                                                                           |       |
-| ⚫️    | `setmetatable(value, table)`              | Interesting thing to note is that this is _not_ the base library `setmetatable`, as `debug.setmetatable`'s first argument accepts any Lua value, while `setmetatable`'s first argument _must_ be a table. |       |
-| ⚫️    | `setupvalue(f, up, value)`                |                                                                                                                                                                                                           |       |
+| 🟡     | `setmetatable(value, table)`              | Tables only, not any value. Interesting thing to note is that this is _not_ the base library `setmetatable`, as `debug.setmetatable`'s first argument accepts any Lua value, while `setmetatable`'s first argument _must_ be a table. |       |
+| 🟡     | `setupvalue(f, up, value)`                | As `getupvalue`, the returned name is the index.                                                                                                                                                          |       |
 | ⚫️    | `setuservalue(udata, value, n)`           |                                                                                                                                                                                                           |       |
-| ⚫️    | `traceback([thread,][message, level])`    |                                                                                                                                                                                                           |       |
+| 🟡     | `traceback([thread,][message, level])`    | Lua frames only — a Rust callback has no frame to describe. A non-string message is returned untouched, as PUC-Rio does. No `thread` or `level` argument.                                                  |       |
 | ⚫️    | `upvalueid(f, n)`                         |                                                                                                                                                                                                           |       |
 | ⚫️    | `upvaluejoin(f1, n1, f2, n2)`             |                                                                                                                                                                                                           |       |
