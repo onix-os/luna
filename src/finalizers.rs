@@ -98,6 +98,13 @@ impl<'gc> Finalizers<'gc> {
 
     pub(crate) fn prepare(&self, fc: &Finalization<'gc>) {
         let mut state = self.0.borrow_mut(fc);
+
+        // Marking is over for this cycle, so everything the ephemeron pass revived is already
+        // marked and will survive the sweep on its own. Dropping the roots here is what keeps them
+        // out of the *next* cycle's first mark: held any longer, a value that refers back to its
+        // own key would make that key reachable again, and the entry could never be collected.
+        state.ephemeron_roots.clear();
+
         for &ptr in &state.threads {
             let thread = Thread::from_inner(ptr.upgrade(fc).expect(Self::THREAD_ERR));
             thread.resurrect_live_upvalues(fc).unwrap();

@@ -88,7 +88,6 @@ impl<'gc> WeakValue<'gc> {
 #[collect(no_drop)]
 pub enum WeakKey<'gc> {
     Immediate(CanonicalKeyRepr<'gc>),
-    String(GcWeak<'gc, StringInner>),
     Table(GcWeak<'gc, TableInner<'gc>>),
     Closure(GcWeak<'gc, ClosureInner<'gc>>),
     Thread(GcWeak<'gc, ThreadInner<'gc>>),
@@ -96,12 +95,17 @@ pub enum WeakKey<'gc> {
 }
 
 /// The keys that are never worth holding weakly, kept in their strong form.
+///
+/// Strings are here because Lua 5.4 §2.5.4 makes them values rather than collectable objects for
+/// this purpose: they are never removed from a weak table. Holding one weakly would also mean
+/// comparing it by allocation address, which would make two equal strings two different keys.
 #[derive(Debug, Copy, Clone, Collect)]
 #[collect(no_drop)]
 pub enum CanonicalKeyRepr<'gc> {
     Boolean(bool),
     Integer(i64),
     Number(u64),
+    String(String<'gc>),
     Callback(Callback<'gc>),
 }
 
@@ -110,7 +114,6 @@ impl<'gc> WeakKey<'gc> {
     pub fn as_ptr(self) -> Option<*const ()> {
         Some(match self {
             WeakKey::Immediate(_) => return None,
-            WeakKey::String(w) => w.as_ptr() as *const (),
             WeakKey::Table(w) => w.as_ptr() as *const (),
             WeakKey::Closure(w) => w.as_ptr() as *const (),
             WeakKey::Thread(w) => w.as_ptr() as *const (),
@@ -125,7 +128,6 @@ impl<'gc> WeakKey<'gc> {
     pub fn is_live(self, mc: &Mutation<'gc>) -> bool {
         match self {
             WeakKey::Immediate(_) => true,
-            WeakKey::String(w) => w.upgrade(mc).is_some(),
             WeakKey::Table(w) => w.upgrade(mc).is_some(),
             WeakKey::Closure(w) => w.upgrade(mc).is_some(),
             WeakKey::Thread(w) => w.upgrade(mc).is_some(),
@@ -141,10 +143,10 @@ impl<'gc> WeakKey<'gc> {
             WeakKey::Immediate(CanonicalKeyRepr::Boolean(b)) => Value::Boolean(b),
             WeakKey::Immediate(CanonicalKeyRepr::Integer(i)) => Value::Integer(i),
             WeakKey::Immediate(CanonicalKeyRepr::Number(n)) => Value::Number(f64::from_bits(n)),
+            WeakKey::Immediate(CanonicalKeyRepr::String(s)) => Value::String(s),
             WeakKey::Immediate(CanonicalKeyRepr::Callback(c)) => {
                 Value::Function(Function::Callback(c))
             }
-            WeakKey::String(w) => Value::String(String::from_inner(w.upgrade(mc)?)),
             WeakKey::Table(w) => Value::Table(Table::from_inner(w.upgrade(mc)?)),
             WeakKey::Closure(w) => {
                 Value::Function(Function::Closure(Closure::from_inner(w.upgrade(mc)?)))
@@ -160,7 +162,6 @@ impl<'gc> WeakKey<'gc> {
     pub fn is_dead(self, fc: &ottavino_gc_arena::Finalization<'gc>) -> bool {
         match self {
             WeakKey::Immediate(_) => false,
-            WeakKey::String(w) => w.is_dead(fc),
             WeakKey::Table(w) => w.is_dead(fc),
             WeakKey::Closure(w) => w.is_dead(fc),
             WeakKey::Thread(w) => w.is_dead(fc),

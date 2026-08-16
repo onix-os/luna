@@ -269,6 +269,280 @@ fn an_anchored_chain_survives_end_to_end() -> Result<(), ExternError> {
     Ok(())
 }
 
+/// Growth is where a weak-key table used to die: the rehash asked every key for its live form,
+/// which a weak key holding an object cannot give. Four keys were enough to reach it.
+#[test]
+fn a_weak_key_table_grows_past_its_first_bucket() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(
+            r#"
+            local t = setmetatable({}, { __mode = "k" })
+            local keep = {}
+            for i = 1, 100 do
+                local k = {}
+                keep[i] = k
+                t[k] = i
+            end
+            collectgarbage("collect")
+            collectgarbage("collect")
+            local n = 0
+            for k, v in pairs(t) do
+                if t[keep[v]] ~= v then return -1 end
+                n = n + 1
+            end
+            return n
+        "#
+        )?,
+        100
+    );
+    Ok(())
+}
+
+/// The same growth, with nothing holding the keys: every entry must go.
+#[test]
+fn a_hundred_unheld_weak_keys_are_all_reclaimed() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"
+            local t = setmetatable({{}}, {{ __mode = "k" }})
+            local function fill()
+                for i = 1, 100 do t[{{}}] = i end
+            end
+            fill()
+            {CHURN}
+            collectgarbage("collect")
+            collectgarbage("collect")
+            local n = 0
+            for _ in pairs(t) do n = n + 1 end
+            return n
+        "#
+        ))?,
+        0
+    );
+    Ok(())
+}
+
+/// An object key in a weak table is never an array index, so growing the array must step over it
+/// rather than demand a live key for it.
+#[test]
+fn an_object_key_survives_array_growth() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(
+            r#"
+            local t = setmetatable({}, { __mode = "k" })
+            local k = {}
+            t[k] = "obj"
+            for i = 1, 10 do t[i] = i end
+            local n = 0
+            for _ in pairs(t) do n = n + 1 end
+            return (t[k] == "obj" and t[7] == 7 and n == 11) and 1 or 0
+        "#
+        )?,
+        1
+    );
+    Ok(())
+}
+
+/// `table.insert` reaches the same growth path through `length`.
+#[test]
+fn table_insert_into_a_weak_key_table() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(
+            r#"
+            local t = setmetatable({}, { __mode = "k" })
+            local k = {}
+            t[k] = "obj"
+            table.insert(t, 1)
+            table.insert(t, 2)
+            return (t[k] == "obj" and t[1] == 1 and t[2] == 2) and 1 or 0
+        "#
+        )?,
+        1
+    );
+    Ok(())
+}
+
+/// Growing the array must not read a weak slot as nil and throw the value away.
+#[test]
+fn growth_does_not_discard_a_live_weak_value() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(
+            r#"
+            local w = setmetatable({}, { __mode = "v" })
+            local keep = {}
+            w[2] = keep
+            if w[2] ~= keep then return -1 end
+            table.insert(w, keep)
+            return (w[2] == keep and w[1] == keep) and 1 or 0
+        "#
+        )?,
+        1
+    );
+    Ok(())
+}
+
+/// `__mode = "v"` applies to integer keys too — a cache built with `t[#t + 1] = obj` must release.
+#[test]
+fn integer_keyed_weak_values_are_released() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"
+            local cache = setmetatable({{}}, {{ __mode = "v" }})
+            local function fill()
+                for i = 1, 100 do cache[#cache + 1] = {{ i }} end
+            end
+            fill()
+            {CHURN}
+            collectgarbage("collect")
+            collectgarbage("collect")
+            local n = 0
+            for _ in pairs(cache) do n = n + 1 end
+            return n
+        "#
+        ))?,
+        0
+    );
+    Ok(())
+}
+
+/// The same table with its values held keeps every one of them.
+#[test]
+fn integer_keyed_weak_values_that_are_held_survive() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"
+            local cache = setmetatable({{}}, {{ __mode = "v" }})
+            local keep = {{}}
+            for i = 1, 100 do
+                local v = {{ i }}
+                keep[i] = v
+                cache[#cache + 1] = v
+            end
+            {CHURN}
+            collectgarbage("collect")
+            collectgarbage("collect")
+            local n = 0
+            for i, v in pairs(cache) do
+                if v ~= keep[i] then return -1 end
+                n = n + 1
+            end
+            return n
+        "#
+        ))?,
+        100
+    );
+    Ok(())
+}
+
+/// Overwriting an entry must not promote its key to a strong one.
+#[test]
+fn overwriting_a_weak_key_leaves_it_weak() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"
+            local t = setmetatable({{}}, {{ __mode = "k" }})
+            local function fill()
+                for i = 1, 100 do
+                    local k = {{}}
+                    t[k] = 1
+                    t[k] = 2
+                    t[k] = 3
+                end
+            end
+            fill()
+            {CHURN}
+            collectgarbage("collect")
+            collectgarbage("collect")
+            local n = 0
+            for _ in pairs(t) do n = n + 1 end
+            return n
+        "#
+        ))?,
+        0
+    );
+    Ok(())
+}
+
+/// Strings are values in Lua, so equal strings are one key however the table holds its keys —
+/// and, being values, they are never removed from a weak table.
+#[test]
+fn equal_strings_are_one_weak_key() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"
+            local t = setmetatable({{}}, {{ __mode = "k" }})
+            local a = string.rep("x", 50)
+            local b = string.rep("x", 50)
+            t[a] = 1
+            if t[b] ~= 1 then return -1 end
+            t[b] = 2
+            if t[a] ~= 2 then return -2 end
+            local n = 0
+            for _ in pairs(t) do n = n + 1 end
+            if n ~= 1 then return -3 end
+            a, b = nil, nil
+            {CHURN}
+            collectgarbage("collect")
+            collectgarbage("collect")
+            return t[string.rep("x", 50)] == 2 and 1 or 0
+        "#
+        ))?,
+        1
+    );
+    Ok(())
+}
+
+/// Removing a key and putting it back under an equal-but-distinct string must reuse the entry.
+/// A second bucket for the same key stalls `next` forever: it always resolves to the first one.
+#[test]
+fn re_adding_an_equal_string_key_leaves_one_entry() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(
+            r#"
+            local a = string.rep("x", 50)
+            local b = string.rep("x", 50)
+            local t = {}
+            t[a] = 1
+            t[a] = nil
+            t[b] = 2
+            t[a] = 3
+            local n = 0
+            for k, v in pairs(t) do n = n + 1 end
+            return (n == 1 and t[a] == 3 and t[b] == 3) and 1 or 0
+        "#
+        )?,
+        1
+    );
+    Ok(())
+}
+
+/// The ephemeron leak: a value pointing back at its own key must not be kept alive by the roots
+/// the *previous* cycle rooted it with.
+#[test]
+fn a_back_reference_does_not_survive_repeated_collection() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"
+            local t = setmetatable({{}}, {{ __mode = "k" }})
+            local k = {{}}
+            local v = {{}}
+            v.back = k
+            t[k] = v
+            collectgarbage("collect")
+            k, v = nil, nil
+            {CHURN}
+            collectgarbage("collect")
+            collectgarbage("collect")
+            local n = 0
+            for _ in pairs(t) do n = n + 1 end
+            return n
+        "#
+        ))?,
+        0
+    );
+    Ok(())
+}
+
 /// `"kv"` is both: keys weak *and* values weak, so an entry goes when either side does.
 #[test]
 fn mode_kv_is_weak_on_both_sides() -> Result<(), ExternError> {
