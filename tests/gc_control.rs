@@ -89,3 +89,30 @@ fn stop_and_restart_are_reportable_from_rust() {
     lua.gc_restart();
     assert!(lua.gc_is_running());
 }
+
+/// A script can observe its own `collectgarbage("collect")`.
+///
+/// Collection cannot happen while the arena is borrowed, so the verb is a request the host carries
+/// out between slices. It also interrupts the slice, which is what makes "between slices" land
+/// before the next statement rather than whenever the fuel happens to run out — without that, a
+/// script could collect and still see its own garbage on the following line.
+#[test]
+fn collect_takes_effect_before_the_next_statement() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(
+            r#"
+            local finalized = false
+            local weak = setmetatable({}, { __mode = "v" })
+            local function make()
+                weak.entry = setmetatable({}, { __gc = function() finalized = true end })
+            end
+            make()
+            collectgarbage("collect")
+            collectgarbage("collect")
+            return weak.entry == nil and finalized
+        "#
+        )?,
+        true
+    );
+    Ok(())
+}

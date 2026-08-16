@@ -104,7 +104,7 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
             match (level, message) {
                 (0, _) => Err(message.into()),
                 (level, Value::String(s)) if level > 0 => {
-                    match exec.lua_frame_at((level - 1) as usize) {
+                    match exec.frame_at((level - 1) as usize) {
                         Some(frame) => {
                             let prefixed = format!(
                                 "{}:{}: {}",
@@ -498,19 +498,24 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
 
     ctx.set_global(
         "collectgarbage",
-        Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+        Callback::from_fn(&ctx, move |ctx, mut exec, mut stack| {
             // Everything but "count" is a *request*: acting on the collector needs `&mut Lua`,
-            // which no callback has, so the host carries it out when the slice ends.
+            // which no callback has, so the host carries it out when the slice ends. The verbs that
+            // collect also interrupt the slice, so that "end of slice" is the next statement rather
+            // than whenever this one happens to run out of fuel — otherwise a script could not
+            // observe its own `collectgarbage("collect")`.
             match stack.consume::<Option<String>>(ctx)? {
                 Some(arg) if arg == "count" => {
                     stack.into_back(ctx, ctx.metrics().total_allocation() as f64 / 1024.0);
                 }
                 Some(arg) if arg == "collect" => {
                     ctx.request_gc(crate::GcRequest::Collect);
+                    exec.fuel().interrupt();
                     stack.into_back(ctx, 0);
                 }
                 Some(arg) if arg == "step" => {
                     ctx.request_gc(crate::GcRequest::Step);
+                    exec.fuel().interrupt();
                     stack.into_back(ctx, true);
                 }
                 Some(arg) if arg == "stop" => {

@@ -758,8 +758,25 @@ impl<'gc, 'a> Execution<'gc, 'a> {
         self.lua_frame_at(0)
     }
 
-    /// The Lua frame `level` steps above this native: 0 is the function that called it, 1 that
-    /// function's caller. This is the `level` argument of `error`.
+    /// The `level` steps above this native, counting *every* activation — 0 is whatever called it,
+    /// Lua or native. Returns `None` when that activation is not a Lua function.
+    ///
+    /// This is the `level` argument of `error`, and counting natives is what makes it match
+    /// PUC-Rio: `pcall(error, "x")` blames level 1, which is `pcall` itself, and a native has no
+    /// source position — so the message is returned bare. Skipping natives instead would reach past
+    /// `pcall` and wrongly attribute the error to the Lua code that called *it*.
+    pub fn frame_at(&self, level: usize) -> Option<UpperLuaFrame<'gc>> {
+        match self.lua_frames.iter().rev().nth(level) {
+            Some(Frame::Lua { closure, pc, .. }) => self.describe(*closure, *pc),
+            _ => None,
+        }
+    }
+
+    /// The Lua frame `level` steps above this native, skipping natives entirely: 0 is the nearest
+    /// Lua function, 1 the next one out.
+    ///
+    /// This is what a traceback wants — a chain of source locations, with the natives in between
+    /// left out because they have none. For blame, use [`Execution::frame_at`].
     pub fn lua_frame_at(&self, level: usize) -> Option<UpperLuaFrame<'gc>> {
         // Filtered on lookup rather than pre-collected: this is read by `error(msg, level)`,
         // `debug.getinfo` and `debug.traceback` only, so paying per lookup beats paying per native
@@ -776,7 +793,10 @@ impl<'gc, 'a> Execution<'gc, 'a> {
         else {
             return None;
         };
+        self.describe(closure, pc)
+    }
 
+    fn describe(&self, closure: Closure<'gc>, pc: usize) -> Option<UpperLuaFrame<'gc>> {
         let proto = closure.prototype();
         // Attribute to the Call that invoked this native. Whether the frame's `pc` still points at
         // that Call or has already moved past it depends on the call site, so look rather than

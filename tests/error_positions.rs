@@ -75,3 +75,20 @@ fn arithmetic_errors_say_what_went_wrong() -> Result<(), ExternError> {
     );
     Ok(())
 }
+
+/// `error` called *by a native* has no source position to blame.
+///
+/// PUC-Rio resolves `level` against every activation, not just the Lua ones, so for
+/// `pcall(error, "x")` level 1 is `pcall` itself — a C function, with no position — and the message
+/// comes back bare. Walking only Lua frames reached past `pcall` and blamed the line that called
+/// it, which is the wrong function entirely.
+#[test]
+fn a_native_caller_contributes_no_position() -> Result<(), ExternError> {
+    assert_eq!(eval(r#"return select(2, pcall(error, "x"))"#)?, "x");
+    // The same message raised from Lua *is* positioned, so this is about the caller, not the level.
+    assert_eq!(
+        eval("local _, e = pcall(function()\n  error('x')\nend)\nreturn e")?,
+        "probe:2: x"
+    );
+    Ok(())
+}
