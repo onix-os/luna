@@ -462,6 +462,14 @@ impl Lua {
             // A refusing allocator would be exact and is a much larger change.
             if let Some(limit) = self.memory_limit() {
                 if self.total_memory() > limit {
+                    // Collect before giving up: a script that has merely produced a lot of garbage
+                    // should not be killed for it. Two cycles, because two-stage finalization
+                    // resurrects finalizable objects on the first pass and only finds them dead on
+                    // the second.
+                    self.gc_collect();
+                    self.gc_collect();
+                }
+                if self.total_memory() > limit {
                     self.enter(|ctx| ctx.fetch(executor).stop(&ctx));
                     return Ok(());
                 }

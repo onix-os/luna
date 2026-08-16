@@ -141,3 +141,39 @@ fn without_it_a_present_key_stops_newindex() -> Result<(), ExternError> {
     )?);
     Ok(())
 }
+
+/// Hitting the ceiling collects before giving up: a script that has merely produced garbage
+/// should not be killed for it.
+#[test]
+fn the_ceiling_collects_before_stopping() {
+    let mut lua = Lua::core();
+    let baseline = lua.total_memory();
+    lua.set_memory_limit(Some(baseline + 2 * 1024 * 1024));
+
+    let executor = lua
+        .try_enter(|ctx| {
+            let closure = Closure::load(
+                ctx,
+                None,
+                // Allocates far more than the ceiling in total, but holds none of it — so with a
+                // collection in the loop it completes rather than being stopped.
+                &br#"
+                    local sum = 0
+                    for i = 1, 60000 do
+                        local t = { i, i, i, i, i, i, i, i }
+                        sum = sum + t[1]
+                    end
+                    return sum
+                "#[..],
+            )?;
+            Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+        })
+        .unwrap();
+
+    let total = lua.execute::<i64>(&executor);
+    assert_eq!(
+        total.ok(),
+        Some(1_800_030_000),
+        "garbage alone must not trip the ceiling"
+    );
+}
