@@ -128,7 +128,7 @@ fn read_one<'gc>(
             }
         }
         Some("n") => {
-            let mut buf = Vec::new();
+            let buf;
             match read_line(reader, false).map_err(|e| e.to_string().into_value(ctx))? {
                 Some(line) => buf = line,
                 None => return Ok(Value::Nil),
@@ -228,7 +228,7 @@ fn write_all<'gc>(
 pub fn load_io<'gc>(ctx: Context<'gc>) {
     ctx.set_global(
         "print",
-        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+        Callback::from_fn(&ctx, |_ctx, _, mut stack| {
             let mut out = std::io::stdout().lock();
             for (i, value) in stack.drain(..).enumerate() {
                 if i > 0 {
