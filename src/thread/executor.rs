@@ -8,11 +8,12 @@ use thiserror::Error;
 use crate::{
     compiler::{FunctionRef, LineNumber},
     thread::BadThreadMode,
-    CallbackReturn, Closure, Context, Error, FromMultiValue, Fuel, Function, IntoMultiValue,
-    SequencePoll, Stack, String, Thread, ThreadMode, Value, Variadic,
+    BoxSequence, CallbackReturn, Closure, Context, Error, FromMultiValue, Fuel, Function,
+    IntoMultiValue, SequencePoll, Stack, String, Thread, ThreadMode, Value, Variadic,
 };
 
 use super::{
+    close::CloseSequence,
     thread::{Frame, LuaFrame, ThreadState},
     vm::run_vm,
 };
@@ -534,8 +535,23 @@ impl<'gc> Executor<'gc> {
                         {
                             Frame::Lua { bottom, .. } => {
                                 top_state.close_upvalues(&ctx, bottom);
+                                // An error unwinding past a `<close>` variable still has to run its
+                                // handler — that is the case cleanup exists for. The handler gets
+                                // the in-flight error, and the sequence re-raises it afterwards.
+                                let to_close = top_state.take_to_be_closed(bottom);
                                 top_state.stack.truncate(bottom);
-                                top_state.frames.push(Frame::Error(err));
+                                if to_close.is_empty() {
+                                    top_state.frames.push(Frame::Error(err));
+                                } else {
+                                    top_state.frames.push(Frame::Sequence {
+                                        bottom,
+                                        sequence: BoxSequence::new(
+                                            &ctx,
+                                            CloseSequence::new(to_close, Some(err)),
+                                        ),
+                                        pending_error: None,
+                                    });
+                                }
                             }
                             Frame::Sequence {
                                 bottom,

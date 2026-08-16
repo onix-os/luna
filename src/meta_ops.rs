@@ -19,6 +19,7 @@ use crate::{
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Collect)]
 #[collect(require_static)]
 pub enum MetaMethod {
+    Close,
     Len,
     Index,
     NewIndex,
@@ -52,6 +53,7 @@ impl MetaMethod {
             MetaMethod::Index => "__index",
             MetaMethod::NewIndex => "__newindex",
             MetaMethod::Call => "__call",
+            MetaMethod::Close => "__close",
             MetaMethod::Pairs => "__pairs",
             MetaMethod::ToString => "__tostring",
             MetaMethod::Eq => "__eq",
@@ -82,6 +84,7 @@ impl MetaMethod {
     /// - binary: "Could not {verb} values of type {lhs_type} and {rhs_type}"
     pub const fn verb(self) -> &'static str {
         match self {
+            MetaMethod::Close => "close",
             MetaMethod::Len => "determine length of",
             MetaMethod::Call => "call",
             MetaMethod::Pairs => "get pairs of",
@@ -171,7 +174,7 @@ fn get_metatable<'gc>(val: Value<'gc>) -> Option<Table<'gc>> {
     }
 }
 
-fn get_metamethod<'gc>(
+pub(crate) fn get_metamethod<'gc>(
     ctx: Context<'gc>,
     val: Value<'gc>,
     method: MetaMethod,

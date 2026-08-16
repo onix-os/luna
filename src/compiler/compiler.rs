@@ -60,8 +60,6 @@ pub enum CompileErrorKind {
     AssignToConst,
     #[error("multiple to-be-closed variables in local list")]
     MultipleClose,
-    #[error("close attribute currently unsupported")]
-    CloseUnsupported,
 }
 
 #[derive(Debug, Copy, Clone, Error)]
@@ -193,6 +191,9 @@ struct CompilerFunction<S> {
     register_allocator: RegisterAllocator,
 
     has_varargs: bool,
+    // Set once this function declares a <close> local anywhere, so `return` knows it has to run
+    // handlers before leaving and cannot be a real tail call.
+    has_to_be_closed: bool,
     fixed_params: u8,
     locals: Vec<(S, RegisterIndex, LocalAttributes)>,
 
@@ -313,6 +314,8 @@ struct BlockDescriptor {
     bottom_jump_target: usize,
     // True if any lower function has an upvalue reference to variables in this block
     owns_upvalues: bool,
+    // True if this block declares a <close> local, so leaving it must run `__close` handlers.
+    owns_to_be_closed: bool,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -357,13 +360,12 @@ impl<S: StringInterner> Compiler<S> {
             stack_bottom: self.current_function.register_allocator.stack_top(),
             bottom_jump_target: self.current_function.jump_targets.len(),
             owns_upvalues: false,
+            owns_to_be_closed: false,
         });
     }
 
     fn exit_block(&mut self) -> Result<(), CompileErrorKind> {
         let last_block = self.current_function.blocks.pop().unwrap();
-        // TODO This is where to handle closing of <close> locals
-        // TODO Make sure __close is called in reverse declaration
 
         while let Some((_, last, _attrs)) = self.current_function.locals.last() {
             if last.0 as u16 >= last_block.stack_bottom {
@@ -377,7 +379,11 @@ impl<S: StringInterner> Compiler<S> {
             .jump_targets
             .drain(last_block.bottom_jump_target..);
 
-        if last_block.owns_upvalues && !self.current_function.blocks.is_empty() {
+        // The same instruction closes upvalues and runs `__close` handlers: both are "everything at
+        // or above this level is leaving scope".
+        if (last_block.owns_upvalues || last_block.owns_to_be_closed)
+            && !self.current_function.blocks.is_empty()
+        {
             self.current_function.operations.push(Operation::Jump {
                 offset: 0,
                 close_upvalues: u8::try_from(last_block.stack_bottom)
@@ -399,7 +405,8 @@ impl<S: StringInterner> Compiler<S> {
                     pending_jump.stack_top >= self.current_function.register_allocator.stack_top()
                 );
                 pending_jump.stack_top = self.current_function.register_allocator.stack_top();
-                pending_jump.close_upvalues |= last_block.owns_upvalues;
+                pending_jump.close_upvalues |=
+                    last_block.owns_upvalues || last_block.owns_to_be_closed;
             }
         }
 
@@ -485,8 +492,9 @@ impl<S: StringInterner> Compiler<S> {
             .collect::<Result<Vec<_>, CompileErrorKind>>()?;
 
         // A return of a single function call is a tail call, and this is the only thing
-        // in Lua that is considered a tail call
-        if returns.len() == 1 {
+        // in Lua that is considered a tail call. A function with <close> variables is the
+        // exception: its handlers run after the call returns, so the frame has to stay.
+        if returns.len() == 1 && !self.current_function.has_to_be_closed {
             match returns.pop().unwrap() {
                 ExprDescriptor::FunctionCall { func, args } => {
                     self.call_function(*func, args, CallMode::TailCall)?;
@@ -507,6 +515,14 @@ impl<S: StringInterner> Compiler<S> {
         }
 
         let count = self.push_arguments(returns)?;
+        // Emitted after the return values are in registers, so handlers cannot disturb them, and
+        // before `Return`, so they run while the frame is still alive.
+        if self.current_function.has_to_be_closed {
+            self.current_function.operations.push(Operation::Jump {
+                offset: 0,
+                close_upvalues: Opt254::try_some(0).ok_or(CompileErrorKind::Registers)?,
+            });
+        }
         self.current_function.operations.push(Operation::Return {
             start: RegisterIndex(
                 self.current_function
@@ -877,9 +893,11 @@ impl<S: StringInterner> Compiler<S> {
 
         if close_count > 1 {
             return Err(CompileErrorKind::MultipleClose);
-        } else if close_count == 1 {
-            return Err(CompileErrorKind::CloseUnsupported);
         }
+
+        // Where this statement's locals start, so the <close> ones can be found once they have
+        // registers.
+        let locals_before = self.current_function.locals.len();
 
         if local_statement.values.is_empty() {
             let count = name_len
@@ -930,6 +948,25 @@ impl<S: StringInterner> Compiler<S> {
                         .push((name.clone(), reg, *attr));
                 }
             }
+        }
+
+        // Mark any <close> local now that it has a register and a value. The block records it so
+        // that every way out of the block emits the instruction that runs the handler.
+        if close_count > 0 {
+            let marks: Vec<RegisterIndex> = self.current_function.locals[locals_before..]
+                .iter()
+                .filter(|(_, _, attr)| attr.is_close())
+                .map(|(_, reg, _)| *reg)
+                .collect();
+            for source in marks {
+                self.current_function
+                    .operations
+                    .push(Operation::MarkToBeClosed { source });
+            }
+            if let Some(block) = self.current_function.blocks.last_mut() {
+                block.owns_to_be_closed = true;
+            }
+            self.current_function.has_to_be_closed = true;
         }
 
         Ok(())
@@ -2491,6 +2528,7 @@ impl<S: Clone> CompilerFunction<S> {
             functions: Vec::new(),
             register_allocator: RegisterAllocator::default(),
             has_varargs: false,
+            has_to_be_closed: false,
             fixed_params: 0,
             locals: Vec::new(),
             blocks: Vec::new(),

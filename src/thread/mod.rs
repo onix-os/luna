@@ -1,3 +1,4 @@
+mod close;
 mod executor;
 mod thread;
 mod vm;
@@ -16,6 +17,8 @@ pub use self::{
 
 #[derive(Debug, Clone, Error)]
 pub enum VMError {
+    #[error("variable marked <close> has no '__close' metamethod")]
+    BadCloseValue,
     #[error("{}", if *.0 {
         "operation expects variable stack"
     } else {

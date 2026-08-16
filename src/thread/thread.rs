@@ -18,6 +18,7 @@ use crate::{
     String, Table, UserData, Value,
 };
 
+use super::close::CloseSequence;
 use super::VMError;
 
 /// The current state of a [`Thread`].
@@ -81,6 +82,7 @@ impl<'gc> Thread<'gc> {
                 frames: vec::Vec::new_in(MetricsAlloc::new(&ctx)),
                 stack: vec::Vec::new_in(MetricsAlloc::new(&ctx)),
                 open_upvalues: vec::Vec::new_in(MetricsAlloc::new(&ctx)),
+                to_be_closed: vec::Vec::new_in(MetricsAlloc::new(&ctx)),
                 running: false,
                 max_call_depth: ctx.max_call_depth(),
             }),
@@ -333,6 +335,9 @@ pub struct ThreadState<'gc> {
     pub(super) frames: vec::Vec<Frame<'gc>, MetricsAlloc<'gc>>,
     pub(super) stack: vec::Vec<Value<'gc>, MetricsAlloc<'gc>>,
     pub(super) open_upvalues: vec::Vec<UpValue<'gc>, MetricsAlloc<'gc>>,
+    // Stack slots holding to-be-closed values, ascending. Kept beside `open_upvalues` because they
+    // are closed by the same rule: on every exit past their level, whichever route it takes.
+    pub(super) to_be_closed: vec::Vec<usize, MetricsAlloc<'gc>>,
     // Set while an `Executor` is running a native on this thread's behalf. A thread being stepped
     // is normally detectable because its state is borrowed, but a native runs with its thread
     // released so that re-entrant Lua can reach open upvalues, and it must still report `Running`.
@@ -490,6 +495,21 @@ impl<'gc> ThreadState<'gc> {
         }
     }
 
+    /// Take the to-be-closed values at or above `bottom`, in declaration order.
+    pub(super) fn take_to_be_closed(&mut self, bottom: usize) -> Vec<Value<'gc>> {
+        let start = match self.to_be_closed.binary_search(&bottom) {
+            Ok(i) => i,
+            Err(i) => i,
+        };
+        // Ascending, so that popping from the end runs the last declared first.
+        let taken: Vec<Value<'gc>> = self.to_be_closed[start..]
+            .iter()
+            .map(|&i| self.stack[i])
+            .collect();
+        self.to_be_closed.truncate(start);
+        taken
+    }
+
     pub(super) fn close_upvalues(&mut self, mc: &Mutation<'gc>, bottom: usize) {
         let start = match self
             .open_upvalues
@@ -567,6 +587,27 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
         }
     }
 
+    /// Park a `CloseSequence` above this frame so the executor runs the handlers next.
+    ///
+    /// Its bottom is the current stack top, so the Lua frame's registers — which may already hold
+    /// return values — are below it and untouched.
+    pub(super) fn push_close_sequence(&mut self, ctx: Context<'gc>, values: Vec<Value<'gc>>) {
+        // The handlers produce nothing for the frame underneath, so it is told to expect nothing;
+        // otherwise the sequence's return is mistaken for a call returning to it.
+        match self.state.frames.last_mut() {
+            Some(Frame::Lua {
+                expected_return, ..
+            }) => *expected_return = Some(LuaReturn::Meta(MetaReturn::None)),
+            _ => panic!("top frame is not lua frame"),
+        }
+        let bottom = self.state.stack.len();
+        self.state.frames.push(Frame::Sequence {
+            bottom,
+            sequence: BoxSequence::new(&ctx, CloseSequence::new(values, None)),
+            pending_error: None,
+        });
+    }
+
     /// returns a view of the Lua frame's registers
     pub(super) fn registers<'b>(&'b mut self) -> LuaRegisters<'gc, 'b> {
         match self.state.frames.last_mut() {
@@ -581,6 +622,7 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
                     bottom: *bottom,
                     base: *base,
                     open_upvalues: &mut self.state.open_upvalues,
+                    to_be_closed: &mut self.state.to_be_closed,
                     thread: self.thread,
                 }
             }
@@ -933,6 +975,7 @@ pub(super) struct LuaRegisters<'gc, 'a> {
     bottom: usize,
     base: usize,
     open_upvalues: &'a mut vec::Vec<UpValue<'gc>, MetricsAlloc<'gc>>,
+    to_be_closed: &'a mut vec::Vec<usize, MetricsAlloc<'gc>>,
     thread: Thread<'gc>,
 }
 
@@ -997,6 +1040,35 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
                 upvalue.set(mc, UpValueState::Closed(value));
             }
         }
+    }
+
+    /// Mark a register's value as to-be-closed.
+    pub(super) fn mark_to_be_closed(&mut self, reg: RegisterIndex) {
+        let index = self.base + reg.0 as usize;
+        if let Err(at) = self.to_be_closed.binary_search(&index) {
+            self.to_be_closed.insert(at, index);
+        }
+    }
+
+    /// Take the to-be-closed values at or above a register, in declaration order.
+    pub(super) fn take_to_be_closed(&mut self, bottom_register: RegisterIndex) -> Vec<Value<'gc>> {
+        let bottom = self.base + bottom_register.0 as usize;
+        let start = match self.to_be_closed.binary_search(&bottom) {
+            Ok(i) => i,
+            Err(i) => i,
+        };
+        let taken = self.to_be_closed[start..]
+            .iter()
+            .map(|&i| {
+                if i >= self.base {
+                    self.stack_frame[i - self.base]
+                } else {
+                    self.upper_stack[i]
+                }
+            })
+            .collect();
+        self.to_be_closed.truncate(start);
+        taken
     }
 
     pub(super) fn close_upvalues(&mut self, mc: &Mutation<'gc>, bottom_register: RegisterIndex) {

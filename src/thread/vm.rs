@@ -183,6 +183,18 @@ pub(super) fn run_vm<'gc>(
                 registers = lua_frame.registers();
             }
 
+            Operation::MarkToBeClosed { source } => {
+                let value = registers.stack_frame[source.0 as usize];
+                // Checked here rather than at close time, so a mistake is reported where the
+                // variable is declared instead of much later when the block ends.
+                if !matches!(value, Value::Nil | Value::Boolean(false))
+                    && meta_ops::get_metamethod(ctx, value, crate::MetaMethod::Close).is_none()
+                {
+                    return Err(VMError::BadCloseValue);
+                }
+                registers.mark_to_be_closed(source);
+            }
+
             Operation::Jump {
                 offset,
                 close_upvalues,
@@ -190,6 +202,13 @@ pub(super) fn run_vm<'gc>(
                 *registers.pc = add_offset(*registers.pc, offset);
                 if let Some(r) = close_upvalues.to_u8() {
                     registers.close_upvalues(&ctx, RegisterIndex(r));
+                    // Handlers cannot run here: the VM is mid-instruction and holds the frame.
+                    // Hand them to the executor as a sequence and resume at the new pc after.
+                    let to_close = registers.take_to_be_closed(RegisterIndex(r));
+                    if !to_close.is_empty() {
+                        lua_frame.push_close_sequence(ctx, to_close);
+                        break;
+                    }
                 }
             }
 
