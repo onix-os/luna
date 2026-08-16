@@ -169,7 +169,7 @@ do
     assert(cmp_array_recurse(a..b..c, { "concat", { "a" }, { "concat", { "b" }, { "c" } } }))
     assert(cmp_array_recurse((a..b)..c, { "concat", { "concat", { "a" }, { "b" } }, { "c" } }))
 
-    if string.sub(_VERSION, 1, 7) == "piccolo" then
+    if string.sub(_VERSION, 1, 4) == "luna" then
         assert(cmp_array_recurse(
             table.concat({ a, b, c }),
             { "concat", { "a" }, { "concat", { "b" }, { "c" } } }

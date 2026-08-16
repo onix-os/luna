@@ -27,7 +27,7 @@ use crate::{
 /// available within the created future is **meaningless** and has a NOOP waker; we are only using
 /// `async` as a stable way to express what would be better expressed as a simple coroutine.
 ///
-/// It is possible to integrate proper async APIs with `ottavino`, and to even have a method to
+/// It is possible to integrate proper async APIs with `luna`, and to even have a method to
 /// "wake" Lua coroutines with a *real* [`std::task::Waker`], but simply calling an external async
 /// function from the created future here is *not* the way to do it. It will not do what you want,
 /// and probably will result in panics.

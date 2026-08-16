@@ -1,4 +1,4 @@
-use ottavino::{Callback, CallbackReturn, Closure, Executor, ExecutorMode, ExternError, Fuel, Lua};
+use luna::{Callback, CallbackReturn, Closure, Executor, ExecutorMode, ExternError, Fuel, Lua};
 
 #[test]
 fn test_interrupt() -> Result<(), ExternError> {

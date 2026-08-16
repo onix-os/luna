@@ -11,25 +11,25 @@
 //! where `mode` dictates how to handle errors
 //! and `script` is a valid Lua script.
 
-use ottavino::{Closure, Executor, Lua};
+use luna::{Closure, Executor, Lua};
 use std::{fs::read_dir, io::BufRead, path::PathBuf, sync::mpsc::channel};
 
 use crate::collected_print::print_callback;
 
 mod collected_print {
-    use ottavino_gc_arena::Collect;
-    use ottavino::{
+    use luna::{
         meta_ops::{self, MetaResult},
         BoxSequence, Callback, CallbackReturn, Context, Execution, Sequence, SequencePoll, Stack,
         Value,
     };
+    use ottavino_gc_arena::Collect;
     use std::{
         io::{Cursor, Write},
         pin::Pin,
         sync::mpsc::Sender,
     };
 
-    pub fn print_callback<'gc>(ctx: ottavino::Context<'gc>, tx: Sender<Vec<u8>>) -> Callback<'gc> {
+    pub fn print_callback<'gc>(ctx: luna::Context<'gc>, tx: Sender<Vec<u8>>) -> Callback<'gc> {
         Callback::from_fn(
             &ctx,
             move |ctx: Context<'_>, _: Execution<'_, '_>, mut stack: Stack<'_, '_>| {
@@ -61,7 +61,7 @@ mod collected_print {
             ctx: Context<'gc>,
             _exec: Execution<'gc, '_>,
             mut stack: Stack<'gc, '_>,
-        ) -> Result<SequencePoll<'gc>, ottavino::Error<'gc>> {
+        ) -> Result<SequencePoll<'gc>, luna::Error<'gc>> {
             while let Some(value) = stack.pop_back() {
                 match meta_ops::tostring(ctx, value)? {
                     MetaResult::Value(v) => {

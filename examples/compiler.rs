@@ -2,7 +2,7 @@ use std::{error::Error as StdError, fs::File, io::Read};
 
 use clap::{crate_description, crate_name, crate_version, Arg, Command};
 
-use ottavino::{
+use luna::{
     compiler::{self, interning::BasicInterner, string_utils::debug_utf8_lossy, CompiledPrototype},
     io,
 };

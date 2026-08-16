@@ -6,11 +6,11 @@ use std::{
 };
 
 use ahash::AHasher;
+use hashbrown::{hash_map, raw::RawTable, HashMap};
 use ottavino_gc_arena::{
     allocator_api::MetricsAlloc, barrier::Unlock, lock::RefLock, metrics::Metrics, Collect,
     Collection, Gc, GcWeak, Mutation, Static,
 };
-use hashbrown::{hash_map, raw::RawTable, HashMap};
 
 use crate::compiler::string_utils::{debug_utf8_lossy, display_utf8_lossy};
 

@@ -340,7 +340,7 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
         }),
     );
 
-    ctx.set_global("_VERSION", "ottavino");
+    ctx.set_global("_VERSION", "luna");
 
     ctx.set_global(
         "load",

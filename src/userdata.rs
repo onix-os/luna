@@ -29,7 +29,7 @@ pub type UserDataInner<'gc> = AnyInner<UserDataMetaState<'gc>>;
 /// Like [`Table`]s, `UserData` may have "metatables" which allow Lua code to trigger special
 /// functions (metamethods) when Lua operations are performed on them.
 ///
-/// `UserData` in `ottavino` (unlike most other Lua variants) fully integrate with the garbage
+/// `UserData` in `luna` (unlike most other Lua variants) fully integrate with the garbage
 /// collector and may be any (custom) garbage collected type. Downcasting and mutating garbage
 /// collected types is however more complicated than normal non-garbage collected types, so there
 /// are two parallel APIs provided here: one for any garbage collected type and one only for

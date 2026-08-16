@@ -14,8 +14,8 @@ do
     end)
 
     -- PRLua wraps the index and inserts at math.mininteger;
-    -- piccolo throws an error instead
-    if _VERSION == "piccolo" then
+    -- luna throws an error instead
+    if _VERSION == "luna" then
         assert(not res, "insert at maxinteger + 1 wrapped instead of erroring")
     else
         assert(
@@ -30,8 +30,8 @@ do
         return t
     end)
     -- PRLua wraps the end index and silently doesn't shift interior elements
-    -- piccolo throws an error instead
-    if _VERSION == "piccolo" then
+    -- luna throws an error instead
+    if _VERSION == "luna" then
         assert(not res, "insert with length maxinteger wrapped instead of erroring")
     else
         assert(
@@ -67,7 +67,7 @@ do
         assert(v == nil)
     end
 
-    if _VERSION == "piccolo" then
+    if _VERSION == "luna" then
         -- This hangs PRLua, but should always error (the index is negative...)
         local res, _ = pcall(function()
             local t = with_len({ [math.maxinteger] = 15 }, math.maxinteger)

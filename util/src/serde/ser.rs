@@ -1,6 +1,6 @@
 use std::fmt;
 
-use ottavino::{Context, Table, Value};
+use luna::{Context, Table, Value};
 use serde::ser;
 use thiserror::Error;
 

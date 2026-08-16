@@ -4,7 +4,7 @@ use std::{error::Error as StdError, io::Read};
 use clap::{crate_description, crate_name, crate_version, Arg, ArgAction, Command};
 use rustyline::DefaultEditor;
 
-use ottavino::{
+use luna::{
     compiler::{ParseError, ParseErrorKind},
     io, meta_ops, Callback, CallbackReturn, Closure, Executor, ExternError, Function, Lua,
     StashedExecutor,

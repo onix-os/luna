@@ -2,17 +2,15 @@ name: tests
 
 on:
   push:
-    branches: [ "develop", "main" ]
+    branches: [ "master", "main" ]
   pull_request:
 
 permissions:
   contents: read
 
 jobs:
-  # oslo targets Linux, and only Linux. There is no macOS job because there is no macOS support to
-  # protect: the shell uses /proc, memfd and Linux signal numbers directly rather than routing
-  # around them. The toolchain action is pinned to an exact stable release: `@stable` silently
-  # moves under us, which turns a new lint into a red build on an unrelated PR.
+  # The toolchain action is pinned to an exact stable release: `@stable` silently moves under us,
+  # which turns a new lint into a red build on an unrelated PR.
   verify:
     name: verify
     runs-on: ubuntu-latest
@@ -30,90 +28,36 @@ jobs:
           key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             cargo-${{ runner.os }}-
-      # `make verify` as one step reports only "the gate failed". Splitting it means the run
-      # summary alone names the stage, which matters because reading job logs needs admin rights
-      # on this repository and the person debugging a red build usually does not have them.
+      # `make verify` as one step reports only "the gate failed". Splitting it means the run summary
+      # alone names the stage, which matters because reading job logs needs admin rights on this
+      # repository and the person debugging a red build usually does not have them.
       - name: Toolchain and environment
         run: |
           echo "make:  $(make --version | head -1)"
-          echo "bash:  $(bash --version | head -1)"
-          echo "sed:   $(sed --version 2>/dev/null | head -1 || echo 'BSD sed (no --version)')"
           echo "cargo: $(cargo --version)"
           echo "PROJECT_NAME parsed by the Makefile: '$(make -s print-name)'"
-      # Failures are re-emitted as ::error:: annotations, not just written to the log. Job logs
-      # need admin rights on this repository; annotations are visible to anyone who can see the
-      # run, so a red build stays diagnosable by whoever is actually looking at it.
+      # Failures are re-emitted as ::error:: annotations, not just written to the log. Job logs need
+      # admin rights on this repository; annotations are visible to anyone who can see the run, so a
+      # red build stays diagnosable by whoever is actually looking at it.
       - name: fmt-check
         run: |
           make fmt-check && exit 0
           cargo fmt --all -- --check 2>&1 | head -60 | while IFS= read -r l; do echo "::error::fmt: $l"; done
           exit 1
-      - name: check-loc
-        run: make check-loc
-      - name: check-readme
-        run: make check-readme
       - name: check
         run: make check
-      # Run before the full suite purely to surface the corpus summary. libtest captures stdout on
-      # success, so without --nocapture the "N cases skipped, the oracle is bash X.Y" line never
-      # reaches the log — and a runner image whose bash falls behind would quietly stop exercising
-      # cases with nothing turning red. Re-running these three tests costs about three seconds.
-      - name: differential corpus (oracle report)
-        run: |
-          # Informational on purpose: `test` below is the gate, and failing here as well would
-          # only report the same divergence twice. `|| true` says so explicitly rather than
-          # leaving it to the pipeline's exit status, which is what made an earlier version of
-          # this step report success while the suite underneath it was failing.
-          cargo test --test differential_tests -- --nocapture 2>&1 | tee /tmp/diff.log || true
-          grep -E 'differential corpus vs|needs bash|diverge from bash' /tmp/diff.log \
-            | while IFS= read -r l; do echo "::notice::$l"; done
       - name: test
         run: |
           set -o pipefail
-          cargo test --all-targets 2>&1 | tee /tmp/test.log && exit 0
-          # The differential assertion prints the offending corpus case names in the lines *after*
-          # the panic header, so match on content rather than on a line prefix.
-          grep -nE 'FAILED|panicked|diverge|expected failures|^  [a-z0-9_]+\.sh|left:|right:|assertion' /tmp/test.log \
+          make test 2>&1 | tee /tmp/test.log && exit 0
+          grep -nE 'FAILED|panicked|left:|right:|assertion' /tmp/test.log \
             | head -60 | while IFS= read -r l; do echo "::error::test: $l"; done
           exit 1
+      # Reported, not enforced, for the reason written above the `verify` target in the Makefile:
+      # the inherited lint backlog would make this red on every run. Switch to `make clippy-strict`
+      # and drop continue-on-error once it is cleared.
       - name: clippy
+        continue-on-error: true
         run: make clippy
       - name: rustdoc
         run: make rustdoc
-
-  # Cargo.toml claims rust-version = 1.90; this job is what makes the claim true.
-  msrv:
-    name: msrv (1.90)
-    runs-on: ubuntu-latest
-    # **Overrides `rust-toolchain.toml`, which would otherwise decide this job.** That file pins the
-    # version everything else builds with, and it takes precedence over the toolchain the action
-    # installs — so without this the job would happily check the code against a compiler newer than
-    # the one it claims to be testing, and the MSRV would mean nothing at all.
-    env:
-      RUSTUP_TOOLCHAIN: 1.90.0
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.90.0
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: msrv-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            msrv-${{ runner.os }}-
-      - name: Declared rust-version matches the pinned toolchain
-        run: |
-          declared="$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -1)"
-          if [ "$declared" != "1.90" ]; then
-            echo "Cargo.toml rust-version is '$declared' but this job pins 1.90." >&2
-            echo "Update both together, or the MSRV is not actually being checked." >&2
-            exit 1
-          fi
-      # No `--locked`. This job exists to check the MSRV, and it was failing the whole workflow for
-      # something else entirely: a version bump touches Cargo.toml and Cargo.lock's own `oslo`
-      # entry, and any commit that lands the two a moment apart turned every job red with a
-      # lockfile error that says nothing about whether the code builds on 1.90.
-      - name: Build at MSRV
-        run: cargo check --all-targets

@@ -1,4 +1,4 @@
-use ottavino::{
+use luna::{
     async_sequence, meta_ops, Callback, CallbackReturn, Closure, Executor, ExternError, Lua,
     SequenceReturn, Table, Variadic,
 };

@@ -1,5 +1,5 @@
 {
-  description = "oslo Rust development shell";
+  description = "luna Rust development shell";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs?rev=4c1018dae018162ec878d42fec712642d214fdfa";
@@ -7,8 +7,8 @@
     nixgl.url = "github:nix-community/nixGL";
     # Rust with extra targets. nixpkgs' plain `rustc` ships only the host's std, so a
     # `--target x86_64-unknown-linux-musl` build fails on `cfg-if` with "can't find crate for
-    # core" — nothing to do with the code. The static musl binary is what oslo releases, so the
-    # target has to be buildable in the dev shell, not only in CI.
+    # core" — nothing to do with the code. luna is built for musl downstream, so the target has
+    # to be buildable in the dev shell, not only in CI.
     rust-overlay.url = "github:oxalica/rust-overlay";
   };
 

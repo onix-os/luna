@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
-use ottavino_gc_arena::{arena::Root, barrier, Collect, Rootable, Static};
-use ottavino::{
+use luna::{
     Callback, CallbackReturn, Context, Error, Execution, FromMultiValue, IntoMultiValue,
     MetaMethod, Table, UserData,
 };
+use ottavino_gc_arena::{arena::Root, barrier, Collect, Rootable, Static};
 
 /// An easy way to wrap a value in [`UserData`] and let Lua call methods on it.
 ///

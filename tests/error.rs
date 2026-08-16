@@ -1,4 +1,4 @@
-use ottavino::{error::LuaError, Callback, Closure, Error, Executor, ExternError, Lua, Value};
+use luna::{error::LuaError, Callback, Closure, Error, Executor, ExternError, Lua, Value};
 use thiserror::Error;
 
 #[test]

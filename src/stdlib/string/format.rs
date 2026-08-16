@@ -1,4 +1,4 @@
-// string.format implementation for ottavino
+// string.format implementation for luna
 // Implements Lua 5.4 string.format semantics
 
 use ottavino_gc_arena::Gc;

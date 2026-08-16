@@ -1,6 +1,6 @@
 [package]
-name = "ottavino-util"
-description = "Utilities for the `ottavino` library"
+name = "luna-util"
+description = "Utilities for the `luna` library"
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
@@ -12,7 +12,7 @@ repository.workspace = true
 serde = { workspace = true, optional = true }
 thiserror.workspace = true
 ottavino-gc-arena.workspace = true
-ottavino.workspace = true
+luna.workspace = true
 
 [features]
 default = ["serde"]

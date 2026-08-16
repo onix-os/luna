@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::Read;
 
-use ottavino::{io::buffered_read, Closure, Executor, Lua};
+use luna::{io::buffered_read, Closure, Executor, Lua};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load the Lua file

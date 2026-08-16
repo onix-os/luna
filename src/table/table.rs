@@ -28,7 +28,7 @@ pub type TableInner<'gc> = RefLock<TableState<'gc>>;
 /// metatable (if they are present).
 ///
 /// On the Rust side, all methods on `Table` are "raw", which in Lua jargon means that they
-/// never trigger metamethods. This MUST be true, because `ottavino` does not (and cannot)
+/// never trigger metamethods. This MUST be true, because `luna` does not (and cannot)
 /// silently trigger running Lua code. In order to trigger metamethods, you must use the
 /// [`meta_ops`](crate::meta_ops) module and manually run any triggered code on an
 /// [`Executor`](crate::Executor).

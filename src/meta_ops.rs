@@ -251,7 +251,7 @@ pub fn index<'gc>(
     // PUC-Rio Lua guards the maximum length of metamethod chains to `MAXTAGLOOP` in cases where no
     // Lua code is invoked. It must do this, because otherwise Lua code could cause the interpreter
     // to infinite loop without triggering hook functions. We don't HAVE to mimic this behavior here
-    // due to ottavino's flexibility: the `Executor` design allows us to ensure that control is still
+    // due to luna's flexibility: the `Executor` design allows us to ensure that control is still
     // periodically returned by performing the access through a separate callback.
     //
     // We could introduce a maximum chain depth, or try to detect infinite chains in simple cases,

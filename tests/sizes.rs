@@ -1,6 +1,6 @@
 use std::mem;
 
-use ottavino::{opcode::OpCode, Callback, Closure, String, Table, Thread, UserData, Value};
+use luna::{opcode::OpCode, Callback, Closure, String, Table, Thread, UserData, Value};
 
 #[test]
 fn test_sizes() {

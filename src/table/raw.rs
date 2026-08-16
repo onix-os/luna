@@ -1,8 +1,8 @@
 use std::{fmt, hash::Hash, i64, mem};
 
 use allocator_api2::vec;
-use ottavino_gc_arena::{allocator_api::MetricsAlloc, Collect, Gc, Mutation};
 use hashbrown::{hash_map, HashMap};
+use ottavino_gc_arena::{allocator_api::MetricsAlloc, Collect, Gc, Mutation};
 use thiserror::Error;
 
 use crate::{Callback, Closure, Function, String, Table, Thread, UserData, Value};

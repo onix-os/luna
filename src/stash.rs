@@ -18,7 +18,7 @@ use crate::{
 /// This trait is simpler to work with than having to manually specify `Rootable` projections and
 /// can work with more types than just those that wrap a single `Gc` pointer.
 ///
-/// It is implemented for all common `ottavino` types, allowing you to stash those types in the
+/// It is implemented for all common `luna` types, allowing you to stash those types in the
 /// registry or inside of async sequences.
 pub trait Stashable<'gc> {
     type Stashed;

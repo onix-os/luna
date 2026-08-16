@@ -1,4 +1,4 @@
-use ottavino::{FromMultiValue, FromValue, IntoMultiValue, IntoValue, Lua, Table, Value};
+use luna::{FromMultiValue, FromValue, IntoMultiValue, IntoValue, Lua, Table, Value};
 
 #[test]
 fn test_conversions() {
