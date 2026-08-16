@@ -39,6 +39,18 @@ what a 5.4 conformance pass actually asks about rather than a summary.
 | 🔵 | Long strings and long comments, `\z`, `\x`, `\u{}` escapes | |
 | 🟡 | Source positions | Runtime errors carry `chunk:line:`. There is no column information, and `getinfo` reports no `name`/`namewhat` |
 
+## Limits
+
+A host embedding luna runs scripts it may not trust, so the cases where PUC-Lua hangs or dies are
+bounded here instead. Each raises an ordinary catchable error.
+
+| Limit | Value | PUC-Lua | Notes |
+| ----- | ----- | ------- | ----- |
+| Call depth | 100,000 frames | ~200 C levels | `Lua::set_max_call_depth` changes it. Proper tail calls do not count, in either implementation |
+| String length | 1 GiB | address space | Applies to `..`, `string.rep` and `string.format`; PUC-Lua's equivalent is an out-of-memory abort |
+| `__index`/`__newindex` chain | 2,000 links | 2,000 (`MAXTAGLOOP` is 2,000 in 5.4) | A cyclic chain errors with `'__index' chain too long` rather than looping |
+| Execution time | `Fuel` | none | The host, not the script, decides how long a slice runs. PUC-Lua has no equivalent — infinite tail recursion runs forever there |
+
 ## Base
 
 | Status | Function                                                       | Differences                                                                                                                            | Notes |
