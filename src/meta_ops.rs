@@ -20,6 +20,8 @@ use crate::{
 #[collect(require_static)]
 pub enum MetaMethod {
     Close,
+    Metatable,
+    Name,
     Len,
     Index,
     NewIndex,
@@ -54,6 +56,8 @@ impl MetaMethod {
             MetaMethod::NewIndex => "__newindex",
             MetaMethod::Call => "__call",
             MetaMethod::Close => "__close",
+            MetaMethod::Metatable => "__metatable",
+            MetaMethod::Name => "__name",
             MetaMethod::Pairs => "__pairs",
             MetaMethod::ToString => "__tostring",
             MetaMethod::Eq => "__eq",
@@ -85,6 +89,8 @@ impl MetaMethod {
     pub const fn verb(self) -> &'static str {
         match self {
             MetaMethod::Close => "close",
+            MetaMethod::Metatable => "protect the metatable of",
+            MetaMethod::Name => "name",
             MetaMethod::Len => "determine length of",
             MetaMethod::Call => "call",
             MetaMethod::Pairs => "get pairs of",
@@ -166,10 +172,17 @@ pub enum MetaOperatorError {
 #[error("could not call a {} value", .0)]
 pub struct MetaCallError(&'static str);
 
-fn get_metatable<'gc>(val: Value<'gc>) -> Option<Table<'gc>> {
+pub(crate) fn get_metatable<'gc>(ctx: Context<'gc>, val: Value<'gc>) -> Option<Table<'gc>> {
     match val {
         Value::Table(t) => t.metatable(),
         Value::UserData(u) => u.metatable(),
+        // Every string shares the one the string library installs, which is what makes
+        // `("x"):upper()` work and what `getmetatable("")` should hand back.
+        Value::String(_) => {
+            let crate::stdlib::StringMetatable(mt) = *ctx
+                .singleton::<ottavino_gc_arena::Rootable![crate::stdlib::StringMetatable<'_>]>();
+            Some(mt)
+        }
         _ => None,
     }
 }
@@ -179,7 +192,7 @@ pub(crate) fn get_metamethod<'gc>(
     val: Value<'gc>,
     method: MetaMethod,
 ) -> Option<Value<'gc>> {
-    get_metatable(val)
+    get_metatable(ctx, val)
         .map(|mt| mt.get_value(ctx, method))
         .filter(|v| !v.is_nil())
 }
@@ -448,7 +461,24 @@ pub fn tostring<'gc>(
 
     Ok(match v {
         v @ Value::String(_) => MetaResult::Value(v),
-        v => MetaResult::Value(ctx.intern(v.display().to_string().as_bytes()).into()),
+        v => {
+            // With no `__tostring`, a `__name` still improves on "userdata: 0x…" — it is the only
+            // way a bound Rust type prints as itself.
+            let named = get_metamethod(ctx, v, MetaMethod::Name);
+            let text = match named {
+                Some(Value::String(name)) => format!(
+                    "{}: {}",
+                    name.display_lossy(),
+                    v.display()
+                        .to_string()
+                        .split_once(": ")
+                        .map(|(_, a)| a.to_owned())
+                        .unwrap_or_default()
+                ),
+                _ => v.display().to_string(),
+            };
+            MetaResult::Value(ctx.intern(text.as_bytes()).into())
+        }
     })
 }
 
@@ -786,7 +816,9 @@ pub fn concat<'gc>(
             for value in [a, b] {
                 match value {
                     Value::Integer(i) => write!(&mut bytes, "{}", i).unwrap(),
-                    Value::Number(n) => write!(&mut bytes, "{}", n).unwrap(),
+                    Value::Number(n) => {
+                        write!(&mut bytes, "{}", crate::stdlib::format_number(n)).unwrap()
+                    }
                     Value::String(s) => bytes.extend(s.as_bytes()),
                     _ => return None,
                 }
@@ -838,7 +870,9 @@ pub fn concat_many<'gc>(
         for value in values {
             match value {
                 Value::Integer(i) => write!(&mut bytes, "{}", i).unwrap(),
-                Value::Number(n) => write!(&mut bytes, "{}", n).unwrap(),
+                Value::Number(n) => {
+                    write!(&mut bytes, "{}", crate::stdlib::format_number(*n)).unwrap()
+                }
                 Value::String(s) => bytes.extend(s.as_bytes()),
                 _ => unreachable!(),
             }
@@ -902,7 +936,9 @@ pub fn concat_separated<'gc>(
         if let Some(val) = iter.next() {
             match val {
                 Value::Integer(i) => write!(&mut bytes, "{}", i).unwrap(),
-                Value::Number(n) => write!(&mut bytes, "{}", n).unwrap(),
+                Value::Number(n) => {
+                    write!(&mut bytes, "{}", crate::stdlib::format_number(*n)).unwrap()
+                }
                 Value::String(s) => bytes.extend(s.as_bytes()),
                 _ => unreachable!(),
             }
@@ -911,7 +947,9 @@ pub fn concat_separated<'gc>(
                 bytes.extend(&*sep_str);
                 match val {
                     Value::Integer(i) => write!(&mut bytes, "{}", i).unwrap(),
-                    Value::Number(n) => write!(&mut bytes, "{}", n).unwrap(),
+                    Value::Number(n) => {
+                        write!(&mut bytes, "{}", crate::stdlib::format_number(*n)).unwrap()
+                    }
                     Value::String(s) => bytes.extend(s.as_bytes()),
                     _ => unreachable!(),
                 }

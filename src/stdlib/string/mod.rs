@@ -1,4 +1,4 @@
-mod format;
+pub(crate) mod format;
 mod pack;
 mod pattern;
 

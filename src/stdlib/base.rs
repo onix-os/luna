@@ -322,14 +322,21 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
     ctx.set_global(
         "getmetatable",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
-            if let Value::Table(t) = stack.get(0) {
-                stack.replace(ctx, t.metatable());
-                Ok(CallbackReturn::Return)
-            } else {
-                Err("'getmetatable' can only be used on table types"
-                    .into_value(ctx)
-                    .into())
+            let value = stack.get(0);
+            match meta_ops::get_metatable(ctx, value) {
+                Some(mt) => {
+                    // `__metatable` is the only way a library can make a metatable tamper-proof:
+                    // it is handed out in place of the real one.
+                    let protected = mt.get_value(ctx, MetaMethod::Metatable);
+                    if protected.is_nil() {
+                        stack.replace(ctx, mt);
+                    } else {
+                        stack.replace(ctx, protected);
+                    }
+                }
+                None => stack.replace(ctx, Value::Nil),
             }
+            Ok(CallbackReturn::Return)
         }),
     );
 
@@ -337,6 +344,12 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
         "setmetatable",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
             let (t, mt): (Table, Option<Table>) = stack.consume(ctx)?;
+            // A protected metatable refuses replacement, or the protection would be pointless.
+            if let Some(existing) = t.metatable() {
+                if !existing.get_value(ctx, MetaMethod::Metatable).is_nil() {
+                    return Err("cannot change a protected metatable".into_value(ctx).into());
+                }
+            }
             t.set_metatable(&ctx, mt);
             stack.replace(ctx, t);
             Ok(CallbackReturn::Return)

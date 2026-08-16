@@ -61,7 +61,10 @@ impl<'gc> Value<'gc> {
                     Value::Nil => write!(fmt, "nil"),
                     Value::Boolean(b) => write!(fmt, "{}", b),
                     Value::Integer(i) => write!(fmt, "{}", i),
-                    Value::Number(f) => write!(fmt, "{}", f),
+                    // PUC-Rio prints floats with %.14g and a trailing ".0" so that a float is
+                    // distinguishable from an integer. The formatter already exists for
+                    // `string.format`; using it here keeps the two agreeing.
+                    Value::Number(f) => write!(fmt, "{}", crate::stdlib::format_number(f)),
                     Value::String(s) => write!(fmt, "{}", s.display_lossy()),
                     Value::Table(t) => {
                         write!(fmt, "table: 0x{:x}", Gc::as_ptr(t.into_inner()) as usize)

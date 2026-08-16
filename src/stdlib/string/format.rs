@@ -432,31 +432,60 @@ fn value_to_string<'gc>(
     }
 }
 
-fn format_number(n: f64) -> std::string::String {
+/// Format a float the way PUC-Rio's `tostring` does: `%.14g`, with a trailing `.0` added when the
+/// result would otherwise be indistinguishable from an integer.
+///
+/// The `.0` matters: telling an integer from a float by printing it is the main way 5.4 users
+/// reason about the int/float split.
+pub(crate) fn format_number(n: f64) -> std::string::String {
     if n.is_nan() {
-        return "-nan".to_string();
+        return if n.is_sign_negative() { "-nan" } else { "nan" }.to_string();
     }
     if n.is_infinite() {
-        return if n > 0.0 {
-            "inf".to_string()
-        } else {
-            "-inf".to_string()
-        };
+        return if n > 0.0 { "inf" } else { "-inf" }.to_string();
     }
-    // Use %g style: 14 significant digits
-    let s = format!("{:.14}", n);
-    // Remove trailing zeros (but keep at least one digit after decimal)
-    if s.contains('.') && !s.contains('e') {
-        let trimmed = s.trim_end_matches('0');
-        let trimmed = trimmed.trim_end_matches('.');
-        if trimmed.contains('.') {
-            trimmed.to_string()
-        } else {
-            format!("{}.0", trimmed)
+
+    const PRECISION: usize = 14;
+
+    // C's %g rule: scientific when the decimal exponent is below -4 or at least the precision.
+    let exponent = if n == 0.0 {
+        0
+    } else {
+        n.abs().log10().floor() as i32
+    };
+
+    let mut s = if exponent < -4 || exponent >= PRECISION as i32 {
+        let formatted = format!("{:.*e}", PRECISION - 1, n);
+        // Rust writes `1e100`; C writes `1e+100`, and pads the exponent to two digits.
+        match formatted.split_once('e') {
+            Some((mantissa, exp)) => {
+                let mantissa = trim_trailing_zeros(mantissa);
+                let (sign, digits) = match exp.strip_prefix('-') {
+                    Some(d) => ("-", d),
+                    None => ("+", exp),
+                };
+                format!("{mantissa}e{sign}{digits:0>2}")
+            }
+            None => formatted,
         }
     } else {
-        s
+        let decimals = (PRECISION as i32 - 1 - exponent).max(0) as usize;
+        trim_trailing_zeros(&format!("{:.*}", decimals, n))
+    };
+
+    // A float that printed as a bare integer needs the suffix to stay recognisable as a float.
+    if !s.contains(['.', 'e', 'n', 'i']) {
+        s.push_str(".0");
     }
+    s
+}
+
+/// Drop trailing fractional zeros, and the point itself if nothing is left after it.
+fn trim_trailing_zeros(s: &str) -> std::string::String {
+    if !s.contains('.') {
+        return s.to_string();
+    }
+    s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
 fn apply_precision_digits(s: &str, precision: Option<usize>) -> std::string::String {
