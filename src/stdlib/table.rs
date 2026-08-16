@@ -158,6 +158,19 @@ pub fn load_table<'gc>(ctx: Context<'gc>) {
         }),
     );
 
+    // Non-standard, and the reason it exists is oslo's shared namespace: whether a write lands in
+    // Lua or in the shell depends on the value, so `__newindex` has to see every store.
+    table.set_field(
+        ctx,
+        "interceptall",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let (t, on): (Table, Option<bool>) = stack.consume(ctx)?;
+            t.set_intercept_all_writes(&ctx, on.unwrap_or(true));
+            stack.replace(ctx, t);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
     table.set_field(
         ctx,
         "isfrozen",

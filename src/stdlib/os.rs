@@ -327,6 +327,40 @@ pub fn load_os<'gc>(ctx: Context<'gc>) {
         }),
     );
 
+    // Pure Rust via `std::process::Command` — this is a sandbox *policy* decision, not a
+    // capability limit. A host that does not want scripts spawning processes loads `os` and then
+    // removes this field, the same way it would remove `getenv`.
+    os.set_field(
+        ctx,
+        "execute",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let command: Option<String> = stack.consume(ctx)?;
+            let Some(command) = command else {
+                // With no argument, report whether a shell is available at all.
+                stack.replace(ctx, true);
+                return Ok(CallbackReturn::Return);
+            };
+            match std::process::Command::new("/bin/sh")
+                .arg("-c")
+                .arg(command.display_lossy().to_string())
+                .status()
+            {
+                Ok(status) if status.success() => {
+                    stack.replace(ctx, (true, ctx.intern(b"exit"), 0));
+                }
+                Ok(status) => {
+                    let code = status.code().unwrap_or(-1) as i64;
+                    stack.replace(ctx, (Value::Nil, ctx.intern(b"exit"), code));
+                }
+                Err(err) => {
+                    let msg = ctx.intern(err.to_string().as_bytes());
+                    stack.replace(ctx, (Value::Nil, msg));
+                }
+            }
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
     os.set_field(
         ctx,
         "exit",

@@ -14,6 +14,8 @@ use crate::{
 /// rather than something that takes stdout away from the process.
 enum Handle {
     File(BufReader<std::fs::File>),
+    /// A child process; the flag says whether luna writes to its stdin rather than reads stdout.
+    Process(Box<std::process::Child>, bool),
     Stdout,
     Stderr,
     Stdin,
@@ -89,6 +91,20 @@ fn read_one<'gc>(
 
     let reader: &mut dyn BufRead = match handle {
         Handle::File(f) => f,
+        Handle::Process(child, false) => {
+            // Read the child's output whole: a `BufReader` cannot be stored back into the handle
+            // without restructuring it, and popen output is small in practice.
+            let mut buf = Vec::new();
+            if let Some(out) = child.stdout.as_mut() {
+                out.read_to_end(&mut buf).ok();
+            }
+            let text = ctx.intern(&buf);
+            *handle = Handle::Closed;
+            return Ok(text.into());
+        }
+        Handle::Process(_, true) => {
+            return Err("file is not opened for reading".into_value(ctx).into())
+        }
         Handle::Stdin => return read_from_stdin(ctx, spec, format),
         Handle::Closed => return Err("attempt to use a closed file".into_value(ctx).into()),
         _ => return Err("file is not opened for reading".into_value(ctx).into()),
@@ -214,6 +230,13 @@ fn write_all<'gc>(
 
     let result = match handle {
         Handle::File(f) => f.get_mut().write_all(&bytes),
+        Handle::Process(child, true) => match child.stdin.as_mut() {
+            Some(stdin) => stdin.write_all(&bytes),
+            None => return Err("process stdin is closed".into_value(ctx).into()),
+        },
+        Handle::Process(_, false) => {
+            return Err("file is not opened for writing".into_value(ctx).into())
+        }
         Handle::Stdout => std::io::stdout().write_all(&bytes),
         Handle::Stderr => std::io::stderr().write_all(&bytes),
         Handle::Stdin => {
@@ -321,9 +344,16 @@ pub fn load_io<'gc>(ctx: Context<'gc>) {
             let this = stack.get(0);
             let file = handle_of(ctx, this)?;
             let mut handle = file.0.borrow_mut();
-            // Closing a standard stream is a no-op: the process still needs it.
-            if matches!(*handle, Handle::File(_)) {
-                *handle = Handle::Closed;
+            // Closing a popen handle reaps the child, as PUC-Rio does. Closing a standard stream
+            // is a no-op: the process still needs it.
+            match &mut *handle {
+                Handle::File(_) => *handle = Handle::Closed,
+                Handle::Process(child, _) => {
+                    drop(child.stdin.take());
+                    child.wait().ok();
+                    *handle = Handle::Closed;
+                }
+                _ => {}
             }
             stack.replace(ctx, true);
             Ok(CallbackReturn::Return)
@@ -421,6 +451,41 @@ pub fn load_io<'gc>(ctx: Context<'gc>) {
                 }
                 Err(err) => {
                     let msg = ctx.intern(format!("{path}: {err}").as_bytes());
+                    stack.replace(ctx, (Value::Nil, msg));
+                }
+            }
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    // Same policy note as `os.execute`: `std::process::Command`, no C. A host that does not want
+    // scripts spawning processes removes this field after loading `io`.
+    io.set_field(
+        ctx,
+        "popen",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let (command, mode): (String, Option<String>) = stack.consume(ctx)?;
+            let command = command.display_lossy().to_string();
+            let mode = mode
+                .map(|m| m.display_lossy().to_string())
+                .unwrap_or_else(|| "r".to_owned());
+
+            let mut cmd = std::process::Command::new("/bin/sh");
+            cmd.arg("-c").arg(&command);
+            let spawned = if mode.starts_with('w') {
+                cmd.stdin(std::process::Stdio::piped()).spawn()
+            } else {
+                cmd.stdout(std::process::Stdio::piped()).spawn()
+            };
+
+            match spawned {
+                Ok(child) => {
+                    let handle =
+                        new_handle(ctx, Handle::Process(Box::new(child), mode.starts_with('w')));
+                    stack.replace(ctx, handle);
+                }
+                Err(err) => {
+                    let msg = ctx.intern(format!("{command}: {err}").as_bytes());
                     stack.replace(ctx, (Value::Nil, msg));
                 }
             }

@@ -93,3 +93,51 @@ fn no_limit_by_default() {
     let lua = Lua::core();
     assert_eq!(lua.memory_limit(), None);
 }
+
+/// `__newindex` firing on every store, not just absent keys.
+///
+/// The case it exists for: a namespace where the *destination* of a write depends on the value
+/// being written. With stock Lua semantics a name assigned a table and then a string stays put,
+/// because the key now exists and the metamethod stops firing.
+#[test]
+fn intercept_all_writes_fires_newindex_every_time() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local elsewhere = {}
+        local t = {}
+        setmetatable(t, { __newindex = function(tbl, k, v)
+            if type(v) == "string" then
+                elsewhere[k] = v
+            else
+                rawset(tbl, k, v)
+            end
+        end })
+        table.interceptall(t)
+
+        t.x = "a string"   -- goes elsewhere
+        t.x = {}           -- lands in t
+        t.x = "back again" -- must return elsewhere, not stay in t
+
+        return elsewhere.x == "back again"
+    "#
+    )?);
+    Ok(())
+}
+
+/// Without it, Lua's normal rule applies: a present key stops the metamethod firing.
+#[test]
+fn without_it_a_present_key_stops_newindex() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local seen = 0
+        local t = setmetatable({}, { __newindex = function(tbl, k, v)
+            seen = seen + 1
+            rawset(tbl, k, v)
+        end })
+        t.x = 1
+        t.x = 2
+        return seen == 1 and t.x == 2
+    "#
+    )?);
+    Ok(())
+}

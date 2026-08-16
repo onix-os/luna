@@ -307,8 +307,11 @@ pub fn new_index<'gc>(
     let idx = match table {
         Value::Table(table) => {
             let v = table.get_value(ctx, key);
-            if !v.is_nil() {
-                // If the value is present in the table, then we do not invoke the metamethod.
+            // Normally a present key means `__newindex` does not fire. A table can ask for the
+            // metamethod on *every* store instead — see `Table::set_intercept_all`, which exists
+            // for namespaces where the destination of a write depends on the value being written,
+            // not on whether the key happens to be there already.
+            if !v.is_nil() && !table.intercepts_all_writes() {
                 table.set_raw(&ctx, key, value)?;
                 return Ok(None);
             }

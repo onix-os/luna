@@ -66,6 +66,7 @@ impl<'gc> Table<'gc> {
                 raw_table,
                 metatable,
                 readonly: false,
+                intercept_all_writes: false,
             }),
         ))
     }
@@ -133,6 +134,21 @@ impl<'gc> Table<'gc> {
     /// Whether this table refuses writes.
     pub fn is_readonly(self) -> bool {
         self.0.borrow().readonly
+    }
+
+    /// Whether `__newindex` fires on every store rather than only on absent keys.
+    pub fn intercepts_all_writes(self) -> bool {
+        self.0.borrow().intercept_all_writes
+    }
+
+    /// Make `__newindex` fire on every store, including keys the table already has.
+    ///
+    /// Lua fires `__newindex` only for absent keys, which is right when a metatable is a fallback.
+    /// It is wrong when the metatable is deciding *where* a value belongs: a name assigned a table
+    /// and then a string would stay put instead of moving. A host building a namespace out of a
+    /// table wants this; anything modelling plain Lua does not.
+    pub fn set_intercept_all_writes(self, mc: &Mutation<'gc>, intercept: bool) {
+        self.0.borrow_mut(mc).intercept_all_writes = intercept;
     }
 
     /// Freeze or unfreeze this table.
@@ -241,6 +257,8 @@ pub struct TableState<'gc> {
     // A frozen table refuses every write, including raw ones. The stdlib tables live in shared
     // globals, so without this one script can replace `string.format` for every other script.
     pub readonly: bool,
+    // When set, `__newindex` fires on every store, not only on keys the table lacks.
+    pub intercept_all_writes: bool,
 }
 
 impl<'gc> fmt::Debug for TableState<'gc> {

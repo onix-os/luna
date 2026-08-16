@@ -159,3 +159,31 @@ fn using_a_closed_file_errors() -> Result<(), ExternError> {
     ))?);
     Ok(())
 }
+
+/// `io.popen` and `os.execute` are `std::process::Command`, not C — they are a sandbox policy
+/// decision, which is why they are here rather than absent.
+#[test]
+fn popen_reads_a_child_process() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local p = assert(io.popen("echo hello-from-child"))
+        local out = p:read("a")
+        p:close()
+        return out == "hello-from-child\n"
+    "#
+    )?);
+    Ok(())
+}
+
+#[test]
+fn os_execute_reports_exit_status() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local ok, kind, code = os.execute("true")
+        local bad, _, badcode = os.execute("exit 3")
+        return ok == true and kind == "exit" and code == 0
+            and bad == nil and badcode == 3 and os.execute() == true
+    "#
+    )?);
+    Ok(())
+}
