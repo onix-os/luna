@@ -249,7 +249,7 @@ IMO this module is best in its current state, but I cannot stop one from downloa
 
 | Status | Metamethod | Implementation Notes / Differences | Notes |
 | ------ | ---------- | ---------------------------------- | ----- |
-| 🔵 | `__index`, `__newindex` | Both the table and function forms, chained. | |
+| 🔵 | `__index`, `__newindex` | Both the table and function forms, chained. A chain of *tables* is followed in one step rather than one executor round-trip per link; a cycle is caught by the chain limit under Limits. | |
 | 🔵 | arithmetic, `__concat`, `__len`, `__eq`, `__lt`, `__le`, `__unm` | | |
 | 🔵 | `__call` | | |
 | 🔵 | `__tostring`, `__name` | | |
@@ -271,6 +271,16 @@ whose weak side has been collected vanish from `get`, `next`, iteration and `#`.
 | `"k"` | weak | weak during marking, restored for entries whose key survived (see below) |
 | `"kv"` | weak | weak |
 
+**Strings are never removed**, on either side, as Lua 5.4 §2.5.4 requires. A string is collectable
+but it is a *value*: two equal strings are the same string, so one of them being unreferenced says
+nothing about the entry. Held strongly, and compared by content — a weak table answers `t[b]` for a
+key stored as an `a` with equal bytes, which it would not if the key were matched by address.
+
+A weak table keeps every entry in its map part rather than its array part, including integer keys
+and values reached through `table.insert`; the array part holds values strongly and cannot express
+an entry that has gone away. The cost is that `#` on a weak table searches for its border through
+`get` instead of a binary search over the array.
+
 **Weak keys use real ephemeron marking.** The naive implementation — weak key, strong value — leaks
 in exactly the case weak keys are reached for: an object-to-metadata table where the metadata refers
 back to the object. The value is strong, so it keeps the key alive, so the entry can never be
@@ -286,18 +296,25 @@ nothing else holds it however alive its key is, so restoring it would be wrong.
 
 **What it costs.** A weak-key table's values survive one collection cycle longer than strictly
 necessary, the same as an object with a `__gc` handler, because the pass roots them for the rest of
-the cycle it runs in. Carrying weak keys also widened the table's internal key representation, which
-measures at about 3% on VM throughput and 6% on native-call throughput — paid by every table, not
-only weak ones.
+the cycle it runs in. Carrying weak keys also widened the table's internal key representation, a
+cost paid by every table rather than only weak ones. (Earlier revisions of this file quoted 3% and
+6% for that; those figures predate the current key representation, which stores the insertion hash
+and keeps string keys strong, and have not been re-measured.)
 
 `__mode` is read once, when the metatable is attached. Changing it afterwards does not retroactively
 weaken or strengthen entries. PUC-Rio calls this undefined; this is luna's answer.
 
 ## Debug
 
-Partly implemented. The introspection that reads the frame chain or a closure works; the parts that
-need either a hook point inside the opcode loop or a register-to-name table the compiler does not
-emit do not. `Fuel` covers the count-hook use case, and covers it better.
+Mostly implemented, including the parts that need a dispatch point inside the opcode loop
+(`sethook`) and a register-to-name table from the compiler (`getlocal`/`setlocal`). What is missing
+is the registry and uservalue accessors, and the call and return hook masks — those would have to
+fire from every path that pushes or pops a frame, several of which have no context to call Lua
+from, so they are rejected rather than accepted and silently ignored.
+
+Note for anyone sandboxing: `debug.setlocal` writes into another frame's stack slot, so a script
+holding `debug` can rewrite its caller's variables. `Lua::load_debug` is separate from
+`Lua::load_core` for that reason.
 
 | Status | Function                                  | Implementation Notes / Differences                                                                                                                                                                        | Notes |
 | ------ | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
