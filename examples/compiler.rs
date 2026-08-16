@@ -1,7 +1,5 @@
 use std::{error::Error as StdError, fs::File, io::Read};
 
-use clap::{crate_description, crate_name, crate_version, Arg, Command};
-
 use luna::{
     compiler::{self, interning::BasicInterner, string_utils::debug_utf8_lossy, CompiledPrototype},
     io,
@@ -58,30 +56,37 @@ fn print_function<S: AsRef<[u8]>>(function: &CompiledPrototype<S>, depth: usize)
 }
 
 fn main() -> Result<(), Box<dyn StdError>> {
-    let matches = Command::new(crate_name!())
-        .version(crate_version!())
-        .about(crate_description!())
-        .arg(
-            Arg::new("parse")
-                .short('p')
-                .long("parse")
-                .help("Parse file only and output AST"),
-        )
-        .arg(
-            Arg::new("file")
-                .required(true)
-                .help("File to compile")
-                .index(1),
-        )
-        .get_matches();
+    let mut parse_only = false;
+    let mut file_name = None;
 
-    let mut file = io::buffered_read(File::open(matches.get_one::<String>("file").unwrap())?)?;
+    for arg in std::env::args().skip(1) {
+        match arg.as_str() {
+            "-p" | "--parse" => parse_only = true,
+            "-h" | "--help" => {
+                println!(
+                    "{} {} — {}\n\nusage: compiler [-p|--parse] <file>\n\n  \
+                     -p, --parse  parse only and output the AST\n  \
+                     -h, --help   print this message",
+                    env!("CARGO_PKG_NAME"),
+                    env!("CARGO_PKG_VERSION"),
+                    env!("CARGO_PKG_DESCRIPTION"),
+                );
+                return Ok(());
+            }
+            _ if file_name.is_none() => file_name = Some(arg),
+            _ => return Err(format!("unexpected argument: {arg}").into()),
+        }
+    }
+
+    let file_name = file_name.ok_or("usage: compiler [-p|--parse] <file>")?;
+
+    let mut file = io::buffered_read(File::open(file_name)?)?;
     let mut source = Vec::new();
     file.read_to_end(&mut source)?;
 
     let mut interner = BasicInterner::default();
 
-    if matches.contains_id("parse") {
+    if parse_only {
         let chunk = compiler::parse_chunk(&source, &mut interner)?;
         println!("{:#?}", chunk);
     } else {

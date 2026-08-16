@@ -21,7 +21,11 @@ allocator-api2 = "0.2"
 anyhow = "1.0"
 ottavino-gc-arena = { version = "0.6.0", features = ["allocator-api2", "hashbrown"] }
 hashbrown = { version = "0.14", features = ["raw"] }
-rand = { version = "0.8", features = ["small_rng"] }
+# `math.random` runs on SmallRng and nothing else. The default features pull rand_chacha and
+# ppv-lite86 for a ChaCha generator that is never constructed — and so does `std`, which in
+# rand 0.8 enables `rand_chacha/std` rather than the optional-dependency form. `getrandom` is
+# what `from_entropy` actually needs.
+rand = { version = "0.8", default-features = false, features = ["small_rng", "getrandom"] }
 serde = "1.0"
 thiserror = "1.0"
 
@@ -47,5 +51,15 @@ rand.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-clap = { version = "4.5", features = ["cargo"] }
+# Only the REPL example needs a dependency, and only for line editing and history. Argument
+# parsing is one flag and one positional, done by hand rather than by pulling clap's dozen crates
+# into every `cargo test`.
 rustyline = "14.0"
+
+# Defaults leave a release build with 16 codegen units, no cross-crate inlining and full debug
+# symbols. This is a library, so these apply only to what is built *here* — examples, tests and
+# the REPL — not to anything downstream.
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

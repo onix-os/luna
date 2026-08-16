@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::{error::Error as StdError, io::Read};
 
-use clap::{crate_description, crate_name, crate_version, Arg, ArgAction, Command};
 use rustyline::DefaultEditor;
 
 use luna::{
@@ -87,28 +86,41 @@ fn run_repl(lua: &mut Lua) -> Result<(), Box<dyn StdError>> {
 }
 
 fn main() -> Result<(), Box<dyn StdError>> {
-    let matches = Command::new(crate_name!())
-        .version(crate_version!())
-        .about(crate_description!())
-        .arg(
-            Arg::new("repl")
-                .short('r')
-                .long("repl")
-                .help("Load into REPL after loading file, if any")
-                .action(ArgAction::SetTrue),
-        )
-        .arg(Arg::new("file").help("File to interpret").index(1))
-        .get_matches();
+    let mut repl = false;
+    let mut file_name = None;
+
+    for arg in std::env::args().skip(1) {
+        match arg.as_str() {
+            "-r" | "--repl" => repl = true,
+            "-h" | "--help" => {
+                println!(
+                    "{} {} — {}\n\nusage: interpreter [-r|--repl] [file]\n\n  \
+                     -r, --repl  load into the REPL after running the file, if any\n  \
+                     -h, --help  print this message\n  \
+                     -V, --version  print the version",
+                    env!("CARGO_PKG_NAME"),
+                    env!("CARGO_PKG_VERSION"),
+                    env!("CARGO_PKG_DESCRIPTION"),
+                );
+                return Ok(());
+            }
+            "-V" | "--version" => {
+                println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+                return Ok(());
+            }
+            _ if file_name.is_none() => file_name = Some(arg),
+            _ => return Err(format!("unexpected argument: {arg}").into()),
+        }
+    }
 
     let mut lua = Lua::full();
 
-    if !matches.contains_id("file") {
+    let Some(file_name) = file_name else {
         run_repl(&mut lua)?;
         return Ok(());
-    }
+    };
 
-    let file_name = matches.get_one::<String>("file").unwrap();
-    let mut file = io::buffered_read(File::open(file_name)?)?;
+    let mut file = io::buffered_read(File::open(&file_name)?)?;
     let mut source = Vec::new();
     file.read_to_end(&mut source)?;
 
@@ -119,7 +131,7 @@ fn main() -> Result<(), Box<dyn StdError>> {
 
     lua.execute::<()>(&executor)?;
 
-    if matches.get_flag("repl") {
+    if repl {
         run_repl(&mut lua)?;
     }
 
