@@ -213,12 +213,21 @@ impl<'gc> Table<'gc> {
         self.0.borrow().metatable
     }
 
+    /// Attach a metatable.
+    ///
+    /// Takes `Context` rather than `Mutation` because a metatable carrying `__gc` enrols this
+    /// table with the finalizer registry.
     pub fn set_metatable(
         self,
-        mc: &Mutation<'gc>,
+        ctx: Context<'gc>,
         metatable: Option<Table<'gc>>,
     ) -> Option<Table<'gc>> {
-        mem::replace(&mut self.0.borrow_mut(mc).metatable, metatable)
+        if let Some(mt) = metatable {
+            if !mt.get_value(ctx, crate::MetaMethod::Gc).is_nil() {
+                ctx.finalizers().register_table(&ctx, self.0);
+            }
+        }
+        mem::replace(&mut self.0.borrow_mut(&ctx).metatable, metatable)
     }
 }
 

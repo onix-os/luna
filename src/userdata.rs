@@ -167,11 +167,22 @@ impl<'gc> UserData<'gc> {
         self.0.metadata().get().metatable
     }
 
+    /// Attach a metatable.
+    ///
+    /// Takes `Context` rather than `Mutation` because a metatable carrying `__gc` enrols this
+    /// object with the finalizer registry, and that is reachable only from the context.
     pub fn set_metatable(
         self,
-        mc: &Mutation<'gc>,
+        ctx: crate::Context<'gc>,
         metatable: Option<Table<'gc>>,
     ) -> Option<Table<'gc>> {
+        let mc: &Mutation<'gc> = &ctx;
+        // Only objects that actually have a handler are registered.
+        if let Some(mt) = metatable {
+            if !mt.get_value(ctx, crate::MetaMethod::Gc).is_nil() {
+                ctx.finalizers().register_userdata(mc, self.into_inner());
+            }
+        }
         let md = self.0.write_metadata(mc).unlock();
         let mut v = md.get();
         let old_metatable = mem::replace(&mut v.metatable, metatable);

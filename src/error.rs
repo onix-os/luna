@@ -243,7 +243,7 @@ impl<'gc> Error<'gc> {
                 }
 
                 let ud = UserData::new_static(&ctx, err.clone());
-                ud.set_metatable(&ctx, Some(ctx.singleton::<Rootable![UDMeta<'_>]>().0));
+                ud.set_metatable(ctx, Some(ctx.singleton::<Rootable![UDMeta<'_>]>().0));
                 ud.into()
             }
         }

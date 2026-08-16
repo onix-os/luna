@@ -56,7 +56,7 @@ fn handle_of<'gc>(
 fn new_handle<'gc>(ctx: Context<'gc>, handle: Handle) -> UserData<'gc> {
     let ud = UserData::new_static(&ctx, FileHandle(RefCell::new(handle)));
     let FileMetatable(mt) = *ctx.singleton::<Rootable![FileMetatable<'_>]>();
-    ud.set_metatable(&ctx, Some(mt));
+    ud.set_metatable(ctx, Some(mt));
     ud
 }
 

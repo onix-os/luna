@@ -1,6 +1,8 @@
 use ottavino_gc_arena::{lock::RefLock, Collect, Finalization, Gc, GcWeak, Mutation};
 
-use crate::{thread::ThreadInner, Thread};
+use crate::{
+    table::TableInner, thread::ThreadInner, userdata::UserDataInner, Table, Thread, UserData, Value,
+};
 
 #[derive(Copy, Clone, Collect)]
 #[collect(no_drop)]
@@ -17,16 +19,79 @@ impl<'gc> Finalizers<'gc> {
         self.0.borrow_mut(mc).threads.push(Gc::downgrade(ptr));
     }
 
+    /// Register a userdata whose metatable carries a `__gc` handler.
+    ///
+    /// Only such userdata are registered, so the registry does not grow for the overwhelming
+    /// majority that never needs finalizing. Registration happens when the metatable is attached,
+    /// because that is the first moment `__gc` can be known — `UserData::new_static` attaches none.
+    /// Register a table whose metatable carries a `__gc` handler.
+    pub(crate) fn register_table(&self, mc: &Mutation<'gc>, ptr: Gc<'gc, TableInner<'gc>>) {
+        let mut state = self.0.borrow_mut(mc);
+        let weak = Gc::downgrade(ptr);
+        if !state
+            .finalizable_tables
+            .iter()
+            .any(|&existing| GcWeak::ptr_eq(existing, weak))
+        {
+            state.finalizable_tables.push(weak);
+        }
+    }
+
+    pub(crate) fn register_userdata(&self, mc: &Mutation<'gc>, ptr: Gc<'gc, UserDataInner<'gc>>) {
+        let mut state = self.0.borrow_mut(mc);
+        let weak = Gc::downgrade(ptr);
+        // Re-attaching a metatable must not enrol the same object twice, or its handler would run
+        // once per registration.
+        if !state
+            .finalizable
+            .iter()
+            .any(|&existing| GcWeak::ptr_eq(existing, weak))
+        {
+            state.finalizable.push(weak);
+        }
+    }
+
     /// First stage of two-stage finalization.
     ///
     /// This stage can cause resurrection, so the arena must be *fully re-marked* before stage two
     /// (`Finalizers::finalize`).
     pub(crate) fn prepare(&self, fc: &Finalization<'gc>) {
-        let state = self.0.borrow();
+        let mut state = self.0.borrow_mut(fc);
         for &ptr in &state.threads {
             let thread = Thread::from_inner(ptr.upgrade(fc).expect(Self::THREAD_ERR));
             thread.resurrect_live_upvalues(fc).unwrap();
         }
+
+        // A `__gc` handler is Lua, and Lua cannot be called from inside a collection. So a dead
+        // userdata with a handler is *resurrected* here — which is what makes it safe to hand to
+        // the host afterwards — and queued for the handler to run outside the arena.
+        let mut queued = Vec::new();
+        state.finalizable.retain(|&weak| {
+            let Some(ptr) = weak.upgrade(fc) else {
+                // Already collected in an earlier cycle with nothing to run.
+                return false;
+            };
+            if Gc::is_dead(fc, ptr) {
+                queued.push(Value::UserData(UserData::from_inner(ptr)));
+                // Dropped from the registry so the handler runs exactly once, as in PUC-Rio, even
+                // if the handler resurrects the object.
+                false
+            } else {
+                true
+            }
+        });
+        state.finalizable_tables.retain(|&weak| {
+            let Some(ptr) = weak.upgrade(fc) else {
+                return false;
+            };
+            if Gc::is_dead(fc, ptr) {
+                queued.push(Value::Table(Table::from_inner(ptr)));
+                false
+            } else {
+                true
+            }
+        });
+        state.pending.extend(queued);
     }
 
     /// Second stage of two-stage finalization.
@@ -48,10 +113,30 @@ impl<'gc> Finalizers<'gc> {
             }
         });
     }
+
+    /// Take the userdata whose `__gc` handlers are waiting to run.
+    ///
+    /// They were resurrected during `prepare`, so they are alive and safe to use; the host runs
+    /// their handlers once collection is over.
+    pub(crate) fn take_pending(&self, mc: &Mutation<'gc>) -> Vec<Value<'gc>> {
+        std::mem::take(&mut self.0.borrow_mut(mc).pending)
+    }
+
+    /// Whether any handler is waiting, without taking them.
+    pub(crate) fn has_pending(&self) -> bool {
+        !self.0.borrow().pending.is_empty()
+    }
 }
 
 #[derive(Default, Collect)]
 #[collect(no_drop)]
 struct FinalizersState<'gc> {
     threads: Vec<GcWeak<'gc, ThreadInner<'gc>>>,
+    /// Userdata with a `__gc` handler that has not run yet.
+    finalizable: Vec<GcWeak<'gc, UserDataInner<'gc>>>,
+    /// Tables whose metatable carries `__gc`. Kept apart from userdata so neither path pays for
+    /// the other's indirection.
+    finalizable_tables: Vec<GcWeak<'gc, TableInner<'gc>>>,
+    /// Resurrected and awaiting their handler.
+    pending: Vec<Value<'gc>>,
 }

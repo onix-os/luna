@@ -375,7 +375,7 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
                     return Err("cannot change a protected metatable".into_value(ctx).into());
                 }
             }
-            t.set_metatable(&ctx, mt);
+            t.set_metatable(ctx, mt);
             stack.replace(ctx, t);
             Ok(CallbackReturn::Return)
         }),

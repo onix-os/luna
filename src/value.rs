@@ -282,16 +282,16 @@ mod tests {
             println!("{:?}", table);
 
             let table2 = Table::new(&ctx);
-            table2.set_metatable(&ctx, Some(table2));
+            table2.set_metatable(ctx, Some(table2));
             println!("{:?}", table2);
 
             let combined = Table::new(&ctx);
             combined.set_field(ctx, "a", combined);
-            combined.set_metatable(&ctx, Some(combined));
+            combined.set_metatable(ctx, Some(combined));
             println!("{:?}", combined);
 
             let user = UserData::new::<Rootable![()]>(&ctx, ());
-            user.set_metatable(&ctx, Some(combined));
+            user.set_metatable(ctx, Some(combined));
             println!("{:?}", user);
         });
     }

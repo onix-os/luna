@@ -205,7 +205,7 @@ pub fn load_debug<'gc>(ctx: Context<'gc>) {
         "setmetatable",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
             let (t, mt): (Table, Option<Table>) = stack.consume(ctx)?;
-            t.set_metatable(&ctx, mt);
+            t.set_metatable(ctx, mt);
             stack.replace(ctx, t);
             Ok(CallbackReturn::Return)
         }),

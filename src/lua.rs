@@ -399,6 +399,12 @@ impl Lua {
                 break;
             }
 
+            // Handlers the collector queued run here, between slices, where there is an
+            // `Executor` to drive them and the arena is not mid-cycle.
+            if self.enter(|ctx| ctx.finalizers().has_pending()) {
+                self.run_finalizers();
+            }
+
             // Checked between slices rather than per allocation. That is coarse — a single huge
             // allocation inside one slice can overshoot before anyone looks — but it exists at all
             // only because the stackless VM hands control back here on a schedule the host sets.
@@ -429,6 +435,79 @@ impl Lua {
         self.memory_limit = limit;
     }
 
+    /// Run any `__gc` handlers left waiting by the collector.
+    ///
+    /// A handler is Lua, and Lua cannot be called from inside a collection: the arena is mid-cycle
+    /// and there is no `Executor` to drive. So the collector resurrects a dead object with a handler
+    /// and queues it, and this drains the queue afterwards — the same deferral `collectgarbage`
+    /// uses for the verbs that need `&mut Lua`.
+    ///
+    /// Called automatically by [`Lua::finish`], so a host driving execution normally never needs
+    /// it. Call it directly if you drive `Executor::step` yourself.
+    ///
+    /// A handler that raises does not stop the others: the error is reported through the `warn`
+    /// global if one is installed, matching what PUC-Rio does, and the remaining handlers still run.
+    pub fn run_finalizers(&mut self) {
+        loop {
+            // Stashed on the way out: a `UserData<'gc>` cannot outlive the `enter` that produced it.
+            let pending: Vec<crate::StashedValue> = self.enter(|ctx| {
+                ctx.finalizers()
+                    .take_pending(&ctx)
+                    .into_iter()
+                    .map(|ud| ctx.stash(ud))
+                    .collect()
+            });
+            if pending.is_empty() {
+                break;
+            }
+
+            for stashed in pending {
+                let executor = self.try_enter(|ctx| {
+                    let object = ctx.fetch(&stashed);
+                    let handler = match crate::meta_ops::get_metatable(ctx, object) {
+                        Some(mt) => mt.get_value(ctx, crate::MetaMethod::Gc),
+                        None => Value::Nil,
+                    };
+                    if handler.is_nil() {
+                        return Ok(None);
+                    }
+                    let function = crate::meta_ops::call(ctx, handler)?;
+                    Ok(Some(
+                        ctx.stash(crate::Executor::start(ctx, function, object)),
+                    ))
+                });
+
+                let Ok(Some(executor)) = executor else {
+                    continue;
+                };
+
+                if let Err(err) = self.execute::<()>(&executor) {
+                    self.report_finalizer_error(&err.to_string());
+                }
+            }
+        }
+    }
+
+    /// Report a `__gc` handler's error the way PUC-Rio does, without disturbing execution.
+    fn report_finalizer_error(&mut self, message: &str) {
+        let reported = self.try_enter(|ctx| {
+            let warn = ctx.get_global_value("warn");
+            if warn.is_nil() {
+                return Ok(None);
+            }
+            let function = crate::meta_ops::call(ctx, warn)?;
+            let text = ctx.intern(format!("error in __gc handler: {message}").as_bytes());
+            Ok(Some(ctx.stash(crate::Executor::start(ctx, function, text))))
+        });
+
+        match reported {
+            Ok(Some(executor)) => {
+                let _ = self.execute::<()>(&executor);
+            }
+            // No `warn` installed, or it could not be called; the collector must not care.
+            _ => eprintln!("Lua warning: error in __gc handler: {message}"),
+        }
+    }
     /// Run the given executor to completion and then take return values from the returning thread.
     ///
     /// This is equivalent to calling `Lua::finish` on an executor and then calling

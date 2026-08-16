@@ -150,7 +150,7 @@ where
     /// expected userdata type.
     pub fn wrap(self, ctx: Context<'gc>, ud: Root<'gc, U>) -> UserData<'gc> {
         let ud = UserData::new::<U>(&ctx, ud);
-        ud.set_metatable(&ctx, Some(self.metatable()));
+        ud.set_metatable(ctx, Some(self.metatable()));
         ud
     }
 }

@@ -20,6 +20,7 @@ use crate::{
 #[collect(require_static)]
 pub enum MetaMethod {
     Close,
+    Gc,
     Metatable,
     Name,
     Len,
@@ -56,6 +57,7 @@ impl MetaMethod {
             MetaMethod::NewIndex => "__newindex",
             MetaMethod::Call => "__call",
             MetaMethod::Close => "__close",
+            MetaMethod::Gc => "__gc",
             MetaMethod::Metatable => "__metatable",
             MetaMethod::Name => "__name",
             MetaMethod::Pairs => "__pairs",
@@ -89,6 +91,7 @@ impl MetaMethod {
     pub const fn verb(self) -> &'static str {
         match self {
             MetaMethod::Close => "close",
+            MetaMethod::Gc => "finalize",
             MetaMethod::Metatable => "protect the metatable of",
             MetaMethod::Name => "name",
             MetaMethod::Len => "determine length of",
