@@ -24,26 +24,26 @@ likely not be implemented due to differences between luna and PUC-Lua.
 | ------ | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----- |
 | 🔵     | `assert(v[, message])`                                         |                                                                                                                                        |       |
 | 🔵     | `collectgarbage("count")`                                      |                                                                                                                                        |       |
-| ⚫️    | `collectgarbage("collect")`                                    |                                                                                                                                        |       |
-| ⚫️    | `collectgarbage("stop")`                                       |                                                                                                                                        |       |
-| ⚫️    | `collectgarbage("restart")`                                    |                                                                                                                                        |       |
-| ⚫️    | `collectgarbage("step"[, memkb])`                              |                                                                                                                                        |       |
-| ⚫️    | `collectgarbage("isrunning")`                                  |                                                                                                                                        |       |
+| 🔵    | `collectgarbage("collect")`                                    |                                                                                                                                        |       |
+| 🔵    | `collectgarbage("stop")`                                       |                                                                                                                                        |       |
+| 🔵    | `collectgarbage("restart")`                                    |                                                                                                                                        |       |
+| 🟡    | `collectgarbage("step"[, memkb])`                              | `memkb` is ignored; a step is one incremental slice.                                                                                                                                        |       |
+| 🟡    | `collectgarbage("isrunning")`                                  | Answers from the collector's debt rather than a stored flag.                                                                                                                                        |       |
 | 🤷‍♀️     | `collectgarbage("incremental"[, gcpause, stepmult, stepsize])` |                                                                                                                                        |       |
 | 🤷‍♀️     | `collectgarbage("generational"[, minormult, majormult])`       |                                                                                                                                        |       |
-| ⚫️    | `dofile([filename])`                                           |                                                                                                                                        |       |
+| 🔵    | `dofile([filename])`                                           |                                                                                                                                        |       |
 | 🟡     | `error(message)`                                               | Due to `level` not being implemented for, all calls here give the same result as PUC-Lua `error(message, 0)` (or any invalid `level`). |       |
-| ⚫️    | `error(message, level)`                                        |                                                                                                                                        |       |
-| ⚫️    | `_G` (value)                                                   |                                                                                                                                        |       |
+| 🟡    | `error(message, level)`                                        | The `level` argument is accepted and ignored: luna has no source positions to prefix yet.                                                                                                                                        |       |
+| 🔵    | `_G` (value)                                                   |                                                                                                                                        |       |
 | 🔵     | `getmetatable(object)`                                         |                                                                                                                                        |       |
 | 🟡     | `ipairs(t)`                                                    | PUC-Lua returns `iter, table, 0`, where as luna returns `iter, table`.                                                              |       |
-| ⚫️    | `load(chunk[, chunkname, mode, env])`                          |                                                                                                                                        |       |
-| ⚫️    | `loadfile([filename, mode, env])`                              |                                                                                                                                        |       |
+| 🔵    | `load(chunk[, chunkname, mode, env])`                          |                                                                                                                                        |       |
+| 🔵    | `loadfile([filename, mode, env])`                              |                                                                                                                                        |       |
 | 🔵     | `next(table [, index])`                                        |                                                                                                                                        |       |
 | 🔵     | `pairs(t)`                                                     | By default, PUC-Lua return `iter, table, nil` where as luna returns `iter, table`.                                                  |       |
 | 🔵     | `pcall(f, args...)`                                            |                                                                                                                                        |       |
 | 🔵     | `print(args...)`                                               |                                                                                                                                        |       |
-| ⚫️    | `rawequal(v1, v2)`                                             |                                                                                                                                        |       |
+| 🔵    | `rawequal(v1, v2)`                                             |                                                                                                                                        |       |
 | 🔵     | `rawget(table, index)`                                         |                                                                                                                                        |       |
 | 🔵    | `rawlen(v)`                                                    |                                                                                                                                        |       |
 | 🔵     | `rawset(table, index, value)`                                  |                                                                                                                                        |       |
@@ -53,8 +53,8 @@ likely not be implemented due to differences between luna and PUC-Lua.
 | 🟡     | `tostring(v)`                                                  | luna does not use the metatable field `__name` by default, while PUC-Lua does.                                                      |       |
 | 🔵     | `type(v)`                                                      |                                                                                                                                        |       |
 | 🔵    | `_VERSION` (value)                                             |                                                                                                                                        |       |
-| ⚫️    | `warn(msg, args...)`                                           |                                                                                                                                        |       |
-| ⚫️    | `xpcall(f, msgh, args...)`                                     |                                                                                                                                        |       |
+| 🔵    | `warn(msg, args...)`                                           |                                                                                                                                        |       |
+| 🔵    | `xpcall(f, msgh, args...)`                                     |                                                                                                                                        |       |
 
 [^0]: Hedging b/c I don't know PUC-Lua like my reverse palm, and there might be differing behaviors if you poke both implementations to death, but that's not what this document is for.
 
@@ -62,26 +62,26 @@ likely not be implemented due to differences between luna and PUC-Lua.
 
 | Status | Function                | Differences | Notes |
 | ------ | ----------------------- | ----------- | ----- |
-| ⚫️️   | `close(co)`             |             |       |
+| 🔵   | `close(co)`             |             |       |
 | 🔵     | `create(f)`             |             |       |
-| ⚫️️   | `isyieldable([co])`     |             |       |
+| 🔵   | `isyieldable([co])`     |             |       |
 | 🔵     | `resume(co[, vals...])` |             |       |
 | 🔵     | `running()`             |             |       |
 | 🔵     | `status(co)`            |             |       |
-| ⚫️️   | `wrap(f)`               |             |       |
+| 🔵   | `wrap(f)`               |             |       |
 | 🔵     | `yield(args...)`        |             |       |
 
 ## Package
 
 | Status | Function                             | Differences                                                                                     | Notes |
 | ------ | ------------------------------------ | ----------------------------------------------------------------------------------------------- | ----- |
-| ⚫️️   | (global) `require(modname)`          |                                                                                                 |       |
+| 🔵   | (global) `require(modname)`          |                                                                                                 |       |
 | ⚫️️   | `config` (value)                     |                                                                                                 |       |
 | ❗     | `cpath` (value)                      |                                                                                                 |       |
-| ⚫️️   | `loaded` (value)                     |                                                                                                 |       |
+| 🔵   | `loaded` (value)                     |                                                                                                 |       |
 | ❗     | `loadlib(libname, funcname)`         |                                                                                                 |       |
-| ⚫️️   | `path` (value)                       |                                                                                                 |       |
-| ⚫️️   | `preload` (value)                    |                                                                                                 |       |
+| 🔵   | `path` (value)                       |                                                                                                 |       |
+| 🔵   | `preload` (value)                    |                                                                                                 |       |
 | ⚫️️   | `searchers` (value)                  | This implementation will _definitely_ differ from PUC-Lua as luna does not support C loaders |       |
 | ⚫️️   | `searchpath(name, path[, sep, rep])` |                                                                                                 |       |
 
@@ -92,31 +92,31 @@ likely not be implemented due to differences between luna and PUC-Lua.
 | 🔵   | `byte(s[, i, j])`                 |             |       |
 | 🔵   | `char(args...)`                   |             |       |
 | ⚫️️   | `dump(function[, strip])`         |             |       |
-| ⚫️️   | `find(s, pattern[, init, plain])` |             |       |
-| ⚫️️   | `format(formatstring, args...)`   |             |       |
-| ⚫️️   | `gmatch(s, pattern[, init])`      |             |       |
-| ⚫️️   | `gsub(s, pattern, repl[, n])`     |             |       |
+| 🔵   | `find(s, pattern[, init, plain])` |             |       |
+| 🔵   | `format(formatstring, args...)`   |             |       |
+| 🔵   | `gmatch(s, pattern[, init])`      |             |       |
+| 🔵   | `gsub(s, pattern, repl[, n])`     |             |       |
 | 🔵     | `len(s)`                          |             |       |
 | 🔵   | `lower(s)`                        |             |       |
-| ⚫️️   | `match(s, pattern[, init])`       |             |       |
-| ⚫️️   | `pack(fmt, values...)`            |             |       |
-| ⚫️️   | `packsize(fmt)`                   |             |       |
-| ⚫️️   | `rep(s, n[, sep])`                |             |       |
+| 🔵   | `match(s, pattern[, init])`       |             |       |
+| 🔵   | `pack(fmt, values...)`            |             |       |
+| 🔵   | `packsize(fmt)`                   |             |       |
+| 🔵   | `rep(s, n[, sep])`                |             |       |
 | 🔵   | `reverse(s)`                      |             |       |
 | 🔵   | `sub(s, i[, j])`                  |             |       |
-| ⚫️️   | `unpack(fmt, s[, pos])`           |             |       |
+| 🔵   | `unpack(fmt, s[, pos])`           |             |       |
 | 🔵   | `upper(s)`                        |             |       |
 
 ## UTF8
 
 | Status | Function                     | Differences | Notes |
 | ------ | ---------------------------- | ----------- | ----- |
-| ⚫️️   | `char(args..)`               |             |       |
-| ⚫️️   | `charpattern` (value)        |             |       |
-| ⚫️️   | `codes(s[, lax])`            |             |       |
+| 🔵   | `char(args..)`               |             |       |
+| 🔵   | `charpattern` (value)        |             |       |
+| 🔵   | `codes(s[, lax])`            |             |       |
 | ⚫️️   | `codepoints(s[, i, j, lax])` |             |       |
-| ⚫️️   | `len(s[, i, j, lax])`        |             |       |
-| ⚫️️   | `offset(s, n[, i])`          |             |       |
+| 🔵   | `len(s[, i, j, lax])`        |             |       |
+| 🔵   | `offset(s, n[, i])`          |             |       |
 
 ## Table
 
@@ -170,24 +170,24 @@ I see a module in the code repo that is labelled the IO library, but it only cre
 
 | Status | Function                      | Differences                                                                                                                 | Notes |
 | ------ | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----- |
-| ⚫️    | `close([file])`               |                                                                                                                             |       |
+| 🔵    | `close([file])`               |                                                                                                                             |       |
 | ⚫️    | `flush()`                     |                                                                                                                             |       |
 | ⚫️    | `input([file])`               |                                                                                                                             |       |
-| ⚫️    | `lines([filename, args...])`  |                                                                                                                             |       |
-| ⚫️    | `open(filename [, mode])`     |                                                                                                                             |       |
+| 🔵    | `lines([filename, args...])`  |                                                                                                                             |       |
+| 🔵    | `open(filename [, mode])`     |                                                                                                                             |       |
 |        | `output([file])`              |                                                                                                                             |       |
 | ⚫️/❗ | `popen(prog[, mode])`         | Might be classifiable as "C weirdness" or it's just creating another process which kinda feels as icky as the OS module imo |       |
-| ⚫️    | `read(args...)`               |                                                                                                                             |       |
+| 🔵    | `read(args...)`               |                                                                                                                             |       |
 | ⚫️    | `tmpfile()`                   |                                                                                                                             |       |
-| ⚫️    | `type(obj)`                   |                                                                                                                             |       |
-| ⚫️    | `write(args...)`              |                                                                                                                             |       |
-| ⚫️    | `file:close()`                |                                                                                                                             |       |
-| ⚫️    | `file:flush()`                |                                                                                                                             |       |
-| ⚫️    | `file:lines(args...)`         |                                                                                                                             |       |
-| ⚫️    | `file:read(args...)`          |                                                                                                                             |       |
-| ⚫️    | `file:seek([whence, offset])` |                                                                                                                             |       |
+| 🔵    | `type(obj)`                   |                                                                                                                             |       |
+| 🔵    | `write(args...)`              |                                                                                                                             |       |
+| 🔵    | `file:close()`                |                                                                                                                             |       |
+| 🔵    | `file:flush()`                |                                                                                                                             |       |
+| 🔵    | `file:lines(args...)`         |                                                                                                                             |       |
+| 🔵    | `file:read(args...)`          |                                                                                                                             |       |
+| 🔵    | `file:seek([whence, offset])` |                                                                                                                             |       |
 | ⚫️    | `file:setvbuf(mode[, size])`  |                                                                                                                             |       |
-| ⚫️    | `file:write(args...)`         |                                                                                                                             |       |
+| 🔵    | `file:write(args...)`         |                                                                                                                             |       |
 
 ## OS
 
@@ -195,17 +195,17 @@ IMO this module is best in its current state, but I cannot stop one from downloa
 
 | Status | Function                        | Differences                                                                                                                                                                                | Notes |
 | ------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----- |
-| ⚫️    | `clock()`                       |                                                                                                                                                                                            |       |
-| ⚫️    | `date([format, time])`          |                                                                                                                                                                                            |       |
-| ⚫️    | `difftime(t2, t1)`              |                                                                                                                                                                                            |       |
+| 🔵    | `clock()`                       |                                                                                                                                                                                            |       |
+| 🟡    | `date([format, time])`          | Always UTC: luna ships no time-zone database, and `!` is accepted and ignored.                                                                                                                                                                                            |       |
+| 🔵    | `difftime(t2, t1)`              |                                                                                                                                                                                            |       |
 | ❗     | `execute([command])`            | Because PUC-Lua requires this to be isomorphic to ISO C `system`, I can simply put this under C weirdness!                                                                                 |       |
-| ⚫️    | `exit([code, close])`           | Probably a❗, but I cannae tell you want to do                                                                                                                                             |       |
-| ⚫️    | `getenv(varname)`               | ...what is this a shell script?                                                                                                                                                            |       |
-| ⚫️    | `remove(filename)`              |                                                                                                                                                                                            |       |
-| ⚫️    | `rename(oldname, newname)`      |                                                                                                                                                                                            |       |
+| 🔵    | `exit([code, close])`           | Probably a❗, but I cannae tell you want to do                                                                                                                                             |       |
+| 🔵    | `getenv(varname)`               | ...what is this a shell script?                                                                                                                                                            |       |
+| 🔵    | `remove(filename)`              |                                                                                                                                                                                            |       |
+| 🔵    | `rename(oldname, newname)`      |                                                                                                                                                                                            |       |
 | ❗     | `setlocale(locale[, category])` | This is _explictly_ not going to be implemented according to the README, along with its C weirdness brethren, I just have problems with the rest of this module. _Personnel_ problems \\s. |       |
-| ⚫️    | `time([table])`                 |                                                                                                                                                                                            |       |
-| ⚫️    | `tmpname()`                     |                                                                                                                                                                                            |       |
+| 🔵    | `time([table])`                 |                                                                                                                                                                                            |       |
+| 🔵    | `tmpname()`                     |                                                                                                                                                                                            |       |
 
 ## Debug
 
