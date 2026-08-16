@@ -166,3 +166,99 @@ fn an_erroring_hook_is_catchable() -> Result<(), ExternError> {
     );
     Ok(())
 }
+
+/// `debug.getlocal` names and reads the locals live at a level.
+#[test]
+fn getlocal_reports_locals_in_declaration_order() -> Result<(), ExternError> {
+    assert_eq!(
+        eval::<String>(
+            r#"
+            local function probe()
+                local alpha = 10
+                local beta = "two"
+                local names = {}
+                for i = 1, 3 do
+                    local n = debug.getlocal(1, i)
+                    if n == nil then break end
+                    names[#names + 1] = n
+                end
+                return table.concat(names, ",")
+            end
+            return probe()
+        "#
+        )?,
+        "alpha,beta,names"
+    );
+    Ok(())
+}
+
+#[test]
+fn getlocal_reads_the_value() -> Result<(), ExternError> {
+    assert_eq!(
+        eval::<i64>(
+            r#"
+            local function probe()
+                local answer = 42
+                local _, v = debug.getlocal(1, 1)
+                return v
+            end
+            return probe()
+        "#
+        )?,
+        42
+    );
+    Ok(())
+}
+
+/// Parameters are locals, and are the ones most often asked for.
+#[test]
+fn getlocal_sees_parameters() -> Result<(), ExternError> {
+    assert_eq!(
+        eval::<String>(
+            r#"
+            local function withargs(first, second)
+                return debug.getlocal(1, 1) .. "," .. debug.getlocal(1, 2)
+            end
+            return withargs(1, 2)
+        "#
+        )?,
+        "first,second"
+    );
+    Ok(())
+}
+
+/// `setlocal` writes through to the variable itself, not a copy.
+#[test]
+fn setlocal_changes_the_variable() -> Result<(), ExternError> {
+    assert_eq!(
+        eval::<i64>(
+            r#"
+            local function probe()
+                local n = 1
+                debug.setlocal(1, 1, 99)
+                return n
+            end
+            return probe()
+        "#
+        )?,
+        99
+    );
+    Ok(())
+}
+
+#[test]
+fn getlocal_out_of_range_is_nil() -> Result<(), ExternError> {
+    assert_eq!(
+        eval::<bool>(
+            r#"
+            local function probe()
+                local a = 1
+                return debug.getlocal(1, 99) == nil and debug.getlocal(99, 1) == nil
+            end
+            return probe()
+        "#
+        )?,
+        true
+    );
+    Ok(())
+}

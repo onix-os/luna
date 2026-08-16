@@ -341,7 +341,7 @@ pub(super) enum Frame<'gc> {
 ///
 /// Separate because an open upvalue aliases a stack slot: it needs to read and write one slot of
 /// this vector without taking a lock on the frames, which the executor may be holding.
-pub(super) type StackVec<'gc> = vec::Vec<Value<'gc>, MetricsAlloc<'gc>>;
+pub type StackVec<'gc> = vec::Vec<Value<'gc>, MetricsAlloc<'gc>>;
 
 #[derive(Collect)]
 #[collect(no_drop)]
@@ -360,6 +360,16 @@ pub struct ThreadState<'gc> {
     pub(super) running: bool,
     // Read from the `Lua` state when the thread is created.
     pub(super) max_call_depth: usize,
+}
+
+impl<'gc> ThreadState<'gc> {
+    /// This thread's value stack.
+    ///
+    /// Exposed so `debug.getlocal` can read a register by index; it locks independently of the
+    /// frames, which is what makes reading one from inside a native possible at all.
+    pub fn stack(&self) -> Gc<'gc, RefLock<StackVec<'gc>>> {
+        self.stack
+    }
 }
 
 /// Sizes rather than contents.

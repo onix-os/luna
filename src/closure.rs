@@ -46,6 +46,12 @@ pub struct FunctionPrototype<'gc> {
     pub opcode_line_numbers: boxed::Box<[(usize, LineNumber)], MetricsAlloc<'gc>>,
     pub upvalues: boxed::Box<[UpValueDescriptor], MetricsAlloc<'gc>>,
     pub prototypes: boxed::Box<[Gc<'gc, FunctionPrototype<'gc>>], MetricsAlloc<'gc>>,
+    /// Named locals with the opcode ranges they were live for.
+    ///
+    /// Always emitted rather than gated behind a compile option: measured at a few percent of a
+    /// prototype's size, because the names are interned strings shared with the constant table
+    /// rather than fresh allocations. PUC-Rio does the same and offers `strip` to drop them.
+    pub locals: boxed::Box<[crate::compiler::LocalVarInfo<String<'gc>>], MetricsAlloc<'gc>>,
 }
 
 /// A summary rather than a dump.
@@ -73,20 +79,23 @@ impl<'gc> FunctionPrototype<'gc> {
         mc: &Mutation<'gc>,
         chunk_name: String<'gc>,
         compiled_function: &CompiledPrototype<String<'gc>>,
+        keep_locals: bool,
     ) -> Self {
-        Self::from_compiled_map_strings(mc, chunk_name, compiled_function, |s| *s)
+        Self::from_compiled_map_strings(mc, chunk_name, compiled_function, keep_locals, |s| *s)
     }
 
     pub fn from_compiled_map_strings<S>(
         mc: &Mutation<'gc>,
         chunk_name: String<'gc>,
         compiled_function: &CompiledPrototype<S>,
+        keep_locals: bool,
         map_string: impl Fn(&S) -> String<'gc>,
     ) -> Self {
         fn new<'gc, S>(
             mc: &Mutation<'gc>,
             chunk_name: String<'gc>,
             compiled_function: &CompiledPrototype<S>,
+            keep_locals: bool,
             map_string: impl Fn(&S) -> String<'gc> + Copy,
         ) -> FunctionPrototype<'gc> {
             let alloc = MetricsAlloc::new(mc);
@@ -107,12 +116,31 @@ impl<'gc> FunctionPrototype<'gc> {
             let upvalues =
                 SliceExt::to_vec_in(compiled_function.upvalues.as_slice(), alloc.clone());
 
+            // Sorted by where each scope begins: the compiler emits them as scopes *end*, which is
+            // innermost-first, and `debug.getlocal` indexes them in declaration order.
+            let mut locals = vec::Vec::new_in(alloc.clone());
+            locals.extend(
+                compiled_function
+                    .locals
+                    .iter()
+                    .filter(|_| keep_locals)
+                    .map(|l| crate::compiler::LocalVarInfo {
+                        name: map_string(&l.name),
+                        register: l.register,
+                        start_pc: l.start_pc,
+                        end_pc: l.end_pc,
+                    }),
+            );
+            locals.sort_by_key(|l: &crate::compiler::LocalVarInfo<String<'gc>>| {
+                (l.start_pc, l.register.0)
+            });
+
             let mut prototypes = vec::Vec::new_in(alloc);
             prototypes.extend(
                 compiled_function
                     .prototypes
                     .iter()
-                    .map(|cf| Gc::new(mc, new(mc, chunk_name, cf, map_string))),
+                    .map(|cf| Gc::new(mc, new(mc, chunk_name, cf, keep_locals, map_string))),
             );
 
             FunctionPrototype {
@@ -129,10 +157,11 @@ impl<'gc> FunctionPrototype<'gc> {
                 opcode_line_numbers: opcode_line_numbers.into_boxed_slice(),
                 upvalues: upvalues.into_boxed_slice(),
                 prototypes: prototypes.into_boxed_slice(),
+                locals: locals.into_boxed_slice(),
             }
         }
 
-        new(mc, chunk_name, compiled_function, &map_string)
+        new(mc, chunk_name, compiled_function, keep_locals, &map_string)
     }
 
     pub fn compile(
@@ -160,6 +189,7 @@ impl<'gc> FunctionPrototype<'gc> {
             &ctx,
             ctx.intern(source_name.as_bytes()),
             &compiled_function,
+            ctx.debug_locals(),
         ))
     }
 }

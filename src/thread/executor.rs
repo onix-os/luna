@@ -805,7 +805,9 @@ impl<'gc, 'a> Execution<'gc, 'a> {
     /// `pcall` and wrongly attribute the error to the Lua code that called *it*.
     pub fn frame_at(&self, level: usize) -> Option<UpperLuaFrame<'gc>> {
         match self.lua_frames.iter().rev().nth(level) {
-            Some(Frame::Lua { closure, pc, .. }) => self.describe(*closure, *pc),
+            Some(Frame::Lua {
+                closure, pc, base, ..
+            }) => self.describe(*closure, *pc, *base),
             _ => None,
         }
     }
@@ -819,22 +821,29 @@ impl<'gc, 'a> Execution<'gc, 'a> {
         // Filtered on lookup rather than pre-collected: this is read by `error(msg, level)`,
         // `debug.getinfo` and `debug.traceback` only, so paying per lookup beats paying per native
         // call — which is what snapshotting the chain up front cost.
-        let Some((closure, pc)) = self
+        let Some((closure, pc, base)) = self
             .lua_frames
             .iter()
             .rev()
             .filter_map(|f| match f {
-                Frame::Lua { closure, pc, .. } => Some((*closure, *pc)),
+                Frame::Lua {
+                    closure, pc, base, ..
+                } => Some((*closure, *pc, *base)),
                 _ => None,
             })
             .nth(level)
         else {
             return None;
         };
-        self.describe(closure, pc)
+        self.describe(closure, pc, base)
     }
 
-    fn describe(&self, closure: Closure<'gc>, pc: usize) -> Option<UpperLuaFrame<'gc>> {
+    fn describe(
+        &self,
+        closure: Closure<'gc>,
+        pc: usize,
+        base: usize,
+    ) -> Option<UpperLuaFrame<'gc>> {
         let proto = closure.prototype();
         // Attribute to the Call that invoked this native. Whether the frame's `pc` still points at
         // that Call or has already moved past it depends on the call site, so look rather than
@@ -864,6 +873,8 @@ impl<'gc, 'a> Execution<'gc, 'a> {
                 Ok(i) => proto.opcode_line_numbers[i].1,
                 Err(i) => proto.opcode_line_numbers[i - 1].1,
             },
+            base,
+            pc,
         })
     }
 }
@@ -878,4 +889,9 @@ pub struct UpperLuaFrame<'gc> {
     pub chunk_name: String<'gc>,
     pub current_function: FunctionRef<String<'gc>>,
     pub current_line: LineNumber,
+    /// Where this frame's registers start on the thread stack, so a register index can be read.
+    pub base: usize,
+    /// The instruction about to run. A local's name is only meaningful together with a pc, since
+    /// the allocator reuses registers between blocks.
+    pub pc: usize,
 }

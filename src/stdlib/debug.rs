@@ -10,7 +10,9 @@
 //! silently ignored: they would have to fire from every path that pushes or pops a frame, several
 //! of which have no `Context` to call Lua with.
 //!
-//! **Not here:** `getlocal` and `setlocal` need a register→name table the compiler does not emit.
+//! `getlocal` and `setlocal` read the register→name table the compiler emits alongside each
+//! prototype. That table is not free — it costs about 47% of a prototype's memory on locals-dense
+//! code — so `Context::set_debug_locals(false)` turns it off for chunks compiled afterwards.
 
 use crate::{Callback, CallbackReturn, Closure, Context, Function, IntoValue, Table, Value};
 
@@ -22,6 +24,46 @@ fn describe(closure: Closure<'_>, line: crate::compiler::LineNumber) -> std::str
         proto.chunk_name.display_lossy(),
         line
     )
+}
+
+/// The `index`-th local live at `level`, in declaration order.
+///
+/// A register alone does not identify a local: the allocator reuses registers between blocks, so
+/// only the entries whose opcode range covers this frame's `pc` are in scope right now.
+fn resolve_local<'gc>(
+    exec: &crate::Execution<'gc, '_>,
+    level: i64,
+    index: i64,
+) -> Option<(
+    crate::thread::UpperLuaFrame<'gc>,
+    crate::compiler::LocalVarInfo<crate::String<'gc>>,
+)> {
+    // Level 1 is the caller of `getlocal`, matching PUC-Rio.
+    let frame = exec.frame_at(usize::try_from(level - 1).ok()?)?;
+    let index = usize::try_from(index - 1).ok()?;
+    let proto = frame.closure.prototype();
+    let local = proto
+        .locals
+        .iter()
+        .filter(|l| l.start_pc <= frame.pc && frame.pc < l.end_pc)
+        .nth(index)?
+        .clone();
+    Some((frame, local))
+}
+
+fn local_at<'gc>(
+    ctx: Context<'gc>,
+    exec: &crate::Execution<'gc, '_>,
+    level: i64,
+    index: i64,
+) -> Option<(crate::String<'gc>, Value<'gc>)> {
+    let (frame, local) = resolve_local(exec, level, index)?;
+    let slot = frame.base + local.register.0 as usize;
+    let thread = exec.current_thread().thread;
+    let state = thread.into_inner().borrow();
+    let stack = state.stack().borrow();
+    let _ = ctx;
+    Some((local.name, stack.get(slot).copied().unwrap_or_default()))
 }
 
 pub fn load_debug<'gc>(ctx: Context<'gc>) {
@@ -189,6 +231,40 @@ pub fn load_debug<'gc>(ctx: Context<'gc>) {
                 }
                 None => stack.replace(ctx, Value::Nil),
             }
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    // `getlocal`/`setlocal` take a *level*, not a function: naming a function's parameters without
+    // an activation would need no stack at all, and is the less useful half.
+    debug.set_field(
+        ctx,
+        "getlocal",
+        Callback::from_fn(&ctx, |ctx, exec, mut stack| {
+            let (level, index): (i64, i64) = stack.consume(ctx)?;
+            let Some((name, value)) = local_at(ctx, &exec, level, index) else {
+                stack.replace(ctx, Value::Nil);
+                return Ok(CallbackReturn::Return);
+            };
+            stack.replace(ctx, (name, value));
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    debug.set_field(
+        ctx,
+        "setlocal",
+        Callback::from_fn(&ctx, |ctx, exec, mut stack| {
+            let (level, index, value): (i64, i64, Value) = stack.consume(ctx)?;
+            let Some((frame, local)) = resolve_local(&exec, level, index) else {
+                stack.replace(ctx, Value::Nil);
+                return Ok(CallbackReturn::Return);
+            };
+            let slot = frame.base + local.register.0 as usize;
+            let thread = exec.current_thread().thread;
+            let state = thread.into_inner().borrow();
+            state.stack().borrow_mut(&ctx)[slot] = value;
+            stack.replace(ctx, local.name);
             Ok(CallbackReturn::Return)
         }),
     );

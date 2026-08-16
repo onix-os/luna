@@ -105,6 +105,19 @@ impl<S> FunctionRef<S> {
     }
 }
 
+/// Where a named local lived, and for which opcodes.
+///
+/// A register index is not enough on its own: the allocator reuses a register for different locals
+/// in different blocks, so the name is only meaningful together with the range it was live for.
+#[derive(Debug, Clone, Collect)]
+#[collect(no_drop)]
+pub struct LocalVarInfo<S> {
+    pub name: S,
+    pub register: RegisterIndex,
+    pub start_pc: usize,
+    pub end_pc: usize,
+}
+
 #[derive(Debug, Clone, Collect)]
 #[collect(no_drop)]
 pub struct CompiledPrototype<S> {
@@ -120,6 +133,8 @@ pub struct CompiledPrototype<S> {
     pub opcode_line_numbers: Vec<(usize, LineNumber)>,
     pub upvalues: Vec<UpValueDescriptor>,
     pub prototypes: Vec<Box<CompiledPrototype<S>>>,
+    /// Named locals and the opcode ranges they were live for, for `debug.getlocal`.
+    pub locals: Vec<LocalVarInfo<S>>,
 }
 
 impl<S> CompiledPrototype<S> {
@@ -145,6 +160,16 @@ impl<S> CompiledPrototype<S> {
                     .prototypes
                     .into_iter()
                     .map(|p| Box::new(do_map(*p, f)))
+                    .collect(),
+                locals: this
+                    .locals
+                    .into_iter()
+                    .map(|l| LocalVarInfo {
+                        name: f(l.name),
+                        register: l.register,
+                        start_pc: l.start_pc,
+                        end_pc: l.end_pc,
+                    })
                     .collect(),
             }
         }
@@ -196,6 +221,13 @@ struct CompilerFunction<S> {
     has_to_be_closed: bool,
     fixed_params: u8,
     locals: Vec<(S, RegisterIndex, LocalAttributes)>,
+    // The opcode index each live local was declared at, in lockstep with `locals`. Kept beside it
+    // rather than inside so the existing destructuring of that tuple is untouched.
+    local_starts: Vec<usize>,
+    // Locals whose scope has ended, with the opcode range they were live for. This is what
+    // `debug.getlocal` reads: a register alone does not say which name it held at a given pc,
+    // because the allocator reuses registers across blocks.
+    local_debug: Vec<LocalVarInfo<S>>,
 
     blocks: Vec<BlockDescriptor>,
     unique_jump_id: u64,
@@ -288,6 +320,27 @@ enum JumpLabel<S> {
     Break,
 }
 
+impl<S: Clone> CompilerFunction<S> {
+    /// Declare a local, recording where its scope begins.
+    fn declare_local(&mut self, name: S, register: RegisterIndex, attrs: LocalAttributes) {
+        self.locals.push((name, register, attrs));
+        self.local_starts.push(self.operations.len());
+    }
+
+    /// End the innermost local's scope, recording the opcode range it was live for.
+    fn pop_local(&mut self) {
+        if let Some((name, register, _)) = self.locals.pop() {
+            let start_pc = self.local_starts.pop().unwrap_or(0);
+            self.local_debug.push(LocalVarInfo {
+                name,
+                register,
+                start_pc,
+                end_pc: self.operations.len(),
+            });
+        }
+    }
+}
+
 impl<S> PartialEq for JumpLabel<S>
 where
     S: AsRef<[u8]>,
@@ -369,8 +422,9 @@ impl<S: StringInterner> Compiler<S> {
 
         while let Some((_, last, _attrs)) = self.current_function.locals.last() {
             if last.0 as u16 >= last_block.stack_bottom {
-                self.current_function.register_allocator.free(*last);
-                self.current_function.locals.pop();
+                let last = *last;
+                self.current_function.register_allocator.free(last);
+                self.current_function.pop_local();
             } else {
                 break;
             }
@@ -694,11 +748,11 @@ impl<S: StringInterner> Compiler<S> {
                     .push(name_count)
                     .ok_or(CompileErrorKind::Registers)?;
                 for i in 0..name_count {
-                    self.current_function.locals.push((
+                    self.current_function.declare_local(
                         names[i as usize].clone(),
                         RegisterIndex(names_reg.0 + i),
                         LocalAttributes::NONE,
-                    ));
+                    );
                 }
 
                 self.jump(loop_label.clone())?;
@@ -913,11 +967,11 @@ impl<S: StringInterner> Compiler<S> {
                 .push(Operation::LoadNil { dest, count });
             for i in 0..name_len {
                 let (name, attr) = &local_statement.names[i];
-                self.current_function.locals.push((
+                self.current_function.declare_local(
                     name.clone(),
                     RegisterIndex(dest.0 + i as u8),
                     *attr,
-                ));
+                );
             }
         } else {
             for i in 0..val_len {
@@ -934,11 +988,11 @@ impl<S: StringInterner> Compiler<S> {
 
                     for j in 0..names_left {
                         let (name, attr) = &local_statement.names[val_len - 1 + j as usize];
-                        self.current_function.locals.push((
+                        self.current_function.declare_local(
                             name.clone(),
                             RegisterIndex(dest.0 + j),
                             *attr,
-                        ));
+                        );
                     }
                 } else {
                     let reg = self.expr_discharge(expr, ExprDestination::PushNew)?;
@@ -1119,11 +1173,11 @@ impl<S: StringInterner> Compiler<S> {
             .register_allocator
             .push(1)
             .ok_or(CompileErrorKind::Registers)?;
-        self.current_function.locals.push((
+        self.current_function.declare_local(
             local_function.name.clone(),
             dest,
             LocalAttributes::NONE,
-        ));
+        );
 
         let proto = self.new_prototype(
             FunctionRef::Named(
@@ -2531,6 +2585,8 @@ impl<S: Clone> CompilerFunction<S> {
             has_to_be_closed: false,
             fixed_params: 0,
             locals: Vec::new(),
+            local_starts: Vec::new(),
+            local_debug: Vec::new(),
             blocks: Vec::new(),
             unique_jump_id: 0,
             jump_targets: Vec::new(),
@@ -2550,11 +2606,11 @@ impl<S: Clone> CompilerFunction<S> {
         function.has_varargs = has_varargs;
         function.fixed_params = fixed_params;
         for i in 0..fixed_params {
-            function.locals.push((
+            function.declare_local(
                 parameters[i as usize].clone(),
                 RegisterIndex(i),
                 LocalAttributes::NONE,
-            ));
+            );
         }
         Ok(function)
     }
@@ -2565,10 +2621,13 @@ impl<S: Clone> CompilerFunction<S> {
             count: VarCount::constant(0),
         });
         assert!(self.locals.len() == self.fixed_params as usize);
-        for (_, r, _attrs) in self.locals.drain(..) {
+        // The parameters, still live at the end of the function: closing their ranges here is what
+        // makes them visible to `debug.getlocal`, which is mostly what it is asked for.
+        while let Some((_, r, _)) = self.locals.last().cloned() {
             // TODO Handle close locals
             // TODO Maybe unify their handling to keep DRY?
             self.register_allocator.free(r);
+            self.pop_local();
         }
         assert_eq!(
             self.register_allocator.stack_top(),
@@ -2607,6 +2666,7 @@ impl<S: Clone> CompilerFunction<S> {
             opcode_line_numbers: operation_lines,
             upvalues: self.upvalues.iter().map(|(_, d)| *d).collect(),
             prototypes: self.functions.into_iter().map(|f| Box::new(f)).collect(),
+            locals: self.local_debug,
         })
     }
 

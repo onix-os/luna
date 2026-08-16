@@ -7,7 +7,9 @@ mod register_allocator;
 pub mod string_utils;
 
 pub use self::{
-    compiler::{compile_chunk, CompileError, CompileErrorKind, CompiledPrototype, FunctionRef},
+    compiler::{
+        compile_chunk, CompileError, CompileErrorKind, CompiledPrototype, FunctionRef, LocalVarInfo,
+    },
     interning::StringInterner,
     lexer::LineNumber,
     parser::{parse_chunk, ParseError, ParseErrorKind},
