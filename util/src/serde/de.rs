@@ -43,9 +43,10 @@ struct DepthGuard;
 impl DepthGuard {
     fn enter() -> Result<Self, Error> {
         DEPTH.with(|d| {
-            if d.get() >= MAX_DEPTH {
+            let limit = options().max_depth;
+            if d.get() >= limit {
                 Err(Error::Message(format!(
-                    "value nests deeper than {MAX_DEPTH} levels (is it cyclic?)"
+                    "value nests deeper than {limit} levels (is it cyclic?)"
                 )))
             } else {
                 d.set(d.get() + 1);
@@ -61,10 +62,86 @@ impl Drop for DepthGuard {
     }
 }
 
+/// How a Lua value is read back into Rust.
+#[derive(Debug, Copy, Clone)]
+#[non_exhaustive]
+pub struct Options {
+    /// How deeply a value may nest before deserialization gives up.
+    ///
+    /// The bound exists because `local t = {} t.self = t` would otherwise recurse until the
+    /// *process* dies — a crash rather than an error a host can catch.
+    pub max_depth: usize,
+    /// If false, a function, thread or userdata deserializes as a unit instead of failing.
+    ///
+    /// Defaults to true. Turn it off to read a table that carries Lua-side helpers alongside the
+    /// data you actually want.
+    pub deny_unsupported_types: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            max_depth: MAX_DEPTH,
+            deny_unsupported_types: true,
+        }
+    }
+}
+
+impl Options {
+    pub fn max_depth(mut self, depth: usize) -> Self {
+        self.max_depth = depth;
+        self
+    }
+
+    pub fn deny_unsupported_types(mut self, enabled: bool) -> Self {
+        self.deny_unsupported_types = enabled;
+        self
+    }
+}
+
+thread_local! {
+    /// Options for the deserialization in progress.
+    ///
+    /// Alongside `DEPTH`, and for the reason given there: the `Deserializer`, `SeqAccess` and
+    /// `MapAccess` types are constructed in a dozen places and none of them otherwise care. Set
+    /// for the duration of a top-level call and restored afterwards, so a nested one cannot leak.
+    static OPTIONS: std::cell::Cell<Options> = const {
+        std::cell::Cell::new(Options {
+            max_depth: MAX_DEPTH,
+            deny_unsupported_types: true,
+        })
+    };
+}
+
+fn options() -> Options {
+    OPTIONS.with(|o| o.get())
+}
+
 pub fn from_value<'gc, T: de::Deserialize<'gc>>(
     ctx: Context<'gc>,
     value: Value<'gc>,
 ) -> Result<T, Error> {
+    from_value_with(ctx, value, Options::default())
+}
+
+pub fn from_value_with<'gc, T: de::Deserialize<'gc>>(
+    ctx: Context<'gc>,
+    value: Value<'gc>,
+    options: Options,
+) -> Result<T, Error> {
+    /// Restores whatever was in effect, so a `from_value_with` reached from inside a `Deserialize`
+    /// impl cannot change the options of the call that contains it.
+    struct OptionsGuard(Options);
+
+    impl Drop for OptionsGuard {
+        fn drop(&mut self) {
+            OPTIONS.with(|o| o.set(self.0));
+        }
+    }
+
+    let _guard = OptionsGuard(OPTIONS.with(|o| o.get()));
+    OPTIONS.with(|o| o.set(options));
+
     // A fresh top-level call starts from zero even if a previous one unwound oddly.
     DEPTH.with(|d| d.set(0));
     T::deserialize(Deserializer::from_value(ctx, value))
@@ -104,6 +181,9 @@ impl<'gc> de::Deserializer<'gc> for Deserializer<'gc> {
                     self.deserialize_map(visitor)
                 }
             }
+            Value::Function(_) | Value::Thread(_) if !options().deny_unsupported_types => {
+                visitor.visit_unit()
+            }
             Value::Function(_) => Err(de::Error::custom("cannot deserialize from function")),
             Value::Thread(_) => Err(de::Error::custom("cannot deserialize from thread")),
             Value::UserData(ud) => {
@@ -111,6 +191,8 @@ impl<'gc> de::Deserializer<'gc> for Deserializer<'gc> {
                     self.deserialize_option(visitor)
                 } else if is_unit(ud) {
                     self.deserialize_unit(visitor)
+                } else if !options().deny_unsupported_types {
+                    visitor.visit_unit()
                 } else {
                     Err(de::Error::custom("cannot deserialize from userdata"))
                 }
