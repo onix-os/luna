@@ -68,13 +68,13 @@ See COMPATIBILITY.md's Language section for the itemised list.
 |---|---|---|---|
 | base | all of it | all | `_VERSION` is `"luna"`; `pairs` returns 2 values not 3 |
 | string | all, including `pack`/`unpack`/`packsize` | all | `string.dump` — needs a bytecode format |
-| table | all | all | `sort` and `move` are Lua polyfills, not native |
+| table | all | all | `sort` and `move` are native for the metatable-free case, Lua for the rest |
 | math | all | all | — |
 | coroutine | all | all | — |
 | utf8 | all | all | — |
 | os | all but `setlocale` | all | `date` is UTC-only (no tz database); `execute` is `/bin/sh`, so POSIX-only |
-| io | files, `lines`, `popen`, `seek`, `type` | all | `input`/`output` default streams, `flush`, `tmpfile`, `setvbuf` |
-| package | `require`, `path`, `preload`, `loaded` | all | `config`, `searchers`, `searchpath`, `cpath`, `loadlib` (the last two are C-only) |
+| io | all of it | all | `setvbuf` is accepted but does not change buffering |
+| package | all but the C loader | all | `searchers` is descriptive, not a hook; `cpath`/`loadlib` are C-only and out of scope |
 | debug | `traceback`, `getinfo`, up/setupvalue, get/setmetatable | all | `sethook`, `getlocal`, `getregistry`, `upvalueid`, `uservalue` |
 
 ### Metamethods
@@ -99,7 +99,7 @@ All of them, including `__gc`, `__close`, `__metatable`, `__name`, `__pairs`. Th
 | `Send`/`Sync` `Lua` | no | yes | architectural; one `Lua` per thread + message passing |
 | Real async (foreign futures) | no | yes | needs a `Waker` through `Executor::step` |
 | Derive macros for userdata | no | yes | wants a proc-macro crate |
-| Argument position in errors | no | yes | `Stack::consume` drops it |
+| Argument position in errors | yes | yes | `BadArgument` carries it as data, not only in the message |
 
 ### What remains, in priority order
 
@@ -111,10 +111,6 @@ All of them, including `__gc`, `__close`, `__metatable`, `__name`, `__pairs`. Th
 | **Derive macros** | Wants a proc-macro crate in the workspace. `UserRef` removed the sharpest edge without one. | Medium |
 | **`string.dump`** | Needs a versioned bytecode format *and* a validating loader, designed from scratch — a malformed chunk must not be able to corrupt the VM. | Medium |
 | **`debug.sethook` / `getlocal`** | `sethook` needs a dispatch point in the opcode loop; `getlocal` needs a register→name table the compiler does not emit. `Fuel` already covers the count-hook use case, better. | Medium |
-| **`Error::BadArgument`** | Argument position is dropped by `Stack::consume`; threading it through `FromMultiValue` is wider than it looks. | Small |
-| **`io.input`/`output`/`flush`/`tmpfile`, `setvbuf`** | Default-stream plumbing. No design problem, just unwritten. | Small |
-| **`package.config`/`searchers`/`searchpath`** | Same. `cpath`/`loadlib` are C-only and out of scope. | Small |
-| **Native `table.sort`/`move`** | Currently Lua polyfills. Correct but slower than they need to be. | Small |
 | **serde option surface** | The recursion crash is fixed and both directions work; the options are not built. | Small |
 
 Out of scope permanently, because they exist only because mlua binds a C library: the backend

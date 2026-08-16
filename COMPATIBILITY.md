@@ -97,14 +97,14 @@ what a 5.4 conformance pass actually asks about rather than a summary.
 | Status | Function                             | Differences                                                                                     | Notes |
 | ------ | ------------------------------------ | ----------------------------------------------------------------------------------------------- | ----- |
 | 🔵   | (global) `require(modname)`          |                                                                                                 |       |
-| ⚫️️   | `config` (value)                     |                                                                                                 |       |
+| 🔵   | `config` (value)                     | The five documented lines. The last two describe a C loader, which luna has not.                 |       |
 | ❗     | `cpath` (value)                      |                                                                                                 |       |
 | 🔵   | `loaded` (value)                     |                                                                                                 |       |
 | ❗     | `loadlib(libname, funcname)`         |                                                                                                 |       |
 | 🔵   | `path` (value)                       |                                                                                                 |       |
 | 🔵   | `preload` (value)                    |                                                                                                 |       |
-| ⚫️️   | `searchers` (value)                  | This implementation will _definitely_ differ from PUC-Lua as luna does not support C loaders |       |
-| ⚫️️   | `searchpath(name, path[, sep, rep])` |                                                                                                 |       |
+| 🟡   | `searchers` (value)                  | Two entries — `preload`, then the Lua file searcher — reflecting what `require` consults. Descriptive rather than a hook: replacing an entry does not change `require`, whose search is native. PUC-Lua's C and all-in-one searchers do not exist here. |       |
+| 🔵   | `searchpath(name, path[, sep, rep])` | Returns the path found, or `nil` plus the list of candidates tried.                              |       |
 
 ## String
 
@@ -145,10 +145,10 @@ what a 5.4 conformance pass actually asks about rather than a summary.
 | ------ | ---------------------------- | ----------- | ----- |
 | 🔵     | `concat(list[, sep, i, j])`  |             | Supports the `__concat` metamethod |
 | 🔵     | `insert(list, [pos,] value)` |             |       |
-| 🔵     | `move(a1, f, e, t[, a2])`    |             | Currently implemented with a Lua polyfill |
+| 🔵     | `move(a1, f, e, t[, a2])`    |             | Native when neither table has a metatable; falls back to a Lua implementation when `__index`/`__newindex` may run |
 | 🔵     | `pack(args...)`              |             |       |
 | 🔵     | `remove(list[, pos])`        |             |       |
-| 🔵     | `sort(list[, comp])`         |             | Currently implemented with a Lua polyfill using a simple merge sort, rather than PUC-Rio Lua's quicksort impl |
+| 🔵     | `sort(list[, comp])`         |             | Native for the default ordering on a metatable-free list of all numbers or all strings; a comparator or mixed types fall back to a Lua merge sort |
 | 🔵     | `unpack(list[, i, j])`       |             |       |
 
 ## Math
@@ -194,14 +194,14 @@ and the buffering controls — not the file operations themselves.
 | Status | Function                      | Differences                                                                                                                 | Notes |
 | ------ | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----- |
 | 🔵    | `close([file])`               |                                                                                                                             |       |
-| ⚫️    | `flush()`                     |                                                                                                                             |       |
-| ⚫️    | `input([file])`               | No default-input stream; `io.read` reads stdin.                                                                             |       |
+| 🔵    | `flush()`                     | Flushes the current output stream.                                                                                          |       |
+| 🔵    | `input([file])`               | A handle or a filename; `io.read` and `io.lines()` follow it.                                                                |       |
 | 🔵    | `lines([filename, args...])`  |                                                                                                                             |       |
 | 🔵    | `open(filename [, mode])`     |                                                                                                                             |       |
-| ⚫️    | `output([file])`              | No default-output stream; `io.write` goes to stdout.                                                                        |       |
+| 🔵    | `output([file])`              | A handle or a filename; `io.write` and `io.flush` follow it.                                                                |       |
 | 🔵    | `popen(prog[, mode])`         | Over `std::process`, not C `popen`. Read and write modes; `close` reports the exit status.                                  |       |
 | 🔵    | `read(args...)`               |                                                                                                                             |       |
-| ⚫️    | `tmpfile()`                   |                                                                                                                             |       |
+| 🔵    | `tmpfile()`                   | Created then immediately unlinked, so it disappears when the handle is dropped.                                              |       |
 | 🔵    | `type(obj)`                   |                                                                                                                             |       |
 | 🔵    | `write(args...)`              |                                                                                                                             |       |
 | 🔵    | `file:close()`                |                                                                                                                             |       |
@@ -209,7 +209,7 @@ and the buffering controls — not the file operations themselves.
 | 🔵    | `file:lines(args...)`         |                                                                                                                             |       |
 | 🔵    | `file:read(args...)`          |                                                                                                                             |       |
 | 🔵    | `file:seek([whence, offset])` |                                                                                                                             |       |
-| ⚫️    | `file:setvbuf(mode[, size])`  |                                                                                                                             |       |
+| 🟡    | `file:setvbuf(mode[, size])`  | Accepted and reported as succeeding, but the mode is not honoured: reads go through a `BufReader` and writes go straight out. |       |
 | 🔵    | `file:write(args...)`         |                                                                                                                             |       |
 
 ## OS
