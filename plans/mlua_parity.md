@@ -63,7 +63,7 @@ Done, each with tests:
 | **Control plane** | memory ceiling, recursion ceiling, frozen tables, `collectgarbage` verbs, `table.clear`, `table.interceptall` | `sandbox`, `recursion`, `gc_control` |
 | **Rust API** | map/set conversions, `Either`, `prelude`, `Result` alias, wide integer and runtime string conversions, `UserRef<T>` | `rust_api`, `conversions_map` |
 | **Correctness fixes** | serde deserializer recursion guard (was a **process crash** on a cyclic table), `gsub` following `__index`, `gmatch` `init`, `ipairs` returning three values | `serde_recursion`, `metamethods` |
-| **Re-entrancy** | a nested `Executor` may be driven from a callback; natives run with their thread released | `reentrancy` |
+| **Re-entrancy** | a nested `Executor` may be driven from a callback; a thread's value stack has its own lock, so natives run on the real stack and re-entrant Lua can still reach open upvalues in it | `reentrancy` |
 | **`__gc` finalizers** | on tables and userdata, via the two-stage prepare/finalize split; registered only when a metatable carries `__gc`; resurrection does not re-finalize; an erroring handler is reported through `warn` and does not abort the sweep | `gc_finalizers` |
 | **`__mode` weak values** | by representation, not by clearing — slots hold `GcWeak`, so a cleared entry cannot be read as a dangling one. Weak *keys* deliberately not implemented, and documented rather than silently ignored | `weak_tables` |
 | **Threading** | `SerializeValue` takes a Lua value out into any serde format; the one-`Lua`-per-thread pattern documented with a worked example | `serialize_value` |
