@@ -3,10 +3,11 @@ mod coroutine;
 mod io;
 mod math;
 mod os;
+mod package;
 mod string;
 mod table;
 
 pub use self::{
     base::load_base, coroutine::load_coroutine, io::load_io, math::load_math, os::load_os,
-    string::load_string, string::StringMetatable, table::load_table,
+    package::load_package, string::load_string, string::StringMetatable, table::load_table,
 };

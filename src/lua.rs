@@ -18,7 +18,10 @@ pub const DEFAULT_MAX_CALL_DEPTH: usize = 100_000;
 use crate::{
     finalizers::Finalizers,
     stash::{Fetchable, Stashable},
-    stdlib::{load_base, load_coroutine, load_io, load_math, load_os, load_string, load_table},
+    stdlib::{
+        load_base, load_coroutine, load_io, load_math, load_os, load_package, load_string,
+        load_table,
+    },
     string::InternedStringSet,
     thread::BadThreadMode,
     Error, ExternError, FromMultiValue, FromValue, Fuel, IntoValue, Registry, RuntimeError,
@@ -180,6 +183,7 @@ impl Lua {
         let mut lua = Lua::core();
         lua.load_io();
         lua.load_os();
+        lua.load_package();
         lua
     }
 
@@ -215,6 +219,15 @@ impl Lua {
     pub fn load_os(&mut self) {
         self.enter(|ctx| {
             load_os(ctx);
+        })
+    }
+
+    /// Load the `package` library and `require`.
+    ///
+    /// There is no C loader: `package.cpath` and `package.loadlib` do not exist.
+    pub fn load_package(&mut self) {
+        self.enter(|ctx| {
+            load_package(ctx);
         })
     }
 
