@@ -215,7 +215,11 @@ where
     T: ?Sized + AsRef<[u8]>,
 {
     fn eq(&self, other: &T) -> bool {
-        self.as_bytes() == other.as_ref()
+        let (a, b) = (self.as_bytes(), other.as_ref());
+        // Every string-keyed table probe lands here, and both sides come out of the intern set, so
+        // they are usually the same allocation. Comparing the slice pointers — address and length
+        // both, since these are fat — settles that case without touching the bytes.
+        std::ptr::eq(a, b) || a == b
     }
 }
 
