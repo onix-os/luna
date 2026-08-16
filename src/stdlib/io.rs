@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 
-use ottavino_gc_arena::{Collect, Rootable};
+use ottavino_gc_arena::{lock::Lock, Collect, Gc, Rootable};
 
 use crate::{
     Callback, CallbackReturn, Context, IntoValue, Singleton, String, Table, UserData, Value,
@@ -30,6 +30,63 @@ impl Handle {
 
 struct FileHandle(RefCell<Handle>);
 
+/// The streams `io.read`, `io.write` and `io.lines` use when given no file of their own.
+///
+/// A singleton rather than fields on the `io` table, so that `io.input(f)` redirects the existing
+/// `io.read` instead of only affecting callers who go looking for the new handle.
+#[derive(Copy, Clone, Collect)]
+#[collect(no_drop)]
+struct DefaultStreams<'gc> {
+    input: Gc<'gc, Lock<UserData<'gc>>>,
+    output: Gc<'gc, Lock<UserData<'gc>>>,
+}
+
+impl<'gc> DefaultStreams<'gc> {
+    // Built in `load_io` and captured by the callbacks that need it, rather than made a `Singleton`:
+    // creating one needs a file handle, which needs the metatable singleton, and the registry is
+    // already borrowed while a singleton is being created.
+    fn new(ctx: Context<'gc>, input: UserData<'gc>, output: UserData<'gc>) -> Self {
+        DefaultStreams {
+            input: Gc::new(&ctx, Lock::new(input)),
+            output: Gc::new(&ctx, Lock::new(output)),
+        }
+    }
+}
+
+/// Resolve the argument of `io.input`/`io.output`: a handle passes through, a name is opened.
+fn stream_argument<'gc>(
+    ctx: Context<'gc>,
+    value: Value<'gc>,
+    write: bool,
+) -> Result<UserData<'gc>, crate::Error<'gc>> {
+    match value {
+        Value::UserData(ud) => {
+            handle_of(ctx, value)?;
+            Ok(ud)
+        }
+        Value::String(name) => {
+            let path = std::path::PathBuf::from(name.display_lossy().to_string());
+            let opened = if write {
+                std::fs::File::create(&path)
+            } else {
+                std::fs::File::open(&path)
+            };
+            match opened {
+                Ok(f) => Ok(new_handle(ctx, Handle::File(BufReader::new(f)))),
+                Err(err) => Err(format!("cannot open '{}': {err}", path.display())
+                    .into_value(ctx)
+                    .into()),
+            }
+        }
+        other => Err(format!(
+            "bad argument (expected file or name, got {})",
+            other.type_name()
+        )
+        .into_value(ctx)
+        .into()),
+    }
+}
+
 /// The shared metatable for every file handle.
 #[derive(Copy, Clone, Collect)]
 #[collect(no_drop)]
@@ -51,6 +108,22 @@ fn handle_of<'gc>(
             .map_err(|_| "not a file handle".into_value(ctx).into()),
         _ => Err("not a file handle".into_value(ctx).into()),
     }
+}
+
+/// Flush whatever the handle is, where that means anything.
+fn flush_handle<'gc>(ctx: Context<'gc>, handle: &mut Handle) -> Result<(), crate::Error<'gc>> {
+    let result = match handle {
+        Handle::File(f) => f.get_mut().flush(),
+        Handle::Stdout => std::io::stdout().flush(),
+        Handle::Stderr => std::io::stderr().flush(),
+        Handle::Process(child, true) => match child.stdin.as_mut() {
+            Some(stdin) => stdin.flush(),
+            None => Ok(()),
+        },
+        Handle::Closed => return Err("attempt to use a closed file".into_value(ctx).into()),
+        _ => Ok(()),
+    };
+    result.map_err(|e| e.to_string().into_value(ctx).into())
 }
 
 fn new_handle<'gc>(ctx: Context<'gc>, handle: Handle) -> UserData<'gc> {
@@ -410,6 +483,20 @@ pub fn load_io<'gc>(ctx: Context<'gc>) {
         }),
     );
 
+    methods.set_field(
+        ctx,
+        "setvbuf",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            // Accepted and reported as succeeding, but the mode is not honoured: reads go through
+            // a `BufReader` and writes go straight out, and neither is reconfigurable per handle.
+            // Answering `false` would be worse — it would make callers think the file is broken.
+            let this = stack.get(0);
+            handle_of(ctx, this)?;
+            stack.replace(ctx, true);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
     let FileMetatable(mt) = *ctx.singleton::<Rootable![FileMetatable<'_>]>();
     mt.set_field(ctx, "__index", methods);
     mt.set_field(ctx, "__name", ctx.intern(b"FILE*"));
@@ -422,6 +509,9 @@ pub fn load_io<'gc>(ctx: Context<'gc>) {
     io.set_field(ctx, "stdout", stdout);
     io.set_field(ctx, "stderr", stderr);
     io.set_field(ctx, "stdin", stdin);
+
+    // Redirected by `io.input`/`io.output`; every default-stream user reads them through this.
+    let streams = DefaultStreams::new(ctx, stdin, stdout);
 
     io.set_field(
         ctx,
@@ -496,12 +586,17 @@ pub fn load_io<'gc>(ctx: Context<'gc>) {
     io.set_field(
         ctx,
         "lines",
-        Callback::from_fn(&ctx, |ctx, _, mut stack| {
-            let path: String = stack.consume(ctx)?;
-            let path = path.display_lossy().to_string();
-            let file =
-                std::fs::File::open(&path).map_err(|e| format!("{path}: {e}").into_value(ctx))?;
-            let ud = new_handle(ctx, Handle::File(BufReader::new(file)));
+        Callback::from_fn_with(&ctx, streams, |streams, ctx, _, mut stack| {
+            // With no filename, iterate the current input stream, as PUC-Rio does.
+            let ud = match stack.consume::<Option<String>>(ctx)? {
+                None => streams.input.get(),
+                Some(path) => {
+                    let path = path.display_lossy().to_string();
+                    let file = std::fs::File::open(&path)
+                        .map_err(|e| format!("{path}: {e}").into_value(ctx))?;
+                    new_handle(ctx, Handle::File(BufReader::new(file)))
+                }
+            };
             stack.replace(
                 ctx,
                 Callback::from_fn_with(&ctx, ud, |ud, ctx, _, mut stack| {
@@ -536,13 +631,12 @@ pub fn load_io<'gc>(ctx: Context<'gc>) {
     io.set_field(
         ctx,
         "write",
-        Callback::from_fn_with(&ctx, stdout, |stdout, ctx, _, mut stack| {
-            let file = stdout
-                .downcast_static::<FileHandle>()
-                .map_err(|_| "not a file handle".into_value(ctx))?;
+        Callback::from_fn_with(&ctx, streams, |streams, ctx, _, mut stack| {
+            let output = streams.output.get();
+            let file = handle_of(ctx, output.into())?;
             let values: Vec<Value> = stack.drain(..).collect();
             write_all(ctx, &mut file.0.borrow_mut(), &values)?;
-            stack.replace(ctx, *stdout);
+            stack.replace(ctx, output);
             Ok(CallbackReturn::Return)
         }),
     );
@@ -550,13 +644,79 @@ pub fn load_io<'gc>(ctx: Context<'gc>) {
     io.set_field(
         ctx,
         "read",
-        Callback::from_fn_with(&ctx, stdin, |stdin, ctx, _, mut stack| {
-            let file = stdin
-                .downcast_static::<FileHandle>()
-                .map_err(|_| "not a file handle".into_value(ctx))?;
+        Callback::from_fn_with(&ctx, streams, |streams, ctx, _, mut stack| {
+            let input = streams.input.get();
+            let file = handle_of(ctx, input.into())?;
             let format = stack.get(0);
             let v = read_one(ctx, &mut file.0.borrow_mut(), format)?;
             stack.replace(ctx, v);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    // `io.input()` / `io.output()` read the current stream; with an argument they replace it. A
+    // string is opened as a file, matching PUC-Rio, which is why these can fail.
+    for (name, write) in [("input", false), ("output", true)] {
+        io.set_field(
+            ctx,
+            name,
+            Callback::from_fn_with(
+                &ctx,
+                (write, streams),
+                move |(write, streams), ctx, _, mut stack| {
+                    let slot = if *write {
+                        streams.output
+                    } else {
+                        streams.input
+                    };
+                    match stack.get(0) {
+                        Value::Nil => {}
+                        argument => slot.set(&ctx, stream_argument(ctx, argument, *write)?),
+                    }
+                    stack.replace(ctx, slot.get());
+                    Ok(CallbackReturn::Return)
+                },
+            ),
+        );
+    }
+
+    io.set_field(
+        ctx,
+        "flush",
+        Callback::from_fn_with(&ctx, streams, |streams, ctx, _, mut stack| {
+            let output = streams.output.get();
+            let file = handle_of(ctx, output.into())?;
+            flush_handle(ctx, &mut file.0.borrow_mut())?;
+            stack.replace(ctx, output);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    io.set_field(
+        ctx,
+        "tmpfile",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            // Created and immediately unlinked, so it disappears when the handle is dropped. That
+            // is what PUC-Rio's `tmpfile` promises and it needs no cleanup path of our own.
+            let path = std::env::temp_dir().join(format!(
+                "luna_{:x}_{:x}",
+                std::process::id(),
+                crate::stdlib::os::process_start().elapsed().as_nanos()
+            ));
+            match std::fs::File::options()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(f) => {
+                    let _ = std::fs::remove_file(&path);
+                    stack.replace(ctx, new_handle(ctx, Handle::File(BufReader::new(f))));
+                }
+                Err(err) => {
+                    stack.replace(ctx, (Value::Nil, ctx.intern(err.to_string().as_bytes())));
+                }
+            }
             Ok(CallbackReturn::Return)
         }),
     );

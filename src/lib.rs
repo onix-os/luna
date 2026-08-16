@@ -30,7 +30,7 @@ pub use self::{
     closure::{Closure, CompilerError, FunctionPrototype},
     constant::Constant,
     conversion::{Either, FromMultiValue, FromValue, IntoMultiValue, IntoValue, Variadic},
-    error::{Error, ExternError, RuntimeError, TypeError},
+    error::{BadArgument, Error, ExternError, RuntimeError, TypeError},
     fuel::Fuel,
     function::Function,
     lua::{Context, GcRequest, Lua},

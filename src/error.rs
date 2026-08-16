@@ -15,6 +15,20 @@ pub struct TypeError {
     pub found: &'static str,
 }
 
+/// A [`TypeError`] that knows *which* argument was wrong.
+///
+/// Conversion itself cannot know this — [`FromValue`] sees one value with no idea where it came
+/// from — so the position is attached by [`Stack::consume`](crate::Stack::consume), which is the
+/// one place that knows how many values it has handed out. Arguments are numbered from 1, as in
+/// the Lua manual.
+#[derive(Debug, Clone, Copy, Error)]
+#[error("bad argument #{argument}")]
+pub struct BadArgument {
+    pub argument: usize,
+    #[source]
+    pub source: TypeError,
+}
+
 /// An error raised directly from Lua which contains a Lua value.
 ///
 /// Any [`Value`] can be raised as an error and it will be contained here.

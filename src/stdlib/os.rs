@@ -3,7 +3,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use crate::{Callback, CallbackReturn, Context, IntoValue, String, Table, Value};
 
 /// When this process started, for `os.clock`.
-fn process_start() -> Instant {
+pub(super) fn process_start() -> Instant {
     use std::sync::OnceLock;
     static START: OnceLock<Instant> = OnceLock::new();
     *START.get_or_init(Instant::now)

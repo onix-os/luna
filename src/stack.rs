@@ -7,7 +7,9 @@ use std::{
 use allocator_api2::vec;
 use ottavino_gc_arena::{allocator_api::MetricsAlloc, lock::RefLock, Gc};
 
-use crate::{Context, FromMultiValue, FromValue, IntoMultiValue, IntoValue, TypeError, Value};
+use crate::{
+    BadArgument, Context, FromMultiValue, FromValue, IntoMultiValue, IntoValue, TypeError, Value,
+};
 
 /// A thread's value stack.
 pub(crate) type StackVec<'gc> = vec::Vec<Value<'gc>, MetricsAlloc<'gc>>;
@@ -242,8 +244,36 @@ impl<'gc, 'a> Stack<'gc, 'a> {
         self.into_back(ctx, v);
     }
 
-    pub fn consume<V: FromMultiValue<'gc>>(&mut self, ctx: Context<'gc>) -> Result<V, TypeError> {
-        V::from_multi_value(ctx, self.drain(..))
+    /// Convert the whole stack into `V`, consuming it.
+    ///
+    /// A failure is reported against the argument that caused it. `FromValue` cannot do this — it
+    /// sees a lone value — but the number of times the conversion has pulled from this iterator is
+    /// exactly the argument number, so counting here gets it for free.
+    pub fn consume<V: FromMultiValue<'gc>>(&mut self, ctx: Context<'gc>) -> Result<V, BadArgument> {
+        struct Counting<I> {
+            inner: I,
+            taken: usize,
+        }
+
+        impl<'gc, I: Iterator<Item = Value<'gc>>> Iterator for Counting<I> {
+            type Item = Value<'gc>;
+
+            fn next(&mut self) -> Option<Value<'gc>> {
+                // Counted whether or not a value comes back: a conversion that reads past the end
+                // and rejects the `nil` is still complaining about that argument position.
+                self.taken += 1;
+                self.inner.next()
+            }
+        }
+
+        let mut values = Counting {
+            inner: self.drain(..),
+            taken: 0,
+        };
+        V::from_multi_value(ctx, &mut values).map_err(|source| BadArgument {
+            argument: values.taken.max(1),
+            source,
+        })
     }
 }
 

@@ -64,6 +64,102 @@ pub fn load_package<'gc>(ctx: Context<'gc>) {
     package.set_field(ctx, "preload", preload);
     package.set_field(ctx, "path", ctx.intern(b"./?.lua;./?/init.lua"));
 
+    // The five lines PUC-Rio documents: directory separator, path separator, template mark, the
+    // executable-directory mark and the substitution point in a C loader name. The last two exist
+    // only so that code parsing this string finds what it expects; luna has no C loader.
+    package.set_field(
+        ctx,
+        "config",
+        ctx.intern(
+            if cfg!(windows) {
+                "\\\n;\n?\n!\n-\n"
+            } else {
+                "/\n;\n?\n!\n-\n"
+            }
+            .as_bytes(),
+        ),
+    );
+
+    // `searchers` is present and reflects what `require` actually consults, in order: `preload`
+    // first, then the Lua file searcher. Replacing an entry does not change `require` — the search
+    // is native — so this is descriptive rather than a hook. PUC-Rio's third and fourth searchers
+    // are the C loader and the all-in-one loader, neither of which exists here.
+    let searchers = Table::new(&ctx);
+    searchers
+        .set(
+            ctx,
+            1,
+            Callback::from_fn(&ctx, |ctx, _, mut stack| {
+                let name: String = stack.consume(ctx)?;
+                let package: Table = ctx.get_global("package")?;
+                let preload: Table = package.get(ctx, "preload")?;
+                stack.replace(ctx, preload.get_value(ctx, name));
+                Ok(CallbackReturn::Return)
+            }),
+        )
+        .unwrap();
+    searchers
+        .set(
+            ctx,
+            2,
+            Callback::from_fn(&ctx, |ctx, _, mut stack| {
+                let name: String = stack.consume(ctx)?;
+                let package: Table = ctx.get_global("package")?;
+                let template: String = package.get(ctx, "path")?;
+                let found = candidate_paths(
+                    &template.display_lossy().to_string(),
+                    &name.display_lossy().to_string(),
+                )
+                .into_iter()
+                .find(|c| std::fs::metadata(c).is_ok());
+                match found {
+                    Some(found) => stack.replace(ctx, ctx.intern(found.as_bytes())),
+                    None => stack.replace(ctx, Value::Nil),
+                }
+                Ok(CallbackReturn::Return)
+            }),
+        )
+        .unwrap();
+    package.set_field(ctx, "searchers", searchers);
+
+    package.set_field(
+        ctx,
+        "searchpath",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let (name, path, sep, rep): (String, String, Option<String>, Option<String>) =
+                stack.consume(ctx)?;
+            // `sep` is replaced by `rep` before substitution — the hook that lets `a.b` become
+            // `a/b`, and the reason the default `rep` is the directory separator.
+            let sep = sep
+                .map(|s| s.display_lossy().to_string())
+                .unwrap_or_else(|| ".".to_owned());
+            let rep = rep
+                .map(|s| s.display_lossy().to_string())
+                .unwrap_or_else(|| if cfg!(windows) { "\\" } else { "/" }.to_owned());
+            let name = name.display_lossy().to_string();
+            let name = if sep.is_empty() {
+                name
+            } else {
+                name.replace(&sep, &rep)
+            };
+
+            let mut tried = std::vec::Vec::new();
+            for candidate in path.display_lossy().to_string().split(';') {
+                if candidate.is_empty() {
+                    continue;
+                }
+                let candidate = candidate.replace('?', &name);
+                if std::fs::metadata(&candidate).is_ok() {
+                    stack.replace(ctx, ctx.intern(candidate.as_bytes()));
+                    return Ok(CallbackReturn::Return);
+                }
+                tried.push(format!("\n\tno file '{candidate}'"));
+            }
+            stack.replace(ctx, (Value::Nil, ctx.intern(tried.concat().as_bytes())));
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
     ctx.set_global("package", package);
 
     ctx.set_global(

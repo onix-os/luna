@@ -194,13 +194,122 @@ pub fn load_table<'gc>(ctx: Context<'gc>) {
 
     table.set_field(ctx, "insert", Callback::from_fn(&ctx, table_insert_impl));
 
+    // `sort` and `move` keep a Lua implementation as the general case, because both may have to
+    // call back into Lua — `sort` for its comparator, `move` for `__index`/`__newindex` — and a
+    // native cannot do that without becoming a sequence. Each gets a native fast path for the
+    // shape that needs no calls at all, falling through to the Lua version otherwise.
     let data = include_str!("table/sort.lua");
-    let func = Closure::load(ctx, Some("table/sort.lua"), data.as_bytes()).unwrap();
-    table.set_field(ctx, "sort", func);
+    let sort_fallback = Closure::load(ctx, Some("table/sort.lua"), data.as_bytes()).unwrap();
+    table.set_field(
+        ctx,
+        "sort",
+        Callback::from_fn_with(&ctx, sort_fallback, |fallback, ctx, _, mut stack| {
+            // Only the default ordering, on a table with no metatable: then the comparison is
+            // `<` on numbers or on strings, neither of which can run Lua.
+            let fast = match (stack.get(0), stack.get(1)) {
+                (Value::Table(t), Value::Nil) if t.metatable().is_none() => Some(t),
+                _ => None,
+            };
+            let Some(t) = fast else {
+                return Ok(CallbackReturn::Call {
+                    function: (*fallback).into(),
+                    then: None,
+                });
+            };
+
+            let length = t.length(&ctx);
+            let mut values = Vec::with_capacity(length.max(0) as usize);
+            for i in 1..=length {
+                values.push(t.get_raw(&ctx, Value::Integer(i)));
+            }
+            // Bail to the Lua version rather than guess at an ordering luna does not define.
+            let all_numbers = values.iter().all(|v| v.to_number().is_some());
+            let all_strings = values.iter().all(|v| matches!(v, Value::String(_)));
+            if !(all_numbers || all_strings) {
+                return Ok(CallbackReturn::Call {
+                    function: (*fallback).into(),
+                    then: None,
+                });
+            }
+
+            if all_numbers {
+                values.sort_by(|a, b| {
+                    a.to_number()
+                        .unwrap()
+                        .partial_cmp(&b.to_number().unwrap())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+            } else {
+                values.sort_by(|a, b| match (a, b) {
+                    (Value::String(a), Value::String(b)) => a.as_bytes().cmp(b.as_bytes()),
+                    _ => std::cmp::Ordering::Equal,
+                });
+            }
+
+            for (i, v) in values.into_iter().enumerate() {
+                t.set_raw(&ctx, Value::Integer(i as i64 + 1), v)?;
+            }
+            stack.clear();
+            Ok(CallbackReturn::Return)
+        }),
+    );
 
     let data = include_str!("table/move.lua");
-    let func = Closure::load(ctx, Some("table/move.lua"), data.as_bytes()).unwrap();
-    table.set_field(ctx, "move", func);
+    let move_fallback = Closure::load(ctx, Some("table/move.lua"), data.as_bytes()).unwrap();
+    table.set_field(
+        ctx,
+        "move",
+        Callback::from_fn_with(&ctx, move_fallback, |fallback, ctx, _, mut stack| {
+            let fallback_call = || {
+                Ok(CallbackReturn::Call {
+                    function: (*fallback).into(),
+                    then: None,
+                })
+            };
+
+            let destination = match stack.get(4) {
+                Value::Nil => stack.get(0),
+                other => other,
+            };
+            let (Value::Table(source), Value::Table(destination)) = (stack.get(0), destination)
+            else {
+                return fallback_call();
+            };
+            // A metatable means `__index`/`__newindex` may run Lua, which only the Lua version can.
+            if source.metatable().is_some() || destination.metatable().is_some() {
+                return fallback_call();
+            }
+            let (Some(first), Some(last), Some(target)) = (
+                stack.get(1).to_integer(),
+                stack.get(2).to_integer(),
+                stack.get(3).to_integer(),
+            ) else {
+                return fallback_call();
+            };
+
+            if last >= first {
+                // The overflow checks the Lua version does, kept: `n` and the destination end must
+                // both stay representable.
+                let Some(count) = last.checked_sub(first).and_then(|n| n.checked_add(1)) else {
+                    return fallback_call();
+                };
+                if target.checked_add(count - 1).is_none() {
+                    return fallback_call();
+                }
+                // Overlapping ranges in the same table copy in whichever direction does not
+                // clobber a source element before it is read.
+                let forwards = target > last || target <= first || source != destination;
+                for step in 0..count {
+                    let offset = if forwards { step } else { count - 1 - step };
+                    let v = source.get_raw(&ctx, Value::Integer(first + offset));
+                    destination.set_raw(&ctx, Value::Integer(target + offset), v)?;
+                }
+            }
+
+            stack.replace(ctx, destination);
+            Ok(CallbackReturn::Return)
+        }),
+    );
 
     ctx.set_global("table", table);
 }
