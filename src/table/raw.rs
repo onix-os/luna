@@ -13,6 +13,8 @@ pub enum InvalidTableKey {
     IsNaN,
     #[error("table key is Nil")]
     IsNil,
+    #[error("table is read-only")]
+    ReadOnly,
 }
 
 #[derive(Debug, Copy, Clone, Collect)]

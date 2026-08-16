@@ -145,6 +145,29 @@ pub fn load_table<'gc>(ctx: Context<'gc>) {
 
     table.set_field(ctx, "remove", Callback::from_fn(&ctx, table_remove_impl));
 
+    // Not standard Lua. A frozen table refuses every write, including `rawset`, which is what makes
+    // it useful for hardening shared globals against the scripts running on top of them.
+    table.set_field(
+        ctx,
+        "freeze",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let t: Table = stack.consume(ctx)?;
+            t.set_readonly(&ctx, true);
+            stack.replace(ctx, t);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    table.set_field(
+        ctx,
+        "isfrozen",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let t: Table = stack.consume(ctx)?;
+            stack.replace(ctx, t.is_readonly());
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
     table.set_field(ctx, "insert", Callback::from_fn(&ctx, table_insert_impl));
 
     let data = include_str!("table/sort.lua");

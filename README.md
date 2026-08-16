@@ -10,8 +10,8 @@ own release line. See [ACKNOWLEDGMENT.md](ACKNOWLEDGMENT.md).
 
 * **Sandboxing.** A script cannot panic the interpreter, escape its arena, or reach anything you
   did not hand it.
-* **Bounded execution.** Every step runs on a fuel budget measured in VM instructions, so CPU
-  time has a ceiling you set. Memory is measured but not yet capped.
+* **Bounded execution.** Every step runs on a fuel budget measured in VM instructions, and memory
+  has a ceiling checked between steps — so CPU time and memory both stop a runaway script.
 * **Safe bindings.** Rust values become garbage-collected `UserData`, and callbacks can call
   back into Lua without using the Rust stack.
 

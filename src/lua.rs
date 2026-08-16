@@ -155,6 +155,8 @@ impl<'gc> ops::Deref for Context<'gc> {
 /// to create a `Lua` instance.
 pub struct Lua {
     arena: Arena<Rootable![State<'_>]>,
+    // Host-side configuration rather than collected state: nothing in the arena reads it.
+    memory_limit: Option<usize>,
 }
 
 impl Default for Lua {
@@ -168,6 +170,7 @@ impl Lua {
     pub fn empty() -> Self {
         Lua {
             arena: Arena::<Rootable![State<'_>]>::new(|mc| State::new(mc)),
+            memory_limit: None,
         }
     }
 
@@ -318,9 +321,35 @@ impl Lua {
             if self.enter(|ctx| ctx.fetch(executor).step(ctx, &mut fuel))? {
                 break;
             }
+
+            // Checked between slices rather than per allocation. That is coarse — a single huge
+            // allocation inside one slice can overshoot before anyone looks — but it exists at all
+            // only because the stackless VM hands control back here on a schedule the host sets.
+            // A refusing allocator would be exact and is a much larger change.
+            if let Some(limit) = self.memory_limit() {
+                if self.total_memory() > limit {
+                    self.enter(|ctx| ctx.fetch(executor).stop(&ctx));
+                    return Ok(());
+                }
+            }
         }
 
         Ok(())
+    }
+
+    /// The ceiling `finish` enforces on this instance's memory, if any.
+    pub fn memory_limit(&self) -> Option<usize> {
+        self.memory_limit
+    }
+
+    /// Stop execution once this instance is using more than `limit` bytes.
+    ///
+    /// Enforcement is *slice-granular*: the check happens between `Executor::step` calls in
+    /// [`Lua::finish`], so usage can overshoot within a single slice. Pass `None` to remove it.
+    ///
+    /// A host driving `Executor::step` itself should do the same check in its own loop.
+    pub fn set_memory_limit(&mut self, limit: Option<usize>) {
+        self.memory_limit = limit;
     }
 
     /// Run the given executor to completion and then take return values from the returning thread.

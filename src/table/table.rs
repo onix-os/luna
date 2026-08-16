@@ -65,6 +65,7 @@ impl<'gc> Table<'gc> {
             RefLock::new(TableState {
                 raw_table,
                 metatable,
+                readonly: false,
             }),
         ))
     }
@@ -123,7 +124,23 @@ impl<'gc> Table<'gc> {
         key: Value<'gc>,
         value: Value<'gc>,
     ) -> Result<Value<'gc>, InvalidTableKey> {
+        if self.0.borrow().readonly {
+            return Err(InvalidTableKey::ReadOnly);
+        }
         self.0.borrow_mut(&mc).raw_table.set(key, value)
+    }
+
+    /// Whether this table refuses writes.
+    pub fn is_readonly(self) -> bool {
+        self.0.borrow().readonly
+    }
+
+    /// Freeze or unfreeze this table.
+    ///
+    /// A frozen table refuses every write, raw ones included, so freezing the stdlib tables stops
+    /// one script rewriting `string.format` for every other script sharing the globals.
+    pub fn set_readonly(self, mc: &Mutation<'gc>, readonly: bool) {
+        self.0.borrow_mut(mc).readonly = readonly;
     }
 
     /// Returns a 'border' for this table.
@@ -221,6 +238,9 @@ impl<'gc> IntoIterator for Table<'gc> {
 pub struct TableState<'gc> {
     pub raw_table: RawTable<'gc>,
     pub metatable: Option<Table<'gc>>,
+    // A frozen table refuses every write, including raw ones. The stdlib tables live in shared
+    // globals, so without this one script can replace `string.format` for every other script.
+    pub readonly: bool,
 }
 
 impl<'gc> fmt::Debug for TableState<'gc> {
