@@ -82,6 +82,7 @@ impl<'gc> Thread<'gc> {
                 stack: vec::Vec::new_in(MetricsAlloc::new(&ctx)),
                 open_upvalues: vec::Vec::new_in(MetricsAlloc::new(&ctx)),
                 running: false,
+                max_call_depth: ctx.max_call_depth(),
             }),
         );
         ctx.finalizers().register_thread(&ctx, p);
@@ -336,6 +337,8 @@ pub struct ThreadState<'gc> {
     // is normally detectable because its state is borrowed, but a native runs with its thread
     // released so that re-entrant Lua can reach open upvalues, and it must still report `Running`.
     pub(super) running: bool,
+    // Read from the `Lua` state when the thread is created.
+    pub(super) max_call_depth: usize,
 }
 
 impl<'gc> ThreadState<'gc> {
@@ -368,6 +371,17 @@ impl<'gc> ThreadState<'gc> {
     /// Arguments are taken from the top of the stack starting at `bottom`, which will become the
     /// bottom of the newly pushed frame.
     pub(super) fn push_call(&mut self, bottom: usize, function: Function<'gc>) {
+        // Unbounded recursion is a feature of a stackless VM right up until it is an accident, at
+        // which point it exhausts memory with nothing for a host to catch. Refusing the call
+        // instead unwinds like any other error, so `pcall` can see it.
+        if self.frames.len() >= self.max_call_depth {
+            self.stack.truncate(bottom);
+            self.frames.push(Frame::Error(
+                crate::RuntimeError::new(anyhow::anyhow!("stack overflow")).into(),
+            ));
+            return;
+        }
+
         match function {
             Function::Closure(closure) => {
                 let proto = closure.prototype();

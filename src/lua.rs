@@ -1,10 +1,19 @@
+use std::cell::Cell;
 use std::ops;
 
 use ottavino_gc_arena::{
     arena::{CollectionPhase, Root},
     metrics::Metrics,
-    Arena, Collect, Mutation, Rootable,
+    Arena, Collect, Gc, Mutation, Rootable,
 };
+
+/// How deep Lua may recurse before the call raises a catchable error.
+///
+/// A stackless VM does not recurse on the Rust stack, so this is a memory bound rather than the
+/// ~200 C levels PUC-Rio can manage: deep recursion is a feature worth keeping. It exists so that
+/// an accidentally unbounded recursion in a user's script fails with an error a host can catch
+/// instead of running until the machine is out of memory.
+pub const DEFAULT_MAX_CALL_DEPTH: usize = 100_000;
 
 use crate::{
     finalizers::Finalizers,
@@ -62,6 +71,18 @@ impl<'gc> Context<'gc> {
 
     pub fn registry(self) -> Registry<'gc> {
         self.state.registry
+    }
+
+    /// How deep a call chain may get before a call raises an error.
+    ///
+    /// Threads read this when they are created, so changing it does not affect coroutines that
+    /// already exist.
+    pub fn max_call_depth(self) -> usize {
+        self.state.max_call_depth.get()
+    }
+
+    pub fn set_max_call_depth(self, depth: usize) {
+        self.state.max_call_depth.set(depth);
     }
 
     pub fn interned_strings(self) -> InternedStringSet<'gc> {
@@ -298,6 +319,7 @@ struct State<'gc> {
     registry: Registry<'gc>,
     strings: InternedStringSet<'gc>,
     finalizers: Finalizers<'gc>,
+    max_call_depth: Gc<'gc, Cell<usize>>,
 }
 
 impl<'gc> State<'gc> {
@@ -307,6 +329,7 @@ impl<'gc> State<'gc> {
             registry: Registry::new(mc),
             strings: InternedStringSet::new(mc),
             finalizers: Finalizers::new(mc),
+            max_call_depth: Gc::new(mc, Cell::new(DEFAULT_MAX_CALL_DEPTH)),
         }
     }
 
