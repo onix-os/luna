@@ -1,0 +1,164 @@
+name: release
+
+on:
+  release:
+    types: [created]
+  # So a binary can be built and downloaded without cutting a release — for testing a fix on a
+  # machine that is not this one, which is most of why anybody wants a build.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: release ${{ matrix.artifact }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            artifact: "oslo-linux-amd64"
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            artifact: "oslo-linux-arm64"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.94.0
+        with:
+          targets: ${{ matrix.target }}
+      # `musl-tools` is back. It was dropped when mlua's vendored Lua left the tree, on the
+      # grounds that nothing compiled C any more; `turso` then arrived and brought `zstd-sys`,
+      # `softaes` and `simsimd`, whose build scripts all shell out to `cc`. The Build step below
+      # has been exporting `CC_<target>=musl-gcc` the whole time — for a compiler that was not
+      # installed, which is a failure nobody saw because this workflow had never run.
+      #
+      # Native on both runners: `musl-gcc` targets the host architecture, and the arm64 job runs
+      # on an arm64 runner, so neither leg cross-compiles.
+      - name: Install the musl C toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
+          musl-gcc --version | head -1
+      # Deliberately does NOT set a linker for the target. Pointing it at `musl-gcc` looks correct
+      # and silently produces a *dynamically* linked musl binary — one that records an INTERP
+      # pointing at whatever musl the build host had, and segfaults on any machine that does not
+      # have that exact path. Leaving the linker alone lets rustc use the musl libc it ships in the
+      # target's self-contained directory, which is what makes the result genuinely static.
+      #
+      # **Two binaries, from one checkout.** `oslo` is every optional feature; `oslo-minimal` is
+      # none of them — the floor a distribution wants for `/bin/sh`, without the prediction model.
+      # They are staged into `dist/` as they are built because both land on the same path under
+      # `target/`, and the second build would otherwise overwrite the first.
+      - name: Build
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
+        run: |
+          cc_var="CC_$(echo '${{ matrix.target }}' | tr - _)"
+          export "$cc_var=musl-gcc"
+          built="target/${{ matrix.target }}/release/oslo"
+          mkdir -p dist
+
+          cargo build --release --target '${{ matrix.target }}' --bin oslo --all-features
+          cp "$built" dist/oslo
+
+          cargo build --release --target '${{ matrix.target }}' --bin oslo
+          cp "$built" dist/oslo-minimal
+
+          ls -l dist/
+      # "Static" is a claim about the ELF, so check the ELF. `ldd` is not enough: it prints
+      # "statically linked" for a musl binary that still has an INTERP and will not start.
+      - name: Assert the binaries are static
+        run: |
+          for bin in dist/oslo dist/oslo-minimal; do
+            file "$bin"
+            if readelf -l "$bin" | grep -q 'program interpreter'; then
+              echo "::error::$bin requests a dynamic loader; it is not static" >&2
+              readelf -l "$bin" | grep 'program interpreter' >&2
+              exit 1
+            fi
+            if readelf -d "$bin" 2>/dev/null | grep -q NEEDED; then
+              echo "::error::$bin has NEEDED entries; it is not static" >&2
+              readelf -d "$bin" | grep NEEDED >&2
+              exit 1
+            fi
+            echo "$bin: no INTERP and no NEEDED — statically linked"
+          done
+      # A shell that cannot run `echo` is not worth shipping; catch that before the asset is
+      # attached to the release rather than after someone downloads it. stdin comes from
+      # /dev/null so a REPL-fallback bug cannot hang the runner. Both interfaces are exercised,
+      # because a binary that builds is not yet a binary that starts.
+      #
+      # **Both binaries, and the same checks.** The optional features change what the shell can
+      # offer, never what it *is*; a minimal build that cannot run `echo` is exactly as unshippable
+      # as a full one that cannot. Everything below is common ground, which is why neither
+      # `oslo.repair` nor anything else behind a feature appears here.
+      - name: Smoke test
+        run: |
+          for bin in ./dist/oslo ./dist/oslo-minimal; do
+          echo "-- $bin"
+
+          out="$("$bin" -c 'echo ok' </dev/null)"
+          test "$out" = "ok" || { echo "shell printed '$out', expected 'ok'" >&2; exit 1; }
+
+          # Lua, by the routes that reach it — which are now detection and only detection.
+          # `--lua` used to be tested here and no longer exists: a shell whose scripting language
+          # needs an opt-in flag is not really that shell, so the extension and the shebang decide.
+          # `-c` is deliberately *not* one of the routes; it is always shell, because every
+          # `sh -c` idiom in the world depends on that.
+          lua="$(mktemp --suffix=.lua)"; echo 'print("lua " .. _VERSION)' > "$lua"
+          "$bin" "$lua" </dev/null | grep -q 'lua Lua 5.4' \
+            || { echo "a .lua file was not detected as Lua" >&2; exit 1; }
+
+          shebang="$(mktemp)"; printf '#!/usr/bin/lua\nprint("lua " .. _VERSION)\n' > "$shebang"
+          "$bin" "$shebang" </dev/null | grep -q 'lua Lua 5.4' \
+            || { echo "a lua shebang was not detected as Lua" >&2; exit 1; }
+
+          # The structured pipeline, since it is the part most likely to be broken by a build
+          # difference rather than by a code change.
+          rows="$("$bin" -c "printf 'a\nb\n' | lines | length" </dev/null)"
+          test "$rows" = "2" || { echo "structured pipeline printed '$rows', expected 2" >&2; exit 1; }
+          done
+
+          # And the one thing that must differ, asserted in both directions so that a mistake in the
+          # feature wiring fails here rather than shipping a `/bin/sh` with a prediction model in it
+          # — or a full build without one.
+          #
+          # Through a `.lua` file rather than `-c`, because `-c` is always shell: that is the whole
+          # promise made a few lines above, and `=print(…)` is an interactive escape the flag has no
+          # reason to honour.
+          probe="$(mktemp --suffix=.lua)"; echo 'print(type(oslo.repair))' > "$probe"
+          ./dist/oslo "$probe" </dev/null | grep -qx 'function' \
+            || { echo "the full build has no oslo.repair" >&2; exit 1; }
+          ./dist/oslo-minimal "$probe" </dev/null | grep -qx 'nil' \
+            || { echo "the minimal build has oslo.repair; the feature gate leaks" >&2; exit 1; }
+          echo "oslo.repair: present in the full build, absent in the minimal one"
+      - name: Package
+        run: |
+          tar -C dist -czf "${{ matrix.artifact }}.tar.gz" oslo
+          sha256sum "${{ matrix.artifact }}.tar.gz" > "${{ matrix.artifact }}.tar.gz.sha256"
+          tar -C dist -czf "${{ matrix.artifact }}-minimal.tar.gz" oslo-minimal
+          sha256sum "${{ matrix.artifact }}-minimal.tar.gz" > "${{ matrix.artifact }}-minimal.tar.gz.sha256"
+      # Downloadable from the run itself, so a manual build is useful without a release.
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}.tar.gz
+            ${{ matrix.artifact }}.tar.gz.sha256
+            ${{ matrix.artifact }}-minimal.tar.gz
+            ${{ matrix.artifact }}-minimal.tar.gz.sha256
+          if-no-files-found: error
+      # And attached to the release, when there is one.
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ matrix.artifact }}.tar.gz
+            ${{ matrix.artifact }}.tar.gz.sha256
+            ${{ matrix.artifact }}-minimal.tar.gz
+            ${{ matrix.artifact }}-minimal.tar.gz.sha256

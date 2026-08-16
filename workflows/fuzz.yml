@@ -1,0 +1,158 @@
+name: fuzz
+
+on:
+  schedule:
+    # 03:17 UTC nightly. Off the hour, because everything else in the world runs on it.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "Seconds of mutation per target"
+        required: false
+        default: "600"
+  pull_request:
+    paths:
+      # **Where the code being fuzzed actually is.** These read `src/lexer/**`, `src/parser/**` and
+      # `src/expand/arithmetic/**` until the shell became six crates and every one of those paths
+      # stopped existing — so a pull request touching the parser stopped running the fuzz job, in
+      # silence, which is the failure mode a path filter has.
+      - "fuzz/**"
+      - "crates/oslo-shell/src/lexer/**"
+      - "crates/oslo-shell/src/syntax/**"
+      - "crates/oslo-shell/src/expand/**"
+      - "vendor/brush-parser/**"
+      - ".github/workflows/fuzz.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # A scheduled run gets a real budget. A pull request only needs proof that the targets still
+  # build and still survive the committed corpus, so it gets a minute — long enough to catch a
+  # target that broke, short enough that nobody waits on it.
+  FUZZ_SECONDS: ${{ inputs.seconds || (github.event_name == 'schedule' && '600' || '60') }}
+  # Targets whose mutation step is a known, recorded failure. Each entry needs a file in
+  # fuzz/known/ and a section in fuzz/known/README.md saying what the bug is, exactly as
+  # tests/differential/expected_fail.rs works for the differential corpus. Delete the entry the
+  # day the bug is fixed — `known_findings_are_still_open` will already have failed to remind you.
+  #
+  # Empty: both recorded findings — a scanner that stopped advancing on a Unicode blank, and
+  # exponential backtracking on unmatched openers — are fixed, and their reproducers now live in
+  # fuzz/seeds/ as regression inputs. Every target is expected to fuzz clean.
+  FUZZ_KNOWN_OPEN: ""
+
+jobs:
+  # The half that needs no nightly and no sanitizer: replay every committed input through every
+  # target under plain `cargo test`. If this goes red the harness itself is broken, and that has
+  # to be distinguishable from the fuzzer finding a bug in the shell.
+  replay:
+    name: replay corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned to the same stable release as the `verify` job in tests.yml. Bump both together.
+      - uses: dtolnay/rust-toolchain@1.94.0
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            fuzz/target
+          key: fuzz-replay-${{ hashFiles('Cargo.lock', 'fuzz/Cargo.toml') }}
+          restore-keys: fuzz-replay-
+      - name: Replay tests/corpus and fuzz/seeds through all three targets
+        run: cargo test --manifest-path fuzz/Cargo.toml --lib -- --nocapture
+
+  fuzz:
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [fuzz_parse, fuzz_lexer, fuzz_arith]
+    env:
+      RUSTUP_TOOLCHAIN: nightly
+    steps:
+      - uses: actions/checkout@v4
+
+      # Deliberately not pinned, and the only unpinned toolchain in this repository. cargo-fuzz
+      # needs `-Zsanitizer`, which is nightly-only, and the point of a nightly job is to run
+      # against the current sanitizer rather than a fossil of one. This job gates nothing on the
+      # default branch, so a toolchain that breaks costs a red cron and not a blocked merge.
+      #
+      # `RUSTUP_TOOLCHAIN` below is what keeps it nightly: `rust-toolchain.toml` pins a stable
+      # version for everything else and takes precedence over the toolchain this action installs,
+      # which would leave cargo-fuzz asking a stable compiler for `-Zsanitizer`.
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/cargo-fuzz
+            fuzz/target
+          key: fuzz-build-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'fuzz/Cargo.toml') }}
+          restore-keys: fuzz-build-${{ matrix.target }}-
+
+      # The corpus a previous night grew, restored by prefix so each run starts from the coverage
+      # the last one reached. A cold cache is not a failure: seed-corpus.sh rebuilds the floor
+      # from tests/corpus every time.
+      - uses: actions/cache@v4
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+
+      # The cache above restores ~/.cargo/bin/cargo-fuzz, and `cargo install` refuses to overwrite
+      # a binary it did not just place there: "binary `cargo-fuzz` already exists in destination".
+      # So every warm-cache run failed here, before a single target was fuzzed — the cache and the
+      # install step were each correct and together they were a hard error. Use what the cache
+      # restored; build only when there is nothing to use. `--force` would work too and would
+      # rebuild cargo-fuzz on every run, which is the whole cost the cache exists to avoid.
+      - name: Install cargo-fuzz
+        run: cargo fuzz --version || cargo install cargo-fuzz --locked --version ^0.13
+
+      - name: Seed the corpus from tests/corpus
+        run: ./fuzz/seed-corpus.sh
+
+      # The acceptance criterion from PLAN.md R10.4: the targets run clean over a fixed corpus.
+      # `-runs=0` executes every corpus file once and stops, so this is deterministic and fast —
+      # and it is a hard failure even for a target listed in FUZZ_KNOWN_OPEN, because a known bug
+      # is an excuse for the mutation step below, never for the committed inputs.
+      - name: Corpus regression (${{ matrix.target }})
+        run: cargo fuzz run ${{ matrix.target }} fuzz/corpus/${{ matrix.target }} -- -runs=0
+
+      - name: Fuzz for ${{ env.FUZZ_SECONDS }}s (${{ matrix.target }})
+        run: |
+          set +e
+          cargo fuzz run ${{ matrix.target }} fuzz/corpus/${{ matrix.target }} -- \
+            -max_total_time="$FUZZ_SECONDS" \
+            -timeout=10 \
+            -rss_limit_mb=4096 \
+            -print_final_stats=1
+          status=$?
+          set -e
+          [ "$status" -eq 0 ] && exit 0
+
+          for known in $FUZZ_KNOWN_OPEN; do
+            if [ "$known" = "${{ matrix.target }}" ]; then
+              echo "::warning title=${{ matrix.target }}::Failed on a finding recorded in fuzz/known/README.md. The artifact is attached; check it is the same bug, and delete the FUZZ_KNOWN_OPEN entry once the bug is fixed."
+              exit 0
+            fi
+          done
+          exit "$status"
+
+      - name: Upload reproducers
+        if: always() && hashFiles('fuzz/artifacts/**') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: reproducers-${{ matrix.target }}
+          path: fuzz/artifacts/
+          retention-days: 30
