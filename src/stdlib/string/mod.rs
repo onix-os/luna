@@ -431,7 +431,8 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                         count += 1;
                         last_end = Some(m.end);
                         pos = if m.end > m.start { m.end } else { m.end + 1 };
-                        if pos > src_bytes.len() {
+                        if is_anchored(&pat_bytes) || pos > src_bytes.len() {
+                            result.extend_from_slice(src_bytes.get(pos..).unwrap_or_default());
                             break;
                         }
                     }
@@ -537,7 +538,8 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                                 count += 1;
                                 last_end = Some(m.end);
                                 pos = if m.end > m.start { m.end } else { m.end + 1 };
-                                if pos > src.len() {
+                                if is_anchored(&pat) || pos > src.len() {
+                                    result.extend_from_slice(src.get(pos..).unwrap_or_default());
                                     break;
                                 }
                             }
@@ -757,6 +759,7 @@ fn gsub_string(
     let mut pos = 0usize;
     let mut count = 0i64;
     let mut last_end: Option<usize> = None;
+    let anchored = is_anchored(pat);
 
     loop {
         if count >= max_subs {
@@ -777,9 +780,20 @@ fn gsub_string(
         count += 1;
         last_end = Some(m.end);
         pos = if m.end > m.start { m.end } else { m.end + 1 };
-        if pos > src.len() {
+        if anchored || pos > src.len() {
+            result.extend_from_slice(src.get(pos..).unwrap_or_default());
             break;
         }
     }
     Ok((result, count))
+}
+
+/// Does this pattern anchor to the start of the subject?
+///
+/// `^` means gsub substitutes at most once, at position one — not once per position. Reference Lua
+/// leaves its substitution loop after a single attempt when the pattern is anchored
+/// (`lstrlib.c`, `str_gsub`), and every replacement form here has to do the same or
+/// `("aaa"):gsub("^a", "X")` answers `XXX 3` where Lua answers `Xaa 1`.
+fn is_anchored(pat: &[u8]) -> bool {
+    pat.first() == Some(&b'^')
 }

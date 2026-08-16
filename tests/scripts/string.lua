@@ -137,3 +137,23 @@ do
     assert(is_err(function() return string.char(256) end))
     assert(is_err(function() return string.char(-1) end))
 end
+
+do
+    -- `^` anchors to the start of the subject, so gsub substitutes at most once. The loop used to
+    -- search again from just after each match, where the anchor re-applied at the new offset, and
+    -- ("aaa"):gsub("^a", "X") answered "XXX" 3.
+    local s, n = string.gsub("aaa", "^a", "X")
+    assert(s == "Xaa" and n == 1)
+
+    s, n = string.gsub("aaa", "a", "X")
+    assert(s == "XXX" and n == 3, "an unanchored pattern still replaces every match")
+
+    s, n = string.gsub("aaa", "^a", function() return "Y" end)
+    assert(s == "Yaa" and n == 1, "the function form anchors too")
+
+    s, n = string.gsub("aaa", "^(a)", { a = "Z" })
+    assert(s == "Zaa" and n == 1, "the table form anchors too")
+
+    s, n = string.gsub("abc", "^x", "Q")
+    assert(s == "abc" and n == 0, "an anchored pattern that does not match changes nothing")
+end
