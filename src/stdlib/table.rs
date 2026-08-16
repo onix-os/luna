@@ -218,6 +218,22 @@ pub fn load_table<'gc>(ctx: Context<'gc>) {
             };
 
             let length = t.length(&ctx);
+            // A table's border is not a count: `t[1]=true; t[1<<62]=true` reports a length of
+            // 2^62 while holding two entries. Preallocating that aborts the process, so the two
+            // cases a border can be absurd are split — PUC-Rio's own "array too big" for anything
+            // past the int range, and the interruptible Lua sort for merely large ones, which
+            // allocates against the memory ceiling instead of straight from the host allocator.
+            if length >= i32::MAX as i64 {
+                return Err("bad argument #1 to 'sort' (array too big)"
+                    .into_value(ctx)
+                    .into());
+            }
+            if length > 1_000_000 {
+                return Ok(CallbackReturn::Call {
+                    function: (*fallback).into(),
+                    then: None,
+                });
+            }
             let mut values = Vec::with_capacity(length.max(0) as usize);
             for i in 1..=length {
                 values.push(t.get_raw(&ctx, Value::Integer(i)));

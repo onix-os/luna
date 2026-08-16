@@ -1,6 +1,6 @@
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use crate::{Callback, CallbackReturn, Context, IntoValue, String, Table, Value};
+use crate::{Callback, CallbackReturn, Context, Error, IntoValue, String, Table, Value};
 
 /// When this process started, for `os.clock`.
 pub(super) fn process_start() -> Instant {
@@ -184,20 +184,32 @@ pub fn load_os<'gc>(ctx: Context<'gc>) {
             let seconds = match arg {
                 None | Some(Value::Nil) => now_seconds(),
                 Some(Value::Table(t)) => {
-                    let field = |name: &'static str, default: i64| -> i64 {
-                        t.get_value(ctx, name.into_value(ctx))
-                            .to_integer()
-                            .unwrap_or(default)
+                    // PUC-Rio's fields are C ints and it rejects anything that does not fit with
+                    // "field 'x' is out-of-bound". Bounding them here is also what keeps the day
+                    // and second arithmetic below inside i64: a year of 1e18 otherwise overflows
+                    // `era * 146_097`, which panics wherever overflow checks are on and silently
+                    // wraps where they are not.
+                    let field = |name: &'static str, default: i64| -> Result<i64, Error<'gc>> {
+                        let value = t.get_value(ctx, name.into_value(ctx));
+                        if value.is_nil() {
+                            return Ok(default);
+                        }
+                        match value.to_integer() {
+                            Some(i) if i32::try_from(i).is_ok() => Ok(i),
+                            _ => Err(format!("field '{name}' is out-of-bound")
+                                .into_value(ctx)
+                                .into()),
+                        }
                     };
                     let days = days_from_civil(
-                        field("year", 1970),
-                        field("month", 1) as u32,
-                        field("day", 1) as u32,
+                        field("year", 1970)?,
+                        field("month", 1)? as u32,
+                        field("day", 1)? as u32,
                     );
                     days * 86_400
-                        + field("hour", 12) * 3600
-                        + field("min", 0) * 60
-                        + field("sec", 0)
+                        + field("hour", 12)? * 3600
+                        + field("min", 0)? * 60
+                        + field("sec", 0)?
                 }
                 Some(_) => {
                     return Err("bad argument #1 to 'time' (table expected)"
