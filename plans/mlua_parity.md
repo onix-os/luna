@@ -5,9 +5,20 @@ embedding Lua in Rust — as a pure-Rust VM, with no FFI.
 
 | | |
 |---|---|
-| **luna** | `dd31437`, 2026-08-16 (~23k LOC) |
+| **luna** | ~26k LOC |
 | **mlua** | 0.12.0 (~23k LOC) |
-| **Compiled** | 2026-08-16 |
+| **Surveyed** | 2026-08-16 at `dd31437` |
+| **Status refreshed** | 2026-08-16, after the implementation pass below |
+
+## Where this stands
+
+**Most of this document has been implemented.** The survey below is kept as written — it is the
+evidence for each gap, and the file:line citations are still where the work happened — but the
+status of each item is now recorded in §0.1. Read that first; the tables after it describe the
+tree as it was *before* the work, not as it is now.
+
+Verified against a running build rather than assumed: every item marked done below has a test in
+`tests/`, and the whole suite passes under `make verify`.
 
 ## Scope
 
@@ -33,21 +44,40 @@ was to **refute** them by hunting for the capability in luna under a different n
 findings went in; refuted ones were dropped and corrected statuses applied before synthesis.
 
 The headline claims were then re-checked by hand against a running build rather than taken on
-trust. The probe below is reproducible with `make run EXAMPLE=interpreter ARGS=<file>`:
+trust — and re-checked again after the implementation pass.
 
-```
-_G  xpcall  rawequal  dofile  loadfile  require  os  io  utf8  debug
-package  warn  coroutine.wrap  coroutine.close  string.pack  string.dump
-```
+---
 
-— all sixteen report `MISSING`; `collectgarbage("collect")` errors with
-`bad argument to 'collectgarbage'`; and `load(src, name, mode, {})` returns a function while
-silently discarding the environment table (verified against `src/stdlib/base.rs:345`, which
-calls `Closure::load(ctx, None, …)` and consumes exactly one argument).
+## 0.1 Status after implementation
 
-That last one is the single most important line in this document — see §1.2. It is not a missing
-feature, it is a **sandbox escape**: Lua code that loads untrusted source into a restricted
-`_ENV` gets the real globals instead.
+Done, each with tests:
+
+| Area | What landed | Tests |
+|---|---|---|
+| **Whole libraries** | `io` (file handles over `std::fs`, `popen`), `os` (UTC dates hand-rolled, no new crates), `package`/`require` (no C searcher), `utf8`, `debug` (`traceback`, `getinfo`, upvalues) | `io_lib`, `os_lib`, `package_lib`, `utf8_lib`, `debug_lib` |
+| **Base functions** | `xpcall`, `dofile`, `loadfile`, `rawequal`, `warn`, `_G`, `coroutine.wrap`/`close`/`isyieldable`, `string.pack`/`unpack`/`packsize` | `stdlib_batch`, `string_pack` |
+| **The sandbox escape** | `load` honours `chunkname`, `mode` and **`env`** | `load` |
+| **Diagnostics** | `chunk:line:` on runtime errors, `error(msg, level)` with levels 0/1/2, real messages instead of "operator error" | `error_positions` |
+| **Metamethods** | `__close` on every scope exit including error unwinding, `__metatable` protection, `__name`, metatables on strings, `getmetatable` on any value | `close_attribute`, `metamethods` |
+| **Numeric semantics** | exact integer/float comparison past 2^53, `%.14g` float printing with `.0`, `modf`/`fmod`/`tointeger`/`randomseed`, integer-preserving string arithmetic, bitwise ops rejecting strings | `numeric_semantics`, `metamethods` |
+| **Control plane** | memory ceiling, recursion ceiling, frozen tables, `collectgarbage` verbs, `table.clear`, `table.interceptall` | `sandbox`, `recursion`, `gc_control` |
+| **Rust API** | map/set conversions, `Either`, `prelude`, `Result` alias, wide integer and runtime string conversions, `UserRef<T>` | `rust_api`, `conversions_map` |
+| **Correctness fixes** | serde deserializer recursion guard (was a **process crash** on a cyclic table), `gsub` following `__index`, `gmatch` `init`, `ipairs` returning three values | `serde_recursion`, `metamethods` |
+| **Re-entrancy** | a nested `Executor` may be driven from a callback; natives run with their thread released | `reentrancy` |
+
+Still open, and why:
+
+| Item | Why it is still open |
+|---|---|
+| **`__gc` finalizers** | gc-arena makes `#[collect(no_drop)]` and `Drop` mutually exclusive, so a GC-typed payload can never have a destructor. `src/finalizers.rs` has the right prepare/finalize shape; only threads are registered. |
+| **`__mode` weak tables** | Needs the collector to skip tracing the weak side and then clear dead entries. Getting that wrong is an unsoundness, not a bug, so it wants a careful pass of its own. |
+| **Real async** | Awaiting foreign futures needs a real `Waker` plumbed through `Executor::step` and `Lua::enter` reconciled with being held across an await. Large, and tractable — the stackless design helps once started. |
+| **`Send`/`Sync` `Lua`** | Architectural: the arena's ownership model is what makes the re-entrancy guarantees sound. One `Lua` per thread and message passing. |
+| **Derive macros** | Wants a proc-macro crate in the workspace; `UserRef` removed the sharpest edge without one. |
+| **`string.dump`** | Needs a versioned bytecode format and a validating loader designed from scratch. |
+| **`debug.sethook`, `getlocal`** | `sethook` needs a dispatch point in the opcode loop; `getlocal` needs a register→name table the compiler does not emit. `Fuel` already covers the count-hook use case, better. |
+| **`Error::BadArgument`** | Argument position is dropped by `Stack::consume`; threading it through `FromMultiValue` is a wider change than it looks. |
+| **serde options, `impl Serialize for Value`** | The crash is fixed; the option surface is not built. |
 
 ---
 
@@ -78,6 +108,9 @@ The three structural themes behind most P0/P1 items:
 ---
 
 ## 1. Standard library coverage
+
+> **These tables are the original survey.** Statuses here are as of `dd31437`, before the work in
+> §0.1. They are kept for their evidence and citations, not as a current picture.
 
 ### 1.1 Entire libraries absent
 
