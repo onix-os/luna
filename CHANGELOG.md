@@ -1,3 +1,145 @@
+# Changelog
+
+## [0.5.0] - 2026-08-16
+
+### <!-- 0 -->⛰️  Features
+
+- Give StashedError Debug and Display
+- String.dump and a validating bytecode loader
+- FromValue and IntoValue derive macros
+- Weak keys with ephemeron marking
+- Getlocal and setlocal over a register-name table
+- Line and count hooks via sethook
+- Option surface for both directions
+- Await foreign futures behind the async feature
+- Default io streams, package search, native table fast paths
+- Serialize a Lua value into any serde format
+- Hold values weakly for __mode=v tables
+- Collect before enforcing the memory ceiling
+- Separate the collector step from mutator entry
+- Run __gc handlers via the finalizer registry
+- Add UserRef for typed payload arguments
+- Honour gsub __index, add table.clear and gmatch init
+- Add Either, a prelude, and wider conversions
+- Add the debug library with tracebacks
+- Add source positions and error levels
+- Add __metatable, __name, and PUC-Rio float printing
+- Add popen, execute and an all-writes store hook
+- Implement close attribute on every scope exit
+- Add string.pack, unpack and packsize
+- Implement the collectgarbage verbs as deferred requests
+- Add the utf8 library
+- Add frozen tables and a memory ceiling
+- Add io file handles over std::fs
+- Add package and require without a C loader
+- Add the os library with UTC dates
+- Convert maps and sets to and from tables
+- Add xpcall, coroutine wrap/close, loadfile, rawequal
+- Iterate the map part in insertion order
+- Bound call depth with a catchable error
+- Implement the `string` stdlib
+- Implement PUC-Rio tonumber ([#75](https://github.com/onix-os/luna/issues/75))
+- Make type match PUC-Lua
+- Make nesting more apparent in compiler example.
+
+### <!-- 1 -->🐛 Bug Fixes
+
+- Report numbers in Lua terms, not Rust ones
+- Reject a zero for-step and repair Stack::drain
+- Reject values that would corrupt a binary record
+- Keep weak-value entries out of the array part
+- Make weak keys and weak values actually work
+- Bound os.time fields and table.sort borders
+- Wrap hex integer literals like PUC-Rio
+- Match PUC-Rio gsub, patterns, format and pack
+- Match Lua 5.4 numeric semantics
+- Support generic types
+- Make print honour __tostring
+- Bound metamethod chains and concat length
+- Rawlen accepts strings, not only tables
+- A native caller contributes no source position
+- Stop repeating the message in the cause chain
+- Match PUC-Rio integer and float semantics
+- Bound deserializer recursion instead of overflowing
+- Load honours chunkname, mode and env
+- Run natives with their thread released
+- Gsub honours the ^ anchor
+- Reinit
+- Reinit
+- Be correct so we don't burn from Zs ([#77](https://github.com/onix-os/luna/issues/77))
+- Allow seed to be any size ([#66](https://github.com/onix-os/luna/issues/66))
+- Math.random ([#48](https://github.com/onix-os/luna/issues/48))
+
+### <!-- 2 -->🚜 Refactor
+
+- Run natives on the real stack, not a copy
+- Give the value stack its own lock
+
+### <!-- 3 -->📚 Documentation
+
+- Drop the plans folder
+- Record the 0.4.0 release and the hardening pass
+- Record the sort and os.time bounds
+- Correct the status, size and debug claims
+- Record the VM's resource limits
+- Record string.dump in the parity map
+- Record the ephemeron design and its measured cost
+- Record the closed stdlib gaps
+- Refresh the parity map and compatibility tables
+- Measure and document binary size
+- Record phase 3 completion
+- Record the measurement that closes phase 3
+- Document threading, weak keys and the debug library
+- Record parity implementation status
+- Refresh COMPATIBILITY against the running VM
+- Add mlua parity inventory
+- Remove upstream blog link
+- Add simple function execution example. ([#105](https://github.com/onix-os/luna/issues/105))
+
+### <!-- 4 -->⚡ Performance
+
+- Keep the error path out of the dispatch loop
+- Settle interned equality by pointer
+- Follow table metamethod chains in a loop
+- Register finalizable objects in O(1), and prune weak-key tables
+- Shift call arguments instead of shifting the whole frame
+- Share one hash seed instead of one per table
+- Summarise Debug output instead of dumping graphs
+
+### <!-- 6 -->🧪 Testing
+
+- Cover chain, concat and print hardening
+- A rust callback can be a __gc handler
+- Reproduce the nested-executor upvalue panic
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Rename LICENSE-MIT to LICENSE
+- Update lockfile for serde_json dev-dependency
+- Silence unused warnings in io
+- Rename gc-arena references
+- Version 0.4.0
+- Give fork a unique name (ottavino)
+- Format and clean up some warnings
+
+### SequenceExt
+
+- :map_result
+
+### Table
+
+- :next API does not need auto key conversion
+
+### `OpCode
+
+- :NumericForLoop` clarity
+
+### Build
+
+- Gate every feature in make verify
+- Optimise release builds for size
+- Drop clap, trim rand, tune release profile
+
 ## [0.4.0]
 
 The first release under the name **luna**, and the release that closes the gap between "a Lua VM"
