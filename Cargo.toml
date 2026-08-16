@@ -61,6 +61,10 @@ rustyline = "14.0"
 # symbols. This is a library, so these apply only to what is built *here* — examples, tests and
 # the REPL — not to anything downstream.
 [profile.release]
+# Cuts a `Lua::core()` embed from ~794 KB to ~600 KB for about 19% off the VM's speed. Not "z",
+# which saves a further 43 KB but runs 2.4x slower: `run_vm` is one large dispatch loop and "z"
+# disables the inlining it depends on. See the README's "Binary size" section.
+opt-level = "s"
 lto = true
 codegen-units = 1
 strip = true
