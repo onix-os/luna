@@ -67,7 +67,7 @@ See COMPATIBILITY.md's Language section for the itemised list.
 | Library | luna | mlua (PUC-Lua) | Gap |
 |---|---|---|---|
 | base | all of it | all | `_VERSION` is `"luna"`; `pairs` returns 2 values not 3 |
-| string | all, including `pack`/`unpack`/`packsize` | all | `string.dump` — needs a bytecode format |
+| string | all of it | all | `dump` handles chunks only, and `load` needs an explicit `"b"` mode for binary |
 | table | all | all | `sort` and `move` are native for the metatable-free case, Lua for the rest |
 | math | all | all | — |
 | coroutine | all | all | — |
@@ -109,7 +109,6 @@ All of them, including `__gc`, `__close`, `__metatable`, `__name`, `__pairs`. Th
 | **`Send`/`Sync` `Lua`** | The arena's ownership model is what makes the re-entrancy guarantees sound; changing it is a gc-arena change. One `Lua` per thread and message passing is the answer. | Architectural |
 | **Weak keys (`__mode = "k"`)** | Needs ephemeron marking — the collector must iterate to a fixed point. Without it the naive version leaks in exactly the case weak keys are used for. | Medium |
 | **Derive macros** | Wants a proc-macro crate in the workspace. `UserRef` removed the sharpest edge without one. | Medium |
-| **`string.dump`** | Needs a versioned bytecode format *and* a validating loader, designed from scratch — a malformed chunk must not be able to corrupt the VM. | Medium |
 | **`debug.sethook` / `getlocal`** | `sethook` needs a dispatch point in the opcode loop; `getlocal` needs a register→name table the compiler does not emit. `Fuel` already covers the count-hook use case, better. | Medium |
 | **serde option surface** | The recursion crash is fixed and both directions work; the options are not built. | Small |
 
