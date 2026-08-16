@@ -893,7 +893,13 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
         self.fuel
             .consume(count_fuel(Self::FUEL_PER_ITEM, arg_count));
 
-        self.stack.remove(function_index);
+        // Shift the arguments down over the function slot, rather than `Vec::remove`, which shifts
+        // every value above it — the whole rest of the frame — only for the truncate below to throw
+        // that work away. `tail_call_function` already does it this way.
+        self.stack.copy_within(
+            function_index + 1..function_index + 1 + arg_count,
+            function_index,
+        );
         self.stack.truncate(function_index + arg_count);
 
         self.state.push_call(&mut self.stack, function_index, call);
