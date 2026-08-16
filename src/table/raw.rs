@@ -668,3 +668,12 @@ fn to_array_index<'gc>(key: Value<'gc>) -> Option<usize> {
 fn highest_bit(i: usize) -> usize {
     i.checked_ilog2().map(|i| i + 1).unwrap_or(0) as usize
 }
+
+impl<'gc> RawTable<'gc> {
+    /// Drop every entry and release the buckets, unlike setting each key to nil.
+    pub fn clear(&mut self) {
+        self.array.clear();
+        self.map.clear();
+        self.order.clear();
+    }
+}

@@ -131,6 +131,18 @@ impl<'gc> Table<'gc> {
         self.0.borrow_mut(&mc).raw_table.set(key, value)
     }
 
+    /// Remove every entry, releasing the memory rather than leaving tombstones behind.
+    ///
+    /// Setting keys to nil one at a time leaves `Key::Dead` markers and keeps the buckets
+    /// allocated, which is the right trade during iteration but wrong for emptying a table you
+    /// intend to reuse.
+    pub fn clear(self, mc: &Mutation<'gc>) -> Result<(), InvalidTableKey> {
+        if self.0.borrow().readonly {
+            return Err(InvalidTableKey::ReadOnly);
+        }
+        self.0.borrow_mut(mc).raw_table.clear();
+        Ok(())
+    }
     /// Whether this table refuses writes.
     pub fn is_readonly(self) -> bool {
         self.0.borrow().readonly

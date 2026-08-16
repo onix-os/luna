@@ -158,6 +158,17 @@ pub fn load_table<'gc>(ctx: Context<'gc>) {
         }),
     );
 
+    table.set_field(
+        ctx,
+        "clear",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let t: Table = stack.consume(ctx)?;
+            t.clear(&ctx)?;
+            stack.replace(ctx, t);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
     // Non-standard, and the reason it exists is oslo's shared namespace: whether a write lands in
     // Lua or in the shell depends on the value, so `__newindex` has to see every store.
     table.set_field(

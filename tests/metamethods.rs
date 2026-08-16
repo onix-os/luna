@@ -110,3 +110,59 @@ fn infinities_and_nan_still_print() -> Result<(), ExternError> {
     )?);
     Ok(())
 }
+
+/// `gsub`'s replacement table used a raw lookup, so a class-style `__index` found nothing.
+#[test]
+fn gsub_follows_index_tables() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local base = { cat = "CAT" }
+        local repl = setmetatable({}, { __index = base })
+        local out = string.gsub("a cat here", "cat", repl)
+        return out == "a CAT here"
+    "#
+    )?);
+    Ok(())
+}
+
+/// `table.clear` releases the buckets, unlike setting each key to nil.
+#[test]
+fn table_clear_empties_and_respects_freezing() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local t = { 1, 2, 3, x = 1 }
+        table.clear(t)
+        local emptied = #t == 0 and next(t) == nil
+        local refused = pcall(table.clear, table.freeze({})) == false
+        return emptied and refused
+    "#
+    )?);
+    Ok(())
+}
+
+/// `gmatch` used to discard its third argument silently.
+#[test]
+fn gmatch_honours_init() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local out = {}
+        for w in string.gmatch("one two three", "%a+", 5) do out[#out + 1] = w end
+        return table.concat(out, ",") == "two,three"
+    "#
+    )?);
+    Ok(())
+}
+
+/// `ipairs` returns the triple the manual specifies, not just a pair.
+#[test]
+fn ipairs_returns_three_values() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local f, s, var = ipairs({ 10, 20 })
+        local total = 0
+        for _, v in ipairs({ 10, 20, 30 }) do total = total + v end
+        return type(f) == "function" and type(s) == "table" and var == 0 and total == 60
+    "#
+    )?);
+    Ok(())
+}

@@ -611,7 +611,7 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                             }
                         };
                         let key = ctx.intern(&key_bytes);
-                        let v = t.get_value(ctx, key);
+                        let v = index_through_tables(ctx, t, key);
                         if v.to_bool() {
                             match v {
                                 Value::String(s) => result.extend_from_slice(s.as_bytes()),
@@ -1001,4 +1001,28 @@ fn gsub_string(
 /// `("aaa"):gsub("^a", "X")` answers `XXX 3` where Lua answers `Xaa 1`.
 fn is_anchored(pat: &[u8]) -> bool {
     pat.first() == Some(&b'^')
+}
+
+/// Look a key up through `__index`, as long as every link in the chain is a table.
+///
+/// `gsub`'s table replacement used a raw lookup, so a replacement table backed by a class-style
+/// `__index` silently found nothing. A `__index` *function* would need an `Executor` to call, which
+/// this loop has no way to drive, so that case still falls through to the raw value.
+fn index_through_tables<'gc>(ctx: Context<'gc>, table: Table<'gc>, key: String<'gc>) -> Value<'gc> {
+    let mut current = table;
+    // Bounded so that a metatable cycle cannot spin forever.
+    for _ in 0..100 {
+        let found = current.get_value(ctx, key);
+        if !found.is_nil() {
+            return found;
+        }
+        let Some(meta) = current.metatable() else {
+            return Value::Nil;
+        };
+        match meta.get_value(ctx, crate::MetaMethod::Index) {
+            Value::Table(next) => current = next,
+            _ => return Value::Nil,
+        }
+    }
+    Value::Nil
 }
