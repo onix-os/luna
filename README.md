@@ -17,8 +17,8 @@ own release line. See [ACKNOWLEDGMENT.md](ACKNOWLEDGMENT.md).
 
 The VM is "stackless": Lua and Rust never nest on the Rust call stack. Control returns to your
 loop between steps, which is what makes pausing, cancelling and metering possible at all.
-[This blog post](https://kyju.org/blog/piccolo-a-stackless-lua-interpreter/) explains the design
-in full. For the API, `make rustdoc` builds the docs locally.
+
+For the API, `make rustdoc` builds the docs locally.
 
 ## Example
 
