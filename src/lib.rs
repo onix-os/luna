@@ -44,7 +44,7 @@ pub use self::{
     string::String,
     table::Table,
     thread::{Execution, Executor, ExecutorMode, Thread, ThreadMode},
-    userdata::UserData,
+    userdata::{UserData, UserRef},
     value::Value,
 };
 

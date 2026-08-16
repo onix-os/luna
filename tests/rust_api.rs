@@ -105,3 +105,51 @@ fn maps_still_round_trip() -> Result<(), ExternError> {
     })?);
     Ok(())
 }
+
+/// A typed payload as a callback argument, instead of repeating the downcast by hand.
+#[test]
+fn user_ref_reads_a_payload_directly() -> Result<(), ExternError> {
+    struct Rect {
+        w: i64,
+        h: i64,
+    }
+
+    assert!(run(r#"return area(make()) == 12"#, |ctx| {
+        let make = Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let ud = luna::UserData::new_static(&ctx, Rect { w: 3, h: 4 });
+            stack.replace(ctx, ud);
+            Ok(CallbackReturn::Return)
+        });
+        ctx.set_global("make", make);
+
+        let area = Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let rect: luna::UserRef<Rect> = stack.consume(ctx)?;
+            stack.replace(ctx, rect.w * rect.h);
+            Ok(CallbackReturn::Return)
+        });
+        ctx.set_global("area", area);
+    })?);
+    Ok(())
+}
+
+/// The wrong payload type is a type error rather than a panic.
+#[test]
+fn user_ref_rejects_the_wrong_type() -> Result<(), ExternError> {
+    struct A;
+    struct B;
+
+    assert!(run(r#"return pcall(wants_b, make_a()) == false"#, |ctx| {
+        let make_a = Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            stack.replace(ctx, luna::UserData::new_static(&ctx, A));
+            Ok(CallbackReturn::Return)
+        });
+        ctx.set_global("make_a", make_a);
+
+        let wants_b = Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let _: luna::UserRef<B> = stack.consume(ctx)?;
+            Ok(CallbackReturn::Return)
+        });
+        ctx.set_global("wants_b", wants_b);
+    })?);
+    Ok(())
+}

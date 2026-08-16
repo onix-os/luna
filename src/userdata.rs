@@ -179,3 +179,56 @@ impl<'gc> UserData<'gc> {
         old_metatable
     }
 }
+
+/// A borrowed view of a userdata's payload, usable directly as a callback argument.
+///
+/// Without it a callback has to take `UserData` and repeat the downcast by hand, which loses the
+/// type from the signature — the place a reader looks to find out what the callback accepts.
+///
+/// ```ignore
+/// let area = Callback::from_fn(&ctx, |ctx, _, mut stack| {
+///     let rect: UserRef<Rect> = stack.consume(ctx)?;
+///     stack.replace(ctx, rect.w * rect.h);
+///     Ok(CallbackReturn::Return)
+/// });
+/// ```
+pub struct UserRef<'gc, T: 'static> {
+    inner: &'gc T,
+    userdata: UserData<'gc>,
+}
+
+impl<'gc, T: 'static> UserRef<'gc, T> {
+    /// The userdata this payload came from, for reading its metatable or handing it back.
+    pub fn userdata(&self) -> UserData<'gc> {
+        self.userdata
+    }
+}
+
+impl<'gc, T: 'static> std::ops::Deref for UserRef<'gc, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner
+    }
+}
+
+impl<'gc, T: 'static> crate::FromValue<'gc> for UserRef<'gc, T> {
+    fn from_value(
+        _: crate::Context<'gc>,
+        value: crate::Value<'gc>,
+    ) -> Result<Self, crate::TypeError> {
+        let crate::Value::UserData(userdata) = value else {
+            return Err(crate::TypeError {
+                expected: "userdata",
+                found: value.type_name(),
+            });
+        };
+        match userdata.downcast_static::<T>() {
+            Ok(inner) => Ok(UserRef { inner, userdata }),
+            Err(_) => Err(crate::TypeError {
+                expected: std::any::type_name::<T>(),
+                found: "userdata of another type",
+            }),
+        }
+    }
+}
