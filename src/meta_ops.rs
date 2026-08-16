@@ -172,7 +172,18 @@ pub enum MetaOperatorError {
     IndexKeyError(#[from] InvalidTableKey),
     #[error("concatenation result is too long")]
     ConcatOverflow,
+    #[error("'{}' chain too long; possible loop", .0.name())]
+    ChainTooLong(MetaMethod),
 }
+
+/// How many links a metamethod chain may have before it is treated as a loop.
+///
+/// PUC-Rio's `MAXTAGLOOP`, and for the same reason: `t = {}; setmetatable(t, {__index = t}); t.a`
+/// otherwise follows the chain forever. luna returns control to the executor between links, so a
+/// host driving the VM with a `Fuel` budget can already interrupt it — but `Lua::execute` runs to
+/// completion by design, and a library that hangs its embedder on four lines of Lua is not
+/// something a host can defend against.
+const MAX_META_CHAIN: u32 = 2000;
 
 #[derive(Debug, Copy, Clone, Error)]
 #[error("could not call a {} value", .0)]
@@ -208,6 +219,18 @@ pub fn index<'gc>(
     table: Value<'gc>,
     key: Value<'gc>,
 ) -> Result<MetaResult<'gc, 2>, MetaOperatorError> {
+    index_at_depth(ctx, table, key, 0)
+}
+
+fn index_at_depth<'gc>(
+    ctx: Context<'gc>,
+    table: Value<'gc>,
+    key: Value<'gc>,
+    depth: u32,
+) -> Result<MetaResult<'gc, 2>, MetaOperatorError> {
+    if depth >= MAX_META_CHAIN {
+        return Err(MetaOperatorError::ChainTooLong(MetaMethod::Index));
+    }
     let idx = match table {
         Value::Table(table) => {
             let v = table.get_value(ctx, key);
@@ -288,12 +311,13 @@ pub fn index<'gc>(
     // performance benefit because a `BoxSequence` can avoid allocation when the sequence is a ZST.
     Ok(MetaResult::Call(match idx {
         table @ (Value::Table(_) | Value::UserData(_)) => MetaCall {
-            function: Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            function: Callback::from_fn_with(&ctx, depth, |depth, ctx, _, mut stack| {
                 let table = stack.get(0);
                 let key = stack.get(1);
                 stack.clear();
 
-                match index(ctx, table, key)? {
+                // Each link of the chain is a fresh callback, so the depth has to travel with it.
+                match index_at_depth(ctx, table, key, *depth + 1)? {
                     MetaResult::Value(v) => {
                         stack.push_back(v);
                         Ok(CallbackReturn::Return)
@@ -323,6 +347,19 @@ pub fn new_index<'gc>(
     key: Value<'gc>,
     value: Value<'gc>,
 ) -> Result<Option<MetaCall<'gc, 3>>, MetaOperatorError> {
+    new_index_at_depth(ctx, table, key, value, 0)
+}
+
+fn new_index_at_depth<'gc>(
+    ctx: Context<'gc>,
+    table: Value<'gc>,
+    key: Value<'gc>,
+    value: Value<'gc>,
+    depth: u32,
+) -> Result<Option<MetaCall<'gc, 3>>, MetaOperatorError> {
+    if depth >= MAX_META_CHAIN {
+        return Err(MetaOperatorError::ChainTooLong(MetaMethod::NewIndex));
+    }
     let idx = match table {
         Value::Table(table) => {
             let v = table.get_value(ctx, key);
@@ -372,10 +409,11 @@ pub fn new_index<'gc>(
 
     Ok(Some(match idx {
         table @ (Value::Table(_) | Value::UserData(_)) => MetaCall {
-            function: Callback::from_fn(&ctx, |ctx, _, mut stack| {
-                // NOTE: Potential for indexing loop here, see note in __index.
+            function: Callback::from_fn_with(&ctx, depth, |depth, ctx, _, mut stack| {
                 let (table, key, value): (Value, Value, Value) = stack.consume(ctx)?;
-                if let Some(call) = new_index(ctx, table, key, value)? {
+                // As `__index`: the chain continues through a fresh callback, so the depth rides
+                // along with it.
+                if let Some(call) = new_index_at_depth(ctx, table, key, value, *depth + 1)? {
                     stack.extend(call.args);
                     Ok(CallbackReturn::Call {
                         function: call.function,
@@ -861,6 +899,13 @@ fn estimate_concatenated_len<'gc>(
         len = len
             .checked_add(value_len)
             .ok_or(MetaOperatorError::ConcatOverflow)?;
+    }
+
+    // The same ceiling `string.rep` enforces, and for the same reason: without it `s = s .. s` in a
+    // loop reaches terabytes in sixty iterations, and the host runs out of memory before the
+    // `usize` addition above ever overflows. A script must not be able to do that to its embedder.
+    if len > crate::string::MAX_STRING_LENGTH {
+        return Err(MetaOperatorError::ConcatOverflow);
     }
     Ok(Some(len))
 }

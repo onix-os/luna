@@ -17,6 +17,12 @@ use crate::compiler::string_utils::{debug_utf8_lossy, display_utf8_lossy};
 /// The Lua string type.
 ///
 /// Unlike Rust strings, Lua strings may contain *arbitrary bytes*, and as such are not necessarily
+/// The largest string luna will build, matching PUC-Rio's ~1GiB ceiling.
+///
+/// A limit is not a nicety: without one, `s = s .. s` sixty times asks for terabytes, and the host
+/// process dies before any arithmetic overflows. `string.rep` and concatenation share this.
+pub const MAX_STRING_LENGTH: usize = 0x4000_0000;
+
 /// UTF-8.
 #[derive(Copy, Clone, Collect)]
 #[collect(no_drop)]
