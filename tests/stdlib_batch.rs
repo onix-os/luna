@@ -100,7 +100,8 @@ fn xpcall_runs_the_handler() -> Result<(), ExternError> {
     assert!(eval(
         r#"
         local ok, msg = xpcall(function() error("inner") end, function(e)
-            return "handled: " .. tostring(e)
+            -- `error` is level 1, so `e` arrives with a "chunk:line:" prefix.
+            return "handled: " .. (tostring(e):gsub("^.*:%d+: ", ""))
         end)
         return ok == false and msg == "handled: inner"
     "#

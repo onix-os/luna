@@ -56,11 +56,44 @@ pub type ExecutorInner<'gc> = RefLock<ExecutorState<'gc>>;
 ///
 /// Taken before the native runs, because it runs with its thread unborrowed and there is no live
 /// frame slice left to point at.
-fn upper_lua_frame<'gc>(frames: &[Frame<'gc>]) -> Option<(Closure<'gc>, usize)> {
-    match frames.last() {
-        Some(Frame::Lua { closure, pc, .. }) => Some((*closure, *pc)),
-        _ => None,
+/// `chunk:line` for the innermost Lua frame, if there is one.
+///
+/// Taken where an error is first raised rather than where it is caught: unwinding pops one frame
+/// per step, so by the time the error leaves the executor there is nothing left to ask.
+fn error_position<'gc>(frames: &[Frame<'gc>]) -> Option<std::string::String> {
+    let (closure, pc) = upper_lua_frames(frames)[0]?;
+    let proto = closure.prototype();
+    // `pc` has already been advanced past the faulting instruction.
+    let faulting = pc.saturating_sub(1);
+    let line = match proto
+        .opcode_line_numbers
+        .binary_search_by_key(&faulting, |(opi, _)| *opi)
+    {
+        Ok(i) => proto.opcode_line_numbers[i].1,
+        Err(0) => proto.opcode_line_numbers.first()?.1,
+        Err(i) => proto.opcode_line_numbers[i - 1].1,
+    };
+    Some(format!("{}:{}", proto.chunk_name.display_lossy(), line))
+}
+
+/// The nearest two Lua frames, innermost first.
+///
+/// Two rather than one because `error(msg, 2)` — blame my caller, the idiom every argument-checking
+/// function uses — needs the frame above. A fixed array rather than a `Vec` so that taking this
+/// snapshot before every native call costs no allocation.
+fn upper_lua_frames<'gc>(frames: &[Frame<'gc>]) -> [Option<(Closure<'gc>, usize)>; 2] {
+    let mut found = [None; 2];
+    let mut at = 0;
+    for frame in frames.iter().rev() {
+        if let Frame::Lua { closure, pc, .. } = frame {
+            found[at] = Some((*closure, *pc));
+            at += 1;
+            if at == found.len() {
+                break;
+            }
+        }
     }
+    found
 }
 
 /// The entry-point for the Lua VM.
@@ -318,7 +351,7 @@ impl<'gc> Executor<'gc> {
                         // cannot reach the frames below `bottom`.
                         let (upper_frame, mut scratch) = {
                             let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
-                            let upper_frame = upper_lua_frame(&top_state.frames);
+                            let upper_frame = upper_lua_frames(&top_state.frames);
                             let mut scratch = mem::replace(
                                 &mut state.scratch,
                                 vec::Vec::new_in(MetricsAlloc::new(&ctx)),
@@ -334,7 +367,7 @@ impl<'gc> Executor<'gc> {
                                 executor: self,
                                 fuel,
                                 threads: &state.thread_stack,
-                                upper_frame,
+                                upper_frames: upper_frame,
                             },
                             Stack::new(&mut scratch, 0),
                         );
@@ -405,7 +438,7 @@ impl<'gc> Executor<'gc> {
                         // Detached for the same reason as a callback, above.
                         let (upper_frame, mut scratch) = {
                             let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
-                            let upper_frame = upper_lua_frame(&top_state.frames);
+                            let upper_frame = upper_lua_frames(&top_state.frames);
                             let mut scratch = mem::replace(
                                 &mut state.scratch,
                                 vec::Vec::new_in(MetricsAlloc::new(&ctx)),
@@ -419,7 +452,7 @@ impl<'gc> Executor<'gc> {
                             executor: self,
                             fuel,
                             threads: &state.thread_stack,
-                            upper_frame,
+                            upper_frames: upper_frame,
                         };
                         let poll = if let Some(err) = pending_error {
                             sequence.error(ctx, exec, err, Stack::new(&mut scratch, 0))
@@ -519,7 +552,20 @@ impl<'gc> Executor<'gc> {
                         };
                         match run_vm(ctx, lua_frame, Self::VM_GRANULARITY) {
                             Err(err) => {
-                                top_state.frames.push(Frame::Error(err.into()));
+                                // Give the error a `chunk:line:` prefix while the frame that raised
+                                // it is still on the stack. Added as anyhow context rather than
+                                // by replacing the error with a string, so that Rust callers can
+                                // still `root_cause().downcast_ref()` to the typed cause.
+                                let positioned = match error_position(&top_state.frames) {
+                                    Some(at) => {
+                                        let message = format!("{at}: {err}");
+                                        Error::from(crate::RuntimeError::new(
+                                            anyhow::Error::new(err).context(message),
+                                        ))
+                                    }
+                                    None => Error::from(err),
+                                };
+                                top_state.frames.push(Frame::Error(positioned));
                             }
                             Ok(instructions_run) => {
                                 fuel.consume(instructions_run.try_into().unwrap());
@@ -675,7 +721,7 @@ pub struct Execution<'gc, 'a> {
     threads: &'a [Thread<'gc>],
     // A snapshot rather than a borrow of the frame stack: a native runs with its thread
     // unborrowed, so there is no live slice to point at.
-    upper_frame: Option<(Closure<'gc>, usize)>,
+    upper_frames: [Option<(Closure<'gc>, usize)>; 2],
 }
 
 impl<'gc, 'a> Execution<'gc, 'a> {
@@ -684,7 +730,7 @@ impl<'gc, 'a> Execution<'gc, 'a> {
             executor: self.executor,
             fuel: self.fuel,
             threads: self.threads,
-            upper_frame: self.upper_frame,
+            upper_frames: self.upper_frames,
         }
     }
 
@@ -713,7 +759,13 @@ impl<'gc, 'a> Execution<'gc, 'a> {
     /// If the function we are returning to is Lua, returns information about the Lua frame we are
     /// returning to.
     pub fn upper_lua_frame(&self) -> Option<UpperLuaFrame<'gc>> {
-        let Some((closure, pc)) = self.upper_frame else {
+        self.lua_frame_at(0)
+    }
+
+    /// The Lua frame `level` steps above this native: 0 is the function that called it, 1 that
+    /// function's caller. This is the `level` argument of `error`.
+    pub fn lua_frame_at(&self, level: usize) -> Option<UpperLuaFrame<'gc>> {
+        let Some((closure, pc)) = self.upper_frames.get(level).copied().flatten() else {
             return None;
         };
 

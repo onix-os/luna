@@ -16,7 +16,9 @@ const PRELUDE: &str = r#"
     local log = {}
     local function res(name)
         return setmetatable({}, { __close = function(_, err)
-            log[#log + 1] = name .. (err and ("!" .. tostring(err)) or "")
+            -- Errors now carry a "chunk:line:" prefix; record only the message after it.
+            local text = err and tostring(err):gsub("^.*:%d+: ", "") or nil
+            log[#log + 1] = name .. (text and ("!" .. text) or "")
         end })
     end
     local function result() return table.concat(log, ",") end

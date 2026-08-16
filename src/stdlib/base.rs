@@ -94,7 +94,32 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
 
     ctx.set_global(
         "error",
-        Callback::from_fn(&ctx, |_, _, stack| Err(stack.get(0).into())),
+        Callback::from_fn(&ctx, |ctx, exec, mut stack| {
+            let (message, level): (Value, Option<i64>) = stack.consume(ctx)?;
+            let level = level.unwrap_or(1);
+
+            // Level 0 means "no position". Otherwise the message is prefixed with where the
+            // blame lies: level 1 the function that called `error`, level 2 its caller — which is
+            // the idiom every argument-checking function uses.
+            match (level, message) {
+                (0, _) => Err(message.into()),
+                (level, Value::String(s)) if level > 0 => {
+                    match exec.lua_frame_at((level - 1) as usize) {
+                        Some(frame) => {
+                            let prefixed = format!(
+                                "{}:{}: {}",
+                                frame.chunk_name.display_lossy(),
+                                frame.current_line,
+                                s.display_lossy()
+                            );
+                            Err(ctx.intern(prefixed.as_bytes()).into_value(ctx).into())
+                        }
+                        None => Err(message.into()),
+                    }
+                }
+                _ => Err(message.into()),
+            }
+        }),
     );
 
     ctx.set_global(
