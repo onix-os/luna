@@ -37,7 +37,16 @@ pub struct RawTable<'gc> {
     array: vec::Vec<Value<'gc>, MetricsAlloc<'gc>>,
     // TODO: It would be safer to use `hashbrown::HashTable` and access the inner raw table when
     // necessary, but `HashTable` does not allow access to the inner raw table yet.
-    map: HashMap<Key<'gc>, Value<'gc>, (), MetricsAlloc<'gc>>,
+    // Each entry carries its position in `order` beside its value, so that `next` can resume from
+    // any key without searching.
+    map: HashMap<Key<'gc>, (Value<'gc>, usize), (), MetricsAlloc<'gc>>,
+    // The map part's keys in the order they were first inserted, which is the order `next` walks.
+    //
+    // Lua promises nothing about `pairs` order, but a hash order seeded per process means the same
+    // table iterates differently between runs of the same binary, which is no use to anything
+    // building an ordered structure out of a table. Slots for removed keys are left in place and
+    // skipped, and compacted when the map is next grown.
+    order: vec::Vec<CanonicalKey<'gc>, MetricsAlloc<'gc>>,
     #[collect(require_static)]
     hash_builder: ahash::random_state::RandomState,
 }
@@ -58,7 +67,7 @@ impl<'gc> fmt::Debug for RawTable<'gc> {
                     .chain({
                         self.map.iter().filter_map(|(k, v)| {
                             if let Key::Live(k) = k {
-                                Some((k.to_value().debug_shallow(), v.debug_shallow()))
+                                Some((k.to_value().debug_shallow(), v.0.debug_shallow()))
                             } else {
                                 None
                             }
@@ -85,8 +94,29 @@ impl<'gc> RawTable<'gc> {
         Self {
             array,
             map,
+            order: vec::Vec::new_in(MetricsAlloc::new(mc)),
             hash_builder,
         }
+    }
+
+    /// Drop order slots whose keys are gone, keeping the surviving keys in their relative order.
+    ///
+    /// Only safe to call when the map is being rebuilt anyway: it renumbers every entry.
+    fn compact_order(&mut self) {
+        let map = &mut self.map;
+        let hash_builder = &self.hash_builder;
+        let mut next = 0;
+        self.order.retain(|&key| {
+            let hash = hash_builder.hash_one(key);
+            match map.raw_table_mut().find(hash, |(k, _)| k.eq(key)) {
+                Some(bucket) => {
+                    unsafe { bucket.as_mut() }.1 .1 = next;
+                    next += 1;
+                    true
+                }
+                None => false,
+            }
+        });
     }
 
     pub fn get(&self, key: Value<'gc>) -> Value<'gc> {
@@ -102,7 +132,7 @@ impl<'gc> RawTable<'gc> {
                 .raw_entry()
                 .from_hash(self.hash_builder.hash_one(key), |k| k.eq(key))
             {
-                *v
+                v.0
             } else {
                 Value::Nil
             }
@@ -140,7 +170,8 @@ impl<'gc> RawTable<'gc> {
                     if let Some(dead) = k.kill() {
                         *k = dead;
                     }
-                    mem::take(v)
+                    // The order slot stays, holding this key's position in case it comes back.
+                    mem::take(&mut v.0)
                 } else {
                     Value::Nil
                 },
@@ -153,14 +184,15 @@ impl<'gc> RawTable<'gc> {
         if let Some(bucket) = raw_map.find(hash, |(k, _)| k.eq(table_key)) {
             let (k, v) = unsafe { bucket.as_mut() };
             if k.is_dead_key() {
-                // Resurrect the key if it is dead.
+                // Resurrect the key if it is dead. It keeps the order slot it had before.
                 *k = Key::Live(table_key);
             }
-            return Ok(mem::replace(v, value));
+            return Ok(mem::replace(&mut v.0, value));
         } else if raw_map
-            .try_insert_no_grow(hash, (Key::Live(table_key), value))
+            .try_insert_no_grow(hash, (Key::Live(table_key), (value, self.order.len())))
             .is_ok()
         {
+            self.order.push(table_key);
             return Ok(Value::Nil);
         }
 
@@ -188,7 +220,7 @@ impl<'gc> RawTable<'gc> {
                 }
             }
 
-            for (&key, &value) in &self.map {
+            for (&key, &(value, _)) in &self.map {
                 if !value.is_nil() {
                     if let Some(i) = to_array_index(
                         key.live_key()
@@ -240,8 +272,9 @@ impl<'gc> RawTable<'gc> {
         // Now we can insert the new key value pair
         self.map
             .raw_table_mut()
-            .try_insert_no_grow(hash, (Key::Live(table_key), value))
+            .try_insert_no_grow(hash, (Key::Live(table_key), (value, self.order.len())))
             .unwrap();
+        self.order.push(table_key);
 
         Ok(Value::Nil)
     }
@@ -285,7 +318,7 @@ impl<'gc> RawTable<'gc> {
                     self.hash_builder.hash_one(CanonicalKey::Integer(max)),
                     |k| k.eq(CanonicalKey::Integer(max)),
                 )
-                .is_some_and(|(_, v)| !v.is_nil())
+                .is_some_and(|(_, v)| !v.0.is_nil())
             {
                 if max == i64::MAX {
                     // If we can't find a nil entry by doubling, then the table is pathological. We
@@ -308,7 +341,7 @@ impl<'gc> RawTable<'gc> {
                     .from_hash(self.hash_builder.hash_one(CanonicalKey::Integer(i)), |k| {
                         k.eq(CanonicalKey::Integer(i))
                     }) {
-                    Some((_, v)) => v.is_nil(),
+                    Some((_, v)) => v.0.is_nil(),
                     None => true,
                 }
             })
@@ -336,7 +369,25 @@ impl<'gc> RawTable<'gc> {
             None
         };
 
-        let raw_table = self.map.raw_table();
+        // The first live entry at or after `from` in insertion order, skipping the slots left
+        // behind by keys that have been removed.
+        let from_order = |from: usize| -> NextValue<'gc> {
+            for &candidate in &self.order[from.min(self.order.len())..] {
+                if let Some((_, &(value, _))) = self
+                    .map
+                    .raw_entry()
+                    .from_hash(self.hash_builder.hash_one(candidate), |k| k.eq(candidate))
+                {
+                    if !value.is_nil() {
+                        return NextValue::Found {
+                            key: candidate.to_value(),
+                            value,
+                        };
+                    }
+                }
+            }
+            NextValue::Last
+        };
 
         // If `start_index` is set, then we search the array portion past `start_index` for any
         // non-nil values, otherwise we return the first entry with a non-nil value in the map
@@ -351,50 +402,18 @@ impl<'gc> RawTable<'gc> {
                 }
             }
 
-            unsafe {
-                for bucket_index in 0..raw_table.buckets() {
-                    if raw_table.is_bucket_full(bucket_index) {
-                        let (key, value) = *raw_table.bucket(bucket_index).as_ref();
-                        if !value.is_nil() {
-                            return NextValue::Found {
-                                key: key
-                                    .live_key()
-                                    .expect("dead keys must have e values")
-                                    .to_value(),
-                                value,
-                            };
-                        }
-                    }
-                }
-            }
-
-            return NextValue::Last;
+            return from_order(0);
         }
 
         // Otherwise, if we were given a key present in the map portion, we return the key following
-        // it in bucket order.
+        // it in insertion order.
         if let Ok(table_key) = CanonicalKey::new(key) {
-            if let Some(bucket) = raw_table.find(self.hash_builder.hash_one(table_key), |(k, _)| {
-                k.eq(table_key)
-            }) {
-                unsafe {
-                    let bucket_index = raw_table.bucket_index(&bucket);
-                    for i in bucket_index + 1..raw_table.buckets() {
-                        if raw_table.is_bucket_full(i) {
-                            let (key, value) = *raw_table.bucket(i).as_ref();
-                            if !value.is_nil() {
-                                return NextValue::Found {
-                                    key: key
-                                        .live_key()
-                                        .expect("dead keys must have Nil values")
-                                        .to_value(),
-                                    value,
-                                };
-                            }
-                        }
-                    }
-                }
-                return NextValue::Last;
+            if let Some((_, &(_, order_index))) = self
+                .map
+                .raw_entry()
+                .from_hash(self.hash_builder.hash_one(table_key), |k| k.eq(table_key))
+            {
+                return from_order(order_index + 1);
             }
         }
 
@@ -443,7 +462,7 @@ impl<'gc> RawTable<'gc> {
 
         // We need to take any newly valid array keys from the map part.
         self.map.retain(|k, v| {
-            if v.is_nil() {
+            if v.0.is_nil() {
                 // If our entry is dead, remove it.
                 return false;
             }
@@ -454,20 +473,22 @@ impl<'gc> RawTable<'gc> {
             // the array portion.
             if let Some(i) = to_array_index(key.to_value()) {
                 if i < self.array.len() {
-                    self.array[i] = *v;
+                    self.array[i] = v.0;
                     return false;
                 }
             }
 
             true
         });
+        self.compact_order();
     }
 
     /// Reserve space in the map part of the table for at least `additional` more elements.
     pub fn reserve_map(&mut self, additional: usize) {
         if additional > self.map.capacity() - self.map.len() {
             // We always filter out all dead keys when growing the map.
-            self.map.retain(|_, v| !v.is_nil());
+            self.map.retain(|_, v| !v.0.is_nil());
+            self.compact_order();
 
             self.map.raw_table_mut().reserve(additional, |(key, _)| {
                 self.hash_builder.hash_one(

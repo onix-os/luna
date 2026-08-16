@@ -137,13 +137,18 @@ impl<'gc> Table<'gc> {
         self.0.borrow().raw_table.length()
     }
 
-    /// Returns the next value after this key in an unspecified table iteration order.
+    /// Returns the next value after this key in table iteration order.
     ///
-    /// The table order in the map portion of the table is defined by the incidental order of the
-    /// internal bucket list. This order is only guaranteed to be stable if there are no inserts
-    /// into the table, so iterating using this method while simultaneously inserting may result in
-    /// unspecified (but never unsafe) behavior. As a special case, removing from the table (setting
-    /// a value to [`Value::Nil`]) is *always* allowed, even for the currently returned key.
+    /// The array portion comes first, in index order, followed by the map portion **in the order
+    /// its keys were first inserted**. Lua itself promises no particular order for `pairs`, so this
+    /// is a guarantee luna adds: it means a table used to build an ordered structure — a row whose
+    /// column order is its key order, say — reads back the way it was written, and reads the same
+    /// way on every run. A key removed and later re-added keeps its original position.
+    ///
+    /// The order is only guaranteed to be stable if there are no inserts into the table, so
+    /// iterating using this method while simultaneously inserting may result in unspecified (but
+    /// never unsafe) behavior. As a special case, removing from the table (setting a value to
+    /// [`Value::Nil`]) is *always* allowed, even for the currently returned key.
     ///
     /// If given `Nil`, it will return the first pair in the table. If given a key that is present
     /// in the table, it will return the next pair in iteration order. If given a key that is not
