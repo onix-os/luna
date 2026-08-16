@@ -42,15 +42,17 @@ A REPL and two larger examples live in [`examples/`](examples); run one with `ma
 Pre-1.0 and experimental. Expect frequent breaking changes on minor version bumps.
 
 **Works:** the core language (closures, proper tail calls, varargs, coroutines, goto, `_ENV`,
-metatables and recursive metamethods), an incremental cycle-detecting GC, the callback and
-async-sequence system, and the fundamental parts of the stdlib.
+metatables and recursive metamethods), an incremental cycle-detecting GC with `__gc` finalizers and
+weak tables, the callback and async-sequence system, the `debug` library including `traceback`,
+`sethook` and `getlocal`/`setlocal`, bytecode dump/load, and the stdlib.
 
-**Doesn't yet:** `__gc` finalizers, stack traces, a debugger, good error messages, and much of
-the peripheral stdlib. Bytecode is unoptimised.
+**Doesn't yet:** optimised bytecode, and the last corners of the stdlib — see
+[COMPATIBILITY.md](COMPATIBILITY.md).
 
-**Won't:** the PUC-Rio C API, C library loading, bytecode compatibility, the `debug` library, or
-byte-for-byte agreement with PUC-Rio on error strings, table iteration order and locale-dependent
-behaviour. luna targets PUC-Rio Lua under the "C" locale with default `luaconf.h` on 64-bit Linux.
+**Won't:** the PUC-Rio C API, C library loading (`package.cpath`, `loadlib`), PUC-Rio bytecode
+compatibility, `debug` call/return hook masks, or byte-for-byte agreement with PUC-Rio on error
+strings, table iteration order and locale-dependent behaviour. luna targets PUC-Rio Lua under the
+"C" locale with default `luaconf.h` on 64-bit Linux.
 
 [COMPATIBILITY.md](COMPATIBILITY.md) tracks what matches PUC-Rio Lua, function by function.
 
@@ -122,8 +124,8 @@ delta over an identical binary that does not use luna:
 | --- | --- |
 | `Lua::empty()` — VM, GC, values, tables, strings | 428 KB |
 | + `Closure::load` (the Lua source compiler) | 595 KB |
-| + `Lua::core()` (base, string, table, math, coroutine) | 794 KB |
-| + `Lua::full()` (io, os, package, utf8, debug) | 928 KB |
+| + `Lua::core()` (base, string, table, math, coroutine, utf8) | 794 KB |
+| + `Lua::full()` (io, os, package, debug) | 928 KB |
 
 The tiers are real measurements of separate binaries, not estimates. Because luna is pure Rust with
 no FFI, the linker can see the whole program: skip `Closure::load` and the parser and code generator

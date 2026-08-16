@@ -306,6 +306,7 @@ impl Lua {
     ///   - `load_math`
     ///   - `load_string`
     ///   - `load_table`
+    ///   - `load_utf8`
     pub fn load_core(&mut self) {
         self.enter(|ctx| {
             load_base(ctx);
@@ -337,7 +338,9 @@ impl Lua {
     /// Load the `debug` library.
     ///
     /// Separate from the core, like `os`: it hands scripts introspection over the running program.
-    /// `sethook`, `getlocal` and `setlocal` are absent — see the module docs for why.
+    /// That includes `sethook`, and `getlocal`/`setlocal` — and `setlocal` writes into another
+    /// frame's stack slot, so a script with `debug` can rewrite its caller's variables. Only the
+    /// call and return hook masks are missing; see the module docs for why.
     pub fn load_debug(&mut self) {
         self.enter(|ctx| {
             load_debug(ctx);
