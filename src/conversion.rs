@@ -1,4 +1,10 @@
-use std::{array, iter, ops, string::String as StdString};
+use std::{
+    array,
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    hash::Hash,
+    iter, ops,
+    string::String as StdString,
+};
 
 use crate::{
     Callback, Closure, Context, Function, String, Table, Thread, TypeError, UserData, Value,
@@ -46,6 +52,24 @@ macro_rules! impl_int_into {
 }
 impl_int_into!(i8, u8, i16, u16, i32, u32);
 
+/// Wider integers become a Lua integer when they fit and a float when they do not, which is what
+/// PUC-Rio does with values past `math.maxinteger`.
+macro_rules! impl_wide_int_into {
+    ($($i:ty),* $(,)?) => {
+        $(
+            impl<'gc> IntoValue<'gc> for $i {
+                fn into_value(self, _: Context<'gc>) -> Value<'gc> {
+                    match i64::try_from(self) {
+                        Ok(i) => Value::Integer(i),
+                        Err(_) => Value::Number(self as f64),
+                    }
+                }
+            }
+        )*
+    };
+}
+impl_wide_int_into!(u64, usize, isize, i128, u128);
+
 impl<'gc> IntoValue<'gc> for f32 {
     fn into_value(self, _: Context<'gc>) -> Value<'gc> {
         Value::Number(self.into())
@@ -83,12 +107,6 @@ impl_copy_into!(
     Value<'gc>,
     UserData<'gc>,
 );
-
-impl<'gc> IntoValue<'gc> for &'static str {
-    fn into_value(self, ctx: Context<'gc>) -> Value<'gc> {
-        Value::String(ctx.intern_static(self.as_bytes()))
-    }
-}
 
 impl<'gc> IntoValue<'gc> for StdString {
     fn into_value(self, ctx: Context<'gc>) -> Value<'gc> {
@@ -176,7 +194,7 @@ impl<'gc, T: FromValue<'gc>> FromValue<'gc> for Option<T> {
 impl<'gc, T: FromValue<'gc>> FromValue<'gc> for Vec<T> {
     fn from_value(ctx: Context<'gc>, value: Value<'gc>) -> Result<Self, TypeError> {
         if let Value::Table(table) = value {
-            (1..=table.length())
+            (1..=table.length(&ctx))
                 .into_iter()
                 .map(|i| table.get(ctx, i))
                 .collect()
@@ -220,14 +238,22 @@ macro_rules! impl_int_from {
                             Ok(i)
                         } else {
                             Err(TypeError {
-                                expected: stringify!($i),
-                                found: "integer out of range",
+                                expected: "number",
+                                found: "an integer out of range",
                             })
                         }
                     } else {
                         Err(TypeError {
-                            expected: stringify!($i),
-                            found: value.type_name(),
+                            // Not `stringify!($i)`: this reaches a Lua programmer, who has no
+                            // `i64`. A value that is already a number and only lacks an exact
+                            // integer form gets said separately, as `luaL_checkinteger` does —
+                            // `string.rep("x", 1.5)` is a different mistake from `string.rep("x", {})`.
+                            expected: "number",
+                            found: if value.to_number().is_some() {
+                                "a number with no integer representation"
+                            } else {
+                                value.type_name()
+                            },
                         })
                     }
                 }
@@ -235,7 +261,7 @@ macro_rules! impl_int_from {
         )*
     };
 }
-impl_int_from!(i64, u64, i32, u32, i16, u16, i8, u8);
+impl_int_from!(i64, u64, i32, u32, i16, u16, i8, u8, usize, isize, i128, u128);
 
 macro_rules! impl_float_from {
     ($($f:ty),* $(,)?) => {
@@ -249,7 +275,7 @@ macro_rules! impl_float_from {
                         Ok(n as $f)
                     } else {
                         Err(TypeError {
-                            expected: stringify!($f),
+                            expected: "number",
                             found: value.type_name(),
                         })
                     }
@@ -541,3 +567,159 @@ macro_rules! smaller_tuples_too {
 }
 
 smaller_tuples_too!(impl_tuple, P, O, N, M, L, K, J, I, H, G, F, E, D, C, B, A);
+
+// Maps and sets.
+//
+// A Rust map is the shape most host data arrives in, and without these every call site has to
+// write the `Table::set` loop out and the matching `Table::iter` loop back.
+//
+// Note that `Vec<T>` and `&[T]` above become *tables* whatever `T` is, including `u8`: a byte
+// string has to be built with `ctx.intern(bytes)` or `String::from_slice`, not by converting a
+// `Vec<u8>`. Rust's coherence rules do not allow a byte-string impl to sit beside the generic one.
+macro_rules! impl_map_conversion {
+    ($map:ident, $($bound:path),+) => {
+        impl<'gc, K, V> IntoValue<'gc> for $map<K, V>
+        where
+            K: IntoValue<'gc>,
+            V: IntoValue<'gc>,
+        {
+            fn into_value(self, ctx: Context<'gc>) -> Value<'gc> {
+                let table = Table::new(&ctx);
+                for (k, v) in self {
+                    table.set(ctx, k, v).unwrap();
+                }
+                table.into()
+            }
+        }
+
+        impl<'gc, K, V> FromValue<'gc> for $map<K, V>
+        where
+            K: FromValue<'gc> $(+ $bound)+,
+            V: FromValue<'gc>,
+        {
+            fn from_value(ctx: Context<'gc>, value: Value<'gc>) -> Result<Self, TypeError> {
+                if let Value::Table(table) = value {
+                    let mut map = $map::new();
+                    for (k, v) in table.iter(ctx) {
+                        map.insert(K::from_value(ctx, k)?, V::from_value(ctx, v)?);
+                    }
+                    Ok(map)
+                } else {
+                    Err(TypeError {
+                        expected: "table",
+                        found: value.type_name(),
+                    })
+                }
+            }
+        }
+    };
+}
+
+impl_map_conversion!(HashMap, Eq, Hash);
+impl_map_conversion!(BTreeMap, Ord);
+
+/// A set becomes a table used as one: every element is a key with the value `true`.
+macro_rules! impl_set_conversion {
+    ($set:ident, $($bound:path),+) => {
+        impl<'gc, T: IntoValue<'gc>> IntoValue<'gc> for $set<T> {
+            fn into_value(self, ctx: Context<'gc>) -> Value<'gc> {
+                let table = Table::new(&ctx);
+                for v in self {
+                    table.set(ctx, v, true).unwrap();
+                }
+                table.into()
+            }
+        }
+
+        impl<'gc, T> FromValue<'gc> for $set<T>
+        where
+            T: FromValue<'gc> $(+ $bound)+,
+        {
+            fn from_value(ctx: Context<'gc>, value: Value<'gc>) -> Result<Self, TypeError> {
+                if let Value::Table(table) = value {
+                    let mut set = $set::new();
+                    for (k, v) in table.iter(ctx) {
+                        // Only truthy entries are members, so a table with a key set back to
+                        // `false` reads as the set without it.
+                        if v.to_bool() {
+                            set.insert(T::from_value(ctx, k)?);
+                        }
+                    }
+                    Ok(set)
+                } else {
+                    Err(TypeError {
+                        expected: "table",
+                        found: value.type_name(),
+                    })
+                }
+            }
+        }
+    };
+}
+
+impl_set_conversion!(HashSet, Eq, Hash);
+impl_set_conversion!(BTreeSet, Ord);
+
+/// One of two types, for a callback argument that legitimately accepts either.
+///
+/// Without it the signature has to take `Value` and match by hand, which loses the type in the
+/// signature — the place a reader looks to find out what a callback accepts.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Either<L, R> {
+    Left(L),
+    Right(R),
+}
+
+impl<'gc, L: FromValue<'gc>, R: FromValue<'gc>> FromValue<'gc> for Either<L, R> {
+    fn from_value(ctx: Context<'gc>, value: Value<'gc>) -> Result<Self, TypeError> {
+        match L::from_value(ctx, value) {
+            Ok(l) => Ok(Either::Left(l)),
+            // The right-hand error is the one reported: the left arm not matching is expected.
+            Err(_) => R::from_value(ctx, value).map(Either::Right),
+        }
+    }
+}
+
+impl<'gc, L: IntoValue<'gc>, R: IntoValue<'gc>> IntoValue<'gc> for Either<L, R> {
+    fn into_value(self, ctx: Context<'gc>) -> Value<'gc> {
+        match self {
+            Either::Left(l) => l.into_value(ctx),
+            Either::Right(r) => r.into_value(ctx),
+        }
+    }
+}
+
+/// Runtime strings, interned on the way in.
+///
+/// `&'static str` and owned `String` were already covered; these are the borrowed runtime forms
+/// that previously needed an explicit `ctx.intern` at every call site.
+impl<'gc> IntoValue<'gc> for &str {
+    fn into_value(self, ctx: Context<'gc>) -> Value<'gc> {
+        Value::String(ctx.intern(self.as_bytes()))
+    }
+}
+
+impl<'gc> IntoValue<'gc> for &StdString {
+    fn into_value(self, ctx: Context<'gc>) -> Value<'gc> {
+        Value::String(ctx.intern(self.as_bytes()))
+    }
+}
+
+impl<'gc> IntoValue<'gc> for std::borrow::Cow<'_, str> {
+    fn into_value(self, ctx: Context<'gc>) -> Value<'gc> {
+        Value::String(ctx.intern(self.as_bytes()))
+    }
+}
+
+impl<'gc> IntoValue<'gc> for Box<str> {
+    fn into_value(self, ctx: Context<'gc>) -> Value<'gc> {
+        Value::String(ctx.intern(self.as_bytes()))
+    }
+}
+
+impl<'gc> IntoValue<'gc> for char {
+    fn into_value(self, ctx: Context<'gc>) -> Value<'gc> {
+        let mut buf = [0u8; 4];
+        Value::String(ctx.intern(self.encode_utf8(&mut buf).as_bytes()))
+    }
+}

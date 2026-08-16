@@ -5,8 +5,8 @@ pub mod ser;
 use luna::Lua;
 
 pub use self::{
-    de::from_value,
-    ser::{to_value, to_value_with, Options as SerOptions},
+    de::{from_value, from_value_with, Options as DeOptions},
+    ser::{to_value, to_value_with, Options as SerOptions, SerializeValue, ValueOptions},
 };
 
 pub trait LuaSerdeExt {

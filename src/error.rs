@@ -15,6 +15,20 @@ pub struct TypeError {
     pub found: &'static str,
 }
 
+/// A [`TypeError`] that knows *which* argument was wrong.
+///
+/// Conversion itself cannot know this — [`FromValue`] sees one value with no idea where it came
+/// from — so the position is attached by [`Stack::consume`](crate::Stack::consume), which is the
+/// one place that knows how many values it has handed out. Arguments are numbered from 1, as in
+/// the Lua manual.
+#[derive(Debug, Clone, Copy, Error)]
+#[error("bad argument #{argument}")]
+pub struct BadArgument {
+    pub argument: usize,
+    #[source]
+    pub source: TypeError,
+}
+
 /// An error raised directly from Lua which contains a Lua value.
 ///
 /// Any [`Value`] can be raised as an error and it will be contained here.
@@ -102,8 +116,28 @@ unsafe impl Sync for ExternLuaError {}
 pub struct RuntimeError(pub Arc<anyhow::Error>);
 
 impl fmt::Display for RuntimeError {
+    /// `{}` is the outermost cause alone; `{:#}` is the whole chain.
+    ///
+    /// Not anyhow's own `{:#}`, which joins every link: a forwarding variant displays exactly
+    /// what it wraps, so joining both would repeat the message verbatim. A link that adds nothing
+    /// to the one before it is skipped.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+        if !f.alternate() {
+            return self.0.fmt(f);
+        }
+        let mut previous: Option<std::string::String> = None;
+        for cause in self.0.chain() {
+            let text = cause.to_string();
+            if previous.as_deref() == Some(text.as_str()) {
+                continue;
+            }
+            if previous.is_some() {
+                f.write_str(": ")?;
+            }
+            f.write_str(&text)?;
+            previous = Some(text);
+        }
+        Ok(())
     }
 }
 
@@ -233,7 +267,9 @@ impl<'gc> Error<'gc> {
                                 Callback::from_fn(&ctx, |ctx, _, mut stack| {
                                     let ud = stack.consume::<UserData>(ctx)?;
                                     let error = ud.downcast_static::<RuntimeError>()?;
-                                    stack.replace(ctx, error.to_string());
+                                    // The whole chain: a positioned error keeps its `chunk:line` in
+                                    // the outermost context and its message in the source.
+                                    stack.replace(ctx, format!("{error:#}"));
                                     Ok(CallbackReturn::Return)
                                 }),
                             )
@@ -243,7 +279,7 @@ impl<'gc> Error<'gc> {
                 }
 
                 let ud = UserData::new_static(&ctx, err.clone());
-                ud.set_metatable(&ctx, Some(ctx.singleton::<Rootable![UDMeta<'_>]>().0));
+                ud.set_metatable(ctx, Some(ctx.singleton::<Rootable![UDMeta<'_>]>().0));
                 ud.into()
             }
         }

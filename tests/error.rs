@@ -23,7 +23,14 @@ fn error_unwind() -> Result<(), ExternError> {
     lua.finish(&executor).unwrap();
     lua.try_enter(|ctx| {
         match ctx.fetch(&executor).take_result::<()>(ctx)? {
-            Err(Error::Lua(LuaError(Value::String(s)))) => assert!(s == "test error"),
+            // `error(msg)` is level 1, so the message carries the position of the call.
+            Err(Error::Lua(LuaError(Value::String(s)))) => {
+                let text = s.display_lossy().to_string();
+                assert!(
+                    text.ends_with("test error") && text.contains(":3:"),
+                    "expected a positioned 'test error', got {text:?}"
+                );
+            }
             _ => panic!("wrong error returned"),
         }
         Ok(())

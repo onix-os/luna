@@ -1,3 +1,4 @@
+mod close;
 mod executor;
 mod thread;
 mod vm;
@@ -16,6 +17,8 @@ pub use self::{
 
 #[derive(Debug, Clone, Error)]
 pub enum VMError {
+    #[error("variable marked <close> has no '__close' metamethod")]
+    BadCloseValue,
     #[error("{}", if *.0 {
         "operation expects variable stack"
     } else {
@@ -24,9 +27,9 @@ pub enum VMError {
     ExpectedVariableStack(bool),
     #[error("Bad types for SetList op, expected table, integer, found {0}, {1}")]
     BadSetList(&'static str, &'static str),
-    #[error("bad call")]
+    #[error("{0}")]
     BadCall(#[from] MetaCallError),
-    #[error("operator error")]
+    #[error("{0}")]
     OperatorError(#[from] MetaOperatorError),
     #[error("_ENV upvalue is only allowed on top-level closure")]
     BadEnvUpValue,

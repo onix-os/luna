@@ -43,7 +43,7 @@ do
 
     assert(
         e1 == true and r1 == 1 and s1 == "suspended" and
-        e2 == false and r2 == 'test error' and s2 == "dead")
+        e2 == false and tostring(r2):sub(-10) == 'test error' and s2 == "dead")
 end
 
 do

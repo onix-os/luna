@@ -18,7 +18,7 @@ $(info ------------------------------------------)
 $(info Project: $(PROJECT_NAME) v$(PROJECT_VERSION))
 $(info ------------------------------------------)
 
-.PHONY: build b dev compile c run r repl test t test-doc check check-all clippy clippy-strict rustdoc fmt fmt-check print-name clean verify publish release help h
+.PHONY: build b dev compile c run r repl test t test-all test-doc check check-all clippy clippy-strict rustdoc fmt fmt-check print-name clean verify publish release help h
 
 # luna is a library pair, not a binary: `build` compiles the workspace and its examples, because
 # the examples are the only executables here and they are what breaks first on an API change.
@@ -53,6 +53,11 @@ test:
 	@$(MAKE) --no-print-directory test-doc
 
 t: test
+
+# `default = []`, so the plain `test` target compiles `tests/derive.rs` and `tests/async_foreign.rs`
+# down to zero tests. Without this target neither optional feature is ever built by the gate.
+test-all:
+	@$(CARGO) test --workspace --all-targets --all-features
 
 test-doc:
 	@$(CARGO) test --workspace --doc
@@ -92,10 +97,12 @@ clean:
 # Clippy is deliberately not in the gate yet: the code inherited from upstream carries 135
 # warnings and 2 deny-by-default `never_loop` errors in src/meta_ops.rs, so a `verify` that
 # included it would be red on arrival and stop being run. Put it back once that is cleared.
-verify: fmt-check check test rustdoc
+verify: fmt-check check check-all test test-all rustdoc
 
-# Order matters: luna-util depends on luna, so the registry has to have the new luna first.
+# Order matters: luna depends on luna-derive and luna-util depends on luna, so each has to be in
+# the registry before the one that needs it.
 publish:
+	@$(CARGO) publish -p $(PROJECT_NAME)-derive
 	@$(CARGO) publish -p $(PROJECT_NAME)
 	@$(CARGO) publish -p $(PROJECT_NAME)-util
 
@@ -121,6 +128,7 @@ help:
 	@echo "  run          Run an example (make run EXAMPLE=execute ARGS=script.lua)"
 	@echo "  repl         Run the interpreter example"
 	@echo "  test         Run all tests, including doc tests"
+	@echo "  test-all     Run all tests with every feature enabled"
 	@echo "  test-doc     Run doc tests alone"
 	@echo "  check        Run cargo check on all targets"
 	@echo "  check-all    Run cargo check on all targets/all features"
@@ -132,7 +140,7 @@ help:
 	@echo "  print-name   Echo the package name parsed from Cargo.toml"
 	@echo "  clean        Remove Cargo build artifacts"
 	@echo "  verify       Run the full local gate"
-	@echo "  publish      Publish $(PROJECT_NAME) then $(PROJECT_NAME)-util to crates.io"
+	@echo "  publish      Publish $(PROJECT_NAME)-derive, $(PROJECT_NAME), then $(PROJECT_NAME)-util"
 	@echo "  release      Release a new version"
 	@echo
 

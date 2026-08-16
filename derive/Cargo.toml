@@ -1,0 +1,18 @@
+[package]
+name = "luna-derive"
+description = "Derive macros for the `luna` library"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+# The three crates a consumer who does not want derives should not have to build, which is why this
+# is a separate crate behind a feature rather than part of `luna`.
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "2.0", features = ["derive"] }

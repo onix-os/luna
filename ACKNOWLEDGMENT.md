@@ -43,7 +43,7 @@ exists because their work was good enough to build on.
 ## Licensing
 
 piccolo and ottavino offer their code under MIT or CC0, at the recipient's option. luna takes
-the MIT branch and ships under MIT alone ([LICENSE-MIT](LICENSE-MIT)) — a choice that grant
+the MIT branch and ships under MIT alone ([LICENSE](LICENSE)) — a choice that grant
 exists to allow, not a relicensing of anyone's work. Upstream copyright notices are preserved,
 and the CC0 option remains available to anyone who takes the code from piccolo or ottavino
 directly.

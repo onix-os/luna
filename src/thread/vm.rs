@@ -2,6 +2,7 @@ use allocator_api2::vec;
 use ottavino_gc_arena::allocator_api::MetricsAlloc;
 
 use crate::{
+    compiler::LineNumber,
     meta_ops::{self, ConcatMetaResult, MetaResult},
     opcode::{Operation, RCIndex},
     table::RawTable,
@@ -16,6 +17,42 @@ use super::{thread::LuaFrame, VMError};
 // changed.
 //
 // Returns the number of instructions that were run.
+/// The source line an opcode index belongs to.
+///
+/// Only ever called with a hook installed, so the binary search is off the normal path entirely.
+fn line_of(proto: &crate::FunctionPrototype<'_>, pc: usize) -> LineNumber {
+    match proto
+        .opcode_line_numbers
+        .binary_search_by_key(&pc, |(opi, _)| *opi)
+    {
+        Ok(i) => proto.opcode_line_numbers[i].1,
+        Err(0) => LineNumber(0),
+        Err(i) => proto.opcode_line_numbers[i - 1].1,
+    }
+}
+
+/// A catchable runtime error carrying the `chunk:line` of the instruction before `pc`.
+///
+/// The same position the executor attaches to a [`VMError`], for the errors the VM raises without
+/// leaving the opcode loop.
+///
+/// Kept out of line because it is a cold path — one `format!` and an allocation per raised error —
+/// inside `run_vm`, which is the interpreter's dispatch loop.
+#[cold]
+#[inline(never)]
+fn positioned_error<'gc>(
+    proto: &crate::FunctionPrototype<'gc>,
+    pc: usize,
+    message: &'static str,
+) -> crate::Error<'gc> {
+    let at = format!(
+        "{}:{}",
+        proto.chunk_name.display_lossy(),
+        line_of(proto, pc.saturating_sub(1))
+    );
+    crate::RuntimeError::new(anyhow::anyhow!(message).context(at)).into()
+}
+
 pub(super) fn run_vm<'gc>(
     ctx: Context<'gc>,
     mut lua_frame: LuaFrame<'gc, '_>,
@@ -28,6 +65,15 @@ pub(super) fn run_vm<'gc>(
     let current_function = lua_frame.closure();
     let current_prototype = current_function.prototype();
     let current_upvalues = current_function.upvalues();
+    // Suppression ends when execution returns to the depth that fired the hook, which is exactly
+    // when the hook's own frames are gone. Checked once per slice, before the register borrow.
+    ctx.clear_hook_at(lua_frame.frame_depth());
+
+    // Read once per slice, not per instruction: with no hook installed this leaves a single
+    // always-false branch in the loop, which is what Phase 3 set out to measure.
+    let hook_enabled = ctx.hook_enabled();
+    let frame_depth = lua_frame.frame_depth();
+
     let mut registers = lua_frame.registers();
     let mut instructions_run = 0;
 
@@ -43,6 +89,31 @@ pub(super) fn run_vm<'gc>(
     }
 
     loop {
+        // Before the instruction, not after: a line hook reports the line that is *about* to run,
+        // and firing pushes a call, so the instruction has to still be there when we come back.
+        if hook_enabled {
+            let line = ctx
+                .hook_line()
+                .then(|| line_of(&current_prototype, *registers.pc));
+            let fire_line = line.is_some_and(|line| ctx.hook_line_changed(frame_depth, line.0));
+            let fire_count = ctx.hook_tick();
+
+            if fire_line || fire_count {
+                let (event, line) = if fire_line {
+                    ("line", line)
+                } else {
+                    ("count", None)
+                };
+                if lua_frame.fire_hook(ctx, event, line)? {
+                    // Fired: a call frame is on top, so this slice is over — the same exit a
+                    // metamethod call takes.
+                    break;
+                }
+                // Declined, but the frame was still borrowed mutably to find that out.
+                registers = lua_frame.registers();
+            }
+        }
+
         let op = current_prototype.opcodes[*registers.pc].decode();
         *registers.pc += 1;
 
@@ -183,6 +254,18 @@ pub(super) fn run_vm<'gc>(
                 registers = lua_frame.registers();
             }
 
+            Operation::MarkToBeClosed { source } => {
+                let value = registers.stack_frame[source.0 as usize];
+                // Checked here rather than at close time, so a mistake is reported where the
+                // variable is declared instead of much later when the block ends.
+                if !matches!(value, Value::Nil | Value::Boolean(false))
+                    && meta_ops::get_metamethod(ctx, value, crate::MetaMethod::Close).is_none()
+                {
+                    return Err(VMError::BadCloseValue);
+                }
+                registers.mark_to_be_closed(source);
+            }
+
             Operation::Jump {
                 offset,
                 close_upvalues,
@@ -190,6 +273,13 @@ pub(super) fn run_vm<'gc>(
                 *registers.pc = add_offset(*registers.pc, offset);
                 if let Some(r) = close_upvalues.to_u8() {
                     registers.close_upvalues(&ctx, RegisterIndex(r));
+                    // Handlers cannot run here: the VM is mid-instruction and holds the frame.
+                    // Hand them to the executor as a sequence and resume at the new pc after.
+                    let to_close = registers.take_to_be_closed(RegisterIndex(r));
+                    if !to_close.is_empty() {
+                        lua_frame.push_close_sequence(ctx, to_close);
+                        break;
+                    }
                 }
             }
 
@@ -215,7 +305,8 @@ pub(super) fn run_vm<'gc>(
 
             Operation::Closure { proto, dest } => {
                 let proto = current_prototype.prototypes[proto.0 as usize];
-                let mut upvalues = vec::Vec::new_in(MetricsAlloc::new(&ctx));
+                let mut upvalues =
+                    vec::Vec::with_capacity_in(proto.upvalues.len(), MetricsAlloc::new(&ctx));
                 for &desc in proto.upvalues.iter() {
                     match desc {
                         UpValueDescriptor::Environment => {
@@ -236,6 +327,19 @@ pub(super) fn run_vm<'gc>(
             }
 
             Operation::NumericForPrep { base, jump } => {
+                // Rejected at preparation, where PUC-Lua's `forprep` rejects it, and for both the
+                // integer and the float loop: a zero step never reaches the limit, so the loop
+                // would otherwise run forever.
+                if registers.stack_frame[base.0 as usize + 2].to_number() == Some(0.0) {
+                    let pc = *registers.pc;
+                    lua_frame.raise(positioned_error(
+                        &current_prototype,
+                        pc,
+                        "'for' step is zero",
+                    ));
+                    break;
+                }
+
                 registers.stack_frame[base.0 as usize] = raw_subtract(
                     registers.stack_frame[base.0 as usize],
                     registers.stack_frame[base.0 as usize + 2],

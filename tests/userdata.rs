@@ -16,7 +16,7 @@ fn userdata() -> Result<(), anyhow::Error> {
         );
         ctx.set_global("userdata", userdata);
         let callback = Callback::from_fn(&ctx, |ctx, _, mut stack| {
-            match stack[0] {
+            match stack.get(0) {
                 Value::UserData(ud) => {
                     let ud = ud.downcast::<Rootable![MyUserData<'_>]>().unwrap();
                     assert_eq!(ud.0.get(), 17);

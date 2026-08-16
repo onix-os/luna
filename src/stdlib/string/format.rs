@@ -379,16 +379,12 @@ pub fn format_value<'gc>(
     Ok(result)
 }
 
+/// The numeric specifiers take whatever `luaL_checkinteger`/`luaL_checknumber` take, which means a
+/// numeric string coerces the same way it would in arithmetic. A non-numeric one is still an error.
 fn value_to_integer<'gc>(v: Value<'gc>) -> Result<i64, std::string::String> {
-    match v {
-        Value::Integer(i) => Ok(i),
-        Value::Number(n) => {
-            if n.fract() == 0.0 && n.is_finite() {
-                Ok(n as i64)
-            } else {
-                Err("number has no integer representation".to_string())
-            }
-        }
+    match v.to_numeric() {
+        Some(Value::Integer(i)) => Ok(i),
+        Some(Value::Number(n)) => float_to_integer(n),
         _ => Err(format!(
             "bad argument to 'format' (number expected, got {})",
             v.type_name()
@@ -396,10 +392,20 @@ fn value_to_integer<'gc>(v: Value<'gc>) -> Result<i64, std::string::String> {
     }
 }
 
+/// A float only converts when it is integral *and* inside the integer range; `n as i64` saturates,
+/// so the range has to be tested before the cast.
+fn float_to_integer(n: f64) -> Result<i64, std::string::String> {
+    if n.floor() == n && n >= -9_223_372_036_854_775_808.0 && n < 9_223_372_036_854_775_808.0 {
+        Ok(n as i64)
+    } else {
+        Err("number has no integer representation".to_string())
+    }
+}
+
 fn value_to_float<'gc>(v: Value<'gc>) -> Result<f64, std::string::String> {
-    match v {
-        Value::Integer(i) => Ok(i as f64),
-        Value::Number(n) => Ok(n),
+    match v.to_numeric() {
+        Some(Value::Integer(i)) => Ok(i as f64),
+        Some(Value::Number(n)) => Ok(n),
         _ => Err(format!(
             "bad argument to 'format' (number expected, got {})",
             v.type_name()
@@ -432,31 +438,60 @@ fn value_to_string<'gc>(
     }
 }
 
-fn format_number(n: f64) -> std::string::String {
+/// Format a float the way PUC-Rio's `tostring` does: `%.14g`, with a trailing `.0` added when the
+/// result would otherwise be indistinguishable from an integer.
+///
+/// The `.0` matters: telling an integer from a float by printing it is the main way 5.4 users
+/// reason about the int/float split.
+pub(crate) fn format_number(n: f64) -> std::string::String {
     if n.is_nan() {
-        return "-nan".to_string();
+        return if n.is_sign_negative() { "-nan" } else { "nan" }.to_string();
     }
     if n.is_infinite() {
-        return if n > 0.0 {
-            "inf".to_string()
-        } else {
-            "-inf".to_string()
-        };
+        return if n > 0.0 { "inf" } else { "-inf" }.to_string();
     }
-    // Use %g style: 14 significant digits
-    let s = format!("{:.14}", n);
-    // Remove trailing zeros (but keep at least one digit after decimal)
-    if s.contains('.') && !s.contains('e') {
-        let trimmed = s.trim_end_matches('0');
-        let trimmed = trimmed.trim_end_matches('.');
-        if trimmed.contains('.') {
-            trimmed.to_string()
-        } else {
-            format!("{}.0", trimmed)
+
+    const PRECISION: usize = 14;
+
+    // C's %g rule: scientific when the decimal exponent is below -4 or at least the precision.
+    let exponent = if n == 0.0 {
+        0
+    } else {
+        n.abs().log10().floor() as i32
+    };
+
+    let mut s = if exponent < -4 || exponent >= PRECISION as i32 {
+        let formatted = format!("{:.*e}", PRECISION - 1, n);
+        // Rust writes `1e100`; C writes `1e+100`, and pads the exponent to two digits.
+        match formatted.split_once('e') {
+            Some((mantissa, exp)) => {
+                let mantissa = trim_trailing_zeros(mantissa);
+                let (sign, digits) = match exp.strip_prefix('-') {
+                    Some(d) => ("-", d),
+                    None => ("+", exp),
+                };
+                format!("{mantissa}e{sign}{digits:0>2}")
+            }
+            None => formatted,
         }
     } else {
-        s
+        let decimals = (PRECISION as i32 - 1 - exponent).max(0) as usize;
+        trim_trailing_zeros(&format!("{:.*}", decimals, n))
+    };
+
+    // A float that printed as a bare integer needs the suffix to stay recognisable as a float.
+    if !s.contains(['.', 'e', 'n', 'i']) {
+        s.push_str(".0");
     }
+    s
+}
+
+/// Drop trailing fractional zeros, and the point itself if nothing is left after it.
+fn trim_trailing_zeros(s: &str) -> std::string::String {
+    if !s.contains('.') {
+        return s.to_string();
+    }
+    s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
 fn apply_precision_digits(s: &str, precision: Option<usize>) -> std::string::String {
@@ -1117,8 +1152,10 @@ fn format_quoted_value<'gc>(
             format_quoted_string(s.as_bytes(), result);
         }
         Value::Integer(n) => {
+            // The one integer whose decimal form does not read back as an integer: `9223372036854775808`
+            // overflows to a float, so PUC writes the hex literal, which wraps into range.
             if n == i64::MIN {
-                result.extend_from_slice(b"(math.mininteger)");
+                result.extend_from_slice(b"0x8000000000000000");
             } else {
                 result.extend_from_slice(n.to_string().as_bytes());
             }
@@ -1133,15 +1170,10 @@ fn format_quoted_value<'gc>(
                     result.extend_from_slice(b"-1e9999");
                 }
             } else {
-                // Use enough precision to reproduce the exact float (%q format)
-                let s = format_float_g(n, 17, false, false, false, false, false, None);
-                // Verify round-trip; fall back to full precision if needed
-                let out = if s.parse::<f64>().map_or(false, |x| x == n) {
-                    s
-                } else {
-                    format!("{:.17}", n)
-                };
-                result.extend_from_slice(out.as_bytes());
+                // A hex float, as PUC's `quotefloat` writes: it is exact, and it still reads back
+                // as a float when the value happens to be integral.
+                let s = format_hex_float(n, None, false, false, false, false, None);
+                result.extend_from_slice(s.as_bytes());
             }
         }
         Value::Boolean(b) => {
@@ -1163,24 +1195,11 @@ fn format_quoted_string(s: &[u8], result: &mut Vec<u8>) {
     while i < s.len() {
         let next_is_digit = i + 1 < s.len() && s[i + 1].is_ascii_digit();
         match s[i] {
-            b'"' => {
-                result.extend_from_slice(b"\\\"");
-            }
-            b'\\' => {
-                result.extend_from_slice(b"\\\\");
-            }
-            b'\n' => {
-                result.extend_from_slice(b"\\n");
-            }
-            b'\r' => {
-                result.extend_from_slice(b"\\r");
-            }
-            b'\0' => {
-                if next_is_digit {
-                    result.extend_from_slice(b"\\000");
-                } else {
-                    result.extend_from_slice(b"\\0");
-                }
+            // PUC escapes these three by writing the character itself after a backslash, so a
+            // newline comes out as a backslash followed by a real newline.
+            c @ (b'"' | b'\\' | b'\n') => {
+                result.push(b'\\');
+                result.push(c);
             }
             c if c < 32 || c == 127 => {
                 if next_is_digit {

@@ -1,15 +1,17 @@
 [workspace]
 resolver = "2"
 members = [
+    "derive",
     "util",
 ]
 default-members = [
     ".",
+    "derive",
     "util",
 ]
 
 [workspace.package]
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 authors = ["Trim Bresilla <kushtrimbresilla@gmail.com>"]
 license = "MIT"
@@ -27,9 +29,11 @@ hashbrown = { version = "0.14", features = ["raw"] }
 # what `from_entropy` actually needs.
 rand = { version = "0.8", default-features = false, features = ["small_rng", "getrandom"] }
 serde = "1.0"
+serde_json = "1.0"
 thiserror = "1.0"
 
 luna = { path = "./", version = "0.4.0" }
+luna-derive = { path = "./derive", version = "0.4.0" }
 
 [package]
 name = "luna"
@@ -49,6 +53,21 @@ ottavino-gc-arena.workspace = true
 hashbrown.workspace = true
 rand.workspace = true
 thiserror.workspace = true
+luna-derive = { workspace = true, optional = true }
+
+[[example]]
+name = "async"
+required-features = ["async"]
+
+[features]
+default = []
+# Lets a callback `.await` a foreign future — a timer, a socket, anything with a `Future` impl.
+# Off by default because it adds API surface, not because it costs dependencies: the whole
+# implementation is `std::task`, and choosing a runtime stays the embedder's decision.
+async = []
+# `#[derive(FromValue, IntoValue)]`. Off by default because it pulls syn, quote and proc-macro2
+# into the build — three crates a host writing its conversions by hand should not compile.
+derive = ["dep:luna-derive"]
 
 [dev-dependencies]
 # Only the REPL example needs a dependency, and only for line editing and history. Argument
@@ -60,6 +79,10 @@ rustyline = "14.0"
 # symbols. This is a library, so these apply only to what is built *here* — examples, tests and
 # the REPL — not to anything downstream.
 [profile.release]
+# Cuts a `Lua::core()` embed from ~794 KB to ~600 KB for about 19% off the VM's speed. Not "z",
+# which saves a further 43 KB but runs 2.4x slower: `run_vm` is one large dispatch loop and "z"
+# disables the inlining it depends on. See the README's "Binary size" section.
+opt-level = "s"
 lto = true
 codegen-units = 1
 strip = true

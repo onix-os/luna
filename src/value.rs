@@ -61,7 +61,10 @@ impl<'gc> Value<'gc> {
                     Value::Nil => write!(fmt, "nil"),
                     Value::Boolean(b) => write!(fmt, "{}", b),
                     Value::Integer(i) => write!(fmt, "{}", i),
-                    Value::Number(f) => write!(fmt, "{}", f),
+                    // PUC-Rio prints floats with %.14g and a trailing ".0" so that a float is
+                    // distinguishable from an integer. The formatter already exists for
+                    // `string.format`; using it here keeps the two agreeing.
+                    Value::Number(f) => write!(fmt, "{}", crate::stdlib::format_number(f)),
                     Value::String(s) => write!(fmt, "{}", s.display_lossy()),
                     Value::Table(t) => {
                         write!(fmt, "table: 0x{:x}", Gc::as_ptr(t.into_inner()) as usize)
@@ -279,16 +282,16 @@ mod tests {
             println!("{:?}", table);
 
             let table2 = Table::new(&ctx);
-            table2.set_metatable(&ctx, Some(table2));
+            table2.set_metatable(ctx, Some(table2));
             println!("{:?}", table2);
 
             let combined = Table::new(&ctx);
             combined.set_field(ctx, "a", combined);
-            combined.set_metatable(&ctx, Some(combined));
+            combined.set_metatable(ctx, Some(combined));
             println!("{:?}", combined);
 
             let user = UserData::new::<Rootable![()]>(&ctx, ());
-            user.set_metatable(&ctx, Some(combined));
+            user.set_metatable(ctx, Some(combined));
             println!("{:?}", user);
         });
     }

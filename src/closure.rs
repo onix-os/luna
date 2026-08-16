@@ -1,4 +1,7 @@
-use std::hash::{Hash, Hasher};
+use std::{
+    fmt,
+    hash::{Hash, Hasher},
+};
 
 use allocator_api2::{boxed, vec, SliceExt};
 use ottavino_gc_arena::{allocator_api::MetricsAlloc, lock::Lock, Collect, Gc, Mutation};
@@ -21,6 +24,12 @@ pub enum CompilerError {
     Parsing(#[from] compiler::ParseError),
     #[error("compile error")]
     Compilation(#[from] compiler::CompileError),
+    #[error("bad binary chunk")]
+    Dump(#[from] crate::dump::DumpError),
+    // Reachable only for a binary chunk: source always compiles to a prototype whose only upvalue
+    // is `_ENV`, but a chunk read off disk can claim otherwise.
+    #[error("chunk cannot be a top-level function")]
+    NotTopLevel(#[from] ClosureError),
 }
 
 /// A compiled Lua function.
@@ -30,7 +39,7 @@ pub enum CompilerError {
 ///
 /// If a prototype has only an single (optional) `_ENV` upvalue, then it can be turned into an
 /// executable `Closure` by binding it with its environment with [`Closure::new`].
-#[derive(Debug, Collect)]
+#[derive(Collect)]
 #[collect(no_drop)]
 pub struct FunctionPrototype<'gc> {
     pub chunk_name: String<'gc>,
@@ -43,6 +52,32 @@ pub struct FunctionPrototype<'gc> {
     pub opcode_line_numbers: boxed::Box<[(usize, LineNumber)], MetricsAlloc<'gc>>,
     pub upvalues: boxed::Box<[UpValueDescriptor], MetricsAlloc<'gc>>,
     pub prototypes: boxed::Box<[Gc<'gc, FunctionPrototype<'gc>>], MetricsAlloc<'gc>>,
+    /// Named locals with the opcode ranges they were live for.
+    ///
+    /// Always emitted rather than gated behind a compile option: measured at a few percent of a
+    /// prototype's size, because the names are interned strings shared with the constant table
+    /// rather than fresh allocations. PUC-Rio does the same and offers `strip` to drop them.
+    pub locals: boxed::Box<[crate::compiler::LocalVarInfo<String<'gc>>], MetricsAlloc<'gc>>,
+}
+
+/// A summary rather than a dump.
+///
+/// Deriving this printed every opcode, constant and nested prototype, which is almost never what a
+/// caller wants and costs several KB of binary in `Debug` impls for the opcode representation. The
+/// fields are all public if the detail is actually wanted.
+impl<'gc> fmt::Debug for FunctionPrototype<'gc> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("FunctionPrototype")
+            .field("chunk_name", &self.chunk_name)
+            .field("fixed_params", &self.fixed_params)
+            .field("has_varargs", &self.has_varargs)
+            .field("stack_size", &self.stack_size)
+            .field("opcodes", &self.opcodes.len())
+            .field("constants", &self.constants.len())
+            .field("upvalues", &self.upvalues.len())
+            .field("prototypes", &self.prototypes.len())
+            .finish()
+    }
 }
 
 impl<'gc> FunctionPrototype<'gc> {
@@ -50,20 +85,23 @@ impl<'gc> FunctionPrototype<'gc> {
         mc: &Mutation<'gc>,
         chunk_name: String<'gc>,
         compiled_function: &CompiledPrototype<String<'gc>>,
+        keep_locals: bool,
     ) -> Self {
-        Self::from_compiled_map_strings(mc, chunk_name, compiled_function, |s| *s)
+        Self::from_compiled_map_strings(mc, chunk_name, compiled_function, keep_locals, |s| *s)
     }
 
     pub fn from_compiled_map_strings<S>(
         mc: &Mutation<'gc>,
         chunk_name: String<'gc>,
         compiled_function: &CompiledPrototype<S>,
+        keep_locals: bool,
         map_string: impl Fn(&S) -> String<'gc>,
     ) -> Self {
         fn new<'gc, S>(
             mc: &Mutation<'gc>,
             chunk_name: String<'gc>,
             compiled_function: &CompiledPrototype<S>,
+            keep_locals: bool,
             map_string: impl Fn(&S) -> String<'gc> + Copy,
         ) -> FunctionPrototype<'gc> {
             let alloc = MetricsAlloc::new(mc);
@@ -84,12 +122,31 @@ impl<'gc> FunctionPrototype<'gc> {
             let upvalues =
                 SliceExt::to_vec_in(compiled_function.upvalues.as_slice(), alloc.clone());
 
+            // Sorted by where each scope begins: the compiler emits them as scopes *end*, which is
+            // innermost-first, and `debug.getlocal` indexes them in declaration order.
+            let mut locals = vec::Vec::new_in(alloc.clone());
+            locals.extend(
+                compiled_function
+                    .locals
+                    .iter()
+                    .filter(|_| keep_locals)
+                    .map(|l| crate::compiler::LocalVarInfo {
+                        name: map_string(&l.name),
+                        register: l.register,
+                        start_pc: l.start_pc,
+                        end_pc: l.end_pc,
+                    }),
+            );
+            locals.sort_by_key(|l: &crate::compiler::LocalVarInfo<String<'gc>>| {
+                (l.start_pc, l.register.0)
+            });
+
             let mut prototypes = vec::Vec::new_in(alloc);
             prototypes.extend(
                 compiled_function
                     .prototypes
                     .iter()
-                    .map(|cf| Gc::new(mc, new(mc, chunk_name, cf, map_string))),
+                    .map(|cf| Gc::new(mc, new(mc, chunk_name, cf, keep_locals, map_string))),
             );
 
             FunctionPrototype {
@@ -106,10 +163,11 @@ impl<'gc> FunctionPrototype<'gc> {
                 opcode_line_numbers: opcode_line_numbers.into_boxed_slice(),
                 upvalues: upvalues.into_boxed_slice(),
                 prototypes: prototypes.into_boxed_slice(),
+                locals: locals.into_boxed_slice(),
             }
         }
 
-        new(mc, chunk_name, compiled_function, &map_string)
+        new(mc, chunk_name, compiled_function, keep_locals, &map_string)
     }
 
     pub fn compile(
@@ -137,6 +195,7 @@ impl<'gc> FunctionPrototype<'gc> {
             &ctx,
             ctx.intern(source_name.as_bytes()),
             &compiled_function,
+            ctx.debug_locals(),
         ))
     }
 }
@@ -184,11 +243,22 @@ pub enum ClosureError {
     RequiresEnv,
 }
 
-#[derive(Debug, Collect)]
+#[derive(Collect)]
 #[collect(no_drop)]
 pub struct ClosureInner<'gc> {
     proto: Gc<'gc, FunctionPrototype<'gc>>,
     upvalues: vec::Vec<UpValue<'gc>, MetricsAlloc<'gc>>,
+}
+
+/// As [`FunctionPrototype`]: the upvalue *count*, not every captured value. Walking them would
+/// print the whole reachable object graph, and would instantiate `Debug` for all of it.
+impl<'gc> fmt::Debug for ClosureInner<'gc> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("ClosureInner")
+            .field("proto", &*self.proto)
+            .field("upvalues", &self.upvalues.len())
+            .finish()
+    }
 }
 
 /// A garbage collected pointer to an executable Lua function.
@@ -273,8 +343,14 @@ impl<'gc> Closure<'gc> {
         source: &[u8],
         env: Table<'gc>,
     ) -> Result<Closure<'gc>, CompilerError> {
-        let proto = FunctionPrototype::compile(ctx, name.unwrap_or("<anonymous>"), source)?;
-        Ok(Closure::new(&ctx, proto, Some(env)).unwrap())
+        // A dumped chunk is loaded rather than compiled. It is checked on the way in — see
+        // `crate::dump` — because nothing about the bytes is trustworthy.
+        let proto = if crate::dump::is_binary_chunk(source) {
+            crate::dump::undump(ctx, source)?
+        } else {
+            FunctionPrototype::compile(ctx, name.unwrap_or("<anonymous>"), source)?
+        };
+        Ok(Closure::new(&ctx, proto, Some(env))?)
     }
 
     pub fn prototype(self) -> Gc<'gc, FunctionPrototype<'gc>> {

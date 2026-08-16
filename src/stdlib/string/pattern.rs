@@ -93,11 +93,11 @@ fn match_class(c: u8, cl: u8) -> bool {
         b'g' => c.is_ascii_graphic(),
         b'l' => c.is_ascii_lowercase(),
         b'p' => c.is_ascii_punctuation(),
-        b's' => c.is_ascii_whitespace(),
+        // C's `isspace`, which counts the vertical tab that Rust's `is_ascii_whitespace` omits.
+        b's' => matches!(c, b' ' | b'\t' | b'\n' | 0x0b | 0x0c | b'\r'),
         b'u' => c.is_ascii_uppercase(),
         b'w' => c.is_ascii_alphanumeric(),
         b'x' => c.is_ascii_hexdigit(),
-        b'z' => c == 0,
         _ => return c == cl, // not a class: match literally
     };
     if cl.is_ascii_uppercase() {
@@ -585,7 +585,9 @@ pub fn apply_replacement(
                 }
                 c if c.is_ascii_digit() => {
                     let n = (c - b'0') as usize;
-                    if n == 0 {
+                    // `%0` is the whole match, and so is `%1` when the pattern captured nothing:
+                    // PUC's `get_onecapture` falls back to the whole match for index 0.
+                    if n == 0 || (n == 1 && captures.is_empty()) {
                         result.extend_from_slice(&src[match_start..match_end]);
                     } else if n <= captures.len() {
                         match captures[n - 1] {
@@ -595,7 +597,10 @@ pub fn apply_replacement(
                             }
                         }
                     } else {
-                        return Err(format!("invalid capture index %{}", n));
+                        return Err(format!(
+                            "invalid capture index %{} in replacement string",
+                            n
+                        ));
                     }
                     i += 2;
                 }
@@ -616,6 +621,43 @@ pub struct MatchResult {
     pub start: usize,
     pub end: usize,
     pub captures: Vec<Capture>,
+}
+
+/// Validate `pat` once and return the pattern offset to match from, past any leading `^`.
+///
+/// Callers that match repeatedly (`gsub`) do this once instead of revalidating per position.
+pub fn prepare(pat: &[u8]) -> Result<usize, String> {
+    let pp_start = usize::from(pat.first() == Some(&b'^'));
+    validate_pattern(pat, pp_start)?;
+    Ok(pp_start)
+}
+
+/// Try the pattern at exactly `si`, without scanning forward. `pp_start` comes from [`prepare`].
+pub fn match_at(
+    src: &[u8],
+    pat: &[u8],
+    pp_start: usize,
+    si: usize,
+) -> Result<Option<MatchResult>, String> {
+    if si > src.len() {
+        return Ok(None);
+    }
+    let mut ms = MatchState::new(src, pat);
+    let end = match_impl(&mut ms, si, pp_start);
+    if let Some(err) = ms.err.take() {
+        return Err(err);
+    }
+    match end {
+        Some(end) => {
+            ms.check_captures()?;
+            Ok(Some(MatchResult {
+                start: si,
+                end,
+                captures: ms.get_captures(),
+            }))
+        }
+        None => Ok(None),
+    }
 }
 
 /// Find the next match after `init`, skipping if end == last_match_end.

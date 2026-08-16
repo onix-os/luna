@@ -6,11 +6,14 @@ do
         return "good"
     end
 
+    -- `error(msg)` is level 1, so the message is prefixed with "chunk:line: ".
+    local function message(e) return (tostring(e):gsub("^.*:%d+: ", "")) end
+
     local r1, e1 = pcall(error_func, "test error")
-    assert(r1 == false and e1 == "test error")
+    assert(r1 == false and message(e1) == "test error")
 
     local r2, e2 = pcall(error_func, "test error 2")
-    assert(r2 == false and e2 == "test error 2")
+    assert(r2 == false and message(e2) == "test error 2")
 
     local r3, e3 = pcall(good_func)
     assert(r3 == true and e3 == "good")

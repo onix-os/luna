@@ -3,7 +3,7 @@ use std::mem;
 use std::pin::Pin;
 
 use anyhow::Context as _;
-use ottavino_gc_arena::Collect;
+use ottavino_gc_arena::{Collect, Mutation};
 
 use crate::{
     async_callback::{AsyncSequence, Locals},
@@ -96,7 +96,8 @@ pub fn load_table<'gc>(ctx: Context<'gc>) {
 
             let then_impl = Callback::from_fn_with(&ctx, root, |root, ctx, _, mut stack| {
                 // Only reject nil values (cannot have __concat metamethods)
-                for (offset, val) in stack[..].iter().enumerate() {
+                let values = stack.to_vec();
+                for (offset, val) in values.iter().enumerate() {
                     if matches!(val, Value::Nil) {
                         let idx = root.start_idx.get() + offset as i64;
                         return Err(format!(
@@ -107,8 +108,7 @@ pub fn load_table<'gc>(ctx: Context<'gc>) {
                         .into());
                     }
                 }
-                let values = &stack[..];
-                match concat_separated(ctx, values, root.sep)? {
+                match concat_separated(ctx, &values, root.sep)? {
                     ConcatMetaResult::Value(v) => {
                         stack.replace(ctx, v);
                         Ok(CallbackReturn::Return)
@@ -145,15 +145,187 @@ pub fn load_table<'gc>(ctx: Context<'gc>) {
 
     table.set_field(ctx, "remove", Callback::from_fn(&ctx, table_remove_impl));
 
+    // Not standard Lua. A frozen table refuses every write, including `rawset`, which is what makes
+    // it useful for hardening shared globals against the scripts running on top of them.
+    table.set_field(
+        ctx,
+        "freeze",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let t: Table = stack.consume(ctx)?;
+            t.set_readonly(&ctx, true);
+            stack.replace(ctx, t);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    table.set_field(
+        ctx,
+        "clear",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let t: Table = stack.consume(ctx)?;
+            t.clear(&ctx)?;
+            stack.replace(ctx, t);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    // Non-standard, and the reason it exists is oslo's shared namespace: whether a write lands in
+    // Lua or in the shell depends on the value, so `__newindex` has to see every store.
+    table.set_field(
+        ctx,
+        "interceptall",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let (t, on): (Table, Option<bool>) = stack.consume(ctx)?;
+            t.set_intercept_all_writes(&ctx, on.unwrap_or(true));
+            stack.replace(ctx, t);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    table.set_field(
+        ctx,
+        "isfrozen",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let t: Table = stack.consume(ctx)?;
+            stack.replace(ctx, t.is_readonly());
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
     table.set_field(ctx, "insert", Callback::from_fn(&ctx, table_insert_impl));
 
+    // `sort` and `move` keep a Lua implementation as the general case, because both may have to
+    // call back into Lua — `sort` for its comparator, `move` for `__index`/`__newindex` — and a
+    // native cannot do that without becoming a sequence. Each gets a native fast path for the
+    // shape that needs no calls at all, falling through to the Lua version otherwise.
     let data = include_str!("table/sort.lua");
-    let func = Closure::load(ctx, Some("table/sort.lua"), data.as_bytes()).unwrap();
-    table.set_field(ctx, "sort", func);
+    let sort_fallback = Closure::load(ctx, Some("table/sort.lua"), data.as_bytes()).unwrap();
+    table.set_field(
+        ctx,
+        "sort",
+        Callback::from_fn_with(&ctx, sort_fallback, |fallback, ctx, _, mut stack| {
+            // Only the default ordering, on a table with no metatable: then the comparison is
+            // `<` on numbers or on strings, neither of which can run Lua.
+            let fast = match (stack.get(0), stack.get(1)) {
+                (Value::Table(t), Value::Nil) if t.metatable().is_none() => Some(t),
+                _ => None,
+            };
+            let Some(t) = fast else {
+                return Ok(CallbackReturn::Call {
+                    function: (*fallback).into(),
+                    then: None,
+                });
+            };
+
+            let length = t.length(&ctx);
+            // A table's border is not a count: `t[1]=true; t[1<<62]=true` reports a length of
+            // 2^62 while holding two entries. Preallocating that aborts the process, so the two
+            // cases a border can be absurd are split — PUC-Rio's own "array too big" for anything
+            // past the int range, and the interruptible Lua sort for merely large ones, which
+            // allocates against the memory ceiling instead of straight from the host allocator.
+            if length >= i32::MAX as i64 {
+                return Err("bad argument #1 to 'sort' (array too big)"
+                    .into_value(ctx)
+                    .into());
+            }
+            if length > 1_000_000 {
+                return Ok(CallbackReturn::Call {
+                    function: (*fallback).into(),
+                    then: None,
+                });
+            }
+            let mut values = Vec::with_capacity(length.max(0) as usize);
+            for i in 1..=length {
+                values.push(t.get_raw(&ctx, Value::Integer(i)));
+            }
+            // Bail to the Lua version rather than guess at an ordering luna does not define.
+            let all_numbers = values.iter().all(|v| v.to_number().is_some());
+            let all_strings = values.iter().all(|v| matches!(v, Value::String(_)));
+            if !(all_numbers || all_strings) {
+                return Ok(CallbackReturn::Call {
+                    function: (*fallback).into(),
+                    then: None,
+                });
+            }
+
+            if all_numbers {
+                values.sort_by(|a, b| {
+                    a.to_number()
+                        .unwrap()
+                        .partial_cmp(&b.to_number().unwrap())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+            } else {
+                values.sort_by(|a, b| match (a, b) {
+                    (Value::String(a), Value::String(b)) => a.as_bytes().cmp(b.as_bytes()),
+                    _ => std::cmp::Ordering::Equal,
+                });
+            }
+
+            for (i, v) in values.into_iter().enumerate() {
+                t.set_raw(&ctx, Value::Integer(i as i64 + 1), v)?;
+            }
+            stack.clear();
+            Ok(CallbackReturn::Return)
+        }),
+    );
 
     let data = include_str!("table/move.lua");
-    let func = Closure::load(ctx, Some("table/move.lua"), data.as_bytes()).unwrap();
-    table.set_field(ctx, "move", func);
+    let move_fallback = Closure::load(ctx, Some("table/move.lua"), data.as_bytes()).unwrap();
+    table.set_field(
+        ctx,
+        "move",
+        Callback::from_fn_with(&ctx, move_fallback, |fallback, ctx, _, mut stack| {
+            let fallback_call = || {
+                Ok(CallbackReturn::Call {
+                    function: (*fallback).into(),
+                    then: None,
+                })
+            };
+
+            let destination = match stack.get(4) {
+                Value::Nil => stack.get(0),
+                other => other,
+            };
+            let (Value::Table(source), Value::Table(destination)) = (stack.get(0), destination)
+            else {
+                return fallback_call();
+            };
+            // A metatable means `__index`/`__newindex` may run Lua, which only the Lua version can.
+            if source.metatable().is_some() || destination.metatable().is_some() {
+                return fallback_call();
+            }
+            let (Some(first), Some(last), Some(target)) = (
+                stack.get(1).to_integer(),
+                stack.get(2).to_integer(),
+                stack.get(3).to_integer(),
+            ) else {
+                return fallback_call();
+            };
+
+            if last >= first {
+                // The overflow checks the Lua version does, kept: `n` and the destination end must
+                // both stay representable.
+                let Some(count) = last.checked_sub(first).and_then(|n| n.checked_add(1)) else {
+                    return fallback_call();
+                };
+                if target.checked_add(count - 1).is_none() {
+                    return fallback_call();
+                }
+                // Overlapping ranges in the same table copy in whichever direction does not
+                // clobber a source element before it is read.
+                let forwards = target > last || target <= first || source != destination;
+                for step in 0..count {
+                    let offset = if forwards { step } else { count - 1 - step };
+                    let v = source.get_raw(&ctx, Value::Integer(first + offset));
+                    destination.set_raw(&ctx, Value::Integer(target + offset), v)?;
+                }
+            }
+
+            stack.replace(ctx, destination);
+            Ok(CallbackReturn::Return)
+        }),
+    );
 
     ctx.set_global("table", table);
 }
@@ -243,12 +415,15 @@ fn table_remove_impl<'gc>(
                 || !mt.get_value(ctx, MetaMethod::Index).is_nil()
                 || !mt.get_value(ctx, MetaMethod::NewIndex).is_nil()
         })
-        .unwrap_or(false);
+        .unwrap_or(false)
+        // A weak-value table keeps its entries in the map part, where they can be held weakly. The
+        // array fast path would store the value strongly and it would never be released.
+        || table.into_inner().borrow().raw_table.has_weak_values();
 
     if !use_fallback {
         // Try the fast path
         let mut inner = table.into_inner().borrow_mut(&ctx);
-        match array_remove_shift(&mut inner.raw_table, index) {
+        match array_remove_shift(&ctx, &mut inner.raw_table, index) {
             (RawArrayOpResult::Success(val), len) => {
                 // Consume fuel after the operation to avoid computing length twice
                 let start_idx = index.unwrap_or(len as i64).try_into().unwrap_or(0);
@@ -372,11 +547,15 @@ fn table_insert_impl<'gc>(
                 || !mt.get_value(ctx, MetaMethod::Index).is_nil()
                 || !mt.get_value(ctx, MetaMethod::NewIndex).is_nil()
         })
-        .unwrap_or(false);
+        .unwrap_or(false)
+        // A weak-value table keeps its entries in the map part, where they can be held weakly. The
+        // array fast path would store the value strongly and it would never be released.
+        || table.into_inner().borrow().raw_table.has_weak_values();
 
     if !use_fallback {
         // Try the fast path
         match array_insert_shift(
+            &ctx,
             &mut table.into_inner().borrow_mut(&ctx).raw_table,
             index,
             value,
@@ -559,7 +738,7 @@ impl<'gc> Sequence<'gc> for Pack<'gc> {
 
             while *index < *batch_end {
                 if let Some(call) =
-                    meta_ops::new_index(ctx, table, (*index as i64 + 1).into(), stack[*index])?
+                    meta_ops::new_index(ctx, table, (*index as i64 + 1).into(), stack.get(*index))?
                 {
                     stack.extend(call.args);
                     return Ok(SequencePoll::Call {
@@ -740,6 +919,7 @@ enum RawArrayOpResult<T> {
 //
 // Additionally, always returns the computed length of the array from before the operation.
 fn array_remove_shift<'gc>(
+    mc: &Mutation<'gc>,
     table: &mut RawTable<'gc>,
     key: Option<i64>,
 ) -> (RawArrayOpResult<Value<'gc>>, usize) {
@@ -777,7 +957,7 @@ fn array_remove_shift<'gc>(
         RawArrayOpResult::Success(value)
     }
 
-    let length = table.length() as usize;
+    let length = table.length(mc) as usize;
     (inner(table, length, key), length)
 }
 
@@ -790,6 +970,7 @@ fn array_remove_shift<'gc>(
 //
 // Additionally, always returns the computed length of the array from before the operation.
 fn array_insert_shift<'gc>(
+    mc: &Mutation<'gc>,
     table: &mut RawTable<'gc>,
     key: Option<i64>,
     value: Value<'gc>,
@@ -833,6 +1014,6 @@ fn array_insert_shift<'gc>(
         RawArrayOpResult::Success(())
     }
 
-    let length = table.length() as usize;
+    let length = table.length(mc) as usize;
     (inner(table, length, key, value), length)
 }

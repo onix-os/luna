@@ -41,7 +41,8 @@ pub fn load_baseline<'gc>(ctx: Context<'gc>, math: Table<'gc>) {
         "abs",
         callback("abs", &ctx, |_, v: Value| {
             if let Value::Integer(i) = v {
-                Some(Value::Integer(i.abs()))
+                // `mininteger` has no positive counterpart; PUC-Rio wraps rather than trapping.
+                Some(Value::Integer(i.wrapping_abs()))
             } else {
                 Some(Value::Number(v.to_number()?.abs()))
             }
@@ -57,10 +58,12 @@ pub fn load_baseline<'gc>(ctx: Context<'gc>, math: Table<'gc>) {
         ctx,
         "tointeger",
         callback("tointeger", &ctx, |_, v: Value| {
-            Some(if let Some(i) = v.to_integer() {
-                i.into()
-            } else {
-                Value::Nil
+            // Only actual numbers convert. Accepting strings would make this useless as the
+            // "is this convertible without loss" test it exists to be.
+            Some(match v {
+                Value::Integer(i) => Value::Integer(i),
+                Value::Number(_) => v.to_integer().map(Value::Integer).unwrap_or(Value::Nil),
+                _ => Value::Nil,
             })
         }),
     );
@@ -101,7 +104,7 @@ pub fn load_cmp<'gc>(ctx: Context<'gc>, math: Table<'gc>) {
                     for i in 1..args {
                         let (call, bottom) = seq.try_enter(|ctx, locals, _, mut stack| {
                             let bottom = args;
-                            match meta_ops::less_than(ctx, locals.fetch(&max), stack[i])? {
+                            match meta_ops::less_than(ctx, locals.fetch(&max), stack.get(i))? {
                                 meta_ops::MetaResult::Value(v) => {
                                     stack.resize(bottom);
                                     stack.push_back(v);
@@ -195,16 +198,24 @@ pub fn load_float<'gc>(ctx: Context<'gc>, math: Table<'gc>) {
         }
     }
 
+    // An integer is its own floor and its own ceiling. Rounding it through f64 first loses the
+    // low bits of anything past 2^53, which turned `maxinteger - 1` into `maxinteger`.
     math.set_field(
         ctx,
         "ceil",
-        callback("ceil", &ctx, |_, v: f64| Some(to_int(v.ceil().into()))),
+        callback("ceil", &ctx, |_, v: Value| match v {
+            Value::Integer(i) => Some(Value::Integer(i)),
+            v => Some(to_int(v.to_number()?.ceil().into())),
+        }),
     );
 
     math.set_field(
         ctx,
         "floor",
-        callback("floor", &ctx, |_, v: f64| Some(to_int(v.floor().into()))),
+        callback("floor", &ctx, |_, v: Value| match v {
+            Value::Integer(i) => Some(Value::Integer(i)),
+            v => Some(to_int(v.to_number()?.floor().into())),
+        }),
     );
 
     math.set_field(
@@ -243,16 +254,41 @@ pub fn load_float<'gc>(ctx: Context<'gc>, math: Table<'gc>) {
     math.set_field(
         ctx,
         "fmod",
-        callback("fmod", &ctx, |_, (f, g): (f64, f64)| {
-            let result = (f % g).abs();
-            Some(if f < 0.0 { -result } else { result })
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let (a, b): (Value, Value) = stack.consume(ctx)?;
+            // Two integers give an integer, as in PUC-Rio, and zero is refused rather than
+            // quietly producing NaN.
+            match (a, b) {
+                (Value::Integer(x), Value::Integer(y)) => {
+                    if y == 0 {
+                        return Err("bad argument #2 to 'fmod' (zero)".into_value(ctx).into());
+                    }
+                    stack.replace(ctx, x.wrapping_rem(y));
+                }
+                _ => {
+                    let (Some(f), Some(g)) = (a.to_number(), b.to_number()) else {
+                        return Err("bad argument to 'fmod' (number expected)"
+                            .into_value(ctx)
+                            .into());
+                    };
+                    // Rust's `%` on f64 is C's `fmod`, which already takes the sign of `f`.
+                    stack.replace(ctx, f % g);
+                }
+            }
+            Ok(CallbackReturn::Return)
         }),
     );
 
     math.set_field(
         ctx,
         "modf",
-        callback("modf", &ctx, |_, f: f64| Some((f as i64, f % 1.0))),
+        callback("modf", &ctx, |_, f: f64| {
+            // `f as i64` saturates, so `modf(1e100)` used to answer `i64::MAX`. The integral part
+            // is a float in PUC-Rio precisely so that it can hold values this big.
+            let integral = f.trunc();
+            let fractional = if f.is_infinite() { 0.0 } else { f - integral };
+            Some((integral, fractional))
+        }),
     );
 }
 
@@ -325,14 +361,20 @@ pub fn load_random<'gc>(ctx: Context<'gc>, math: Table<'gc>) {
             &ctx,
             move |_, (u, l): (Option<u64>, Option<u64>)| {
                 let rng = &randomseed_rng;
+                // PUC-Rio returns the two components it seeded with, which is how an unseeded
+                // run is reproduced afterwards.
                 match (u, l) {
                     (None, None) => {
-                        *rng.borrow_mut() = SmallRng::from_entropy();
-                        Some(())
+                        // `rand::random` needs the `std` feature luna deliberately omits; seed from
+                        // entropy and read the value back out.
+                        let mut entropy = SmallRng::from_entropy();
+                        let seed: u64 = entropy.gen();
+                        *rng.borrow_mut() = SmallRng::seed_from_u64(seed);
+                        Some((seed as i64, 0i64))
                     }
                     (Some(seed), None) | (Some(seed), Some(0)) => {
                         *rng.borrow_mut() = SmallRng::seed_from_u64(seed);
-                        Some(())
+                        Some((seed as i64, 0i64))
                     }
                     (Some(high), Some(low)) => {
                         let high_bytes = high.to_ne_bytes();
@@ -346,7 +388,7 @@ pub fn load_random<'gc>(ctx: Context<'gc>, math: Table<'gc>) {
                             }
                         });
                         *rng.borrow_mut() = SmallRng::from_seed(seed);
-                        Some(())
+                        Some((high as i64, low as i64))
                     }
                     _ => None,
                 }

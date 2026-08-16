@@ -16,7 +16,7 @@ fn test_table_iter() {
         table.set(ctx, "2", 2).unwrap();
         table.set(ctx, "3", 3).unwrap();
 
-        let mut pairs = table.iter().collect::<Vec<_>>();
+        let mut pairs = table.iter(ctx).collect::<Vec<_>>();
         pairs.sort_by(|&(ak, _), &(bk, _)| match (ak, bk) {
             (luna::Value::Integer(a), luna::Value::Integer(b)) => a.cmp(&b),
             (luna::Value::Integer(_), luna::Value::String(_)) => Ordering::Less,
@@ -33,7 +33,7 @@ fn test_table_iter() {
         assert!(matches!(pairs[4], (Value::String(s), Value::Integer(2)) if s == "2" ));
         assert!(matches!(pairs[5], (Value::String(s), Value::Integer(3)) if s == "3" ));
 
-        for (k, _) in table.iter() {
+        for (k, _) in table.iter(ctx) {
             table.set(ctx, k, Value::Nil).unwrap();
         }
 

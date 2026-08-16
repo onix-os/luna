@@ -5,6 +5,7 @@ pub mod closure;
 pub mod compiler;
 pub mod constant;
 pub mod conversion;
+pub mod dump;
 pub mod error;
 pub mod finalizers;
 pub mod fuel;
@@ -24,16 +25,25 @@ pub mod types;
 pub mod userdata;
 pub mod value;
 
+/// `#[derive(FromValue)]` and `#[derive(IntoValue)]`, behind the `derive` feature.
+///
+/// A struct becomes a table keyed by field name; a fieldless enum becomes its variant name as a
+/// string. Anything else is a compile error rather than a guess.
+#[cfg(feature = "derive")]
+pub use luna_derive::{FromValue, IntoValue};
+
 pub use self::{
     async_callback::{async_sequence, SequenceReturn},
-    callback::{BoxSequence, Callback, CallbackFn, CallbackReturn, Sequence, SequencePoll},
+    callback::{
+        BoxSequence, Callback, CallbackFn, CallbackReturn, PendingFuture, Sequence, SequencePoll,
+    },
     closure::{Closure, CompilerError, FunctionPrototype},
     constant::Constant,
-    conversion::{FromMultiValue, FromValue, IntoMultiValue, IntoValue, Variadic},
-    error::{Error, ExternError, RuntimeError, TypeError},
+    conversion::{Either, FromMultiValue, FromValue, IntoMultiValue, IntoValue, Variadic},
+    error::{BadArgument, Error, ExternError, RuntimeError, TypeError},
     fuel::Fuel,
     function::Function,
-    lua::{Context, Lua},
+    lua::{Context, GcRequest, Lua},
     meta_ops::MetaMethod,
     registry::{Registry, Singleton},
     stack::Stack,
@@ -44,6 +54,38 @@ pub use self::{
     string::String,
     table::Table,
     thread::{Execution, Executor, ExecutorMode, Thread, ThreadMode},
-    userdata::UserData,
+    userdata::{UserData, UserRef},
     value::Value,
 };
+
+/// The result of most luna operations that can raise a Lua error.
+pub type Result<'gc, T> = std::result::Result<T, Error<'gc>>;
+
+/// Everything an embedder normally wants, under names that do not collide with `std`.
+///
+/// `use luna::*` pulls in `String`, `Error`, `Table` and `Function` under bare names, which shadow
+/// `std::string::String` and `std::error::Error` and make the resulting code hard to read. The
+/// prelude renames the two that clash and leaves the rest alone:
+///
+/// ```
+/// use luna::prelude::*;
+///
+/// let mut lua = Lua::core();
+/// lua.enter(|ctx| {
+///     let t = LuaTable::new(&ctx);
+///     t.set(ctx, "answer", 42).unwrap();
+/// });
+/// ```
+pub mod prelude {
+    pub use crate::{
+        BoxSequence, Callback, CallbackReturn, Context, Execution, Executor, Fuel, Lua,
+        SequencePoll, Variadic,
+    };
+
+    pub use crate::{
+        Closure as LuaClosure, Error as LuaError, Function as LuaFunction, String as LuaString,
+        Table as LuaTable, Thread as LuaThread, UserData as LuaUserData, Value as LuaValue,
+    };
+
+    pub use crate::{FromMultiValue, FromValue, IntoMultiValue, IntoValue};
+}

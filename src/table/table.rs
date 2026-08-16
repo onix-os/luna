@@ -65,6 +65,8 @@ impl<'gc> Table<'gc> {
             RefLock::new(TableState {
                 raw_table,
                 metatable,
+                readonly: false,
+                intercept_all_writes: false,
             }),
         ))
     }
@@ -95,7 +97,7 @@ impl<'gc> Table<'gc> {
     }
 
     pub fn get_value<K: IntoValue<'gc>>(self, ctx: Context<'gc>, key: K) -> Value<'gc> {
-        self.get_raw(key.into_value(ctx))
+        self.get_raw(&ctx, key.into_value(ctx))
     }
 
     /// A convenience method over [`Table::set`] for setting a string field of a table.
@@ -112,8 +114,11 @@ impl<'gc> Table<'gc> {
     }
 
     /// Get a value from this table without any automatic type conversion.
-    pub fn get_raw(self, key: Value<'gc>) -> Value<'gc> {
-        self.0.borrow().raw_table.get(key)
+    ///
+    /// Takes a `Mutation` because a table declared `__mode = "v"` holds its values weakly, and the
+    /// only safe way to read one is to upgrade it.
+    pub fn get_raw(self, mc: &Mutation<'gc>, key: Value<'gc>) -> Value<'gc> {
+        self.0.borrow().raw_table.get(mc, key)
     }
 
     /// Set a value in this table without any automatic type conversion.
@@ -123,7 +128,50 @@ impl<'gc> Table<'gc> {
         key: Value<'gc>,
         value: Value<'gc>,
     ) -> Result<Value<'gc>, InvalidTableKey> {
-        self.0.borrow_mut(&mc).raw_table.set(key, value)
+        if self.0.borrow().readonly {
+            return Err(InvalidTableKey::ReadOnly);
+        }
+        self.0.borrow_mut(&mc).raw_table.set(&mc, key, value)
+    }
+
+    /// Remove every entry, releasing the memory rather than leaving tombstones behind.
+    ///
+    /// Setting keys to nil one at a time leaves `Key::Dead` markers and keeps the buckets
+    /// allocated, which is the right trade during iteration but wrong for emptying a table you
+    /// intend to reuse.
+    pub fn clear(self, mc: &Mutation<'gc>) -> Result<(), InvalidTableKey> {
+        if self.0.borrow().readonly {
+            return Err(InvalidTableKey::ReadOnly);
+        }
+        self.0.borrow_mut(mc).raw_table.clear();
+        Ok(())
+    }
+    /// Whether this table refuses writes.
+    pub fn is_readonly(self) -> bool {
+        self.0.borrow().readonly
+    }
+
+    /// Whether `__newindex` fires on every store rather than only on absent keys.
+    pub fn intercepts_all_writes(self) -> bool {
+        self.0.borrow().intercept_all_writes
+    }
+
+    /// Make `__newindex` fire on every store, including keys the table already has.
+    ///
+    /// Lua fires `__newindex` only for absent keys, which is right when a metatable is a fallback.
+    /// It is wrong when the metatable is deciding *where* a value belongs: a name assigned a table
+    /// and then a string would stay put instead of moving. A host building a namespace out of a
+    /// table wants this; anything modelling plain Lua does not.
+    pub fn set_intercept_all_writes(self, mc: &Mutation<'gc>, intercept: bool) {
+        self.0.borrow_mut(mc).intercept_all_writes = intercept;
+    }
+
+    /// Freeze or unfreeze this table.
+    ///
+    /// A frozen table refuses every write, raw ones included, so freezing the stdlib tables stops
+    /// one script rewriting `string.format` for every other script sharing the globals.
+    pub fn set_readonly(self, mc: &Mutation<'gc>, readonly: bool) {
+        self.0.borrow_mut(mc).readonly = readonly;
     }
 
     /// Returns a 'border' for this table.
@@ -133,55 +181,100 @@ impl<'gc> Table<'gc> {
     ///
     /// If a table has exactly one border, it is called a 'sequence', and this border is the table's
     /// length.
-    pub fn length(self) -> i64 {
-        self.0.borrow().raw_table.length()
+    pub fn length(self, mc: &Mutation<'gc>) -> i64 {
+        self.0.borrow().raw_table.length(mc)
     }
 
-    /// Returns the next value after this key in an unspecified table iteration order.
+    /// Returns the next value after this key in table iteration order.
     ///
-    /// The table order in the map portion of the table is defined by the incidental order of the
-    /// internal bucket list. This order is only guaranteed to be stable if there are no inserts
-    /// into the table, so iterating using this method while simultaneously inserting may result in
-    /// unspecified (but never unsafe) behavior. As a special case, removing from the table (setting
-    /// a value to [`Value::Nil`]) is *always* allowed, even for the currently returned key.
+    /// The array portion comes first, in index order, followed by the map portion **in the order
+    /// its keys were first inserted**. Lua itself promises no particular order for `pairs`, so this
+    /// is a guarantee luna adds: it means a table used to build an ordered structure — a row whose
+    /// column order is its key order, say — reads back the way it was written, and reads the same
+    /// way on every run. A key removed and later re-added keeps its original position.
+    ///
+    /// The order is only guaranteed to be stable if there are no inserts into the table, so
+    /// iterating using this method while simultaneously inserting may result in unspecified (but
+    /// never unsafe) behavior. As a special case, removing from the table (setting a value to
+    /// [`Value::Nil`]) is *always* allowed, even for the currently returned key.
     ///
     /// If given `Nil`, it will return the first pair in the table. If given a key that is present
     /// in the table, it will return the next pair in iteration order. If given a key that is not
     /// present in the table, the behavior is unspecified.
-    pub fn next(self, key: Value<'gc>) -> NextValue<'gc> {
-        self.0.borrow().raw_table.next(key)
+    pub fn next(self, mc: &Mutation<'gc>, key: Value<'gc>) -> NextValue<'gc> {
+        self.0.borrow().raw_table.next(mc, key)
     }
 
     /// Iterate over the key-value pairs of the table.
     ///
     /// Internally uses the `Table::next` method and thus matches the behavior of Lua.
-    pub fn iter(self) -> Iter<'gc> {
-        Iter::new(self)
+    pub fn iter(self, ctx: Context<'gc>) -> Iter<'gc> {
+        Iter::new(ctx, self)
+    }
+
+    /// Revive the values of entries whose key is still alive. See `Finalizers::mark_ephemerons`.
+    pub(crate) fn revive_live_entries(
+        self,
+        fc: &ottavino_gc_arena::Finalization<'gc>,
+        roots: &mut Vec<Value<'gc>>,
+    ) -> usize {
+        self.0.borrow().raw_table.revive_live_entries(fc, roots)
     }
 
     pub fn metatable(self) -> Option<Table<'gc>> {
         self.0.borrow().metatable
     }
 
+    /// Attach a metatable.
+    ///
+    /// Takes `Context` rather than `Mutation` because a metatable carrying `__gc` enrols this
+    /// table with the finalizer registry.
     pub fn set_metatable(
         self,
-        mc: &Mutation<'gc>,
+        ctx: Context<'gc>,
         metatable: Option<Table<'gc>>,
     ) -> Option<Table<'gc>> {
-        mem::replace(&mut self.0.borrow_mut(mc).metatable, metatable)
+        if let Some(mt) = metatable {
+            if !mt.get_value(ctx, crate::MetaMethod::Gc).is_nil() {
+                ctx.finalizers().register_table(&ctx, self.0);
+            }
+            // `__mode` is read once, here. Changing it afterwards does not retroactively weaken
+            // entries — PUC-Rio calls that undefined, and this is luna's answer.
+            if let Value::String(mode) = mt.get_value(ctx, crate::MetaMethod::Mode) {
+                let mode = mode.as_bytes();
+                if mode.contains(&b'k') {
+                    self.0.borrow_mut(&ctx).raw_table.make_keys_weak(&ctx);
+                    // Ephemeron revival is for `"k"` alone. Under `"kv"` the value is weak in its
+                    // own right and must die when nothing else holds it, however alive its key is,
+                    // so putting values back would be exactly wrong.
+                    if !mode.contains(&b'v') {
+                        ctx.finalizers().register_weak_keys(&ctx, self.0);
+                    }
+                } else if mode.contains(&b'v') {
+                    self.0.borrow_mut(&ctx).raw_table.make_values_weak(&ctx);
+                }
+            }
+        }
+        mem::replace(&mut self.0.borrow_mut(&ctx).metatable, metatable)
     }
 }
 
-#[derive(Copy, Clone, Collect)]
-#[collect(no_drop)]
+/// Iteration over a table's entries.
+///
+/// Not `Collect`: it holds a `Context`, which is a borrow into the arena rather than something
+/// collected, and an iterator does not outlive the `enter` that made it.
+#[derive(Copy, Clone)]
 pub struct Iter<'gc> {
+    // Held because a weak table's slots can only be read by upgrading them.
+    ctx: Context<'gc>,
     table: Table<'gc>,
     prev: Option<Value<'gc>>,
 }
 
 impl<'gc> Iter<'gc> {
-    pub fn new(table: Table<'gc>) -> Self {
+    pub fn new(ctx: Context<'gc>, table: Table<'gc>) -> Self {
         Self {
+            ctx,
             table,
             prev: Some(Value::Nil),
         }
@@ -192,7 +285,7 @@ impl<'gc> Iterator for Iter<'gc> {
     type Item = (Value<'gc>, Value<'gc>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.table.next(self.prev.take()?) {
+        match self.table.next(&self.ctx, self.prev.take()?) {
             NextValue::Found { key, value } => {
                 self.prev = Some(key);
                 Some((key, value))
@@ -202,20 +295,16 @@ impl<'gc> Iterator for Iter<'gc> {
     }
 }
 
-impl<'gc> IntoIterator for Table<'gc> {
-    type Item = (Value<'gc>, Value<'gc>);
-    type IntoIter = Iter<'gc>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
 #[derive(Collect)]
 #[collect(no_drop)]
 pub struct TableState<'gc> {
     pub raw_table: RawTable<'gc>,
     pub metatable: Option<Table<'gc>>,
+    // A frozen table refuses every write, including raw ones. The stdlib tables live in shared
+    // globals, so without this one script can replace `string.format` for every other script.
+    pub readonly: bool,
+    // When set, `__newindex` fires on every store, not only on keys the table lacks.
+    pub intercept_all_writes: bool,
 }
 
 impl<'gc> fmt::Debug for TableState<'gc> {

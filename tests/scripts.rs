@@ -47,19 +47,9 @@ fn run_tests(dir: &str) -> bool {
 
 #[test]
 fn test_scripts() {
-    let mut file_failed = false;
-
-    file_failed |= run_tests("./tests/scripts");
-
-    let _ = writeln!(stdout(), "Running non-required tests");
-
-    let non_required_failed = run_tests("./tests/scripts-wishlist");
-
-    if non_required_failed {
-        let _ = writeln!(stdout(), "one or more non-required tests failed");
-    }
-
-    if file_failed {
+    // There is no longer a `scripts-wishlist` stage: every script that was in it — `attributes`
+    // for `<close>` and `globals` for `_G` — now passes and has moved into the required set.
+    if run_tests("./tests/scripts") {
         panic!("one or more errors occurred");
     }
 }

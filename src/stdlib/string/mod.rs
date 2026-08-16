@@ -1,4 +1,5 @@
-mod format;
+pub(crate) mod format;
+mod pack;
 mod pattern;
 
 use std::cell::Cell;
@@ -7,7 +8,7 @@ use ottavino_gc_arena::{Collect, Gc, Rootable};
 
 use crate::{
     async_sequence, meta_ops, Callback, CallbackReturn, Context, Error, IntoValue, SequenceReturn,
-    Singleton, String, Table, Value,
+    Singleton, String, Table, Value, Variadic,
 };
 
 #[derive(Copy, Clone, Collect)]
@@ -71,44 +72,19 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
         "char",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
             let mut buf = Vec::with_capacity(stack.len());
-            for v in stack.drain(..) {
-                match v {
-                    Value::Integer(i) => {
-                        if !(0..=255).contains(&i) {
-                            return Err("bad argument to 'char' (value out of range)"
-                                .into_value(ctx)
-                                .into());
-                        }
-                        buf.push(i as u8);
-                    }
-                    Value::Number(n) => {
-                        let i = n as i64;
-                        if !(0..=255).contains(&i) || (i as f64) != n {
-                            return Err("bad argument to 'char' (value out of range)"
-                                .into_value(ctx)
-                                .into());
-                        }
-                        buf.push(i as u8);
-                    }
-                    Value::String(s) => {
-                        // Coerce string to number
-                        let s_str = std::str::from_utf8(s.as_bytes()).unwrap_or("");
-                        let i: i64 = s_str.trim().parse().map_err(|_| {
-                            "bad argument to 'char' (number expected)".into_value(ctx)
-                        })?;
-                        if !(0..=255).contains(&i) {
-                            return Err("bad argument to 'char' (value out of range)"
-                                .into_value(ctx)
-                                .into());
-                        }
-                        buf.push(i as u8);
-                    }
-                    _ => {
-                        return Err("bad argument to 'char' (number expected)"
-                            .into_value(ctx)
-                            .into());
-                    }
+            // `str_char` takes each argument through `luaL_checkinteger` and only then range-checks
+            // it, so a non-integral number is reported as such rather than as being out of range.
+            for (i, v) in stack.drain(..).enumerate() {
+                let bad = |what: &str| {
+                    Error::from(
+                        format!("bad argument #{} to 'char' ({})", i + 1, what).into_value(ctx),
+                    )
+                };
+                let c = check_integer(v, true).map_err(|e| bad(&e))?;
+                if !(0..=255).contains(&c) {
+                    return Err(bad("value out of range"));
                 }
+                buf.push(c as u8);
             }
             stack.replace(ctx, ctx.intern(&buf));
             Ok(CallbackReturn::Return)
@@ -158,11 +134,253 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
 
     string_lib.set_field(
         ctx,
+        "dump",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let (function, strip): (crate::Function, Option<bool>) = stack.consume(ctx)?;
+            let crate::Function::Closure(closure) = function else {
+                // A Rust callback has no bytecode to write out, which is what PUC-Rio says about
+                // C functions too.
+                return Err("unable to dump given function".into_value(ctx).into());
+            };
+            // Loading produces a *top-level* function, and luna only builds one from a prototype
+            // whose sole upvalue is `_ENV`. A nested function reaches `_ENV` through its parent
+            // instead, so it has no meaning on its own — refusing here beats handing back bytes
+            // that cannot be loaded. Chunks are what precompilation actually wants anyway.
+            let upvalues = &closure.prototype().upvalues;
+            let loadable = upvalues.is_empty()
+                || (upvalues.len() == 1
+                    && upvalues[0] == crate::types::UpValueDescriptor::Environment);
+            if !loadable {
+                return Err(
+                    "unable to dump this function: only a chunk, whose one upvalue is _ENV, can be \
+                     loaded back"
+                        .into_value(ctx)
+                        .into(),
+                );
+            }
+            let bytes = crate::dump::dump(&closure.prototype(), strip.unwrap_or(false));
+            stack.replace(ctx, ctx.intern(&bytes));
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    string_lib.set_field(
+        ctx,
         "reverse",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
             let s = stack.consume::<String>(ctx)?;
             let rev: Vec<u8> = s.as_bytes().iter().copied().rev().collect();
             stack.replace(ctx, ctx.intern(&rev));
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    string_lib.set_field(
+        ctx,
+        "pack",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let format: String = stack.from_front(ctx)?;
+            let parsed = pack::parse_format(format.as_bytes()).map_err(|e| e.into_value(ctx))?;
+
+            let mut out = Vec::new();
+            let mut arg = 0;
+            // Every option reserves its width before writing it, so a format that repeats a wide
+            // `c` cannot allocate its way past the string length cap.
+            let grow = |out: &Vec<u8>, add: usize| {
+                pack::room(out.len(), add)
+                    .map(|_| ())
+                    .map_err(|e| Error::from(e.into_value(ctx)))
+            };
+            // Argument one is the format, so the value at `arg` is Lua's argument `arg + 2`.
+            let bad = |arg: usize, what: &str| {
+                Error::from(
+                    format!("bad argument #{} to 'pack' ({})", arg + 2, what).into_value(ctx),
+                )
+            };
+            let present = |arg: usize| arg < stack.len();
+            for item in &parsed.items {
+                match item {
+                    pack::Item::Padding => {
+                        grow(&out, 1)?;
+                        out.push(0);
+                    }
+                    pack::Item::Int { size, signed } => {
+                        let v = check_integer(stack.get(arg), present(arg))
+                            .map_err(|e| bad(arg, &e))?;
+                        pack::check_int_range(v, *size, *signed).map_err(|e| bad(arg, &e))?;
+                        arg += 1;
+                        grow(&out, *size)?;
+                        pack::write_int(&mut out, v, *size, parsed.little_endian);
+                    }
+                    pack::Item::Float => {
+                        let v = check_number(stack.get(arg), present(arg))
+                            .map_err(|e| bad(arg, &e))? as f32;
+                        arg += 1;
+                        grow(&out, 4)?;
+                        let bytes = if parsed.little_endian {
+                            v.to_le_bytes()
+                        } else {
+                            v.to_be_bytes()
+                        };
+                        out.extend_from_slice(&bytes);
+                    }
+                    pack::Item::Double => {
+                        let v =
+                            check_number(stack.get(arg), present(arg)).map_err(|e| bad(arg, &e))?;
+                        arg += 1;
+                        grow(&out, 8)?;
+                        let bytes = if parsed.little_endian {
+                            v.to_le_bytes()
+                        } else {
+                            v.to_be_bytes()
+                        };
+                        out.extend_from_slice(&bytes);
+                    }
+                    pack::Item::LenString { size } => {
+                        let s = check_lstring(ctx, stack.get(arg), present(arg))
+                            .map_err(|e| bad(arg, &e))?;
+                        let len = s.as_bytes().len();
+                        // The length prefix is written at `size` bytes, so a longer string would
+                        // record a truncated count and the payload could never be read back.
+                        if *size < 8 && len >= 1usize << (size * 8) {
+                            return Err(bad(arg, "string length does not fit in given size"));
+                        }
+                        arg += 1;
+                        grow(&out, size + len)?;
+                        pack::write_int(&mut out, len as i64, *size, parsed.little_endian);
+                        out.extend_from_slice(s.as_bytes());
+                    }
+                    pack::Item::ZeroString => {
+                        let s = check_lstring(ctx, stack.get(arg), present(arg))
+                            .map_err(|e| bad(arg, &e))?;
+                        // A zero-terminated string is read back up to its first zero, so an
+                        // embedded one would silently truncate whatever follows it.
+                        if s.as_bytes().contains(&0) {
+                            return Err(bad(arg, "string contains zeros"));
+                        }
+                        arg += 1;
+                        grow(&out, s.as_bytes().len() + 1)?;
+                        out.extend_from_slice(s.as_bytes());
+                        out.push(0);
+                    }
+                    pack::Item::FixedString { size } => {
+                        let s = check_lstring(ctx, stack.get(arg), present(arg))
+                            .map_err(|e| bad(arg, &e))?;
+                        let bytes = s.as_bytes();
+                        if bytes.len() > *size {
+                            return Err(bad(arg, "string longer than given size"));
+                        }
+                        arg += 1;
+                        grow(&out, *size)?;
+                        out.extend_from_slice(bytes);
+                        out.resize(out.len() + (*size - bytes.len()), 0);
+                    }
+                }
+            }
+
+            stack.replace(ctx, ctx.intern(&out));
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    string_lib.set_field(
+        ctx,
+        "packsize",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let format: String = stack.consume(ctx)?;
+            let parsed = pack::parse_format(format.as_bytes()).map_err(|e| e.into_value(ctx))?;
+            let size = pack::packed_size(&parsed).map_err(|e| e.into_value(ctx))?;
+            stack.replace(ctx, size as i64);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    string_lib.set_field(
+        ctx,
+        "unpack",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let (format, data, pos): (String, String, Option<i64>) = stack.consume(ctx)?;
+            let parsed = pack::parse_format(format.as_bytes()).map_err(|e| e.into_value(ctx))?;
+            let bytes = data.as_bytes();
+            let mut at = unpack_init(bytes.len(), pos.unwrap_or(1)).ok_or_else(|| {
+                "bad argument #3 to 'unpack' (initial position out of string)".into_value(ctx)
+            })?;
+
+            let short = || Error::from("data string too short".into_value(ctx));
+            // Every width below is checked against the remaining data before it is sliced: a
+            // length read out of the data itself can be large enough to overflow `at + n`.
+            let room = |at: usize, n: usize| at.checked_add(n).filter(|e| *e <= bytes.len());
+            let mut out: Vec<Value> = Vec::new();
+
+            for item in &parsed.items {
+                match item {
+                    pack::Item::Padding => {
+                        at = room(at, 1).ok_or_else(short)?;
+                    }
+                    pack::Item::Int { size, signed } => {
+                        let end = room(at, *size).ok_or_else(short)?;
+                        let v =
+                            pack::read_int(&bytes[at..end], *size, *signed, parsed.little_endian)
+                                .map_err(|e| e.into_value(ctx))?;
+                        out.push(Value::Integer(v));
+                        at = end;
+                    }
+                    pack::Item::Float => {
+                        if room(at, 4).is_none() {
+                            return Err(short());
+                        }
+                        let raw: [u8; 4] = bytes[at..at + 4].try_into().unwrap();
+                        let v = if parsed.little_endian {
+                            f32::from_le_bytes(raw)
+                        } else {
+                            f32::from_be_bytes(raw)
+                        };
+                        out.push(Value::Number(v as f64));
+                        at += 4;
+                    }
+                    pack::Item::Double => {
+                        if room(at, 8).is_none() {
+                            return Err(short());
+                        }
+                        let raw: [u8; 8] = bytes[at..at + 8].try_into().unwrap();
+                        let v = if parsed.little_endian {
+                            f64::from_le_bytes(raw)
+                        } else {
+                            f64::from_be_bytes(raw)
+                        };
+                        out.push(Value::Number(v));
+                        at += 8;
+                    }
+                    pack::Item::LenString { size } => {
+                        let head = room(at, *size).ok_or_else(short)?;
+                        let len =
+                            pack::read_int(&bytes[at..head], *size, false, parsed.little_endian)
+                                .map_err(|e| e.into_value(ctx))?
+                                as usize;
+                        let end = room(head, len).ok_or_else(short)?;
+                        out.push(ctx.intern(&bytes[head..end]).into());
+                        at = end;
+                    }
+                    pack::Item::ZeroString => {
+                        let end = bytes[at..]
+                            .iter()
+                            .position(|b| *b == 0)
+                            .map(|p| at + p)
+                            .ok_or_else(|| "unfinished string for format 'z'".into_value(ctx))?;
+                        out.push(ctx.intern(&bytes[at..end]).into());
+                        at = end + 1;
+                    }
+                    pack::Item::FixedString { size } => {
+                        let end = room(at, *size).ok_or_else(short)?;
+                        out.push(ctx.intern(&bytes[at..end]).into());
+                        at = end;
+                    }
+                }
+            }
+
+            // Lua returns the position just past what was read, as the last value.
+            out.push(Value::Integer(at as i64 + 1));
+            stack.replace(ctx, Variadic(out));
             Ok(CallbackReturn::Return)
         }),
     );
@@ -186,7 +404,7 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                 .checked_add(sep_total)
                 .ok_or_else(|| "resulting string too large".into_value(ctx))?;
             // Cap at ~1GiB like PUC-Rio Lua
-            if total > 0x40000000 {
+            if total > crate::string::MAX_STRING_LENGTH {
                 return Err("resulting string too large".into_value(ctx).into());
             }
             let mut buf = Vec::with_capacity(total);
@@ -299,13 +517,26 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
         ctx,
         "gmatch",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
-            let (s, pat) = stack.consume::<(String, String)>(ctx)?;
+            let (s, pat, init) = stack.consume::<(String, String, Option<i64>)>(ctx)?;
+            // `init` follows the same convention as `find`: 1-based, negative counts from the end.
+            let start = match init {
+                None => 0,
+                Some(i) => {
+                    let len = s.as_bytes().len() as i64;
+                    let at = if i < 0 {
+                        (len + i + 1).max(1)
+                    } else {
+                        i.max(1)
+                    };
+                    (at - 1).clamp(0, len) as usize
+                }
+            };
             let state = Gc::new(
                 &ctx,
                 GmatchState {
                     source: s,
                     pattern: pat,
-                    pos: Cell::new(0),
+                    pos: Cell::new(start),
                     last_end: Cell::new(None),
                 },
             );
@@ -374,27 +605,29 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                     Ok(CallbackReturn::Return)
                 }
                 Value::Table(t) => {
-                    // Table replacement: synchronous raw table lookup (no __index metamethod)
+                    // Table replacement: table lookup, no Lua call, so no async needed.
+                    let pp = pattern::prepare(&pat_bytes).map_err(|e| e.into_value(ctx))?;
+                    let anchored = is_anchored(&pat_bytes);
                     let mut result: Vec<u8> = Vec::new();
-                    let mut pos = 0usize;
+                    let mut at = 0usize;
                     let mut count = 0i64;
-                    let mut last_end: Option<usize> = None;
+                    let mut last_match: Option<usize> = None;
 
-                    loop {
-                        if count >= max_subs {
-                            result.extend_from_slice(&src_bytes[pos..]);
-                            break;
-                        }
-                        let m = pattern::find_next(&src_bytes, &pat_bytes, pos, last_end)
+                    while count < max_subs {
+                        let found = pattern::match_at(&src_bytes, &pat_bytes, pp, at)
                             .map_err(|e| e.into_value(ctx))?;
-                        let m = match m {
-                            None => {
-                                result.extend_from_slice(&src_bytes[pos..]);
-                                break;
+                        let m = match found {
+                            Some(m) if Some(m.end) != last_match => m,
+                            _ if at < src_bytes.len() => {
+                                result.push(src_bytes[at]);
+                                at += 1;
+                                if anchored {
+                                    break;
+                                }
+                                continue;
                             }
-                            Some(m) => m,
+                            _ => break,
                         };
-                        result.extend_from_slice(&src_bytes[pos..m.start]);
 
                         // Key = first capture or whole match
                         let key_bytes = if m.captures.is_empty() {
@@ -406,7 +639,7 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                             }
                         };
                         let key = ctx.intern(&key_bytes);
-                        let v = t.get_value(ctx, key);
+                        let v = index_through_tables(ctx, t, key);
                         if v.to_bool() {
                             match v {
                                 Value::String(s) => result.extend_from_slice(s.as_bytes()),
@@ -429,12 +662,13 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                         }
 
                         count += 1;
-                        last_end = Some(m.end);
-                        pos = if m.end > m.start { m.end } else { m.end + 1 };
-                        if pos > src_bytes.len() {
+                        last_match = Some(m.end);
+                        at = m.end;
+                        if anchored {
                             break;
                         }
                     }
+                    result.extend_from_slice(&src_bytes[at..]);
                     let res_str = make_string(ctx, &result);
                     stack.replace(ctx, (res_str, count));
                     Ok(CallbackReturn::Return)
@@ -453,28 +687,33 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                                 locals.fetch(&pat_ref).as_bytes().to_vec()
                             });
 
+                            let pp = seq.try_enter(|ctx, _, _, _| {
+                                pattern::prepare(&pat)
+                                    .map_err(|e: std::string::String| e.into_value(ctx).into())
+                            })?;
+                            let anchored = is_anchored(&pat);
                             let mut result: Vec<u8> = Vec::new();
-                            let mut pos = 0usize;
+                            let mut at = 0usize;
                             let mut count = 0i64;
-                            let mut last_end: Option<usize> = None;
+                            let mut last_match: Option<usize> = None;
 
-                            loop {
-                                if count >= max_subs {
-                                    result.extend_from_slice(&src[pos..]);
-                                    break;
-                                }
-                                let m_opt = seq.try_enter(|ctx, _, _, _| {
-                                    pattern::find_next(&src, &pat, pos, last_end)
+                            while count < max_subs {
+                                let found = seq.try_enter(|ctx, _, _, _| {
+                                    pattern::match_at(&src, &pat, pp, at)
                                         .map_err(|e: std::string::String| e.into_value(ctx).into())
                                 })?;
-                                let m = match m_opt {
-                                    None => {
-                                        result.extend_from_slice(&src[pos..]);
-                                        break;
+                                let m = match found {
+                                    Some(m) if Some(m.end) != last_match => m,
+                                    _ if at < src.len() => {
+                                        result.push(src[at]);
+                                        at += 1;
+                                        if anchored {
+                                            break;
+                                        }
+                                        continue;
                                     }
-                                    Some(m) => m,
+                                    _ => break,
                                 };
-                                result.extend_from_slice(&src[pos..m.start]);
 
                                 // Push the match / captures onto the stack and call f
                                 let call_fn = seq.try_enter(|ctx, locals, _, mut stack| {
@@ -535,12 +774,13 @@ pub fn load_string<'gc>(ctx: Context<'gc>) {
                                 });
 
                                 count += 1;
-                                last_end = Some(m.end);
-                                pos = if m.end > m.start { m.end } else { m.end + 1 };
-                                if pos > src.len() {
+                                last_match = Some(m.end);
+                                at = m.end;
+                                if anchored {
                                     break;
                                 }
                             }
+                            result.extend_from_slice(&src[at..]);
 
                             seq.enter(move |ctx, _, _, mut stack| {
                                 let res_str = make_string(ctx, &result);
@@ -703,6 +943,63 @@ fn normalise_init(len: usize, init: i64) -> usize {
     }
 }
 
+/// PUC's `luaL_checkinteger`. A value that *is* a number but has no exact integer is a different
+/// mistake from one that is not a number at all, and `interror` reports them differently.
+fn check_integer(v: Value, present: bool) -> Result<i64, std::string::String> {
+    match v.to_integer() {
+        Some(i) => Ok(i),
+        None if v.to_number().is_some() => Err("number has no integer representation".to_owned()),
+        None => Err(format!("number expected, got {}", type_of(v, present))),
+    }
+}
+
+/// PUC's `luaL_checknumber`.
+fn check_number(v: Value, present: bool) -> Result<f64, std::string::String> {
+    v.to_number()
+        .ok_or_else(|| format!("number expected, got {}", type_of(v, present)))
+}
+
+/// PUC's `luaL_checklstring`: a string passes through, a number converts to the text `tostring`
+/// would give it, and nothing else is a string at all.
+///
+/// Accepting everything here let a table reach `string.pack` as its address, writing a different
+/// byte sequence on every run into what is supposed to be a stable binary record.
+fn check_lstring<'gc>(
+    ctx: Context<'gc>,
+    v: Value<'gc>,
+    present: bool,
+) -> Result<String<'gc>, std::string::String> {
+    match v {
+        Value::String(s) => Ok(s),
+        Value::Integer(_) | Value::Number(_) => Ok(ctx.intern(v.display().to_string().as_bytes())),
+        _ => Err(format!("string expected, got {}", type_of(v, present))),
+    }
+}
+
+/// The type name PUC puts in an argument error, which distinguishes an absent argument from `nil`.
+fn type_of(v: Value, present: bool) -> &'static str {
+    if present {
+        v.type_name()
+    } else {
+        "no value"
+    }
+}
+
+/// Turn `string.unpack`'s 1-based `pos` argument into a 0-based offset, following PUC's
+/// `posrelatI`: negative counts back from the end, and 0 or a position before the start means one.
+/// `None` means the position is past the end of the data, which PUC rejects.
+fn unpack_init(len: usize, pos: i64) -> Option<usize> {
+    let start = if pos > 0 {
+        usize::try_from(pos).unwrap_or(usize::MAX)
+    } else if pos == 0 || pos.unsigned_abs() > len as u64 {
+        1
+    } else {
+        len - pos.unsigned_abs() as usize + 1
+    };
+    let at = start - 1;
+    (at <= len).then_some(at)
+}
+
 /// Plain (non-pattern) substring search.
 pub fn find_plain(src: &[u8], pat: &[u8], init: usize) -> Option<usize> {
     if init > src.len() {
@@ -753,33 +1050,67 @@ fn gsub_string(
     repl: &[u8],
     max_subs: i64,
 ) -> Result<(Vec<u8>, i64), std::string::String> {
+    let pp = pattern::prepare(pat)?;
+    let anchored = is_anchored(pat);
     let mut result = Vec::new();
-    let mut pos = 0usize;
+    let mut at = 0usize;
     let mut count = 0i64;
-    let mut last_end: Option<usize> = None;
+    let mut last_match: Option<usize> = None;
 
-    loop {
-        if count >= max_subs {
-            result.extend_from_slice(&src[pos..]);
-            break;
-        }
-        let m = pattern::find_next(src, pat, pos, last_end)?;
-        let m = match m {
-            None => {
-                result.extend_from_slice(&src[pos..]);
-                break;
+    while count < max_subs {
+        match pattern::match_at(src, pat, pp, at)? {
+            Some(m) if Some(m.end) != last_match => {
+                count += 1;
+                let replacement =
+                    pattern::apply_replacement(repl, src, m.start, m.end, &m.captures)?;
+                result.extend_from_slice(&replacement);
+                last_match = Some(m.end);
+                at = m.end;
             }
-            Some(m) => m,
-        };
-        result.extend_from_slice(&src[pos..m.start]);
-        let replacement = pattern::apply_replacement(repl, src, m.start, m.end, &m.captures)?;
-        result.extend_from_slice(&replacement);
-        count += 1;
-        last_end = Some(m.end);
-        pos = if m.end > m.start { m.end } else { m.end + 1 };
-        if pos > src.len() {
+            _ if at < src.len() => {
+                result.push(src[at]);
+                at += 1;
+            }
+            _ => break,
+        }
+        if anchored {
             break;
         }
     }
+    result.extend_from_slice(&src[at..]);
     Ok((result, count))
+}
+
+/// Does this pattern anchor to the start of the subject?
+///
+/// `^` means gsub substitutes at most once, at position one — not once per position. Reference Lua
+/// leaves its substitution loop after a single attempt when the pattern is anchored
+/// (`lstrlib.c`, `str_gsub`), and every replacement form here has to do the same or
+/// `("aaa"):gsub("^a", "X")` answers `XXX 3` where Lua answers `Xaa 1`.
+fn is_anchored(pat: &[u8]) -> bool {
+    pat.first() == Some(&b'^')
+}
+
+/// Look a key up through `__index`, as long as every link in the chain is a table.
+///
+/// `gsub`'s table replacement used a raw lookup, so a replacement table backed by a class-style
+/// `__index` silently found nothing. A `__index` *function* would need an `Executor` to call, which
+/// this loop has no way to drive, so that case still falls through to the raw value.
+fn index_through_tables<'gc>(ctx: Context<'gc>, table: Table<'gc>, key: String<'gc>) -> Value<'gc> {
+    let mut current = table;
+    // Bounded so that a metatable cycle cannot spin forever.
+    for _ in 0..100 {
+        let found = current.get_value(ctx, key);
+        if !found.is_nil() {
+            return found;
+        }
+        let Some(meta) = current.metatable() else {
+            return Value::Nil;
+        };
+        match meta.get_value(ctx, crate::MetaMethod::Index) {
+            Value::Table(next) => current = next,
+            _ => return Value::Nil,
+        }
+    }
+    Value::Nil
 }

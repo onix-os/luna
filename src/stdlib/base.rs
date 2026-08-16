@@ -76,7 +76,7 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
             } else {
                 match meta_ops::tostring(ctx, stack.get(0))? {
                     MetaResult::Value(v) => {
-                        stack[0] = v;
+                        stack.set(0, v);
                         stack.drain(1..);
                         Ok(CallbackReturn::Return)
                     }
@@ -94,7 +94,32 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
 
     ctx.set_global(
         "error",
-        Callback::from_fn(&ctx, |_, _, stack| Err(stack.get(0).into())),
+        Callback::from_fn(&ctx, |ctx, exec, mut stack| {
+            let (message, level): (Value, Option<i64>) = stack.consume(ctx)?;
+            let level = level.unwrap_or(1);
+
+            // Level 0 means "no position". Otherwise the message is prefixed with where the
+            // blame lies: level 1 the function that called `error`, level 2 its caller — which is
+            // the idiom every argument-checking function uses.
+            match (level, message) {
+                (0, _) => Err(message.into()),
+                (level, Value::String(s)) if level > 0 => {
+                    match exec.frame_at((level - 1) as usize) {
+                        Some(frame) => {
+                            let prefixed = format!(
+                                "{}:{}: {}",
+                                frame.chunk_name.display_lossy(),
+                                frame.current_line,
+                                s.display_lossy()
+                            );
+                            Err(ctx.intern(prefixed.as_bytes()).into_value(ctx).into())
+                        }
+                        None => Err(message.into()),
+                    }
+                }
+                _ => Err(message.into()),
+            }
+        }),
     );
 
     ctx.set_global(
@@ -118,6 +143,88 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
             Ok(CallbackReturn::Call {
                 function,
                 then: Some(BoxSequence::new(&ctx, PCall)),
+            })
+        }),
+    );
+
+    // Reads a file the way `luaL_loadfile` does, BOM and shebang included — `crate::io` has done
+    // that since before anything called it.
+    fn read_chunk_file(path: &str) -> Result<Vec<u8>, std::io::Error> {
+        let mut reader = crate::io::buffered_read(std::fs::File::open(path)?)?;
+        let mut source = Vec::new();
+        std::io::Read::read_to_end(&mut reader, &mut source)?;
+        Ok(source)
+    }
+
+    ctx.set_global(
+        "loadfile",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let (path, _mode, env): (String, Option<Value>, Option<Value>) = stack.consume(ctx)?;
+            let path = path.display_lossy().to_string();
+
+            let env = match env {
+                None | Some(Value::Nil) => ctx.globals(),
+                Some(Value::Table(t)) => t,
+                Some(_) => {
+                    return Err("bad argument #3 to 'loadfile' (table expected)"
+                        .into_value(ctx)
+                        .into())
+                }
+            };
+
+            match read_chunk_file(&path) {
+                Ok(source) => match Closure::load_with_env(ctx, Some(&path), &source, env) {
+                    Ok(closure) => stack.replace(ctx, closure),
+                    Err(err) => {
+                        let msg = ctx.intern(err.to_string().as_bytes());
+                        stack.replace(ctx, (Value::Nil, msg));
+                    }
+                },
+                Err(err) => {
+                    let msg = ctx.intern(format!("cannot open {path}: {err}").as_bytes());
+                    stack.replace(ctx, (Value::Nil, msg));
+                }
+            }
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    // Unlike `loadfile`, a failure here is raised rather than returned, and the chunk is called
+    // with whatever extra arguments were passed.
+    ctx.set_global(
+        "dofile",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let path: String = stack.from_front(ctx)?;
+            let path = path.display_lossy().to_string();
+
+            let source = read_chunk_file(&path)
+                .map_err(|err| format!("cannot open {path}: {err}").into_value(ctx))?;
+            let closure = Closure::load(ctx, Some(&path), &source)
+                .map_err(|err| err.to_string().into_value(ctx))?;
+
+            Ok(CallbackReturn::Call {
+                function: closure.into(),
+                then: None,
+            })
+        }),
+    );
+
+    ctx.set_global(
+        "xpcall",
+        Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let function = meta_ops::call(ctx, stack.get(0))?;
+            let handler = meta_ops::call(ctx, stack.get(1))?;
+            stack.pop_front();
+            stack.pop_front();
+            Ok(CallbackReturn::Call {
+                function,
+                then: Some(BoxSequence::new(
+                    &ctx,
+                    XPCall {
+                        handler,
+                        handled: false,
+                    },
+                )),
             })
         }),
     );
@@ -174,8 +281,20 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
     ctx.set_global(
         "rawlen",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
-            let table: Table = stack.consume(ctx)?;
-            stack.replace(ctx, table.length());
+            // Strings as well as tables: `rawlen` is defined on both, and on a string it is the
+            // only way to get the length without going through `__len` on the string metatable.
+            let length = match stack.consume::<Value>(ctx)? {
+                Value::Table(t) => t.length(&ctx),
+                Value::String(s) => s.len(),
+                other => {
+                    return Err(
+                        format!("table or string expected, got {}", other.type_name())
+                            .into_value(ctx)
+                            .into(),
+                    )
+                }
+            };
+            stack.replace(ctx, length);
             Ok(CallbackReturn::Return)
         }),
     );
@@ -190,17 +309,71 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
         }),
     );
 
+    // The globals table under its conventional name. `_ENV` already works; this is the name that
+    // scripts and probes reach for.
+    ctx.set_global("_G", ctx.globals());
+
+    // Raw identity, without consulting `__eq`.
+    ctx.set_global(
+        "rawequal",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let (a, b): (Value, Value) = stack.consume(ctx)?;
+            // `meta_ops::equal` only reaches for `__eq` once raw identity has already failed, so a
+            // deferred call is itself the answer: not raw-equal.
+            let equal = match meta_ops::equal(ctx, a, b)? {
+                MetaResult::Value(v) => v.to_bool(),
+                MetaResult::Call(_) => false,
+            };
+            stack.replace(ctx, equal);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
+    // Writes to stderr, like PUC-Rio's default warning handler. A host that wants its own sink
+    // replaces this global, the same way it would replace `print`.
+    ctx.set_global(
+        "warn",
+        Callback::from_fn(&ctx, |_ctx, _, mut stack| {
+            let mut message = std::string::String::new();
+            for i in 0..stack.len() {
+                match stack.get(i) {
+                    Value::String(s) => message.push_str(&s.display_lossy().to_string()),
+                    other => {
+                        return Err(TypeError {
+                            expected: "string",
+                            found: other.type_name(),
+                        }
+                        .into())
+                    }
+                }
+            }
+            // A message starting with "@" is a control message in PUC-Rio, not output.
+            if !message.starts_with('@') {
+                eprintln!("Lua warning: {message}");
+            }
+            stack.clear();
+            Ok(CallbackReturn::Return)
+        }),
+    );
+
     ctx.set_global(
         "getmetatable",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
-            if let Value::Table(t) = stack.get(0) {
-                stack.replace(ctx, t.metatable());
-                Ok(CallbackReturn::Return)
-            } else {
-                Err("'getmetatable' can only be used on table types"
-                    .into_value(ctx)
-                    .into())
+            let value = stack.get(0);
+            match meta_ops::get_metatable(ctx, value) {
+                Some(mt) => {
+                    // `__metatable` is the only way a library can make a metatable tamper-proof:
+                    // it is handed out in place of the real one.
+                    let protected = mt.get_value(ctx, MetaMethod::Metatable);
+                    if protected.is_nil() {
+                        stack.replace(ctx, mt);
+                    } else {
+                        stack.replace(ctx, protected);
+                    }
+                }
+                None => stack.replace(ctx, Value::Nil),
             }
+            Ok(CallbackReturn::Return)
         }),
     );
 
@@ -208,7 +381,13 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
         "setmetatable",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
             let (t, mt): (Table, Option<Table>) = stack.consume(ctx)?;
-            t.set_metatable(&ctx, mt);
+            // A protected metatable refuses replacement, or the protection would be pointless.
+            if let Some(existing) = t.metatable() {
+                if !existing.get_value(ctx, MetaMethod::Metatable).is_nil() {
+                    return Err("cannot change a protected metatable".into_value(ctx).into());
+                }
+            }
+            t.set_metatable(ctx, mt);
             stack.replace(ctx, t);
             Ok(CallbackReturn::Return)
         }),
@@ -219,7 +398,7 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
         table: Table<'gc>,
         index: Value<'gc>,
     ) -> Result<(Value<'gc>, Value<'gc>), Value<'gc>> {
-        match table.next(index) {
+        match table.next(&ctx, index) {
             NextValue::Found { key, value } => Ok((key, value)),
             NextValue::Last => Ok((Value::Nil, Value::Nil)),
             NextValue::NotFound => Err("invalid table key".into_value(ctx)),
@@ -318,23 +497,58 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
 
     ctx.set_global(
         "ipairs",
-        Callback::from_fn_with(&ctx, inext, move |inext, ctx, _, mut stack| {
-            stack.into_front(ctx, *inext);
+        Callback::from_fn_with(&ctx, inext, move |inext, ctx, mut _exec, mut stack| {
+            // Three values, as the manual specifies: iterator, state, control. Returning two made
+            // generic `for` work but broke `local f, s, var = ipairs(t)`, which is how iterator
+            // combinator libraries take them apart.
+            let table = stack.get(0);
+            stack.replace(ctx, (*inext, table, 0));
+            let _ = &mut _exec;
             Ok(CallbackReturn::Return)
         }),
     );
 
     ctx.set_global(
         "collectgarbage",
-        Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+        Callback::from_fn(&ctx, move |ctx, mut exec, mut stack| {
+            // Everything but "count" is a *request*: acting on the collector needs `&mut Lua`,
+            // which no callback has, so the host carries it out when the slice ends. The verbs that
+            // collect also interrupt the slice, so that "end of slice" is the next statement rather
+            // than whenever this one happens to run out of fuel — otherwise a script could not
+            // observe its own `collectgarbage("collect")`.
             match stack.consume::<Option<String>>(ctx)? {
                 Some(arg) if arg == "count" => {
                     stack.into_back(ctx, ctx.metrics().total_allocation() as f64 / 1024.0);
                 }
+                Some(arg) if arg == "collect" => {
+                    ctx.request_gc(crate::GcRequest::Collect);
+                    exec.fuel().interrupt();
+                    stack.into_back(ctx, 0);
+                }
+                Some(arg) if arg == "step" => {
+                    ctx.request_gc(crate::GcRequest::Step);
+                    exec.fuel().interrupt();
+                    stack.into_back(ctx, true);
+                }
+                Some(arg) if arg == "stop" => {
+                    ctx.request_gc(crate::GcRequest::Stop);
+                    stack.into_back(ctx, 0);
+                }
+                Some(arg) if arg == "restart" => {
+                    ctx.request_gc(crate::GcRequest::Restart);
+                    stack.into_back(ctx, 0);
+                }
+                Some(arg) if arg == "isrunning" => {
+                    // The request has not been carried out yet, so answer from the arena: a
+                    // stopped collector is one that is never owed anything.
+                    stack.into_back(ctx, ctx.metrics().allocation_debt() > 0.0);
+                }
                 Some(_) => {
                     return Err("bad argument to 'collectgarbage'".into_value(ctx).into());
                 }
-                None => {}
+                None => {
+                    ctx.request_gc(crate::GcRequest::Collect);
+                }
             }
             Ok(CallbackReturn::Return)
         }),
@@ -345,15 +559,86 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
     ctx.set_global(
         "load",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
-            let chunk = match stack.consume::<Value>(ctx)? {
+            let (chunk, chunk_name, mode, env) =
+                stack.consume::<(Value, Option<Value>, Option<Value>, Option<Value>)>(ctx)?;
+
+            let chunk = match chunk {
                 Value::String(s) => s,
+                // A reader function is the other form PUC-Rio accepts. Refusing it by name beats
+                // accepting it and compiling something the caller did not write.
+                Value::Function(_) => {
+                    return Err(
+                        "bad argument #1 to 'load' (reader functions are not supported)"
+                            .into_value(ctx)
+                            .into(),
+                    );
+                }
                 _ => {
                     return Err("bad argument #1 to 'load' (string expected)"
                         .into_value(ctx)
                         .into());
                 }
             };
-            match Closure::load(ctx, None, chunk.as_bytes()) {
+
+            let chunk_name = match chunk_name {
+                None | Some(Value::Nil) => None,
+                Some(Value::String(s)) => Some(s.display_lossy().to_string()),
+                Some(_) => {
+                    return Err("bad argument #2 to 'load' (string expected)"
+                        .into_value(ctx)
+                        .into());
+                }
+            };
+
+            // `mode` is how a host refuses one form or the other. A binary chunk is arbitrary code
+            // just as source is, so a host that only ever meant to accept text says so here.
+            // Binary is opt-in, which is a deliberate deviation from PUC-Rio's "bt" default. The
+            // loader checks every index and span, but it cannot prove a hand-written program obeys
+            // every invariant the compiler would have maintained, so accepting bytecode is a
+            // decision a host should make on purpose. See `crate::dump`.
+            let binary = crate::dump::is_binary_chunk(chunk.as_bytes());
+            match mode {
+                None | Some(Value::Nil) => {
+                    if binary {
+                        return Err(
+                            "bad argument #1 to 'load' (binary chunks need mode 'b')"
+                                .into_value(ctx)
+                                .into(),
+                        );
+                    }
+                }
+                Some(Value::String(s)) => {
+                    let mode = s.display_lossy().to_string();
+                    let allowed = if binary { mode.contains('b') } else { mode.contains('t') };
+                    if !allowed {
+                        let refused = if binary { "binary" } else { "text" };
+                        return Err(format!(
+                            "bad argument #3 to 'load' (a {refused} chunk is not allowed by mode '{mode}')"
+                        )
+                        .into_value(ctx)
+                        .into());
+                    }
+                }
+                Some(_) => {
+                    return Err("bad argument #3 to 'load' (string expected)"
+                        .into_value(ctx)
+                        .into());
+                }
+            }
+
+            // The whole point of the fourth argument: a chunk loaded into a restricted table must
+            // not be able to reach the real globals.
+            let env = match env {
+                None | Some(Value::Nil) => ctx.globals(),
+                Some(Value::Table(t)) => t,
+                Some(_) => {
+                    return Err("bad argument #4 to 'load' (table expected)"
+                        .into_value(ctx)
+                        .into());
+                }
+            };
+
+            match Closure::load_with_env(ctx, chunk_name.as_deref(), chunk.as_bytes(), env) {
                 Ok(closure) => {
                     stack.replace(ctx, closure);
                     Ok(CallbackReturn::Return)
@@ -383,6 +668,45 @@ impl<'gc> Sequence<'gc> for CheckToString {
             Value::String(_) => Ok(SequencePoll::Return),
             _ => Err("'__tostring' must return a string".into_value(ctx).into()),
         }
+    }
+}
+
+/// `xpcall`'s message handler runs at the frame that intercepted the error, before unwinding
+/// continues — which is the whole reason to prefer it over `pcall`.
+#[derive(Collect)]
+#[collect(no_drop)]
+pub struct XPCall<'gc> {
+    handler: crate::Function<'gc>,
+    handled: bool,
+}
+
+impl<'gc> Sequence<'gc> for XPCall<'gc> {
+    fn poll(
+        mut self: Pin<&mut Self>,
+        ctx: Context<'gc>,
+        _exec: Execution<'gc, '_>,
+        mut stack: Stack<'gc, '_>,
+    ) -> Result<SequencePoll<'gc>, Error<'gc>> {
+        // Reached either because the protected call returned, or because the handler we asked for
+        // has just finished.
+        stack.into_front(ctx, !self.handled);
+        self.handled = false;
+        Ok(SequencePoll::Return)
+    }
+
+    fn error(
+        mut self: Pin<&mut Self>,
+        ctx: Context<'gc>,
+        _exec: Execution<'gc, '_>,
+        error: Error<'gc>,
+        mut stack: Stack<'gc, '_>,
+    ) -> Result<SequencePoll<'gc>, Error<'gc>> {
+        self.handled = true;
+        stack.replace(ctx, error.to_value(ctx));
+        Ok(SequencePoll::Call {
+            bottom: 0,
+            function: self.handler,
+        })
     }
 }
 

@@ -60,8 +60,6 @@ pub enum CompileErrorKind {
     AssignToConst,
     #[error("multiple to-be-closed variables in local list")]
     MultipleClose,
-    #[error("close attribute currently unsupported")]
-    CloseUnsupported,
 }
 
 #[derive(Debug, Copy, Clone, Error)]
@@ -107,6 +105,19 @@ impl<S> FunctionRef<S> {
     }
 }
 
+/// Where a named local lived, and for which opcodes.
+///
+/// A register index is not enough on its own: the allocator reuses a register for different locals
+/// in different blocks, so the name is only meaningful together with the range it was live for.
+#[derive(Debug, Clone, Collect)]
+#[collect(no_drop)]
+pub struct LocalVarInfo<S> {
+    pub name: S,
+    pub register: RegisterIndex,
+    pub start_pc: usize,
+    pub end_pc: usize,
+}
+
 #[derive(Debug, Clone, Collect)]
 #[collect(no_drop)]
 pub struct CompiledPrototype<S> {
@@ -122,6 +133,8 @@ pub struct CompiledPrototype<S> {
     pub opcode_line_numbers: Vec<(usize, LineNumber)>,
     pub upvalues: Vec<UpValueDescriptor>,
     pub prototypes: Vec<Box<CompiledPrototype<S>>>,
+    /// Named locals and the opcode ranges they were live for, for `debug.getlocal`.
+    pub locals: Vec<LocalVarInfo<S>>,
 }
 
 impl<S> CompiledPrototype<S> {
@@ -147,6 +160,16 @@ impl<S> CompiledPrototype<S> {
                     .prototypes
                     .into_iter()
                     .map(|p| Box::new(do_map(*p, f)))
+                    .collect(),
+                locals: this
+                    .locals
+                    .into_iter()
+                    .map(|l| LocalVarInfo {
+                        name: f(l.name),
+                        register: l.register,
+                        start_pc: l.start_pc,
+                        end_pc: l.end_pc,
+                    })
                     .collect(),
             }
         }
@@ -193,8 +216,18 @@ struct CompilerFunction<S> {
     register_allocator: RegisterAllocator,
 
     has_varargs: bool,
+    // Set once this function declares a <close> local anywhere, so `return` knows it has to run
+    // handlers before leaving and cannot be a real tail call.
+    has_to_be_closed: bool,
     fixed_params: u8,
     locals: Vec<(S, RegisterIndex, LocalAttributes)>,
+    // The opcode index each live local was declared at, in lockstep with `locals`. Kept beside it
+    // rather than inside so the existing destructuring of that tuple is untouched.
+    local_starts: Vec<usize>,
+    // Locals whose scope has ended, with the opcode range they were live for. This is what
+    // `debug.getlocal` reads: a register alone does not say which name it held at a given pc,
+    // because the allocator reuses registers across blocks.
+    local_debug: Vec<LocalVarInfo<S>>,
 
     blocks: Vec<BlockDescriptor>,
     unique_jump_id: u64,
@@ -287,6 +320,27 @@ enum JumpLabel<S> {
     Break,
 }
 
+impl<S: Clone> CompilerFunction<S> {
+    /// Declare a local, recording where its scope begins.
+    fn declare_local(&mut self, name: S, register: RegisterIndex, attrs: LocalAttributes) {
+        self.locals.push((name, register, attrs));
+        self.local_starts.push(self.operations.len());
+    }
+
+    /// End the innermost local's scope, recording the opcode range it was live for.
+    fn pop_local(&mut self) {
+        if let Some((name, register, _)) = self.locals.pop() {
+            let start_pc = self.local_starts.pop().unwrap_or(0);
+            self.local_debug.push(LocalVarInfo {
+                name,
+                register,
+                start_pc,
+                end_pc: self.operations.len(),
+            });
+        }
+    }
+}
+
 impl<S> PartialEq for JumpLabel<S>
 where
     S: AsRef<[u8]>,
@@ -313,6 +367,8 @@ struct BlockDescriptor {
     bottom_jump_target: usize,
     // True if any lower function has an upvalue reference to variables in this block
     owns_upvalues: bool,
+    // True if this block declares a <close> local, so leaving it must run `__close` handlers.
+    owns_to_be_closed: bool,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -357,18 +413,18 @@ impl<S: StringInterner> Compiler<S> {
             stack_bottom: self.current_function.register_allocator.stack_top(),
             bottom_jump_target: self.current_function.jump_targets.len(),
             owns_upvalues: false,
+            owns_to_be_closed: false,
         });
     }
 
     fn exit_block(&mut self) -> Result<(), CompileErrorKind> {
         let last_block = self.current_function.blocks.pop().unwrap();
-        // TODO This is where to handle closing of <close> locals
-        // TODO Make sure __close is called in reverse declaration
 
         while let Some((_, last, _attrs)) = self.current_function.locals.last() {
             if last.0 as u16 >= last_block.stack_bottom {
-                self.current_function.register_allocator.free(*last);
-                self.current_function.locals.pop();
+                let last = *last;
+                self.current_function.register_allocator.free(last);
+                self.current_function.pop_local();
             } else {
                 break;
             }
@@ -377,7 +433,11 @@ impl<S: StringInterner> Compiler<S> {
             .jump_targets
             .drain(last_block.bottom_jump_target..);
 
-        if last_block.owns_upvalues && !self.current_function.blocks.is_empty() {
+        // The same instruction closes upvalues and runs `__close` handlers: both are "everything at
+        // or above this level is leaving scope".
+        if (last_block.owns_upvalues || last_block.owns_to_be_closed)
+            && !self.current_function.blocks.is_empty()
+        {
             self.current_function.operations.push(Operation::Jump {
                 offset: 0,
                 close_upvalues: u8::try_from(last_block.stack_bottom)
@@ -399,7 +459,8 @@ impl<S: StringInterner> Compiler<S> {
                     pending_jump.stack_top >= self.current_function.register_allocator.stack_top()
                 );
                 pending_jump.stack_top = self.current_function.register_allocator.stack_top();
-                pending_jump.close_upvalues |= last_block.owns_upvalues;
+                pending_jump.close_upvalues |=
+                    last_block.owns_upvalues || last_block.owns_to_be_closed;
             }
         }
 
@@ -485,8 +546,9 @@ impl<S: StringInterner> Compiler<S> {
             .collect::<Result<Vec<_>, CompileErrorKind>>()?;
 
         // A return of a single function call is a tail call, and this is the only thing
-        // in Lua that is considered a tail call
-        if returns.len() == 1 {
+        // in Lua that is considered a tail call. A function with <close> variables is the
+        // exception: its handlers run after the call returns, so the frame has to stay.
+        if returns.len() == 1 && !self.current_function.has_to_be_closed {
             match returns.pop().unwrap() {
                 ExprDescriptor::FunctionCall { func, args } => {
                     self.call_function(*func, args, CallMode::TailCall)?;
@@ -507,6 +569,14 @@ impl<S: StringInterner> Compiler<S> {
         }
 
         let count = self.push_arguments(returns)?;
+        // Emitted after the return values are in registers, so handlers cannot disturb them, and
+        // before `Return`, so they run while the frame is still alive.
+        if self.current_function.has_to_be_closed {
+            self.current_function.operations.push(Operation::Jump {
+                offset: 0,
+                close_upvalues: Opt254::try_some(0).ok_or(CompileErrorKind::Registers)?,
+            });
+        }
         self.current_function.operations.push(Operation::Return {
             start: RegisterIndex(
                 self.current_function
@@ -678,11 +748,11 @@ impl<S: StringInterner> Compiler<S> {
                     .push(name_count)
                     .ok_or(CompileErrorKind::Registers)?;
                 for i in 0..name_count {
-                    self.current_function.locals.push((
+                    self.current_function.declare_local(
                         names[i as usize].clone(),
                         RegisterIndex(names_reg.0 + i),
                         LocalAttributes::NONE,
-                    ));
+                    );
                 }
 
                 self.jump(loop_label.clone())?;
@@ -877,9 +947,11 @@ impl<S: StringInterner> Compiler<S> {
 
         if close_count > 1 {
             return Err(CompileErrorKind::MultipleClose);
-        } else if close_count == 1 {
-            return Err(CompileErrorKind::CloseUnsupported);
         }
+
+        // Where this statement's locals start, so the <close> ones can be found once they have
+        // registers.
+        let locals_before = self.current_function.locals.len();
 
         if local_statement.values.is_empty() {
             let count = name_len
@@ -895,11 +967,11 @@ impl<S: StringInterner> Compiler<S> {
                 .push(Operation::LoadNil { dest, count });
             for i in 0..name_len {
                 let (name, attr) = &local_statement.names[i];
-                self.current_function.locals.push((
+                self.current_function.declare_local(
                     name.clone(),
                     RegisterIndex(dest.0 + i as u8),
                     *attr,
-                ));
+                );
             }
         } else {
             for i in 0..val_len {
@@ -916,11 +988,11 @@ impl<S: StringInterner> Compiler<S> {
 
                     for j in 0..names_left {
                         let (name, attr) = &local_statement.names[val_len - 1 + j as usize];
-                        self.current_function.locals.push((
+                        self.current_function.declare_local(
                             name.clone(),
                             RegisterIndex(dest.0 + j),
                             *attr,
-                        ));
+                        );
                     }
                 } else {
                     let reg = self.expr_discharge(expr, ExprDestination::PushNew)?;
@@ -930,6 +1002,25 @@ impl<S: StringInterner> Compiler<S> {
                         .push((name.clone(), reg, *attr));
                 }
             }
+        }
+
+        // Mark any <close> local now that it has a register and a value. The block records it so
+        // that every way out of the block emits the instruction that runs the handler.
+        if close_count > 0 {
+            let marks: Vec<RegisterIndex> = self.current_function.locals[locals_before..]
+                .iter()
+                .filter(|(_, _, attr)| attr.is_close())
+                .map(|(_, reg, _)| *reg)
+                .collect();
+            for source in marks {
+                self.current_function
+                    .operations
+                    .push(Operation::MarkToBeClosed { source });
+            }
+            if let Some(block) = self.current_function.blocks.last_mut() {
+                block.owns_to_be_closed = true;
+            }
+            self.current_function.has_to_be_closed = true;
         }
 
         Ok(())
@@ -1082,11 +1173,11 @@ impl<S: StringInterner> Compiler<S> {
             .register_allocator
             .push(1)
             .ok_or(CompileErrorKind::Registers)?;
-        self.current_function.locals.push((
+        self.current_function.declare_local(
             local_function.name.clone(),
             dest,
             LocalAttributes::NONE,
-        ));
+        );
 
         let proto = self.new_prototype(
             FunctionRef::Named(
@@ -2491,8 +2582,11 @@ impl<S: Clone> CompilerFunction<S> {
             functions: Vec::new(),
             register_allocator: RegisterAllocator::default(),
             has_varargs: false,
+            has_to_be_closed: false,
             fixed_params: 0,
             locals: Vec::new(),
+            local_starts: Vec::new(),
+            local_debug: Vec::new(),
             blocks: Vec::new(),
             unique_jump_id: 0,
             jump_targets: Vec::new(),
@@ -2512,11 +2606,11 @@ impl<S: Clone> CompilerFunction<S> {
         function.has_varargs = has_varargs;
         function.fixed_params = fixed_params;
         for i in 0..fixed_params {
-            function.locals.push((
+            function.declare_local(
                 parameters[i as usize].clone(),
                 RegisterIndex(i),
                 LocalAttributes::NONE,
-            ));
+            );
         }
         Ok(function)
     }
@@ -2527,10 +2621,13 @@ impl<S: Clone> CompilerFunction<S> {
             count: VarCount::constant(0),
         });
         assert!(self.locals.len() == self.fixed_params as usize);
-        for (_, r, _attrs) in self.locals.drain(..) {
+        // The parameters, still live at the end of the function: closing their ranges here is what
+        // makes them visible to `debug.getlocal`, which is mostly what it is asked for.
+        while let Some((_, r, _)) = self.locals.last().cloned() {
             // TODO Handle close locals
             // TODO Maybe unify their handling to keep DRY?
             self.register_allocator.free(r);
+            self.pop_local();
         }
         assert_eq!(
             self.register_allocator.stack_top(),
@@ -2569,6 +2666,7 @@ impl<S: Clone> CompilerFunction<S> {
             opcode_line_numbers: operation_lines,
             upvalues: self.upvalues.iter().map(|(_, d)| *d).collect(),
             prototypes: self.functions.into_iter().map(|f| Box::new(f)).collect(),
+            locals: self.local_debug,
         })
     }
 

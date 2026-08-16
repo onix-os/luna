@@ -17,7 +17,7 @@ impl<'gc> Singleton<'gc> for UnitSingleton<'gc> {
                 Ok(CallbackReturn::Return)
             }),
         );
-        ud.set_metatable(&ctx, Option::Some(mt));
+        ud.set_metatable(ctx, Option::Some(mt));
         UnitSingleton(ud)
     }
 }
@@ -48,7 +48,7 @@ impl<'gc> Singleton<'gc> for NoneSingleton<'gc> {
                 Ok(CallbackReturn::Return)
             }),
         );
-        ud.set_metatable(&ctx, Option::Some(mt));
+        ud.set_metatable(ctx, Option::Some(mt));
         NoneSingleton(ud)
     }
 }

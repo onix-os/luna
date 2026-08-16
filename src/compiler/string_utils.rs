@@ -149,23 +149,20 @@ pub fn read_hex_integer(s: &[u8]) -> Option<i64> {
         return None;
     }
 
+    // A hex literal accumulates unsigned and wraps, as PUC's `l_str2int` does: `0x8000000000000000`
+    // is `math.mininteger` and `0xffffffffffffffff` is -1. Only hex works this way — a decimal
+    // literal too large for an integer becomes a float instead.
     let mut i: u64 = 0;
     for &c in &s[2..] {
         let d = from_hex_digit(c)? as u64;
-        i = i.checked_mul(16)?.checked_add(d)?;
+        i = i.wrapping_mul(16).wrapping_add(d);
     }
 
-    if is_neg {
-        if i <= i64::MAX as u64 {
-            Some(-(i as i64))
-        } else if i == i64::MAX as u64 + 1 {
-            Some(i64::MIN)
-        } else {
-            None
-        }
+    Some(if is_neg {
+        (0u64.wrapping_sub(i)) as i64
     } else {
-        i.try_into().ok()
-    }
+        i as i64
+    })
 }
 
 pub fn read_float(s: &[u8]) -> Option<f64> {
@@ -173,6 +170,12 @@ pub fn read_float(s: &[u8]) -> Option<f64> {
 }
 
 pub fn read_dec_float(s: &[u8]) -> Option<f64> {
+    // `l_str2d` refuses any string holding an 'n', which is how PUC-Rio keeps "inf", "infinity"
+    // and "nan" from becoming numbers. Rust's parser accepts all three. Hex floats never reach
+    // here, so no valid spelling of a decimal float is lost.
+    if s.iter().any(|&c| c == b'n' || c == b'N') {
+        return None;
+    }
     let s = str::from_utf8(s).ok()?;
     str::parse(s).ok()
 }

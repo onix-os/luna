@@ -108,6 +108,11 @@ pub enum Operation {
         dest: RegisterIndex,
         count: VarCount,
     },
+    /// Mark the value in `source` as to-be-closed: its `__close` metamethod runs when the
+    /// enclosing block is left, by any route, including an error unwinding through it.
+    MarkToBeClosed {
+        source: RegisterIndex,
+    },
     Jump {
         offset: i16,
         // If set, close upvalues >= `close_upvalues`
@@ -292,6 +297,7 @@ pub struct OpCode(OpCodeRepr);
 impl OpCode {
     pub fn encode(operation: Operation) -> Self {
         Self(match operation {
+            Operation::MarkToBeClosed { source } => OpCodeRepr::MarkToBeClosed { source },
             Operation::Move { dest, source } => OpCodeRepr::Move { dest, source },
             Operation::LoadConstant { dest, constant } => {
                 OpCodeRepr::LoadConstant { dest, constant }
@@ -658,6 +664,7 @@ impl OpCode {
 
     pub fn decode(self) -> Operation {
         match self.0 {
+            OpCodeRepr::MarkToBeClosed { source } => Operation::MarkToBeClosed { source },
             OpCodeRepr::Move { dest, source } => Operation::Move { dest, source },
             OpCodeRepr::LoadConstant { dest, constant } => {
                 Operation::LoadConstant { dest, constant }
@@ -1158,6 +1165,9 @@ impl OpCode {
 #[derive(Debug, Copy, Clone, Collect)]
 #[collect(require_static)]
 enum OpCodeRepr {
+    MarkToBeClosed {
+        source: RegisterIndex,
+    },
     Move {
         dest: RegisterIndex,
         source: RegisterIndex,
