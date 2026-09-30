@@ -68,6 +68,22 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 ## Verification and remaining work
 
+Host service/preparation sweeps compact sparse registration, tracking, code
+index and queue storage. Nonempty containers qualify at capacity 64 or greater
+and at most quarter occupancy. Replacement storage is reserved fallibly before
+moving entries; old and new requested layouts remain charged together. Quota
+or allocator refusal preserves contents, capacity, pending work, recency and
+code leases, and defers eight eligible passes before retrying. Empty backing
+storage is released without replacement allocation. Compaction runs outside
+native execution and manual executor steps, but has no hard wall-time bound.
+
+`JitStats::metadata_compaction_attempts`, `metadata_compactions`,
+`metadata_compaction_refusals` and `metadata_compaction_bytes` are cumulative,
+saturating container-maintenance counters. Deferred/dense passes are not
+attempts; empty backing releases are. Reclaimed bytes are shared-ledger
+requested-layout deltas, not RSS or compiler-working-memory measurements.
+Fixed compactor/counter owner fields remain outside the container ledger.
+
 `make jit-upvalues` compares native and interpreted open/closed cells with
 collection between slices, exact logical read/write counts, eight/nine distinct
 captures, joined aliases, foreign coroutine stacks, reference values, scalar

@@ -33,7 +33,7 @@ pub(crate) mod ir;
 mod model;
 pub(crate) mod registry;
 pub(crate) mod resources;
-use resources::{BudgetAllocator, Ledger};
+use resources::{BudgetAllocator, Compaction, Compactor, Ledger};
 
 pub(crate) type MetadataMap<K, V> = HashMap<K, V, RandomState, BudgetAllocator>;
 
@@ -152,6 +152,10 @@ pub struct JitStats {
     pub metadata_bytes: usize,
     pub metadata_peak_bytes: usize,
     pub metadata_allocation_refusals: usize,
+    pub metadata_compaction_attempts: u64,
+    pub metadata_compactions: u64,
+    pub metadata_compaction_refusals: u64,
+    pub metadata_compaction_bytes: u64,
     pub registration_refusals: u64,
     pub queued_requests: usize,
 }
@@ -175,6 +179,13 @@ pub(crate) struct Manager {
     pub(crate) next_id: u64,
     pub(crate) tracked: MetadataMap<u64, Tracking>,
     queue: Vec<u64, BudgetAllocator>,
+    tracked_compactor: Compactor,
+    queue_compactor: Compactor,
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    code_compactor: Compactor,
     pub(crate) metadata: BudgetAllocator,
     pub(crate) snapshots: BudgetAllocator,
     pub(crate) memory: Arc<AtomicUsize>,
@@ -207,6 +218,13 @@ impl Default for Manager {
             next_id: 0,
             tracked: metadata_map(metadata.clone()),
             queue: Vec::new_in(metadata.clone()),
+            tracked_compactor: Compactor::default(),
+            queue_compactor: Compactor::default(),
+            #[cfg(all(
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))]
+            code_compactor: Compactor::default(),
             #[cfg(all(
                 target_os = "linux",
                 any(target_arch = "x86_64", target_arch = "aarch64")
@@ -247,6 +265,40 @@ struct CachedCode {
 }
 
 impl Manager {
+    pub(crate) fn record_compaction(&mut self, result: Compaction) {
+        match result {
+            Compaction::Unchanged => return,
+            Compaction::Compacted(bytes) => {
+                self.stats.metadata_compactions = self.stats.metadata_compactions.saturating_add(1);
+                self.stats.metadata_compaction_bytes = self
+                    .stats
+                    .metadata_compaction_bytes
+                    .saturating_add(bytes as u64);
+            }
+            Compaction::Refused => {
+                self.stats.metadata_compaction_refusals =
+                    self.stats.metadata_compaction_refusals.saturating_add(1);
+            }
+        }
+        self.stats.metadata_compaction_attempts =
+            self.stats.metadata_compaction_attempts.saturating_add(1);
+    }
+
+    pub(crate) fn compact_metadata(&mut self) {
+        let result = self.tracked_compactor.map(&mut self.tracked);
+        self.record_compaction(result);
+        let result = self.queue_compactor.vector(&mut self.queue);
+        self.record_compaction(result);
+        #[cfg(all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ))]
+        {
+            let result = self.code_compactor.map(&mut self.code);
+            self.record_compaction(result);
+        }
+    }
+
     #[cfg(all(
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
@@ -379,11 +431,13 @@ impl Manager {
     }
 
     pub(crate) fn clear(&mut self) {
+        self.queue_compactor = Compactor::default();
         #[cfg(all(
             target_os = "linux",
             any(target_arch = "x86_64", target_arch = "aarch64")
         ))]
         {
+            self.code_compactor = Compactor::default();
             self.code = metadata_map(self.metadata.clone());
         }
         self.queue = Vec::new_in(self.metadata.clone());
@@ -396,6 +450,7 @@ impl Manager {
     pub(crate) fn clear_registrations(&mut self) {
         self.clear();
         self.tracked = metadata_map(self.metadata.clone());
+        self.tracked_compactor = Compactor::default();
         self.stats.registered_prototypes = 0;
     }
 }
@@ -716,6 +771,22 @@ mod policy_tests {
     }
 
     #[test]
+    fn compaction_diagnostics_saturate_without_counting_deferred_passes() {
+        let mut manager = Manager::default();
+        manager.stats.metadata_compaction_attempts = u64::MAX;
+        manager.stats.metadata_compactions = u64::MAX;
+        manager.stats.metadata_compaction_bytes = u64::MAX;
+        manager.stats.metadata_compaction_refusals = u64::MAX;
+        manager.record_compaction(Compaction::Compacted(usize::MAX));
+        manager.record_compaction(Compaction::Refused);
+        manager.record_compaction(Compaction::Unchanged);
+        assert_eq!(manager.stats.metadata_compaction_attempts, u64::MAX);
+        assert_eq!(manager.stats.metadata_compactions, u64::MAX);
+        assert_eq!(manager.stats.metadata_compaction_bytes, u64::MAX);
+        assert_eq!(manager.stats.metadata_compaction_refusals, u64::MAX);
+    }
+
+    #[test]
     fn shrinking_queue_preserves_oldest_requests_and_releases_dropped_flags() {
         let mut manager = queued_manager();
         manager.configure(JitConfig {
@@ -822,6 +893,143 @@ mod eviction_tests {
         let exit = prepared.code.invoke(&mut slots, 0, 64);
         assert_eq!((exit.pc, exit.instructions, exit.reason), (1, 1, 0));
         assert_eq!((slots[0].tag, slots[0].bits), (abi::INTEGER, 42));
+    }
+
+    #[test]
+    fn compaction_refusal_preserves_cache_leases_queue_and_retry_state() {
+        let (runtime, _) = two_module_cache();
+        let lease = runtime.lookup(1).unwrap();
+        let before = {
+            let mut manager = runtime.0.borrow_mut();
+            manager.tracked.try_reserve(128).unwrap();
+            manager.code.try_reserve(128).unwrap();
+            manager.queue.try_reserve_exact(128).unwrap();
+            manager.tracked.insert(
+                3,
+                Tracking {
+                    hotness: 7,
+                    attempts: 1,
+                    queued: true,
+                },
+            );
+            manager.queue.push(3);
+            manager.stats.queued_requests = 1;
+            let before = manager.metadata.0.current();
+            manager.metadata.0.set_limit(before);
+            before
+        };
+        {
+            let mut manager = runtime.0.borrow_mut();
+            let capacity = (
+                manager.tracked.capacity(),
+                manager.code.capacity(),
+                manager.queue.capacity(),
+            );
+            let owners = Rc::strong_count(&lease.code);
+            let recency = manager.code[&1].last_used;
+            manager.compact_metadata();
+            assert_eq!(manager.stats.metadata_compaction_attempts, 3);
+            assert_eq!(manager.stats.metadata_compaction_refusals, 3);
+            assert_eq!(manager.stats.metadata_compactions, 0);
+            assert_eq!(manager.stats.metadata_compaction_bytes, 0);
+            assert_eq!(manager.metadata.0.current(), before);
+            assert_eq!(
+                (
+                    manager.tracked.capacity(),
+                    manager.code.capacity(),
+                    manager.queue.capacity()
+                ),
+                capacity
+            );
+            assert_eq!(Rc::strong_count(&lease.code), owners);
+            assert_eq!(manager.code[&1].last_used, recency);
+            let pending = &manager.tracked[&3];
+            assert_eq!(
+                (pending.hotness, pending.attempts, pending.queued),
+                (7, 1, true)
+            );
+            assert_eq!(manager.queue.as_slice(), &[3]);
+            manager
+                .metadata
+                .0
+                .set_limit(JitConfig::default().max_metadata_bytes);
+            for _ in 0..8 {
+                manager.compact_metadata();
+            }
+            assert_eq!(manager.stats.metadata_compaction_attempts, 3);
+            manager.compact_metadata();
+            assert_eq!(manager.stats.metadata_compaction_attempts, 6);
+            assert_eq!(manager.stats.metadata_compactions, 3);
+            assert_eq!(manager.stats.metadata_compaction_refusals, 3);
+            assert!(manager.metadata.0.current() < before);
+        }
+        assert_executable(&lease);
+        assert_executable(&runtime.lookup(2).unwrap());
+        let mut manager = runtime.0.borrow_mut();
+        assert_eq!(manager.next_request(), Some(3));
+        assert_eq!(manager.tracked[&3].attempts, 2);
+        assert!(!manager.tracked[&3].queued);
+    }
+
+    #[test]
+    fn compaction_preserves_pinned_code_recency_and_admission_state() {
+        let (runtime, bytes) = two_module_cache();
+        let lease = runtime.lookup(1).unwrap();
+        let (before, owner_count, recency) = {
+            let mut manager = runtime.0.borrow_mut();
+            manager.tracked.try_reserve(128).unwrap();
+            manager.code.try_reserve(128).unwrap();
+            manager.queue.try_reserve_exact(128).unwrap();
+            manager.tracked.insert(
+                3,
+                Tracking {
+                    hotness: 41,
+                    attempts: 1,
+                    queued: true,
+                },
+            );
+            manager.queue.push(3);
+            manager.stats.queued_requests = 1;
+            (
+                manager.metadata.0.current(),
+                Rc::strong_count(&lease.code),
+                manager.code[&1].last_used,
+            )
+        };
+        {
+            let mut manager = runtime.0.borrow_mut();
+            let clock = manager.clock;
+            manager.compact_metadata();
+            assert!(manager.metadata.0.current() < before);
+            assert_eq!(manager.stats.metadata_compactions, 3);
+            assert_eq!(manager.stats.metadata_compaction_attempts, 3);
+            assert_eq!(manager.stats.metadata_compaction_refusals, 0);
+            assert_eq!(
+                manager.stats.metadata_compaction_bytes,
+                (before - manager.metadata.0.current()) as u64
+            );
+            assert_eq!(manager.code[&1].last_used, recency);
+            assert_eq!(manager.clock, clock);
+            assert!(Rc::ptr_eq(&manager.code[&1].code, &lease.code));
+            assert_eq!(Rc::strong_count(&lease.code), owner_count);
+            let pending = &manager.tracked[&3];
+            assert_eq!(
+                (pending.hotness, pending.attempts, pending.queued),
+                (41, 1, true)
+            );
+            assert_eq!(manager.queue.as_slice(), &[3]);
+            assert_eq!(manager.stats.queued_requests, 1);
+        }
+        assert_eq!(runtime.usage(), 2 * bytes);
+        assert_executable(&lease);
+        assert_executable(&runtime.lookup(2).unwrap());
+        let metadata = runtime.0.borrow().metadata.0.clone();
+        runtime.0.borrow_mut().clear_registrations();
+        assert_eq!(runtime.usage(), bytes);
+        assert_executable(&lease);
+        drop(lease);
+        assert_eq!(runtime.usage(), 0);
+        assert_eq!(metadata.current(), 0);
     }
 
     #[test]

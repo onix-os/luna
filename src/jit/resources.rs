@@ -91,6 +91,82 @@ pub(super) fn owned<T: Clone>(values: &[T]) -> allocator_api2::vec::Vec<T, Budge
 #[collect(require_static)]
 pub(crate) struct BudgetAllocator(pub Arc<Ledger>);
 
+#[derive(Default, Collect)]
+#[collect(require_static)]
+pub(crate) struct Compactor {
+    skipped: u8,
+}
+
+pub(crate) enum Compaction {
+    Unchanged,
+    Compacted(usize),
+    Refused,
+}
+
+impl Compactor {
+    fn ready(&mut self, len: usize, capacity: usize) -> bool {
+        if len == 0 {
+            self.skipped = 0;
+            return capacity != 0;
+        }
+        if capacity < 64 || len > capacity / 4 {
+            self.skipped = 0;
+            return false;
+        }
+        if self.skipped != 0 {
+            self.skipped -= 1;
+            return false;
+        }
+        true
+    }
+
+    fn refused(&mut self) -> Compaction {
+        self.skipped = 8;
+        Compaction::Refused
+    }
+
+    pub fn map<K: Eq + std::hash::Hash, V>(
+        &mut self,
+        values: &mut super::MetadataMap<K, V>,
+    ) -> Compaction {
+        if !self.ready(values.len(), values.capacity()) {
+            return Compaction::Unchanged;
+        }
+        let allocator = values.allocator().clone();
+        let before = allocator.0.current();
+        let mut replacement =
+            hashbrown::HashMap::with_hasher_in(values.hasher().clone(), allocator.clone());
+        if replacement.try_reserve(values.len()).is_err() {
+            return self.refused();
+        }
+        replacement.extend(values.drain());
+        *values = replacement;
+        Compaction::Compacted(before.saturating_sub(allocator.0.current()))
+    }
+
+    pub fn vector<T>(
+        &mut self,
+        values: &mut allocator_api2::vec::Vec<T, BudgetAllocator>,
+    ) -> Compaction {
+        if std::mem::size_of::<T>() == 0 {
+            self.skipped = 0;
+            return Compaction::Unchanged;
+        }
+        if !self.ready(values.len(), values.capacity()) {
+            return Compaction::Unchanged;
+        }
+        let allocator = values.allocator().clone();
+        let before = allocator.0.current();
+        let mut replacement = allocator_api2::vec::Vec::new_in(allocator.clone());
+        if replacement.try_reserve_exact(values.len()).is_err() {
+            return self.refused();
+        }
+        replacement.append(values);
+        *values = replacement;
+        Compaction::Compacted(before.saturating_sub(allocator.0.current()))
+    }
+}
+
 unsafe impl Allocator for BudgetAllocator {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         self.0.reserve(layout.size())?;
@@ -133,6 +209,196 @@ unsafe impl Allocator for BudgetAllocator {
 mod tests {
     use super::*;
     use allocator_api2::vec::Vec;
+
+    #[test]
+    fn compaction_moves_map_owners_and_charges_old_and_new_capacity() {
+        let ledger = Ledger::new(1024 * 1024);
+        let mut values = super::super::metadata_map(BudgetAllocator(ledger.clone()));
+        values.try_reserve(128).unwrap();
+        let owner = std::rc::Rc::new(42);
+        for key in 0..8u64 {
+            values.insert(key, owner.clone());
+        }
+        let capacity = values.capacity();
+        let before = ledger.current();
+        let mut compactor = Compactor::default();
+        let Compaction::Compacted(bytes) = compactor.map(&mut values) else {
+            panic!("map was not compacted")
+        };
+        let after = ledger.current();
+        assert!(values.capacity() < capacity);
+        assert_eq!(bytes, before - after);
+        assert_eq!(ledger.peak(), before + after);
+        assert_eq!(std::rc::Rc::strong_count(&owner), 9);
+        for key in 0..8 {
+            assert!(std::rc::Rc::ptr_eq(&values[&key], &owner));
+        }
+        assert!(matches!(compactor.map(&mut values), Compaction::Unchanged));
+        drop(values);
+        assert_eq!(ledger.current(), 0);
+        assert_eq!(std::rc::Rc::strong_count(&owner), 1);
+    }
+
+    #[test]
+    fn compaction_quota_failure_keeps_map_unchanged_and_backs_off() {
+        let ledger = Ledger::new(1024 * 1024);
+        let mut values = super::super::metadata_map(BudgetAllocator(ledger.clone()));
+        values.try_reserve(128).unwrap();
+        for key in 0..8u64 {
+            values.insert(key, key * 2);
+        }
+        let capacity = values.capacity();
+        let before = ledger.current();
+        ledger.set_limit(before);
+        let mut compactor = Compactor::default();
+        assert!(matches!(compactor.map(&mut values), Compaction::Refused));
+        assert_eq!(ledger.current(), before);
+        assert_eq!(ledger.peak(), before);
+        assert_eq!(values.capacity(), capacity);
+        assert_eq!(ledger.refusals(), 1);
+        ledger.set_limit(1024 * 1024);
+        for _ in 0..8 {
+            assert!(matches!(compactor.map(&mut values), Compaction::Unchanged));
+        }
+        assert_eq!(ledger.refusals(), 1);
+        assert!(matches!(
+            compactor.map(&mut values),
+            Compaction::Compacted(_)
+        ));
+        for key in 0..8 {
+            assert_eq!(values[&key], key * 2);
+        }
+        assert!(ledger.current() < before);
+    }
+
+    #[test]
+    fn compaction_map_underlying_failure_and_empty_release_preserve_accounting() {
+        let ledger = Ledger::new(1024 * 1024);
+        let mut values = super::super::metadata_map(BudgetAllocator(ledger.clone()));
+        values.try_reserve(128).unwrap();
+        for key in 0..8u64 {
+            values.insert(key, key * 2);
+        }
+        let capacity = values.capacity();
+        let before = ledger.current();
+        ledger
+            .allocations_before_failure
+            .store(0, Ordering::Relaxed);
+        let mut compactor = Compactor::default();
+        assert!(matches!(compactor.map(&mut values), Compaction::Refused));
+        assert_eq!(ledger.current(), before);
+        assert!(ledger.peak() > before);
+        assert_eq!(values.capacity(), capacity);
+        for key in 0..8 {
+            assert_eq!(values[&key], key * 2);
+        }
+        values.clear();
+        assert!(
+            matches!(compactor.map(&mut values), Compaction::Compacted(bytes) if bytes == before)
+        );
+        assert_eq!(values.capacity(), 0);
+        assert_eq!(ledger.current(), 0);
+        assert_eq!(ledger.refusals(), 1);
+        assert!(matches!(compactor.map(&mut values), Compaction::Unchanged));
+    }
+
+    #[test]
+    fn compaction_vector_quota_failure_and_dense_reset_preserve_order() {
+        let ledger = Ledger::new(1024 * 1024);
+        let mut values = Vec::new_in(BudgetAllocator(ledger.clone()));
+        values.try_reserve_exact(128).unwrap();
+        values.extend(0..8u64);
+        let before = ledger.current();
+        ledger.set_limit(before);
+        let mut compactor = Compactor::default();
+        assert!(matches!(compactor.vector(&mut values), Compaction::Refused));
+        assert_eq!(values.capacity(), 128);
+        assert_eq!(ledger.current(), before);
+        assert_eq!(values.as_slice(), &[0, 1, 2, 3, 4, 5, 6, 7]);
+        values.resize(33, 7);
+        assert!(matches!(
+            compactor.vector(&mut values),
+            Compaction::Unchanged
+        ));
+        values.truncate(8);
+        ledger.set_limit(1024 * 1024);
+        assert!(matches!(
+            compactor.vector(&mut values),
+            Compaction::Compacted(_)
+        ));
+        assert_eq!(values.capacity(), 8);
+        assert_eq!(values.as_slice(), &[0, 1, 2, 3, 4, 5, 6, 7]);
+    }
+
+    #[test]
+    fn compaction_underlying_failure_preserves_vector_order_and_retries() {
+        let ledger = Ledger::new(1024 * 1024);
+        let mut values = Vec::new_in(BudgetAllocator(ledger.clone()));
+        values.try_reserve_exact(128).unwrap();
+        values.extend(0..8u64);
+        let before = ledger.current();
+        ledger
+            .allocations_before_failure
+            .store(0, Ordering::Relaxed);
+        let mut compactor = Compactor::default();
+        assert!(matches!(compactor.vector(&mut values), Compaction::Refused));
+        assert_eq!(values.capacity(), 128);
+        assert_eq!(values.as_slice(), &[0, 1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(ledger.current(), before);
+        assert_eq!(ledger.peak(), before + 64);
+        ledger
+            .allocations_before_failure
+            .store(usize::MAX, Ordering::Relaxed);
+        for _ in 0..8 {
+            assert!(matches!(
+                compactor.vector(&mut values),
+                Compaction::Unchanged
+            ));
+        }
+        let Compaction::Compacted(bytes) = compactor.vector(&mut values) else {
+            panic!("vector was not compacted")
+        };
+        assert_eq!(bytes, before - 64);
+        assert_eq!(values.capacity(), 8);
+        assert_eq!(values.as_slice(), &[0, 1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(ledger.current(), 64);
+        values.clear();
+        assert!(matches!(
+            compactor.vector(&mut values),
+            Compaction::Compacted(64)
+        ));
+        assert_eq!(values.capacity(), 0);
+        assert_eq!(ledger.current(), 0);
+    }
+
+    #[test]
+    fn compaction_preserves_small_dense_and_zero_sized_storage() {
+        let ledger = Ledger::new(1024 * 1024);
+        let mut values = Vec::new_in(BudgetAllocator(ledger.clone()));
+        values.try_reserve_exact(63).unwrap();
+        values.push(1u64);
+        let mut compactor = Compactor::default();
+        assert!(matches!(
+            compactor.vector(&mut values),
+            Compaction::Unchanged
+        ));
+        values.try_reserve_exact(63).unwrap();
+        let capacity = values.capacity();
+        values.resize(capacity / 4 + 1, 7);
+        assert!(matches!(
+            compactor.vector(&mut values),
+            Compaction::Unchanged
+        ));
+        values.truncate(capacity / 4);
+        assert!(matches!(
+            compactor.vector(&mut values),
+            Compaction::Compacted(_)
+        ));
+        let mut zero = Vec::new_in(BudgetAllocator(ledger));
+        zero.resize(3, ());
+        assert!(matches!(compactor.vector(&mut zero), Compaction::Unchanged));
+        assert_eq!(zero.len(), 3);
+    }
 
     #[test]
     fn failed_growth_preserves_contents_and_charges_retained_capacity() {

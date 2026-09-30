@@ -1538,6 +1538,35 @@ records experiment rejection and acceptance evidence. Ignored
 `target/jit-evidence/scalar-upvalues/` preserves copied artifacts, hashes and
 experiment source; no experimental runtime code is retained in source.
 
+#### Sparse metadata compaction decision
+
+**Decision:** reclaim sparse weak-registration, tracking, installed-code and
+queue backing storage at the existing host service/preparation sweep boundary,
+not in native execution or `Executor::step`. Nonempty containers qualify when
+capacity is at least 64 and occupancy is at most one quarter. Empty containers
+can release backing storage without replacement allocation.
+
+Reserve replacement storage fallibly through the same shared metadata ledger
+before moving any entries. Old and new allocations coexist under the quota;
+allocation failure leaves entries, capacity, identities, hotness, attempt and
+queue state, cache recency and code leases unchanged. Moving cached `Rc`s must
+not clone or drop their code owners. A failed nonempty attempt defers the next
+eight eligible sweep passes, allowing later allocator recovery without a
+refusal on every unchanged service call. Dense/empty states reset this backoff.
+Expose cumulative attempts, successful compactions, refusals and reclaimed
+requested-layout bytes; these do not represent RSS or complete compiler memory.
+
+**Acceptance:** exact capacity/usage/peak and quota/underlying-failure tests;
+unchanged contents/owner counts and eventual retry; live source identity,
+pending work, compiled execution and pinned-code behavior after collection and
+compaction; full verification. Full compiler and combined-host accounting
+remain separate open requirements.
+
+**Fixture discovery:** `prepare_jit` admits only the configured queue batch,
+not every registered source at once. The 128-source lifecycle fixture must
+prepare eight default-size batches; do not increase production queue limits
+or claim one-call preparation of all sources.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

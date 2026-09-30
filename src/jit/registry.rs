@@ -1,7 +1,11 @@
 use allocator_api2::vec::Vec;
 use ottavino_gc_arena::{lock::RefLock, Collect, Gc, GcWeak};
 
-use super::{metadata_map, resources::BudgetAllocator, JitError, MetadataMap};
+use super::{
+    metadata_map,
+    resources::{BudgetAllocator, Compactor},
+    JitError, MetadataMap,
+};
 use crate::{Context, FunctionPrototype};
 
 #[derive(Collect)]
@@ -15,6 +19,7 @@ struct Registration<'gc> {
 #[collect(no_drop)]
 pub(crate) struct Registrations<'gc> {
     entries: MetadataMap<usize, Registration<'gc>>,
+    compactor: Compactor,
 }
 
 pub(crate) type Registry<'gc> = Gc<'gc, RefLock<Registrations<'gc>>>;
@@ -23,12 +28,14 @@ impl<'gc> Registrations<'gc> {
     pub fn new(allocator: BudgetAllocator) -> Self {
         Self {
             entries: metadata_map(allocator),
+            compactor: Compactor::default(),
         }
     }
 
     pub fn reset(&mut self, ctx: Context<'gc>) {
         let allocator = ctx.jit().0.borrow().metadata.clone();
         self.entries = metadata_map(allocator);
+        self.compactor = Compactor::default();
         ctx.jit().0.borrow_mut().clear_registrations();
     }
 
@@ -94,9 +101,10 @@ impl<'gc> Registrations<'gc> {
                 false
             }
         });
-        if self.entries.is_empty() {
-            self.entries = metadata_map(ctx.jit().0.borrow().metadata.clone());
-        }
+        let result = self.compactor.map(&mut self.entries);
+        let mut manager = ctx.jit().0.borrow_mut();
+        manager.record_compaction(result);
+        manager.compact_metadata();
     }
 
     pub fn ids(&self, ctx: Context<'gc>) -> Result<Vec<u64, BudgetAllocator>, JitError> {
