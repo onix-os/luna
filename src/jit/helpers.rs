@@ -237,6 +237,183 @@ unsafe extern "C" fn call<const KIND: u32>(
 mod tests {
     use super::*;
 
+    fn assert_identical<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
+        match (actual, expected) {
+            (Value::Nil, Value::Nil) => {}
+            (Value::Boolean(a), Value::Boolean(b)) => assert_eq!(a, b),
+            (Value::Integer(a), Value::Integer(b)) => assert_eq!(a, b),
+            (Value::Number(a), Value::Number(b)) => assert_eq!(a.to_bits(), b.to_bits()),
+            (Value::String(a), Value::String(b)) => {
+                assert!(ottavino_gc_arena::Gc::ptr_eq(
+                    a.into_inner(),
+                    b.into_inner()
+                ));
+            }
+            (Value::Table(a), Value::Table(b)) => assert_eq!(a, b),
+            (actual, expected) => panic!("value mismatch: {actual:?} != {expected:?}"),
+        }
+    }
+
+    fn invoke<const KIND: u32>(
+        frame: &mut Frame<'_, '_, '_>,
+        slots: &mut [Slot],
+        a: u32,
+        b: u32,
+        c: u32,
+        pc: u32,
+    ) -> u32 {
+        assert!(slots.len() >= frame.slot_count);
+        let mut host = abi::Host {
+            data: (frame as *mut Frame<'_, '_, '_>).cast(),
+        };
+        unsafe { call::<KIND>(&mut host, slots.as_mut_ptr(), a, b, c, pc) }
+    }
+
+    #[test]
+    fn scoped_host_completes_all_helpers_with_canonical_reference_ownership() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let environment = Table::new(&ctx);
+            let closure = Closure::load_with_env(
+                ctx,
+                Some("helper-frame"),
+                b"return _ENV, 'helper-value'",
+                environment,
+            )
+            .unwrap();
+            let constant = closure
+                .prototype()
+                .constants
+                .iter()
+                .position(|value| {
+                    matches!(value, crate::Constant::String(value) if value.as_bytes() == b"helper-value")
+                })
+                .unwrap() as u32;
+            let key = abi::CONSTANT_OPERAND | constant;
+            let mut values = [Value::Nil; 8];
+            values[1] = Value::Integer(1);
+            values[2] = Value::Integer(42);
+            let mut pc = 0;
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                let mut slots: [Slot; 8] =
+                    std::array::from_fn(|index| Slot::from_value(registers.stack_frame[index]));
+                let mut frame = Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: Counts::default(),
+                    slot_count: slots.len(),
+                    panic: None,
+                };
+                macro_rules! complete {
+                    ($kind:expr, $a:expr, $b:expr, $c:expr) => {
+                        assert_eq!(
+                            invoke::<{ $kind }>(&mut frame, &mut slots, $a, $b, $c, 7),
+                            abi::HELPER_COMPLETED
+                        );
+                        assert_eq!(*frame.registers.pc, 8);
+                    };
+                }
+                complete!(abi::HELPER_CONSTANT, 3, constant, 0);
+                complete!(abi::HELPER_MOVE, 4, 3, 0);
+                complete!(abi::HELPER_NEW_TABLE, 0, 4, 0);
+                complete!(abi::HELPER_SET_TABLE, 0, 1, 2);
+                complete!(abi::HELPER_GET_TABLE, 5, 0, 1);
+                complete!(abi::HELPER_SET_UP_TABLE, 0, key, 2);
+                complete!(abi::HELPER_GET_UP_TABLE, 6, 0, key);
+                complete!(abi::HELPER_GET_UPVALUE, 7, 0, 0);
+                complete!(abi::HELPER_SET_UPVALUE, 0, 0, 0);
+                assert_eq!(frame.count.calls, 9);
+                assert_eq!(frame.count.completed, 9);
+                assert_eq!(frame.count.declined, 0);
+                assert_eq!(frame.count.table_reads, 2);
+                assert_eq!(frame.count.table_writes, 2);
+                assert_eq!(frame.count.upvalue_reads, 3);
+                assert_eq!(frame.count.upvalue_writes, 1);
+                assert_eq!(frame.count.allocations, 1);
+                assert!(frame.panic.is_none());
+                assert_identical(frame.registers.stack_frame[5], Value::Integer(42));
+                assert_identical(frame.registers.stack_frame[6], Value::Integer(42));
+                assert_identical(frame.registers.stack_frame[7], Value::Table(environment));
+                assert_identical(frame.registers.stack_frame[3], frame.registers.stack_frame[4]);
+                assert_identical(
+                    frame.registers.get_upvalue(&ctx, closure.upvalues()[0].get()),
+                    frame.registers.stack_frame[0]
+                );
+                for (slot, canonical) in slots.iter().zip(frame.registers.stack_frame.iter()) {
+                    assert_identical(slot.value(*canonical), *canonical);
+                    if slot.tag == abi::REFERENCE {
+                        assert_eq!(slot.bits, 0);
+                    }
+                }
+            });
+        });
+        lua.gc_collect();
+    }
+
+    #[test]
+    fn scoped_host_declines_before_effect_and_transports_panic_after_materialization() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = Closure::load(ctx, None, b"return 42").unwrap();
+            let mut values = [Value::Integer(0); 8];
+            let mut pc = 0;
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                let sentinel = Slot::from_value(Value::Integer(12345));
+                let mut slots = [sentinel; 16];
+                for slot in &mut slots[..8] {
+                    *slot = Slot::from_value(Value::Integer(91));
+                }
+                let mut frame = Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: Counts::default(),
+                    slot_count: 8,
+                    panic: None,
+                };
+                assert_eq!(
+                    invoke::<{ abi::HELPER_GET_TABLE }>(&mut frame, &mut slots, 0, 1, 2, 17),
+                    abi::HELPER_DECLINED
+                );
+                assert_eq!(*frame.registers.pc, 17);
+                assert!(frame
+                    .registers
+                    .stack_frame
+                    .iter()
+                    .all(|v| matches!(v, Value::Integer(0))));
+                assert_eq!(frame.count.declined, 1);
+                assert_eq!(
+                    invoke::<{ abi::HELPER_MOVE }>(&mut frame, &mut slots, 8, 1, 0, 17),
+                    abi::HELPER_PANICKED
+                );
+                assert_eq!(*frame.registers.pc, 18);
+                assert!(frame
+                    .registers
+                    .stack_frame
+                    .iter()
+                    .all(|v| matches!(v, Value::Integer(91))));
+                assert_eq!(frame.count.calls, 2);
+                assert_eq!(frame.count.completed, 0);
+                assert_eq!(frame.count.declined, 1);
+                assert!(slots[8..]
+                    .iter()
+                    .all(|slot| slot.tag == sentinel.tag && slot.bits == sentinel.bits));
+                let payload = frame.panic.take().unwrap();
+                let original = payload.as_ref() as *const dyn Any as *const ();
+                let propagated =
+                    catch_unwind(AssertUnwindSafe(|| std::panic::resume_unwind(payload)))
+                        .unwrap_err();
+                assert_eq!(propagated.as_ref() as *const dyn Any as *const (), original);
+                assert!(propagated
+                    .downcast_ref::<String>()
+                    .unwrap()
+                    .contains("index out of bounds"));
+            });
+        });
+        lua.gc_collect();
+    }
+
     #[test]
     fn fixed_symbols_have_unique_keys_and_decline_null_hosts() {
         let mut kinds = std::collections::HashSet::new();

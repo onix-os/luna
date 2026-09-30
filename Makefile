@@ -48,6 +48,7 @@ $(info ------------------------------------------)
 .PHONY: jit-disassembly
 .PHONY: jit-bench-build jit-bench-run
 .PHONY: jit-miri
+.PHONY: jit-helpers
 
 ci-check:
 	@$(ACTIONLINT) .github/workflows/tests.yml
@@ -181,6 +182,9 @@ jit-reference:
 
 jit-backend:
 	@$(CARGO) test -p luna --features jit --test jit_backend $(TARGET_ARG)
+
+jit-helpers:
+	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::helpers::tests
 
 jit-native:
 	@$(CARGO) test -p luna --features jit --test jit_native $(TARGET_ARG) $(ARGS)
@@ -394,6 +398,8 @@ help:
 	@echo "  jit-platform Run the full gate on matching hardware (TARGET=... required)"
 	@echo "  ci-check     Validate the active GitHub Actions workflow"
 	@echo "  jit-backend  Execute the native helper-call and worker-transfer probes"
+	@echo "  jit-helpers  Test scoped Rust helper frames and panic transport"
+	@echo "  jit-miri     Check Rust-only JIT components (nix develop .#miri)"
 	@echo "  jit-boundary Test native exits against the Rust boundary model"
 	@echo "  jit-native   Run integrated native execution and lifecycle tests"
 	@echo "  jit-numeric  Check reference and exact native numeric comparisons"
