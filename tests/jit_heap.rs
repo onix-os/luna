@@ -6,7 +6,7 @@
 
 use luna::{
     Callback, CallbackReturn, Closure, Executor, ExternError, Fuel, Function, JitConfig, JitMode,
-    Lua, StashedExecutor, Table,
+    Lua, StashedExecutor, Table, UserData, Value,
 };
 
 fn state(native: bool) -> Lua {
@@ -198,6 +198,209 @@ fn weak_table_reads_and_writes_preserve_collection_semantics() -> Result<(), Ext
             assert!(stats.native_table_reads >= 3);
             assert!(stats.native_table_writes >= 3);
         }
+    }
+    Ok(())
+}
+
+#[test]
+fn interleaved_executors_keep_replaced_table_and_userdata_roots_fresh() -> Result<(), ExternError> {
+    fn mutate(lua: &mut Lua, tick: i64) {
+        lua.enter(|ctx| {
+            let shared: Table = ctx.get_global("shared").unwrap();
+            match shared.get_value(ctx, "item") {
+                Value::Table(table) => {
+                    table.set_field(ctx, "value", tick % 17 + 1);
+                }
+                Value::UserData(data) => {
+                    let proxy: Table = data.metatable().unwrap().get(ctx, "__index").unwrap();
+                    proxy.set_field(ctx, "value", tick % 17 + 1);
+                }
+                Value::Nil => {}
+                _ => unreachable!(),
+            }
+            let item = Table::new(&ctx);
+            item.set_field(ctx, "id", tick);
+            item.set_field(ctx, "value", tick % 11 + 1);
+            if tick % 3 == 0 {
+                let data = UserData::new_static(&ctx, tick);
+                let mt = Table::new(&ctx);
+                mt.set_field(ctx, "__index", item);
+                data.set_metatable(ctx, Some(mt));
+                shared.set_field(ctx, "item", data);
+            } else {
+                shared.set_field(ctx, "item", item);
+            }
+            shared.set(ctx, tick % 128 + 1, tick).unwrap();
+            shared.set(ctx, (tick + 64) % 128 + 1, Value::Nil).unwrap();
+        });
+    }
+    fn snapshot(lua: &mut Lua) -> (i64, &'static str, i64, i64) {
+        lua.enter(|ctx| {
+            let shared: Table = ctx.get_global("shared").unwrap();
+            let progress = shared.get(ctx, "progress").unwrap();
+            let (kind, id, value) = match shared.get_value(ctx, "last") {
+                Value::Nil => ("nil", -1, 0),
+                Value::Table(table) => (
+                    "table",
+                    table.get(ctx, "id").unwrap(),
+                    table.get(ctx, "value").unwrap(),
+                ),
+                Value::UserData(data) => {
+                    let proxy: Table = data.metatable().unwrap().get(ctx, "__index").unwrap();
+                    (
+                        "userdata",
+                        *data.downcast_static::<i64>().unwrap(),
+                        proxy.get(ctx, "value").unwrap(),
+                    )
+                }
+                _ => unreachable!(),
+            };
+            (progress, kind, id, value)
+        })
+    }
+    let mut reference = state(false);
+    let mut native = state(true);
+    for lua in [&mut reference, &mut native] {
+        lua.enter(|ctx| {
+            let shared = Table::new(&ctx);
+            shared.set_field(ctx, "progress", 0);
+            ctx.set_global("shared", shared);
+        });
+        mutate(lua, 1);
+    }
+    let scripts = [
+        b"local sum=0 for i=1,48 do local object=shared.item sum=sum+object.value shared.last=object shared.progress=i end return sum".as_slice(),
+        b"local sum=100 for i=1,37 do local object=shared.item sum=sum+object.value shared.last=object shared.progress=i end return sum".as_slice(),
+    ];
+    let mut left = Vec::new();
+    let mut right = Vec::new();
+    for script in scripts {
+        left.push(source(&mut reference, script)?);
+        right.push(source(&mut native, script)?);
+    }
+    let mut done = [false; 2];
+    let mut completed = false;
+    for tick in 0..4000 {
+        let index = if done[tick % 2] {
+            1 - tick % 2
+        } else {
+            tick % 2
+        };
+        let budget = [1, 3, 7, 64][tick % 4];
+        let step = |lua: &mut Lua, executor: &StashedExecutor| {
+            lua.enter(|ctx| {
+                let executor = ctx.fetch(executor);
+                let mut fuel = Fuel::with(budget);
+                let result = executor.step(ctx, &mut fuel).unwrap();
+                (result, executor.mode(), fuel.remaining())
+            })
+        };
+        let expected = step(&mut reference, &left[index]);
+        let actual = step(&mut native, &right[index]);
+        assert_eq!(actual, expected, "executor {index}, tick {tick}");
+        assert_eq!(snapshot(&mut native), snapshot(&mut reference));
+        done[index] = actual.0;
+        for lua in [&mut reference, &mut native] {
+            mutate(lua, tick as i64 + 2);
+            lua.gc_collect();
+        }
+        assert_eq!(snapshot(&mut native), snapshot(&mut reference));
+        if done.iter().all(|done| *done) {
+            completed = true;
+            break;
+        }
+    }
+    assert!(completed);
+    for index in 0..2 {
+        let expected = reference.execute::<i64>(&left[index])?;
+        assert!(expected > 0);
+        assert_eq!(native.execute::<i64>(&right[index])?, expected);
+    }
+    let stats = native.jit_stats();
+    assert!(stats.native_instructions > 0);
+    assert!(stats.native_table_reads >= 85);
+    assert!(stats.native_table_writes >= 85);
+    assert!(stats.helper_declines > 0);
+    assert_eq!(reference.jit_stats().native_instructions, 0);
+    Ok(())
+}
+
+#[test]
+fn rust_weak_mode_mutation_and_reattachment_preserve_native_collection() -> Result<(), ExternError>
+{
+    fn run(lua: &mut Lua, closure: &luna::StashedClosure) -> Result<i64, ExternError> {
+        let executor =
+            lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(closure).into(), ())));
+        let mut completed = false;
+        for tick in 0..1000 {
+            let done = lua.enter(|ctx| {
+                ctx.fetch(&executor)
+                    .step(ctx, &mut Fuel::with([1, 7, 64][tick % 3]))
+                    .unwrap()
+            });
+            lua.gc_collect();
+            if done {
+                completed = true;
+                break;
+            }
+        }
+        assert!(completed);
+        lua.execute(&executor)
+    }
+    for native in [false, true] {
+        let mut lua = state(native);
+        lua.enter(|ctx| {
+            let cache = Table::new(&ctx);
+            let item = Table::new(&ctx);
+            item.set_field(ctx, "marker", 42);
+            cache.set(ctx, 1, item).unwrap();
+            let mt = Table::new(&ctx);
+            cache.set_metatable(ctx, Some(mt));
+            ctx.set_global("cache", cache);
+            ctx.set_global("mode", mt);
+        });
+        let (getter, setter) = lua.try_enter(|ctx| {
+            let getter = Closure::load(ctx, None, b"local object=cache[1] if object then return object.marker end return 0")?;
+            let setter = Closure::load(ctx, None, b"local object={marker=71} cache[1]=object local result=cache[1].marker object=nil return result")?;
+            Ok((ctx.stash(getter), ctx.stash(setter)))
+        })?;
+        lua.prepare_jit().unwrap();
+        assert_eq!(run(&mut lua, &getter)?, 42);
+        lua.enter(|ctx| {
+            let mt: Table = ctx.get_global("mode").unwrap();
+            mt.set_field(ctx, "__mode", "v");
+        });
+        lua.gc_collect();
+        lua.gc_collect();
+        let before = lua.jit_stats();
+        assert_eq!(run(&mut lua, &getter)?, 42);
+        if native {
+            assert!(lua.jit_stats().native_table_reads > before.native_table_reads);
+        }
+        lua.enter(|ctx| {
+            let cache: Table = ctx.get_global("cache").unwrap();
+            let mt: Table = ctx.get_global("mode").unwrap();
+            cache.set_metatable(ctx, Some(mt));
+        });
+        lua.gc_collect();
+        lua.gc_collect();
+        let before = lua.jit_stats();
+        assert_eq!(run(&mut lua, &getter)?, 0);
+        if native {
+            assert!(lua.jit_stats().native_table_reads > before.native_table_reads);
+        }
+        let before = lua.jit_stats();
+        assert_eq!(run(&mut lua, &setter)?, 71);
+        if native {
+            let after = lua.jit_stats();
+            assert_eq!(after.native_allocations - before.native_allocations, 1);
+            assert_eq!(after.native_table_writes - before.native_table_writes, 2);
+            assert!(after.native_table_reads >= before.native_table_reads + 2);
+        }
+        lua.gc_collect();
+        lua.gc_collect();
+        assert_eq!(run(&mut lua, &getter)?, 0);
+        assert_eq!(lua.jit_stats().native_instructions > 0, native);
     }
     Ok(())
 }

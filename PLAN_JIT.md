@@ -477,7 +477,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 6 — Add heap fast paths with collector and mutation proofs
 
-**Status:** IN PROGRESS. **Depends on:** Phase 5. Fixed helper ABI v3 executes table/upvalue/allocation operations through existing barrier APIs. Weak tables, readonly/intercept changes, invalid keys, every-slice GC, finalizer resurrection and debug mutation have native evidence; broader weak-mode/interleaved/invalidation stress remains open.
+**Status:** IN PROGRESS. **Depends on:** Phase 5. Fixed helper ABI v3 executes table/upvalue/allocation operations through existing barrier APIs. Weak tables, readonly/intercept changes, invalid keys, every-slice GC, finalizer resurrection and debug mutation have native evidence. New focused cases cover alternating executors with Rust table/userdata replacement and weak-value metatable mutation/reattachment; complete mode/ephemeron/guard matrices and broader lifecycle stress remain open.
 
 **Files:** runtime/guards, table modules, closure/upvalue integration, `tests/jit_gc.rs`, `tests/jit_mutation.rs`, existing GC/weak/userdata suites.
 
@@ -2297,6 +2297,51 @@ shipping acceptance failures remain open; the full goal is active.
 `tests/metamethods.rs` verifies scalar success, both fallback paths, order and
 error recovery; `PLAN_JIT.md` records this baseline milestone and remaining
 acceptance; `target/jit-evidence/concat-baseline/` retains exact verification logs.
+
+### Lifecycle matrix: weak-mode contract discovery
+
+`Table::set_metatable` reads `__mode` when attaching the metatable and converts
+existing entries through the weak-storage APIs. Mutating the attached
+metatable's `__mode` field alone does not retroactively convert entries;
+`src/table/table.rs` documents this attachment-time policy. This is evidence of
+Luna's current interpreter behavior, not verified upstream Lua compatibility.
+Native mutation tests must compare this actual interpreter contract rather than
+assume live mode switching. Interleaved-executor
+tests must also retain object identities in suspended canonical registers while
+Rust replaces their global/table aliases and collects between slices. These
+discoveries inform the next tests; no production behavior is changed here.
+
+### Lifecycle matrix: interleaving and weak attachment coverage
+
+Added two public native/reference regressions in `tests/jit_heap.rs`:
+
+- Two live executors share one mutable global table in each reference/native
+  state, alternate 1/3/7/64-fuel slices, and compare completion, executor mode,
+  fuel remainder and host-visible state on every tick. Rust mutates the previous
+  item's value, replaces its global alias with fresh tables or userdata, resizes
+  and deletes shared table entries, and performs full collection after every
+  slice. Userdata metatable/index-proxy roots and table identities must survive
+  solely in canonical suspended registers when aliases disappear. Both final
+  integer results must equal the interpreter; native reads/writes and userdata
+  declines must be nonzero, while reference native work stays zero.
+- A rooted getter is warmed before Rust changes only the metatable's `__mode`
+  field, proving attachment-time behavior still retains the entry. Reattaching
+  that same metatable converts the previously strong entry to weak storage;
+  collection then removes it. The same compiled getter must observe both states
+  through actual native reads. A compiled weak-table writer allocates and stores
+  a fresh object, reads its marker across 1/7/64-fuel slices with collection after
+  every slice, returns 71 and releases it after completion. Native allocation and
+  write deltas are exactly 1 and 2, respectively; later reads must observe nil.
+
+`nix develop -c make fmt fmt-check jit-heap` passes all 14 tests
+(`/tmp/luna-jit-lifecycle-matrix-focused.log`). Fresh full GNU verification passes
+2693 executions / 410 suite invocations, including 14 heap tests in ordinary
+JIT lanes and 15 with async enabled. GNU smoke evidence is
+`target/jit-evidence/fuzz/1790797513166808616-3922151`. Full musl verification
+is running in session `51155`; resume this handle rather than restarting on an
+observation timeout. No production layout, helper ABI, quota or benchmark gate
+changes. These cases reduce the open lifecycle matrix but do not prove every
+interleaving, weak-key/ephemeron transition or guard invalidation path.
 
 ## 15. Primary references
 
