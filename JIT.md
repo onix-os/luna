@@ -110,3 +110,11 @@ The target rejects missing test execution or empty/wrong-architecture artifacts.
 This is not full symbolization, platform certification or an unsafe-code proof;
 raw disassembly may decode embedded constants as instructions. Production
 builds gain no dump API, file writes or retained diagnostic state.
+
+`make jit-bench-build` and `make jit-bench-run` separate compilation from timing.
+The combined `make jit-bench`, performance and shipping targets still build then
+run. Run-only accepts an immutable copied artifact through `JIT_BENCH_BINARY`;
+its embedded optimization label remains authoritative. `--check` rejects
+shipping or unspecified labels rather than applying the opt-level-3 acceptance
+gate to the wrong build. Run-only does not guarantee an idle machine: do not run
+acceptance timings alongside builds, tests, fuzzing or profiling.

@@ -1222,6 +1222,90 @@ cache tests; `tests/jit_policy.rs` verifies the public lifecycle; backend denial
 tests forbid eviction; `Makefile` runs the cache suite; `examples/jit_bench.rs`
 reports cache counters; `JIT.md` and this plan document behavior and limitations.
 
+### Compact invocation-counter experiment
+
+Test eight byte-sized private helper counters instead of eight `u64`s in the
+scoped helper frame. Every validated kernel checks budget before each logical
+operation, caps budget at 64, and exits immediately on helper decline/panic.
+Each logical operation makes at most one helper call, so each local counter is
+at most 64. The opaque helper host and ABI v3 remain unchanged; public cumulative
+statistics still use saturating `u64` arithmetic. Verify a helper-dense 64-op
+slice and cumulative totals beyond 255, plus existing panic/fuel/heap tests.
+This is an experiment, not performance acceptance; retain only with evidence.
+
+The source constructor/assignment sequence includes non-helper instructions;
+257 allocations did not produce an all-helper slice. Use 256 constant-key raw
+table writes instead, require an observed 64-helper slice, and compare tiny-fuel
+steps against the interpreter with GC between slices. Check cumulative writes
+and helper totals beyond 255 rather than assuming one helper per source statement.
+
+Add separate `jit-bench-build` and `jit-bench-run` targets so artifact compilation
+can finish before idle-machine timing begins. The existing combined target
+retains its interface; run-only supports a copied immutable artifact through
+`JIT_BENCH_BINARY`. Checked benchmark execution rejects artifacts whose embedded
+optimization label is not `3`, preventing accidental shipping-profile checks.
+These controls do not themselves establish an idle machine or performance
+acceptance. Preserve both counter-width artifacts and their hashes.
+
+**Rejected:** sequential run-only paired checks of copied opt-level-3 artifacts
+both fail the same four frozen controls. Baseline `u64` versus candidate `u8`
+speedups: integer 2.4065 / 2.4813; float 4.4255 / 4.4972; table 1.0969 / 1.0850;
+upvalue 0.4958 / 0.4996; metamethod 0.7554 / 0.7705; callbacks 0.6694 / 0.6521;
+allocation/GC 0.9733 / 0.9863; Oslo (unscored) 0.8556 / 0.8469; cold 0.9956 /
+1.0068. Upvalue improvement is negligible and callback timing worsens; do not
+retain counter narrowing merely for its smaller frame. Restore the original
+counter types and aggregation. The dense-helper GC/fuel regression remains.
+
+Logs: `/tmp/luna-jit-compact-counts-{u64,u8}-performance.log`; artifact hashes
+are in `target/jit-evidence/compact-counts/binaries.sha256`. Both binaries were
+built before timing, and Cargo/rustc process checks before and after each run
+found no concurrent jobs. These are separate paired runs with dispersion, not
+causal hardware profiling or performance acceptance. No ceiling was relaxed.
+
+**Next measured target:** source inspection confirms successful LRU lookup now
+performs an additional hashed `Tracking` lookup through `touch`. Investigate
+storing recency in the charged cache-map entry, reusing the successful code
+lookup. Preserve deterministic eviction, source identities, exact counters and
+lease safety. The observed post-LRU upvalue slowdown alone is not causal proof.
+
+**Restored verification:** `/tmp/luna-jit-compact-counts-restored-verify.log`
+exits 0 for `make fmt jit-verify`: 2555 passed executions / 404 suite invocations,
+including the new helper-bound and checked-profile tests. Seeded smoke output
+is at `target/jit-evidence/fuzz/1790781107301822079-2911773`. All twelve heap
+integrations pass on musl with original counters restored
+(`/tmp/luna-jit-compact-counts-restored-musl.log`). Run-only rejects a missing
+artifact with exit 2 (`/tmp/luna-jit-bench-run-missing.log`). No runtime counter
+narrowing or aggregation change remains in the worktree.
+
+#### Session summary: rejected compact counters and isolated benchmark stages
+
+**Goal:** reduce measured invocation overhead without weakening the full plan's
+correctness, accounting or frozen performance contract.
+
+**Instructions:** keep only justified optimizations; commit logical verified
+milestones, using Make/Nix and patch tools.
+
+**Discoveries:** local helper counts are bounded by 64, but source statements
+need not map one-to-one to helper instructions. Counter packing alone does not
+repair the upvalue/callback performance failures. Successful LRU lookup currently
+adds a hashed tracking probe; investigate that measured-path overhead next.
+
+**Accomplished:** reverted unhelpful counter packing; retained a helper-dense
+64-call slice/cumulative-256-write GC/fuel regression; separated benchmark build
+and timing with immutable-artifact support and explicit checked-profile tests;
+captured both failing paired reports and hashes; full restored GNU correctness,
+focused musl heap coverage and missing-artifact rejection pass.
+
+**Next steps:** remove avoidable recency lookup work without weakening charged
+metadata, pinning or LRU tests; repeat native/compiled-Off gates on idle hardware.
+Complete compiler/combined-host limits, sparse-cache policy, lifecycle/fuzz/unsafe
+hardening and ARM64/hosted evidence. The full goal is still incomplete; no tool
+process from this session remains live.
+
+**Relevant files:** `tests/jit_heap.rs` holds the new regression; `Makefile` and
+`examples/jit_bench.rs` split/validate benchmark execution; `JIT.md` documents the
+interface; this plan retains rejected-experiment evidence and the next handoff.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

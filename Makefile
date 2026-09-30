@@ -19,6 +19,7 @@ FUZZ_TARGET ?= all
 FUZZ_CASES ?= 256
 FUZZ_SEEDS ?= 0,1,0xdeadbeef,0xffffffffffffffff
 JIT_BENCH_OPT ?= 3
+JIT_BENCH_BINARY ?= $(TOP_DIR)/target/$(if $(TARGET),$(TARGET)/,)release/examples/jit_bench
 JIT_DUMP_DIR ?= target/jit-evidence/native/$(if $(TARGET),$(TARGET),host)
 SIZE_PROFILE ?= shipping
 COST_SAMPLES ?= 11
@@ -43,6 +44,7 @@ $(info ------------------------------------------)
 .PHONY: jit-size jit-size-build jit-cost-tests jit-cost-native jit-shipping
 .PHONY: jit-cost-profile
 .PHONY: jit-disassembly
+.PHONY: jit-bench-build jit-bench-run
 
 ci-check:
 	@$(ACTIONLINT) .github/workflows/tests.yml
@@ -65,9 +67,17 @@ jit-evidence:
 	done
 	@$(MAKE) --no-print-directory environment > target/jit-evidence/environment.log
 
-jit-bench:
+jit-bench-build:
 	@mkdir -p target/jit-evidence
-	@set -o pipefail; LUNA_BENCH_OPT_LEVEL=$(JIT_BENCH_OPT) CARGO_PROFILE_RELEASE_OPT_LEVEL=$(JIT_BENCH_OPT) $(CARGO) run --release --example jit_bench --features jit $(TARGET_ARG) -- $(ARGS) 2>&1 | tee target/jit-evidence/bench.log
+	@set -o pipefail; CARGO_TARGET_DIR='$(TOP_DIR)/target' LUNA_BENCH_OPT_LEVEL=$(JIT_BENCH_OPT) CARGO_PROFILE_RELEASE_OPT_LEVEL=$(JIT_BENCH_OPT) $(CARGO) build --release --example jit_bench --features jit $(TARGET_ARG) 2>&1 | tee target/jit-evidence/bench-build.log
+
+jit-bench-run:
+	@mkdir -p target/jit-evidence
+	@test -x '$(JIT_BENCH_BINARY)'
+	@set -o pipefail; '$(JIT_BENCH_BINARY)' $(ARGS) 2>&1 | tee target/jit-evidence/bench.log
+
+jit-bench: jit-bench-build
+	@$(MAKE) --no-print-directory jit-bench-run
 
 jit-bench-paired:
 	@$(MAKE) --no-print-directory jit-bench ARGS='--mode paired --samples 11 $(ARGS)'
@@ -378,6 +388,8 @@ help:
 	@echo "  jit-resources Test owned-container budgets and reclamation"
 	@echo "  jit-example  Run the explicitly prepared native Lua example"
 	@echo "  jit-bench    Measure checked workloads (ARGS='--mode off --samples 11')"
+	@echo "  jit-bench-build Build the benchmark without timing"
+	@echo "  jit-bench-run Time an existing artifact (JIT_BENCH_BINARY=path)"
 	@echo "  jit-bench-paired Alternate checked Off/Auto samples"
 	@echo "  jit-performance Check frozen paired workload thresholds"
 	@echo "  jit-disassembly Dump finalized native kernels and addresses"
