@@ -2122,6 +2122,118 @@ actual ARM64/hosted acceptance remain open. The overall goal remains active.
 `tests/jit_resources.rs` adds warm-cache lifecycle coverage; `PLAN_JIT.md`
 records progress and acceptance evidence.
 
+### Identity-cache revision: preserve the compiled-Off guard
+
+The next experiment restores the original `!hook_enabled && active()` guard
+before fetching the closure identity token. Off-mode no longer enters the
+optional-token path; Auto obtains the token only after the existing eligibility
+check. The original failed experiment, its binaries, hashes and raw logs are
+retained; the complete original source patch is archived at
+`target/jit-evidence/identity-cache/original/experiment.patch`.
+
+Focused resource/policy/native/upvalue checks pass. Two sequential speed-profile
+compiled-Off runs pass all nine unchanged controls (Make exit 0); this addresses
+the measured Off regression in the original experiment without removing work or
+weakening instrumentation. Two native candidate runs still exit 2: remaining
+workload failures are recorded in their raw logs. These results are not overall
+native or release acceptance. Revised artifacts, source patch and raw logs are
+at `target/jit-evidence/identity-cache/guarded/`.
+
+Next run fresh full correctness and matched shipping controls before deciding
+whether to retain this revision. The cache adds 24 primitive bytes per closure
+on 64-bit targets, charged by GC object allocation rather than the JIT metadata
+container ledger; fixed manager owner/epoch overhead remains outside that
+container ledger. Complete combined-host resource accounting remains open.
+
+### Guarded-cache shipping result and final isolation experiment
+
+The guarded revision passes fresh full GNU verification (2690 executions /
+410 suite invocations), 29 selected Miri tests and focused musl checks. Its
+shipping controls nevertheless fail: upvalue compiled-Off overhead is +19.32%
+and +19.65%, versus the previous committed hash milestone's +7.26%/+6.82%.
+Float also fails both (+5.28%/+6.69%); integer fails the first (+10.76%) but
+passes the repeat (+3.24%). All nine raw control rows and dispersion remain
+archived. This shipping regression prevents retaining the guarded revision as
+an accepted optimization; successful speed-profile controls are insufficient.
+
+One final experiment outlines the Auto-only token/cache lookup into the private
+`Closure::registered_source_identity` method, retaining the original VM Off
+guard and the same validity checks. This tests whether isolating the extra
+Auto-only control flow changes the measured Off cost; causality is unproven.
+The guarded artifacts remain separately retained. Measure shipping first,
+then native/speed and correctness if the isolation experiment earns further
+evaluation; otherwise remove the cache while retaining independent lifecycle
+coverage. No gate, workload, or instrumentation is relaxed.
+
+### Identity-cache decision: reject all three runtime variants
+
+The final outlined experiment also fails shipping controls twice: upvalue
+ratios are 1.2039/1.1863 and array ratios 1.0728/1.0736. Callbacks fail the first
+at 1.0510; integer fails the repeat at 1.1143. Float passes both at
+1.0405/1.0437. These are raw ratio-of-median results against the unchanged
+1.05 ceiling, not statistical claims of a precise causal effect. The persistent
+upvalue cost is worse than the prior committed shipping results. The original,
+guarded and outlined experiments are therefore rejected, despite native gains
+and the guarded variant's passing speed-profile controls.
+
+All uncommitted identity-cache production code and its five implementation-
+specific registry tests have been removed using the archived owned source
+diff. `src/closure.rs`, `src/jit/mod.rs`, `src/jit/registry.rs` and
+`src/thread/vm.rs` now match HEAD; no epoch field, closure cache, extra lookup
+method or ABI change remains. Their evidence and patches remain separately
+archived in `target/jit-evidence/identity-cache/{original,guarded,outlined}/`.
+No acceptance threshold, benchmark, or work counter changed.
+
+Retain the independent public warm-source lifecycle test, renamed to avoid
+claiming a closure-local cache implementation. It proves native execution
+before and after code clear and Off/Auto transitions, then interpreted-only
+execution after registration reset, raising the quota without restoring old
+eligibility, and native execution of a replacement source after collection.
+Verify this retained test against the restored committed runtime before
+committing it. The rejection does not resolve existing native or shipping
+failures; the full goal remains active.
+
+### Session summary: reject regressing identity caches
+
+**Goal:** fully implement this plan on `feat/native-jit`; evaluate the pending
+identity-cache optimization against correctness and both performance profiles.
+
+**Instructions:** unchanged thresholds, Make/Nix verification, no benchmark/build
+overlap, incremental unsigned title-only commits. Engram remains unavailable;
+this document preserves the structured handoff.
+
+**Discoveries:** restoring the original VM active guard makes all nine speed
+compiled-Off controls pass twice, but shipping exposes substantially worse
+upvalue costs. Outlining Auto-only lookup does not cure those shipping costs.
+Correctness and one successful optimization profile are insufficient to retain
+a regressing runtime change. All three candidates are rejected; no claimed
+causal explanation substitutes for their recorded measurements.
+
+**Accomplished:** candidate full GNU gates pass 2690 executions / 410 suite
+invocations, selected Rust-only Miri passes 29 tests, and focused musl passes.
+Preserved all candidate patches, copied binaries, hashes and raw comparisons;
+removed the entire unaccepted runtime cache and its five private tests. Retained
+and independently verified the public warm-source lifecycle test on restored
+GNU and musl runtime paths, committed as `450e33b` (unsigned). Fresh restored
+full GNU verification passes 2665 executions / 410 suite invocations and
+workflow lint passes; supervised smoke artifacts are
+`target/jit-evidence/fuzz/1790795425295153311-3807307`. All owned sessions
+(`27970`, `2433`, `74056`, `21174`, `9067`, `92730`, `85709`) are terminal.
+
+**Next steps:** the committed runtime still misses native table/upvalue/callback
+targets and shipping compiled-Off acceptance. Stop retrying the same identity
+cache architecture without new evidence. Address the documented baseline
+Clippy single-pass-loop errors with behavior-preserving changes and tests, then
+continue measured native transition/helper work, complete resource accounting
+and hardening. Actual ARM64/hosted acceptance remains absent. No part of this
+rejection completes or blocks the full active goal.
+
+**Relevant files:** `tests/jit_resources.rs` retains warm source retirement and
+replacement coverage; `PLAN_JIT.md` records rejected variants and exact gates;
+production JIT/closure/VM files match their prior committed implementations.
+`target/jit-evidence/identity-cache/` holds original, guarded and outlined
+experiment evidence plus restored-runtime verification logs.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
