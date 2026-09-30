@@ -2003,6 +2003,79 @@ acceptance. A partial performance gain is not release completion.
 state across fallible compaction; `JIT.md` documents the private-key policy;
 `PLAN_JIT.md` records verified correctness and still-failed acceptance.
 
+### Closure-local source-identity cache decision
+
+Test a private `ClosureInner` cache of runtime owner address, registration epoch
+and ID. The owner key prevents equal generation IDs/epochs in different states
+from becoming an identity match. Populate only after the weak/object identity
+validation succeeds; never cache missing/manual/binary provenance as eligible.
+A live closure strongly owns its immutable prototype, so an epoch-matching
+positive ID can skip another weak-registry lookup. Every registration
+retirement/reset increments the epoch; overflow permanently disables caching
+instead of wrapping or revalidating stale IDs. Ordinary code clear/Off/eviction
+retain registrations and do not require identity invalidation. No code lease,
+GC pointer or negative identity is cached; current code lookup and observation
+remain authoritative. The added closure storage belongs to the traced GC
+object and its existing GC allocation accounting, not the separate JIT map
+layout ledger. Keep API constructors and native ABI unchanged; admit the
+change only after lifecycle/provenance, Miri and repeated performance/cost gates.
+
+**Focused execution:** existing native/resources/policy/upvalue tests pass.
+Five new Rust-only registry tests prove lookup-free positive hits, clear/reset
+and re-registration, owner mismatch, permanent overflow fallback and no
+negative-cache admission. The Miri lane passes 29 selected tests, including
+those five additions (`/tmp/luna-jit-identity-cache-{fixtures,miri}.log`). A
+new public native lifecycle regression exercises warm caches across clear,
+Off/Auto and metadata retirement/raising/replacement with exact counter
+checks; it is pending execution. Copied native timing artifacts and hashes are
+under `target/jit-evidence/identity-cache/`; timing was deferred before the
+first baseline because unrelated Magi and Molla Cargo jobs are active. Full
+GNU/new lifecycle validation and matched cost builds can proceed without
+misreporting timing as started. No keep/acceptance decision yet.
+
+#### Session summary: identity-cache validation checkpoint
+
+**Goal:** complete the full native-JIT plan; respond to the user's progress
+question while continuing a measured short-call optimization.
+
+**Instructions:** keep status concise and distinguish committed results from
+experiments; incremental unsigned title-only commits, Make/Nix validation and
+unchanged acceptance gates. Do not benchmark through unrelated builds.
+
+**Discoveries:** an epoch alone is insufficient as a cache key; include the
+runtime owner identity so equal generations/epochs in different states cannot
+match. The collector supports static `Cell` values without pointer tracing,
+so this cache adds no unsafe mutation or hidden GC/code root. Retirement must
+invalidate positive entries; epoch overflow must permanently fall back to
+full weak/object validation rather than wrap.
+
+**Accomplished:** uncommitted cache candidate integrates private closure
+storage and epoch invalidation without public constructor or ABI changes.
+Existing focused resource/policy/native/upvalue checks and all five new
+Rust-only cache tests pass; Miri passes 29 selected tests. Added a public warm
+native lifecycle regression for clear, Off/Auto, quota reset/raising and a
+replacement source, pending the current full gate. Baseline/candidate benchmark
+artifacts and hashes are in `target/jit-evidence/identity-cache/`. The attempted
+timing command exited 3 before any run because unrelated Cargo jobs were live;
+no benchmark results exist yet for this candidate. Engram is unavailable.
+
+**Next steps:** resume the exact live exec session `43399`, running sequential
+full GNU verification, focused musl and matched speed artifact builds. Do not
+restart on an observation timeout. Logs are
+`/tmp/luna-jit-identity-cache-{full-verify,musl,feature-build}.log`.
+After terminal success and fresh process guards, measure copied baseline and
+candidate twice plus compiled-Off costs; retain or reject honestly and commit
+that decision. Core native/shipping performance, complete compiler/combined
+bounds, broader hardening and actual ARM64/hosted acceptance remain open.
+The full goal is active, not complete or blocked.
+
+**Relevant files:** `src/closure.rs` stores validated private identities;
+`src/jit/mod.rs` maintains registration epochs and owner tokens;
+`src/thread/vm.rs` uses the cache only with Auto eligibility and no hooks;
+`src/jit/registry.rs` tests cache validity/provenance/overflow;
+`tests/jit_resources.rs` adds integrated warm-cache retirement coverage;
+`PLAN_JIT.md` preserves exact progress and the live validation handle.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
