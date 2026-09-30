@@ -97,13 +97,14 @@ A Nix dev shell with the pinned toolchain is in [`flake.nix`](flake.nix).
 
 ## Features
 
-luna's defaults are the whole library and nothing optional. Two features add API surface that not
+luna's defaults are the whole library and nothing optional. Optional features add API surface that not
 every embedder wants to compile:
 
 | Feature | Adds | Costs |
 | --- | --- | --- |
 | `async` | `AsyncSequence::await_future`, `Lua::execute_async` — awaiting foreign futures from a callback | Nothing but code. It is `std::task` throughout; choosing a runtime stays yours |
 | `derive` | `#[derive(FromValue)]`, `#[derive(IntoValue)]` | `syn`, `quote` and `proc-macro2` in the build |
+| `jit` | Experimental native scalar/heap slices; constructors remain interpreted by default | Pinned Cranelift on Linux x86-64/aarch64; see [JIT.md](JIT.md) for current coverage and limits |
 
 ```rust
 # use luna::{FromValue, IntoValue};
@@ -186,8 +187,8 @@ you can use even the low-level details without writing `unsafe` yourself. They a
 `RawTable` for Lua table semantics, non-`'static` userdata downcasting, tunnelling parameters
 into async sequences, and avoiding fat pointers to keep `Value` small.
 
-No attempt is made to guard against side-channel attacks. With no JIT and no callback API for
-accurately measuring time, that may not be practical anyway.
+No attempt is made to guard against side-channel attacks. The optional native tier does not
+provide side-channel isolation, and host callbacks can expose timing information.
 
 ## License
 
