@@ -2338,8 +2338,10 @@ Added two public native/reference regressions in `tests/jit_heap.rs`:
 2693 executions / 410 suite invocations, including 14 heap tests in ordinary
 JIT lanes and 15 with async enabled. GNU smoke evidence is
 `target/jit-evidence/fuzz/1790797513166808616-3922151`. Full musl verification
-is running in session `51155`; resume this handle rather than restarting on an
-observation timeout. No production layout, helper ABI, quota or benchmark gate
+also passes 2693 executions / 410 suite invocations; its smoke artifacts are
+`target/jit-evidence/fuzz/1790797709606741896-3931005`. Session `51155` is
+terminal, exit 0. Exact logs are retained in
+`target/jit-evidence/lifecycle-matrix/`. No production layout, helper ABI, quota or benchmark gate
 changes. These cases reduce the open lifecycle matrix but do not prove every
 interleaving, weak-key/ephemeron transition or guard invalidation path.
 
@@ -2384,9 +2386,61 @@ namespace in the pinned Make Miri gate without changing exclusions or interprete
 checks. Fresh full GNU verification passes 2710 executions / 410 suite
 invocations, including the new invariant test, Off/native reattachment case and
 exactly-once finalization regression. Format, baseline Clippy and workflow lint
-also pass. Full musl and fresh selected Miri verification are still running in
-session `28310`; resume that exact handle on observation timeout. No native or
-shipping performance acceptance is claimed for this correctness fix.
+also pass. Fresh full musl verification also passes 2710 executions / 410 suite
+invocations. Selected Rust-only Miri passes 25 tests in six namespaces, both
+with default flags and explicit `-Zmiri-seed=1`; default checks and the single
+existing native-finalization exclusion are unchanged. Sessions `28310` and
+`36614` are terminal, exit 0. GNU and musl smoke artifacts are respectively
+`target/jit-evidence/fuzz/1790798762073740888-3999003` and
+`target/jit-evidence/fuzz/1790799011004473278-4025492`.
+Logs, the original failing probe, corrected before/after results, the probe
+script and separate Miri environment/namespace logs are archived under
+`target/jit-evidence/weak-key-reattach/`. No native or shipping performance
+acceptance is claimed for this correctness fix.
+
+### Session summary: extend lifecycle proof and repair ephemeron retirement
+
+**Goal:** fully implement the native-JIT plan; advance its required interleaved
+executor, Rust mutation, userdata and weak-mode correctness matrix.
+
+**Instructions:** preserve the entire plan, immutable acceptance thresholds,
+Make/Nix execution, patch-only edits and incremental unsigned title-only
+commits. Avoid hidden compatibility changes or treating Miri as native-machine
+verification. Engram remains unavailable; this handoff is retained here.
+
+**Discoveries:** attachment-time mode conversion is the local interpreter
+contract; field mutation alone is not a fresh conversion. A previous `k`
+ephemeron registration wrongly survives `kv` reattachment, causing reachable
+keys to retain values that should be weak. Retirement must remove both the
+weak-vector entry and its typed deduplication key, while keeping other objects
+and table finalization registrations intact. Later `k` re-enrollment must work.
+
+**Accomplished:** committed two new lifecycle tests as `72b8017`, with full GNU
+and musl gates each passing 2693 executions. Reproduced the ephemeron defect in
+the interpreter and a failing public test before fixing it. Committed the
+registry fix, repeated-mode native/reference and finalization regressions,
+Rust-only peer/registry invariant test and its Miri gate inclusion as `a4c1723`.
+Fresh final GNU and musl gates each pass 2710 executions / 410 suite invocations;
+selected Miri passes 25 tests with default flags and seed 1. Format, baseline
+Clippy, workflow lint and supervised smoke pass. All owned sessions are terminal.
+No public API, GC object layout, native ABI, resource quota or benchmark
+threshold changed.
+
+**Next steps:** expand weak-key/ephemeron transitions beyond the proved `k`/`kv`
+reattachment case, including `k` to `v` and removal, then continue remaining
+transition/guard stress and measured native helper performance. Complete
+compiler/combined-host resource bounds, full unsafe/fuzz coverage and actual
+ARM64/hosted acceptance. Native and shipping performance acceptance remains
+unproven; rejected closure-local identity caches stay removed. The full goal
+remains active and incomplete.
+
+**Relevant files:** `tests/jit_heap.rs` covers alternating executors,
+table/userdata replacement, weak-value conversion and weak-key re-enrollment;
+`tests/weak_tables.rs` covers repeated weak-mode attachment with finalization;
+`src/finalizers.rs` retires exactly the matching weak-key registration and tests
+registry invariants; `src/table/table.rs` performs retirement on `kv` attachment;
+`Makefile` includes the new Rust-only finalizer namespace in pinned Miri;
+`PLAN_JIT.md` records scope, failures, verification and remaining work.
 
 ## 15. Primary references
 
