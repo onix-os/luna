@@ -1,0 +1,119 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The toolchain action is pinned to an exact stable release: `@stable` silently moves under us,
+  # which turns a new lint into a red build on an unrelated PR.
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+      # `make verify` as one step reports only "the gate failed". Splitting it means the run summary
+      # alone names the stage, which matters because reading job logs needs admin rights on this
+      # repository and the person debugging a red build usually does not have them.
+      - name: Toolchain and environment
+        run: |
+          echo "make:  $(make --version | head -1)"
+          echo "cargo: $(cargo --version)"
+          echo "PROJECT_NAME parsed by the Makefile: '$(make -s print-name)'"
+      # Failures are re-emitted as ::error:: annotations, not just written to the log. Job logs need
+      # admin rights on this repository; annotations are visible to anyone who can see the run, so a
+      # red build stays diagnosable by whoever is actually looking at it.
+      - name: fmt-check
+        run: |
+          make fmt-check && exit 0
+          make fmt-check 2>&1 | head -60 | while IFS= read -r l; do echo "::error::fmt: $l"; done
+          exit 1
+      - name: check
+        run: make check
+      - name: test
+        run: |
+          set -o pipefail
+          make test 2>&1 | tee /tmp/test.log && exit 0
+          grep -nE 'FAILED|panicked|left:|right:|assertion' /tmp/test.log \
+            | head -60 | while IFS= read -r l; do echo "::error::test: $l"; done
+          exit 1
+      # Reported, not enforced, for the reason written above the `verify` target in the Makefile:
+      # the inherited lint backlog would make this red on every run. Switch to `make clippy-strict`
+      # and drop continue-on-error once it is cleared.
+      - name: clippy
+        continue-on-error: true
+        run: make clippy
+      - name: rustdoc
+        run: make rustdoc
+
+  native:
+    name: native (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de
+        with:
+          toolchain: 1.97.1
+          targets: ${{ matrix.target }}
+          components: rustfmt
+      - name: Install musl linker
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: jit-${{ matrix.target }}-rust-1.97.1-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            jit-${{ matrix.target }}-rust-1.97.1-
+      - name: Native gate
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+        run: |
+          mkdir -p target/jit-evidence
+          make environment TARGET=${{ matrix.target }} | tee target/jit-evidence/ci-environment.log
+          set -o pipefail
+          make jit-platform TARGET=${{ matrix.target }} 2>&1 | tee target/jit-evidence/ci-native.log
+      - name: Build matched shipping feature-cost artifacts
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+        run: |
+          set -o pipefail
+          make jit-size-build TARGET=${{ matrix.target }} SIZE_PROFILE=shipping 2>&1 | tee target/jit-evidence/ci-size-build.log
+      - name: Upload native evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-${{ matrix.target }}
+          path: target/jit-evidence/
+          if-no-files-found: error
