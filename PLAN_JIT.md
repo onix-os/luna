@@ -1723,6 +1723,34 @@ ARM64/hosted evidence remain required. The goal stays active and incomplete.
 idle reborrows; `src/lua.rs` integrates service eligibility; `Makefile` runs
 the registry regression; `PLAN_JIT.md` records verified scope and failures.
 
+### Rust-only Miri configuration decision
+
+Add a separate `devShells.miri` pinned to nightly 2026-08-16 from the existing
+locked rust-overlay. Keep the ordinary stable/musl toolchain unchanged and do
+not set a global rustup override. `nix develop .#miri -c make jit-miri` records
+toolchain/setup logs and runs explicitly selected resource, ABI, helper,
+registry and policy unit-test namespaces. Do not disable default isolation,
+aliasing or leak checks. Setup succeeds with Miri 0.1.0 and rustc
+1.100.0-nightly (67854e511, 2026-08-15). The first namespace run discovers
+that `installation_refusal_reclaims_generated_mappings` actually finalizes
+native code and reaches unsupported `mprotect`; its first seven Rust-only
+tests pass before that tool limitation. Exclude only that exact native test
+from this lane, retaining it in ordinary GNU/musl resource gates. Preserve
+the failed initial log; this is not a Rust UB finding or a passing full run.
+These tests exclude generated machine-code invocation and executable-memory
+FFI; passing them cannot certify native code, W^X, all Rust paths or soundness.
+This closes a compatible-component coverage gap only after execution succeeds.
+
+**Executed:** the corrected Rust-only lane exits 0: thirteen resource tests,
+three ABI materialization tests, one null-host helper test, one unchanged
+registry sweep test and four policy tests (22 total). Miri default checks
+remain enabled; `MIRIFLAGS` is empty. The exact native-finalization test is
+filtered, not silently treated as passing. Logs are under
+`target/jit-evidence/miri/x86_64-unknown-linux-gnu/`, with the original failed
+attempt under `initial/`; `/tmp/luna-jit-miri-rust-only.log` retains the complete
+run. Real non-null helper-frame borrowing and panic transport still need
+compatible-component fixtures; native tests do not substitute for that gap.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

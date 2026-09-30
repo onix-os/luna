@@ -77,6 +77,14 @@
         ];
       in
       {
+        devShells.miri = pkgs.mkShell {
+          packages = [
+            (pkgs.rust-bin.nightly."2026-08-16".default.override {
+              extensions = [ "miri" "rust-src" ];
+            })
+          ];
+        };
+
         devShells.default = pkgs.mkShell {
           packages = [
             # One toolchain, with the musl target, replacing the separate rustc/cargo/rustfmt/
