@@ -4,6 +4,8 @@ use luna::{Callback, CallbackReturn, Closure, Executor, Fuel, JitConfig, JitMode
 
 #[path = "jit_support/churn.rs"]
 mod churn;
+#[path = "jit_support/suspension.rs"]
+mod suspension;
 #[path = "jit_support/workloads.rs"]
 mod workloads;
 use workloads::{Workload, COLD_SOURCE, PREDICATE_SOURCE, WORKLOADS};
@@ -86,9 +88,14 @@ fn options(args: impl IntoIterator<Item = String>) -> Result<Options> {
         name != COLD.name
             && name != OSLO.name
             && name != "cache_churn"
+            && name != "coroutine_resume"
+            && name != "foreign_await"
             && !WORKLOADS.iter().any(|case| case.name == name)
     }) {
         return Err("unknown metrics case".into());
+    }
+    if options.case.as_deref() == Some("foreign_await") && !cfg!(feature = "async") {
+        return Err("foreign_await requires the async feature".into());
     }
     Ok(options)
 }
@@ -306,11 +313,12 @@ fn main() -> Result<()> {
         return Err("native scheduling metrics require a supported target".into());
     }
     println!(
-        "jit_metrics_protocol=1 target_arch={} target_os={} opt_level={} samples={} slice_scope=executor_step host_scope=enter_including_gc preparation_scope=registered_batch service_scope=maintenance_snapshot_backend native_timestamp=post_host_slice memory_excludes=compiler_fixed_owners_allocator_overhead_rss",
+        "jit_metrics_protocol=1 target_arch={} target_os={} opt_level={} samples={} async_enabled={} slice_scope=executor_step host_scope=enter_including_gc preparation_scope=registered_batch service_scope=maintenance_snapshot_backend native_timestamp=post_host_slice memory_excludes=compiler_fixed_owners_allocator_overhead_rss",
         std::env::consts::ARCH,
         std::env::consts::OS,
         option_env!("LUNA_METRICS_OPT_LEVEL").unwrap_or("unrecorded"),
         options.samples,
+        cfg!(feature = "async"),
     );
     for workload in WORKLOADS.iter().chain([&OSLO, &COLD]) {
         if options
@@ -344,6 +352,50 @@ fn main() -> Result<()> {
                     println!("churn_pass={} mode={} sample={sample} verified=1 fuel={} elapsed_ns={} native_executions={} steps={} max_step_ns={} max_host_enter_ns={} service_total_ns={} max_service_ns={} service_errors={} counted_vm_work_max={} fuel_debit_max={} observed_queue_peak={} native_instructions={} interpreted_instructions={} requests={} failures={} installed={} evictions={} eviction_refusals={} code_bytes={} metadata_bytes={} metadata_peak_bytes={} snapshot_peak_bytes={}", pass.name, mode.name(), options.fuel, pass.elapsed_ns, pass.native_executions, pass.steps, pass.max_step_ns, pass.max_host_ns, pass.service_ns, pass.max_service_ns, pass.service_errors, pass.counted_work_max, pass.fuel_debit_max, pass.queue_peak, pass.after.native_instructions - pass.before.native_instructions, pass.after.interpreted_instructions - pass.before.interpreted_instructions, pass.after.compilation_requests - pass.before.compilation_requests, pass.after.compilation_failures - pass.before.compilation_failures, pass.after.installed_regions - pass.before.installed_regions, pass.after.cache_evictions - pass.before.cache_evictions, pass.after.cache_eviction_refusals - pass.before.cache_eviction_refusals, pass.after.code_bytes, pass.after.metadata_bytes, pass.after.metadata_peak_bytes, pass.after.snapshot_peak_bytes);
                 }
                 println!("churn_cleanup=cache_churn mode={} sample={sample} registered={} code_bytes={} metadata_bytes={} snapshot_bytes={}", mode.name(), report.final_stats.registered_prototypes, report.final_stats.code_bytes, report.final_stats.metadata_bytes, report.final_stats.snapshot_bytes);
+            }
+        }
+    }
+    for case in ["coroutine_resume", "foreign_await"] {
+        if (case == "foreign_await" && !cfg!(feature = "async"))
+            || options.case.as_ref().is_some_and(|name| name != case)
+        {
+            continue;
+        }
+        for sample in 0..options.samples {
+            for &mode in &options.modes {
+                let suspension_mode = match mode {
+                    Mode::Off => suspension::Mode::Off,
+                    Mode::Auto => suspension::Mode::Auto,
+                    Mode::Prepared => suspension::Mode::Prepared,
+                };
+                let report = suspension::run(case, suspension_mode, options.fuel)?;
+                let stats = report.stats;
+                let coverage = stats.native_instructions as f64
+                    / (stats.native_instructions + stats.interpreted_instructions).max(1) as f64;
+                let native_segments = report
+                    .native_segments
+                    .iter()
+                    .map(u64::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let table_segments = report
+                    .native_table_write_segments
+                    .iter()
+                    .map(u64::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let values = report
+                    .boundary_values
+                    .iter()
+                    .map(i64::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let wait_scope = if case == "foreign_await" {
+                    "synthetic_three_pending_polls"
+                } else {
+                    "host_resume"
+                };
+                println!("suspension_case={case} mode={} sample={sample} verified=1 fuel={} hot_threshold=1 load_ns={} prepare_batch_ns={} prepared={} total_session_ns={} first_native_observed_ns={} suspensions={} native_segments={native_segments} native_table_write_segments={table_segments} boundary_values={values} steps={} max_step_ns={} max_host_enter_ns={} service_total_ns={} max_service_ns={} counted_vm_work_max={} fuel_debit_max={} pending_polls={} ready_polls={} wakes={} foreign_poll_total_ns={} max_foreign_poll_ns={} forced_gc_total_ns={} forced_gc_cycles={} native_coverage={coverage:.6} native_instructions={} interpreted_instructions={} native_entries={} observed_queue_peak={} observed_code_peak_bytes={} observed_gc_peak_bytes={} metadata_peak_bytes={} snapshot_peak_bytes={} counter_scope=completed_nontransition_vm_work wait_scope={wait_scope}", mode.name(), options.fuel, report.load_ns, report.prepare_ns, report.prepared, report.elapsed_ns, report.first_native_ns.map_or("none".to_owned(), |ns| ns.to_string()), report.suspensions, report.steps, report.max_step_ns, report.max_host_ns, report.service_ns, report.max_service_ns, report.counted_work_max, report.fuel_debit_max, report.pending_polls, report.ready_polls, report.wakes, report.poll_ns, report.max_poll_ns, report.forced_gc_ns, report.forced_gc_cycles, stats.native_instructions, stats.interpreted_instructions, stats.native_entries, report.queue_peak, report.code_peak, report.gc_peak, stats.metadata_peak_bytes, stats.snapshot_peak_bytes);
             }
         }
     }
@@ -425,6 +477,14 @@ mod tests {
         ] {
             assert!(parse(&args).is_err(), "{args:?}");
         }
+    }
+
+    #[test]
+    fn suspension_options_select_available_cases_without_enabling_async_implicitly() {
+        let options = parse(&["--case", "coroutine_resume", "--fuel", "65536"]).unwrap();
+        assert_eq!(options.case.as_deref(), Some("coroutine_resume"));
+        let foreign = parse(&["--case", "foreign_await"]);
+        assert_eq!(foreign.is_ok(), cfg!(feature = "async"));
     }
 
     #[test]

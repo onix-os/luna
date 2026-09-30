@@ -50,7 +50,7 @@ $(info ------------------------------------------)
 .PHONY: jit-bench-build jit-bench-run
 .PHONY: jit-metrics jit-metrics-build jit-metrics-run jit-metrics-tests
 .PHONY: jit-miri
-.PHONY: jit-helpers jit-abi jit-config
+.PHONY: jit-helpers jit-abi jit-config jit-registry jit-suspension
 
 ci-check:
 	@$(ACTIONLINT) .github/workflows/tests.yml
@@ -96,8 +96,8 @@ jit-bench: jit-bench-build
 
 jit-metrics-build:
 	@mkdir -p target/jit-evidence/metrics
-	@printf 'opt_level=3\nlto=true\ncodegen_units=1\nstrip=true\nRUSTFLAGS=%s\nCARGO_ENCODED_RUSTFLAGS=%s\n' "$${RUSTFLAGS:-}" "$${CARGO_ENCODED_RUSTFLAGS:-}" > target/jit-evidence/metrics/build-configuration.log
-	@CARGO_TARGET_DIR='$(TOP_DIR)/target' LUNA_METRICS_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_LTO=true CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_STRIP=true $(CARGO) build --locked --release --example jit_metrics --features jit $(TARGET_ARG)
+	@printf 'opt_level=3\nlto=true\ncodegen_units=1\nstrip=true\nfeatures=jit,async\nRUSTFLAGS=%s\nCARGO_ENCODED_RUSTFLAGS=%s\n' "$${RUSTFLAGS:-}" "$${CARGO_ENCODED_RUSTFLAGS:-}" > target/jit-evidence/metrics/build-configuration.log
+	@CARGO_TARGET_DIR='$(TOP_DIR)/target' LUNA_METRICS_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_LTO=true CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_STRIP=true $(CARGO) build --locked --release --example jit_metrics --features jit,async $(TARGET_ARG)
 
 jit-metrics-run:
 	@mkdir -p target/jit-evidence/metrics
@@ -113,6 +113,7 @@ jit-metrics: jit-metrics-build
 
 jit-metrics-tests:
 	@$(CARGO) test --locked --example jit_metrics --features jit $(TARGET_ARG)
+	@$(CARGO) test --locked --example jit_metrics --features jit,async $(TARGET_ARG)
 
 jit-bench-paired:
 	@$(MAKE) --no-print-directory jit-bench ARGS='--mode paired --samples 11 $(ARGS)'
@@ -207,6 +208,13 @@ jit-backend:
 
 jit-helpers:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::helpers::tests
+
+jit-registry:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::registry::tests
+
+jit-suspension:
+	@$(CARGO) test --locked -p luna --features jit --test jit_suspension $(TARGET_ARG)
+	@$(CARGO) test --locked -p luna --features jit,async --test jit_suspension $(TARGET_ARG)
 
 jit-abi:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests
@@ -448,6 +456,8 @@ help:
 	@echo "  jit-metrics-build Build the separate scheduling metrics artifact"
 	@echo "  jit-metrics-run Measure an existing artifact (JIT_METRICS_BINARY=path)"
 	@echo "  jit-metrics-tests Test scheduling observations and argument validation"
+	@echo "  jit-registry Test weak source registration and queued cancellation"
+	@echo "  jit-suspension Test native coroutine and foreign-await resumption"
 	@echo "  jit-bench-paired Alternate checked Off/Auto samples"
 	@echo "  jit-performance Check frozen paired workload thresholds"
 	@echo "  jit-disassembly Dump finalized native kernels and addresses"
