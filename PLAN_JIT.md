@@ -2627,6 +2627,34 @@ inspection; `PLAN_JIT.md` records rejection and current acceptance evidence;
 `target/jit-evidence/zero-counts/` archives the experiment, measurements and
 fresh instruction profile.
 
+### Session summary: verified status after context recovery
+
+**Goal:** report the current plan and implementation status accurately.
+
+**Instructions:** keep incremental unsigned, title-only Conventional Commits;
+retain the full acceptance gates rather than presenting partial work as done.
+
+**Discoveries:** the detailed plan exists and is committed on `feat/native-jit`.
+Implementation remains in progress; native table/upvalue performance, disabled
+JIT overhead, complete resource accounting, hardening and ARM64/hosted evidence
+remain open. Recent commits are unsigned and have no body.
+
+**Accomplished:** recovered the previous checkpoint and verified the live branch,
+clean initial working tree, committed plan and recorded acceptance status.
+Resumed owned session `23218`; the Make/Nix assembly build completed successfully
+and produced `target/jit-evidence/rust-assembly.log`. No conversion optimization
+was implemented or measured in this status update.
+
+**Next steps:** inspect the completed invocation assembly before choosing a
+conversion experiment; retain or reject changes only after correctness and
+repeated native/speed/shipping comparisons. The implementation goal stays active
+and incomplete. No owned build or benchmark remains running.
+
+**Relevant files:** `PLAN_JIT.md` contains the design, phased acceptance and
+evidence ledger; `src/jit/abi.rs` contains the next conversion inspection target;
+`target/jit-evidence/rust-assembly.log` contains completed assembly output;
+`/tmp/luna-jit-scalar-dispatch-baseline-assembly.log` records the successful build.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
