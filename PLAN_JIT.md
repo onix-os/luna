@@ -678,7 +678,7 @@ Do not disable tests, lower safety guarantees, catch arbitrary crashes as succes
 | 5: lifecycle integration | IN PROGRESS | Mixed-tier callbacks, async/coroutines, errors and close tests | Twelve dedicated heap tests (thirteen with async) cover reentrancy, coroutine/foreign suspension, close/error unwinding, panic materialization, debug mutation and finalizer resurrection. Six additional upvalue tests cover aliases, foreign stacks, shared captures and Rust reentry. Full-feature Force passes; complete mixed-tier transition matrix remains open. |
 | 6: heap/GC integration | IN PROGRESS | Native heap paths, barriers, GC/mutation/invalidation stress | Fresh helper guards preserve weak/readonly/intercept/invalid-key behavior. Every-slice GC, open/closed upvalues, pending-scalar panic inspection, debug local/upvalue join and finalizer-only native upvalue writes pass. Shared-cell tests additionally prove exact operation counts and write visibility across error guards, foreign stacks, GC and Rust reentry. Broader interleaved executors, mode mutations and exhaustive guard coverage remain open. |
 | 7: Auto policy | IN PROGRESS | Nonblocking stepping, owned compile work, limits/backoff, hot promotion | Bounded hot requests and explicit outside-arena service; Off/quota-shrink retirement, queue/attempt reductions, typed quota refusal and exhausted-attempt reset tests pass. Bounded unleased LRU eviction/retry, charged single-probe recency and sparse compaction pass ten cache tests. Fallible old/new charging, eight-pass refusal backoff and integrated 128-source collection preserve leases, pending work and three live identities. Injected blocked compiler and complete resource/diagnostic coverage remain open. |
-| 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Slice-local leases, fixed helper ABI v3, operand-scoped synchronization and outlined tiered scratch pass full correctness and every-tier reference tests. Rust assembly verifies the VM scratch probe was removed. Opt-level-3 loop controls pass but four mixed/heap controls fail. Historical matched compiled-Off speed controls passed twice after single-probe recency; current compaction artifacts fail the metamethod overhead control twice (6.91%/6.90%, 5% ceiling). Current passing speed and shipping results remain required. Scalar-upvalue ABI v4 proxy experiment regresses the required closure workload and is removed. Perf is permission-denied; profitable mixed-path optimization, cold compile/latency and broader fuzz evidence remain open. |
+| 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Slice-local leases, fixed helper ABI v3, operand-scoped synchronization and outlined tiered scratch pass full correctness and every-tier reference tests. Rust assembly verifies the VM scratch probe was removed. Seeded AHash metadata (`bde8764`) improves upvalue/callback ratios versus copied matched baselines; native first/repeat still fail four/three controls, with metamethod borderline rather than accepted. Current compiled-Off speed controls pass twice; shipping first/repeat fail three/one, including upvalue 7.26%/6.82% overhead against the 5% ceiling. Scalar-upvalue ABI v4 proxy experiment regresses the required closure workload and is removed. Perf is permission-denied; full native/shipping acceptance, cold compile/latency and broader fuzz evidence remain open. |
 | 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Admission/scalar campaigns execute in limited supervised child processes; panic/signal/timeout failures are tested, and workers verify inherited limits. Five-seed 5120-kernel campaign passes with exact exit/slot/reclamation comparisons. Full GNU/musl x86-64 gates and prepared examples execute natively; allocation/protection denial is injected and tested. Pinned Rust-only Miri passes 24 tests at seeds 0/default and 1, including nonnull frames through all nine helpers and panic transport; exactly one executable-finalization resource test remains native-only. Heap/lifecycle and coverage-guided fuzz, complete unsafe review and native ARM64/hosted evidence remain open. |
 | 10: release acceptance | IN PROGRESS | Complete gates, thresholds, docs/examples, actual CI | Prepared example and resource/security documentation exist. Active workflow wiring runs full GNU/musl x86-64 and GNU ARM64 gates, builds matched shipping artifacts and uploads evidence. Workflow lint/local musl integration pass; repeated local shipping/size/disabled-cost evidence is recorded. Actual hosted/ARM64 results, complete hardening and both native/disabled performance acceptance remain missing. |
 
@@ -1917,6 +1917,91 @@ Native baseline SHA-256:
 `108df43a3041130fe339b8385d0d11b1697c92cfb30202d925c937fd3e508b8b`;
 candidate `3199763c32b53a83e837d8d678f71330c5539d353a529a5c5492d623e520dccd`.
 Current shipping-profile acceptance remains required independently.
+
+#### Matched feature-cost details after `bde8764`
+
+Both speed-profile comparisons exit 0; shipping first/repeat exit 2 with
+three/one failed controls. Every row below is JIT-Off/no-JIT ratio of medians;
+the same 1.0500 ceiling applies to all cases and both profiles.
+
+| Case | Speed | Speed repeat | Shipping | Shipping repeat |
+| --- | --- | --- | --- | --- |
+| integer | 0.9948 | 0.9828 | **1.1190** | 0.8981 |
+| float | 1.0364 | 1.0057 | **1.0584** | 1.0491 |
+| array | 0.9788 | 0.9868 | 1.0277 | 1.0242 |
+| upvalue | 1.0078 | 1.0107 | **1.0726** | **1.0682** |
+| metamethod | 1.0431 | 1.0484 | 1.0256 | 1.0303 |
+| callback | 1.0413 | 1.0439 | 1.0370 | 1.0351 |
+| allocation | 0.9805 | 0.9749 | 1.0248 | 1.0174 |
+| Oslo | 1.0047 | 0.9898 | 0.9968 | 0.9972 |
+| cold | 1.0121 | 0.9987 | 1.0357 | 1.0258 |
+
+Shipping artifacts were freshly built via
+`nix develop -c make jit-size-build SIZE_PROFILE=shipping`; timing twice used
+`nix develop -c make -o jit-size-build jit-size SIZE_PROFILE=shipping`.
+An initial attempt was deferred before any timing because another Molla Cargo
+test was active; after that exact process exited, pre/post guards found no
+Cargo/rustc jobs during either accepted observation. The observations remain
+failed acceptance evidence, not quarantined successes. Preserve dispersion:
+shipping integer first paired ratios span 0.7079–1.8324; shipping upvalue spans
+1.0650–1.0796 first and 1.0056–1.6082 repeat. Speed metamethod repeat median
+1.0484 is near the limit; its paired ratios span 1.0407–1.0662.
+
+ELF section totals (no-JIT/JIT) are 1,415,186/6,429,671 bytes for speed and
+1,144,854/4,152,279 for shipping. These are the matched probe artifacts, not
+universal host binary sizes. Speed no-JIT SHA-256:
+`0b9c608b3a624580f4be49efb6acd6c8a6050435e4af910bcc2274002c4355b9`;
+speed JIT `1948c7617774d479c6b894b6ada695586ce6c62d4028d1f05b184ff988d86fdb`.
+Shipping no-JIT:
+`ac861fecafcaa92a05cabf288c0f7addaf069841b2edec53a0d9ff400c52f470`;
+shipping JIT `0d36ec8cfba4bb08eb8cc757bb54370eea01ca2d89086de454f56058fe335d0a`.
+Full environment/dependency/native-proof/section/hash logs, copied binaries and
+both raw runs are under `target/jit-evidence/fast-hash/{feature-cost,shipping}/`.
+Native upvalue first-run counters match between baseline/candidate: 778484
+native logical instructions, 389110 completed helper instructions, 129644
+reads and writes apiece, two compilation requests and zero failures. The
+callback counters also match. Improvements do not come from dropping native
+work, effects or benchmark cases.
+
+#### Session summary: measured seeded metadata hashing
+
+**Goal:** implement the full native-JIT plan. The previous turn made verified
+Miri/test/CI progress; this turn targets the outstanding numerical gates.
+
+**Instructions:** incremental unsigned, title-only Conventional Commits;
+Make/Nix validation, unchanged benchmark cases and limits; defer timing around
+other projects' builds and do not stop their jobs.
+
+**Discoveries:** private metadata hashing is a measured Auto-path cost. The
+existing seeded AHash dependency improves repeated upvalue/callback results
+without changing native work counters, weak identity checks or the ABI.
+Off speed-profile controls pass twice, but that does not prove faster hashing
+causes the changed Off layout/timing. Shipping remains distinct: its upvalue
+control fails twice, despite current speed-profile passes. Metamethod native
+acceptance is borderline (first fails, repeat passes), not settled.
+
+**Accomplished:** committed the runtime hash choice, boundary-key/same-seed
+compaction regression and coverage documentation as `bde8764`. Fresh full GNU
+verification passes 2660 executions / 410 suite invocations; focused musl
+resources/policy/native/upvalues pass. Rust-only Miri passes 24 tests at
+default and explicit seed 1 (`/tmp/luna-jit-fast-hash-miri-seed-1.log`), followed
+by final format/workflow lint success. Four native paired runs, two matched
+speed and two fresh shipping cost runs retain complete raw evidence and hashes
+under `target/jit-evidence/fast-hash/`. All owned processes are terminal; the
+full goal remains active. Engram tools are unavailable, so this is the handoff.
+
+**Next steps:** target remaining native array/upvalue/callback overhead and
+unstable metamethod acceptance using measured VM invocation/identity costs;
+repair shipping compiled-Off upvalue overhead without disabling metrics or
+repeating the already rejected dispatch-specialization forms. Finish resource
+and combined-host/compiler bounds, complete transitions/lifecycle/unsafe and
+coverage-guided heap fuzz, inherited Clippy errors and actual ARM64/hosted
+acceptance. A partial performance gain is not release completion.
+
+**Relevant files:** `src/jit/mod.rs` selects seeded metadata hashing;
+`src/jit/resources.rs` tests boundary keys, owner counts and unchanged hash
+state across fallible compaction; `JIT.md` documents the private-key policy;
+`PLAN_JIT.md` records verified correctness and still-failed acceptance.
 
 ## 15. Primary references
 
