@@ -1,7 +1,11 @@
 use allocator_api2::vec::Vec;
 use ottavino_gc_arena::{lock::RefLock, Collect, Gc, GcWeak};
 
-use super::{metadata_map, resources::BudgetAllocator, JitError, MetadataMap};
+use super::{
+    metadata_map,
+    resources::{BudgetAllocator, Compactor},
+    JitError, MetadataMap,
+};
 use crate::{Context, FunctionPrototype};
 
 #[derive(Collect)]
@@ -11,10 +15,29 @@ struct Registration<'gc> {
     prototype: GcWeak<'gc, FunctionPrototype<'gc>>,
 }
 
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn unchanged_dense_sweep_does_not_reborrow_manager() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = crate::Closure::load(ctx, Some("dense-sweep"), b"return 42").unwrap();
+            let mut registry = ctx.jit_registry().borrow_mut(&ctx);
+            let identity = registry.identity(ctx, closure.prototype()).unwrap();
+            let manager = ctx.jit().0.borrow_mut();
+            registry.sweep(ctx, false);
+            drop(manager);
+            assert_eq!(registry.identity(ctx, closure.prototype()), Some(identity));
+            assert_eq!(ctx.jit().0.borrow().stats.metadata_compaction_attempts, 0);
+        });
+    }
+}
+
 #[derive(Collect)]
 #[collect(no_drop)]
 pub(crate) struct Registrations<'gc> {
     entries: MetadataMap<usize, Registration<'gc>>,
+    compactor: Compactor,
 }
 
 pub(crate) type Registry<'gc> = Gc<'gc, RefLock<Registrations<'gc>>>;
@@ -23,12 +46,14 @@ impl<'gc> Registrations<'gc> {
     pub fn new(allocator: BudgetAllocator) -> Self {
         Self {
             entries: metadata_map(allocator),
+            compactor: Compactor::default(),
         }
     }
 
     pub fn reset(&mut self, ctx: Context<'gc>) {
         let allocator = ctx.jit().0.borrow().metadata.clone();
         self.entries = metadata_map(allocator);
+        self.compactor = Compactor::default();
         ctx.jit().0.borrow_mut().clear_registrations();
     }
 
@@ -85,7 +110,8 @@ impl<'gc> Registrations<'gc> {
             .upgrade(&ctx)
     }
 
-    pub fn sweep(&mut self, ctx: Context<'gc>) {
+    pub fn sweep(&mut self, ctx: Context<'gc>, maintain: bool) {
+        let before = self.entries.len();
         self.entries.retain(|_, entry| {
             if entry.prototype.upgrade(&ctx).is_some() {
                 true
@@ -94,8 +120,15 @@ impl<'gc> Registrations<'gc> {
                 false
             }
         });
-        if self.entries.is_empty() {
-            self.entries = metadata_map(ctx.jit().0.borrow().metadata.clone());
+        let retired = before != self.entries.len();
+        let result = self.compactor.map(&mut self.entries);
+        if !maintain && !retired && matches!(result, super::resources::Compaction::Unchanged) {
+            return;
+        }
+        let mut manager = ctx.jit().0.borrow_mut();
+        manager.record_compaction(result);
+        if maintain || retired {
+            manager.compact_metadata();
         }
     }
 

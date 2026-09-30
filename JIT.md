@@ -31,6 +31,16 @@ recovered by eviction and retry.
 
 ## Current execution coverage
 
+`nix develop .#miri -c make jit-miri` uses the separately pinned nightly
+2026-08-16 toolchain for Rust-only resource, scalar/reference ABI, helper,
+registry and policy unit tests. It records environment/setup/per-namespace logs
+under `target/jit-evidence/miri/<target>/`. Default isolation, alias checking
+and leak checking remain enabled. The exact resource test
+`installation_refusal_reclaims_generated_mappings` is excluded because it
+finalizes executable code (`mprotect`), which this Miri lane cannot execute;
+ordinary native resource gates still run it. This is neither generated-code
+validation nor a complete unsafe review or soundness proof.
+
 Generated code handles scalar move/load, truth testing, integer/float add/subtract/multiply, float division, exact same-type and mixed numeric comparisons, branches without closing upvalues, and bounded numeric for loops. Integer arithmetic wraps; string coercion, floor division/modulo, and complex operations fall back to the existing interpreter. Mixed comparisons retain all integer bits, handle negative fractional ties, and return false for NaN without trapping on float-to-integer conversion.
 
 Native code also calls scoped, barrier-aware helpers for reference move/constant load, table allocation/read/write, and open/closed upvalue access. Fresh raw-value, metatable, readonly, and interception checks admit operations that need no user callback; all operations requiring metamethod dispatch decline before effects. Weak table accesses use the same weak-upgrade/store APIs as the interpreter. Dedicated counters and tests prove successful native heap operations, not just scalar prefixes.
@@ -46,7 +56,7 @@ Every generated operation checks the remaining reference slice allowance before 
 - `max_code_bytes` bounds actual page-rounded JIT mappings, including the compiler's code/readonly/writable segments. Retired but pinned mappings remain charged until the last lease drops. Allocation failure frees partial mappings and leaves interpretation usable.
 - `max_metadata_bytes` independently bounds requested allocation layouts for weak registrations, tracking/code-index maps, pending identities, preparation ID buffers, native-entry flags and mapping records. Containers use a shared fallible allocator; retained capacity and temporary old/new growth are charged. Registration refusal leaves ordinary source loading/interpreting usable; metadata allocation refusal is typed `ResourceLimit("JIT metadata")`. Lowering this ceiling retires registrations, code and requests; existing closures continue interpreted, and new source loads can register after limits are raised. Active leases keep their entry flags/mapping records and remain charged until their final owner drops, even above a newly reduced quota. Ordinary cache clearing retains live source registrations.
 - Owned operation/constant snapshot vectors have a separate allocator and `max_snapshot_bytes` ceiling; their charges follow the vectors' actual lifetime and release on success, refusal or panic. `metadata_bytes`/`snapshot_bytes` report current requested container storage, and their peak fields retain the high-water reserved usage. `metadata_allocation_refusals` counts quota/underlying allocation refusals; `registration_refusals` counts optional source registrations declined on allocation pressure. Empty retired containers release capacity.
-- This is **not yet a complete compiler or combined-host ledger**. It excludes fixed owner/Arc/Rc headers, allocator overhead, Cranelift's internal/transient/retained allocations (including its provider's internal records) and process RSS. Luna's persistent entry flags and outer mapping-record storage use the metadata ledger; pinned mappings remain charged after retirement. Bounded unleased LRU eviction now exists, but complete compiler accounting, combined-limit policy and sparse-cache compaction remain required before Phase 3/7 acceptance. Container limits are not an RSS or hostile-compiler ceiling.
+- This is **not yet a complete compiler or combined-host ledger**. It excludes fixed owner/Arc/Rc headers, allocator overhead, Cranelift's internal/transient/retained allocations (including its provider's internal records) and process RSS. Luna's persistent entry flags and outer mapping-record storage use the metadata ledger; pinned mappings remain charged after retirement. Bounded unleased LRU eviction and fallible sparse-container compaction exist, but complete compiler accounting and combined-limit policy remain required before Phase 3/7 acceptance. Container limits are not an RSS or hostile-compiler ceiling.
 - Existing `Lua::total_memory()` and memory limits still describe the collector, not compiler/JIT memory. Configure native limits separately; do not treat GC metrics as a process memory ceiling.
 - `native_entries` counts real machine-code invocations, including immediate guard exits. `native_instructions` counts completed logical bytecodes, not CPU instructions. `interpreted_instructions` counts the reference VM's reported instructions, which exclude some transition opcodes. `interpreted_slices` counts completed slices that fetched an interpreted opcode. `hook_exits` counts slices kept interpreted with hooks enabled.
 - `code_lookups` counts eligible slice-local cache probes; `code_leases` counts successful owned leases, even when an entry is interpreted. A single VM slice reuses its lease across native/reference fragments, but repacks canonical registers for every invocation. Hotness observation remains per interpreted dispatch when no code is installed.
@@ -67,6 +77,42 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 8. Tests hold a code lease across cache retirement and verify memory returns to zero after the last lease drops. Scalar boundary tests compare every entry and budget against an independent Rust model. Heap tests compare per-slice fuel/state with full GC after every slice, prove heap counters, exercise weak tables, readonly/invalid-key typed errors, open/closed upvalues, Rust interception mutation, and reentrant callbacks. Extend this review for every new helper, cached assumption, or frame transition.
 
 ## Verification and remaining work
+
+Host service/preparation sweeps compact sparse registration, tracking, code
+index and queue storage. Nonempty containers qualify at capacity 64 or greater
+and at most quarter occupancy. Replacement storage is reserved fallibly before
+moving entries; old and new requested layouts remain charged together. Quota
+or allocator refusal preserves contents, capacity, pending work, recency and
+code leases, and defers eight eligible passes before retrying. Empty backing
+storage is released without replacement allocation. Compaction runs outside
+native execution and manual executor steps, but has no hard wall-time bound.
+
+`JitStats::metadata_compaction_attempts`, `metadata_compactions`,
+`metadata_compaction_refusals` and `metadata_compaction_bytes` are cumulative,
+saturating container-maintenance counters. Deferred/dense passes are not
+attempts; empty backing releases are. Reclaimed bytes are shared-ledger
+requested-layout deltas, not RSS or compiler-working-memory measurements.
+Fixed compactor/counter owner fields remain outside the container ledger.
+
+JIT metadata maps use the existing randomized `ahash::RandomState` for private
+generation IDs and prototype-address routing keys. Weak upgrade and object
+identity validation remain required; a hash/address match alone never admits
+code. Sparse compaction clones the populated map's hasher state. This changes
+neither the native ABI nor Lua table semantics or dependency requirements.
+
+`make jit-upvalues` compares native and interpreted open/closed cells with
+collection between slices, exact logical read/write counts, eight/nine distinct
+captures, joined aliases, foreign coroutine stacks, reference values, scalar
+type changes, error guards, debug rebinding and Rust callback reentry. These
+are behavior checks for the current helper-backed tier, not performance
+acceptance or a direct scalar-upvalue cache.
+
+`make jit-helpers` directly tests all nine scoped Rust helper entries with
+closed upvalues and canonical reference identity. It checks effect-free decline
+and PC rollback, panic materialization of exactly the declared scratch prefix,
+unchanged trailing scratch and transport of the same panic payload back to
+Rust. These fixtures run in the Miri lane too. They do not invoke generated
+code or replace native open/foreign-upvalue and GC-slice tests.
 
 Use `make jit-boundary`, `make jit-native`, `make jit-heap`, `make jit-policy`, `make jit-registers`, and `make jit-verify` in the Nix development environment. Test-only Force wrappers prepare after host arena entries; sources loaded and executed wholly within one entry cannot be prepared between those operations and are not falsely counted as forced-native coverage. Dedicated native tests explicitly prepare and assert nonzero native instruction counts.
 

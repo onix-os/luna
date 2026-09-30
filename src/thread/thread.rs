@@ -1137,6 +1137,28 @@ pub(crate) struct LuaRegisters<'gc, 'a> {
 }
 
 impl<'gc, 'a> LuaRegisters<'gc, 'a> {
+    #[cfg(all(test, feature = "jit"))]
+    pub(crate) fn with_test_frame<R>(
+        ctx: Context<'gc>,
+        pc: &mut usize,
+        stack_frame: &mut [Value<'gc>],
+        call: impl FnOnce(LuaRegisters<'gc, '_>) -> R,
+    ) -> R {
+        let allocator = MetricsAlloc::new(&ctx);
+        let mut open_upvalues = vec::Vec::new_in(allocator.clone());
+        let mut to_be_closed = vec::Vec::new_in(allocator.clone());
+        call(LuaRegisters {
+            pc,
+            stack_frame,
+            upper_stack: &mut [],
+            bottom: 0,
+            base: 0,
+            open_upvalues: &mut open_upvalues,
+            to_be_closed: &mut to_be_closed,
+            stack: Gc::new(&ctx, RefLock::new(vec::Vec::new_in(allocator))),
+        })
+    }
+
     pub(super) fn open_upvalue(&mut self, mc: &Mutation<'gc>, reg: RegisterIndex) -> UpValue<'gc> {
         let ind = self.base + reg.0 as usize;
         match self

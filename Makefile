@@ -31,6 +31,8 @@ COST_DIR := target/jit-evidence/feature-cost/$(SIZE_PROFILE)$(if $(TARGET),-$(TA
 COST_PROFILE_DIR := $(COST_DIR)/callgrind/$(PROFILE_CASE)/$(PROFILE_MODE)
 COST_RELEASE_DIR := target/$(if $(TARGET),$(TARGET)/,)release/examples
 COST_OPT := $(if $(filter shipping,$(SIZE_PROFILE)),s,3)
+MIRI_TARGET ?= x86_64-unknown-linux-gnu
+MIRI_DIR := target/jit-evidence/miri/$(MIRI_TARGET)
 
 HAS_REL := $(shell command -v git-rel 2>/dev/null)
 
@@ -45,9 +47,20 @@ $(info ------------------------------------------)
 .PHONY: jit-cost-profile
 .PHONY: jit-disassembly
 .PHONY: jit-bench-build jit-bench-run
+.PHONY: jit-miri
+.PHONY: jit-helpers
 
 ci-check:
 	@$(ACTIONLINT) .github/workflows/tests.yml
+
+jit-miri:
+	@mkdir -p '$(MIRI_DIR)'
+	@set -o pipefail; { rustc -vV; $(CARGO) miri --version; printf 'MIRIFLAGS=%s\ntarget=%s\n' "$${MIRIFLAGS:-}" '$(MIRI_TARGET)'; } 2>&1 | tee '$(MIRI_DIR)/environment.log'
+	@set -o pipefail; $(CARGO) miri setup --target '$(MIRI_TARGET)' 2>&1 | tee '$(MIRI_DIR)/setup.log'
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::resources::tests -- --test-threads=1 --skip jit::resources::tests::installation_refusal_reclaims_generated_mappings 2>&1 | tee '$(MIRI_DIR)/jit::resources::tests.log'
+	@set -e -o pipefail; for filter in jit::abi::tests jit::helpers::tests jit::registry::tests jit::policy_tests; do \
+		$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' "$$filter" -- --test-threads=1 2>&1 | tee '$(MIRI_DIR)'/"$$filter".log; \
+	done
 
 jit-platform:
 	@case '$(TARGET)' in \
@@ -170,6 +183,9 @@ jit-reference:
 jit-backend:
 	@$(CARGO) test -p luna --features jit --test jit_backend $(TARGET_ARG)
 
+jit-helpers:
+	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::helpers::tests
+
 jit-native:
 	@$(CARGO) test -p luna --features jit --test jit_native $(TARGET_ARG) $(ARGS)
 
@@ -192,6 +208,10 @@ jit-fuzz:
 jit-heap:
 	@$(CARGO) test -p luna --features jit --test jit_heap $(TARGET_ARG) $(ARGS)
 
+.PHONY: jit-upvalues
+jit-upvalues:
+	@$(CARGO) test -p luna --features jit --test jit_upvalues $(TARGET_ARG) $(ARGS)
+
 jit-policy:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::policy_tests
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::eviction_tests
@@ -199,6 +219,7 @@ jit-policy:
 
 jit-resources:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::resources
+	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::registry::tests
 	@$(CARGO) test -p luna --features jit --test jit_resources $(TARGET_ARG)
 
 jit-registers:
@@ -377,12 +398,15 @@ help:
 	@echo "  jit-platform Run the full gate on matching hardware (TARGET=... required)"
 	@echo "  ci-check     Validate the active GitHub Actions workflow"
 	@echo "  jit-backend  Execute the native helper-call and worker-transfer probes"
+	@echo "  jit-helpers  Test scoped Rust helper frames and panic transport"
+	@echo "  jit-miri     Check Rust-only JIT components (nix develop .#miri)"
 	@echo "  jit-boundary Test native exits against the Rust boundary model"
 	@echo "  jit-native   Run integrated native execution and lifecycle tests"
 	@echo "  jit-numeric  Check reference and exact native numeric comparisons"
 	@echo "  jit-fuzz-smoke Run supervised admission/scalar fuzz smoke"
 	@echo "  jit-fuzz     Run bounded seeded campaigns (FUZZ_TARGET/CASES/SEEDS)"
 	@echo "  jit-heap     Run native heap/upvalue mutation and GC tests"
+	@echo "  jit-upvalues Test upvalue aliases, foreign stacks and GC"
 	@echo "  jit-registers Test register-255 and stack-256 boundaries"
 	@echo "  jit-policy   Test quota refusal and configuration retirement"
 	@echo "  jit-resources Test owned-container budgets and reclamation"

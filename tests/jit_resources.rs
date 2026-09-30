@@ -25,6 +25,64 @@ fn source(lua: &mut Lua, text: &[u8]) -> Result<StashedExecutor, ExternError> {
 }
 
 #[test]
+fn sweeping_sparse_sources_compacts_metadata_and_preserves_live_native_identity(
+) -> Result<(), ExternError> {
+    let mut lua = state();
+    let mut closures = Vec::new();
+    for value in 0..128 {
+        let closure = lua.try_enter(|ctx| {
+            let closure = Closure::load(
+                ctx,
+                Some("sparse-source"),
+                format!("local n={value} return n+1").as_bytes(),
+            )?;
+            Ok(ctx.stash(closure))
+        })?;
+        closures.push((value, closure));
+    }
+    let mut installed = 0;
+    for _ in 0..8 {
+        installed += lua.prepare_jit().unwrap();
+    }
+    assert_eq!(installed, 128);
+    let before = lua.jit_stats();
+    assert_eq!(before.registered_prototypes, 128);
+    closures.retain(|(value, _)| [0, 61, 127].contains(value));
+    lua.gc_collect();
+    lua.gc_collect();
+    assert_eq!(lua.service_jit().unwrap(), 0);
+    let compacted = lua.jit_stats();
+    assert_eq!(compacted.registered_prototypes, 3);
+    assert!(compacted.metadata_bytes < before.metadata_bytes / 4);
+    assert!(compacted.code_bytes < before.code_bytes / 4);
+    assert!(compacted.metadata_compactions >= before.metadata_compactions + 3);
+    assert!(compacted.metadata_compaction_bytes > before.metadata_compaction_bytes);
+    assert_eq!(compacted.metadata_compaction_refusals, 0);
+    assert_eq!(lua.prepare_jit().unwrap(), 0);
+    for (value, closure) in &closures {
+        let native = lua.jit_stats().native_instructions;
+        let executor =
+            lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(closure).into(), ())));
+        assert_eq!(lua.execute::<i64>(&executor)?, value + 1);
+        assert!(lua.jit_stats().native_instructions > native);
+    }
+    drop(closures);
+    lua.gc_collect();
+    lua.gc_collect();
+    assert_eq!(lua.service_jit().unwrap(), 0);
+    let final_stats = lua.jit_stats();
+    assert_eq!(
+        (
+            final_stats.metadata_bytes,
+            final_stats.code_bytes,
+            final_stats.registered_prototypes
+        ),
+        (0, 0, 0)
+    );
+    Ok(())
+}
+
+#[test]
 fn metadata_refusal_keeps_source_loading_and_interpretation_usable() -> Result<(), ExternError> {
     let mut lua = state();
     let mut config = lua.jit_config();

@@ -364,16 +364,23 @@ impl Lua {
                 "native backend unavailable on this target",
             ));
         }
-        let config = self.jit_config();
+        let (config, maintain) = {
+            let mut manager = self.jit.0.borrow_mut();
+            (manager.config.clone(), manager.needs_compaction())
+        };
         self.arena.mutate(|mc, state| {
-            state.jit_registry.borrow_mut(mc).sweep(state.ctx(mc));
+            state
+                .jit_registry
+                .borrow_mut(mc)
+                .sweep(state.ctx(mc), maintain);
         });
         let request = self.jit.0.borrow_mut().next_request();
         let Some(id) = request else { return Ok(0) };
         let snapshot = self.arena.mutate(|mc, state| {
             let ctx = state.ctx(mc);
             let mut registry = state.jit_registry.borrow_mut(mc);
-            registry.sweep(ctx);
+            let maintain = self.jit.0.borrow_mut().needs_compaction();
+            registry.sweep(ctx, maintain);
             registry.resolve(ctx, id).map(|proto| {
                 crate::jit::ir::Snapshot::new_in(
                     &proto,
@@ -412,7 +419,7 @@ impl Lua {
         let ids = self.arena.mutate(|mc, state| {
             let ctx = state.ctx(mc);
             let mut registry = state.jit_registry.borrow_mut(mc);
-            registry.sweep(ctx);
+            registry.sweep(ctx, true);
             registry.ids(ctx)
         })?;
         {
