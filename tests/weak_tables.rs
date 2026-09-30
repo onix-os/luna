@@ -558,12 +558,12 @@ fn reattached_weak_modes_retire_ephemerons_without_losing_finalization() -> Resu
                 local mode = {__mode = "k", __gc = function() finalized = finalized + 1 end}
                 local cache = setmetatable({}, mode)
                 local function fill() cache[key] = {marker = 113} end
-                for _ = 1, 3 do
+                for _, weak_mode in ipairs({"kv", "v", "kv", "v"}) do
                     fill()
                     collectgarbage("collect")
                     collectgarbage("collect")
                     assert(cache[key].marker == 113)
-                    mode.__mode = "kv"
+                    mode.__mode = weak_mode
                     collectgarbage("collect")
                     collectgarbage("collect")
                     assert(cache[key].marker == 113)

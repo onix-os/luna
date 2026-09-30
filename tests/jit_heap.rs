@@ -461,20 +461,20 @@ fn weak_key_ephemeron_registration_follows_reattached_modes() -> Result<(), Exte
         attach(&mut lua, "kv");
         collect(&mut lua);
         assert_eq!(run(&mut lua, &getter)?, 0);
-        for _ in 0..2 {
+        for weak_mode in ["kv", "v", "kv", "v"] {
             attach(&mut lua, "k");
             assert_eq!(run(&mut lua, &setter)?, 113);
             collect(&mut lua);
             assert_eq!(run(&mut lua, &getter)?, 113);
-            attach(&mut lua, "kv");
+            attach(&mut lua, weak_mode);
             collect(&mut lua);
             assert_eq!(run(&mut lua, &getter)?, 0);
         }
         let stats = lua.jit_stats();
         assert_eq!(stats.native_instructions > 0, native);
         if native {
-            assert_eq!(stats.native_allocations, 3);
-            assert_eq!(stats.native_table_writes, 6);
+            assert_eq!(stats.native_allocations, 5);
+            assert_eq!(stats.native_table_writes, 10);
             assert!(stats.native_table_reads >= 12);
         }
     }

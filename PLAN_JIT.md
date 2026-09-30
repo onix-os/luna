@@ -511,7 +511,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 8 — Optimize without weakening semantics
 
-**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 7 and a passing performance baseline. Initialized-prefix scratch and operand-scoped helper synchronization have correctness gates; paired performance checks are implemented. Release thresholds and the phase exit remain unmet; broader optimization must not be described as a passed baseline.
+**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 7 and a passing performance baseline. Initialized-prefix scratch and operand-scoped helper synchronization have correctness gates; paired performance checks and separate cold/service/slice/resource observations are implemented. Release thresholds and the phase exit remain unmet; broader optimization must not be described as a passed baseline.
 
 **Files:** JIT IR/codegen/guards/cache, bounded runtime helpers, optimization tests and benchmarks.
 
@@ -2441,6 +2441,392 @@ table/userdata replacement, weak-value conversion and weak-key re-enrollment;
 registry invariants; `src/table/table.rs` performs retirement on `kv` attachment;
 `Makefile` includes the new Rust-only finalizer namespace in pinned Miri;
 `PLAN_JIT.md` records scope, failures, verification and remaining work.
+
+### Weak-value reattachment: retire former ephemerons
+
+Extended the existing native/reference, normal interpreter/finalization and
+Rust-only registry tests to alternate `k` with both `kv` and `v`, including
+repeated attachments and later `k` re-enrollment. Before changing production
+code, the targeted public case fails with retained 113 instead of 0 at the
+plain-`v` transition (`/tmp/luna-jit-weak-value-reattach-before.log`). A patch
+placement/compiler error was corrected first and retained separately as
+`/tmp/luna-jit-weak-value-reattach-patch-error.log`; it is not behavioral evidence.
+
+The plain weak-value attachment branch now invokes the same typed weak-key
+retirement used by `kv`. Existing physical weak storage, attachment-time field
+semantics, peer registrations and table finalization remain unchanged. The local
+comment describes conversion functionality without making an unverified
+upstream-compatibility claim. No API, layout, unsafe code, resource limit or
+benchmark gate changes. All 15 focused heap tests pass; fresh full GNU
+verification passes 2710 executions / 410 suite invocations, including the
+expanded peer invariant, native/reference and exactly-once finalization cases.
+Format, baseline Clippy and workflow lint pass. Fresh full musl verification
+also passes 2710 executions / 410 suite invocations. Selected Rust-only Miri
+passes 25 tests in six namespaces with default flags and explicit seed 1;
+default checks and the existing native-finalization exclusion are unchanged.
+Sessions `86474` and `36876` are terminal, exit 0. GNU and musl smoke artifacts
+are respectively `target/jit-evidence/fuzz/1790799710794221835-4130209` and
+`target/jit-evidence/fuzz/1790799947829714574-4152489`. Exact before/after,
+verification and separate Miri environment/namespace logs are archived in
+`target/jit-evidence/weak-value-reattach/`. Native/shipping performance remains
+open.
+
+### Session summary: complete weak-value ephemeron retirement
+
+**Goal:** fully implement this plan; verify the adjacent weak-value transition
+and repair its registry lifecycle without changing the native execution contract.
+
+**Instructions:** Make/Nix verification, built-in patches, functional comments,
+incremental unsigned title-only commits and unchanged acceptance thresholds.
+Engram is unavailable; preserve the handoff in this document.
+
+**Discoveries:** plain `v` attachment has the same stale ephemeron registration
+problem as the previously fixed `kv` path. The public test fails before the fix
+with 113 rather than 0 after collection. Retiring the typed weak-key registry
+entry is required in both weak-value branches; changing only the mode field is
+still distinct from attaching it. Preserve peer registrations and later `k`
+enrollment, and do not make unverified upstream compatibility claims in comments.
+
+**Accomplished:** extended native/reference, exactly-once finalization and
+Rust-only peer invariant tests across repeated `k`/`kv`/`v` transitions.
+Committed the one-line retirement fix, expanded tests and functional comment as
+`f3df12c`, unsigned and title-only. Native setter totals are exactly five
+allocations and ten writes. Full GNU and musl gates each pass 2710 executions /
+410 suite invocations; selected Miri passes 25 tests with default flags and
+seed 1. Format, baseline Clippy, workflow lint and supervised smoke pass. All
+owned sessions are terminal; artifact paths are recorded above. No public API,
+GC object layout, native ABI, quota or benchmark threshold changed.
+
+**Next steps:** characterize metatable removal under the current sticky-storage
+contract and continue remaining guard/transition stress. Resume measured native
+invocation/helper overhead work with independent speed and shipping controls;
+do not benchmark through unrelated builds or repeat rejected identity caches
+without new evidence. Complete compiler/combined-host bounds, broad unsafe/fuzz
+coverage and actual ARM64/hosted acceptance. Performance acceptance is unproven;
+the full goal remains active and incomplete.
+
+**Relevant files:** `src/table/table.rs` retires ephemerons for plain `v` as well
+as `kv`; `src/finalizers.rs` expands Rust-only registry invariants;
+`tests/jit_heap.rs` checks repeated native/reference mode transitions;
+`tests/weak_tables.rs` checks finalization across both weak-value modes;
+`PLAN_JIT.md` records failures, scope and verification;
+`target/jit-evidence/weak-value-reattach/` retains raw evidence.
+
+### Sparse helper-statistics experiment
+
+Copied fresh native, speed-profile and shipping-profile baselines from
+`2a2347d` before changing production code. Artifacts/hashes are in
+`target/jit-evidence/zero-counts/`; baseline comparisons run sequentially with
+process guards and no build/test/profile overlap.
+
+The next uncommitted experiment skips individual zero-valued helper counter
+increments at native invocation return. All eight fields remain `u64` and use
+the same saturating addition for nonzero values; no field is gated on another
+field, no metrics are disabled, and native-entry/instruction/guard accounting,
+panic propagation and canonical materialization remain unchanged. No API,
+layout, ABI, resource budget or workload changes. A Rust-only differential test
+covers all 256 field masks, four base values and four increments, including
+maximum-width saturation and inconsistent masks such as writes without calls.
+Correctness and repeated native/speed/shipping comparisons determine whether
+to retain or reject this experiment; this is not release acceptance.
+
+### Sparse statistics result: reject the experiment
+
+Focused helper/heap/upvalue verification, including all 4096 mask/base/increment
+combinations, passes. Repeated native comparisons do not support retaining the
+change: baseline upvalue ratios are 0.6801/0.6781, candidate 0.6580/0.6418.
+Integer ratios are baseline 2.6679/2.4608 versus candidate 2.4214/2.3398;
+float is baseline 4.3166/4.4645 versus candidate 4.2275/4.2928. Array results
+are mixed (baseline 1.1306/1.1158, candidate 1.0724/1.1603). Candidate callback
+and metamethod results cross their thresholds between runs; no overall native
+gate passes. Ratios are ratio-of-medians, not universal speedup claims; raw
+paired dispersion is retained.
+
+Fresh committed-source controls also fail: speed integer ratios
+1.0916/1.0843 and float 1.0609/1.0560 exceed 1.05; shipping integer
+1.1150/1.1297 and upvalue 1.1255/1.1313 exceed it. Candidate controls remain
+unaccepted despite some improvements: speed float 1.0574/1.0530 fails both,
+integer 1.0535 fails first but 1.0491 passes repeat; shipping integer
+1.0947/1.1128 and upvalue 1.0996/1.1004 fail both. These baseline failures are
+new live evidence; earlier passing speed controls are historical, not current
+release acceptance. No-JIT hashes match baseline/candidate within each profile.
+
+Removed the entire private accumulation experiment and its implementation test;
+`src/jit/helpers.rs` and `src/jit/mod.rs` match HEAD again. The source patch,
+copied binaries/hashes, build/configuration logs and all repeated native/speed/
+shipping results remain under `target/jit-evidence/zero-counts/`. No threshold,
+workload, counter width or instrumentation changed. Next inspect a fresh native
+invocation/helper instruction profile rather than treating branch count alone
+as a speedup. Full native, speed and shipping acceptance remains open.
+
+### Fresh upvalue invocation instruction profile
+
+After removing the experiment, built restored-source opt-level-3/LTO profiles
+with symbols and ran the existing Make Callgrind lane sequentially for no-JIT
+Off and feature-enabled Auto. Both runs verify the expected result; Auto reports
+298428 timed native logical instructions, no-JIT zero. Collection is scoped to
+`run_vm`, with two warmups plus three measured iterations. Full modeled event
+totals include warmups, unlike the printed timed native counter.
+
+Modeled instruction events are 115566817 for Auto versus 77861273 for no-JIT.
+Auto self costs include 39051462 in `run_vm`, 26227703 in `Runtime::invoke<8>`,
+and 3574368 each in upvalue helpers 8 and 9. `invoke<8>` accounts for 22.69% of
+Auto instruction events and 597411 modeled indirect branches, with 298597
+modeled indirect mispredictions. VM call/return/push-call self instruction costs
+match the reference (6000000, 5200520, 4450000 respectively); decoding shrinks
+from 12101390 to 3099044. There is no evidence here that native execution removes
+the canonical Lua call/return transitions.
+
+These simulated events localize costs; they are not hardware cycles, wall-time
+acceptance or proof of a specific branch's causality. `Slot::from_value` and
+`Slot::value` contain scalar/reference dispatch within invocation; inspect their
+actual generated dispatch before testing a scalar-specialized conversion path.
+Do not repeat the rejected reference-skipping or narrower-counter experiments.
+Raw Callgrind/configuration/binary-hash logs are at
+`target/jit-evidence/zero-counts/current-profile/`. Restored format/helper checks
+pass (`/tmp/luna-jit-zero-counts-restored.log`); production files match HEAD.
+
+### Session summary: reject zero-counter branches and refresh performance evidence
+
+**Goal:** fully implement the plan; resume measured invocation performance work
+without weakening counters, workloads or independent profile acceptance.
+
+**Instructions:** unchanged gates, Make/Nix execution, patch tools, incremental
+unsigned title-only commits and no timing/profile/build overlap. Engram remains
+unavailable; this document preserves the handoff.
+
+**Discoveries:** skipping zero-valued saturating updates is mathematically
+equivalent but does not deliver measured native improvement; upvalue results
+worsen twice. Current committed-source speed and shipping disabled-JIT controls
+also fail, so earlier passing controls cannot be presented as current evidence.
+A fresh instruction profile identifies a substantial invocation wrapper cost
+and modeled indirect dispatch; it does not establish a causal speedup strategy.
+
+**Accomplished:** preserved fresh baseline/candidate native, speed and shipping
+binaries, identical paired no-JIT hashes, full configurations, two comparisons
+per lane and all raw dispersion. Focused correctness passes the 4096-condition
+counter test, existing helper/heap/upvalue regressions and exact work counters.
+Rejected and removed the entire candidate and its implementation test; restored
+production source and format/helper checks pass. Collected a fresh verified
+reference/Auto Callgrind profile. All owned sessions (`12386`, `28191`, `8629`,
+`57009`, `14063`, `53922`) are terminal; no benchmark, build or profile remains
+live. No new accepted runtime optimization or release performance claim.
+
+**Next steps:** inspect invocation conversion dispatch in generated Rust assembly
+and evaluate a safe scalar fast path with bit-exact/all-reference tests and
+repeated native plus matched speed/shipping controls. Keep failed gates visible,
+reject regressions, and preserve exact handles for any live work. Remaining
+metatable-removal/transition coverage, compiler/combined-host resource bounds,
+full unsafe/fuzz review and actual ARM64/hosted acceptance are still open.
+The full goal remains active and incomplete.
+
+**Relevant files:** `src/jit/mod.rs` retains its original invocation accounting;
+`src/jit/helpers.rs` retains full-width counts and original fixtures;
+`src/jit/abi.rs` contains canonical scalar/reference conversion for the next
+inspection; `PLAN_JIT.md` records rejection and current acceptance evidence;
+`target/jit-evidence/zero-counts/` archives the experiment, measurements and
+fresh instruction profile.
+
+### Session summary: verified status after context recovery
+
+**Goal:** report the current plan and implementation status accurately.
+
+**Instructions:** keep incremental unsigned, title-only Conventional Commits;
+retain the full acceptance gates rather than presenting partial work as done.
+
+**Discoveries:** the detailed plan exists and is committed on `feat/native-jit`.
+Implementation remains in progress; native table/upvalue performance, disabled
+JIT overhead, complete resource accounting, hardening and ARM64/hosted evidence
+remain open. Recent commits are unsigned and have no body.
+
+**Accomplished:** recovered the previous checkpoint and verified the live branch,
+clean initial working tree, committed plan and recorded acceptance status.
+Resumed owned session `23218`; the Make/Nix assembly build completed successfully
+and produced `target/jit-evidence/rust-assembly.log`. No conversion optimization
+was implemented or measured in this status update.
+
+**Next steps:** inspect the completed invocation assembly before choosing a
+conversion experiment; retain or reject changes only after correctness and
+repeated native/speed/shipping comparisons. The implementation goal stays active
+and incomplete. No owned build or benchmark remains running.
+
+**Relevant files:** `PLAN_JIT.md` contains the design, phased acceptance and
+evidence ledger; `src/jit/abi.rs` contains the next conversion inspection target;
+`target/jit-evidence/rust-assembly.log` contains completed assembly output;
+`/tmp/luna-jit-scalar-dispatch-baseline-assembly.log` records the successful build.
+
+### Scalar writeback dispatch experiment
+
+The completed symbol-bearing assembly shows direct branches for `from_value`
+but a five-way indirect jump table for each `Slot::value` writeback in
+`Runtime::invoke<8>`. Test an explicit integer branch in `write_back`, leaving
+the complete existing conversion as the fallback. This is a candidate, not an
+accepted optimization. Preserve reference writes, all scalar bits, invalid-tag
+rejection, counters and ABI v3. Add independent scalar conversion expectations
+and a Make-backed focused ABI test lane. Compare copied artifacts against the
+unchanged committed production baseline with repeated native and matched
+disabled-JIT speed/shipping checks before retaining any runtime change.
+
+### Scalar writeback result: reject integer specialization
+
+The candidate emits a direct integer branch ahead of the original jump table.
+Focused checks pass: ABI 4, helpers 3, heap 15 and upvalues 6. The independent
+new ABI test checks 16 scalar payloads against 10 destination variants, including
+both function kinds, signed extremes, signed zero, subnormal and NaN payloads.
+Construct branded `Value` fixtures inside `Lua::enter`; constructing the vector
+outside initially produced an invariance error, not a runtime failure.
+
+Repeated opt-level-3 native comparisons do not justify retaining the candidate:
+
+| Case | Baseline first/repeat | Candidate first/repeat |
+| --- | --- | --- |
+| Integer | 2.4661 / 2.4727 | 2.5244 / 2.7889 |
+| Float | 4.3917 / 4.3328 | 4.5906 / 4.7393 |
+| Table | 1.1573 / 1.1052 | 1.0891 / 1.0659 |
+| Upvalue | 0.6773 / 0.6699 | 0.6866 / 0.6717 |
+| Metamethod | 0.8223 / 0.8230 | 0.8441 / 0.8277 |
+| Callback | 0.8381 / 0.8270 | 0.7879 / 0.8053 |
+| Allocation | 1.0020 / 1.0034 | 1.0344 / 1.0257 |
+| Oslo, unscored | 0.9220 / 0.9177 | 0.8823 / 0.9163 |
+| Cold | 0.9978 / 0.9749 | 1.0100 / 1.0098 |
+
+Candidate speed disabled-JIT controls pass twice; baseline float controls fail
+twice (1.0542/1.0554). Integer controls have substantial dispersion, so passing
+ratios are not proof of a causal disabled-JIT optimization. Shipping fails for
+both: baseline integer 1.1022/1.1062 and upvalue 1.1240/1.1255; candidate integer
+1.1169/1.1143 and upvalue 1.1101/1.1092. Candidate allocation also fails once
+(1.0516). Identical no-JIT binaries within each profile establish matched
+controls. Table and callback native performance worsen, with no repeatable
+upvalue gain. Removed the runtime specialization; retain only the independent
+ABI regression and `make jit-abi` lane. All original gates remain unchanged.
+
+Copied binaries, hashes, configurations, both assembly files, source patch,
+all twelve repeated runs, raw dispersion and exit statuses are archived under
+`target/jit-evidence/scalar-writeback/`. Baseline native SHA-256 is
+`b1ae2ae2bc1b519bb6a2637ff609cc11ee47f55b95df42725add78e0e0558069`;
+rejected candidate is
+`8414ae313cbd42bc3a3d1269f5b4fb7bc4f54d1fe5889b459d4898c5289fff49`.
+Sessions `70945` (initial fixture error), `92065`, `27303` and `45843` are terminal.
+No accepted runtime optimization or release performance claim follows.
+
+Restored runtime plus the retained independent regression pass `make fmt-check
+jit-abi`. The pinned `nix develop .#miri -c make jit-miri` lane passes 26 tests
+across six selected Rust-only namespaces, including all four ABI tests. It does
+not execute or prove generated machine-code safety. Miri and restored logs are
+archived with the experiment; session `33893` is terminal.
+
+### Scheduling and cold-start metrics decision
+
+Add a separate `jit_metrics` example and Make build/run/test lanes. Measure fresh
+states in Off, Auto and explicit-preparation modes, without modifying the frozen
+paired benchmark or introducing runtime timing instrumentation. Report source
+load and preparation-batch duration, per-service duration, first observed native
+entry, executor-only and host-enter slice latency, maximum observed logical VM
+work and fuel debit, coverage, queue occupancy and existing memory ledgers.
+Compilation service remains outside `Executor::step`; assert installed-region
+counts cannot increase during a measured step. Every measured execution verifies
+the expected result and native coverage where applicable.
+
+These observations are not CPU limits or whole-process memory accounting.
+Preparation includes registered core prototypes; service cost includes registry
+maintenance/snapshots/backend installation, not backend-only compilation. First
+native observation is at the host slice boundary, not the exact instruction
+timestamp. Report excluded compiler allocations/fixed owners/RSS explicitly.
+Initial coverage is the seven shared warm workloads, the faithful compile-once
+Oslo predicate with 10000 alternating rows, and a cold one-shot script. Service
+occurs before each step, as in `Lua::finish`; this also services requests queued
+by short per-row executions before the next row. Oslo is a standalone consumer
+reproduction, not end-to-end migration. Async/coroutine and cache-churn metrics
+remain required separately.
+
+### Scheduling metrics accounting discovery
+
+Source review of `run_vm` shows call/return/metamethod frame transitions break
+before the completed-work increment. Existing native/interpreted instruction
+counters therefore measure completed non-transition VM work, not every executed
+Lua opcode or callback. The probe's work maxima and `native_coverage` fraction
+inherit that scope. High fractions do not establish compiled calls/returns or
+cheap transitions; interpreted slice counts and the transition matrix remain
+important. The separate tool reports existing counters without changing runtime
+fuel/statistics semantics. Full opcode/transition coverage remains open.
+
+### Verified scheduling metrics evidence
+
+The current opt-level-3/LTO/single-codegen-unit artifact verifies all nine cases
+under Off, Auto and Prepared: two runs of three fresh-state samples produce
+81 observations each. A separate fuel-1 run verifies 27 observations. Oslo
+checks each of its 10000 alternating rows, not just the aggregate. Warm Auto
+and Prepared report actual native instructions; Off and cold Auto report none.
+Every step preserves installed-region and compilation-failure counts. Maximum
+observed counted VM work is 64 even with fuel 1; observed fuel debit reaches
+116 on allocation work. Neither is a wall-time or all-opcode bound.
+
+First-run integer Auto native observation has median 682365 ns, range
+642986–900385 ns, with 99.84% completed-work counter coverage. Table Auto has
+99.7441%, upvalue Auto 99.83%. These high fractions do not solve the failed
+speed gates or compile the uncounted call/return transitions. Cold Prepared
+spends median 12240988 ns on its six-prototype batch (range 12213251–12269046 ns),
+retains 61440 mapping bytes and executes ten counted instructions. Cold Auto
+queues no compilation and executes the same ten counted instructions in the
+reference tier. These are instrumented observations, not paired acceptance
+timings. Raw samples preserve latency variation and ledger/queue values.
+
+Full `nix develop -c make jit-verify clippy` gates pass on GNU and musl x86-64:
+2740 passing tests across 415 suite results per full gate, 24 ignored. The GNU
+orchestration additionally runs five focused metrics unit tests (2745/416 total).
+Baseline Clippy passes; the existing warning backlog is not a strict-clean claim.
+`make fmt-check` and source diff checks pass. Current source/binary SHA-256 are
+recorded at `target/jit-evidence/metrics/current-source-binary.sha256`; artifact
+SHA-256 is `2be71665dbd3d0175636a3567e8d3def1e82d1dc3c26c703b33ce517e21d1002`.
+Current raw evidence is `current-{first,repeat,tiny}-observations.log`, with a
+first-run median/range summary, configuration and CPU/toolchain logs alongside.
+Earlier eight-case and pre-counter-assert artifacts are retained separately.
+GNU/musl validation logs are `/tmp/luna-jit-metrics-{full,musl}-verify.log`.
+Sessions `71581`, `8731`, `76577`, `59945`, `51503` and `48476` are terminal.
+No benchmark/build/profile remains owned and live. Full plan acceptance remains
+open; async/coroutine/cache-churn metrics, complete compiler/host accounting,
+hardening, failed performance controls and actual ARM64/hosted evidence remain.
+
+### Session summary: measured scalar dispatch and scheduling costs
+
+**Goal:** fully implement the plan on `feat/native-jit`; advance the performance
+investigation and missing scheduling/cold-start acceptance evidence.
+
+**Instructions:** unchanged Make/Nix workflows, patch edits, unsigned title-only
+incremental commits, unchanged acceptance thresholds and no concurrent timing
+with compiler/test/profile jobs. Engram tools remain unavailable; this document
+preserves the handoff. No push, release or hosted execution was authorized.
+
+**Discoveries:** explicit integer writeback bypasses the indirect switch but
+regresses table/callback timings. Existing VM counters exclude frame transitions;
+near-total native counter coverage is not proof of compiled calls/returns or
+their performance. Explicit preparation includes core prototypes and dominates
+one-shot execution cost; fuel-1 slices can still debit 116 approximate units.
+
+**Accomplished:** rejected and removed the runtime experiment after twelve
+guarded native/speed/shipping comparisons. Committed independent 160-pair scalar
+destination checks and the Make ABI lane (`6f3a1ba`); selected Miri passes 26
+Rust-only tests. Committed the separate nine-case metrics probe, five unit tests,
+Make targets and scoped documentation (`c398e1f`). Full GNU/musl gates each pass
+2740 tests/415 suites and baseline Clippy. The final metrics artifact verifies
+81+81 fuel-64 and 27 fuel-1 observations with source/binary hashes and raw logs.
+No runtime optimization, relaxed gate or release-readiness claim was accepted.
+All owned sessions are terminal, including commit/format session `81943`.
+
+**Next steps:** extend observational coverage to cache churn and coroutine/async
+work; complete opcode/transition/error/fuel coverage instead of treating current
+counter fractions as complete coverage. Pursue the failed table/upvalue and
+disabled-JIT speed/shipping gates with evidence-based runtime changes. Complete
+compiler/fixed-owner/combined-host accounting and CPU isolation policy, broader
+heap fuzz/unsafe review, and actual ARM64/hosted validation. The goal remains
+active and incomplete; no current external blocker prevents further local work.
+
+**Relevant files:** `src/jit/abi.rs` retains original runtime conversion plus the
+new regression; `examples/jit_metrics.rs` implements scoped observations;
+`Makefile` adds ABI/metrics lanes; `Cargo.toml` gates the example on optional JIT;
+`JIT.md` explains metrics and limitations; `PLAN_JIT.md` records decisions and
+acceptance evidence; `target/jit-evidence/{scalar-writeback,metrics}/` preserves
+rejected-experiment and accepted-tool artifacts.
 
 ## 15. Primary references
 

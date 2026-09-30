@@ -71,6 +71,10 @@ name = "jit_bench"
 required-features = ["jit"]
 
 [[example]]
+name = "jit_metrics"
+required-features = ["jit"]
+
+[[example]]
 name = "jit"
 required-features = ["jit"]
 

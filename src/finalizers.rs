@@ -293,6 +293,9 @@ mod tests {
                 ("kv", false),
                 ("k", true),
                 ("k", true),
+                ("v", false),
+                ("v", false),
+                ("k", true),
                 ("kv", false),
             ] {
                 mode.set_field(ctx, "__mode", name);

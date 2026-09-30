@@ -20,6 +20,7 @@ FUZZ_CASES ?= 256
 FUZZ_SEEDS ?= 0,1,0xdeadbeef,0xffffffffffffffff
 JIT_BENCH_OPT ?= 3
 JIT_BENCH_BINARY ?= $(TOP_DIR)/target/$(if $(TARGET),$(TARGET)/,)release/examples/jit_bench
+JIT_METRICS_BINARY ?= $(TOP_DIR)/target/$(if $(TARGET),$(TARGET)/,)release/examples/jit_metrics
 JIT_DUMP_DIR ?= target/jit-evidence/native/$(if $(TARGET),$(TARGET),host)
 SIZE_PROFILE ?= shipping
 COST_SAMPLES ?= 11
@@ -47,8 +48,9 @@ $(info ------------------------------------------)
 .PHONY: jit-cost-profile
 .PHONY: jit-disassembly
 .PHONY: jit-bench-build jit-bench-run
+.PHONY: jit-metrics jit-metrics-build jit-metrics-run jit-metrics-tests
 .PHONY: jit-miri
-.PHONY: jit-helpers
+.PHONY: jit-helpers jit-abi
 
 ci-check:
 	@$(ACTIONLINT) .github/workflows/tests.yml
@@ -91,6 +93,26 @@ jit-bench-run:
 
 jit-bench: jit-bench-build
 	@$(MAKE) --no-print-directory jit-bench-run
+
+jit-metrics-build:
+	@mkdir -p target/jit-evidence/metrics
+	@printf 'opt_level=3\nlto=true\ncodegen_units=1\nstrip=true\nRUSTFLAGS=%s\nCARGO_ENCODED_RUSTFLAGS=%s\n' "$${RUSTFLAGS:-}" "$${CARGO_ENCODED_RUSTFLAGS:-}" > target/jit-evidence/metrics/build-configuration.log
+	@CARGO_TARGET_DIR='$(TOP_DIR)/target' LUNA_METRICS_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_LTO=true CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_STRIP=true $(CARGO) build --locked --release --example jit_metrics --features jit $(TARGET_ARG)
+
+jit-metrics-run:
+	@mkdir -p target/jit-evidence/metrics
+	@$(MAKE) --no-print-directory environment > target/jit-evidence/metrics/environment.log
+	@rustc -vV >> target/jit-evidence/metrics/environment.log
+	@if command -v lscpu >/dev/null; then lscpu >> target/jit-evidence/metrics/environment.log; fi
+	@test -x '$(JIT_METRICS_BINARY)'
+	@sha256sum '$(JIT_METRICS_BINARY)' > target/jit-evidence/metrics/binary-sha256.log
+	@set -o pipefail; '$(JIT_METRICS_BINARY)' $(ARGS) 2>&1 | tee target/jit-evidence/metrics/observations.log
+
+jit-metrics: jit-metrics-build
+	@$(MAKE) --no-print-directory jit-metrics-run ARGS='$(ARGS)'
+
+jit-metrics-tests:
+	@$(CARGO) test --locked --example jit_metrics --features jit $(TARGET_ARG)
 
 jit-bench-paired:
 	@$(MAKE) --no-print-directory jit-bench ARGS='--mode paired --samples 11 $(ARGS)'
@@ -185,6 +207,9 @@ jit-backend:
 
 jit-helpers:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::helpers::tests
+
+jit-abi:
+	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests
 
 jit-native:
 	@$(CARGO) test -p luna --features jit --test jit_native $(TARGET_ARG) $(ARGS)
@@ -407,6 +432,7 @@ help:
 	@echo "  jit-fuzz     Run bounded seeded campaigns (FUZZ_TARGET/CASES/SEEDS)"
 	@echo "  jit-heap     Run native heap/upvalue mutation and GC tests"
 	@echo "  jit-upvalues Test upvalue aliases, foreign stacks and GC"
+	@echo "  jit-abi      Test scalar and reference ABI conversions"
 	@echo "  jit-registers Test register-255 and stack-256 boundaries"
 	@echo "  jit-policy   Test quota refusal and configuration retirement"
 	@echo "  jit-resources Test owned-container budgets and reclamation"
@@ -414,6 +440,10 @@ help:
 	@echo "  jit-bench    Measure checked workloads (ARGS='--mode off --samples 11')"
 	@echo "  jit-bench-build Build the benchmark without timing"
 	@echo "  jit-bench-run Time an existing artifact (JIT_BENCH_BINARY=path)"
+	@echo "  jit-metrics  Observe cold compilation, coverage and host slice costs"
+	@echo "  jit-metrics-build Build the separate scheduling metrics artifact"
+	@echo "  jit-metrics-run Measure an existing artifact (JIT_METRICS_BINARY=path)"
+	@echo "  jit-metrics-tests Test scheduling observations and argument validation"
 	@echo "  jit-bench-paired Alternate checked Off/Auto samples"
 	@echo "  jit-performance Check frozen paired workload thresholds"
 	@echo "  jit-disassembly Dump finalized native kernels and addresses"
