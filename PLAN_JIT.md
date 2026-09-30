@@ -2916,6 +2916,51 @@ Logs are `/tmp/luna-jit-cache-churn-{full,musl}-verify.log` and
 `3969`, `27398`, `35198`) are terminal. Full plan/performance/ARM64/hosted/unsafe
 and compiler-isolation acceptance remains incomplete.
 
+### Session summary: repair disabled collection and prove bounded cache churn
+
+**Goal:** fully implement the plan on `feat/native-jit`; complete integrated
+cache-pressure observations and collection/ownership correctness uncovered by
+that work. Previous goal turn was progress: accepted ABI tests and metrics.
+
+**Instructions:** unchanged Make/Nix execution, patch tools, incremental unsigned
+title-only commits, fixed gates and no overlapping timings with builds/tests.
+No hosted run, push or release authorized. Engram remains unavailable; this
+document preserves decisions and the handoff.
+
+**Discoveries:** Off compilation service cannot serve as the only cleanup path
+for weak source registrations. Completed GC cycles must retire collected
+registrations while preserving live sources and any acquired code lease.
+Pressure retries consume the lifetime attempt budget: six evicted sources stay
+interpreted after exhaustion, with no steady compilation storm. Explicit clear
+resets admission attempts. The shipping disabled-JIT control now passes twice,
+but speed dispersion/failure and native workload failures still block acceptance.
+
+**Accomplished:** committed collection-completion retirement, Off full/forced/
+debt-driven regressions, pure Rust registry proof and the focused config lane
+(`3df6240`). Committed the shared eight-source/two-module churn scenario, public
+three-mode/two-budget stress, metrics output and actual scalar code execution
+after source collection under an acquired lease (`5f3caf5`). Full GNU/musl gates
+each pass 2760 tests/415 suites; baseline Clippy passes. Selected Miri passes
+27 tests/six namespaces. Archived pre-fix failure, copied native/speed/shipping
+artifacts, twelve repeated comparisons and 36+36+12 churn pass observations.
+All owned handles are terminal; no owned build/timing/profile remains running.
+
+**Next steps:** add coroutine/async scheduling observations and queued-source
+retirement coverage. Pursue native table/upvalue/callback and speed-control
+failures without relaxing thresholds. Complete effect/transition/error/fuel
+matrix, compiler/fixed-owner/combined-host resource accounting and CPU isolation,
+broader heap fuzz/unsafe review, and actual ARM64/hosted evidence. Current local
+work is not blocked. The full goal remains active and incomplete.
+
+**Relevant files:** `src/lua.rs` retires collected source metadata after GC
+completion; `src/jit/registry.rs` adds Rust-only cleanup proof; `src/jit/mod.rs`
+tests a live code lease across source retirement; `tests/jit_config.rs` covers
+three collection paths while Off; `tests/jit_resources.rs` exercises public
+cache pressure; `examples/jit_support/churn.rs` provides the shared scenario;
+`examples/jit_metrics.rs`, `Makefile`, `JIT.md` expose and document observations;
+`PLAN_JIT.md` records evidence; `target/jit-evidence/cache-churn/` archives raw
+artifacts, hashes, profiling configurations, failures and successful verification.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
