@@ -511,7 +511,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 8 — Optimize without weakening semantics
 
-**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 7 and a passing performance baseline. Initialized-prefix scratch and operand-scoped helper synchronization have correctness gates; paired performance checks are implemented. Release thresholds and the phase exit remain unmet; broader optimization must not be described as a passed baseline.
+**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 7 and a passing performance baseline. Initialized-prefix scratch and operand-scoped helper synchronization have correctness gates; paired performance checks and separate cold/service/slice/resource observations are implemented. Release thresholds and the phase exit remain unmet; broader optimization must not be described as a passed baseline.
 
 **Files:** JIT IR/codegen/guards/cache, bounded runtime helpers, optimization tests and benchmarks.
 
@@ -2714,6 +2714,78 @@ jit-abi`. The pinned `nix develop .#miri -c make jit-miri` lane passes 26 tests
 across six selected Rust-only namespaces, including all four ABI tests. It does
 not execute or prove generated machine-code safety. Miri and restored logs are
 archived with the experiment; session `33893` is terminal.
+
+### Scheduling and cold-start metrics decision
+
+Add a separate `jit_metrics` example and Make build/run/test lanes. Measure fresh
+states in Off, Auto and explicit-preparation modes, without modifying the frozen
+paired benchmark or introducing runtime timing instrumentation. Report source
+load and preparation-batch duration, per-service duration, first observed native
+entry, executor-only and host-enter slice latency, maximum observed logical VM
+work and fuel debit, coverage, queue occupancy and existing memory ledgers.
+Compilation service remains outside `Executor::step`; assert installed-region
+counts cannot increase during a measured step. Every measured execution verifies
+the expected result and native coverage where applicable.
+
+These observations are not CPU limits or whole-process memory accounting.
+Preparation includes registered core prototypes; service cost includes registry
+maintenance/snapshots/backend installation, not backend-only compilation. First
+native observation is at the host slice boundary, not the exact instruction
+timestamp. Report excluded compiler allocations/fixed owners/RSS explicitly.
+Initial coverage is the seven shared warm workloads, the faithful compile-once
+Oslo predicate with 10000 alternating rows, and a cold one-shot script. Service
+occurs before each step, as in `Lua::finish`; this also services requests queued
+by short per-row executions before the next row. Oslo is a standalone consumer
+reproduction, not end-to-end migration. Async/coroutine and cache-churn metrics
+remain required separately.
+
+### Scheduling metrics accounting discovery
+
+Source review of `run_vm` shows call/return/metamethod frame transitions break
+before the completed-work increment. Existing native/interpreted instruction
+counters therefore measure completed non-transition VM work, not every executed
+Lua opcode or callback. The probe's work maxima and `native_coverage` fraction
+inherit that scope. High fractions do not establish compiled calls/returns or
+cheap transitions; interpreted slice counts and the transition matrix remain
+important. The separate tool reports existing counters without changing runtime
+fuel/statistics semantics. Full opcode/transition coverage remains open.
+
+### Verified scheduling metrics evidence
+
+The current opt-level-3/LTO/single-codegen-unit artifact verifies all nine cases
+under Off, Auto and Prepared: two runs of three fresh-state samples produce
+81 observations each. A separate fuel-1 run verifies 27 observations. Oslo
+checks each of its 10000 alternating rows, not just the aggregate. Warm Auto
+and Prepared report actual native instructions; Off and cold Auto report none.
+Every step preserves installed-region and compilation-failure counts. Maximum
+observed counted VM work is 64 even with fuel 1; observed fuel debit reaches
+116 on allocation work. Neither is a wall-time or all-opcode bound.
+
+First-run integer Auto native observation has median 682365 ns, range
+642986–900385 ns, with 99.84% completed-work counter coverage. Table Auto has
+99.7441%, upvalue Auto 99.83%. These high fractions do not solve the failed
+speed gates or compile the uncounted call/return transitions. Cold Prepared
+spends median 12240988 ns on its six-prototype batch (range 12213251–12269046 ns),
+retains 61440 mapping bytes and executes ten counted instructions. Cold Auto
+queues no compilation and executes the same ten counted instructions in the
+reference tier. These are instrumented observations, not paired acceptance
+timings. Raw samples preserve latency variation and ledger/queue values.
+
+Full `nix develop -c make jit-verify clippy` gates pass on GNU and musl x86-64:
+2740 passing tests across 415 suite results per full gate, 24 ignored. The GNU
+orchestration additionally runs five focused metrics unit tests (2745/416 total).
+Baseline Clippy passes; the existing warning backlog is not a strict-clean claim.
+`make fmt-check` and source diff checks pass. Current source/binary SHA-256 are
+recorded at `target/jit-evidence/metrics/current-source-binary.sha256`; artifact
+SHA-256 is `2be71665dbd3d0175636a3567e8d3def1e82d1dc3c26c703b33ce517e21d1002`.
+Current raw evidence is `current-{first,repeat,tiny}-observations.log`, with a
+first-run median/range summary, configuration and CPU/toolchain logs alongside.
+Earlier eight-case and pre-counter-assert artifacts are retained separately.
+GNU/musl validation logs are `/tmp/luna-jit-metrics-{full,musl}-verify.log`.
+Sessions `71581`, `8731`, `76577`, `59945`, `51503` and `48476` are terminal.
+No benchmark/build/profile remains owned and live. Full plan acceptance remains
+open; async/coroutine/cache-churn metrics, complete compiler/host accounting,
+hardening, failed performance controls and actual ARM64/hosted evidence remain.
 
 ## 15. Primary references
 

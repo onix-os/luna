@@ -78,6 +78,35 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 ## Verification and remaining work
 
+`nix develop -c make jit-metrics` builds a separate opt-level-3 scheduling probe.
+Use `ARGS='--mode all --samples 3 --fuel 64'`; `--case` selects a shared benchmark,
+`oslo_predicate` or `cold_config`. Build without timing using `jit-metrics-build`,
+then measure the artifact with `jit-metrics-run`. `jit-metrics-tests` checks
+argument validation and observation accounting. Logs, CPU/toolchain/profile
+configuration and the binary hash are under `target/jit-evidence/metrics/`.
+
+Each fresh-state sample verifies its result and reports source-load duration,
+explicit preparation-batch duration, service cost, first observed native work,
+logical VM coverage, maximum observed step work/fuel debit, executor-only and
+host-enter latency, queue occupancy and existing GC/JIT memory ledgers. The
+Oslo case loads once and checks 10000 alternating rows. Off and cold Auto must
+not claim native execution; warm Auto and Prepared must actually execute it.
+Installed-region counters are checked around every step: compilation service
+is outside the arena. This probe does not replace paired performance gates.
+
+Preparation can include core-library prototypes, not just the selected script.
+Service cost includes maintenance, snapshots and backend installation. Native
+timestamps are post-slice observations; host-enter latency includes collector
+work. Fuel is approximate. Work and coverage use the existing `run_vm`
+accounting, not callback work: operations that leave the frame (calls, returns
+and metamethod transitions) break before its completed-work
+increment. A high native fraction therefore does not mean those transitions
+are compiled or inexpensive. Full opcode/transition coverage remains open.
+Memory peaks are observed at host boundaries except the existing
+metadata/snapshot ledger peaks. Compiler allocations, fixed owners, allocator overhead and RSS remain
+excluded. These measurements are neither hard CPU limits nor complete memory
+accounting. Async/coroutine and cache-churn measurements remain open.
+
 Host service/preparation sweeps compact sparse registration, tracking, code
 index and queue storage. Nonempty containers qualify at capacity 64 or greater
 and at most quarter occupancy. Replacement storage is reserved fallibly before
