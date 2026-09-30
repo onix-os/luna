@@ -2961,6 +2961,80 @@ cache pressure; `examples/jit_support/churn.rs` provides the shared scenario;
 `PLAN_JIT.md` records evidence; `target/jit-evidence/cache-churn/` archives raw
 artifacts, hashes, profiling configurations, failures and successful verification.
 
+### Function-reference move experiment
+
+Live source confirms scalar moves already lower directly; only reference moves
+use helper 1. Do not duplicate a nonexistent missing scalar fast path. Test a
+Rust-typed function case inside the existing Move helper operation: copy the
+canonical function value and write the known reference slot instead of sending
+it through generic scalar/reference retagging. Keep the original path for every
+other value, existing bounds checks and panic gateway, full counters and ABI v3.
+No generated code assumes Rust enum layout or stores GC pointer bits.
+
+This candidate targets the function-reference moves observed in short-call
+profiles. Preserve all reference identities, scalar payloads, destination/source
+aliasing and failure materialization; measure repeated native and both independent
+disabled-JIT controls before retaining or rejecting it. Runtime production before
+this experiment is the collection fix at `3df6240` with churn proof at `5f3caf5`.
+
+### Function-reference move rejection and recovered checkpoint
+
+The function-reference specialization is rejected; the original production Move
+helper is restored. Retain only its independent regression test covering all six
+reference variants, self-aliasing, pending scalar NaN payloads, bounds panics,
+canonical materialization, PC advancement and exact helper counters.
+
+Twelve guarded comparisons used eleven paired samples in each native, speed and
+shipping lane, ordered baseline, candidate, candidate repeat, baseline repeat.
+Shipping compiled-Off/no-JIT ratios exceeded the fixed 1.05 gate for candidate
+integer execution (1.0750, 1.0854) and upvalues (1.0853, 1.0840). Baseline integer
+ratios were 1.0003 and 1.0332; baseline upvalues were 1.0493 and 1.0530. The
+baseline repeat therefore also fails upvalues: the earlier shipping pass is not
+repeatable acceptance. No-JIT binaries were identical between baseline and
+candidate within each profile. Do not weaken or exempt these gates.
+
+Native upvalue Off/Auto ratios improved modestly from 0.6479/0.6485 to
+0.6821/0.6818, still below the required 1.25. Native table and callback acceptance
+also remain unmet. Speed integer control failed in the first run of both variants
+and passed in their repeats; this dispersion is not an accepted control result.
+Artifacts, binary hashes, status files and raw paired results are archived under
+`target/jit-evidence/function-move/`. All owned checks/build/timing sessions
+(`29214`, `94377`, `67054`) are terminal. No generated-code acceptance or Miri
+coverage is inferred from the rejected candidate's helper checks.
+
+### Session summary: plan status and rejected move specialization
+
+**Goal:** answer the requested plan-progress update and preserve the recovered
+implementation checkpoint. The requested plan exists and is committed;
+implementation and release acceptance remain incomplete on `feat/native-jit`.
+
+**Instructions:** use Make through Nix, patch tools rather than Python, and
+incremental unsigned title-only Conventional Commits. Keep acceptance thresholds
+unchanged. No push, release, hosted execution or subagent delegation authorized.
+
+**Discoveries:** scalar Move already lowers directly. The reference-function
+specialization does not satisfy repeated shipping controls. Previously passing
+shipping results cannot be presented as repeatable acceptance. Engram tools are
+unavailable; this document preserves the checkpoint.
+
+**Accomplished:** recovered current branch, commits and working-tree state;
+removed the rejected runtime specialization while retaining its independent
+helper regression. `nix develop -c make fmt-check jit-helpers` passes formatting
+and all four helper tests on the restored runtime path. Previous accepted full
+GNU/musl gates passed 2760 tests each,
+and selected Rust-only Miri passed 27 tests; those results predate the new helper
+test and must not be described as validation of it.
+
+**Next steps:** extend Miri/full-gate validation for the retained helper test,
+committed separately from this documentation update. Queued-source cancellation,
+coroutine/async observations,
+performance gates, compiler resource isolation, effect/transition coverage,
+broader fuzz/unsafe review and actual ARM64 validation remain outstanding.
+
+**Relevant files:** `PLAN_JIT.md` contains the design, phases and evidence;
+`src/jit/helpers.rs` retains the canonical Move path and independent regression;
+`target/jit-evidence/function-move/` contains rejected experiment evidence.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
