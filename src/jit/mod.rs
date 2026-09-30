@@ -187,7 +187,7 @@ pub(crate) struct Manager {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    code: MetadataMap<u64, Rc<backend::Code>>,
+    code: MetadataMap<u64, CachedCode>,
     #[cfg(all(
         test,
         target_os = "linux",
@@ -235,25 +235,18 @@ pub(crate) struct Tracking {
     hotness: u32,
     attempts: u32,
     queued: bool,
-    #[cfg(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+}
+
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+struct CachedCode {
+    code: Rc<backend::Code>,
     last_used: u64,
 }
 
 impl Manager {
-    #[cfg(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
-    fn touch(&mut self, id: u64) {
-        self.clock = self.clock.saturating_add(1);
-        if let Some(tracking) = self.tracked.get_mut(&id) {
-            tracking.last_used = self.clock;
-        }
-    }
-
     #[cfg(all(
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
@@ -270,16 +263,9 @@ impl Manager {
         let victim = self
             .code
             .iter()
-            .filter(|(candidate, code)| **candidate != id && Rc::strong_count(code) == 1)
-            .map(|(candidate, _)| *candidate)
-            .min_by_key(|candidate| {
-                (
-                    self.tracked
-                        .get(candidate)
-                        .map_or(0, |tracking| tracking.last_used),
-                    *candidate,
-                )
-            });
+            .filter(|(candidate, entry)| **candidate != id && Rc::strong_count(&entry.code) == 1)
+            .min_by_key(|(candidate, entry)| (entry.last_used, **candidate))
+            .map(|(candidate, _)| *candidate);
         let Some(victim) = victim else {
             self.stats.cache_eviction_refusals =
                 self.stats.cache_eviction_refusals.saturating_add(1);
@@ -500,8 +486,15 @@ impl Runtime {
                                 manager.stats.compilation_failures.saturating_add(1);
                             return Err(JitError::ResourceLimit("JIT metadata"));
                         }
-                        manager.code.insert(id, Rc::new(code));
-                        manager.touch(id);
+                        manager.clock = manager.clock.saturating_add(1);
+                        let last_used = manager.clock;
+                        manager.code.insert(
+                            id,
+                            CachedCode {
+                                code: Rc::new(code),
+                                last_used,
+                            },
+                        );
                         manager.stats.installed_regions =
                             manager.stats.installed_regions.saturating_add(1);
                     }
@@ -537,8 +530,11 @@ impl Runtime {
                 return None;
             }
             manager.stats.code_lookups = manager.stats.code_lookups.saturating_add(1);
-            let code = manager.code.get(&id).cloned()?;
-            manager.touch(id);
+            let last_used = manager.clock.saturating_add(1);
+            let entry = manager.code.get_mut(&id)?;
+            entry.last_used = last_used;
+            let code = entry.code.clone();
+            manager.clock = last_used;
             manager.stats.code_leases = manager.stats.code_leases.saturating_add(1);
             Some(Prepared { code })
         }
@@ -977,5 +973,50 @@ mod eviction_tests {
         assert_eq!(manager.stats.cache_eviction_refusals, 0);
         assert_eq!(manager.stats.compilation_failures, 1);
         assert_eq!(manager.tracked[&3].attempts, 1);
+    }
+
+    #[test]
+    fn lookup_misses_preserve_clock_and_successful_hits_update_entry_only() {
+        let (runtime, _) = two_module_cache();
+        let (clock, stats) = {
+            let manager = runtime.0.borrow();
+            (manager.clock, manager.stats)
+        };
+        assert!(runtime.lookup(999).is_none());
+        {
+            let manager = runtime.0.borrow();
+            assert_eq!(manager.clock, clock);
+            assert_eq!(manager.stats.code_lookups, stats.code_lookups + 1);
+            assert_eq!(manager.stats.code_leases, stats.code_leases);
+        }
+        drop(runtime.lookup(1).unwrap());
+        let manager = runtime.0.borrow();
+        assert_eq!(manager.clock, clock + 1);
+        assert_eq!(manager.code[&1].last_used, clock + 1);
+        assert_eq!(manager.stats.code_lookups, stats.code_lookups + 2);
+        assert_eq!(manager.stats.code_leases, stats.code_leases + 1);
+        assert_eq!(manager.tracked[&1].attempts, 1);
+        assert!(!manager.tracked[&1].queued);
+    }
+
+    #[test]
+    fn cache_entry_recency_is_charged_by_the_metadata_allocator() {
+        let ledger = Ledger::new(65536);
+        let allocator = BudgetAllocator(ledger.clone());
+        let mut bare: MetadataMap<u64, Rc<backend::Code>> = metadata_map(allocator.clone());
+        bare.try_reserve(1).unwrap();
+        let bare_bytes = ledger.current();
+        drop(bare);
+        assert_eq!(ledger.current(), 0);
+        ledger.set_limit(bare_bytes);
+        let mut entries: MetadataMap<u64, CachedCode> = metadata_map(allocator);
+        assert!(entries.try_reserve(1).is_err());
+        assert_eq!(ledger.current(), 0);
+        assert_eq!(ledger.refusals(), 1);
+        ledger.set_limit(65536);
+        entries.try_reserve(1).unwrap();
+        assert!(ledger.current() > bare_bytes);
+        drop(entries);
+        assert_eq!(ledger.current(), 0);
     }
 }

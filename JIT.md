@@ -16,6 +16,8 @@ Native-mapping quota pressure can evict one least-recently-used, unleased module
 and retry compilation once, provided the requested prototype still has an
 attempt available. Installation and successful lookup update recency; saturated
 clock ties use prototype generation. Eviction resets hotness, not attempts.
+Recency is stored in the budgeted cache-map entry; a successful lookup updates
+it while obtaining the lease, without another tracking-table probe.
 An evicted prototype can warm again while its lifetime attempt budget allows;
 otherwise it stays interpreted until explicit cache clearing. Leased modules
 are never pressure-eviction victims. If all candidates are leased, no code is

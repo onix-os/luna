@@ -1306,6 +1306,87 @@ process from this session remains live.
 `examples/jit_bench.rs` split/validate benchmark execution; `JIT.md` documents the
 interface; this plan retains rejected-experiment evidence and the next handoff.
 
+### Single-probe LRU recency decision
+
+Move recency from source `Tracking` into a `CachedCode` value in the existing
+budget-allocated cache map. A successful `get_mut` can update recency and clone
+the code lease without a second hashed tracking lookup; eviction scans can read
+recency directly. The larger cache-map value is charged by its allocator rather
+than adding unaccounted state to native `Code`. Source tracking shrinks again.
+Keep the saturating clock, generation tie break, attempt/queue state, one-victim
+retry, exact counters and all lease/retirement semantics. Compare copied matched
+baseline/candidate artifacts and rerun cache, quota, heap and full gates. This
+does not waive the still-failed native/compiled-Off performance controls.
+
+**Retained candidate evidence:** two sequential copied-artifact comparisons,
+with order reversed for the second, improve the upvalue Off/Auto speedup from
+0.4849 / 0.4916 (tracking recency) to 0.5823 / 0.5908 (cache-entry recency).
+Table moves from 1.0535 / 1.0347 to 1.1717 / 1.1773. Both variants still fail
+table/upvalue/metamethod/callback controls; these are targeted improvements,
+not performance acceptance. Other candidate first/repeat ratios: integer
+2.4123 / 2.8095; float 4.5684 / 4.5561; metamethod 0.7952 / 0.7751; callbacks
+0.6914 / 0.6953; allocation/GC 1.0167 / 1.0328; Oslo (unscored) 0.8516 /
+0.8972; cold 1.0002 / 0.9915. Raw paired dispersion is retained, including the
+first candidate integer sample minimum of 0.7823; no sample is discarded.
+
+Logs: `/tmp/luna-jit-cache-recency-{tracked,entry}-{performance,repeat}.log`;
+matched copied artifact hashes are in
+`target/jit-evidence/cache-recency/binaries.sha256`. An earlier attempted run
+was deferred before any timing because an unrelated Cargo job was active;
+completed runs found no Cargo/rustc jobs before/after each artifact. Two new
+tests prove miss/hit clock/counter semantics and quota charging of cache-entry
+recency. Existing deterministic LRU, lease, retirement and retry tests remain.
+Full GNU `make jit-verify` passes: 2565 executions / 404 suite invocations
+(`/tmp/luna-jit-cache-recency-verify.log`), with supervised smoke artifacts at
+`target/jit-evidence/fuzz/1790782459805833980-2987580`.
+
+**Compiled-Off speed-profile control:** two complete `make jit-size
+SIZE_PROFILE=speed` runs pass all nine unchanged 5% controls
+(`/tmp/luna-jit-cache-recency-feature-cost{,-repeat}.log`). First/repeat ratios:
+integer 0.9900 / 0.9980; float 0.9754 / 0.9732; table 0.9798 / 0.9856; upvalue
+1.0485 / 1.0464; metamethod 1.0469 / 1.0449; callbacks 1.0295 / 1.0275;
+allocation/GC 0.9666 / 0.9697; Oslo 0.9739 / 0.9711; cold 1.0012 / 1.0118.
+Matched binary sizes are 1417600 / 6426496 bytes. Both artifacts retain checked
+results, and the JIT artifact's Auto proof reports actual native work before
+the disabled comparisons. Upvalue/metamethod ratios remain close to the ceiling;
+retain raw dispersion and repeat after further changes. The shipping profile
+still requires a current passing result. Disabled execution does not perform
+the removed active-cache probe, so do not causally attribute these Off timings
+to that probe alone; source-tracking layout and linked code also changed.
+
+#### Session summary: single-probe cache recency
+
+**Goal:** remove avoidable LRU bookkeeping overhead while preserving the full
+plan's metadata, cache, lease and acceptance contracts.
+
+**Instructions:** keep deterministic eviction and exact counters; measure
+copied artifacts sequentially on an idle machine, retain all samples, and
+commit the verified milestone separately.
+
+**Discoveries:** recency belongs in the charged cache-map entry rather than an
+extra tracking probe. Two tests demonstrate its allocation charge and unchanged
+miss/success clock/lease semantics. Source-tracking metadata shrinks, while
+installed cache entries grow under the same allocator.
+
+**Accomplished:** retained single-probe lookup and direct-recency eviction scans;
+two-order comparisons improve upvalue and table ratios but still fail four
+native controls. Full GNU verification passes (2565 executions / 404 suites),
+and both speed-profile compiled-Off controls pass all nine workloads. Existing
+cache/pinning/refusal/GC tests remain applicable; documentation is updated.
+Focused musl policy, all fourteen native and twelve heap integrations pass
+(`/tmp/luna-jit-cache-recency-musl.log`), with formatting/workflow validation.
+This is not a newly executed full musl gate or ARM64 certification.
+
+**Next steps:** continue short-frame/helper optimization, shipping-profile acceptance,
+compiler/combined-host bounds, sparse-cache policy, broader lifecycle/unsafe/fuzz
+hardening and ARM64/hosted execution. Full plan acceptance is still unmet; no
+process from this milestone remains live after final checks.
+
+**Relevant files:** `src/jit/mod.rs` holds charged cache recency and new tests;
+`src/jit/model.rs` adapts the explicit lease fixture; `JIT.md` and this plan
+describe the behavior and evidence. Ignored copied benchmark artifacts preserve
+baseline/candidate hashes and raw timing reports.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

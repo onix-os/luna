@@ -539,7 +539,9 @@ mod tests {
             );
             manager.memory = memory.clone();
             manager.config.mode = super::super::JitMode::Auto;
-            manager.code.insert(1, code);
+            manager
+                .code
+                .insert(1, super::super::CachedCode { code, last_used: 0 });
             let runtime = super::super::Runtime(Rc::new(std::cell::RefCell::new(manager)));
             let lease = runtime.lookup(1).unwrap();
             if let Some(configuration) = configuration {
