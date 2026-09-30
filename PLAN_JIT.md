@@ -460,7 +460,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 5 — Preserve callbacks, coroutines, async, and unwinding
 
-**Status:** IN PROGRESS. **Depends on:** Phase 4. Dedicated native heap tests cover reentrant callbacks, coroutine suspension, foreign futures, and close-handler error unwinding; the complete transition matrix remains open.
+**Status:** IN PROGRESS. **Depends on:** Phase 4. Dedicated native heap tests cover reentrant callbacks, coroutine suspension, foreign futures, and close-handler error unwinding. Shared public-host coroutine/await scenarios verify native heap work around suspension, GC while parked, real Pending/wake behavior and tier coverage at fuel 1/64/65536. The complete transition matrix remains open.
 
 **Files:** runtime wrappers, thread executor/frame integration, `tests/jit_transitions.rs`, existing callback/reentrancy/async/close/error tests.
 
@@ -494,7 +494,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 7 — Add hotness policy and nonblocking automatic compilation
 
-**Status:** IN PROGRESS. **Depends on:** Phases 3 and 6. Hotness/bounded queue/explicit outside-arena service, bounded failed attempts, configuration retirement, typed refusal and bounded LRU retry with diagnostics are implemented. Scheduling failure injection, broader backoff/compaction policy and complete resource ledgers remain open.
+**Status:** IN PROGRESS. **Depends on:** Phases 3 and 6. Hotness/bounded queue/explicit outside-arena service, bounded failed attempts, configuration retirement, typed refusal and bounded LRU retry with diagnostics are implemented. Completed GC cancels dead queued sources without compilation and preserves live queued executors/identities. Scheduling failure injection, broader backoff/compaction policy and complete resource ledgers remain open.
 
 **Files:** compiler/cache policy, Lua host service APIs, `tests/jit_policy.rs`, `tests/jit_resources.rs`, benchmark harness.
 
@@ -670,16 +670,16 @@ Do not disable tests, lower safety guarantees, catch arbitrary crashes as succes
 
 | Phase | Status | Required evidence | Recorded result |
 | --- | --- | --- | --- |
-| 0: reference/backend feasibility | IN PROGRESS | Baseline gates, accounting characterization, executed ABI experiment, pinned backend decision | Nix `make verify`, fuel probes, RX helper call and worker-transfer probes passed on x86-64 Linux; Cranelift 0.136.1/Rust 1.97.1 pinned. `make clippy` still fails on two inherited `never_loop` errors in `src/meta_ops.rs` (139 warnings). Other native targets not executed. |
+| 0: reference/backend feasibility | IN PROGRESS | Baseline gates, accounting characterization, executed ABI experiment, pinned backend decision | Nix `make verify`, fuel probes, RX helper call and worker-transfer probes passed on x86-64 Linux; Cranelift 0.136.1/Rust 1.97.1 pinned. The inherited `never_loop` errors are fixed; baseline Clippy passes with a warning backlog, not strict acceptance. GNU/musl x86-64 native gates pass; native ARM64/hosted results remain uncollected. |
 | 1: configuration/gates | IN PROGRESS | Optional dependency isolation, capability tests, explicit mode wrappers | Optional dependency tree checked without compiler crates; Off constructors and explicit config tests pass. Force wrappers now prepare outside arena entries; same-entry execution is disclosed rather than falsely claimed forced. |
 | 2: runtime boundary | IN PROGRESS | PC/effect/fuel/rooted-state mock/reference tests | Boundary tests pass per-PC/per-budget scalar and mixed-numeric Rust-model agreement, pinning/retirement, admission and allocation failure cases. Fourteen native integrations cover interrupted fuel and side-effect-preserving guard bailout with GC between slices. Complete transition mock coverage pending. |
 | 3: IR/code ownership | IN PROGRESS | Verifier/admission/cache/lifetime/resource tests | Backend admission revalidation and malformed refusal pass. Shared fallible allocators charge registry/tracking/code-index/queue/preparation/snapshot and persistent backend entry/mapping-record layouts, including retained capacity and transient growth. Refusal, allocation/protection denial, partial cleanup and lower-limit retirement/lease tests pass. Fixed-owner/compiler and combined-host accounting remain incomplete. |
 | 4: native slices | IN PROGRESS | Actual native counters, numeric/fuel correctness | Explicit example returned 5000050000 with 200007 native logical instructions; fourteen native tests pass. Scalar operations, numeric loops, guarded comparison, and interpreter fallback integrated. Helper-backed heap operations execute natively; broader numeric/error coverage remains open. |
-| 5: lifecycle integration | IN PROGRESS | Mixed-tier callbacks, async/coroutines, errors and close tests | Twelve dedicated heap tests (thirteen with async) cover reentrancy, coroutine/foreign suspension, close/error unwinding, panic materialization, debug mutation and finalizer resurrection. Six additional upvalue tests cover aliases, foreign stacks, shared captures and Rust reentry. Full-feature Force passes; complete mixed-tier transition matrix remains open. |
+| 5: lifecycle integration | IN PROGRESS | Mixed-tier callbacks, async/coroutines, errors and close tests | Dedicated heap/upvalue tests cover reentry, close/error unwinding, panic materialization, debug mutation, shared captures and finalizer resurrection. Public coroutine/foreign-await scenarios (`7351b4b`) verify all three modes at fuel 1/64/65536, native table updates after resumption, GC while parked, six Pending polls/two Ready polls/six wakes, and no compilation inside slices. GNU/musl full-feature Force passes. Complete transition/error/mock coverage remains open. |
 | 6: heap/GC integration | IN PROGRESS | Native heap paths, barriers, GC/mutation/invalidation stress | Fresh helper guards preserve weak/readonly/intercept/invalid-key behavior. Every-slice GC, open/closed upvalues, pending-scalar panic inspection, debug local/upvalue join and finalizer-only native upvalue writes pass. Shared-cell tests additionally prove exact operation counts and write visibility across error guards, foreign stacks, GC and Rust reentry. Broader interleaved executors, mode mutations and exhaustive guard coverage remain open. |
-| 7: Auto policy | IN PROGRESS | Nonblocking stepping, owned compile work, limits/backoff, hot promotion | Bounded hot requests and explicit outside-arena service; Off/quota-shrink retirement, queue/attempt reductions, typed quota refusal and exhausted-attempt reset tests pass. Bounded unleased LRU eviction/retry, charged single-probe recency and sparse compaction pass ten cache tests. Fallible old/new charging, eight-pass refusal backoff and integrated 128-source collection preserve leases, pending work and three live identities. Injected blocked compiler and complete resource/diagnostic coverage remain open. |
-| 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Slice-local leases, fixed helper ABI v3, operand-scoped synchronization and outlined tiered scratch pass full correctness and every-tier reference tests. Rust assembly verifies the VM scratch probe was removed. Seeded AHash metadata (`bde8764`) improves upvalue/callback ratios versus copied matched baselines; native first/repeat still fail four/three controls, with metamethod borderline rather than accepted. Current compiled-Off speed controls pass twice; shipping first/repeat fail three/one, including upvalue 7.26%/6.82% overhead against the 5% ceiling. Scalar-upvalue ABI v4 proxy experiment regresses the required closure workload and is removed. Perf is permission-denied; full native/shipping acceptance, cold compile/latency and broader fuzz evidence remain open. |
-| 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Admission/scalar campaigns execute in limited supervised child processes; panic/signal/timeout failures are tested, and workers verify inherited limits. Five-seed 5120-kernel campaign passes with exact exit/slot/reclamation comparisons. Full GNU/musl x86-64 gates and prepared examples execute natively; allocation/protection denial is injected and tested. Pinned Rust-only Miri passes 24 tests at seeds 0/default and 1, including nonnull frames through all nine helpers and panic transport; exactly one executable-finalization resource test remains native-only. Heap/lifecycle and coverage-guided fuzz, complete unsafe review and native ARM64/hosted evidence remain open. |
+| 7: Auto policy | IN PROGRESS | Nonblocking stepping, owned compile work, limits/backoff, hot promotion | Bounded hot requests and explicit outside-arena service; configuration retirement, queue/attempt reductions, typed quota refusal and reset tests pass. LRU retry, charged recency, sparse compaction, refusal backoff and source collection preserve leases/live identities. Real hot queued-source GC tests (`5570951`) cancel dead requests without snapshot/compiler work, preserve a live peer's queue/identity and reclaim all accounted storage after its final drop. Injected blocked compiler and complete resource/diagnostic coverage remain open. |
+| 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Slice leases, ABI v3, operand synchronization and tiered scratch pass correctness. Repeated native table/upvalue/callback gates still fail; metamethod results are borderline. Latest baseline speed integer control fails first and passes repeat; shipping upvalues pass first (1.0493) and fail repeat (1.0530), so neither profile has repeatable disabled-JIT acceptance. Reference-move specialization is rejected for repeated shipping regressions. Separate cold/service/slice/cache-churn and coroutine/async observations exist, not paired release acceptance. Perf counters remain permission-denied; hardening/resource/performance work stays open. |
+| 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Limited supervised admission/scalar campaigns test signals/timeouts/inherited limits; a five-seed 5120-kernel campaign verifies exits/slots/reclamation. Latest full GNU/musl x86-64 gates pass 2782 tests/421 suite results each, 24 ignored; allocation/protection refusal is tested. Pinned default-seed Rust-only Miri passes 29 tests/six namespaces, including six-reference Move alias/scalar/panic checks and integrated queued-source retirement. Generated code, coroutine/foreign-await scenarios and executable finalization are not Miri-covered. Broader heap/lifecycle fuzz, complete unsafe review and actual ARM64/hosted evidence remain open. |
 | 10: release acceptance | IN PROGRESS | Complete gates, thresholds, docs/examples, actual CI | Prepared example and resource/security documentation exist. Active workflow wiring runs full GNU/musl x86-64 and GNU ARM64 gates, builds matched shipping artifacts and uploads evidence. Workflow lint/local musl integration pass; repeated local shipping/size/disabled-cost evidence is recorded. Actual hosted/ARM64 results, complete hardening and both native/disabled performance acceptance remain missing. |
 
 Status values: TODO, IN PROGRESS, COMPLETE, or BLOCKED with a concrete reason. Attach toolchain, platform, commands, counts, exclusions, and evidence paths when updating a row. COMPLETE requires the stated phase exit, not a percentage estimate.
@@ -3035,6 +3035,162 @@ broader fuzz/unsafe review and actual ARM64 validation remain outstanding.
 `src/jit/helpers.rs` retains the canonical Move path and independent regression;
 `target/jit-evidence/function-move/` contains rejected experiment evidence.
 
+### Queued-source cancellation coverage
+
+Add an integrated Rust-only registry test using real source closures and manual
+executor slices, not synthesized manager entries. Auto hotness queues the source
+with threshold one; no service or preparation API runs. Test both a sole dead
+request and a dead request beside a retained live queued executor. Two completed
+collections must remove the dead registration and queue entry without executing
+or compiling anything, preserve the live prototype identity and pending request,
+and allow its interpreter execution to finish with result 20100. Repeated slices
+must not duplicate that request. Dropping the final executor and collecting
+twice must reclaim every accounted registration/queue/metadata/snapshot/code
+allocation, with zero installs, failures or native entries. This test deliberately
+does not invoke the backend and belongs to the selected Miri registry namespace.
+`make jit-registry` provides a focused validation lane.
+
+### Suspension observation design and fuel scope
+
+Add a shared public-host scenario for two coroutine yields/resumes and two
+foreign awaits. Each has three long table-update segments and verifies object
+identity/results after resumption. Off must execute no native work; Auto with
+explicit hot threshold one must execute native work after each resumption;
+Prepared must execute it in every segment. At fuel 1/64, Auto also executes it
+in the first segment. At fuel 65536, Auto finishes that cold segment interpreted
+before host service can compile the queued request. Keep and test this cold
+zero, not a hidden compile inside the slice or a misleading native claim.
+Full collections run while the executor is suspended. Foreign futures
+are polled outside the arena, yield Pending exactly three times per await, wake
+a real counting waker, and must not execute VM instructions while being polled.
+Compilation/install/failure counters cannot change inside executor slices or GC.
+
+One executor step can include multiple VM invocations when a call/return ends
+an invocation before its 64-operation granularity. The first test's assumption
+that every whole step has at most 64 counted operations was incorrect. For
+these controlled callbacks, test the existing fuel-derived bounds instead:
+completed VM work at most `fuel + 63`, debit at most `fuel + 67` (a final
+64-operation invocation plus the four-unit executor-step charge). This is not
+a new fuel contract, a performance exemption or a bound on arbitrary callback
+CPU work. Report measured step and host-enter latency separately from forced
+GC and external poll time. Keep these observations distinct from paired gates.
+
+### Verified suspension observations
+
+Queued cancellation is committed separately as `5570951`; coroutine/foreign
+scenario code, public tests, CLI protocol and Make/Nix lanes as `7351b4b`.
+Focused `make fmt fmt-check jit-registry jit-suspension jit-metrics-tests
+jit-metrics-build` passes. The registry namespace has three tests; the suspension
+lane runs one JIT-only and two JIT+async tests, each exercising three modes and
+fuel 1, 64 and 65536. Metrics option/accounting tests pass six cases in each
+feature configuration. Default library features remain empty; only the metrics
+Make build explicitly selects `jit,async`.
+
+Archive `target/jit-evidence/suspension/` holds the copied opt-level-3/LTO metrics
+artifact (SHA-256 `ec5cb7ff083f9b9ba90f502503f8050bc45e426425c75d58843fcaa31c232cbb`),
+source commit, build configuration, environment and raw results. Eight separate
+guarded Make runs yield 48 verified suspension rows: three samples per mode/case
+at fuel 64, repeated independently, plus one per mode/case at fuel 1 and 65536.
+Global compiler/profile process checks pass before and after each timing run;
+no owned build or test overlaps those observations.
+
+At fuel 64, Auto native table-write segments are 186/200/200 for coroutines and
+186/201/201 for awaits; Prepared segments are 201/200/200 and 201/201/201.
+Both first/repeated groups reproduce those counts. Off segments are all zero.
+Completed-work native fractions are approximately 0.973 Auto and 0.999 Prepared,
+not compiled-transition coverage. Maximum whole-step counted work is 68 for
+coroutines and 70 for awaits, with maximum fuel debit 93 and 103 respectively.
+Each coroutine session checks 20100, 40200 and 60300; each await session checks
+60384, six Pending polls, two Ready polls and six wakes. Four/twelve explicit
+full GC cycles preserve table identity and resumable state.
+
+The six fuel-64 samples observe first native work at 2.14..7.37 ms Auto versus
+13.92..18.85 ms Prepared for coroutines, and 2.29..6.87 ms versus 13.95..16.94 ms
+for awaits. Prepared compiles six registered prototypes and peaks at 69632
+mapped bytes; Auto peaks at 12288 bytes. Preparation includes core-library
+prototypes. These ranges show cold/compiler cost and dispersion, not accepted
+paired speedups or hard latency bounds. At fuel 65536, Auto first segments are
+correctly zero-native; post-resumption segments execute native table updates.
+Existing native/disabled-JIT acceptance failures are unchanged and remain open.
+
+### Suspension and queued-retirement full verification
+
+`nix develop -c make jit-verify clippy` and its
+`TARGET=x86_64-unknown-linux-musl` counterpart both pass: 2782 tests across
+421 suite results each, 24 ignored. These gates execute the new coroutine case
+in Off/Auto/Force wrappers and both coroutine/foreign-await cases with all
+features. Baseline Clippy passes with its existing warning backlog; this is not
+strict warning-free acceptance. Logs are archived as
+`target/jit-evidence/suspension/luna-jit-suspension-{gnu,musl}-verify.log`.
+
+Pinned `nix develop .#miri -c make jit-miri
+MIRI_DIR=target/jit-evidence/suspension/miri` passes 29 tests across six Rust-only
+namespaces. The helper namespace now passes four tests, including six-reference
+Move identity/alias/scalar/panic coverage; registry passes three, including real
+queued-source cancellation/live-peer execution. No executable backend is called
+by that queue test. Generated code and suspension scenarios remain outside
+Miri coverage. Raw toolchain/setup/default-flags/results and the orchestration
+log are archived in the same evidence directory.
+
+A default `jit-metrics-run ARGS='--mode all --samples 1 --fuel 64'` confirms
+dispatch completeness: 27 ordinary workload rows, twelve cache-churn passes,
+three cleanup rows and six suspension rows. Its first admission was rejected
+before timing because an unrelated Molla Cargo test was active; that process
+list is retained. After the process had ended and the global check was clear,
+the retry completed with clear before/after checks. No foreign process was
+terminated. This adds six verified suspension rows to the 48 focused rows.
+Neither this observational run nor correctness/Miri passes closes the failing
+paired performance gates.
+
+### Session summary: queued cancellation and measured suspension
+
+**Goal:** fully implement this plan on the existing new branch
+`feat/native-jit`; complete real queued-source lifetime proof and coroutine/async
+scheduling observations without narrowing the full objective. The preceding
+goal turn was progress (retained helper tests and rejected-optimization evidence).
+The current turn adds accepted tests, executable observations and verification.
+
+**Instructions:** Make through Nix, patch/edit tools rather than Python,
+incremental unsigned title-only Conventional Commits, unchanged thresholds,
+no builds/tests overlapping timing and no termination of other projects' jobs.
+No push, release, hosted execution or subagent delegation authorized.
+
+**Discoveries:** queued requests do not keep their weak source alive, but a live
+executor must keep its pending request/prototype identity intact through GC.
+A whole executor step can contain multiple 64-operation VM invocations.
+With large fuel, Auto cannot compile the first cold segment before suspension;
+actual native work begins after outside-arena host service. Await polling and
+its six wakes execute outside the arena and perform no VM/compiler work.
+Engram tools remain unavailable; this document persists the session checkpoint.
+
+**Accomplished:** committed real queued-source cancellation/live-peer tests
+(`5570951`) separately from the shared coroutine/foreign-await scenario,
+metrics protocol, focused Make targets and feature-aware CLI tests (`7351b4b`).
+Both feature configurations and three modes/fuel budgets pass focused checks.
+Full GNU/musl gates pass 2782 tests/421 suites each; selected default-flags Miri
+passes 29 tests/six namespaces. Archived copied release artifact/provenance,
+48 focused plus six default-run suspension observations, raw environment and
+guard records, full-gate and Miri logs. Updated stale ledger statements about
+Clippy and repeatable disabled-JIT performance instead of leaving false passes.
+All owned build/test/timing handles are terminal. No release acceptance claimed.
+
+**Next steps:** implement the remaining owned CFG/effect and complete transition
+mock/error/PC/fuel matrix, then pursue the still-failing native table/upvalue/
+callback and repeated disabled-JIT controls. Complete compiler/fixed-owner/
+combined-host accounting and hard compiler CPU/working-memory isolation or
+explicitly approved precompilation policy, broader heap/lifecycle fuzz and unsafe
+review, and actual ARM64/hosted evidence when authorized. Recheck global process
+activity before any further timings; unrelated builds can start again. Local
+implementation work remains available. The full goal stays active/incomplete.
+
+**Relevant files:** `src/jit/registry.rs` verifies real weak queued-source GC;
+`examples/jit_support/suspension.rs` shares coroutine/foreign-await scenarios;
+`tests/jit_suspension.rs` checks all modes at fuel 1/64/65536;
+`examples/jit_metrics.rs` emits observations and validates feature-aware cases;
+`Makefile` adds focused lanes and includes async only for the metrics build;
+`JIT.md` documents measurement scopes; `PLAN_JIT.md` preserves the evidence and
+remaining work; `target/jit-evidence/suspension/` archives raw verification.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
@@ -3051,3 +3207,6 @@ broader fuzz/unsafe review and actual ARM64 validation remain outstanding.
 3. Native code generation, collector integration, nonblocking compilation, and proof of actual native execution are separate acceptance responsibilities.
 4. The first integrated scalar tier executes real native instructions and preserves measured slice/fuel behavior, but heap/callback-heavy workloads need additional work rather than relaxed performance gates.
 5. Source-defined standard-library functions create legitimate weak registrations in core states; empty-state tests are necessary to isolate provenance and collection behavior.
+6. Queued compilation does not keep a weak source alive; completed GC must cancel dead requests while preserving live executor-backed requests and identities.
+7. Auto compilation serviced only between slices can leave a large-budget first cold segment interpreted; report that zero rather than claiming native work or compiling inside the slice.
+8. Executor-step work can exceed one 64-operation VM invocation; approximate fuel accounting and actual suspension/polling observations need distinct scopes.
