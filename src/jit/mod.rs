@@ -265,6 +265,32 @@ struct CachedCode {
 }
 
 impl Manager {
+    pub(crate) fn needs_compaction(&mut self) -> bool {
+        let needed = self
+            .tracked_compactor
+            .needed(self.tracked.len(), self.tracked.capacity())
+            | self
+                .queue_compactor
+                .needed(self.queue.len(), self.queue.capacity());
+        #[cfg(all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ))]
+        {
+            needed
+                | self
+                    .code_compactor
+                    .needed(self.code.len(), self.code.capacity())
+        }
+        #[cfg(not(all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )))]
+        {
+            needed
+        }
+    }
+
     pub(crate) fn record_compaction(&mut self, result: Compaction) {
         match result {
             Compaction::Unchanged => return,
@@ -999,6 +1025,7 @@ mod eviction_tests {
         {
             let mut manager = runtime.0.borrow_mut();
             let clock = manager.clock;
+            assert!(manager.needs_compaction());
             manager.compact_metadata();
             assert!(manager.metadata.0.current() < before);
             assert_eq!(manager.stats.metadata_compactions, 3);
@@ -1019,6 +1046,7 @@ mod eviction_tests {
             );
             assert_eq!(manager.queue.as_slice(), &[3]);
             assert_eq!(manager.stats.queued_requests, 1);
+            assert!(!manager.needs_compaction());
         }
         assert_eq!(runtime.usage(), 2 * bytes);
         assert_executable(&lease);

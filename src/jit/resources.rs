@@ -97,6 +97,7 @@ pub(crate) struct Compactor {
     skipped: u8,
 }
 
+#[derive(Clone, Copy)]
 pub(crate) enum Compaction {
     Unchanged,
     Compacted(usize),
@@ -104,14 +105,22 @@ pub(crate) enum Compaction {
 }
 
 impl Compactor {
-    fn ready(&mut self, len: usize, capacity: usize) -> bool {
-        if len == 0 {
-            self.skipped = 0;
-            return capacity != 0;
+    pub fn needed(&mut self, len: usize, capacity: usize) -> bool {
+        if len == 0 || capacity < 64 || len > capacity / 4 {
+            if self.skipped != 0 {
+                self.skipped = 0;
+            }
+            return len == 0 && capacity != 0;
         }
-        if capacity < 64 || len > capacity / 4 {
-            self.skipped = 0;
+        true
+    }
+
+    fn ready(&mut self, len: usize, capacity: usize) -> bool {
+        if !self.needed(len, capacity) {
             return false;
+        }
+        if len == 0 {
+            return true;
         }
         if self.skipped != 0 {
             self.skipped -= 1;
@@ -257,6 +266,9 @@ mod tests {
         assert_eq!(values.capacity(), capacity);
         assert_eq!(ledger.refusals(), 1);
         ledger.set_limit(1024 * 1024);
+        for _ in 0..32 {
+            assert!(compactor.needed(values.len(), values.capacity()));
+        }
         for _ in 0..8 {
             assert!(matches!(compactor.map(&mut values), Compaction::Unchanged));
         }

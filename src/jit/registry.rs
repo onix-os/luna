@@ -15,6 +15,24 @@ struct Registration<'gc> {
     prototype: GcWeak<'gc, FunctionPrototype<'gc>>,
 }
 
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn unchanged_dense_sweep_does_not_reborrow_manager() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = crate::Closure::load(ctx, Some("dense-sweep"), b"return 42").unwrap();
+            let mut registry = ctx.jit_registry().borrow_mut(&ctx);
+            let identity = registry.identity(ctx, closure.prototype()).unwrap();
+            let manager = ctx.jit().0.borrow_mut();
+            registry.sweep(ctx, false);
+            drop(manager);
+            assert_eq!(registry.identity(ctx, closure.prototype()), Some(identity));
+            assert_eq!(ctx.jit().0.borrow().stats.metadata_compaction_attempts, 0);
+        });
+    }
+}
+
 #[derive(Collect)]
 #[collect(no_drop)]
 pub(crate) struct Registrations<'gc> {
@@ -92,7 +110,8 @@ impl<'gc> Registrations<'gc> {
             .upgrade(&ctx)
     }
 
-    pub fn sweep(&mut self, ctx: Context<'gc>) {
+    pub fn sweep(&mut self, ctx: Context<'gc>, maintain: bool) {
+        let before = self.entries.len();
         self.entries.retain(|_, entry| {
             if entry.prototype.upgrade(&ctx).is_some() {
                 true
@@ -101,10 +120,16 @@ impl<'gc> Registrations<'gc> {
                 false
             }
         });
+        let retired = before != self.entries.len();
         let result = self.compactor.map(&mut self.entries);
+        if !maintain && !retired && matches!(result, super::resources::Compaction::Unchanged) {
+            return;
+        }
         let mut manager = ctx.jit().0.borrow_mut();
         manager.record_compaction(result);
-        manager.compact_metadata();
+        if maintain || retired {
+            manager.compact_metadata();
+        }
     }
 
     pub fn ids(&self, ctx: Context<'gc>) -> Result<Vec<u64, BudgetAllocator>, JitError> {

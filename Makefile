@@ -203,6 +203,7 @@ jit-policy:
 
 jit-resources:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::resources
+	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::registry::tests
 	@$(CARGO) test -p luna --features jit --test jit_resources $(TARGET_ARG)
 
 jit-registers:
