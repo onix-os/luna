@@ -3,6 +3,9 @@ mod executor;
 mod thread;
 mod vm;
 
+#[cfg(feature = "jit")]
+pub(crate) use self::thread::LuaRegisters;
+
 use thiserror::Error;
 
 use crate::meta_ops::{MetaCallError, MetaOperatorError};

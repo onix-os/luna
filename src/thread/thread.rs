@@ -1125,7 +1125,7 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
     }
 }
 
-pub(super) struct LuaRegisters<'gc, 'a> {
+pub(crate) struct LuaRegisters<'gc, 'a> {
     pub pc: &'a mut usize,
     pub stack_frame: &'a mut [Value<'gc>],
     upper_stack: &'a mut [Value<'gc>],
@@ -1158,7 +1158,7 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
         }
     }
 
-    pub(super) fn get_upvalue(&self, mc: &Mutation<'gc>, upvalue: UpValue<'gc>) -> Value<'gc> {
+    pub(crate) fn get_upvalue(&self, mc: &Mutation<'gc>, upvalue: UpValue<'gc>) -> Value<'gc> {
         match upvalue.get() {
             UpValueState::Open(open_upvalue) => {
                 if open_upvalue.stack.as_ptr() == Gc::as_ptr(self.stack) {
@@ -1175,7 +1175,7 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
         }
     }
 
-    pub(super) fn set_upvalue(
+    pub(crate) fn set_upvalue(
         &mut self,
         mc: &Mutation<'gc>,
         upvalue: UpValue<'gc>,

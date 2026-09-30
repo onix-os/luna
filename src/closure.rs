@@ -355,7 +355,14 @@ impl<'gc> Closure<'gc> {
         } else {
             FunctionPrototype::compile(ctx, name.unwrap_or("<anonymous>"), source)?
         };
-        Ok(Closure::new(&ctx, proto, Some(env))?)
+        let closure = Closure::new(&ctx, proto, Some(env))?;
+        #[cfg(feature = "jit")]
+        if !crate::dump::is_binary_chunk(source) {
+            ctx.jit_registry()
+                .borrow_mut(&ctx)
+                .register(ctx, closure.prototype());
+        }
+        Ok(closure)
     }
 
     pub fn prototype(self) -> Gc<'gc, FunctionPrototype<'gc>> {

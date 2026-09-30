@@ -1,0 +1,28 @@
+use luna::{Closure, Executor, JitConfig, JitMode, Lua};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut lua = Lua::core();
+    if lua.jit_capabilities().supported_target {
+        lua.set_jit_config(JitConfig {
+            mode: JitMode::Auto,
+            ..JitConfig::default()
+        })?;
+    }
+    let executor = lua.try_enter(|ctx| {
+        let closure = Closure::load(
+            ctx,
+            Some("native-example"),
+            b"local sum=0 for i=1,100000 do sum=sum+i end return sum",
+        )?;
+        Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+    })?;
+    let prepared = lua.prepare_jit()?;
+    let result: i64 = lua.execute(&executor)?;
+    assert_eq!(result, 5_000_050_000);
+    let stats = lua.jit_stats();
+    println!(
+        "result={result} prepared={prepared} native_instructions={} native_memory_bytes={}",
+        stats.native_instructions, stats.code_bytes
+    );
+    Ok(())
+}

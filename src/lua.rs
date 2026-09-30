@@ -71,6 +71,16 @@ pub struct Context<'gc> {
 }
 
 impl<'gc> Context<'gc> {
+    #[cfg(feature = "jit")]
+    pub(crate) fn jit(self) -> &'gc crate::jit::Runtime {
+        Gc::as_ref(self.state.jit)
+    }
+
+    #[cfg(feature = "jit")]
+    pub(crate) fn jit_registry(self) -> crate::jit::registry::Registry<'gc> {
+        self.state.jit_registry
+    }
+
     /// Get a reference to [`Mutation`] (the `gc-arena` mutation handle) out of the `Context`
     /// object.
     ///
@@ -263,6 +273,8 @@ pub struct Lua {
     memory_limit: Option<usize>,
     // Whether `enter` collects on its own, or the host has taken the schedule over.
     gc_automatic: bool,
+    #[cfg(feature = "jit")]
+    jit: crate::jit::Runtime,
 }
 
 impl Default for Lua {
@@ -274,10 +286,15 @@ impl Default for Lua {
 impl Lua {
     /// Create a new `Lua` instance with no parts of the stdlib loaded.
     pub fn empty() -> Self {
+        let arena = Arena::<Rootable![State<'_>]>::new(|mc| State::new(mc));
+        #[cfg(feature = "jit")]
+        let jit = arena.mutate(|_, state| Gc::as_ref(state.jit).clone());
         Lua {
-            arena: Arena::<Rootable![State<'_>]>::new(|mc| State::new(mc)),
+            arena,
             memory_limit: None,
             gc_automatic: true,
+            #[cfg(feature = "jit")]
+            jit,
         }
     }
 
@@ -286,6 +303,130 @@ impl Lua {
         let mut lua = Self::empty();
         lua.load_core();
         lua
+    }
+
+    /// Returns the native backend capabilities for this build.
+    #[cfg(feature = "jit")]
+    pub fn jit_capabilities(&self) -> crate::jit::JitCapabilities {
+        crate::jit::JitCapabilities::current()
+    }
+
+    /// Returns this state's compilation and execution limits.
+    #[cfg(feature = "jit")]
+    pub fn jit_config(&self) -> crate::jit::JitConfig {
+        self.jit.0.borrow().config.clone()
+    }
+
+    /// Applies validated JIT configuration to this state.
+    #[cfg(feature = "jit")]
+    pub fn set_jit_config(
+        &mut self,
+        config: crate::jit::JitConfig,
+    ) -> Result<(), crate::jit::JitError> {
+        config.validate()?;
+        if config.max_metadata_bytes < self.jit_config().max_metadata_bytes {
+            self.arena.mutate(|mc, state| {
+                state.jit_registry.borrow_mut(mc).reset(state.ctx(mc));
+            });
+        }
+        self.jit.0.borrow_mut().configure(config);
+        Ok(())
+    }
+
+    /// Returns execution counters and current JIT resource usage.
+    #[cfg(feature = "jit")]
+    pub fn jit_stats(&self) -> crate::jit::JitStats {
+        let mut stats = self.jit.0.borrow().stats;
+        stats.code_bytes = self.jit.usage();
+        let manager = self.jit.0.borrow();
+        stats.metadata_bytes = manager.metadata.0.current();
+        stats.metadata_peak_bytes = manager.metadata.0.peak();
+        stats.metadata_allocation_refusals = manager.metadata.0.refusals();
+        stats.snapshot_bytes = manager.snapshots.0.current();
+        stats.snapshot_peak_bytes = manager.snapshots.0.peak();
+        stats
+    }
+
+    /// Retire installed code and queued requests; active invocation leases remain valid.
+    #[cfg(feature = "jit")]
+    pub fn clear_jit_cache(&mut self) {
+        self.jit.0.borrow_mut().clear();
+    }
+
+    /// Compile at most one queued source prototype outside the arena and VM slice.
+    #[cfg(feature = "jit")]
+    pub fn service_jit(&mut self) -> Result<usize, crate::jit::JitError> {
+        if !self.jit.active() {
+            return Ok(0);
+        }
+        if !self.jit_capabilities().supported_target {
+            return Err(crate::jit::JitError::Unavailable(
+                "native backend unavailable on this target",
+            ));
+        }
+        let config = self.jit_config();
+        self.arena.mutate(|mc, state| {
+            state.jit_registry.borrow_mut(mc).sweep(state.ctx(mc));
+        });
+        let request = self.jit.0.borrow_mut().next_request();
+        let Some(id) = request else { return Ok(0) };
+        let snapshot = self.arena.mutate(|mc, state| {
+            let ctx = state.ctx(mc);
+            let mut registry = state.jit_registry.borrow_mut(mc);
+            registry.sweep(ctx);
+            registry.resolve(ctx, id).map(|proto| {
+                crate::jit::ir::Snapshot::new_in(
+                    &proto,
+                    config.max_prototype_instructions,
+                    self.jit.0.borrow().snapshots.clone(),
+                )
+            })
+        });
+        let Some(snapshot) = snapshot else {
+            return Ok(0);
+        };
+        let snapshot = match snapshot {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                let mut manager = self.jit.0.borrow_mut();
+                manager.stats.compilation_failures =
+                    manager.stats.compilation_failures.saturating_add(1);
+                return Err(error);
+            }
+        };
+        self.jit.compile(id, snapshot)?;
+        Ok(1)
+    }
+
+    /// Queue registered source prototypes and compile one bounded queue of them.
+    #[cfg(feature = "jit")]
+    pub fn prepare_jit(&mut self) -> Result<usize, crate::jit::JitError> {
+        if !self.jit.active() {
+            return Ok(0);
+        }
+        if !self.jit_capabilities().supported_target {
+            return Err(crate::jit::JitError::Unavailable(
+                "native backend unavailable on this target",
+            ));
+        }
+        let ids = self.arena.mutate(|mc, state| {
+            let ctx = state.ctx(mc);
+            let mut registry = state.jit_registry.borrow_mut(mc);
+            registry.sweep(ctx);
+            registry.ids(ctx)
+        })?;
+        {
+            let mut manager = self.jit.0.borrow_mut();
+            for id in ids {
+                manager.enqueue(id, true);
+            }
+        }
+        let count = self.jit.0.borrow().stats.queued_requests;
+        let mut installed = 0;
+        for _ in 0..count {
+            installed += self.service_jit()?;
+        }
+        Ok(installed)
     }
 
     /// Create a new `Lua` instance with all of the stdlib loaded.
@@ -356,11 +497,11 @@ impl Lua {
         })
     }
 
-    /// Size of all memory used by this Lua context.
+    /// Collector-tracked allocation bytes.
     ///
     /// This is equivalent to `self.gc_metrics().total_allocation()`. This counts all `Gc` allocated
-    /// memory and also all data Lua datastructures held inside `Gc`, as they are tracked as
-    /// "external allocations" in `gc-arena`.
+    /// memory and external allocations registered with the collector. JIT container storage,
+    /// native mappings and compiler-owned allocations are excluded.
     pub fn total_memory(&self) -> usize {
         self.gc_metrics().total_allocation()
     }
@@ -573,6 +714,8 @@ impl Lua {
         const FUEL_PER_GC: i32 = 4096;
 
         loop {
+            #[cfg(feature = "jit")]
+            let _ = self.service_jit();
             let mut fuel = Fuel::with(FUEL_PER_GC);
 
             let finished = self.enter(|ctx| ctx.fetch(executor).step(ctx, &mut fuel))?;
@@ -736,6 +879,8 @@ impl Lua {
         const FUEL_PER_GC: i32 = 4096;
 
         loop {
+            #[cfg(feature = "jit")]
+            let _ = self.service_jit();
             let mut fuel = Fuel::with(FUEL_PER_GC);
             let finished = self.enter(|ctx| ctx.fetch(executor).step(ctx, &mut fuel))?;
 
@@ -783,6 +928,10 @@ impl Lua {
 #[derive(Copy, Clone, Collect)]
 #[collect(no_drop)]
 struct State<'gc> {
+    #[cfg(feature = "jit")]
+    jit: Gc<'gc, crate::jit::Runtime>,
+    #[cfg(feature = "jit")]
+    jit_registry: crate::jit::registry::Registry<'gc>,
     globals: Table<'gc>,
     registry: Registry<'gc>,
     strings: InternedStringSet<'gc>,
@@ -816,7 +965,20 @@ struct State<'gc> {
 
 impl<'gc> State<'gc> {
     fn new(mc: &Mutation<'gc>) -> State<'gc> {
+        #[cfg(feature = "jit")]
+        let jit = Gc::new(mc, crate::jit::Runtime::new());
+        #[cfg(feature = "jit")]
+        let metadata_allocator = jit.0.borrow().metadata.clone();
         Self {
+            #[cfg(feature = "jit")]
+            jit,
+            #[cfg(feature = "jit")]
+            jit_registry: Gc::new(
+                mc,
+                ottavino_gc_arena::lock::RefLock::new(crate::jit::registry::Registrations::new(
+                    metadata_allocator,
+                )),
+            ),
             globals: Table::new(mc),
             registry: Registry::new(mc),
             strings: InternedStringSet::new(mc),
