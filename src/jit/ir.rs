@@ -138,11 +138,6 @@ impl Snapshot {
             RCIndex::Constant(index) => usize::from(index.0) < self.constants.len(),
         };
         for (pc, op) in self.operations.iter().copied().enumerate() {
-            let jump = |offset: i16| {
-                (pc + 1)
-                    .checked_add_signed(isize::from(offset))
-                    .is_some_and(|target| target < self.operations.len())
-            };
             let valid = match op {
                 Move { dest, source }
                 | Not { dest, source }
@@ -152,9 +147,7 @@ impl Snapshot {
                 LoadConstant { dest, constant } => {
                     reg(dest.0) && usize::from(constant.0) < self.constants.len()
                 }
-                LoadBool {
-                    dest, skip_next, ..
-                } => reg(dest.0) && (!skip_next || pc + 2 < self.operations.len()),
+                LoadBool { dest, .. } => reg(dest.0),
                 LoadNil { dest, count } => range(dest.0, usize::from(count)),
                 NewTable { dest, .. } => reg(dest.0),
                 GetUpValue { dest, source } => reg(dest.0) && usize::from(source.0) < self.upvalues,
@@ -186,19 +179,12 @@ impl Snapshot {
                 }
                 MarkToBeClosed { source } => reg(source.0),
                 SetUpValue { dest, source } => reg(source.0) && usize::from(dest.0) < self.upvalues,
-                Jump {
-                    offset,
-                    close_upvalues,
-                } => jump(offset) && close_upvalues.to_u8().is_none_or(reg),
-                Test { value, .. } => reg(value.0) && pc + 2 < self.operations.len(),
-                TestSet { dest, value, .. } => {
-                    reg(dest.0) && reg(value.0) && pc + 2 < self.operations.len()
-                }
-                NumericForPrep { base, jump: offset } | NumericForLoop { base, jump: offset } => {
-                    range(base.0, 4) && jump(offset)
-                }
+                Jump { close_upvalues, .. } => close_upvalues.to_u8().is_none_or(reg),
+                Test { value, .. } => reg(value.0),
+                TestSet { dest, value, .. } => reg(dest.0) && reg(value.0),
+                NumericForPrep { base, .. } | NumericForLoop { base, .. } => range(base.0, 4),
                 GenericForCall { base, var_count } => range(base.0, 3 + usize::from(var_count)),
-                GenericForLoop { base, jump: offset } => range(base.0, 2) && jump(offset),
+                GenericForLoop { base, .. } => range(base.0, 2),
                 Method { base, table, key } => range(base.0, 2) && reg(table.0) && rc(key),
                 Concat {
                     dest,
@@ -206,7 +192,7 @@ impl Snapshot {
                     count,
                 } => reg(dest.0) && range(source.0, usize::from(count)),
                 Eq { left, right, .. } | Less { left, right, .. } | LessEq { left, right, .. } => {
-                    rc(left) && rc(right) && pc + 2 < self.operations.len()
+                    rc(left) && rc(right)
                 }
                 Add { dest, left, right }
                 | Sub { dest, left, right }
@@ -221,10 +207,10 @@ impl Snapshot {
                 | ShiftLeft { dest, left, right }
                 | ShiftRight { dest, left, right } => reg(dest.0) && rc(left) && rc(right),
             };
-            let fallthrough = !matches!(op, Return { .. } | TailCall { .. } | Jump { .. });
-            if !valid || (fallthrough && pc + 1 >= self.operations.len()) {
+            if !valid {
                 return Err(JitError::Compilation(format!("invalid operand at PC {pc}")));
             }
+            super::flow::successors(op, pc, self.operations.len())?;
         }
         if self.operations.is_empty() {
             return Err(JitError::Compilation("empty prototype".into()));

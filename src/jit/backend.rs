@@ -201,12 +201,12 @@ pub(super) fn compile_in(
     metadata: BudgetAllocator,
     #[cfg(test)] failure: Failure,
 ) -> Result<Code, JitError> {
-    snapshot.verify()?;
+    let graph = super::flow::FlowGraph::new(snapshot)?;
     let mut entries = BudgetVec::new_in(metadata.clone());
     entries
         .try_reserve_exact(snapshot.operations.len())
         .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
-    entries.extend(snapshot.operations.iter().copied().map(native_entry));
+    entries.extend(graph.nodes.iter().map(|node| node.lowering.native()));
     let quota_refused = Arc::new(AtomicBool::new(false));
     let metadata_refused = Arc::new(AtomicBool::new(false));
     let unavailable = Arc::new(AtomicBool::new(false));
@@ -319,6 +319,7 @@ pub(super) fn compile_in(
             let mut emitter = Emitter {
                 builder: &mut builder,
                 snapshot,
+                graph: &graph,
                 blocks: &blocks,
                 slots: arguments[0],
                 fallback,
@@ -388,61 +389,10 @@ pub(super) fn compile_in(
     })
 }
 
-fn native_entry(op: Operation) -> bool {
-    use Operation::*;
-    match op {
-        Move { .. }
-        | LoadConstant { .. }
-        | LoadBool { .. }
-        | LoadNil { .. }
-        | Test { .. }
-        | Not { .. }
-        | Add { .. }
-        | Sub { .. }
-        | Mul { .. }
-        | Div { .. }
-        | NumericForPrep { .. }
-        | NumericForLoop { .. }
-        | Eq { .. }
-        | Less { .. }
-        | LessEq { .. }
-        | NewTable { .. }
-        | GetTable { .. }
-        | SetTable { .. }
-        | GetUpTable { .. }
-        | SetUpTable { .. }
-        | GetUpValue { .. }
-        | SetUpValue { .. } => true,
-        Jump { close_upvalues, .. } => close_upvalues.is_none(),
-        SetList { .. }
-        | Call { .. }
-        | TailCall { .. }
-        | Return { .. }
-        | VarArgs { .. }
-        | MarkToBeClosed { .. }
-        | TestSet { .. }
-        | Closure { .. }
-        | GenericForCall { .. }
-        | GenericForLoop { .. }
-        | Method { .. }
-        | Concat { .. }
-        | Length { .. }
-        | Minus { .. }
-        | IDiv { .. }
-        | Mod { .. }
-        | Pow { .. }
-        | BitAnd { .. }
-        | BitOr { .. }
-        | BitXor { .. }
-        | ShiftLeft { .. }
-        | ShiftRight { .. }
-        | BitNot { .. } => false,
-    }
-}
-
 struct Emitter<'a, 'b> {
     builder: &'a mut FunctionBuilder<'b>,
     snapshot: &'a Snapshot,
+    graph: &'a super::flow::FlowGraph,
     blocks: &'a [Block],
     slots: IrValue,
     fallback: Block,
@@ -456,6 +406,7 @@ struct Emitter<'a, 'b> {
 
 impl Emitter<'_, '_> {
     fn helper(&mut self, kind: u32, a: u32, b: u32, c: u32) {
+        assert!(self.graph.nodes[self.pc].lowering.accepts_helper(kind));
         let args: Vec<_> = [a, b, c, self.pc as u32]
             .into_iter()
             .map(|arg| self.builder.ins().iconst(types::I32, i64::from(arg)))
@@ -586,6 +537,7 @@ impl Emitter<'_, '_> {
     }
 
     fn advance(&mut self, next: usize) {
+        assert!(self.graph.nodes[self.pc].successors.contains(next));
         let count = self.builder.ins().iadd_imm_s(self.count, 1);
         if let Some(block) = self.blocks.get(next) {
             self.builder.ins().jump(*block, &[count.into()]);
@@ -598,6 +550,8 @@ impl Emitter<'_, '_> {
     }
 
     fn branch(&mut self, condition: IrValue, yes: usize, no: usize) {
+        assert!(self.graph.nodes[self.pc].successors.contains(yes));
+        assert!(self.graph.nodes[self.pc].successors.contains(no));
         let count = self.builder.ins().iadd_imm_s(self.count, 1);
         self.builder.ins().brif(
             condition,
