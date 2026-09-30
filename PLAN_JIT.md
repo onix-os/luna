@@ -2787,6 +2787,47 @@ No benchmark/build/profile remains owned and live. Full plan acceptance remains
 open; async/coroutine/cache-churn metrics, complete compiler/host accounting,
 hardening, failed performance controls and actual ARM64/hosted evidence remain.
 
+### Session summary: measured scalar dispatch and scheduling costs
+
+**Goal:** fully implement the plan on `feat/native-jit`; advance the performance
+investigation and missing scheduling/cold-start acceptance evidence.
+
+**Instructions:** unchanged Make/Nix workflows, patch edits, unsigned title-only
+incremental commits, unchanged acceptance thresholds and no concurrent timing
+with compiler/test/profile jobs. Engram tools remain unavailable; this document
+preserves the handoff. No push, release or hosted execution was authorized.
+
+**Discoveries:** explicit integer writeback bypasses the indirect switch but
+regresses table/callback timings. Existing VM counters exclude frame transitions;
+near-total native counter coverage is not proof of compiled calls/returns or
+their performance. Explicit preparation includes core prototypes and dominates
+one-shot execution cost; fuel-1 slices can still debit 116 approximate units.
+
+**Accomplished:** rejected and removed the runtime experiment after twelve
+guarded native/speed/shipping comparisons. Committed independent 160-pair scalar
+destination checks and the Make ABI lane (`6f3a1ba`); selected Miri passes 26
+Rust-only tests. Committed the separate nine-case metrics probe, five unit tests,
+Make targets and scoped documentation (`c398e1f`). Full GNU/musl gates each pass
+2740 tests/415 suites and baseline Clippy. The final metrics artifact verifies
+81+81 fuel-64 and 27 fuel-1 observations with source/binary hashes and raw logs.
+No runtime optimization, relaxed gate or release-readiness claim was accepted.
+All owned sessions are terminal, including commit/format session `81943`.
+
+**Next steps:** extend observational coverage to cache churn and coroutine/async
+work; complete opcode/transition/error/fuel coverage instead of treating current
+counter fractions as complete coverage. Pursue the failed table/upvalue and
+disabled-JIT speed/shipping gates with evidence-based runtime changes. Complete
+compiler/fixed-owner/combined-host accounting and CPU isolation policy, broader
+heap fuzz/unsafe review, and actual ARM64/hosted validation. The goal remains
+active and incomplete; no current external blocker prevents further local work.
+
+**Relevant files:** `src/jit/abi.rs` retains original runtime conversion plus the
+new regression; `examples/jit_metrics.rs` implements scoped observations;
+`Makefile` adds ABI/metrics lanes; `Cargo.toml` gates the example on optional JIT;
+`JIT.md` explains metrics and limitations; `PLAN_JIT.md` records decisions and
+acceptance evidence; `target/jit-evidence/{scalar-writeback,metrics}/` preserves
+rejected-experiment and accepted-tool artifacts.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
