@@ -2251,12 +2251,52 @@ error payload preservation, and continued execution after fallback errors.
 Fresh full GNU verification passes 2683 executions / 410 suite invocations,
 including all three new regressions in the interpreter and feature-enabled
 Off/Auto/Force lanes. Workflow lint and baseline Clippy pass; Clippy still
-reports 139 library warnings, with no suppression or change to strict mode.
+reports 137 library warnings and 138 lib-test warnings (137 duplicates), with
+no suppression or change to strict mode.
 GNU smoke evidence is
 `target/jit-evidence/fuzz/1790796074085659047-3870368`; the full command log is
-`/tmp/luna-jit-concat-full-verify.log`. Full musl verification is running in
-session `67578`; do not restart on observation timeout. This baseline fix does
-not establish native or shipping performance acceptance.
+`/tmp/luna-jit-concat-full-verify.log`. Fresh full musl verification also passes
+2683 executions / 410 suite invocations, with all three new regressions in all
+six applicable test invocations. Musl smoke evidence is
+`target/jit-evidence/fuzz/1790796332065530435-3894804`; logs are retained in
+`target/jit-evidence/concat-baseline/`. Session `67578` is terminal, exit 0.
+This baseline fix does not establish native or shipping performance acceptance.
+
+### Session summary: clear baseline Clippy errors
+
+**Goal:** fully implement the plan; clear the documented baseline lint errors
+without changing concatenation or weakening verification.
+
+**Instructions:** Make/Nix gates, patch tools, functional comments and
+incremental unsigned title-only commits. Preserve the entire goal and all
+performance gates. Engram is unavailable; this structured handoff is retained
+in the plan instead.
+
+**Discoveries:** both errors came from single-pass fast-path scopes, not loops
+requiring repeated execution. Labeled blocks retain the success return and
+fallback exits. The value fallback and non-string separator fallback both
+execute right-to-left asynchronous metamethod sequences; errors must leave
+caller state usable. Existing warnings remain distinct from the removed lint
+errors, and strict Clippy is not claimed to pass.
+
+**Accomplished:** committed the source fix and three public regressions as
+`9925dda`, unsigned and title-only. Baseline Clippy, format and workflow lint
+pass. Full GNU and full musl verification each pass 2683 executions / 410 suite
+invocations, including default/optional and Off/Auto/Force lanes and supervised
+smoke. Exact logs and smoke paths are recorded above. No owned process remains
+live; production JIT code, ABI, resource limits and benchmark gates are unchanged.
+
+**Next steps:** continue the remaining native transition/helper performance work
+and the broader interleaved-executor/Rust-mutation/userdata/weak-mode lifecycle
+matrix. Complete compiler/combined-host resource bounds and unsafe/fuzz review;
+obtain actual ARM64/hosted evidence when available and authorized. Do not repeat
+the rejected closure-local identity caches without new evidence. All native and
+shipping acceptance failures remain open; the full goal is active.
+
+**Relevant files:** `src/meta_ops.rs` uses explicit fast-path blocks;
+`tests/metamethods.rs` verifies scalar success, both fallback paths, order and
+error recovery; `PLAN_JIT.md` records this baseline milestone and remaining
+acceptance; `target/jit-evidence/concat-baseline/` retains exact verification logs.
 
 ## 15. Primary references
 
