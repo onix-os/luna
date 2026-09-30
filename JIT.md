@@ -51,6 +51,11 @@ Every generated operation checks the remaining reference slice allowance before 
 
 ## Resources and counters
 
+Completed full and incremental GC cycles retire dead source registrations and
+their cached code even while JIT is Off. Live closures keep their registrations;
+partial cycles can defer retirement until completion. GC performs no compilation.
+The disabled `service_jit()` fast path remains unchanged.
+
 - `max_prototype_instructions` and `max_snapshot_bytes` bound snapshot admission before copying bytecode. Native scratch uses the smallest fitting 8/16/32/64/128/256-slot tier, bounded to 256 scalar slots. Scratch-bearing routines are non-inlined, so compiled-but-Off VM entries do not reserve their 4 KB maximum.
 - `max_queue_entries` bounds pending identity requests. Saturating hotness and `max_compile_attempts` limit repeated failures; clearing the cache resets attempts.
 - `max_code_bytes` bounds actual page-rounded JIT mappings, including the compiler's code/readonly/writable segments. Retired but pinned mappings remain charged until the last lease drops. Allocation failure frees partial mappings and leaves interpretation usable.
@@ -80,7 +85,10 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 `nix develop -c make jit-metrics` builds a separate opt-level-3 scheduling probe.
 Use `ARGS='--mode all --samples 3 --fuel 64'`; `--case` selects a shared benchmark,
-`oslo_predicate` or `cold_config`. Build without timing using `jit-metrics-build`,
+`oslo_predicate`, `cold_config`, `cache_churn`, `coroutine_resume` or `foreign_await`.
+The Make build includes `jit,async`; explicit `foreign_await` selection in a
+JIT-only build reports an error rather than silently skipping the case.
+Build without timing using `jit-metrics-build`,
 then measure the artifact with `jit-metrics-run`. `jit-metrics-tests` checks
 argument validation and observation accounting. Logs, CPU/toolchain/profile
 configuration and the binary hash are under `target/jit-evidence/metrics/`.
@@ -105,7 +113,40 @@ are compiled or inexpensive. Full opcode/transition coverage remains open.
 Memory peaks are observed at host boundaries except the existing
 metadata/snapshot ledger peaks. Compiler allocations, fixed owners, allocator overhead and RSS remain
 excluded. These measurements are neither hard CPU limits nor complete memory
-accounting. Async/coroutine and cache-churn measurements remain open.
+accounting.
+
+The shared suspension scenarios use hot threshold one and three table-update
+segments separated by two coroutine yields or foreign awaits. Off, Auto and
+Prepared all verify the same results and table identity. Prepared executes native
+table writes in every segment; Auto must do so after each resumption. With fuel
+1/64, Auto also executes native work before the first suspension. With fuel
+65536, that first cold segment finishes interpreted before the host can service
+its queued compilation. The probe reports that zero honestly rather than
+compiling inside a slice. Full collection runs at
+each suspension (four completed cycles for coroutines, twelve for awaits).
+Foreign futures are polled outside the arena, with exactly six Pending polls,
+two Ready polls and six counted wakes per session. VM instructions and installs
+must not advance during those external polls. This uses a synthetic delayed
+future, not a network/timer benchmark or hard scheduling limit.
+
+`suspension_case` rows report native segments, source/preparation/service cost,
+time to first observed native work, maximum step work and fuel debit, latency,
+forced GC and separate external poll cost, coverage and observed resources.
+Counters exclude frame-transition opcodes as above; one whole executor step may
+contain more than one 64-operation VM invocation. `make jit-suspension` checks
+both feature configurations and all modes at fuel 1, 64 and 65536. These tests and
+observations do not complete the full mixed-tier transition/error matrix.
+
+The separate `cache_churn` case supports fuel 1..=64. It calibrates a scalar
+module in a separate native state, reports that calibration cost, then bounds
+the measured state to two modules, eight retained sources, one queued request
+and two attempts per source. Warm/revisit/steady/reset passes verify results,
+actual native executions, eviction, exhausted retry budgets and recovery after
+explicit cache clear. Final collection must reclaim source registrations and
+all accounted code/metadata/snapshot storage in Off as well as native modes.
+`churn_report`, `churn_pass` and `churn_cleanup` rows keep this protocol separate
+from ordinary workload rows. Calibration is not compilation in the Off state.
+These observational timings do not change the frozen paired performance gates.
 
 Host service/preparation sweeps compact sparse registration, tracking, code
 index and queue storage. Nonempty containers qualify at capacity 64 or greater

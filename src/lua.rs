@@ -527,6 +527,19 @@ impl Lua {
 
         self.arena.collect_all();
         assert!(self.arena.collection_phase() == CollectionPhase::Sleeping);
+        #[cfg(feature = "jit")]
+        self.retire_collected_jit_sources();
+    }
+
+    #[cfg(feature = "jit")]
+    fn retire_collected_jit_sources(&mut self) {
+        let maintain = self.jit.0.borrow_mut().needs_compaction();
+        self.arena.mutate(|mc, state| {
+            state
+                .jit_registry
+                .borrow_mut(mc)
+                .sweep(state.ctx(mc), maintain);
+        });
     }
 
     /// Stop the collector pacing itself.
@@ -629,6 +642,10 @@ impl Lua {
                 self.arena.collect_all();
             } else {
                 self.arena.collect_debt();
+            }
+            #[cfg(feature = "jit")]
+            if self.arena.collection_phase() == CollectionPhase::Sleeping {
+                self.retire_collected_jit_sources();
             }
             return;
         }

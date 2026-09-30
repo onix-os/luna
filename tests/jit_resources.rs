@@ -6,6 +6,33 @@
 
 use luna::{Closure, Executor, ExternError, JitConfig, JitError, JitMode, Lua, StashedExecutor};
 
+#[path = "../examples/jit_support/churn.rs"]
+mod churn;
+
+#[test]
+fn public_cache_pressure_bounds_retries_and_preserves_reusable_sources() {
+    for mode in [churn::Mode::Off, churn::Mode::Auto, churn::Mode::Prepared] {
+        for fuel in [1, 64] {
+            let report = churn::run(mode, fuel).unwrap();
+            assert!(report.calibration_ns > 0);
+            assert!(report.module_bytes > 0);
+            assert_eq!(report.quota_bytes, 2 * report.module_bytes);
+            assert_eq!(report.prepare_ns > 0, mode == churn::Mode::Prepared);
+            assert_eq!(report.passes.len(), 4);
+            assert_eq!(
+                report
+                    .passes
+                    .iter()
+                    .map(|pass| pass.name)
+                    .collect::<Vec<_>>(),
+                ["warm", "revisit", "steady", "reset"]
+            );
+            assert_eq!(report.final_stats.code_bytes, 0);
+            assert_eq!(report.final_stats.metadata_bytes, 0);
+        }
+    }
+}
+
 fn state() -> Lua {
     let mut lua = Lua::empty();
     lua.set_jit_config(JitConfig {
