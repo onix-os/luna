@@ -679,7 +679,7 @@ Do not disable tests, lower safety guarantees, catch arbitrary crashes as succes
 | 6: heap/GC integration | IN PROGRESS | Native heap paths, barriers, GC/mutation/invalidation stress | Fresh helper guards preserve weak/readonly/intercept/invalid-key behavior. Every-slice GC, open/closed upvalues, pending-scalar panic inspection, debug local/upvalue join and finalizer-only native upvalue writes pass. Shared-cell tests additionally prove exact operation counts and write visibility across error guards, foreign stacks, GC and Rust reentry. Broader interleaved executors, mode mutations and exhaustive guard coverage remain open. |
 | 7: Auto policy | IN PROGRESS | Nonblocking stepping, owned compile work, limits/backoff, hot promotion | Bounded hot requests and explicit outside-arena service; Off/quota-shrink retirement, queue/attempt reductions, typed quota refusal and exhausted-attempt reset tests pass. Bounded unleased LRU eviction/retry, charged single-probe recency and sparse compaction pass ten cache tests. Fallible old/new charging, eight-pass refusal backoff and integrated 128-source collection preserve leases, pending work and three live identities. Injected blocked compiler and complete resource/diagnostic coverage remain open. |
 | 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Slice-local leases, fixed helper ABI v3, operand-scoped synchronization and outlined tiered scratch pass full correctness and every-tier reference tests. Rust assembly verifies the VM scratch probe was removed. Opt-level-3 loop controls pass but four mixed/heap controls fail. Historical matched compiled-Off speed controls passed twice after single-probe recency; current compaction artifacts fail the metamethod overhead control twice (6.91%/6.90%, 5% ceiling). Current passing speed and shipping results remain required. Scalar-upvalue ABI v4 proxy experiment regresses the required closure workload and is removed. Perf is permission-denied; profitable mixed-path optimization, cold compile/latency and broader fuzz evidence remain open. |
-| 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Admission/scalar campaigns execute in limited supervised child processes; panic/signal/timeout failures are tested, and workers verify inherited limits. Five-seed 5120-kernel campaign passes with exact exit/slot/reclamation comparisons. Full GNU/musl x86-64 gates and prepared examples execute natively; allocation/protection denial is injected and tested. Heap/lifecycle and coverage-guided fuzz, complete unsafe/Miri review and native ARM64/hosted evidence remain open. |
+| 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Admission/scalar campaigns execute in limited supervised child processes; panic/signal/timeout failures are tested, and workers verify inherited limits. Five-seed 5120-kernel campaign passes with exact exit/slot/reclamation comparisons. Full GNU/musl x86-64 gates and prepared examples execute natively; allocation/protection denial is injected and tested. Pinned Rust-only Miri passes 24 tests at seeds 0/default and 1, including nonnull frames through all nine helpers and panic transport; exactly one executable-finalization resource test remains native-only. Heap/lifecycle and coverage-guided fuzz, complete unsafe review and native ARM64/hosted evidence remain open. |
 | 10: release acceptance | IN PROGRESS | Complete gates, thresholds, docs/examples, actual CI | Prepared example and resource/security documentation exist. Active workflow wiring runs full GNU/musl x86-64 and GNU ARM64 gates, builds matched shipping artifacts and uploads evidence. Workflow lint/local musl integration pass; repeated local shipping/size/disabled-cost evidence is recorded. Actual hosted/ARM64 results, complete hardening and both native/disabled performance acceptance remain missing. |
 
 Status values: TODO, IN PROGRESS, COMPLETE, or BLOCKED with a concrete reason. Attach toolchain, platform, commands, counts, exclusions, and evidence paths when updating a row. COMPLETE requires the stated phase exit, not a percentage estimate.
@@ -1749,7 +1749,101 @@ filtered, not silently treated as passing. Logs are under
 `target/jit-evidence/miri/x86_64-unknown-linux-gnu/`, with the original failed
 attempt under `initial/`; `/tmp/luna-jit-miri-rust-only.log` retains the complete
 run. Real non-null helper-frame borrowing and panic transport still need
-compatible-component fixtures; native tests do not substitute for that gap.
+compatible-component fixtures at this initial checkpoint; the following
+milestone adds and executes them without substituting native coverage.
+
+### Non-null helper fixture decision
+
+Add a test-only scoped `LuaRegisters::with_test_frame` constructor, with empty
+upper/open/close state and a collector-owned backing stack. No production API
+or native ABI changes. Use real closed `_ENV` upvalues, scalar scratch and
+canonical reference registers to invoke all nine Rust helper entries directly
+without generated machine code. A separate fixture checks pre-effect decline,
+PC rollback, a caught bounds panic, exact initialized-prefix materialization,
+untouched trailing scratch and the same panic-box identity on Rust resumption.
+This exercises the real unsafe opaque-frame/slice conversion in Miri, not a
+replacement helper model; open/foreign-stack and native entry still require
+their existing integrated tests and broader review.
+
+**Executed:** all three helper unit tests pass on the ordinary GNU toolchain;
+the complete Rust-only Miri lane now passes 24 tests, including both new
+nonnull-frame tests (`/tmp/luna-jit-helper-miri-rust-final.log`,
+`/tmp/luna-jit-miri-helpers.log`). No unsafe finding or disabled default check.
+The fixture asserts reference identity instead of adding `PartialEq` to Lua
+values; both operands must share a named arena lifetime because GC handles are
+invariant. A second seed, full GNU and focused musl validation are running
+sequentially before the next milestone commit.
+
+**Final helper validation:** seed 1 passes the same 24 Rust-only tests, with
+default alias/leak/isolation checks intact. Full GNU `make jit-verify` exits 0
+with 2660 executions across 410 suite invocations, including supervised smoke
+at `target/jit-evidence/fuzz/1790790789249236783-3362848`.
+Focused musl `make jit-helpers jit-resources TARGET=x86_64-unknown-linux-musl`
+passes three helpers, fourteen resource units (including executable
+finalization), one registry and six public resource tests. This does not claim
+a fresh full musl or ARM64 run. Logs:
+`/tmp/luna-jit-miri-seed-1.log`, `/tmp/luna-jit-miri-full-verify.log`,
+`/tmp/luna-jit-miri-musl.log`. No production runtime/ABI change or performance
+acceptance follows from these test-only fixtures.
+
+### Miri CI wiring decision
+
+The existing workflow now includes two Rust-only Miri jobs, seeds 0 and 1,
+using the same pinned nightly date as the local shell. Reuse the workflow's
+commit-pinned checkout/toolchain/cache/upload actions; separate nightly Miri
+cache keys from stable/native caches. Both jobs execute `make jit-miri` with
+unchanged default checks and retain logs even on failure. Local workflow lint
+is required before commit; wiring is not actual hosted execution, and no push
+or workflow dispatch is authorized by this change.
+
+**Executed locally:** explicit seed 0 also passes all 24 tests, followed by
+fresh `make fmt-check ci-check` success for the final workflow. Exact CI seed
+settings therefore have local Miri evidence at both seeds, but no hosted run
+has been initiated or claimed. Logs: `/tmp/luna-jit-miri-seed-0.log` and
+`/tmp/luna-jit-miri-final-config.log`; per-seed artifacts live under
+`target/jit-evidence/miri/x86_64-unknown-linux-gnu/seed-{0,1}/`.
+
+#### Session summary: pinned Miri and real helper coverage
+
+**Goal:** implement the complete `PLAN_JIT.md` on the native-JIT branch; the
+previous goal turn made progress through verified compaction commits. This
+turn addresses compatible Rust-only unsafe-boundary coverage without reducing
+the original performance, resource or native-platform acceptance requirements.
+
+**Instructions:** use Make/Nix, no Python edits, incremental unsigned
+title-only Conventional Commits; no subagents, push, release or hosted dispatch.
+
+**Discoveries:** Miri setup works on a separately pinned nightly shell while
+the normal stable/musl environment remains unchanged. One resource test
+actually finalizes native code and reaches unsupported `mprotect`; exclude
+only that named test in Miri, retain its native execution and failed setup-run
+evidence. GC values need arena-lifetime-aware identity assertions; do not add
+language equality semantics merely to compile a test fixture.
+
+**Accomplished:** committed shell/gate/docs as `f647433`, then the two scoped
+nonnull helper fixtures and native test wrapper as `9d59b2d`. Each explicit
+Miri seed 0 and 1 passes 24 tests, including all nine real helper operations,
+canonical reference identity, pre-effect decline and PC restoration, panic
+prefix materialization, sentinel preservation and exact panic-box resumption.
+Fresh full GNU verification passes 2660 executions / 410 suite invocations;
+focused musl helpers/resources and final format/workflow lint pass. Added
+matching commit-pinned Miri CI jobs and accurate evidence/coverage caveats.
+All owned sessions are terminal. Engram tools remain unavailable; this is the
+session handoff.
+
+**Next steps:** resolve the four native performance controls and current
+compiled-Off metamethod failure without weakening thresholds. Complete
+compiler/fixed-owner/combined-host bounds, transition and lifecycle matrices,
+coverage-guided heap fuzz and the complete unsafe audit; execute actual ARM64
+and hosted gates when authorized, and obtain current shipping acceptance.
+Rust-only Miri is now executed evidence, not full native/soundness acceptance.
+The complete goal remains active and incomplete.
+
+**Relevant files:** `flake.nix` pins the Miri shell; `Makefile` runs Miri and
+scoped helper gates; `src/thread/thread.rs` constructs isolated test-only
+frames; `src/jit/helpers.rs` exercises the actual unsafe entry and panic
+transport; `.github/workflows/tests.yml` wires two Miri seeds;
+`JIT.md` and `PLAN_JIT.md` record limits, exclusions and current evidence.
 
 ## 15. Primary references
 
