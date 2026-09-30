@@ -2076,6 +2076,52 @@ The full goal is active, not complete or blocked.
 `tests/jit_resources.rs` adds integrated warm-cache retirement coverage;
 `PLAN_JIT.md` preserves exact progress and the live validation handle.
 
+### Identity-cache full verification
+
+The original live process completed exit 0. Fresh full GNU verification passes
+2690 executions / 410 suite invocations; supervised smoke is at
+`target/jit-evidence/fuzz/1790793565560984280-3623253`.
+Focused musl resources/policy/native/upvalues also pass, including the new
+public warm-cache clear/Off/retirement/replacement test and six private registry
+tests. Matched speed-profile feature-cost artifacts are built. Native copied
+baseline/candidate measurements and compiled-Off comparisons can now run
+sequentially with fresh process guards. No performance keep decision yet.
+
+### Session checkpoint: identity-cache measurements
+
+**Goal:** implement the full plan on `feat/native-jit`; report current progress
+without presenting a tested experiment as accepted implementation.
+
+**Instructions:** retain incremental unsigned title-only commits and unchanged
+acceptance gates. Use Make/Nix for relevant verification and avoid overlapping
+benchmarks with builds. Engram tools are unavailable; preserve the handoff here.
+
+**Discoveries:** the closure identity-cache experiment passes correctness but
+does not yet satisfy performance acceptance. Compiled-Off speed controls fail
+integer (+9.13%) and float (+8.51%) workloads on the first run; the repeat
+still fails float (+6.90%), against the unchanged +5% ceiling. Native candidate
+runs still fail array, upvalue, and callback workload targets.
+This is not evidence of an accepted optimization, despite improved native
+short-call results. The previous checkpoint's live process has terminated.
+
+**Accomplished:** full GNU verification passes 2690 executions / 410 suite
+invocations, focused musl checks pass, and the selected Rust-only Miri gate
+passes 29 tests. Copied baseline/candidate native comparisons and two matched
+speed-profile feature-cost runs are finished and retained under
+`target/jit-evidence/identity-cache/`; no owned verification process remains
+live. The plan itself is written and committed; source changes for this
+experiment remain uncommitted pending the keep/revise/reject decision.
+
+**Next steps:** inspect exact failed control rows, then revise or reject the
+identity-cache experiment without weakening thresholds. Core native/shipping
+performance, complete compiler/combined-host bounds, broader hardening, and
+actual ARM64/hosted acceptance remain open. The overall goal remains active.
+
+**Relevant files:** `src/closure.rs`, `src/jit/mod.rs`, `src/thread/vm.rs`, and
+`src/jit/registry.rs` contain the unaccepted identity-cache experiment;
+`tests/jit_resources.rs` adds warm-cache lifecycle coverage; `PLAN_JIT.md`
+records progress and acceptance evidence.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
