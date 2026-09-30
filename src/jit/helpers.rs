@@ -250,6 +250,9 @@ mod tests {
                 ));
             }
             (Value::Table(a), Value::Table(b)) => assert_eq!(a, b),
+            (Value::Function(a), Value::Function(b)) => assert_eq!(a, b),
+            (Value::Thread(a), Value::Thread(b)) => assert_eq!(a, b),
+            (Value::UserData(a), Value::UserData(b)) => assert_eq!(a, b),
             (actual, expected) => panic!("value mismatch: {actual:?} != {expected:?}"),
         }
     }
@@ -267,6 +270,96 @@ mod tests {
             data: (frame as *mut Frame<'_, '_, '_>).cast(),
         };
         unsafe { call::<KIND>(&mut host, slots.as_mut_ptr(), a, b, c, pc) }
+    }
+
+    #[test]
+    fn moves_preserve_reference_identity_aliases_pending_scalars_and_panic_bounds() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = Closure::load(ctx, None, b"return 42").unwrap();
+            let values = [
+                Value::String(crate::String::from_slice(&ctx, b"move")),
+                Value::Table(Table::new(&ctx)),
+                Value::Function(closure.into()),
+                Value::Function(
+                    crate::Callback::from_fn(&ctx, |_, _, _| Ok(crate::CallbackReturn::Return))
+                        .into(),
+                ),
+                Value::Thread(crate::Thread::new(ctx)),
+                Value::UserData(crate::UserData::new_static(&ctx, 42i64)),
+            ];
+            for original in values {
+                let mut canonical = [original, Value::Integer(0), Value::Nil, Value::Nil];
+                let mut pc = 0;
+                LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+                    let mut slots = std::array::from_fn::<_, 4, _>(|index| {
+                        Slot::from_value(registers.stack_frame[index])
+                    });
+                    let mut frame = Frame {
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: Counts::default(),
+                        slot_count: 4,
+                        panic: None,
+                    };
+                    for destination in [0, 1] {
+                        assert_eq!(
+                            invoke::<{ abi::HELPER_MOVE }>(
+                                &mut frame,
+                                &mut slots,
+                                destination,
+                                0,
+                                0,
+                                7
+                            ),
+                            abi::HELPER_COMPLETED
+                        );
+                        assert_identical(
+                            frame.registers.stack_frame[destination as usize],
+                            original,
+                        );
+                        assert_eq!(slots[destination as usize].tag, abi::REFERENCE);
+                        assert_eq!(slots[destination as usize].bits, 0);
+                        assert_eq!(*frame.registers.pc, 8);
+                    }
+                    let bits = 0x7ff8_0000_0000_1234;
+                    slots[0] = Slot {
+                        tag: abi::NUMBER,
+                        bits,
+                    };
+                    assert_eq!(
+                        invoke::<{ abi::HELPER_MOVE }>(&mut frame, &mut slots, 1, 0, 0, 7),
+                        abi::HELPER_COMPLETED
+                    );
+                    assert_identical(
+                        frame.registers.stack_frame[1],
+                        Value::Number(f64::from_bits(bits)),
+                    );
+                    assert_eq!((slots[1].tag, slots[1].bits), (abi::NUMBER, bits));
+                    slots[0] = Slot::from_value(original);
+                    for (dest, source) in [(4, 0), (1, 4)] {
+                        assert_eq!(
+                            invoke::<{ abi::HELPER_MOVE }>(
+                                &mut frame, &mut slots, dest, source, 0, 17
+                            ),
+                            abi::HELPER_PANICKED
+                        );
+                        assert_eq!(*frame.registers.pc, 18);
+                        assert!(frame.panic.take().is_some());
+                        assert_identical(frame.registers.stack_frame[0], original);
+                        assert_identical(
+                            frame.registers.stack_frame[1],
+                            Value::Number(f64::from_bits(bits)),
+                        );
+                    }
+                    assert_eq!(frame.count.calls, 5);
+                    assert_eq!(frame.count.completed, 3);
+                    assert_eq!(frame.count.declined, 0);
+                });
+            }
+        });
+        lua.gc_collect();
     }
 
     #[test]
