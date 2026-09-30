@@ -1,8 +1,8 @@
-use luna::{Callback, CallbackReturn, Executor, ExternError, Function, Lua, Variadic};
+use luna::{Callback, CallbackReturn, Executor, ExternError, Function, Variadic};
 
 #[test]
 fn function_compose_bind() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     let executor = lua.try_enter(|ctx| {
         let composed_functions = Function::compose(
@@ -42,3 +42,5 @@ fn function_compose_bind() -> Result<(), ExternError> {
     assert_eq!(lua.execute::<i64>(&executor)?, 33);
     Ok(())
 }
+
+mod common;

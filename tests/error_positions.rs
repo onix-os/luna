@@ -1,15 +1,17 @@
 //! Errors carry `chunk:line:`, and `error` honours its `level` argument.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn eval(source: &str) -> Result<String, ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, Some("probe"), source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
     })?;
     lua.execute::<String>(&executor)
 }
+
+mod common;
 
 #[test]
 fn error_prefixes_the_calling_line() -> Result<(), ExternError> {

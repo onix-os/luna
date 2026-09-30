@@ -1,15 +1,17 @@
 //! Divergences from PUC-Rio 5.4 that silently changed results.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn eval(source: &str) -> Result<bool, ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, None, source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
     })?;
     lua.execute::<bool>(&executor)
 }
+
+mod common;
 
 /// `i as f64` loses precision above 2^53, which corrupted sorts and range checks on large ids.
 #[test]
@@ -20,6 +22,20 @@ fn integers_and_floats_compare_exactly() -> Result<(), ExternError> {
             and ((math.maxinteger - 1) < (math.maxinteger + 0.0)) == true
             and (math.mininteger == (math.mininteger + 0.0)) == true
             and (9007199254740993 == 9007199254740992.0) == false
+    "#
+    )?);
+    Ok(())
+}
+
+#[test]
+fn mixed_negative_fractions_preserve_order_and_equality() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        return (-1 == -1.5) == false and (-1 < -1.5) == false
+            and (-1 <= -1.5) == false and (-1.5 < -1) == true
+            and (-1.5 <= -1) == true and (0 == -0.5) == false
+            and (0 <= -0.5) == false and (-0.5 < 0) == true
+            and (-1 == -1.0) == true and (0 == -0.0) == true
     "#
     )?);
     Ok(())

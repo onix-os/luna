@@ -7,10 +7,10 @@
 //! references it, and a local's *stack slot* can keep it alive after the local goes out of scope.
 //! Every test below churns the stack before collecting, exactly as one has to in PUC-Rio.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn eval(source: &str) -> Result<i64, ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, None, source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
@@ -188,7 +188,7 @@ fn a_rust_callback_can_be_the_handler() -> Result<(), ExternError> {
     let ran = Rc::new(Cell::new(0));
     let seen = ran.clone();
 
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     lua.enter(|ctx| {
         let make = Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let mt = Table::new(&ctx);
@@ -232,3 +232,5 @@ fn a_rust_callback_can_be_the_handler() -> Result<(), ExternError> {
     assert_eq!(ran.get(), 1, "the Rust handler should have run once");
     Ok(())
 }
+
+mod common;

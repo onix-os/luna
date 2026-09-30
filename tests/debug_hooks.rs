@@ -1,15 +1,17 @@
 //! `debug.sethook`: line and count hooks.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn eval<T: for<'gc> luna::FromMultiValue<'gc> + 'static>(source: &str) -> Result<T, ExternError> {
-    let mut lua = Lua::full();
+    let mut lua = common::full();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, Some("probe"), source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
     })?;
     lua.execute::<T>(&executor)
 }
+
+mod common;
 
 #[test]
 fn a_line_hook_sees_each_line() -> Result<(), ExternError> {

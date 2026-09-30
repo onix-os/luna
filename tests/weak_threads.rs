@@ -1,8 +1,8 @@
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 #[test]
 fn weak_threads_close() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(
@@ -41,7 +41,7 @@ fn weak_threads_close() -> Result<(), ExternError> {
 
 #[test]
 fn live_upvalues_not_dead() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(
@@ -81,3 +81,5 @@ fn live_upvalues_not_dead() -> Result<(), ExternError> {
 
     Ok(())
 }
+
+mod common;

@@ -11,7 +11,7 @@
 //! where `mode` dictates how to handle errors
 //! and `script` is a valid Lua script.
 
-use luna::{Closure, Executor, Lua};
+use luna::{Closure, Executor};
 use std::{fs::read_dir, io::BufRead, path::PathBuf, sync::mpsc::channel};
 
 use crate::collected_print::print_callback;
@@ -165,7 +165,7 @@ fn test_goldenscripts() {
         eprintln!("{path:?}: operating in {mode:?} mode");
         eprintln!("running {:?}", path);
 
-        let mut lua = Lua::full();
+        let mut lua = common::full();
 
         let tx = tx.clone();
         lua.enter(|ctx| {
@@ -235,3 +235,5 @@ fn test_goldenscripts() {
         panic!("Failed goldenscripts: {failed_scripts:?}");
     }
 }
+
+mod common;

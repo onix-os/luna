@@ -2,13 +2,13 @@ use std::pin::Pin;
 
 use luna::{
     BoxSequence, Callback, CallbackReturn, Closure, Context, Error, Execution, Executor,
-    ExternError, Function, IntoValue, Lua, Sequence, SequencePoll, Stack, String, Thread, Value,
+    ExternError, Function, IntoValue, Sequence, SequencePoll, Stack, String, Thread, Value,
 };
 use ottavino_gc_arena::Collect;
 
 #[test]
 fn callback() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     lua.try_enter(|ctx| {
         let callback = Callback::from_fn(&ctx, |_, _, mut stack| {
@@ -40,7 +40,7 @@ fn callback() -> Result<(), ExternError> {
 
 #[test]
 fn tail_call_trivial_callback() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     lua.try_enter(|ctx| {
         let callback = Callback::from_fn(&ctx, |_, _, mut stack| {
@@ -69,7 +69,7 @@ fn tail_call_trivial_callback() -> Result<(), ExternError> {
 
 #[test]
 fn loopy_callback() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     lua.try_enter(|ctx| {
         let callback = Callback::from_fn(&ctx, |ctx, _, _| {
@@ -145,7 +145,7 @@ fn loopy_callback() -> Result<(), ExternError> {
 
 #[test]
 fn yield_sequence() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     lua.try_enter(|ctx| {
         let callback = Callback::from_fn(&ctx, |ctx, _, mut stack| {
@@ -229,7 +229,7 @@ fn yield_sequence() -> Result<(), ExternError> {
 
 #[test]
 fn resume_with_err() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     let executor = lua.enter(|ctx| {
         let callback = Callback::from_fn(&ctx, |ctx, _, mut stack| {
@@ -304,3 +304,5 @@ fn resume_with_err() {
         },
     );
 }
+
+mod common;

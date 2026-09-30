@@ -1,9 +1,9 @@
 //! Deep recursion is a feature of a stackless VM; unbounded recursion is an accident.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn run(source: &str) -> Result<bool, ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, None, source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
@@ -51,7 +51,7 @@ fn runaway_recursion_in_a_coroutine_is_catchable() -> Result<(), ExternError> {
 /// A lowered ceiling takes effect for threads created afterwards.
 #[test]
 fn the_ceiling_is_configurable() -> Result<(), ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     lua.enter(|ctx| ctx.set_max_call_depth(64));
 
     let executor = lua.try_enter(|ctx| {
@@ -74,3 +74,5 @@ fn the_ceiling_is_configurable() -> Result<(), ExternError> {
     assert!(lua.execute::<bool>(&executor)?);
     Ok(())
 }
+
+mod common;

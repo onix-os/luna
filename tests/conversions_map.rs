@@ -2,10 +2,10 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use luna::{Callback, CallbackReturn, Closure, Executor, ExternError, Lua};
+use luna::{Callback, CallbackReturn, Closure, Executor, ExternError};
 
 fn eval(source: &str) -> Result<bool, ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     lua.try_enter(|ctx| {
         // Hands a map to Lua, and reads one back.
         let roundtrip = Callback::from_fn(&ctx, |ctx, _, mut stack| {
@@ -45,6 +45,8 @@ fn eval(source: &str) -> Result<bool, ExternError> {
     })?;
     lua.execute::<bool>(&executor)
 }
+
+mod common;
 
 #[test]
 fn maps_round_trip() -> Result<(), ExternError> {

@@ -1,10 +1,10 @@
 //! The stdlib surface that was previously unimplemented: default streams, `package` search, native
 //! `table.sort`/`move` fast paths, and argument positions in conversion errors.
 
-use luna::{BadArgument, Closure, Executor, ExternError, Lua};
+use luna::{BadArgument, Closure, Executor, ExternError};
 
 fn eval<T: for<'gc> luna::FromMultiValue<'gc> + 'static>(source: &str) -> Result<T, ExternError> {
-    let mut lua = Lua::full();
+    let mut lua = common::full();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, Some("probe"), source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
@@ -141,7 +141,7 @@ fn table_sort_and_move_agree_with_the_fallback() -> Result<(), ExternError> {
 /// A conversion failure names the argument that caused it.
 #[test]
 fn conversion_errors_carry_the_argument_position() {
-    let mut lua = Lua::full();
+    let mut lua = common::full();
     let executor = lua
         .try_enter(|ctx| {
             let closure = Closure::load(ctx, Some("probe"), b"return string.rep('x', {})")?;
@@ -164,6 +164,8 @@ fn conversion_errors_carry_the_argument_position() {
     assert_eq!(found.argument, 2);
     assert_eq!(found.source.found, "table");
 }
+
+mod common;
 
 /// `rawlen` is defined on strings as well as tables — on a string it is the only way to get the
 /// length without going through `__len` on the string metatable.

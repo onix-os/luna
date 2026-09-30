@@ -3,10 +3,10 @@
 //! Acting on the collector needs `&mut Lua`, which a callback never has, so the verbs leave a
 //! request that the host carries out at the end of the slice.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn eval(source: &str) -> Result<bool, ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, None, source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
@@ -53,7 +53,7 @@ fn an_unknown_verb_still_errors() -> Result<(), ExternError> {
 /// A full collection actually reclaims: allocate a large dead structure, then collect.
 #[test]
 fn collect_reclaims_dead_values() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     let executor = lua
         .try_enter(|ctx| {
@@ -82,13 +82,15 @@ fn collect_reclaims_dead_values() {
 
 #[test]
 fn stop_and_restart_are_reportable_from_rust() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     assert!(lua.gc_is_running());
     lua.gc_stop();
     assert!(!lua.gc_is_running());
     lua.gc_restart();
     assert!(lua.gc_is_running());
 }
+
+mod common;
 
 /// A script can observe its own `collectgarbage("collect")`.
 ///
