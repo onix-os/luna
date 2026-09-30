@@ -1387,6 +1387,40 @@ process from this milestone remains live after final checks.
 describe the behavior and evidence. Ignored copied benchmark artifacts preserve
 baseline/candidate hashes and raw timing reports.
 
+#### Session summary: progress checkpoint
+
+**Goal:** continue implementing this plan on `feat/native-jit`; the detailed
+plan exists, but full implementation and release acceptance remain incomplete.
+
+**Instructions:** use Make tasks in the Nix environment, patch tools rather
+than Python, and incremental unsigned, title-only Conventional Commits.
+The user delegated representative benchmark selection; retain the existing
+workloads and acceptance thresholds.
+
+**Discoveries:** the latest implementation milestone is `0c0b003`. Its recorded
+full GNU verification passes, while four native performance controls still
+fail. Speed-profile compiled-Off comparisons pass twice; shipping-profile
+acceptance and executed ARM64 certification remain outstanding. These are
+previously completed runs, not tests rerun during this status checkpoint.
+
+**Accomplished:** checked the current branch, commit, clean pre-checkpoint
+working tree and phase statuses. No new runtime optimization was implemented
+in this checkpoint. Engram tools are unavailable in this environment; this
+handoff is recorded here rather than claiming a persistent-memory tool save.
+
+**Next steps:** investigate a bounded scalar-upvalue proxy to reduce helper
+overhead. This is exploratory, not an accepted design or implemented feature:
+prove alias, reference, open/foreign-stack, barrier, PC and fuel behavior before
+changing the ABI. Retain existing helper fallback and compare matched artifacts
+sequentially. Compiler/combined-host bounds, broader lifecycle/unsafe/fuzz
+coverage and ARM64/hosted execution also remain open. No process is live from
+this checkpoint, and the full implementation goal remains active.
+
+**Relevant files:** `PLAN_JIT.md` tracks phases and acceptance evidence;
+`src/jit/mod.rs` owns runtime/cache policy; `src/jit/backend.rs` emits kernels;
+`src/jit/abi.rs` and `src/jit/helpers.rs` define the current boundary;
+`src/closure.rs` and `src/thread/thread.rs` define upvalue semantics.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
