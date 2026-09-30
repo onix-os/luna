@@ -672,13 +672,13 @@ Do not disable tests, lower safety guarantees, catch arbitrary crashes as succes
 | --- | --- | --- | --- |
 | 0: reference/backend feasibility | IN PROGRESS | Baseline gates, accounting characterization, executed ABI experiment, pinned backend decision | Nix `make verify`, fuel probes, RX helper call and worker-transfer probes passed on x86-64 Linux; Cranelift 0.136.1/Rust 1.97.1 pinned. `make clippy` still fails on two inherited `never_loop` errors in `src/meta_ops.rs` (139 warnings). Other native targets not executed. |
 | 1: configuration/gates | IN PROGRESS | Optional dependency isolation, capability tests, explicit mode wrappers | Optional dependency tree checked without compiler crates; Off constructors and explicit config tests pass. Force wrappers now prepare outside arena entries; same-entry execution is disclosed rather than falsely claimed forced. |
-| 2: runtime boundary | IN PROGRESS | PC/effect/fuel/rooted-state mock/reference tests | `make jit-boundary`: three unit tests passed, including per-PC/per-budget Rust-model agreement and pinned-entry retirement. `make jit-native`: nine integrated tests passed, including small/interrupted fuel and side-effect-preserving guard bailout with GC between slices. Complete transition mock coverage pending. |
+| 2: runtime boundary | IN PROGRESS | PC/effect/fuel/rooted-state mock/reference tests | Boundary tests pass per-PC/per-budget scalar and mixed-numeric Rust-model agreement, pinning/retirement, admission and allocation failure cases. Fourteen native integrations cover interrupted fuel and side-effect-preserving guard bailout with GC between slices. Complete transition mock coverage pending. |
 | 3: IR/code ownership | IN PROGRESS | Verifier/admission/cache/lifetime/resource tests | Backend admission revalidation and malformed refusal pass. Shared fallible allocators charge registry/tracking/code-index/queue/preparation/snapshot and persistent backend entry/mapping-record layouts, including retained capacity and transient growth. Refusal, allocation/protection denial, partial cleanup and lower-limit retirement/lease tests pass. Fixed-owner/compiler and combined-host accounting remain incomplete. |
-| 4: native slices | IN PROGRESS | Actual native counters, numeric/fuel correctness | Explicit example returned 5000050000 with 200007 native logical instructions; nine native tests passed. Scalar operations, numeric loops, guarded comparison, and interpreter fallback integrated. Helper-backed heap operations now execute natively; broader numeric/error coverage remains open. |
-| 5: lifecycle integration | IN PROGRESS | Mixed-tier callbacks, async/coroutines, errors and close tests | Eleven dedicated heap tests (twelve with async) cover reentrancy, coroutine/foreign suspension, close/error unwinding, panic materialization, debug mutation and finalizer resurrection. Full-feature Force passes; complete mixed-tier transition matrix remains open. |
-| 6: heap/GC integration | IN PROGRESS | Native heap paths, barriers, GC/mutation/invalidation stress | Fresh helper guards preserve weak/readonly/intercept/invalid-key behavior. Every-slice GC, open/closed upvalues, pending-scalar panic inspection, debug local/upvalue join and finalizer-only native upvalue writes pass. Broader interleaved executors, mode mutations and exhaustive guard coverage remain open. |
-| 7: Auto policy | IN PROGRESS | Nonblocking stepping, owned compile work, limits/backoff, hot promotion | Bounded hot requests and explicit outside-arena service; Off/quota-shrink retirement, queue/attempt reductions, typed quota refusal and exhausted-attempt reset tests pass. Eviction, injected blocked compiler and full diagnostics/resource ledger remain open. |
-| 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Slice-local leases, fixed helper ABI v3, operand-scoped synchronization and outlined tiered scratch pass full correctness and every-tier reference tests. Rust assembly verifies the VM scratch probe was removed. Opt-level-3 loop controls pass but four mixed/heap controls fail. Repeated shipping and matched feature-size/Off-cost lanes now exist; the latter fails frozen 5% controls at both profiles. Perf is permission-denied; profitable mixed-path optimization, cold compile/latency and broader fuzz evidence remain open. |
+| 4: native slices | IN PROGRESS | Actual native counters, numeric/fuel correctness | Explicit example returned 5000050000 with 200007 native logical instructions; fourteen native tests pass. Scalar operations, numeric loops, guarded comparison, and interpreter fallback integrated. Helper-backed heap operations execute natively; broader numeric/error coverage remains open. |
+| 5: lifecycle integration | IN PROGRESS | Mixed-tier callbacks, async/coroutines, errors and close tests | Twelve dedicated heap tests (thirteen with async) cover reentrancy, coroutine/foreign suspension, close/error unwinding, panic materialization, debug mutation and finalizer resurrection. Six additional upvalue tests cover aliases, foreign stacks, shared captures and Rust reentry. Full-feature Force passes; complete mixed-tier transition matrix remains open. |
+| 6: heap/GC integration | IN PROGRESS | Native heap paths, barriers, GC/mutation/invalidation stress | Fresh helper guards preserve weak/readonly/intercept/invalid-key behavior. Every-slice GC, open/closed upvalues, pending-scalar panic inspection, debug local/upvalue join and finalizer-only native upvalue writes pass. Shared-cell tests additionally prove exact operation counts and write visibility across error guards, foreign stacks, GC and Rust reentry. Broader interleaved executors, mode mutations and exhaustive guard coverage remain open. |
+| 7: Auto policy | IN PROGRESS | Nonblocking stepping, owned compile work, limits/backoff, hot promotion | Bounded hot requests and explicit outside-arena service; Off/quota-shrink retirement, queue/attempt reductions, typed quota refusal and exhausted-attempt reset tests pass. Bounded unleased LRU eviction/retry and charged single-probe recency pass eight cache tests. Sparse-cache compaction, injected blocked compiler and complete resource/diagnostic coverage remain open. |
+| 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Slice-local leases, fixed helper ABI v3, operand-scoped synchronization and outlined tiered scratch pass full correctness and every-tier reference tests. Rust assembly verifies the VM scratch probe was removed. Opt-level-3 loop controls pass but four mixed/heap controls fail. Matched compiled-Off speed-profile controls pass twice after single-probe cache recency; a current passing shipping-profile result is still required. Scalar-upvalue ABI v4 proxy experiment regresses the required closure workload and is removed. Perf is permission-denied; profitable mixed-path optimization, cold compile/latency and broader fuzz evidence remain open. |
 | 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Admission/scalar campaigns execute in limited supervised child processes; panic/signal/timeout failures are tested, and workers verify inherited limits. Five-seed 5120-kernel campaign passes with exact exit/slot/reclamation comparisons. Full GNU/musl x86-64 gates and prepared examples execute natively; allocation/protection denial is injected and tested. Heap/lifecycle and coverage-guided fuzz, complete unsafe/Miri review and native ARM64/hosted evidence remain open. |
 | 10: release acceptance | IN PROGRESS | Complete gates, thresholds, docs/examples, actual CI | Prepared example and resource/security documentation exist. Active workflow wiring runs full GNU/musl x86-64 and GNU ARM64 gates, builds matched shipping artifacts and uploads evidence. Workflow lint/local musl integration pass; repeated local shipping/size/disabled-cost evidence is recorded. Actual hosted/ARM64 results, complete hardening and both native/disabled performance acceptance remain missing. |
 
@@ -1420,6 +1420,123 @@ this checkpoint, and the full implementation goal remains active.
 `src/jit/mod.rs` owns runtime/cache policy; `src/jit/backend.rs` emits kernels;
 `src/jit/abi.rs` and `src/jit/helpers.rs` define the current boundary;
 `src/closure.rs` and `src/thread/thread.rs` define upvalue semantics.
+
+#### Bounded scalar-upvalue ABI v4 experiment
+
+**Decision:** test a slice-local scalar-upvalue proxy, capped at eight cells,
+for kernels whose constants are scalar and whose only possible heap helpers
+are upvalue reads/writes. Every input register and captured value must be
+scalar. Closed cells and valid same-thread upper-stack cells are eligible;
+foreign stacks, invalid bounds, duplicate cells or duplicate open-stack
+locations decline the proxy and retain the existing helpers. Unsupported
+operations remain interpreter exits, not proxy operations.
+
+The proxy carries only scalar slots and per-slice read/write counts. Generated
+code accesses it directly, with ordinary logical instruction charging. Dirty
+cells are committed through existing upvalue setters before interpreter,
+callback or GC control resumes. No allocation, user call, suspension or frame
+mutation is possible while a proxy is active. No proxy or GC address survives
+the call. Extend the host layout with a nullable proxy pointer and version the
+entry/helper symbols and disassembly metadata to ABI v4. Null hosts and null
+proxy pointers retain their existing behavior. Record direct-operation
+counters separately from actual helper calls.
+
+**Acceptance:** entry/budget/guard and logical-count differential tests,
+closed/open and alias/reference/foreign fallback cases, callback and GC
+visibility, full verification and sequential matched performance comparisons.
+This experiment is not yet accepted and does not change any frozen threshold.
+
+**Outcome: rejected and removed.** The proxy executed actual native upvalue
+operations, with all four integration tests, three kernel/eligibility unit
+tests and the safe-peek unit test passing in the expanded experiment gate
+(`/tmp/luna-jit-scalar-upvalue-expanded-tests.log`). The independent kernel
+model checked 2304 entry/budget/type combinations, including looping writes,
+guard exits, scalar type changes and the 64-operation cap. An initial invalid
+test host with null helper data aborted; it was corrected to use a null host
+for decline tests. A non-null host still requires valid helper data whenever
+a helper can execute; do not mistake a null proxy for a null host.
+
+Matched copied opt-level-3 artifacts retain their hashes and experiment source
+under `target/jit-evidence/scalar-upvalues/`. Baseline closure speedups were
+0.5734 and 0.5835; candidate speedups were 0.5310 and 0.5295. Logs are
+`/tmp/luna-jit-scalar-upvalue-{baseline,candidate}-performance.log`,
+`/tmp/luna-jit-scalar-upvalue-candidate-repeat-performance.log` and
+`/tmp/luna-jit-scalar-upvalue-baseline-repeat-idle-performance.log`.
+Each accepted timing run observed no Cargo/rustc job before/after timing.
+An additional baseline repeat observed an unrelated Molla Cargo test and is
+retained as contaminated evidence, not used in the comparison. All valid
+artifact runs still fail the same four frozen native controls. Native counters
+prove that proxy operations ran, but do not make the regression acceptable.
+
+Preparation, proxy marshaling and commit costs did not pay off on the required
+short-closure workload. This is an inference from the aggregate timing, not a
+new cycle-level profile. All runtime, ABI, helper-symbol, statistics and
+benchmark-output changes were reverted; the retained implementation remains
+ABI v3. Keep the broader integration behavior tests against the existing
+helpers, rather than retaining an unprofitable ABI extension or weakening the
+upvalue threshold. No phase is marked complete by this experiment.
+
+#### Shared-upvalue lifecycle acceptance evidence
+
+Retained six integration tests in `tests/jit_upvalues.rs`, exposed by
+`make jit-upvalues` and automatically included in the all-target gates. They
+compare native/interpreted open and closed cells, full collection between
+slices, exact cumulative read/write counts, dense loops and per-slice bounds,
+eight/nine distinct captured cells, joined open/closed aliases, foreign
+coroutine stacks, references, scalar type changes, write-before-error-guard
+visibility, debug rebinding and Rust callback reentry. Native counters must
+prove the tested helper-backed operations ran; interpreter success alone does
+not satisfy the native assertions.
+
+`nix develop -c make jit-upvalues` passes all six tests
+(`/tmp/luna-jit-upvalue-lifecycle-focused.log`), committed separately as
+`b7f9be1`. Full GNU `make jit-verify` passes **2595 executions over 410 suite
+invocations**, including repeated modes/features/docs rather than 2595 unique
+tests (`/tmp/luna-jit-upvalue-lifecycle-verify.log`). The supervised smoke
+artifacts are `target/jit-evidence/fuzz/1790786275247728654-3114433`.
+The experiment's runtime changes are absent from this verified tree.
+
+Focused musl `make fmt-check ci-check jit-upvalues jit-heap
+TARGET=x86_64-unknown-linux-musl` passes six upvalue and twelve heap tests,
+with formatting and active-workflow validation
+(`/tmp/luna-jit-upvalue-lifecycle-musl.log`). This is not a newly executed full
+musl gate or ARM64 certification.
+
+#### Session summary: upvalue experiment and lifecycle hardening
+
+**Goal:** implement the full plan, focusing on the required upvalue workload
+and canonical state at heap/interpreter/host boundaries.
+
+**Instructions:** keep the existing performance corpus and thresholds;
+measure copied binaries sequentially, retain failed/contaminated evidence,
+remove unprofitable changes and commit logical milestones separately.
+
+**Discoveries:** an eight-cell scalar proxy with native reads/writes is
+correct in the tested boundary cases but slower on the required short-closure
+workload. Actual native operation counts do not establish a performance win.
+A null proxy requires valid helper data, unlike a null host. Foreign open
+captures and joined aliases need explicit canonical-state tests.
+
+**Accomplished:** rejected and reverted the ABI v4 experiment; retained ABI v3
+and six expanded integration tests in a separate unsigned commit. Full GNU
+verification passes 2595 executions / 410 suites; focused musl integrations
+and formatting/workflow checks pass. Updated stale evidence-table counts,
+eviction status and compiled-Off speed-profile acceptance. Engram tools remain
+unavailable; this document holds the session handoff.
+
+**Next steps:** seek profitable short-frame/call-boundary optimization rather
+than adding another proxy marshal to each small closure. Sparse-cache
+compaction, compiler/combined-host bounds, broader transitions/lifecycle and
+unsafe/Miri/coverage-guided fuzz remain open, along with shipping-profile
+acceptance and executed ARM64/hosted evidence. Four native performance
+controls still fail. The full goal remains active; no job from this milestone
+is live after verification.
+
+**Relevant files:** `tests/jit_upvalues.rs` holds the six regressions;
+`Makefile` exposes `jit-upvalues`; `JIT.md` describes its scope; this plan
+records experiment rejection and acceptance evidence. Ignored
+`target/jit-evidence/scalar-upvalues/` preserves copied artifacts, hashes and
+experiment source; no experimental runtime code is retained in source.
 
 ## 15. Primary references
 
