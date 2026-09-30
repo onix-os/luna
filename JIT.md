@@ -68,6 +68,13 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 ## Verification and remaining work
 
+`make jit-upvalues` compares native and interpreted open/closed cells with
+collection between slices, exact logical read/write counts, eight/nine distinct
+captures, joined aliases, foreign coroutine stacks, reference values, scalar
+type changes, error guards, debug rebinding and Rust callback reentry. These
+are behavior checks for the current helper-backed tier, not performance
+acceptance or a direct scalar-upvalue cache.
+
 Use `make jit-boundary`, `make jit-native`, `make jit-heap`, `make jit-policy`, `make jit-registers`, and `make jit-verify` in the Nix development environment. Test-only Force wrappers prepare after host arena entries; sources loaded and executed wholly within one entry cannot be prepared between those operations and are not falsely counted as forced-native coverage. Dedicated native tests explicitly prepare and assert nonzero native instruction counts.
 
 `make jit-resources` checks failed and successful growth, retained capacity, lower-limit ownership, injected underlying/partial-snapshot failure, queue refusal without stranded flags, generated-mapping reclamation after installation refusal, separate registration/snapshot budgets, retroactive registration retirement and final-source collection. Requested container layouts are reserved before `Global` allocation and released only after deallocation; default allocator growth keeps the old block charged while allocating/copying its replacement. The allocator is static/GC-free; the weak registry still uses the collector's traced hashbrown implementation and fresh generation/identity verification.

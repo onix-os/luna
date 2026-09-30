@@ -192,6 +192,10 @@ jit-fuzz:
 jit-heap:
 	@$(CARGO) test -p luna --features jit --test jit_heap $(TARGET_ARG) $(ARGS)
 
+.PHONY: jit-upvalues
+jit-upvalues:
+	@$(CARGO) test -p luna --features jit --test jit_upvalues $(TARGET_ARG) $(ARGS)
+
 jit-policy:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::policy_tests
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::eviction_tests
@@ -383,6 +387,7 @@ help:
 	@echo "  jit-fuzz-smoke Run supervised admission/scalar fuzz smoke"
 	@echo "  jit-fuzz     Run bounded seeded campaigns (FUZZ_TARGET/CASES/SEEDS)"
 	@echo "  jit-heap     Run native heap/upvalue mutation and GC tests"
+	@echo "  jit-upvalues Test upvalue aliases, foreign stacks and GC"
 	@echo "  jit-registers Test register-255 and stack-256 boundaries"
 	@echo "  jit-policy   Test quota refusal and configuration retirement"
 	@echo "  jit-resources Test owned-container budgets and reclamation"
