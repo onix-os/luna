@@ -6,6 +6,73 @@
 
 use luna::{Closure, Executor, ExternError, Fuel, JitConfig, JitError, JitMode, Lua};
 
+#[test]
+fn cache_pressure_preserves_live_closures_native_results_and_interpreter_fallback(
+) -> Result<(), ExternError> {
+    let load = |lua: &mut Lua| {
+        lua.try_enter(|ctx| {
+            let closure = Closure::load(ctx, Some("cache-pressure"), b"return 42")?;
+            Ok(ctx.stash(closure))
+        })
+    };
+    let mut probe = state();
+    let probe_closure = load(&mut probe)?;
+    assert_eq!(probe.prepare_jit().unwrap(), 1);
+    let module_bytes = probe.jit_stats().code_bytes;
+    assert!(module_bytes > 0);
+    drop((probe_closure, probe));
+
+    let mut lua = Lua::empty();
+    lua.set_jit_config(JitConfig {
+        mode: JitMode::Auto,
+        hot_threshold: 1,
+        max_code_bytes: 2 * module_bytes,
+        ..JitConfig::default()
+    })
+    .unwrap();
+    let first = load(&mut lua)?;
+    assert_eq!(lua.prepare_jit().unwrap(), 1);
+    let second = load(&mut lua)?;
+    assert_eq!(lua.prepare_jit().unwrap(), 1);
+    let execute = |lua: &mut Lua, closure: &luna::StashedClosure| -> Result<i64, ExternError> {
+        let executor =
+            lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(closure).into(), ())));
+        lua.execute(&executor)
+    };
+    assert_eq!(execute(&mut lua, &first)?, 42);
+    let third = load(&mut lua)?;
+    assert_eq!(lua.prepare_jit().unwrap(), 1);
+    let stats = lua.jit_stats();
+    assert_eq!(stats.cache_evictions, 1);
+    assert_eq!(stats.compilation_failures, 1);
+    assert_eq!(stats.code_bytes, 2 * module_bytes);
+    lua.gc_collect();
+    for closure in [&first, &third] {
+        let before = lua.jit_stats().native_instructions;
+        assert_eq!(execute(&mut lua, closure)?, 42);
+        assert!(lua.jit_stats().native_instructions > before);
+        lua.gc_collect();
+    }
+    let before = lua.jit_stats().native_instructions;
+    assert_eq!(execute(&mut lua, &second)?, 42);
+    assert_eq!(lua.jit_stats().native_instructions, before);
+    assert_eq!(lua.jit_stats().cache_evictions, 1);
+    drop((first, second, third));
+    lua.gc_collect();
+    lua.gc_collect();
+    lua.service_jit().unwrap();
+    let reclaimed = lua.jit_stats();
+    assert_eq!(
+        (
+            reclaimed.code_bytes,
+            reclaimed.metadata_bytes,
+            reclaimed.snapshot_bytes
+        ),
+        (0, 0, 0)
+    );
+    Ok(())
+}
+
 fn state() -> Lua {
     let mut lua = Lua::empty();
     lua.set_jit_config(JitConfig {

@@ -425,7 +425,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 3 — Build validated owned IR and bounded code ownership
 
-**Status:** IN PROGRESS. **Depends on:** Phase 2. Owned snapshots, exhaustive opcode validation/fallback classification, weak generation IDs, bounded queues/attempts, leased code, and capped page-rounded mappings exist. Full CFG/effect review, metadata/compiler accounting, combined-limit semantics, eviction policy, and hardening remain open.
+**Status:** IN PROGRESS. **Depends on:** Phase 2. Owned snapshots, exhaustive opcode validation/fallback classification, weak generation IDs, bounded queues/attempts, leased code, capped mappings and bounded unleased LRU eviction exist. Full CFG/effect review, complete accounting, combined-limit semantics, sparse-cache compaction and hardening remain open.
 
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
@@ -494,7 +494,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 7 — Add hotness policy and nonblocking automatic compilation
 
-**Status:** IN PROGRESS. **Depends on:** Phases 3 and 6. Hotness/bounded queue/explicit outside-arena service, bounded failed attempts, configuration retirement and typed quota refusal are implemented. Scheduling failure injection, eviction/backoff diagnostics and complete resource ledgers remain open.
+**Status:** IN PROGRESS. **Depends on:** Phases 3 and 6. Hotness/bounded queue/explicit outside-arena service, bounded failed attempts, configuration retirement, typed refusal and bounded LRU retry with diagnostics are implemented. Scheduling failure injection, broader backoff/compaction policy and complete resource ledgers remain open.
 
 **Files:** compiler/cache policy, Lua host service APIs, `tests/jit_policy.rs`, `tests/jit_resources.rs`, benchmark harness.
 
@@ -1156,6 +1156,71 @@ requirements remain open. No tool process remains live from this milestone.
 **Relevant files:** `src/jit/abi.rs` adds committed ABI tests;
 `src/jit/backend.rs`, `Makefile`, `flake.nix`, `JIT.md` and this plan contain the
 separate diagnostic milestone. No release or push has been performed.
+
+### Bounded cache-pressure eviction decision
+
+Implement deterministic LRU eviction for installed, unleased modules only.
+Update recency at installation and successful per-slice lookup using a
+saturating logical clock; break saturated-clock ties by prototype generation.
+After a native-mapping quota refusal, permit at most one eviction and compiler
+retry in a service call, and only when the prototype's existing lifetime
+attempt budget has room. Count each failed compiler invocation, retirement and
+no-victim refusal. Do not evict for snapshot/metadata/capability/compiler errors.
+Keep the same source identity; reset an evicted prototype's hotness but not its
+attempts, preventing unlimited cache-thrash recompilation. Explicit cache clear
+retains its documented attempt reset. If every module is leased, decline
+eviction and preserve the interpreter fallback; leases remain charged and
+executable. Tests must cover recency, deterministic victim choice, bounded retry,
+pinned refusal/retirement, actual native execution and final reclamation.
+This policy is not a hard compiler CPU or working-memory ceiling.
+
+**Verified:** six private cache tests pass: LRU recency, saturated-clock tie
+breaking, exhausted admission, no eviction for metadata refusal, leased-code
+refusal/retirement/reclamation, and a failed oversized retry capped at one victim
+and two failed compilations. The public cache-pressure test preserves three
+live closures, proves native execution of surviving/replacement modules,
+interpreter fallback of the victim, GC safety and final zero resource usage.
+Allocation/protection-denial tests explicitly assert no pressure eviction.
+`make jit-policy` now includes the cache tests, and paired benchmark reports
+expose both new cumulative cache counters.
+
+Full `nix develop -c make jit-verify` exits 0: 2545 executions / 404 suite
+invocations (`/tmp/luna-jit-eviction-verify.log`), with supervised smoke artifacts
+at `target/jit-evidence/fuzz/1790779028665404578-2790667`. Focused musl policy,
+all fourteen native integrations and finalized-kernel dumping pass
+(`/tmp/luna-jit-eviction-musl.log`). Focused GNU evidence is in
+`/tmp/luna-jit-eviction-final-focused.log`. These are correctness/resource
+results, not numerical performance acceptance.
+
+#### Session summary: bounded pressure eviction
+
+**Goal:** implement the missing cache-pressure policy within the original full
+JIT plan and commit the verified milestone separately.
+
+**Instructions:** keep native leases, attempt limits, source identities and
+frozen performance controls intact; use Make/Nix and unsigned milestone commits.
+
+**Discoveries:** retries need their own attempt charge and failure counter even
+when eventual installation succeeds. Evicted sources must retain attempts to
+prevent an unlimited cache-thrash recompilation loop. A failed oversized retry
+can leave its one victim interpreted; there is no transactional restoration.
+
+**Accomplished:** bounded deterministic unleased LRU retirement/retry, cumulative
+diagnostics, six cache unit tests, one public GC/fallback/native-effect test,
+full GNU correctness and focused musl evidence. Documentation and phase status
+are updated without claiming complete Phase 3/7 or release acceptance.
+
+**Next steps:** repeat native/compiled-Off performance gates on an idle machine;
+unrelated Magi Cargo/Rust compilation was live during the final resource checks,
+so no concurrent timing run was started. Continue invocation/helper optimization,
+compiler/combined-host limits, sparse-cache compaction, scheduling failure
+injection, broader lifecycle/unsafe/fuzz hardening and ARM64/hosted execution.
+No Luna tool process remains live from the correctness gates.
+
+**Relevant files:** `src/jit/mod.rs` implements recency/eviction/retry and private
+cache tests; `tests/jit_policy.rs` verifies the public lifecycle; backend denial
+tests forbid eviction; `Makefile` runs the cache suite; `examples/jit_bench.rs`
+reports cache counters; `JIT.md` and this plan document behavior and limitations.
 
 ## 15. Primary references
 

@@ -184,6 +184,7 @@ jit-heap:
 
 jit-policy:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::policy_tests
+	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::eviction_tests
 	@$(CARGO) test -p luna --features jit --test jit_policy $(TARGET_ARG)
 
 jit-resources:

@@ -34,7 +34,7 @@ fn report(name: &str, mode: &str, mut timings: Vec<u128>, lua: &Lua) -> u128 {
     timings.sort_unstable();
     let stats = lua.jit_stats();
     println!(
-        "case={name} mode={mode} samples={} median_ns={} min_ns={} max_ns={} native_entries={} code_lookups={} code_leases={} native_instructions={} interpreted_instructions={} interpreted_slices={} guard_exits={} helper_instructions={} helper_declines={} table_reads={} table_writes={} upvalue_reads={} upvalue_writes={} allocations={} compilation_requests={} compilation_failures={} code_bytes={} metadata_bytes={} metadata_peak_bytes={} metadata_refusals={} registration_refusals={} snapshot_bytes={} snapshot_peak_bytes={}",
+        "case={name} mode={mode} samples={} median_ns={} min_ns={} max_ns={} native_entries={} code_lookups={} code_leases={} native_instructions={} interpreted_instructions={} interpreted_slices={} guard_exits={} helper_instructions={} helper_declines={} table_reads={} table_writes={} upvalue_reads={} upvalue_writes={} allocations={} compilation_requests={} compilation_failures={} cache_evictions={} cache_eviction_refusals={} code_bytes={} metadata_bytes={} metadata_peak_bytes={} metadata_refusals={} registration_refusals={} snapshot_bytes={} snapshot_peak_bytes={}",
         timings.len(),
         timings[timings.len() / 2],
         timings[0],
@@ -55,6 +55,8 @@ fn report(name: &str, mode: &str, mut timings: Vec<u128>, lua: &Lua) -> u128 {
         stats.native_allocations,
         stats.compilation_requests,
         stats.compilation_failures,
+        stats.cache_evictions,
+        stats.cache_eviction_refusals,
         stats.code_bytes,
         stats.metadata_bytes,
         stats.metadata_peak_bytes,

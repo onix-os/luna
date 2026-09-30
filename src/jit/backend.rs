@@ -1330,6 +1330,8 @@ mod memory_tests {
             assert_eq!(refused.snapshot_bytes, 0);
             assert_eq!(refused.installed_regions, 1);
             assert_eq!(refused.native_entries, 0);
+            assert_eq!(refused.cache_evictions, 0);
+            assert_eq!(refused.cache_eviction_refusals, 0);
             assert_eq!(lua.execute::<i64>(&first_executor).unwrap(), 42);
             assert!(lua.jit_stats().native_instructions > 0);
             let native_before = lua.jit_stats().native_instructions;
