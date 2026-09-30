@@ -477,7 +477,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 6 — Add heap fast paths with collector and mutation proofs
 
-**Status:** IN PROGRESS. **Depends on:** Phase 5. Fixed helper ABI v3 executes table/upvalue/allocation operations through existing barrier APIs. Weak tables, readonly/intercept changes, invalid keys, every-slice GC, finalizer resurrection and debug mutation have native evidence; broader weak-mode/interleaved/invalidation stress remains open.
+**Status:** IN PROGRESS. **Depends on:** Phase 5. Fixed helper ABI v3 executes table/upvalue/allocation operations through existing barrier APIs. Weak tables, readonly/intercept changes, invalid keys, every-slice GC, finalizer resurrection and debug mutation have native evidence. New focused cases cover alternating executors with Rust table/userdata replacement and weak-value metatable mutation/reattachment; complete mode/ephemeron/guard matrices and broader lifecycle stress remain open.
 
 **Files:** runtime/guards, table modules, closure/upvalue integration, `tests/jit_gc.rs`, `tests/jit_mutation.rs`, existing GC/weak/userdata suites.
 
@@ -2002,6 +2002,445 @@ acceptance. A partial performance gain is not release completion.
 `src/jit/resources.rs` tests boundary keys, owner counts and unchanged hash
 state across fallible compaction; `JIT.md` documents the private-key policy;
 `PLAN_JIT.md` records verified correctness and still-failed acceptance.
+
+### Closure-local source-identity cache decision
+
+Test a private `ClosureInner` cache of runtime owner address, registration epoch
+and ID. The owner key prevents equal generation IDs/epochs in different states
+from becoming an identity match. Populate only after the weak/object identity
+validation succeeds; never cache missing/manual/binary provenance as eligible.
+A live closure strongly owns its immutable prototype, so an epoch-matching
+positive ID can skip another weak-registry lookup. Every registration
+retirement/reset increments the epoch; overflow permanently disables caching
+instead of wrapping or revalidating stale IDs. Ordinary code clear/Off/eviction
+retain registrations and do not require identity invalidation. No code lease,
+GC pointer or negative identity is cached; current code lookup and observation
+remain authoritative. The added closure storage belongs to the traced GC
+object and its existing GC allocation accounting, not the separate JIT map
+layout ledger. Keep API constructors and native ABI unchanged; admit the
+change only after lifecycle/provenance, Miri and repeated performance/cost gates.
+
+**Focused execution:** existing native/resources/policy/upvalue tests pass.
+Five new Rust-only registry tests prove lookup-free positive hits, clear/reset
+and re-registration, owner mismatch, permanent overflow fallback and no
+negative-cache admission. The Miri lane passes 29 selected tests, including
+those five additions (`/tmp/luna-jit-identity-cache-{fixtures,miri}.log`). A
+new public native lifecycle regression exercises warm caches across clear,
+Off/Auto and metadata retirement/raising/replacement with exact counter
+checks; it is pending execution. Copied native timing artifacts and hashes are
+under `target/jit-evidence/identity-cache/`; timing was deferred before the
+first baseline because unrelated Magi and Molla Cargo jobs are active. Full
+GNU/new lifecycle validation and matched cost builds can proceed without
+misreporting timing as started. No keep/acceptance decision yet.
+
+#### Session summary: identity-cache validation checkpoint
+
+**Goal:** complete the full native-JIT plan; respond to the user's progress
+question while continuing a measured short-call optimization.
+
+**Instructions:** keep status concise and distinguish committed results from
+experiments; incremental unsigned title-only commits, Make/Nix validation and
+unchanged acceptance gates. Do not benchmark through unrelated builds.
+
+**Discoveries:** an epoch alone is insufficient as a cache key; include the
+runtime owner identity so equal generations/epochs in different states cannot
+match. The collector supports static `Cell` values without pointer tracing,
+so this cache adds no unsafe mutation or hidden GC/code root. Retirement must
+invalidate positive entries; epoch overflow must permanently fall back to
+full weak/object validation rather than wrap.
+
+**Accomplished:** uncommitted cache candidate integrates private closure
+storage and epoch invalidation without public constructor or ABI changes.
+Existing focused resource/policy/native/upvalue checks and all five new
+Rust-only cache tests pass; Miri passes 29 selected tests. Added a public warm
+native lifecycle regression for clear, Off/Auto, quota reset/raising and a
+replacement source, pending the current full gate. Baseline/candidate benchmark
+artifacts and hashes are in `target/jit-evidence/identity-cache/`. The attempted
+timing command exited 3 before any run because unrelated Cargo jobs were live;
+no benchmark results exist yet for this candidate. Engram is unavailable.
+
+**Next steps:** resume the exact live exec session `43399`, running sequential
+full GNU verification, focused musl and matched speed artifact builds. Do not
+restart on an observation timeout. Logs are
+`/tmp/luna-jit-identity-cache-{full-verify,musl,feature-build}.log`.
+After terminal success and fresh process guards, measure copied baseline and
+candidate twice plus compiled-Off costs; retain or reject honestly and commit
+that decision. Core native/shipping performance, complete compiler/combined
+bounds, broader hardening and actual ARM64/hosted acceptance remain open.
+The full goal is active, not complete or blocked.
+
+**Relevant files:** `src/closure.rs` stores validated private identities;
+`src/jit/mod.rs` maintains registration epochs and owner tokens;
+`src/thread/vm.rs` uses the cache only with Auto eligibility and no hooks;
+`src/jit/registry.rs` tests cache validity/provenance/overflow;
+`tests/jit_resources.rs` adds integrated warm-cache retirement coverage;
+`PLAN_JIT.md` preserves exact progress and the live validation handle.
+
+### Identity-cache full verification
+
+The original live process completed exit 0. Fresh full GNU verification passes
+2690 executions / 410 suite invocations; supervised smoke is at
+`target/jit-evidence/fuzz/1790793565560984280-3623253`.
+Focused musl resources/policy/native/upvalues also pass, including the new
+public warm-cache clear/Off/retirement/replacement test and six private registry
+tests. Matched speed-profile feature-cost artifacts are built. Native copied
+baseline/candidate measurements and compiled-Off comparisons can now run
+sequentially with fresh process guards. No performance keep decision yet.
+
+### Session checkpoint: identity-cache measurements
+
+**Goal:** implement the full plan on `feat/native-jit`; report current progress
+without presenting a tested experiment as accepted implementation.
+
+**Instructions:** retain incremental unsigned title-only commits and unchanged
+acceptance gates. Use Make/Nix for relevant verification and avoid overlapping
+benchmarks with builds. Engram tools are unavailable; preserve the handoff here.
+
+**Discoveries:** the closure identity-cache experiment passes correctness but
+does not yet satisfy performance acceptance. Compiled-Off speed controls fail
+integer (+9.13%) and float (+8.51%) workloads on the first run; the repeat
+still fails float (+6.90%), against the unchanged +5% ceiling. Native candidate
+runs still fail array, upvalue, and callback workload targets.
+This is not evidence of an accepted optimization, despite improved native
+short-call results. The previous checkpoint's live process has terminated.
+
+**Accomplished:** full GNU verification passes 2690 executions / 410 suite
+invocations, focused musl checks pass, and the selected Rust-only Miri gate
+passes 29 tests. Copied baseline/candidate native comparisons and two matched
+speed-profile feature-cost runs are finished and retained under
+`target/jit-evidence/identity-cache/`; no owned verification process remains
+live. The plan itself is written and committed; source changes for this
+experiment remain uncommitted pending the keep/revise/reject decision.
+
+**Next steps:** inspect exact failed control rows, then revise or reject the
+identity-cache experiment without weakening thresholds. Core native/shipping
+performance, complete compiler/combined-host bounds, broader hardening, and
+actual ARM64/hosted acceptance remain open. The overall goal remains active.
+
+**Relevant files:** `src/closure.rs`, `src/jit/mod.rs`, `src/thread/vm.rs`, and
+`src/jit/registry.rs` contain the unaccepted identity-cache experiment;
+`tests/jit_resources.rs` adds warm-cache lifecycle coverage; `PLAN_JIT.md`
+records progress and acceptance evidence.
+
+### Identity-cache revision: preserve the compiled-Off guard
+
+The next experiment restores the original `!hook_enabled && active()` guard
+before fetching the closure identity token. Off-mode no longer enters the
+optional-token path; Auto obtains the token only after the existing eligibility
+check. The original failed experiment, its binaries, hashes and raw logs are
+retained; the complete original source patch is archived at
+`target/jit-evidence/identity-cache/original/experiment.patch`.
+
+Focused resource/policy/native/upvalue checks pass. Two sequential speed-profile
+compiled-Off runs pass all nine unchanged controls (Make exit 0); this addresses
+the measured Off regression in the original experiment without removing work or
+weakening instrumentation. Two native candidate runs still exit 2: remaining
+workload failures are recorded in their raw logs. These results are not overall
+native or release acceptance. Revised artifacts, source patch and raw logs are
+at `target/jit-evidence/identity-cache/guarded/`.
+
+Next run fresh full correctness and matched shipping controls before deciding
+whether to retain this revision. The cache adds 24 primitive bytes per closure
+on 64-bit targets, charged by GC object allocation rather than the JIT metadata
+container ledger; fixed manager owner/epoch overhead remains outside that
+container ledger. Complete combined-host resource accounting remains open.
+
+### Guarded-cache shipping result and final isolation experiment
+
+The guarded revision passes fresh full GNU verification (2690 executions /
+410 suite invocations), 29 selected Miri tests and focused musl checks. Its
+shipping controls nevertheless fail: upvalue compiled-Off overhead is +19.32%
+and +19.65%, versus the previous committed hash milestone's +7.26%/+6.82%.
+Float also fails both (+5.28%/+6.69%); integer fails the first (+10.76%) but
+passes the repeat (+3.24%). All nine raw control rows and dispersion remain
+archived. This shipping regression prevents retaining the guarded revision as
+an accepted optimization; successful speed-profile controls are insufficient.
+
+One final experiment outlines the Auto-only token/cache lookup into the private
+`Closure::registered_source_identity` method, retaining the original VM Off
+guard and the same validity checks. This tests whether isolating the extra
+Auto-only control flow changes the measured Off cost; causality is unproven.
+The guarded artifacts remain separately retained. Measure shipping first,
+then native/speed and correctness if the isolation experiment earns further
+evaluation; otherwise remove the cache while retaining independent lifecycle
+coverage. No gate, workload, or instrumentation is relaxed.
+
+### Identity-cache decision: reject all three runtime variants
+
+The final outlined experiment also fails shipping controls twice: upvalue
+ratios are 1.2039/1.1863 and array ratios 1.0728/1.0736. Callbacks fail the first
+at 1.0510; integer fails the repeat at 1.1143. Float passes both at
+1.0405/1.0437. These are raw ratio-of-median results against the unchanged
+1.05 ceiling, not statistical claims of a precise causal effect. The persistent
+upvalue cost is worse than the prior committed shipping results. The original,
+guarded and outlined experiments are therefore rejected, despite native gains
+and the guarded variant's passing speed-profile controls.
+
+All uncommitted identity-cache production code and its five implementation-
+specific registry tests have been removed using the archived owned source
+diff. `src/closure.rs`, `src/jit/mod.rs`, `src/jit/registry.rs` and
+`src/thread/vm.rs` now match HEAD; no epoch field, closure cache, extra lookup
+method or ABI change remains. Their evidence and patches remain separately
+archived in `target/jit-evidence/identity-cache/{original,guarded,outlined}/`.
+No acceptance threshold, benchmark, or work counter changed.
+
+Retain the independent public warm-source lifecycle test, renamed to avoid
+claiming a closure-local cache implementation. It proves native execution
+before and after code clear and Off/Auto transitions, then interpreted-only
+execution after registration reset, raising the quota without restoring old
+eligibility, and native execution of a replacement source after collection.
+Verify this retained test against the restored committed runtime before
+committing it. The rejection does not resolve existing native or shipping
+failures; the full goal remains active.
+
+### Session summary: reject regressing identity caches
+
+**Goal:** fully implement this plan on `feat/native-jit`; evaluate the pending
+identity-cache optimization against correctness and both performance profiles.
+
+**Instructions:** unchanged thresholds, Make/Nix verification, no benchmark/build
+overlap, incremental unsigned title-only commits. Engram remains unavailable;
+this document preserves the structured handoff.
+
+**Discoveries:** restoring the original VM active guard makes all nine speed
+compiled-Off controls pass twice, but shipping exposes substantially worse
+upvalue costs. Outlining Auto-only lookup does not cure those shipping costs.
+Correctness and one successful optimization profile are insufficient to retain
+a regressing runtime change. All three candidates are rejected; no claimed
+causal explanation substitutes for their recorded measurements.
+
+**Accomplished:** candidate full GNU gates pass 2690 executions / 410 suite
+invocations, selected Rust-only Miri passes 29 tests, and focused musl passes.
+Preserved all candidate patches, copied binaries, hashes and raw comparisons;
+removed the entire unaccepted runtime cache and its five private tests. Retained
+and independently verified the public warm-source lifecycle test on restored
+GNU and musl runtime paths, committed as `450e33b` (unsigned). Fresh restored
+full GNU verification passes 2665 executions / 410 suite invocations and
+workflow lint passes; supervised smoke artifacts are
+`target/jit-evidence/fuzz/1790795425295153311-3807307`. All owned sessions
+(`27970`, `2433`, `74056`, `21174`, `9067`, `92730`, `85709`) are terminal.
+
+**Next steps:** the committed runtime still misses native table/upvalue/callback
+targets and shipping compiled-Off acceptance. Stop retrying the same identity
+cache architecture without new evidence. Address the documented baseline
+Clippy single-pass-loop errors with behavior-preserving changes and tests, then
+continue measured native transition/helper work, complete resource accounting
+and hardening. Actual ARM64/hosted acceptance remains absent. No part of this
+rejection completes or blocks the full active goal.
+
+**Relevant files:** `tests/jit_resources.rs` retains warm source retirement and
+replacement coverage; `PLAN_JIT.md` records rejected variants and exact gates;
+production JIT/closure/VM files match their prior committed implementations.
+`target/jit-evidence/identity-cache/` holds original, guarded and outlined
+experiment evidence plus restored-runtime verification logs.
+
+### Baseline Clippy single-pass blocks
+
+Replaced the single-iteration `loop` fast-path scopes in `concat_many` and
+`concat_separated` with labeled blocks. Their scalar success returns and
+fallback exits are unchanged; no allocation, conversion, error, or metamethod
+ordering rule changes. Local comments now describe the fast paths and
+right-to-left sequence execution without rationale. `nix develop -c make fmt
+fmt-check clippy` passes, removing the two documented `never_loop` errors
+without suppressions or lint configuration changes; existing warnings remain.
+The exact result is `/tmp/luna-jit-concat-clippy.log`.
+
+Added three focused public regressions for scalar/nil/numeric separators,
+empty/singleton results, right-to-left value and separator metamethod order,
+error payload preservation, and continued execution after fallback errors.
+Fresh full GNU verification passes 2683 executions / 410 suite invocations,
+including all three new regressions in the interpreter and feature-enabled
+Off/Auto/Force lanes. Workflow lint and baseline Clippy pass; Clippy still
+reports 137 library warnings and 138 lib-test warnings (137 duplicates), with
+no suppression or change to strict mode.
+GNU smoke evidence is
+`target/jit-evidence/fuzz/1790796074085659047-3870368`; the full command log is
+`/tmp/luna-jit-concat-full-verify.log`. Fresh full musl verification also passes
+2683 executions / 410 suite invocations, with all three new regressions in all
+six applicable test invocations. Musl smoke evidence is
+`target/jit-evidence/fuzz/1790796332065530435-3894804`; logs are retained in
+`target/jit-evidence/concat-baseline/`. Session `67578` is terminal, exit 0.
+This baseline fix does not establish native or shipping performance acceptance.
+
+### Session summary: clear baseline Clippy errors
+
+**Goal:** fully implement the plan; clear the documented baseline lint errors
+without changing concatenation or weakening verification.
+
+**Instructions:** Make/Nix gates, patch tools, functional comments and
+incremental unsigned title-only commits. Preserve the entire goal and all
+performance gates. Engram is unavailable; this structured handoff is retained
+in the plan instead.
+
+**Discoveries:** both errors came from single-pass fast-path scopes, not loops
+requiring repeated execution. Labeled blocks retain the success return and
+fallback exits. The value fallback and non-string separator fallback both
+execute right-to-left asynchronous metamethod sequences; errors must leave
+caller state usable. Existing warnings remain distinct from the removed lint
+errors, and strict Clippy is not claimed to pass.
+
+**Accomplished:** committed the source fix and three public regressions as
+`9925dda`, unsigned and title-only. Baseline Clippy, format and workflow lint
+pass. Full GNU and full musl verification each pass 2683 executions / 410 suite
+invocations, including default/optional and Off/Auto/Force lanes and supervised
+smoke. Exact logs and smoke paths are recorded above. No owned process remains
+live; production JIT code, ABI, resource limits and benchmark gates are unchanged.
+
+**Next steps:** continue the remaining native transition/helper performance work
+and the broader interleaved-executor/Rust-mutation/userdata/weak-mode lifecycle
+matrix. Complete compiler/combined-host resource bounds and unsafe/fuzz review;
+obtain actual ARM64/hosted evidence when available and authorized. Do not repeat
+the rejected closure-local identity caches without new evidence. All native and
+shipping acceptance failures remain open; the full goal is active.
+
+**Relevant files:** `src/meta_ops.rs` uses explicit fast-path blocks;
+`tests/metamethods.rs` verifies scalar success, both fallback paths, order and
+error recovery; `PLAN_JIT.md` records this baseline milestone and remaining
+acceptance; `target/jit-evidence/concat-baseline/` retains exact verification logs.
+
+### Lifecycle matrix: weak-mode contract discovery
+
+`Table::set_metatable` reads `__mode` when attaching the metatable and converts
+existing entries through the weak-storage APIs. Mutating the attached
+metatable's `__mode` field alone does not retroactively convert entries;
+`src/table/table.rs` documents this attachment-time policy. This is evidence of
+Luna's current interpreter behavior, not verified upstream Lua compatibility.
+Native mutation tests must compare this actual interpreter contract rather than
+assume live mode switching. Interleaved-executor
+tests must also retain object identities in suspended canonical registers while
+Rust replaces their global/table aliases and collects between slices. These
+discoveries inform the next tests; no production behavior is changed here.
+
+### Lifecycle matrix: interleaving and weak attachment coverage
+
+Added two public native/reference regressions in `tests/jit_heap.rs`:
+
+- Two live executors share one mutable global table in each reference/native
+  state, alternate 1/3/7/64-fuel slices, and compare completion, executor mode,
+  fuel remainder and host-visible state on every tick. Rust mutates the previous
+  item's value, replaces its global alias with fresh tables or userdata, resizes
+  and deletes shared table entries, and performs full collection after every
+  slice. Userdata metatable/index-proxy roots and table identities must survive
+  solely in canonical suspended registers when aliases disappear. Both final
+  integer results must equal the interpreter; native reads/writes and userdata
+  declines must be nonzero, while reference native work stays zero.
+- A rooted getter is warmed before Rust changes only the metatable's `__mode`
+  field, proving attachment-time behavior still retains the entry. Reattaching
+  that same metatable converts the previously strong entry to weak storage;
+  collection then removes it. The same compiled getter must observe both states
+  through actual native reads. A compiled weak-table writer allocates and stores
+  a fresh object, reads its marker across 1/7/64-fuel slices with collection after
+  every slice, returns 71 and releases it after completion. Native allocation and
+  write deltas are exactly 1 and 2, respectively; later reads must observe nil.
+
+`nix develop -c make fmt fmt-check jit-heap` passes all 14 tests
+(`/tmp/luna-jit-lifecycle-matrix-focused.log`). Fresh full GNU verification passes
+2693 executions / 410 suite invocations, including 14 heap tests in ordinary
+JIT lanes and 15 with async enabled. GNU smoke evidence is
+`target/jit-evidence/fuzz/1790797513166808616-3922151`. Full musl verification
+also passes 2693 executions / 410 suite invocations; its smoke artifacts are
+`target/jit-evidence/fuzz/1790797709606741896-3931005`. Session `51155` is
+terminal, exit 0. Exact logs are retained in
+`target/jit-evidence/lifecycle-matrix/`. No production layout, helper ABI, quota or benchmark gate
+changes. These cases reduce the open lifecycle matrix but do not prove every
+interleaving, weak-key/ephemeron transition or guard invalidation path.
+
+### Verified weak-key reattachment defect
+
+A Make-backed interpreter probe reproduces a shared-runtime defect: populate a
+`k` table under a strongly held key, warm/read its retained value, change the
+metatable mode to `kv` and reattach it, then collect twice. The value incorrectly
+survives. The baseline command `nix develop -c make run EXAMPLE=interpreter
+ARGS=/tmp/luna-weak-key-reattach.lua` exits 2 with the explicit assertion
+`reattaching kv retained the old ephemeron value`; log is
+`/tmp/luna-jit-weak-key-reattach-probe.log`.
+
+`set_metatable` avoids registering new `kv` tables for ephemeron revival, but
+does not retire an earlier `k` registration. `Finalizers::mark_ephemerons`
+therefore continues reviving the old table's values. Fix the weak-key registry
+and its deduplication set together on `kv` attachment, preserving attachment-
+time mode semantics, table/userdata finalization registrations and later `k`
+re-registration. Add public regression coverage before changing production code.
+
+### Weak-key reattachment fix
+
+The new public heap regression first fails on the restored baseline (113 rather
+than 0 after `kv` reattachment), preserved in
+`/tmp/luna-jit-weak-key-reattach-before.log`. The initial command-format failure
+is separately retained in the `before-argument-error.log` and is not behavioral
+evidence. The corrected targeted command uses Make's `ARGS='test_name -- --exact'`.
+
+Added private `Finalizers::unregister_weak_keys` to retire only the matching
+pointer's `WeakKeys` deduplication key and weak-table vector entry together.
+`Table::set_metatable` calls it only when attaching `kv`; ordinary `k`
+registration remains unchanged. This uses no new unsafe code, fields, public
+API or GC layout. Repeated `k`/`kv` reattachment can re-enroll the table without
+duplicating entries or removing its independent `Table` finalization key.
+The original interpreter probe now exits 0, and all 15 focused heap tests pass,
+including actual native weak writes/reads and exact allocation/write counts.
+
+Added a normal interpreter/feature-enabled regression for repeated reattachment
+and exactly-once table finalization, and a Rust-only registry invariant test
+covering an unaffected peer sharing the same mutated metatable. Included that
+namespace in the pinned Make Miri gate without changing exclusions or interpreter
+checks. Fresh full GNU verification passes 2710 executions / 410 suite
+invocations, including the new invariant test, Off/native reattachment case and
+exactly-once finalization regression. Format, baseline Clippy and workflow lint
+also pass. Fresh full musl verification also passes 2710 executions / 410 suite
+invocations. Selected Rust-only Miri passes 25 tests in six namespaces, both
+with default flags and explicit `-Zmiri-seed=1`; default checks and the single
+existing native-finalization exclusion are unchanged. Sessions `28310` and
+`36614` are terminal, exit 0. GNU and musl smoke artifacts are respectively
+`target/jit-evidence/fuzz/1790798762073740888-3999003` and
+`target/jit-evidence/fuzz/1790799011004473278-4025492`.
+Logs, the original failing probe, corrected before/after results, the probe
+script and separate Miri environment/namespace logs are archived under
+`target/jit-evidence/weak-key-reattach/`. No native or shipping performance
+acceptance is claimed for this correctness fix.
+
+### Session summary: extend lifecycle proof and repair ephemeron retirement
+
+**Goal:** fully implement the native-JIT plan; advance its required interleaved
+executor, Rust mutation, userdata and weak-mode correctness matrix.
+
+**Instructions:** preserve the entire plan, immutable acceptance thresholds,
+Make/Nix execution, patch-only edits and incremental unsigned title-only
+commits. Avoid hidden compatibility changes or treating Miri as native-machine
+verification. Engram remains unavailable; this handoff is retained here.
+
+**Discoveries:** attachment-time mode conversion is the local interpreter
+contract; field mutation alone is not a fresh conversion. A previous `k`
+ephemeron registration wrongly survives `kv` reattachment, causing reachable
+keys to retain values that should be weak. Retirement must remove both the
+weak-vector entry and its typed deduplication key, while keeping other objects
+and table finalization registrations intact. Later `k` re-enrollment must work.
+
+**Accomplished:** committed two new lifecycle tests as `72b8017`, with full GNU
+and musl gates each passing 2693 executions. Reproduced the ephemeron defect in
+the interpreter and a failing public test before fixing it. Committed the
+registry fix, repeated-mode native/reference and finalization regressions,
+Rust-only peer/registry invariant test and its Miri gate inclusion as `a4c1723`.
+Fresh final GNU and musl gates each pass 2710 executions / 410 suite invocations;
+selected Miri passes 25 tests with default flags and seed 1. Format, baseline
+Clippy, workflow lint and supervised smoke pass. All owned sessions are terminal.
+No public API, GC object layout, native ABI, resource quota or benchmark
+threshold changed.
+
+**Next steps:** expand weak-key/ephemeron transitions beyond the proved `k`/`kv`
+reattachment case, including `k` to `v` and removal, then continue remaining
+transition/guard stress and measured native helper performance. Complete
+compiler/combined-host resource bounds, full unsafe/fuzz coverage and actual
+ARM64/hosted acceptance. Native and shipping performance acceptance remains
+unproven; rejected closure-local identity caches stay removed. The full goal
+remains active and incomplete.
+
+**Relevant files:** `tests/jit_heap.rs` covers alternating executors,
+table/userdata replacement, weak-value conversion and weak-key re-enrollment;
+`tests/weak_tables.rs` covers repeated weak-mode attachment with finalization;
+`src/finalizers.rs` retires exactly the matching weak-key registration and tests
+registry invariants; `src/table/table.rs` performs retirement on `kv` attachment;
+`Makefile` includes the new Rust-only finalizer namespace in pinned Miri;
+`PLAN_JIT.md` records scope, failures, verification and remaining work.
 
 ## 15. Primary references
 

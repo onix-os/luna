@@ -62,6 +62,17 @@ impl<'gc> Finalizers<'gc> {
         }
     }
 
+    pub(crate) fn unregister_weak_keys(&self, mc: &Mutation<'gc>, ptr: Gc<'gc, TableInner<'gc>>) {
+        let address = Gc::as_ptr(ptr);
+        let mut state = self.0.borrow_mut(mc);
+        state
+            .registered
+            .remove(&(RegistryKind::WeakKeys, address as *const ()));
+        state
+            .weak_key_tables
+            .retain(|weak| weak.as_ptr() != address);
+    }
+
     /// One round of ephemeron marking: revive the value of every entry whose key is still alive.
     ///
     /// Returns how many entries have a live key. The caller re-marks and calls again until that
@@ -253,4 +264,65 @@ enum RegistryKind {
     Userdata,
     Table,
     WeakKeys,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mode_reattachment_preserves_other_registrations_and_allows_reenrollment() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let mode = Table::new(&ctx);
+            mode.set_field(ctx, "__mode", "k");
+            mode.set_field(
+                ctx,
+                "__gc",
+                crate::Callback::from_fn(&ctx, |_, _, _| Ok(crate::CallbackReturn::Return)),
+            );
+            let table = Table::new(&ctx);
+            let peer = Table::new(&ctx);
+            table.set_metatable(ctx, Some(mode));
+            peer.set_metatable(ctx, Some(mode));
+            let address = Gc::as_ptr(table.into_inner()) as *const ();
+            let peer_address = Gc::as_ptr(peer.into_inner()) as *const ();
+            for (name, ephemeron) in [
+                ("k", true),
+                ("kv", false),
+                ("kv", false),
+                ("k", true),
+                ("k", true),
+                ("kv", false),
+            ] {
+                mode.set_field(ctx, "__mode", name);
+                table.set_metatable(ctx, Some(mode));
+                let finalizers = ctx.finalizers();
+                let state = finalizers.0.borrow();
+                assert_eq!(state.finalizable_tables.len(), 2);
+                assert_eq!(state.weak_key_tables.len(), 1 + usize::from(ephemeron));
+                assert_eq!(state.registered.len(), 3 + usize::from(ephemeron));
+                assert!(state.registered.contains(&(RegistryKind::Table, address)));
+                assert!(state
+                    .registered
+                    .contains(&(RegistryKind::Table, peer_address)));
+                assert!(state
+                    .registered
+                    .contains(&(RegistryKind::WeakKeys, peer_address)));
+                assert_eq!(
+                    state
+                        .registered
+                        .contains(&(RegistryKind::WeakKeys, address)),
+                    ephemeron
+                );
+                assert_eq!(
+                    state
+                        .weak_key_tables
+                        .iter()
+                        .any(|weak| weak.as_ptr() as *const () == address),
+                    ephemeron
+                );
+            }
+        });
+    }
 }

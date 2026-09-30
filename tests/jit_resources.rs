@@ -25,6 +25,68 @@ fn source(lua: &mut Lua, text: &[u8]) -> Result<StashedExecutor, ExternError> {
 }
 
 #[test]
+fn warm_source_identity_survives_code_clear_but_not_registration_reset() -> Result<(), ExternError>
+{
+    fn execute(lua: &mut Lua, closure: &luna::StashedClosure) -> Result<i64, ExternError> {
+        let executor =
+            lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(closure).into(), ())));
+        lua.execute(&executor)
+    }
+    let mut lua = state();
+    let closure = lua.try_enter(|ctx| Ok(ctx.stash(Closure::load(ctx, None, b"return 42")?)))?;
+    assert_eq!(lua.prepare_jit().unwrap(), 1);
+    assert_eq!(execute(&mut lua, &closure)?, 42);
+    assert!(lua.jit_stats().native_instructions > 0);
+    lua.clear_jit_cache();
+    assert_eq!(lua.jit_stats().registered_prototypes, 1);
+    assert_eq!(lua.prepare_jit().unwrap(), 1);
+    let before = lua.jit_stats().native_instructions;
+    assert_eq!(execute(&mut lua, &closure)?, 42);
+    assert!(lua.jit_stats().native_instructions > before);
+    lua.set_jit_config(JitConfig::default()).unwrap();
+    let before = lua.jit_stats().native_instructions;
+    assert_eq!(execute(&mut lua, &closure)?, 42);
+    assert_eq!(lua.jit_stats().native_instructions, before);
+    lua.set_jit_config(JitConfig {
+        mode: JitMode::Auto,
+        hot_threshold: 1,
+        ..JitConfig::default()
+    })
+    .unwrap();
+    assert_eq!(lua.prepare_jit().unwrap(), 1);
+    assert_eq!(execute(&mut lua, &closure)?, 42);
+    assert!(lua.jit_stats().native_instructions > before);
+    let mut config = lua.jit_config();
+    config.max_metadata_bytes = 1;
+    lua.set_jit_config(config).unwrap();
+    let before = lua.jit_stats();
+    assert_eq!(execute(&mut lua, &closure)?, 42);
+    assert_eq!(
+        lua.jit_stats().native_instructions,
+        before.native_instructions
+    );
+    assert_eq!(lua.jit_stats().code_lookups, before.code_lookups);
+    let mut config = lua.jit_config();
+    config.max_metadata_bytes = JitConfig::default().max_metadata_bytes;
+    lua.set_jit_config(config).unwrap();
+    assert_eq!(lua.prepare_jit().unwrap(), 0);
+    let replacement =
+        lua.try_enter(|ctx| Ok(ctx.stash(Closure::load(ctx, None, b"return 144")?)))?;
+    assert_eq!(lua.prepare_jit().unwrap(), 1);
+    lua.gc_collect();
+    let before = lua.jit_stats();
+    assert_eq!(execute(&mut lua, &closure)?, 42);
+    assert_eq!(
+        lua.jit_stats().native_instructions,
+        before.native_instructions
+    );
+    assert_eq!(lua.jit_stats().code_lookups, before.code_lookups);
+    assert_eq!(execute(&mut lua, &replacement)?, 144);
+    assert!(lua.jit_stats().native_instructions > before.native_instructions);
+    Ok(())
+}
+
+#[test]
 fn sweeping_sparse_sources_compacts_metadata_and_preserves_live_native_identity(
 ) -> Result<(), ExternError> {
     let mut lua = state();
