@@ -4,16 +4,18 @@
 //! between runs of the same binary, which is no use to anything building an ordered structure out
 //! of a table.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn keys(source: &str) -> Result<String, ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, None, source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
     })?;
     lua.execute::<String>(&executor)
 }
+
+mod common;
 
 #[test]
 fn map_keys_iterate_in_insertion_order() -> Result<(), ExternError> {

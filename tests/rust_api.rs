@@ -6,7 +6,7 @@ use luna::prelude::*;
 use luna::{Closure, Either, ExternError};
 
 fn run(source: &str, setup: impl FnOnce(Context<'_>)) -> Result<bool, ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     lua.enter(setup);
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, None, source.as_bytes())?;
@@ -82,7 +82,7 @@ fn usize_converts_back_from_lua() -> Result<(), ExternError> {
 /// The prelude renames the types that would otherwise shadow `std`.
 #[test]
 fn the_prelude_does_not_shadow_std() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     lua.enter(|ctx| {
         let t = LuaTable::new(&ctx);
         t.set(ctx, "answer", 42).unwrap();
@@ -92,6 +92,8 @@ fn the_prelude_does_not_shadow_std() {
         assert_eq!(t.get::<_, i64>(ctx, "answer").unwrap(), 42);
     });
 }
+
+mod common;
 
 #[test]
 fn maps_still_round_trip() -> Result<(), ExternError> {

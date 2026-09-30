@@ -74,6 +74,24 @@ pub(super) fn run_vm<'gc>(
     let hook_enabled = ctx.hook_enabled();
     let frame_depth = lua_frame.frame_depth();
 
+    #[cfg(feature = "jit")]
+    let native_id = if !hook_enabled && ctx.jit().active() {
+        ctx.jit_registry().borrow().identity(ctx, current_prototype)
+    } else {
+        None
+    };
+    #[cfg(feature = "jit")]
+    let native_code = native_id.and_then(|id| ctx.jit().lookup(id));
+    #[cfg(feature = "jit")]
+    let mut native_instructions = 0;
+    #[cfg(feature = "jit")]
+    let mut interpreted = false;
+    #[cfg(feature = "jit")]
+    if hook_enabled && ctx.jit().active() {
+        let mut manager = ctx.jit().0.borrow_mut();
+        manager.stats.hook_exits = manager.stats.hook_exits.saturating_add(1);
+    }
+
     let mut registers = lua_frame.registers();
     let mut instructions_run = 0;
 
@@ -89,6 +107,23 @@ pub(super) fn run_vm<'gc>(
     }
 
     loop {
+        #[cfg(feature = "jit")]
+        if let Some(code) = &native_code {
+            let completed = ctx.jit().run(
+                code,
+                ctx,
+                current_function,
+                &mut registers,
+                max_instructions - instructions_run,
+            );
+            instructions_run += completed;
+            native_instructions += completed;
+            if instructions_run >= max_instructions {
+                break;
+            }
+        } else if let Some(id) = native_id {
+            ctx.jit().observe(id);
+        }
         // Before the instruction, not after: a line hook reports the line that is *about* to run,
         // and firing pushes a call, so the instruction has to still be there when we come back.
         if hook_enabled {
@@ -115,6 +150,10 @@ pub(super) fn run_vm<'gc>(
         }
 
         let op = current_prototype.opcodes[*registers.pc].decode();
+        #[cfg(feature = "jit")]
+        {
+            interpreted = true;
+        }
         *registers.pc += 1;
 
         match op {
@@ -139,8 +178,8 @@ pub(super) fn run_vm<'gc>(
             }
 
             Operation::LoadNil { dest, count } => {
-                for i in dest.0..dest.0 + count {
-                    registers.stack_frame[i as usize] = Value::Nil;
+                for i in usize::from(dest.0)..usize::from(dest.0) + usize::from(count) {
+                    registers.stack_frame[i] = Value::Nil;
                 }
             }
 
@@ -837,7 +876,9 @@ pub(super) fn run_vm<'gc>(
             break;
         }
     }
-
+    #[cfg(feature = "jit")]
+    ctx.jit()
+        .record_interpreter(instructions_run - native_instructions, interpreted);
     Ok(instructions_run)
 }
 

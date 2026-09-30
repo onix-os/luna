@@ -1,6 +1,6 @@
 use std::string::String as StdString;
 
-use luna::{meta_ops::MetaCallError, Closure, Executor, Lua};
+use luna::{meta_ops::MetaCallError, Closure, Executor};
 
 const SOURCE: &str = r#"
     -- Purposeful typo of 'tostring'
@@ -9,7 +9,7 @@ const SOURCE: &str = r#"
 
 #[test]
 fn tail_call_stack_panic() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
 
     let exec = lua.enter(|ctx| ctx.stash(Executor::new(ctx)));
 
@@ -25,3 +25,5 @@ fn tail_call_stack_panic() {
         Err(err) if err.root_cause().downcast_ref::<MetaCallError>().is_some()
     ));
 }
+
+mod common;

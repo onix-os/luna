@@ -11,6 +11,8 @@ pub mod finalizers;
 pub mod fuel;
 pub mod function;
 pub mod io;
+#[cfg(feature = "jit")]
+pub mod jit;
 pub mod lua;
 pub mod meta_ops;
 pub mod opcode;
@@ -31,6 +33,9 @@ pub mod value;
 /// string. Anything else is a compile error rather than a guess.
 #[cfg(feature = "derive")]
 pub use luna_derive::{FromValue, IntoValue};
+
+#[cfg(feature = "jit")]
+pub use jit::{JitCapabilities, JitConfig, JitError, JitMode, JitStats};
 
 pub use self::{
     async_callback::{async_sequence, SequenceReturn},

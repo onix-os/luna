@@ -1,15 +1,17 @@
 //! `local x <close>` — the handler has to run on *every* way out of the block.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn eval(source: &str) -> Result<String, ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, None, source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
     })?;
     lua.execute::<String>(&executor)
 }
+
+mod common;
 
 /// A tracker whose `__close` appends to a log, so the tests can assert ordering.
 const PRELUDE: &str = r#"

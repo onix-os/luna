@@ -2,16 +2,18 @@
 //! functions, and `package.searchers` as a real hook rather than a description of what `require`
 //! happens to do.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn eval<T: for<'gc> luna::FromMultiValue<'gc> + 'static>(source: &str) -> Result<T, ExternError> {
-    let mut lua = Lua::full();
+    let mut lua = common::full();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, Some("probe"), source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
     })?;
     lua.execute::<T>(&executor)
 }
+
+mod common;
 
 /// `_VERSION` is the language, so `_VERSION == "Lua 5.4"` feature detection works; `_LUNA` is the
 /// implementation, which PUC-Rio has no equivalent for.

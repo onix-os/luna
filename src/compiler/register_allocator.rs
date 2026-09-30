@@ -12,6 +12,22 @@ pub struct RegisterAllocator {
     stack_size: u16,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn block_allocation_can_end_after_register_255() {
+        let mut allocator = RegisterAllocator::default();
+        assert_eq!(allocator.push(254), Some(RegisterIndex(0)));
+        assert_eq!(allocator.push(2), Some(RegisterIndex(254)));
+        assert_eq!(allocator.stack_size(), 256);
+        assert_eq!(allocator.allocate(), None);
+        allocator.free(RegisterIndex(255));
+        assert_eq!(allocator.allocate(), Some(RegisterIndex(255)));
+    }
+}
+
 impl Default for RegisterAllocator {
     fn default() -> RegisterAllocator {
         RegisterAllocator {
@@ -83,7 +99,7 @@ impl RegisterAllocator {
             None
         } else if size as u16 <= 256 - self.stack_top {
             let rbegin = self.stack_top as u8;
-            for i in rbegin..rbegin + size {
+            for i in self.stack_top..self.stack_top + u16::from(size) {
                 self.registers[i as usize] = true;
             }
             if self.first_free == self.stack_top {

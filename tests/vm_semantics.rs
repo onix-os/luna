@@ -1,10 +1,10 @@
 //! VM behaviour that a script can observe: loop preparation, and what a callback sees of the stack
 //! it was handed.
 
-use luna::{Callback, CallbackReturn, Closure, Executor, ExternError, Lua, Value, Variadic};
+use luna::{Callback, CallbackReturn, Closure, Executor, ExternError, Value, Variadic};
 
 fn eval<T: for<'gc> luna::FromMultiValue<'gc> + 'static>(source: &str) -> Result<T, ExternError> {
-    let mut lua = Lua::full();
+    let mut lua = common::full();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, Some("probe"), source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
@@ -160,7 +160,7 @@ fn a_returned_frame_leaves_nothing_reachable_to_the_caller() -> Result<(), Exter
 fn draining_a_stack_from_the_back_removes_the_whole_range() -> Result<(), ExternError> {
     // `Stack::drain` yields from either end, and what came off the back used to be left behind:
     // the callback's arguments reappeared among its return values.
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.enter(|ctx| {
         let callback = Callback::from_fn(&ctx, |ctx, _, mut stack| {
             let backwards: Vec<Value> = stack.drain(..).rev().collect();
@@ -180,7 +180,7 @@ fn draining_a_stack_from_the_back_removes_the_whole_range() -> Result<(), Extern
 fn partially_draining_a_stack_from_the_back_removes_the_whole_range() -> Result<(), ExternError> {
     // A single value taken off the back and then dropped: the rest of the range goes too, as
     // `Vec::drain` does.
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.enter(|ctx| {
         let callback = Callback::from_fn(&ctx, |ctx, _, mut stack| {
             let last = {
@@ -195,6 +195,8 @@ fn partially_draining_a_stack_from_the_back_removes_the_whole_range() -> Result<
     assert_eq!(lua.execute::<Variadic<Vec<i64>>>(&executor)?.0, vec![3]);
     Ok(())
 }
+
+mod common;
 
 #[test]
 fn ordinary_numeric_for_loops_still_run() -> Result<(), ExternError> {

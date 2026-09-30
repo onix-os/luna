@@ -55,9 +55,24 @@ rand.workspace = true
 thiserror.workspace = true
 luna-derive = { workspace = true, optional = true }
 
+[target.'cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))'.dependencies]
+cranelift-codegen = { version = "=0.136.1", optional = true }
+cranelift-frontend = { version = "=0.136.1", optional = true }
+cranelift-jit = { version = "=0.136.1", optional = true }
+cranelift-module = { version = "=0.136.1", optional = true }
+libc = { version = "0.2", optional = true }
+
 [[example]]
 name = "async"
 required-features = ["async"]
+
+[[example]]
+name = "jit_bench"
+required-features = ["jit"]
+
+[[example]]
+name = "jit"
+required-features = ["jit"]
 
 [features]
 default = []
@@ -68,6 +83,7 @@ async = []
 # `#[derive(FromValue, IntoValue)]`. Off by default because it pulls syn, quote and proc-macro2
 # into the build — three crates a host writing its conversions by hand should not compile.
 derive = ["dep:luna-derive"]
+jit = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:libc"]
 
 [dev-dependencies]
 # Only the REPL example needs a dependency, and only for line editing and history. Argument

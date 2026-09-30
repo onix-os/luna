@@ -6,7 +6,7 @@
 use luna::{Closure, Executor, ExternError, Lua};
 
 fn eval<T: for<'gc> luna::FromMultiValue<'gc> + 'static>(source: &str) -> Result<T, ExternError> {
-    let mut lua = Lua::full();
+    let mut lua = common::full();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, Some("probe"), source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
@@ -143,7 +143,7 @@ fn rubbish_is_rejected_not_run() -> Result<(), ExternError> {
 /// into by accident.
 #[test]
 fn every_truncation_is_refused() {
-    let mut lua = Lua::full();
+    let mut lua = common::full();
     let bytes = dump_of(&mut lua, "local function f(a, b) return a + b end return f");
 
     for cut in 0..bytes.len() {
@@ -160,7 +160,7 @@ fn every_truncation_is_refused() {
 /// but never panic, and never be believed enough to index out of a prototype.
 #[test]
 fn single_byte_corruption_never_panics() {
-    let mut lua = Lua::full();
+    let mut lua = common::full();
     let bytes = dump_of(&mut lua, "local function f(a, b) local c = a + b if c > 2 then return c else return -c end end return f");
 
     // Every byte, flipped to a handful of values likely to break an index: zero, one, a small
@@ -187,7 +187,7 @@ fn single_byte_corruption_never_panics() {
 /// produces a function, and neither outcome escapes as a panic from the load itself.
 #[test]
 fn corrupted_chunks_either_fail_to_load_or_produce_a_function() {
-    let mut lua = Lua::full();
+    let mut lua = common::full();
     let bytes = dump_of(
         &mut lua,
         "local a = ... local t = {a, a + 1} return t[1] + t[2]",
@@ -211,6 +211,8 @@ fn corrupted_chunks_either_fail_to_load_or_produce_a_function() {
     // If nothing loaded the test proved nothing, so say so rather than passing silently.
     assert!(loaded > 0, "no corrupted chunk loaded; the test is vacuous");
 }
+
+mod common;
 
 /// The chunk itself is a function, and carries the nested prototype for anything it defines — so
 /// dumping the chunk exercises the recursive path without having to run anything.

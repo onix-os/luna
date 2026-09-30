@@ -1,15 +1,17 @@
 //! The `os` library. Times are UTC throughout — luna ships no time-zone database.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn eval(source: &str) -> Result<bool, ExternError> {
-    let mut lua = Lua::full();
+    let mut lua = common::full();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, None, source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
     })?;
     lua.execute::<bool>(&executor)
 }
+
+mod common;
 
 #[test]
 fn time_round_trips_through_a_table() -> Result<(), ExternError> {

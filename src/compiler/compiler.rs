@@ -577,16 +577,20 @@ impl<S: StringInterner> Compiler<S> {
                 close_upvalues: Opt254::try_some(0).ok_or(CompileErrorKind::Registers)?,
             });
         }
-        self.current_function.operations.push(Operation::Return {
-            start: RegisterIndex(
+        let start = if count.to_constant() == Some(0) {
+            RegisterIndex(0)
+        } else {
+            RegisterIndex(
                 self.current_function
                     .register_allocator
                     .stack_top()
                     .try_into()
-                    .unwrap(),
-            ),
-            count,
-        });
+                    .map_err(|_| CompileErrorKind::Registers)?,
+            )
+        };
+        self.current_function
+            .operations
+            .push(Operation::Return { start, count });
 
         Ok(())
     }

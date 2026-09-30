@@ -32,9 +32,12 @@ pub(crate) fn cmp_int_float(i: i64, f: f64) -> Option<std::cmp::Ordering> {
         return Some(Ordering::Greater);
     }
     // `trunc` is exactly representable, so this comparison is lossless; the fraction breaks ties.
-    let truncated = f.trunc() as i64;
-    Some(i.cmp(&truncated).then(if f > f.trunc() {
+    let integral = f.trunc();
+    let truncated = integral as i64;
+    Some(i.cmp(&truncated).then(if f > integral {
         Ordering::Less
+    } else if f < integral {
+        Ordering::Greater
     } else {
         Ordering::Equal
     }))

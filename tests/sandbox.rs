@@ -1,9 +1,9 @@
 //! Frozen tables and the memory ceiling: together, what makes the sandboxing claim true.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn eval(source: &str) -> Result<bool, ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, None, source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
@@ -63,7 +63,7 @@ fn a_frozen_stdlib_table_survives_sabotage() -> Result<(), ExternError> {
 /// Slice-granular, so the script is stopped rather than erroring at the allocation.
 #[test]
 fn a_runaway_allocation_is_stopped_by_the_memory_ceiling() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let before = lua.total_memory();
     lua.set_memory_limit(Some(before + 4 * 1024 * 1024));
     assert_eq!(lua.memory_limit(), Some(before + 4 * 1024 * 1024));
@@ -90,7 +90,7 @@ fn a_runaway_allocation_is_stopped_by_the_memory_ceiling() {
 
 #[test]
 fn no_limit_by_default() {
-    let lua = Lua::core();
+    let lua = common::core();
     assert_eq!(lua.memory_limit(), None);
 }
 
@@ -146,7 +146,7 @@ fn without_it_a_present_key_stops_newindex() -> Result<(), ExternError> {
 /// should not be killed for it.
 #[test]
 fn the_ceiling_collects_before_stopping() {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let baseline = lua.total_memory();
     lua.set_memory_limit(Some(baseline + 2 * 1024 * 1024));
 
@@ -177,3 +177,5 @@ fn the_ceiling_collects_before_stopping() {
         "garbage alone must not trip the ceiling"
     );
 }
+
+mod common;

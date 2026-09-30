@@ -1,16 +1,18 @@
 //! Scripts a host cannot trust: the ones that used to hang the VM or exhaust memory rather than
 //! raising an error the host can catch.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn eval<T: for<'gc> luna::FromMultiValue<'gc> + 'static>(source: &str) -> Result<T, ExternError> {
-    let mut lua = Lua::full();
+    let mut lua = common::full();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, Some("probe"), source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
     })?;
     lua.execute::<T>(&executor)
 }
+
+mod common;
 
 #[test]
 fn cyclic_index_chain_errors() -> Result<(), ExternError> {

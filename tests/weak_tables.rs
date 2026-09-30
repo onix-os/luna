@@ -5,16 +5,18 @@
 //! `None` and there is no window in which the table holds a pointer to freed memory. The
 //! skip-tracing version would make that a discipline instead of a fact about the type.
 
-use luna::{Closure, Executor, ExternError, Lua};
+use luna::{Closure, Executor, ExternError};
 
 fn eval(source: &str) -> Result<i64, ExternError> {
-    let mut lua = Lua::core();
+    let mut lua = common::core();
     let executor = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, None, source.as_bytes())?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
     })?;
     lua.execute::<i64>(&executor)
 }
+
+mod common;
 
 const CHURN: &str = "for i = 1, 2000 do local t = { i, i, i } end";
 
