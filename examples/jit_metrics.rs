@@ -2,6 +2,8 @@ use std::{error::Error, hint::black_box, time::Instant};
 
 use luna::{Callback, CallbackReturn, Closure, Executor, Fuel, JitConfig, JitMode, JitStats, Lua};
 
+#[path = "jit_support/churn.rs"]
+mod churn;
 #[path = "jit_support/workloads.rs"]
 mod workloads;
 use workloads::{Workload, COLD_SOURCE, PREDICATE_SOURCE, WORKLOADS};
@@ -72,8 +74,19 @@ fn options(args: impl IntoIterator<Item = String>) -> Result<Options> {
     if !(1..=100).contains(&options.samples) || !(1..=65536).contains(&options.fuel) {
         return Err("samples must be 1..=100; fuel must be 1..=65536".into());
     }
+    if options.fuel > 64
+        && options
+            .case
+            .as_ref()
+            .is_none_or(|name| name == "cache_churn")
+    {
+        return Err("cache_churn requires fuel 1..=64; select another case for larger fuel".into());
+    }
     if options.case.as_ref().is_some_and(|name| {
-        name != COLD.name && name != OSLO.name && !WORKLOADS.iter().any(|case| case.name == name)
+        name != COLD.name
+            && name != OSLO.name
+            && name != "cache_churn"
+            && !WORKLOADS.iter().any(|case| case.name == name)
     }) {
         return Err("unknown metrics case".into());
     }
@@ -313,6 +326,27 @@ fn main() -> Result<()> {
             }
         }
     }
+    if options
+        .case
+        .as_ref()
+        .is_none_or(|name| name == "cache_churn")
+    {
+        for sample in 0..options.samples {
+            for &mode in &options.modes {
+                let churn_mode = match mode {
+                    Mode::Off => churn::Mode::Off,
+                    Mode::Auto => churn::Mode::Auto,
+                    Mode::Prepared => churn::Mode::Prepared,
+                };
+                let report = churn::run(churn_mode, options.fuel)?;
+                println!("churn_report=cache_churn mode={} sample={sample} calibration_ns={} module_bytes={} quota_bytes={} prepare_ns={} sources=8 attempts_per_source=2 queue_limit=1 counter_scope=completed_nontransition_vm_work", mode.name(), report.calibration_ns, report.module_bytes, report.quota_bytes, report.prepare_ns);
+                for pass in &report.passes {
+                    println!("churn_pass={} mode={} sample={sample} verified=1 fuel={} elapsed_ns={} native_executions={} steps={} max_step_ns={} max_host_enter_ns={} service_total_ns={} max_service_ns={} service_errors={} counted_vm_work_max={} fuel_debit_max={} observed_queue_peak={} native_instructions={} interpreted_instructions={} requests={} failures={} installed={} evictions={} eviction_refusals={} code_bytes={} metadata_bytes={} metadata_peak_bytes={} snapshot_peak_bytes={}", pass.name, mode.name(), options.fuel, pass.elapsed_ns, pass.native_executions, pass.steps, pass.max_step_ns, pass.max_host_ns, pass.service_ns, pass.max_service_ns, pass.service_errors, pass.counted_work_max, pass.fuel_debit_max, pass.queue_peak, pass.after.native_instructions - pass.before.native_instructions, pass.after.interpreted_instructions - pass.before.interpreted_instructions, pass.after.compilation_requests - pass.before.compilation_requests, pass.after.compilation_failures - pass.before.compilation_failures, pass.after.installed_regions - pass.before.installed_regions, pass.after.cache_evictions - pass.before.cache_evictions, pass.after.cache_eviction_refusals - pass.before.cache_eviction_refusals, pass.after.code_bytes, pass.after.metadata_bytes, pass.after.metadata_peak_bytes, pass.after.snapshot_peak_bytes);
+                }
+                println!("churn_cleanup=cache_churn mode={} sample={sample} registered={} code_bytes={} metadata_bytes={} snapshot_bytes={}", mode.name(), report.final_stats.registered_prototypes, report.final_stats.code_bytes, report.final_stats.metadata_bytes, report.final_stats.snapshot_bytes);
+            }
+        }
+    }
     Ok(())
 }
 
@@ -352,9 +386,16 @@ mod tests {
             assert_eq!(options.case.as_deref(), Some("cold_config"));
         }
         assert_eq!(
-            parse(&["--samples", "100", "--fuel", "65536"])
-                .unwrap()
-                .samples,
+            parse(&[
+                "--samples",
+                "100",
+                "--fuel",
+                "65536",
+                "--case",
+                "integer_loop"
+            ])
+            .unwrap()
+            .samples,
             100
         );
         assert_eq!(
@@ -377,6 +418,8 @@ mod tests {
             vec!["--fuel", "0"],
             vec!["--fuel", "-1"],
             vec!["--fuel", "65537"],
+            vec!["--fuel", "65"],
+            vec!["--fuel", "65", "--case", "cache_churn"],
             vec!["--case", "absent"],
             vec!["--unknown", "value"],
         ] {

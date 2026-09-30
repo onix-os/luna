@@ -874,6 +874,40 @@ mod policy_tests {
 mod eviction_tests {
     use super::*;
 
+    #[test]
+    fn collected_source_retirement_preserves_code_until_active_lease_drops() {
+        let mut lua = crate::Lua::empty();
+        lua.set_jit_config(JitConfig {
+            mode: JitMode::Auto,
+            ..Default::default()
+        })
+        .unwrap();
+        let (closure, identity, runtime) = lua.enter(|ctx| {
+            let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+            let identity = ctx
+                .jit_registry()
+                .borrow()
+                .identity(ctx, closure.prototype())
+                .unwrap();
+            (ctx.stash(closure), identity, ctx.jit().clone())
+        });
+        assert_eq!(lua.prepare_jit().unwrap(), 1);
+        let lease = runtime.lookup(identity).unwrap();
+        assert_executable(&lease);
+        let bytes = lua.jit_stats().code_bytes;
+        drop(closure);
+        lua.gc_collect();
+        lua.gc_collect();
+        assert_eq!(lua.jit_stats().registered_prototypes, 0);
+        assert!(runtime.lookup(identity).is_none());
+        assert_eq!(lua.jit_stats().code_bytes, bytes);
+        assert!(lua.jit_stats().metadata_bytes > 0);
+        assert_executable(&lease);
+        drop(lease);
+        assert_eq!(lua.jit_stats().code_bytes, 0);
+        assert_eq!(lua.jit_stats().metadata_bytes, 0);
+    }
+
     fn snapshot() -> ir::Snapshot {
         let mut lua = crate::Lua::empty();
         lua.enter(|ctx| {

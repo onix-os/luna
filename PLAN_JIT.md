@@ -2868,6 +2868,54 @@ survivors on revisit/steady, two bounded revisit failures, no steady retry storm
 eight native executions after clear and zero final ledgers. Full-platform,
 Miri and performance evidence still need refreshing for this runtime change.
 
+### Post-retirement performance and churn observations
+
+Repeated controls after `3df6240` still do not establish release performance.
+Native numeric ratios pass (integer 2.6647/2.6411, float 4.7426/4.5499), table
+fails (1.1296/1.0744), upvalue fails (0.6477/0.6488), and callback fails
+(0.7981/0.7955). Metamethod ratios pass twice (0.8352/0.8501); allocation and
+cold controls pass. Candidate shipping disabled-JIT controls pass all nine
+cases twice; speed controls pass once then fail integer (1.2568), with substantial
+raw integer dispersion. No discarded trial, relaxed threshold or speed-acceptance
+claim. Baseline controls still fail; both source revisions have their own matched
+no-JIT/JIT-off profiles and recorded hashes. No-JIT hashes differ across these
+source revisions, so this is not an identical-control-binary experiment.
+
+The churn probe verifies 36 pass rows per three-sample run, twice, plus 12 fuel-1
+pass rows. This x86-64 host calibrates 4096 bytes per scalar module and limits
+the measured cache to 8192. Native warm passes install eight regions with six
+recoverable quota failures/evictions. Revisit has exactly two terminal quota
+failures and two native executions; steady has no requests/failures/evictions
+and still two native executions. Clear restores eight native executions. All
+Off and native cleanup rows report zero registrations/code/metadata/snapshots.
+Calibration is separately reported; it is not compiler work in the Off state.
+Raw binaries, profile configurations, twelve comparisons, pre-fix failure and
+churn observations are at `target/jit-evidence/cache-churn/`.
+
+Add an actual generated-code lease test across source collection: registration
+and cache lookup disappear after GC while the retained lease still executes and
+keeps code/metadata charged. The final lease drop must reclaim both. This native
+test is separate from selected Rust-only Miri coverage.
+
+### Cache-churn and collection fix verification
+
+Full GNU and musl x86-64 `make jit-verify clippy` pass with 2760 tests across
+415 suite results per full gate, 24 ignored. The GNU orchestration also runs
+policy and metrics checks: 2784 tests/419 suites including those focused repeats.
+The generated-code lease survives source collection and executes again after
+cache lookup/registration retirement; the final lease drop releases all charged
+code and metadata. Baseline Clippy passes, not strict warning-free acceptance.
+
+Pinned `nix develop .#miri -c make jit-miri` passes 27 tests across six selected
+Rust-only namespaces. Its new registry test verifies Off collection retirement,
+live source identity preservation and no compiler work. The separate native
+lease/churn tests are not presented as Miri-covered generated code.
+Logs are `/tmp/luna-jit-cache-churn-{full,musl}-verify.log` and
+`/tmp/luna-jit-cache-churn-miri.log`; raw Miri evidence is
+`target/jit-evidence/cache-churn/miri/`. All owned sessions (`76134`, `52832`,
+`3969`, `27398`, `35198`) are terminal. Full plan/performance/ARM64/hosted/unsafe
+and compiler-isolation acceptance remains incomplete.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
