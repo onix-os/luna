@@ -2828,6 +2828,46 @@ new regression; `examples/jit_metrics.rs` implements scoped observations;
 acceptance evidence; `target/jit-evidence/{scalar-writeback,metrics}/` preserves
 rejected-experiment and accepted-tool artifacts.
 
+### Integrated cache-churn decision
+
+Add a shared host-driven churn scenario for public resource tests and the
+separate metrics example. Calibrate one scalar module's mapping charge on the
+actual platform, cap the measured state at two modules, retain eight source
+closures, and run warm/revisit/steady/reset passes. Use default lifetime attempt
+budget two and a one-entry queue; service outside each executor step. Verify
+native work for every claimed native execution, exact results, mapping limits,
+no installation/failure change inside steps, bounded failed recompilation after
+eviction, deliberate reset recovery and full source/code/container reclamation.
+
+Calibration is a separate state and separately reported duration, not work in
+the measured Off control. Prepared mode prepares only the first rooted source
+before loading the rest, avoiding random hash iteration as a test oracle.
+The scenario adds observational cache-pressure evidence, not a new performance
+threshold or a substitute for active-lease/unsafe/resource-isolation review.
+
+### Disabled-state collection retirement defect
+
+The first integrated Off churn run fails final cleanup: eight collected sources
+remain registered after two full collections and `service_jit()`. Off service
+returns before registry maintenance, and GC completion does not retire weak
+registrations. Storage is capped, but stale metadata can consume future source
+admission capacity. Do not work around this by enabling Auto in the Off test.
+
+Retire collected registrations after completed full or incremental GC cycles,
+outside the arena's collection operation and outside native invocation. Reuse
+the existing weak sweep/charged compaction path; do not add compilation to GC
+or alter the disabled service fast path. Cover full, forced-step and debt-driven
+completion with a surviving source, then verify total reclamation after it drops.
+Keep the pre-fix failure and compare performance controls after the runtime fix.
+
+Implemented collection-completion retirement for both full and debt/forced
+incremental completion. Focused configuration, resources, heap and upvalue gates
+pass; Off churn now reclaims all eight sources without enabling compilation.
+Full three-mode/two-budget churn proves eight native warm executions, two cached
+survivors on revisit/steady, two bounded revisit failures, no steady retry storm,
+eight native executions after clear and zero final ledgers. Full-platform,
+Miri and performance evidence still need refreshing for this runtime change.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

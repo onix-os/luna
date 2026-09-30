@@ -50,7 +50,7 @@ $(info ------------------------------------------)
 .PHONY: jit-bench-build jit-bench-run
 .PHONY: jit-metrics jit-metrics-build jit-metrics-run jit-metrics-tests
 .PHONY: jit-miri
-.PHONY: jit-helpers jit-abi
+.PHONY: jit-helpers jit-abi jit-config
 
 ci-check:
 	@$(ACTIONLINT) .github/workflows/tests.yml
@@ -210,6 +210,9 @@ jit-helpers:
 
 jit-abi:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests
+
+jit-config:
+	@$(CARGO) test -p luna --features jit --test jit_config $(TARGET_ARG) $(ARGS)
 
 jit-native:
 	@$(CARGO) test -p luna --features jit --test jit_native $(TARGET_ARG) $(ARGS)
@@ -433,6 +436,7 @@ help:
 	@echo "  jit-heap     Run native heap/upvalue mutation and GC tests"
 	@echo "  jit-upvalues Test upvalue aliases, foreign stacks and GC"
 	@echo "  jit-abi      Test scalar and reference ABI conversions"
+	@echo "  jit-config   Test configuration and disabled-state collection"
 	@echo "  jit-registers Test register-255 and stack-256 boundaries"
 	@echo "  jit-policy   Test quota refusal and configuration retirement"
 	@echo "  jit-resources Test owned-container budgets and reclamation"

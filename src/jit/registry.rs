@@ -18,6 +18,39 @@ struct Registration<'gc> {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn completed_collection_retires_disabled_sources_without_compilation() {
+        let mut lua = crate::Lua::empty();
+        lua.set_gc_pacing(false);
+        let live = lua.enter(|ctx| {
+            let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+            ctx.stash(closure)
+        });
+        lua.enter(|ctx| {
+            crate::Closure::load(ctx, None, b"return 99").unwrap();
+        });
+        assert_eq!(lua.jit_stats().registered_prototypes, 2);
+        lua.gc_collect();
+        lua.gc_collect();
+        assert_eq!(lua.jit_stats().registered_prototypes, 1);
+        lua.enter(|ctx| {
+            let prototype = ctx.fetch(&live).prototype();
+            assert!(ctx
+                .jit_registry()
+                .borrow()
+                .identity(ctx, prototype)
+                .is_some());
+        });
+        drop(live);
+        lua.gc_collect();
+        lua.gc_collect();
+        let stats = lua.jit_stats();
+        assert_eq!(stats.registered_prototypes, 0);
+        assert_eq!(stats.metadata_bytes, 0);
+        assert_eq!(stats.compilation_requests, 0);
+        assert_eq!(stats.native_entries, 0);
+    }
+
+    #[test]
     fn unchanged_dense_sweep_does_not_reborrow_manager() {
         let mut lua = crate::Lua::empty();
         lua.enter(|ctx| {
