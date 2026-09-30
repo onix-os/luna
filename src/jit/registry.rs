@@ -18,6 +18,104 @@ struct Registration<'gc> {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn completed_collection_cancels_dead_requests_and_preserves_live_queued_work() {
+        for retain_peer in [false, true] {
+            let mut lua = crate::Lua::empty();
+            lua.set_gc_pacing(false);
+            lua.set_jit_config(crate::JitConfig {
+                mode: crate::JitMode::Auto,
+                hot_threshold: 1,
+                max_queue_entries: 2,
+                ..Default::default()
+            })
+            .unwrap();
+            let start = |lua: &mut crate::Lua| {
+                lua.enter(|ctx| {
+                    let closure = crate::Closure::load(
+                        ctx,
+                        Some("queued-source"),
+                        b"local sum=0 for i=1,200 do sum=sum+i end return sum",
+                    )
+                    .unwrap();
+                    let id = ctx
+                        .jit_registry()
+                        .borrow()
+                        .identity(ctx, closure.prototype())
+                        .unwrap();
+                    let executor = crate::Executor::start(ctx, closure.into(), ());
+                    assert!(!executor.step(ctx, &mut crate::Fuel::empty()).unwrap());
+                    (ctx.stash(executor), id)
+                })
+            };
+            let (dead, dead_id) = start(&mut lua);
+            let peer = retain_peer.then(|| start(&mut lua));
+            let before = lua.jit_stats();
+            assert_eq!(before.queued_requests, 1 + usize::from(retain_peer));
+            assert_eq!(before.compilation_requests, before.queued_requests as u64);
+            assert!(before.interpreted_instructions > 0);
+            assert!(before.metadata_bytes > 0);
+            drop(dead);
+            lua.gc_collect();
+            lua.gc_collect();
+            let after = lua.jit_stats();
+            assert_eq!(after.registered_prototypes, usize::from(retain_peer));
+            assert_eq!(after.queued_requests, usize::from(retain_peer));
+            assert_eq!(after.compilation_requests, before.compilation_requests);
+            assert_eq!(
+                after.interpreted_instructions,
+                before.interpreted_instructions
+            );
+            lua.enter(|ctx| {
+                let registry = ctx.jit_registry().borrow();
+                assert!(registry.resolve(ctx, dead_id).is_none());
+                if let Some((_, id)) = &peer {
+                    let prototype = registry.resolve(ctx, *id).unwrap();
+                    assert_eq!(registry.identity(ctx, prototype), Some(*id));
+                }
+            });
+            if let Some((executor, _)) = &peer {
+                let mut done = false;
+                for _ in 0..100 {
+                    done = lua.enter(|ctx| {
+                        ctx.fetch(executor)
+                            .step(ctx, &mut crate::Fuel::with(64))
+                            .unwrap()
+                    });
+                    if done {
+                        break;
+                    }
+                }
+                assert!(done);
+                assert_eq!(
+                    lua.enter(|ctx| ctx
+                        .fetch(executor)
+                        .take_result::<i64>(ctx)
+                        .unwrap()
+                        .unwrap()),
+                    20100
+                );
+                let stats = lua.jit_stats();
+                assert_eq!(stats.queued_requests, 1);
+                assert_eq!(stats.compilation_requests, before.compilation_requests);
+            }
+            drop(peer);
+            lua.gc_collect();
+            lua.gc_collect();
+            let stats = lua.jit_stats();
+            assert_eq!(stats.registered_prototypes, 0);
+            assert_eq!(stats.queued_requests, 0);
+            assert_eq!(stats.metadata_bytes, 0);
+            assert_eq!(stats.snapshot_bytes, 0);
+            assert_eq!(stats.code_bytes, 0);
+            assert_eq!(stats.compilation_requests, before.compilation_requests);
+            assert_eq!(stats.installed_regions, 0);
+            assert_eq!(stats.compilation_failures, 0);
+            assert_eq!(stats.native_entries, 0);
+            assert_eq!(stats.native_instructions, 0);
+        }
+    }
+
+    #[test]
     fn completed_collection_retires_disabled_sources_without_compilation() {
         let mut lua = crate::Lua::empty();
         lua.set_gc_pacing(false);
