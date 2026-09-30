@@ -2512,6 +2512,121 @@ as `kv`; `src/finalizers.rs` expands Rust-only registry invariants;
 `PLAN_JIT.md` records failures, scope and verification;
 `target/jit-evidence/weak-value-reattach/` retains raw evidence.
 
+### Sparse helper-statistics experiment
+
+Copied fresh native, speed-profile and shipping-profile baselines from
+`2a2347d` before changing production code. Artifacts/hashes are in
+`target/jit-evidence/zero-counts/`; baseline comparisons run sequentially with
+process guards and no build/test/profile overlap.
+
+The next uncommitted experiment skips individual zero-valued helper counter
+increments at native invocation return. All eight fields remain `u64` and use
+the same saturating addition for nonzero values; no field is gated on another
+field, no metrics are disabled, and native-entry/instruction/guard accounting,
+panic propagation and canonical materialization remain unchanged. No API,
+layout, ABI, resource budget or workload changes. A Rust-only differential test
+covers all 256 field masks, four base values and four increments, including
+maximum-width saturation and inconsistent masks such as writes without calls.
+Correctness and repeated native/speed/shipping comparisons determine whether
+to retain or reject this experiment; this is not release acceptance.
+
+### Sparse statistics result: reject the experiment
+
+Focused helper/heap/upvalue verification, including all 4096 mask/base/increment
+combinations, passes. Repeated native comparisons do not support retaining the
+change: baseline upvalue ratios are 0.6801/0.6781, candidate 0.6580/0.6418.
+Integer ratios are baseline 2.6679/2.4608 versus candidate 2.4214/2.3398;
+float is baseline 4.3166/4.4645 versus candidate 4.2275/4.2928. Array results
+are mixed (baseline 1.1306/1.1158, candidate 1.0724/1.1603). Candidate callback
+and metamethod results cross their thresholds between runs; no overall native
+gate passes. Ratios are ratio-of-medians, not universal speedup claims; raw
+paired dispersion is retained.
+
+Fresh committed-source controls also fail: speed integer ratios
+1.0916/1.0843 and float 1.0609/1.0560 exceed 1.05; shipping integer
+1.1150/1.1297 and upvalue 1.1255/1.1313 exceed it. Candidate controls remain
+unaccepted despite some improvements: speed float 1.0574/1.0530 fails both,
+integer 1.0535 fails first but 1.0491 passes repeat; shipping integer
+1.0947/1.1128 and upvalue 1.0996/1.1004 fail both. These baseline failures are
+new live evidence; earlier passing speed controls are historical, not current
+release acceptance. No-JIT hashes match baseline/candidate within each profile.
+
+Removed the entire private accumulation experiment and its implementation test;
+`src/jit/helpers.rs` and `src/jit/mod.rs` match HEAD again. The source patch,
+copied binaries/hashes, build/configuration logs and all repeated native/speed/
+shipping results remain under `target/jit-evidence/zero-counts/`. No threshold,
+workload, counter width or instrumentation changed. Next inspect a fresh native
+invocation/helper instruction profile rather than treating branch count alone
+as a speedup. Full native, speed and shipping acceptance remains open.
+
+### Fresh upvalue invocation instruction profile
+
+After removing the experiment, built restored-source opt-level-3/LTO profiles
+with symbols and ran the existing Make Callgrind lane sequentially for no-JIT
+Off and feature-enabled Auto. Both runs verify the expected result; Auto reports
+298428 timed native logical instructions, no-JIT zero. Collection is scoped to
+`run_vm`, with two warmups plus three measured iterations. Full modeled event
+totals include warmups, unlike the printed timed native counter.
+
+Modeled instruction events are 115566817 for Auto versus 77861273 for no-JIT.
+Auto self costs include 39051462 in `run_vm`, 26227703 in `Runtime::invoke<8>`,
+and 3574368 each in upvalue helpers 8 and 9. `invoke<8>` accounts for 22.69% of
+Auto instruction events and 597411 modeled indirect branches, with 298597
+modeled indirect mispredictions. VM call/return/push-call self instruction costs
+match the reference (6000000, 5200520, 4450000 respectively); decoding shrinks
+from 12101390 to 3099044. There is no evidence here that native execution removes
+the canonical Lua call/return transitions.
+
+These simulated events localize costs; they are not hardware cycles, wall-time
+acceptance or proof of a specific branch's causality. `Slot::from_value` and
+`Slot::value` contain scalar/reference dispatch within invocation; inspect their
+actual generated dispatch before testing a scalar-specialized conversion path.
+Do not repeat the rejected reference-skipping or narrower-counter experiments.
+Raw Callgrind/configuration/binary-hash logs are at
+`target/jit-evidence/zero-counts/current-profile/`. Restored format/helper checks
+pass (`/tmp/luna-jit-zero-counts-restored.log`); production files match HEAD.
+
+### Session summary: reject zero-counter branches and refresh performance evidence
+
+**Goal:** fully implement the plan; resume measured invocation performance work
+without weakening counters, workloads or independent profile acceptance.
+
+**Instructions:** unchanged gates, Make/Nix execution, patch tools, incremental
+unsigned title-only commits and no timing/profile/build overlap. Engram remains
+unavailable; this document preserves the handoff.
+
+**Discoveries:** skipping zero-valued saturating updates is mathematically
+equivalent but does not deliver measured native improvement; upvalue results
+worsen twice. Current committed-source speed and shipping disabled-JIT controls
+also fail, so earlier passing controls cannot be presented as current evidence.
+A fresh instruction profile identifies a substantial invocation wrapper cost
+and modeled indirect dispatch; it does not establish a causal speedup strategy.
+
+**Accomplished:** preserved fresh baseline/candidate native, speed and shipping
+binaries, identical paired no-JIT hashes, full configurations, two comparisons
+per lane and all raw dispersion. Focused correctness passes the 4096-condition
+counter test, existing helper/heap/upvalue regressions and exact work counters.
+Rejected and removed the entire candidate and its implementation test; restored
+production source and format/helper checks pass. Collected a fresh verified
+reference/Auto Callgrind profile. All owned sessions (`12386`, `28191`, `8629`,
+`57009`, `14063`, `53922`) are terminal; no benchmark, build or profile remains
+live. No new accepted runtime optimization or release performance claim.
+
+**Next steps:** inspect invocation conversion dispatch in generated Rust assembly
+and evaluate a safe scalar fast path with bit-exact/all-reference tests and
+repeated native plus matched speed/shipping controls. Keep failed gates visible,
+reject regressions, and preserve exact handles for any live work. Remaining
+metatable-removal/transition coverage, compiler/combined-host resource bounds,
+full unsafe/fuzz review and actual ARM64/hosted acceptance are still open.
+The full goal remains active and incomplete.
+
+**Relevant files:** `src/jit/mod.rs` retains its original invocation accounting;
+`src/jit/helpers.rs` retains full-width counts and original fixtures;
+`src/jit/abi.rs` contains canonical scalar/reference conversion for the next
+inspection; `PLAN_JIT.md` records rejection and current acceptance evidence;
+`target/jit-evidence/zero-counts/` archives the experiment, measurements and
+fresh instruction profile.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
