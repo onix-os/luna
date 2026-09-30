@@ -92,6 +92,7 @@
             pkgs.pkg-config
             pkgs.actionlint
             pkgs.valgrind
+            pkgs.binutils
 
             # Working out where the binary and the source went. Each answers a different question,
             # and the first two answer it about *different* things — which is the reason to have

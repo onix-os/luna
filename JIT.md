@@ -80,3 +80,18 @@ Remaining stages include complete boundary/IR/cache accounting, broader helper/h
 `make jit-profile` retains Rust symbols and attempts an opt-level-3 perf capture of the checked upvalue workload; it requires host perf permission and does not alter kernel settings. `make jit-rust-assembly` extracts symbol-retained Rust dispatch/helper/invocation assembly without perf permission. These are diagnostic lanes, not acceptance timing builds or native JIT disassembly. On the current host perf recording is denied (`perf_event_paranoid=4`); Rust assembly verified that outlining removed the native scratch probe page from `run_vm`.
 
 `make jit-cost-profile PROFILE_CASE=float_loop` uses Callgrind from the Nix shell on symbol-retained matched no-JIT/compiled-Off probes at opt-level 3. `PROFILE_MODE=auto` instead profiles the JIT artifact in Auto against the feature-disabled interpreter; the worker must assert real native work. Collection toggles only within `*run_vm*`; the command fails on a nonzero child exit or empty profile. Raw instruction-level events, exclusive annotations, hashes, settings and checked worker output live under `target/jit-evidence/feature-cost/speed-symbols/callgrind/<case>/<mode>/` (with a target-qualified directory when requested). Warm corpus cases are selectable; normal checked cost comparisons reject `--case` and continue to require all nine controls. These are simulated instruction/cache/branch events, not hardware cycles, wall-time acceptance or native-machine-code validation.
+
+`make jit-disassembly` dumps finalized, relocated native code for scalar-loop
+and table/helper fixtures through an explicitly invoked ignored test. The
+scalar kernel executes to the checked 5050 return value; the table kernel exits
+before allocation when supplied a null helper host. GNU objdump from the Nix
+shell disassembles the live module bytes at their actual entry addresses.
+Source, decoded PC/entry flags, constants, ABI/target and helper addresses,
+execution counts, environment, tool version and hashes accompany the binaries
+and assembly under `target/jit-evidence/native/<target-or-host>/`. Mappings are
+reclaimed after dumping; addresses are valid only for that diagnostic process.
+The target rejects missing test execution or empty/wrong-architecture artifacts.
+`make jit-platform` includes it, so the native CI matrix retains these artifacts.
+This is not full symbolization, platform certification or an unsafe-code proof;
+raw disassembly may decode embedded constants as instructions. Production
+builds gain no dump API, file writes or retained diagnostic state.

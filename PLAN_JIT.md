@@ -443,7 +443,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 4 — Execute the first real native Lua slices
 
-**Status:** IN PROGRESS. **Depends on:** Phase 3. Integrated scalar/loop native execution and exact fuel/guard tests pass. Heap operations and transitions still fall back; full numeric/exit stress and a disassembly diagnostic lane remain open.
+**Status:** IN PROGRESS. **Depends on:** Phase 3. Integrated scalar/loop native execution and exact fuel/guard tests pass. A finalized scalar/table-kernel disassembly lane now exists; helper and transition coverage remains partial, and full numeric/exit stress remains open.
 
 **Files:** `src/jit/codegen.rs`, `runtime.rs`, executor dispatch, `examples/jit.rs`, `tests/jit_execution.rs`, `tests/jit_fuel.rs`.
 
@@ -1075,6 +1075,87 @@ ARM64/hosted execution evidence. The full implementation goal remains active.
 **Relevant files:** `src/jit/` and runtime integration implement the native tier;
 `tests/` verifies boundaries and embedding behavior; `Makefile`, `examples/` and
 `.github/workflows/tests.yml` supply gates; `JIT.md` and this plan retain findings.
+
+### Register materialization experiment
+
+The upvalue Auto profile identifies `Runtime::invoke::<8>` as a substantial
+cost. Test direct scalar write-back with no read or rewrite of canonical GC
+references, rather than copying the existing `Value` through `Slot::value` on
+every register. Helpers still store new references in the traced frame, scalar
+operands still reconstruct from scratch, and every exit/panic materializes the
+same prefix. No value layout, ABI, GC barrier, PC or fuel contract changes.
+Acceptance requires scalar bit-pattern/reference identity tests, existing
+boundary/heap integration gates and sequential paired performance evidence;
+remove the runtime change if the measured result does not justify it.
+
+**Rejected:** focused ABI/boundary, fourteen native and eleven heap tests pass,
+including panic materialization. Sequential baseline and candidate opt-level-3
+performance gates both fail the same four frozen controls. Upvalue speedup
+changes from 0.5691 to 0.5448 and table from 1.1191 to 1.0633; there is no measured
+justification to retain the change. Restore the original write-back. Keep three
+explicit ABI regressions for scalar bit patterns (including negative zero and
+NaN payload), every GC-reference kind/canonical identity, and invalid tags.
+Logs: `/tmp/luna-jit-materialize-{baseline,candidate,focused}.log`. These ratios
+are separate paired runs, not a controlled hardware-level causal attribution.
+
+### Finalized native-code diagnostics
+
+Add a test-only diagnostic lane, `make jit-disassembly`, that compiles scalar
+loop and table/helper fixtures, copies their relocated bytes while each owning
+module remains live, and disassembles those bytes at their actual entry address.
+Record Lua source, decoded PC/entry flags, constants, ABI/target, helper symbol
+addresses, executed instruction counts, hashes and environment alongside the
+assembly. The scalar fixture must execute its generated kernel to the expected
+5050 result; the null-host table fixture must decline before allocation. Both
+modules must reclaim their native mappings after the dump. No diagnostic state
+or file-writing path is added to production builds. Raw disassembly may include
+embedded data; recorded helper addresses aid manual correlation, not automatic
+symbolization or an unsafe-code correctness proof. ARM64 support still requires
+execution on an ARM64 host.
+
+**Verified:** `/tmp/luna-jit-materialize-diagnostics-verify.log` exits 0 for
+`make fmt jit-disassembly jit-verify`: 2511 passed executions / 405 suite
+invocations, including the explicitly invoked dump test (2510 / 404 for the
+full correctness gate alone). GNU target-qualified dumping plus formatting and
+workflow validation passes (`/tmp/luna-jit-diagnostic-gnu.log`); musl dumping and
+all fourteen native integrations pass (`/tmp/luna-jit-diagnostic-musl.log`).
+Seeded fuzz smoke artifacts are retained at
+`target/jit-evidence/fuzz/1790777755199176270-2704807`.
+
+Prepopulating a separate diagnostic directory with valid old binaries and
+metadata, then substituting `CARGO=true`, exits 2 before disassembly rather
+than accepting stale output (`/tmp/luna-jit-diagnostic-stale-refusal.log`).
+The executed-test and architecture checks are part of the gate. Nix supplies
+binutils explicitly, and `jit-platform` now runs the diagnostic, retaining its
+output in the existing native CI upload. Hosted/ARM64 execution is not claimed.
+
+#### Current session handoff: materialization and kernel diagnostics
+
+**Goal:** continue the full plan and report verified progress without claiming
+release acceptance.
+
+**Instructions:** retain frozen controls; commit logical milestones separately.
+
+**Discoveries:** direct reference-skipping write-back did not improve the
+targeted performance controls. Four native controls still fail; the runtime
+experiment was reverted.
+
+**Accomplished:** committed three ABI regressions as `7f6605c`. The new finalized
+kernel diagnostic passes locally: scalar code is 1904 bytes and executes 207
+native instructions to return 5050; table code is 1104 bytes and declines a null
+host before allocation. Source/metadata/assembly artifacts were inspected.
+The interrupted full command completed successfully and was polled to terminal
+status, not restarted. GNU/musl diagnostic and stale-artifact refusal checks
+pass as recorded above; the diagnostic milestone is ready for its own commit.
+
+**Next steps:** targeted invocation/helper optimization with measured acceptance
+evidence; full compiler/combined-host limits, eviction, lifecycle and unsafe
+hardening, and ARM64/hosted runs. Performance/resource/hardening/ARM64
+requirements remain open. No tool process remains live from this milestone.
+
+**Relevant files:** `src/jit/abi.rs` adds committed ABI tests;
+`src/jit/backend.rs`, `Makefile`, `flake.nix`, `JIT.md` and this plan contain the
+separate diagnostic milestone. No release or push has been performed.
 
 ## 15. Primary references
 

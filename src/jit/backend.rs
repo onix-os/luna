@@ -124,6 +124,8 @@ impl JITMemoryProvider for Memory {
 pub(super) struct Code {
     module: Option<JITModule>,
     entry: Entry,
+    #[cfg(test)]
+    byte_len: usize,
     pub registers: usize,
     pub entries: BudgetVec<bool, BudgetAllocator>,
 }
@@ -371,12 +373,16 @@ pub(super) fn compile_in(
     module
         .define_function(function, &mut context)
         .map_err(fail)?;
+    #[cfg(test)]
+    let byte_len = context.compiled_code().unwrap().code_buffer().len();
     module.finalize_definitions().map_err(fail)?;
     let entry =
         unsafe { std::mem::transmute::<*const u8, Entry>(module.get_finalized_function(function)) };
     Ok(Code {
         module: Some(module),
         entry,
+        #[cfg(test)]
+        byte_len,
         registers: snapshot.registers,
         entries,
     })
@@ -1063,6 +1069,103 @@ impl Emitter<'_, '_> {
 #[cfg(test)]
 mod memory_tests {
     use super::*;
+
+    #[test]
+    #[ignore = "writes generated-kernel artifacts through make jit-disassembly"]
+    fn dump_finalized_native_kernels() {
+        use std::{fmt::Write, fs, path::PathBuf};
+
+        let directory = PathBuf::from(
+            std::env::var_os("LUNA_JIT_DIAGNOSTIC_DIR")
+                .expect("make jit-disassembly must supply an output directory"),
+        );
+        fs::create_dir_all(&directory).unwrap();
+        let fixtures = [
+            (
+                "scalar",
+                "local sum=0 for i=1,100 do sum=sum+i end return sum",
+            ),
+            ("table", "local t={10} local x=t[1] t[1]=x+1 return t[1]"),
+        ];
+        for (name, source) in fixtures {
+            let mut lua = crate::Lua::empty();
+            let snapshot = lua.enter(|ctx| {
+                let prototype =
+                    crate::FunctionPrototype::compile(ctx, name, source.as_bytes()).unwrap();
+                Snapshot::new(&prototype, 4096, 65536).unwrap()
+            });
+            let total = Arc::new(AtomicUsize::new(0));
+            let code = compile(&snapshot, total.clone(), 8 * 1024 * 1024).unwrap();
+            assert!(code.byte_len > 0);
+            assert!(code.byte_len <= total.load(Ordering::Relaxed));
+            let address = code.entry as *const u8;
+            // Read finalized code bytes while the owning executable module is live.
+            let bytes = unsafe { std::slice::from_raw_parts(address, code.byte_len) };
+            fs::write(directory.join(format!("{name}.bin")), bytes).unwrap();
+            fs::write(directory.join(format!("{name}.lua")), source).unwrap();
+            let mut metadata = format!(
+                "abi=3\narch={}\nos={}\nentry_address={:#x}\ncode_bytes={}\nregisters={}\n",
+                std::env::consts::ARCH,
+                std::env::consts::OS,
+                address as usize,
+                code.byte_len,
+                code.registers,
+            );
+            for (_, symbol, entry) in helpers::SYMBOLS {
+                writeln!(metadata, "helper={symbol} address={:#x}", entry as usize).unwrap();
+            }
+            for (pc, operation) in snapshot.operations.iter().enumerate() {
+                writeln!(
+                    metadata,
+                    "pc={pc} entry={} operation={operation:?}",
+                    code.entries[pc]
+                )
+                .unwrap();
+            }
+            for (index, constant) in snapshot.constants.iter().enumerate() {
+                writeln!(metadata, "constant={index} value={constant:?}").unwrap();
+            }
+            let mut slots = vec![
+                Slot {
+                    tag: abi::NIL,
+                    bits: 0
+                };
+                code.registers
+            ];
+            let mut pc = 0;
+            let mut instructions = 0;
+            for _ in 0..100 {
+                let exit = code.invoke(&mut slots, pc, 64);
+                instructions += exit.instructions;
+                pc = exit.pc as usize;
+                if exit.instructions == 0 {
+                    break;
+                }
+            }
+            if name == "scalar" {
+                assert!(instructions > 100);
+                let Operation::Return { start, count } = snapshot.operations[pc] else {
+                    panic!("scalar kernel did not return");
+                };
+                assert_eq!(count.to_constant(), Some(1));
+                let result = slots[usize::from(start.0)];
+                assert_eq!((result.tag, result.bits), (abi::INTEGER, 5050));
+            } else {
+                assert!(snapshot
+                    .operations
+                    .iter()
+                    .any(|op| matches!(op, Operation::GetTable { .. })));
+                assert!(matches!(
+                    snapshot.operations[pc],
+                    Operation::NewTable { .. }
+                ));
+            }
+            writeln!(metadata, "native_instructions={instructions}\nexit_pc={pc}").unwrap();
+            fs::write(directory.join(format!("{name}.metadata")), metadata).unwrap();
+            drop(code);
+            assert_eq!(total.load(Ordering::Relaxed), 0);
+        }
+    }
 
     fn memory(pages: usize) -> Memory {
         let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };

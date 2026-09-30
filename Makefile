@@ -19,6 +19,7 @@ FUZZ_TARGET ?= all
 FUZZ_CASES ?= 256
 FUZZ_SEEDS ?= 0,1,0xdeadbeef,0xffffffffffffffff
 JIT_BENCH_OPT ?= 3
+JIT_DUMP_DIR ?= target/jit-evidence/native/$(if $(TARGET),$(TARGET),host)
 SIZE_PROFILE ?= shipping
 COST_SAMPLES ?= 11
 COST_ITERATIONS ?= 20
@@ -41,6 +42,7 @@ $(info ------------------------------------------)
 .PHONY: ci-check jit-platform
 .PHONY: jit-size jit-size-build jit-cost-tests jit-cost-native jit-shipping
 .PHONY: jit-cost-profile
+.PHONY: jit-disassembly
 
 ci-check:
 	@$(ACTIONLINT) .github/workflows/tests.yml
@@ -54,7 +56,7 @@ jit-platform:
 	if test "$$(uname -sm)" != "Linux $$arch"; then \
 		echo "Native gate requires Linux $$arch hardware, not a cross-build" >&2; exit 2; \
 	fi
-	@$(MAKE) --no-print-directory environment jit-verify jit-example
+	@$(MAKE) --no-print-directory environment jit-verify jit-example jit-disassembly
 
 jit-evidence:
 	@mkdir -p target/jit-evidence
@@ -134,6 +136,23 @@ jit-rust-assembly: jit-profile-build
 	@mkdir -p target/jit-evidence
 	@set -o pipefail; objdump -Cd target/release/examples/jit_bench | awk '/<luna::jit::Runtime::(run|lookup)>:|<<luna::jit::Runtime>::invoke.*>:|<luna::jit::helpers::call.*>:|<luna::thread::vm::run_vm.*>:/ { emit=1 } emit { print } /^$$/ { emit=0 }' > target/jit-evidence/rust-assembly.log
 	@test -s target/jit-evidence/rust-assembly.log
+
+jit-disassembly:
+	@case "$$(uname -sm)" in 'Linux x86_64') ;; 'Linux aarch64') ;; *) echo 'Native diagnostics require supported Linux host'; exit 2;; esac
+	@mkdir -p '$(JIT_DUMP_DIR)'
+	@$(MAKE) --no-print-directory environment > '$(JIT_DUMP_DIR)/environment.log'
+	@objdump --version > '$(JIT_DUMP_DIR)/objdump-version.log'
+	@set -o pipefail; LUNA_JIT_DIAGNOSTIC_DIR='$(abspath $(JIT_DUMP_DIR))' $(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::dump_finalized_native_kernels -- --exact --ignored --nocapture 2>&1 | tee '$(JIT_DUMP_DIR)/test.log'
+	@grep -Fq 'test jit::backend::memory_tests::dump_finalized_native_kernels ... ok' '$(JIT_DUMP_DIR)/test.log'
+	@set -e; case "$$(uname -m)" in x86_64) machine='i386:x86-64';; aarch64) machine=aarch64;; esac; \
+	for fixture in scalar table; do \
+		grep -Fxq "arch=$$(uname -m)" '$(JIT_DUMP_DIR)'/$$fixture.metadata; \
+		address=$$(sed -n 's/^entry_address=//p' '$(JIT_DUMP_DIR)'/$$fixture.metadata); \
+		test -n "$$address"; test -s '$(JIT_DUMP_DIR)'/$$fixture.bin; \
+		objdump -D -b binary -m "$$machine" --adjust-vma="$$address" '$(JIT_DUMP_DIR)'/$$fixture.bin > '$(JIT_DUMP_DIR)'/$$fixture.asm; \
+		grep -Eq '^[[:space:]]*[[:xdigit:]]+:[[:space:]]' '$(JIT_DUMP_DIR)'/$$fixture.asm; \
+		sha256sum '$(JIT_DUMP_DIR)'/$$fixture.bin '$(JIT_DUMP_DIR)'/$$fixture.metadata > '$(JIT_DUMP_DIR)'/$$fixture.sha256; \
+	done
 
 jit-reference:
 	@$(CARGO) test -p luna --test fuel_reference $(TARGET_ARG)
@@ -360,6 +379,7 @@ help:
 	@echo "  jit-bench    Measure checked workloads (ARGS='--mode off --samples 11')"
 	@echo "  jit-bench-paired Alternate checked Off/Auto samples"
 	@echo "  jit-performance Check frozen paired workload thresholds"
+	@echo "  jit-disassembly Dump finalized native kernels and addresses"
 	@echo "  jit-shipping Publish checked paired timings at shipping opt-level s"
 	@echo "  jit-size     Measure matched binary size and 5% disabled overhead"
 	@echo "  jit-size-build Build/copy matched probes (SIZE_PROFILE=shipping|speed)"
