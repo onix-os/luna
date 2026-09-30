@@ -238,8 +238,7 @@ impl<'gc> Table<'gc> {
             if !mt.get_value(ctx, crate::MetaMethod::Gc).is_nil() {
                 ctx.finalizers().register_table(&ctx, self.0);
             }
-            // `__mode` is read once, here. Changing it afterwards does not retroactively weaken
-            // entries — PUC-Rio calls that undefined, and this is luna's answer.
+            // Convert weak storage when attaching the metatable.
             if let Value::String(mode) = mt.get_value(ctx, crate::MetaMethod::Mode) {
                 let mode = mode.as_bytes();
                 if mode.contains(&b'k') {
@@ -252,6 +251,7 @@ impl<'gc> Table<'gc> {
                     }
                 } else if mode.contains(&b'v') {
                     self.0.borrow_mut(&ctx).raw_table.make_values_weak(&ctx);
+                    ctx.finalizers().unregister_weak_keys(&ctx, self.0);
                 }
             }
         }

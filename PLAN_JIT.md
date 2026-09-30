@@ -2442,6 +2442,28 @@ registry invariants; `src/table/table.rs` performs retirement on `kv` attachment
 `Makefile` includes the new Rust-only finalizer namespace in pinned Miri;
 `PLAN_JIT.md` records scope, failures, verification and remaining work.
 
+### Weak-value reattachment: retire former ephemerons
+
+Extended the existing native/reference, normal interpreter/finalization and
+Rust-only registry tests to alternate `k` with both `kv` and `v`, including
+repeated attachments and later `k` re-enrollment. Before changing production
+code, the targeted public case fails with retained 113 instead of 0 at the
+plain-`v` transition (`/tmp/luna-jit-weak-value-reattach-before.log`). A patch
+placement/compiler error was corrected first and retained separately as
+`/tmp/luna-jit-weak-value-reattach-patch-error.log`; it is not behavioral evidence.
+
+The plain weak-value attachment branch now invokes the same typed weak-key
+retirement used by `kv`. Existing physical weak storage, attachment-time field
+semantics, peer registrations and table finalization remain unchanged. The local
+comment describes conversion functionality without making an unverified
+upstream-compatibility claim. No API, layout, unsafe code, resource limit or
+benchmark gate changes. All 15 focused heap tests pass; fresh full GNU
+verification passes 2710 executions / 410 suite invocations, including the
+expanded peer invariant, native/reference and exactly-once finalization cases.
+Format, baseline Clippy and workflow lint pass. Full musl and selected Miri are
+running in session `86474`; resume that handle rather than restarting on an
+observation timeout. Native/shipping performance remains open.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
