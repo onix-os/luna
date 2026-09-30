@@ -94,6 +94,12 @@ attempts; empty backing releases are. Reclaimed bytes are shared-ledger
 requested-layout deltas, not RSS or compiler-working-memory measurements.
 Fixed compactor/counter owner fields remain outside the container ledger.
 
+JIT metadata maps use the existing randomized `ahash::RandomState` for private
+generation IDs and prototype-address routing keys. Weak upgrade and object
+identity validation remain required; a hash/address match alone never admits
+code. Sparse compaction clones the populated map's hasher state. This changes
+neither the native ABI nor Lua table semantics or dependency requirements.
+
 `make jit-upvalues` compares native and interpreted open/closed cells with
 collection between slices, exact logical read/write counts, eight/nine distinct
 captures, joined aliases, foreign coroutine stacks, reference values, scalar

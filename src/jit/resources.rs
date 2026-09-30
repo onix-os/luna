@@ -225,9 +225,20 @@ mod tests {
         let mut values = super::super::metadata_map(BudgetAllocator(ledger.clone()));
         values.try_reserve(128).unwrap();
         let owner = std::rc::Rc::new(42);
-        for key in 0..8u64 {
+        let keys = [
+            0u64,
+            1,
+            127,
+            u32::MAX as u64,
+            u32::MAX as u64 + 1,
+            i64::MAX as u64,
+            1 << 63,
+            u64::MAX,
+        ];
+        for key in keys {
             values.insert(key, owner.clone());
         }
+        let hashes = keys.map(|key| std::hash::BuildHasher::hash_one(values.hasher(), key));
         let capacity = values.capacity();
         let before = ledger.current();
         let mut compactor = Compactor::default();
@@ -239,7 +250,11 @@ mod tests {
         assert_eq!(bytes, before - after);
         assert_eq!(ledger.peak(), before + after);
         assert_eq!(std::rc::Rc::strong_count(&owner), 9);
-        for key in 0..8 {
+        assert_eq!(
+            keys.map(|key| std::hash::BuildHasher::hash_one(values.hasher(), key)),
+            hashes
+        );
+        for key in keys {
             assert!(std::rc::Rc::ptr_eq(&values[&key], &owner));
         }
         assert!(matches!(compactor.map(&mut values), Compaction::Unchanged));

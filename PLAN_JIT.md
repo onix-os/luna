@@ -1845,6 +1845,79 @@ frames; `src/jit/helpers.rs` exercises the actual unsafe entry and panic
 transport; `.github/workflows/tests.yml` wires two Miri seeds;
 `JIT.md` and `PLAN_JIT.md` record limits, exclusions and current evidence.
 
+### Measured metadata-hash experiment decision
+
+The retained closure/upvalue Auto Callgrind profile attributes 7.80% of
+collected instructions to SipHash writes, with further costs in registration
+identity and code-map lookup. Test the existing `ahash::RandomState` dependency
+for JIT metadata maps only: keys are private generation IDs and prototype
+addresses, not arbitrary Lua table/string keys. Retain randomized per-map seeds,
+weak-upgrade/object-identity checks, generation uniqueness, quota accounting
+and deterministic LRU tie-breaking. Sparse compaction must clone the same
+hasher state, not reseed a populated map. This changes no native ABI and adds
+no dependency. Measure completed copied baseline/candidate artifacts against
+all unchanged native and compiled-Off controls; profile percentages alone do
+not establish a performance win. Keep or reject based on repeated evidence.
+
+**Pending verification:** focused resources/policy/native/upvalue gates pass;
+completed baseline/candidate benchmark hashes and the runtime patch are under
+`target/jit-evidence/fast-hash/`. Timing is deferred because unrelated Magi and
+Molla Cargo jobs are active; do not stop those jobs or time through them.
+Strengthen the existing compaction ownership fixture with integer boundary
+keys and identical pre/post key hashes, proving preservation of randomized
+hasher state. Full GNU, Rust-only Miri, focused musl and fresh compiled-Off
+artifact builds are running sequentially. No acceptance or keep decision yet.
+
+**Correctness complete for the candidate:** full GNU verification passes
+2660 executions / 410 suite invocations, with smoke artifacts at
+`target/jit-evidence/fuzz/1790791583564826921-3472545`; Rust-only Miri passes
+all 24 selected tests, and focused musl resources/policy/native/upvalues pass.
+Fresh matched speed artifacts are built. Logs:
+`/tmp/luna-jit-fast-hash-{full-verify,miri,musl,feature-build}.log`.
+Native paired baseline/candidate repetitions and two compiled-Off comparisons
+are now running sequentially behind compiler-process guards, using completed
+copied executables and the frozen thresholds. This is not a fresh full musl,
+ARM64 or hosted run.
+
+#### Metadata-hash keep decision and measured evidence
+
+Keep randomized AHash for private JIT metadata, after current full GNU,
+focused musl and 24-test Rust-only Miri success. All timing runs use completed
+copied executables, eleven paired samples and pre/post compiler-process guards;
+unrelated compilation had finished before timing. No controls were dropped or
+thresholds changed. This is a targeted improvement, not native acceptance.
+
+| Case | Baseline | Candidate | Baseline repeat | Candidate repeat |
+| --- | --- | --- | --- | --- |
+| integer | 2.3839 | 2.4308 | 3.1002 | 2.6064 |
+| float | 4.6368 | 4.9194 | 4.4913 | 4.8181 |
+| array | 1.1847 | 1.1493 | 1.1481 | 1.1514 |
+| upvalue | 0.5860 | 0.6603 | 0.5639 | 0.6749 |
+| metamethod | 0.7800 | 0.8319 | 0.7815 | 0.8627 |
+| callback | 0.6825 | 0.7880 | 0.6818 | 0.7752 |
+| allocation | 1.0137 | 1.0065 | 0.9794 | 1.0124 |
+| Oslo (unscored) | 0.8431 | 0.8999 | 0.8690 | 0.8938 |
+| cold | 1.0000 | 0.9982 | 0.9963 | 1.0040 |
+
+Ratios are Off/Auto medians, not universal speedup promises. Both baselines
+fail four controls; candidate first also fails four (metamethod 0.8319 is below
+0.8333), repeat fails three. Array/upvalue/callback remain below their frozen
+requirements. Integer candidate-repeat paired ratios span 1.3959–2.7690,
+baseline-repeat 2.5679–5.2275; upvalue candidate-repeat spans 0.5113–0.6900.
+Preserve full dispersion and do not declare stable metamethod acceptance.
+
+Matched compiled-Off speed comparisons both pass all nine controls. The new
+metamethod result is 1.0431 initially, below the unchanged 1.0500 ceiling.
+Source-visible Off slices do not hash JIT metadata, so do not attribute their
+changed timing directly to faster Auto lookup; link/layout and run variability
+remain possible causes. Complete raw logs/hashes, source ID and patches are
+under `target/jit-evidence/fast-hash/`, with copied matched-cost artifacts under
+`feature-cost/`. The source baseline is `f53b489`.
+Native baseline SHA-256:
+`108df43a3041130fe339b8385d0d11b1697c92cfb30202d925c937fd3e508b8b`;
+candidate `3199763c32b53a83e837d8d678f71330c5539d353a529a5c5492d623e520dccd`.
+Current shipping-profile acceptance remains required independently.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

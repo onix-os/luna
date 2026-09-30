@@ -2,7 +2,6 @@
 
 use std::{
     cell::RefCell,
-    collections::hash_map::RandomState,
     rc::Rc,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -10,6 +9,7 @@ use std::{
     },
 };
 
+use ahash::RandomState;
 use allocator_api2::vec::Vec;
 use hashbrown::HashMap;
 use ottavino_gc_arena::Collect;
