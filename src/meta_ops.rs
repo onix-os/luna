@@ -889,13 +889,10 @@ pub fn concat_many<'gc>(
     ctx: Context<'gc>,
     values: &[Value<'gc>],
 ) -> Result<ConcatMetaResult<'gc>, MetaOperatorError> {
-    // Fast path scope; never loops, returns if successful, otherwise
-    // breaks to fall back to the slow impl.
-    loop {
-        // Since we have to make two passes to check for complex types,
-        // estimate the length in the first pass.
+    // Concatenate scalar values without invoking metamethods.
+    'fast: {
         let Some(len) = estimate_concatenated_len(values)? else {
-            break;
+            break 'fast;
         };
 
         let mut bytes = Vec::with_capacity(len);
@@ -912,7 +909,7 @@ pub fn concat_many<'gc>(
         return Ok(ConcatMetaResult::Value(Value::String(ctx.intern(&bytes))));
     }
 
-    // Fall back to a sequence-based implemenation to handle metamethods
+    // Evaluate concatenation metamethods from right to left.
     let func = Callback::from_fn(&ctx, |ctx, _, stack| {
         let args = stack.len();
         let s = async_sequence(&ctx, |_, mut seq| async move {
@@ -941,18 +938,15 @@ pub fn concat_separated<'gc>(
         return concat_many(ctx, values);
     }
 
-    // Fast path scope; never loops, returns if successful, otherwise
-    // breaks to fall back to the slow impl.
-    loop {
+    // Concatenate scalar values with a scalar separator.
+    'fast: {
         let sep_str = match separator.into_string(ctx) {
             Some(s) => s,
-            None => break,
+            None => break 'fast,
         };
 
-        // Since we have to make two passes to check for complex types,
-        // estimate the length in the first pass.
         let Some(len) = estimate_concatenated_len(values)? else {
-            break;
+            break 'fast;
         };
 
         let sep_count = values.len().saturating_sub(1);
@@ -961,7 +955,6 @@ pub fn concat_separated<'gc>(
             .and_then(|l| l.checked_add(len))
             .ok_or(MetaOperatorError::ConcatOverflow)?;
 
-        // Should this be allocated in-place in the GC heap?
         let mut bytes = Vec::with_capacity(total_len);
 
         let mut iter = values.iter();
@@ -992,7 +985,7 @@ pub fn concat_separated<'gc>(
         return Ok(ConcatMetaResult::Value(Value::String(ctx.intern(&bytes))));
     }
 
-    // Fall back to a sequence-based implemenation to handle metamethods
+    // Evaluate separator and value concatenation metamethods from right to left.
     let func = Callback::from_fn_with(&ctx, separator, move |&sep, ctx, _, stack| {
         let args = stack.len();
         let b = async_sequence(&ctx, |locals, mut seq| {

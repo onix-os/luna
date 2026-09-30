@@ -103,6 +103,73 @@ fn concat_coerces_floats_the_same_way() -> Result<(), ExternError> {
 }
 
 #[test]
+fn concat_scalar_fast_paths_preserve_separator_and_empty_cases() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        return table.concat({}) == ""
+            and table.concat({}, ",") == ""
+            and table.concat({12}, ",") == "12"
+            and table.concat({12, 3.5, "z"}) == "123.5z"
+            and table.concat({12, 3.5, "z"}, nil) == "123.5z"
+            and table.concat({12, 3.5, "z"}, 7) == "1273.57z"
+    "#
+    )?);
+    Ok(())
+}
+
+#[test]
+fn concat_value_and_separator_fallbacks_preserve_right_to_left_order() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local calls = {}
+        local function label(value)
+            if type(value) == "table" then return value.name end
+            return value
+        end
+        local mt = {__concat = function(a, b)
+            local left, right = label(a), label(b)
+            calls[#calls + 1] = left .. ":" .. right
+            return "(" .. left .. "+" .. right .. ")"
+        end}
+        local function node(name) return setmetatable({name = name}, mt) end
+        local a, b, c = node("a"), node("b"), node("c")
+        assert(table.concat({a, b, c}) == "(a+(b+c))")
+        assert(table.concat(calls, ";") == "b:c;a:(b+c)")
+        calls = {}
+        assert(table.concat({a, b, c}, "|") == "(a+|(b+(|+c)))")
+        assert(table.concat(calls, ";") == "|:c;b:(|+c);a:|(b+(|+c))")
+        calls = {}
+        assert(table.concat({"a", "b", "c"}, node("sep")) == "a(sep+b(sep+c))")
+        return table.concat(calls, ";") == "sep:c;sep:b(sep+c)"
+    "#
+    )?);
+    Ok(())
+}
+
+#[test]
+fn concat_fallback_errors_preserve_payload_and_caller_state() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local calls, last_left, last_right = 0, nil, nil
+        local bad = setmetatable({}, {__concat = function(a, b)
+            calls = calls + 1
+            last_left, last_right = a, b
+            error("concat sentinel", 0)
+        end})
+        local canary = {42}
+        local ok, err = pcall(table.concat, {"a", bad, "c"})
+        assert(not ok and err == "concat sentinel" and calls == 1)
+        assert(last_left == bad and last_right == "c")
+        ok, err = pcall(table.concat, {"a", "b", "c"}, bad)
+        assert(not ok and err == "concat sentinel" and calls == 2)
+        return last_left == bad and last_right == "c" and canary[1] == 42
+            and table.concat({"after", "error"}, ",") == "after,error"
+    "#
+    )?);
+    Ok(())
+}
+
+#[test]
 fn infinities_and_nan_still_print() -> Result<(), ExternError> {
     assert!(eval(
         r#"

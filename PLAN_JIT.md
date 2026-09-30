@@ -2234,6 +2234,30 @@ production JIT/closure/VM files match their prior committed implementations.
 `target/jit-evidence/identity-cache/` holds original, guarded and outlined
 experiment evidence plus restored-runtime verification logs.
 
+### Baseline Clippy single-pass blocks
+
+Replaced the single-iteration `loop` fast-path scopes in `concat_many` and
+`concat_separated` with labeled blocks. Their scalar success returns and
+fallback exits are unchanged; no allocation, conversion, error, or metamethod
+ordering rule changes. Local comments now describe the fast paths and
+right-to-left sequence execution without rationale. `nix develop -c make fmt
+fmt-check clippy` passes, removing the two documented `never_loop` errors
+without suppressions or lint configuration changes; existing warnings remain.
+The exact result is `/tmp/luna-jit-concat-clippy.log`.
+
+Added three focused public regressions for scalar/nil/numeric separators,
+empty/singleton results, right-to-left value and separator metamethod order,
+error payload preservation, and continued execution after fallback errors.
+Fresh full GNU verification passes 2683 executions / 410 suite invocations,
+including all three new regressions in the interpreter and feature-enabled
+Off/Auto/Force lanes. Workflow lint and baseline Clippy pass; Clippy still
+reports 139 library warnings, with no suppression or change to strict mode.
+GNU smoke evidence is
+`target/jit-evidence/fuzz/1790796074085659047-3870368`; the full command log is
+`/tmp/luna-jit-concat-full-verify.log`. Full musl verification is running in
+session `67578`; do not restart on observation timeout. This baseline fix does
+not establish native or shipping performance acceptance.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
