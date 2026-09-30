@@ -425,7 +425,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 3 — Build validated owned IR and bounded code ownership
 
-**Status:** IN PROGRESS. **Depends on:** Phase 2. Owned snapshots, exhaustive opcode validation/fallback classification, weak generation IDs, bounded queues/attempts, leased code, capped mappings and bounded unleased LRU eviction exist. Full CFG/effect review, complete accounting, combined-limit semantics, sparse-cache compaction and hardening remain open.
+**Status:** IN PROGRESS. **Depends on:** Phase 2. Owned snapshots, exhaustive opcode validation/fallback classification, weak generation IDs, bounded queues/attempts, leased code, capped mappings, bounded unleased LRU eviction and fallible sparse-metadata compaction exist. Full CFG/effect review, complete accounting, combined-limit semantics and hardening remain open.
 
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
@@ -677,8 +677,8 @@ Do not disable tests, lower safety guarantees, catch arbitrary crashes as succes
 | 4: native slices | IN PROGRESS | Actual native counters, numeric/fuel correctness | Explicit example returned 5000050000 with 200007 native logical instructions; fourteen native tests pass. Scalar operations, numeric loops, guarded comparison, and interpreter fallback integrated. Helper-backed heap operations execute natively; broader numeric/error coverage remains open. |
 | 5: lifecycle integration | IN PROGRESS | Mixed-tier callbacks, async/coroutines, errors and close tests | Twelve dedicated heap tests (thirteen with async) cover reentrancy, coroutine/foreign suspension, close/error unwinding, panic materialization, debug mutation and finalizer resurrection. Six additional upvalue tests cover aliases, foreign stacks, shared captures and Rust reentry. Full-feature Force passes; complete mixed-tier transition matrix remains open. |
 | 6: heap/GC integration | IN PROGRESS | Native heap paths, barriers, GC/mutation/invalidation stress | Fresh helper guards preserve weak/readonly/intercept/invalid-key behavior. Every-slice GC, open/closed upvalues, pending-scalar panic inspection, debug local/upvalue join and finalizer-only native upvalue writes pass. Shared-cell tests additionally prove exact operation counts and write visibility across error guards, foreign stacks, GC and Rust reentry. Broader interleaved executors, mode mutations and exhaustive guard coverage remain open. |
-| 7: Auto policy | IN PROGRESS | Nonblocking stepping, owned compile work, limits/backoff, hot promotion | Bounded hot requests and explicit outside-arena service; Off/quota-shrink retirement, queue/attempt reductions, typed quota refusal and exhausted-attempt reset tests pass. Bounded unleased LRU eviction/retry and charged single-probe recency pass eight cache tests. Sparse-cache compaction, injected blocked compiler and complete resource/diagnostic coverage remain open. |
-| 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Slice-local leases, fixed helper ABI v3, operand-scoped synchronization and outlined tiered scratch pass full correctness and every-tier reference tests. Rust assembly verifies the VM scratch probe was removed. Opt-level-3 loop controls pass but four mixed/heap controls fail. Matched compiled-Off speed-profile controls pass twice after single-probe cache recency; a current passing shipping-profile result is still required. Scalar-upvalue ABI v4 proxy experiment regresses the required closure workload and is removed. Perf is permission-denied; profitable mixed-path optimization, cold compile/latency and broader fuzz evidence remain open. |
+| 7: Auto policy | IN PROGRESS | Nonblocking stepping, owned compile work, limits/backoff, hot promotion | Bounded hot requests and explicit outside-arena service; Off/quota-shrink retirement, queue/attempt reductions, typed quota refusal and exhausted-attempt reset tests pass. Bounded unleased LRU eviction/retry, charged single-probe recency and sparse compaction pass ten cache tests. Fallible old/new charging, eight-pass refusal backoff and integrated 128-source collection preserve leases, pending work and three live identities. Injected blocked compiler and complete resource/diagnostic coverage remain open. |
+| 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Slice-local leases, fixed helper ABI v3, operand-scoped synchronization and outlined tiered scratch pass full correctness and every-tier reference tests. Rust assembly verifies the VM scratch probe was removed. Opt-level-3 loop controls pass but four mixed/heap controls fail. Historical matched compiled-Off speed controls passed twice after single-probe recency; current compaction artifacts fail the metamethod overhead control twice (6.91%/6.90%, 5% ceiling). Current passing speed and shipping results remain required. Scalar-upvalue ABI v4 proxy experiment regresses the required closure workload and is removed. Perf is permission-denied; profitable mixed-path optimization, cold compile/latency and broader fuzz evidence remain open. |
 | 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Admission/scalar campaigns execute in limited supervised child processes; panic/signal/timeout failures are tested, and workers verify inherited limits. Five-seed 5120-kernel campaign passes with exact exit/slot/reclamation comparisons. Full GNU/musl x86-64 gates and prepared examples execute natively; allocation/protection denial is injected and tested. Heap/lifecycle and coverage-guided fuzz, complete unsafe/Miri review and native ARM64/hosted evidence remain open. |
 | 10: release acceptance | IN PROGRESS | Complete gates, thresholds, docs/examples, actual CI | Prepared example and resource/security documentation exist. Active workflow wiring runs full GNU/musl x86-64 and GNU ARM64 gates, builds matched shipping artifacts and uploads evidence. Workflow lint/local musl integration pass; repeated local shipping/size/disabled-cost evidence is recorded. Actual hosted/ARM64 results, complete hardening and both native/disabled performance acceptance remain missing. |
 
@@ -1566,6 +1566,162 @@ remain separate open requirements.
 not every registered source at once. The 128-source lifecycle fixture must
 prepare eight default-size batches; do not increase production queue limits
 or claim one-call preparation of all sources.
+
+**Service fast-path decision:** inspect manager-container eligibility while
+reading the existing service configuration. A sweep only borrows the manager
+again for eligible maintenance, actual source retirement or registry compaction
+diagnostics. Retirement overrides an earlier dense-container observation.
+Explicit preparation still permits maintenance directly. Eligibility probes
+reset observed dense/empty backoff but do not consume deferred sparse passes.
+This avoids unconditional maintenance borrowing on ordinary unchanged slices
+without losing sparse code/queue maintenance when live registrations are dense.
+
+#### Session summary: sparse compaction status checkpoint
+
+**Goal:** implement the full JIT plan, including charged sparse metadata
+reclamation without altering prototype identity, leases or pending work.
+
+**Instructions:** keep incremental unsigned commits, Make/Nix validation and
+unchanged acceptance thresholds; report completed runs separately from pending
+work. The user requested a progress update during validation.
+
+**Discoveries:** default preparation admits sixteen sources per batch. Quota
+and underlying allocator failures can preserve sparse containers while an
+eight-eligible-pass backoff avoids repeated refusal. Normal service should
+avoid a second manager borrow when nothing needs maintenance; retirement must
+override a pre-sweep dense-container observation.
+
+**Accomplished:** committed fallible compaction as `f2629c0`. Its full GNU gate
+passes 2645 executions / 410 suite invocations
+(`/tmp/luna-jit-compaction-verify.log`), with supervised smoke evidence at
+`target/jit-evidence/fuzz/1790787839982885774-3184053`. Focused tests prove
+old/new quota charging, allocation-failure preservation, backoff, owner counts,
+pinned execution, pending work and 128-source collection with three survivors.
+The subsequent uncommitted service fast path passes focused resource/policy
+tests (`/tmp/luna-jit-compaction-fast-path-final-focused.log`), including a
+dense registry sweep while the manager is already borrowed. Copied baseline,
+eager and fast artifacts/hashes are in `target/jit-evidence/compaction/`.
+All completed native timing runs still fail four frozen performance controls;
+the fast artifact was measured twice. No process remains live at this
+checkpoint. Engram tools are unavailable; this is the session handoff.
+
+**Next steps:** finish a fresh full GNU gate for the uncommitted fast path,
+focused musl and compiled-Off cost validation, record complete timing evidence
+and commit that milestone separately. Do not claim the initial full gate
+validates subsequent source edits. Compiler/combined-host bounds, broader
+transition/lifecycle/unsafe/Miri/fuzz coverage, shipping acceptance and executed
+ARM64/hosted evidence remain open; the full goal remains active.
+
+**Relevant files:** `src/jit/resources.rs` implements compaction and backoff;
+`src/jit/mod.rs` owns compaction policy/counters and lease tests;
+`src/jit/registry.rs` sweeps weak sources; `src/lua.rs` contains the pending
+service eligibility fast path; `tests/jit_resources.rs` proves integrated
+reclamation; `Makefile` includes the new registry test in resource checks.
+
+### Verified compaction fast path: `b9bb663`
+
+The fresh full GNU verification completed successfully: 2650 test executions
+across 410 suite invocations (`/tmp/luna-jit-compaction-fast-verify.log`).
+Supervised smoke evidence is at
+`target/jit-evidence/fuzz/1790788603654990829-3255230`.
+Focused musl format/check, resources, policy, upvalue and native gates passed
+(`/tmp/luna-jit-compaction-fast-musl.log`); this is not full musl or ARM64
+acceptance. The matched speed-profile feature-cost artifact build and two
+sequential timing runs completed. Native measurements still
+fail the same four frozen controls; no acceptance thresholds changed.
+
+The committed fast-path edits in `src/jit/{mod,registry,resources}.rs`,
+`src/lua.rs` and `Makefile` avoid an unnecessary manager reborrow on unchanged
+service slices, without consuming sparse-refusal backoff during eligibility
+probes. Compiler/combined-host bounds, broader lifecycle,
+unsafe/Miri/fuzz coverage and shipping/ARM64 acceptance remain open.
+Engram tools are unavailable; this checkpoint preserves the compacted handoff.
+
+#### Current measured acceptance (unchanged thresholds)
+
+Native paired timing used completed, copied release artifacts with eleven
+samples, independently from builds and verification. The four runs all fail
+the same four controls. Off/Auto ratios of medians follow the fixed workload
+order: integer, float, array, upvalue, metamethod, callback, allocation, Oslo,
+cold.
+
+| Artifact | Ratios of medians |
+| --- | --- |
+| Baseline | 2.6957, 4.2637, 1.1793, 0.5763, 0.8075, 0.6786, 1.0079, 0.8802, 1.0151 |
+| Eager compaction | 2.7297, 4.6675, 1.2183, 0.5595, 0.7528, 0.6740, 0.9878, 0.8656, 0.9989 |
+| Service fast path | 2.6776, 4.4016, 1.1570, 0.5944, 0.7816, 0.6770, 1.0045, 0.8400, 1.0073 |
+| Fast-path repeat | 2.5449, 4.3093, 1.1505, 0.5833, 0.7729, 0.6759, 1.0012, 0.8753, 1.0040 |
+
+Do not omit dispersion: eager integer minimum paired ratio is 1.3897,
+baseline integer 1.6629, and fast-path upvalue 0.4572. Full logs, copied
+executables and hashes remain under `target/jit-evidence/compaction/`.
+The reused baseline hash is
+`1c9d59493868e95d961a39f7eff2ce477b17bf50d476ce79d1e63aea713c8a40`;
+its runtime/manifests match the baseline source through `805fda7`.
+Avoid attributing measured timing differences to a proven cycle-level cause.
+
+Current compiled-Off cost used the fresh matched artifacts built by
+`nix develop -c make jit-size-build SIZE_PROFILE=speed`, followed twice by
+`nix develop -c make -o jit-size-build jit-size SIZE_PROFILE=speed`.
+The omitted prerequisite avoids rebuilding during timing; the Auto native
+proof and all nine cost controls still run. Compiler-process guards before
+and after each run found no active Cargo/rustc jobs. Each Make command returns
+exit 2 because the metamethod control fails; this is not an accepted result.
+
+| Case | First JIT-Off/no-JIT | Repeat |
+| --- | --- | --- |
+| integer loop | 0.9913 | 0.8056 |
+| float loop | 0.9781 | 0.9827 |
+| array table | 0.9905 | 0.9833 |
+| closure upvalue | 1.0468 | 1.0488 |
+| polymorphic metamethod | **1.0691 (fail)** | **1.0690 (fail)** |
+| Rust callbacks | 1.0431 | 1.0436 |
+| allocation/GC | 0.9830 | 0.9776 |
+| Oslo predicate | 1.0127 | 1.0043 |
+| cold config | 1.0253 | 1.0158 |
+
+The limit remains 1.0500 for every case. Integer paired ratios span
+0.5823–1.5226 initially and 0.4077–1.7024 on repeat; preserve that variability,
+not a claim of an integer improvement. Metamethod paired ratios span
+1.0495–1.0837 and 1.0647–1.1393. Off service exits before active compaction
+maintenance, so these measurements do not prove maintenance causes overhead.
+ELF section totals are 1,415,186 bytes without JIT and 6,433,759 with JIT.
+Copied binaries, environment, dependency/section/native-proof logs and both
+full raw timing logs are in `target/jit-evidence/compaction/feature-cost/`.
+SHA-256: no-JIT
+`5e3b30f06b6236c64fd1ab9269de3f49173c3e3061bdb9942da6808cb2b1f2de`;
+JIT-Off `0de719f6d9a7bbc1f965a5d00dadb4d769a74f66aac1a56d5616c03845596f4f`.
+
+#### Session summary: verified follow-up and acceptance failure
+
+**Goal:** implement the full native JIT plan on `feat/native-jit`.
+
+**Instructions:** report progress honestly; use incremental unsigned,
+title-only Conventional Commits and Make/Nix gates. No threshold relaxation,
+push, release or unexecuted-platform acceptance.
+
+**Discoveries:** eligibility checks must not consume refusal backoff; actual
+retirement must override an earlier dense observation. Current matched
+compiled-Off artifacts exceed the metamethod ceiling twice, despite historical
+speed-profile passes. Rust-only Miri has not run: the ambient nightly lacks
+its component; pinned rust-overlay exposes nightly 1.100.0 dated 2026-08-16,
+but its Miri setup and compatibility remain unverified.
+
+**Accomplished:** verified the fast path with the fresh full GNU gate and
+focused musl gates, then committed it as `b9bb663` separately from initial
+compaction `f2629c0`. Preserved raw native and current compiled-Off failure
+evidence and updated the phase ledger. All owned processes are terminal.
+
+**Next steps:** address the compiled-Off metamethod regression and four native
+performance failures without changing controls; establish compatible Rust-only
+Miri coverage. Full compiler/combined-host bounds, transition/lifecycle/unsafe
+and coverage-guided fuzz completeness, current shipping acceptance and actual
+ARM64/hosted evidence remain required. The goal stays active and incomplete.
+
+**Relevant files:** `src/jit/resources.rs` implements eligibility/backoff;
+`src/jit/mod.rs` probes all manager containers; `src/jit/registry.rs` avoids
+idle reborrows; `src/lua.rs` integrates service eligibility; `Makefile` runs
+the registry regression; `PLAN_JIT.md` records verified scope and failures.
 
 ## 15. Primary references
 
