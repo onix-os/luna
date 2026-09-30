@@ -34,7 +34,7 @@ fn report(name: &str, mode: &str, mut timings: Vec<u128>, lua: &Lua) -> u128 {
     timings.sort_unstable();
     let stats = lua.jit_stats();
     println!(
-        "case={name} mode={mode} samples={} median_ns={} min_ns={} max_ns={} native_entries={} code_lookups={} code_leases={} native_instructions={} interpreted_instructions={} interpreted_slices={} guard_exits={} helper_instructions={} helper_declines={} table_reads={} table_writes={} upvalue_reads={} upvalue_writes={} allocations={} compilation_requests={} compilation_failures={} code_bytes={} metadata_bytes={} metadata_peak_bytes={} metadata_refusals={} registration_refusals={} snapshot_bytes={} snapshot_peak_bytes={}",
+        "case={name} mode={mode} samples={} median_ns={} min_ns={} max_ns={} native_entries={} code_lookups={} code_leases={} native_instructions={} interpreted_instructions={} interpreted_slices={} guard_exits={} helper_instructions={} helper_declines={} table_reads={} table_writes={} upvalue_reads={} upvalue_writes={} allocations={} compilation_requests={} compilation_failures={} cache_evictions={} cache_eviction_refusals={} code_bytes={} metadata_bytes={} metadata_peak_bytes={} metadata_refusals={} registration_refusals={} snapshot_bytes={} snapshot_peak_bytes={}",
         timings.len(),
         timings[timings.len() / 2],
         timings[0],
@@ -55,6 +55,8 @@ fn report(name: &str, mode: &str, mut timings: Vec<u128>, lua: &Lua) -> u128 {
         stats.native_allocations,
         stats.compilation_requests,
         stats.compilation_failures,
+        stats.cache_evictions,
+        stats.cache_eviction_refusals,
         stats.code_bytes,
         stats.metadata_bytes,
         stats.metadata_peak_bytes,
@@ -307,6 +309,14 @@ fn paired(case: PairedCase<'_>, samples: usize) -> Result<bool, Box<dyn Error>> 
     Ok(passed)
 }
 
+fn require_checked_profile(profile: Option<&str>) -> Result<(), &'static str> {
+    if profile == Some("3") {
+        Ok(())
+    } else {
+        Err("--check requires an opt-level-3 benchmark artifact")
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let mut mode = String::from("off");
     let mut samples = 11;
@@ -329,6 +339,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     if check && (mode != "paired" || samples < 11) {
         return Err("--check requires paired mode and at least 11 samples".into());
+    }
+    if check {
+        require_checked_profile(option_env!("LUNA_BENCH_OPT_LEVEL"))?;
     }
     if let Some(name) = &selected {
         if !WORKLOADS.iter().any(|case| case.name == name)
@@ -376,4 +389,27 @@ fn main() -> Result<(), Box<dyn Error>> {
         cold(&mode, samples)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn checked_profile_accepts_only_explicit_speed_artifacts() {
+        assert!(require_checked_profile(Some("3")).is_ok());
+        for profile in [
+            None,
+            Some("s"),
+            Some("z"),
+            Some("0"),
+            Some("03"),
+            Some("unspecified"),
+        ] {
+            assert_eq!(
+                require_checked_profile(profile),
+                Err("--check requires an opt-level-3 benchmark artifact")
+            );
+        }
+    }
 }

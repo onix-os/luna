@@ -425,7 +425,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 3 — Build validated owned IR and bounded code ownership
 
-**Status:** IN PROGRESS. **Depends on:** Phase 2. Owned snapshots, exhaustive opcode validation/fallback classification, weak generation IDs, bounded queues/attempts, leased code, and capped page-rounded mappings exist. Full CFG/effect review, metadata/compiler accounting, combined-limit semantics, eviction policy, and hardening remain open.
+**Status:** IN PROGRESS. **Depends on:** Phase 2. Owned snapshots, exhaustive opcode validation/fallback classification, weak generation IDs, bounded queues/attempts, leased code, capped mappings and bounded unleased LRU eviction exist. Full CFG/effect review, complete accounting, combined-limit semantics, sparse-cache compaction and hardening remain open.
 
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
@@ -443,7 +443,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 4 — Execute the first real native Lua slices
 
-**Status:** IN PROGRESS. **Depends on:** Phase 3. Integrated scalar/loop native execution and exact fuel/guard tests pass. Heap operations and transitions still fall back; full numeric/exit stress and a disassembly diagnostic lane remain open.
+**Status:** IN PROGRESS. **Depends on:** Phase 3. Integrated scalar/loop native execution and exact fuel/guard tests pass. A finalized scalar/table-kernel disassembly lane now exists; helper and transition coverage remains partial, and full numeric/exit stress remains open.
 
 **Files:** `src/jit/codegen.rs`, `runtime.rs`, executor dispatch, `examples/jit.rs`, `tests/jit_execution.rs`, `tests/jit_fuel.rs`.
 
@@ -494,7 +494,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 7 — Add hotness policy and nonblocking automatic compilation
 
-**Status:** IN PROGRESS. **Depends on:** Phases 3 and 6. Hotness/bounded queue/explicit outside-arena service, bounded failed attempts, configuration retirement and typed quota refusal are implemented. Scheduling failure injection, eviction/backoff diagnostics and complete resource ledgers remain open.
+**Status:** IN PROGRESS. **Depends on:** Phases 3 and 6. Hotness/bounded queue/explicit outside-arena service, bounded failed attempts, configuration retirement, typed refusal and bounded LRU retry with diagnostics are implemented. Scheduling failure injection, broader backoff/compaction policy and complete resource ledgers remain open.
 
 **Files:** compiler/cache policy, Lua host service APIs, `tests/jit_policy.rs`, `tests/jit_resources.rs`, benchmark harness.
 
@@ -1075,6 +1075,351 @@ ARM64/hosted execution evidence. The full implementation goal remains active.
 **Relevant files:** `src/jit/` and runtime integration implement the native tier;
 `tests/` verifies boundaries and embedding behavior; `Makefile`, `examples/` and
 `.github/workflows/tests.yml` supply gates; `JIT.md` and this plan retain findings.
+
+### Register materialization experiment
+
+The upvalue Auto profile identifies `Runtime::invoke::<8>` as a substantial
+cost. Test direct scalar write-back with no read or rewrite of canonical GC
+references, rather than copying the existing `Value` through `Slot::value` on
+every register. Helpers still store new references in the traced frame, scalar
+operands still reconstruct from scratch, and every exit/panic materializes the
+same prefix. No value layout, ABI, GC barrier, PC or fuel contract changes.
+Acceptance requires scalar bit-pattern/reference identity tests, existing
+boundary/heap integration gates and sequential paired performance evidence;
+remove the runtime change if the measured result does not justify it.
+
+**Rejected:** focused ABI/boundary, fourteen native and eleven heap tests pass,
+including panic materialization. Sequential baseline and candidate opt-level-3
+performance gates both fail the same four frozen controls. Upvalue speedup
+changes from 0.5691 to 0.5448 and table from 1.1191 to 1.0633; there is no measured
+justification to retain the change. Restore the original write-back. Keep three
+explicit ABI regressions for scalar bit patterns (including negative zero and
+NaN payload), every GC-reference kind/canonical identity, and invalid tags.
+Logs: `/tmp/luna-jit-materialize-{baseline,candidate,focused}.log`. These ratios
+are separate paired runs, not a controlled hardware-level causal attribution.
+
+### Finalized native-code diagnostics
+
+Add a test-only diagnostic lane, `make jit-disassembly`, that compiles scalar
+loop and table/helper fixtures, copies their relocated bytes while each owning
+module remains live, and disassembles those bytes at their actual entry address.
+Record Lua source, decoded PC/entry flags, constants, ABI/target, helper symbol
+addresses, executed instruction counts, hashes and environment alongside the
+assembly. The scalar fixture must execute its generated kernel to the expected
+5050 result; the null-host table fixture must decline before allocation. Both
+modules must reclaim their native mappings after the dump. No diagnostic state
+or file-writing path is added to production builds. Raw disassembly may include
+embedded data; recorded helper addresses aid manual correlation, not automatic
+symbolization or an unsafe-code correctness proof. ARM64 support still requires
+execution on an ARM64 host.
+
+**Verified:** `/tmp/luna-jit-materialize-diagnostics-verify.log` exits 0 for
+`make fmt jit-disassembly jit-verify`: 2511 passed executions / 405 suite
+invocations, including the explicitly invoked dump test (2510 / 404 for the
+full correctness gate alone). GNU target-qualified dumping plus formatting and
+workflow validation passes (`/tmp/luna-jit-diagnostic-gnu.log`); musl dumping and
+all fourteen native integrations pass (`/tmp/luna-jit-diagnostic-musl.log`).
+Seeded fuzz smoke artifacts are retained at
+`target/jit-evidence/fuzz/1790777755199176270-2704807`.
+
+Prepopulating a separate diagnostic directory with valid old binaries and
+metadata, then substituting `CARGO=true`, exits 2 before disassembly rather
+than accepting stale output (`/tmp/luna-jit-diagnostic-stale-refusal.log`).
+The executed-test and architecture checks are part of the gate. Nix supplies
+binutils explicitly, and `jit-platform` now runs the diagnostic, retaining its
+output in the existing native CI upload. Hosted/ARM64 execution is not claimed.
+
+#### Current session handoff: materialization and kernel diagnostics
+
+**Goal:** continue the full plan and report verified progress without claiming
+release acceptance.
+
+**Instructions:** retain frozen controls; commit logical milestones separately.
+
+**Discoveries:** direct reference-skipping write-back did not improve the
+targeted performance controls. Four native controls still fail; the runtime
+experiment was reverted.
+
+**Accomplished:** committed three ABI regressions as `7f6605c`. The new finalized
+kernel diagnostic passes locally: scalar code is 1904 bytes and executes 207
+native instructions to return 5050; table code is 1104 bytes and declines a null
+host before allocation. Source/metadata/assembly artifacts were inspected.
+The interrupted full command completed successfully and was polled to terminal
+status, not restarted. GNU/musl diagnostic and stale-artifact refusal checks
+pass as recorded above; the diagnostic milestone is ready for its own commit.
+
+**Next steps:** targeted invocation/helper optimization with measured acceptance
+evidence; full compiler/combined-host limits, eviction, lifecycle and unsafe
+hardening, and ARM64/hosted runs. Performance/resource/hardening/ARM64
+requirements remain open. No tool process remains live from this milestone.
+
+**Relevant files:** `src/jit/abi.rs` adds committed ABI tests;
+`src/jit/backend.rs`, `Makefile`, `flake.nix`, `JIT.md` and this plan contain the
+separate diagnostic milestone. No release or push has been performed.
+
+### Bounded cache-pressure eviction decision
+
+Implement deterministic LRU eviction for installed, unleased modules only.
+Update recency at installation and successful per-slice lookup using a
+saturating logical clock; break saturated-clock ties by prototype generation.
+After a native-mapping quota refusal, permit at most one eviction and compiler
+retry in a service call, and only when the prototype's existing lifetime
+attempt budget has room. Count each failed compiler invocation, retirement and
+no-victim refusal. Do not evict for snapshot/metadata/capability/compiler errors.
+Keep the same source identity; reset an evicted prototype's hotness but not its
+attempts, preventing unlimited cache-thrash recompilation. Explicit cache clear
+retains its documented attempt reset. If every module is leased, decline
+eviction and preserve the interpreter fallback; leases remain charged and
+executable. Tests must cover recency, deterministic victim choice, bounded retry,
+pinned refusal/retirement, actual native execution and final reclamation.
+This policy is not a hard compiler CPU or working-memory ceiling.
+
+**Verified:** six private cache tests pass: LRU recency, saturated-clock tie
+breaking, exhausted admission, no eviction for metadata refusal, leased-code
+refusal/retirement/reclamation, and a failed oversized retry capped at one victim
+and two failed compilations. The public cache-pressure test preserves three
+live closures, proves native execution of surviving/replacement modules,
+interpreter fallback of the victim, GC safety and final zero resource usage.
+Allocation/protection-denial tests explicitly assert no pressure eviction.
+`make jit-policy` now includes the cache tests, and paired benchmark reports
+expose both new cumulative cache counters.
+
+Full `nix develop -c make jit-verify` exits 0: 2545 executions / 404 suite
+invocations (`/tmp/luna-jit-eviction-verify.log`), with supervised smoke artifacts
+at `target/jit-evidence/fuzz/1790779028665404578-2790667`. Focused musl policy,
+all fourteen native integrations and finalized-kernel dumping pass
+(`/tmp/luna-jit-eviction-musl.log`). Focused GNU evidence is in
+`/tmp/luna-jit-eviction-final-focused.log`. These are correctness/resource
+results, not numerical performance acceptance.
+
+#### Session summary: bounded pressure eviction
+
+**Goal:** implement the missing cache-pressure policy within the original full
+JIT plan and commit the verified milestone separately.
+
+**Instructions:** keep native leases, attempt limits, source identities and
+frozen performance controls intact; use Make/Nix and unsigned milestone commits.
+
+**Discoveries:** retries need their own attempt charge and failure counter even
+when eventual installation succeeds. Evicted sources must retain attempts to
+prevent an unlimited cache-thrash recompilation loop. A failed oversized retry
+can leave its one victim interpreted; there is no transactional restoration.
+
+**Accomplished:** bounded deterministic unleased LRU retirement/retry, cumulative
+diagnostics, six cache unit tests, one public GC/fallback/native-effect test,
+full GNU correctness and focused musl evidence. Documentation and phase status
+are updated without claiming complete Phase 3/7 or release acceptance.
+
+**Next steps:** repeat native/compiled-Off performance gates on an idle machine;
+unrelated Magi Cargo/Rust compilation was live during the final resource checks,
+so no concurrent timing run was started. Continue invocation/helper optimization,
+compiler/combined-host limits, sparse-cache compaction, scheduling failure
+injection, broader lifecycle/unsafe/fuzz hardening and ARM64/hosted execution.
+No Luna tool process remains live from the correctness gates.
+
+**Relevant files:** `src/jit/mod.rs` implements recency/eviction/retry and private
+cache tests; `tests/jit_policy.rs` verifies the public lifecycle; backend denial
+tests forbid eviction; `Makefile` runs the cache suite; `examples/jit_bench.rs`
+reports cache counters; `JIT.md` and this plan document behavior and limitations.
+
+### Compact invocation-counter experiment
+
+Test eight byte-sized private helper counters instead of eight `u64`s in the
+scoped helper frame. Every validated kernel checks budget before each logical
+operation, caps budget at 64, and exits immediately on helper decline/panic.
+Each logical operation makes at most one helper call, so each local counter is
+at most 64. The opaque helper host and ABI v3 remain unchanged; public cumulative
+statistics still use saturating `u64` arithmetic. Verify a helper-dense 64-op
+slice and cumulative totals beyond 255, plus existing panic/fuel/heap tests.
+This is an experiment, not performance acceptance; retain only with evidence.
+
+The source constructor/assignment sequence includes non-helper instructions;
+257 allocations did not produce an all-helper slice. Use 256 constant-key raw
+table writes instead, require an observed 64-helper slice, and compare tiny-fuel
+steps against the interpreter with GC between slices. Check cumulative writes
+and helper totals beyond 255 rather than assuming one helper per source statement.
+
+Add separate `jit-bench-build` and `jit-bench-run` targets so artifact compilation
+can finish before idle-machine timing begins. The existing combined target
+retains its interface; run-only supports a copied immutable artifact through
+`JIT_BENCH_BINARY`. Checked benchmark execution rejects artifacts whose embedded
+optimization label is not `3`, preventing accidental shipping-profile checks.
+These controls do not themselves establish an idle machine or performance
+acceptance. Preserve both counter-width artifacts and their hashes.
+
+**Rejected:** sequential run-only paired checks of copied opt-level-3 artifacts
+both fail the same four frozen controls. Baseline `u64` versus candidate `u8`
+speedups: integer 2.4065 / 2.4813; float 4.4255 / 4.4972; table 1.0969 / 1.0850;
+upvalue 0.4958 / 0.4996; metamethod 0.7554 / 0.7705; callbacks 0.6694 / 0.6521;
+allocation/GC 0.9733 / 0.9863; Oslo (unscored) 0.8556 / 0.8469; cold 0.9956 /
+1.0068. Upvalue improvement is negligible and callback timing worsens; do not
+retain counter narrowing merely for its smaller frame. Restore the original
+counter types and aggregation. The dense-helper GC/fuel regression remains.
+
+Logs: `/tmp/luna-jit-compact-counts-{u64,u8}-performance.log`; artifact hashes
+are in `target/jit-evidence/compact-counts/binaries.sha256`. Both binaries were
+built before timing, and Cargo/rustc process checks before and after each run
+found no concurrent jobs. These are separate paired runs with dispersion, not
+causal hardware profiling or performance acceptance. No ceiling was relaxed.
+
+**Next measured target:** source inspection confirms successful LRU lookup now
+performs an additional hashed `Tracking` lookup through `touch`. Investigate
+storing recency in the charged cache-map entry, reusing the successful code
+lookup. Preserve deterministic eviction, source identities, exact counters and
+lease safety. The observed post-LRU upvalue slowdown alone is not causal proof.
+
+**Restored verification:** `/tmp/luna-jit-compact-counts-restored-verify.log`
+exits 0 for `make fmt jit-verify`: 2555 passed executions / 404 suite invocations,
+including the new helper-bound and checked-profile tests. Seeded smoke output
+is at `target/jit-evidence/fuzz/1790781107301822079-2911773`. All twelve heap
+integrations pass on musl with original counters restored
+(`/tmp/luna-jit-compact-counts-restored-musl.log`). Run-only rejects a missing
+artifact with exit 2 (`/tmp/luna-jit-bench-run-missing.log`). No runtime counter
+narrowing or aggregation change remains in the worktree.
+
+#### Session summary: rejected compact counters and isolated benchmark stages
+
+**Goal:** reduce measured invocation overhead without weakening the full plan's
+correctness, accounting or frozen performance contract.
+
+**Instructions:** keep only justified optimizations; commit logical verified
+milestones, using Make/Nix and patch tools.
+
+**Discoveries:** local helper counts are bounded by 64, but source statements
+need not map one-to-one to helper instructions. Counter packing alone does not
+repair the upvalue/callback performance failures. Successful LRU lookup currently
+adds a hashed tracking probe; investigate that measured-path overhead next.
+
+**Accomplished:** reverted unhelpful counter packing; retained a helper-dense
+64-call slice/cumulative-256-write GC/fuel regression; separated benchmark build
+and timing with immutable-artifact support and explicit checked-profile tests;
+captured both failing paired reports and hashes; full restored GNU correctness,
+focused musl heap coverage and missing-artifact rejection pass.
+
+**Next steps:** remove avoidable recency lookup work without weakening charged
+metadata, pinning or LRU tests; repeat native/compiled-Off gates on idle hardware.
+Complete compiler/combined-host limits, sparse-cache policy, lifecycle/fuzz/unsafe
+hardening and ARM64/hosted evidence. The full goal is still incomplete; no tool
+process from this session remains live.
+
+**Relevant files:** `tests/jit_heap.rs` holds the new regression; `Makefile` and
+`examples/jit_bench.rs` split/validate benchmark execution; `JIT.md` documents the
+interface; this plan retains rejected-experiment evidence and the next handoff.
+
+### Single-probe LRU recency decision
+
+Move recency from source `Tracking` into a `CachedCode` value in the existing
+budget-allocated cache map. A successful `get_mut` can update recency and clone
+the code lease without a second hashed tracking lookup; eviction scans can read
+recency directly. The larger cache-map value is charged by its allocator rather
+than adding unaccounted state to native `Code`. Source tracking shrinks again.
+Keep the saturating clock, generation tie break, attempt/queue state, one-victim
+retry, exact counters and all lease/retirement semantics. Compare copied matched
+baseline/candidate artifacts and rerun cache, quota, heap and full gates. This
+does not waive the still-failed native/compiled-Off performance controls.
+
+**Retained candidate evidence:** two sequential copied-artifact comparisons,
+with order reversed for the second, improve the upvalue Off/Auto speedup from
+0.4849 / 0.4916 (tracking recency) to 0.5823 / 0.5908 (cache-entry recency).
+Table moves from 1.0535 / 1.0347 to 1.1717 / 1.1773. Both variants still fail
+table/upvalue/metamethod/callback controls; these are targeted improvements,
+not performance acceptance. Other candidate first/repeat ratios: integer
+2.4123 / 2.8095; float 4.5684 / 4.5561; metamethod 0.7952 / 0.7751; callbacks
+0.6914 / 0.6953; allocation/GC 1.0167 / 1.0328; Oslo (unscored) 0.8516 /
+0.8972; cold 1.0002 / 0.9915. Raw paired dispersion is retained, including the
+first candidate integer sample minimum of 0.7823; no sample is discarded.
+
+Logs: `/tmp/luna-jit-cache-recency-{tracked,entry}-{performance,repeat}.log`;
+matched copied artifact hashes are in
+`target/jit-evidence/cache-recency/binaries.sha256`. An earlier attempted run
+was deferred before any timing because an unrelated Cargo job was active;
+completed runs found no Cargo/rustc jobs before/after each artifact. Two new
+tests prove miss/hit clock/counter semantics and quota charging of cache-entry
+recency. Existing deterministic LRU, lease, retirement and retry tests remain.
+Full GNU `make jit-verify` passes: 2565 executions / 404 suite invocations
+(`/tmp/luna-jit-cache-recency-verify.log`), with supervised smoke artifacts at
+`target/jit-evidence/fuzz/1790782459805833980-2987580`.
+
+**Compiled-Off speed-profile control:** two complete `make jit-size
+SIZE_PROFILE=speed` runs pass all nine unchanged 5% controls
+(`/tmp/luna-jit-cache-recency-feature-cost{,-repeat}.log`). First/repeat ratios:
+integer 0.9900 / 0.9980; float 0.9754 / 0.9732; table 0.9798 / 0.9856; upvalue
+1.0485 / 1.0464; metamethod 1.0469 / 1.0449; callbacks 1.0295 / 1.0275;
+allocation/GC 0.9666 / 0.9697; Oslo 0.9739 / 0.9711; cold 1.0012 / 1.0118.
+Matched binary sizes are 1417600 / 6426496 bytes. Both artifacts retain checked
+results, and the JIT artifact's Auto proof reports actual native work before
+the disabled comparisons. Upvalue/metamethod ratios remain close to the ceiling;
+retain raw dispersion and repeat after further changes. The shipping profile
+still requires a current passing result. Disabled execution does not perform
+the removed active-cache probe, so do not causally attribute these Off timings
+to that probe alone; source-tracking layout and linked code also changed.
+
+#### Session summary: single-probe cache recency
+
+**Goal:** remove avoidable LRU bookkeeping overhead while preserving the full
+plan's metadata, cache, lease and acceptance contracts.
+
+**Instructions:** keep deterministic eviction and exact counters; measure
+copied artifacts sequentially on an idle machine, retain all samples, and
+commit the verified milestone separately.
+
+**Discoveries:** recency belongs in the charged cache-map entry rather than an
+extra tracking probe. Two tests demonstrate its allocation charge and unchanged
+miss/success clock/lease semantics. Source-tracking metadata shrinks, while
+installed cache entries grow under the same allocator.
+
+**Accomplished:** retained single-probe lookup and direct-recency eviction scans;
+two-order comparisons improve upvalue and table ratios but still fail four
+native controls. Full GNU verification passes (2565 executions / 404 suites),
+and both speed-profile compiled-Off controls pass all nine workloads. Existing
+cache/pinning/refusal/GC tests remain applicable; documentation is updated.
+Focused musl policy, all fourteen native and twelve heap integrations pass
+(`/tmp/luna-jit-cache-recency-musl.log`), with formatting/workflow validation.
+This is not a newly executed full musl gate or ARM64 certification.
+
+**Next steps:** continue short-frame/helper optimization, shipping-profile acceptance,
+compiler/combined-host bounds, sparse-cache policy, broader lifecycle/unsafe/fuzz
+hardening and ARM64/hosted execution. Full plan acceptance is still unmet; no
+process from this milestone remains live after final checks.
+
+**Relevant files:** `src/jit/mod.rs` holds charged cache recency and new tests;
+`src/jit/model.rs` adapts the explicit lease fixture; `JIT.md` and this plan
+describe the behavior and evidence. Ignored copied benchmark artifacts preserve
+baseline/candidate hashes and raw timing reports.
+
+#### Session summary: progress checkpoint
+
+**Goal:** continue implementing this plan on `feat/native-jit`; the detailed
+plan exists, but full implementation and release acceptance remain incomplete.
+
+**Instructions:** use Make tasks in the Nix environment, patch tools rather
+than Python, and incremental unsigned, title-only Conventional Commits.
+The user delegated representative benchmark selection; retain the existing
+workloads and acceptance thresholds.
+
+**Discoveries:** the latest implementation milestone is `0c0b003`. Its recorded
+full GNU verification passes, while four native performance controls still
+fail. Speed-profile compiled-Off comparisons pass twice; shipping-profile
+acceptance and executed ARM64 certification remain outstanding. These are
+previously completed runs, not tests rerun during this status checkpoint.
+
+**Accomplished:** checked the current branch, commit, clean pre-checkpoint
+working tree and phase statuses. No new runtime optimization was implemented
+in this checkpoint. Engram tools are unavailable in this environment; this
+handoff is recorded here rather than claiming a persistent-memory tool save.
+
+**Next steps:** investigate a bounded scalar-upvalue proxy to reduce helper
+overhead. This is exploratory, not an accepted design or implemented feature:
+prove alias, reference, open/foreign-stack, barrier, PC and fuel behavior before
+changing the ABI. Retain existing helper fallback and compare matched artifacts
+sequentially. Compiler/combined-host bounds, broader lifecycle/unsafe/fuzz
+coverage and ARM64/hosted execution also remain open. No process is live from
+this checkpoint, and the full implementation goal remains active.
+
+**Relevant files:** `PLAN_JIT.md` tracks phases and acceptance evidence;
+`src/jit/mod.rs` owns runtime/cache policy; `src/jit/backend.rs` emits kernels;
+`src/jit/abi.rs` and `src/jit/helpers.rs` define the current boundary;
+`src/closure.rs` and `src/thread/thread.rs` define upvalue semantics.
 
 ## 15. Primary references
 

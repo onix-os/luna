@@ -32,6 +32,65 @@ fn source(lua: &mut Lua, source: &[u8]) -> Result<StashedExecutor, ExternError> 
 }
 
 #[test]
+fn helper_dense_slices_keep_local_counts_bounded_and_cumulative_totals_wide(
+) -> Result<(), ExternError> {
+    let script = format!("local t={{}} {} return 42", "t[1]=42 ".repeat(256));
+    let mut reference = Lua::empty();
+    let mut native = Lua::empty();
+    native
+        .set_jit_config(JitConfig {
+            mode: JitMode::Auto,
+            hot_threshold: 1,
+            ..Default::default()
+        })
+        .unwrap();
+    let left = source(&mut reference, script.as_bytes())?;
+    let right = source(&mut native, script.as_bytes())?;
+    let mut finished = false;
+    let mut full_helper_slice = false;
+    for slice in 0..100 {
+        let step = |lua: &mut Lua, executor: &StashedExecutor| {
+            lua.enter(|ctx| {
+                let executor = ctx.fetch(executor);
+                let mut fuel = Fuel::empty();
+                (
+                    executor.step(ctx, &mut fuel).unwrap(),
+                    executor.mode(),
+                    fuel.remaining(),
+                )
+            })
+        };
+        let before = native.jit_stats();
+        let expected = step(&mut reference, &left);
+        let actual = step(&mut native, &right);
+        assert_eq!(actual, expected, "slice {slice}");
+        let after = native.jit_stats();
+        assert!(after.helper_calls - before.helper_calls <= 64);
+        full_helper_slice |= after.helper_calls - before.helper_calls == 64;
+        if slice == 0 {
+            assert_eq!(after.native_instructions - before.native_instructions, 64);
+        }
+        reference.gc_collect();
+        native.gc_collect();
+        if actual.0 {
+            finished = true;
+            break;
+        }
+    }
+    assert!(finished);
+    assert!(full_helper_slice);
+    assert_eq!(reference.execute::<i64>(&left)?, 42);
+    assert_eq!(native.execute::<i64>(&right)?, 42);
+    let totals = native.jit_stats();
+    assert_eq!(totals.native_allocations, 1);
+    assert_eq!(totals.native_table_writes, 256);
+    assert!(totals.helper_calls > 255);
+    assert_eq!(totals.helper_calls, totals.helper_instructions);
+    assert_eq!(totals.helper_declines, 0);
+    Ok(())
+}
+
+#[test]
 fn native_heap_roots_and_barriers_match_reference_under_every_slice_gc() -> Result<(), ExternError>
 {
     let script = b"local t={} local alias=t for i=1,1000 do t[i]={n=i} end local sum=0 for i=1,1000 do sum=sum+t[i].n end return sum,alias==t";

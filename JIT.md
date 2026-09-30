@@ -12,6 +12,23 @@ Manual `Executor::step` only queues hot compilation requests. Call `Lua::service
 
 `clear_jit_cache()` retires installed code and queued work without changing Lua objects. Disabling Auto also retires code/work and resets admission attempts. Lowering code/snapshot/prototype limits conservatively retires installed code; queue/attempt reductions discard pending requests exceeding the new limits. Active invocation leases remain executable and charged until released. Raising a limit alone does not reset exhausted attempts; explicitly clear the cache to retry. No native artifacts are persisted or included in `string.dump`.
 
+Native-mapping quota pressure can evict one least-recently-used, unleased module
+and retry compilation once, provided the requested prototype still has an
+attempt available. Installation and successful lookup update recency; saturated
+clock ties use prototype generation. Eviction resets hotness, not attempts.
+Recency is stored in the budgeted cache-map entry; a successful lookup updates
+it while obtaining the lease, without another tracking-table probe.
+An evicted prototype can warm again while its lifetime attempt budget allows;
+otherwise it stays interpreted until explicit cache clearing. Leased modules
+are never pressure-eviction victims. If all candidates are leased, no code is
+retired. Metadata/snapshot/capability/compiler errors do not trigger eviction.
+A service call still handles at most one prototype, but can make two backend
+compilation attempts. This is bounded retry, not compiler preemption.
+`cache_evictions` counts pressure retirements; `cache_eviction_refusals` counts
+mapping-pressure retries refused because no unleased victim exists.
+`compilation_failures` counts each failed backend attempt, including failures
+recovered by eviction and retry.
+
 ## Current execution coverage
 
 Generated code handles scalar move/load, truth testing, integer/float add/subtract/multiply, float division, exact same-type and mixed numeric comparisons, branches without closing upvalues, and bounded numeric for loops. Integer arithmetic wraps; string coercion, floor division/modulo, and complex operations fall back to the existing interpreter. Mixed comparisons retain all integer bits, handle negative fractional ties, and return false for NaN without trapping on float-to-integer conversion.
@@ -29,7 +46,7 @@ Every generated operation checks the remaining reference slice allowance before 
 - `max_code_bytes` bounds actual page-rounded JIT mappings, including the compiler's code/readonly/writable segments. Retired but pinned mappings remain charged until the last lease drops. Allocation failure frees partial mappings and leaves interpretation usable.
 - `max_metadata_bytes` independently bounds requested allocation layouts for weak registrations, tracking/code-index maps, pending identities, preparation ID buffers, native-entry flags and mapping records. Containers use a shared fallible allocator; retained capacity and temporary old/new growth are charged. Registration refusal leaves ordinary source loading/interpreting usable; metadata allocation refusal is typed `ResourceLimit("JIT metadata")`. Lowering this ceiling retires registrations, code and requests; existing closures continue interpreted, and new source loads can register after limits are raised. Active leases keep their entry flags/mapping records and remain charged until their final owner drops, even above a newly reduced quota. Ordinary cache clearing retains live source registrations.
 - Owned operation/constant snapshot vectors have a separate allocator and `max_snapshot_bytes` ceiling; their charges follow the vectors' actual lifetime and release on success, refusal or panic. `metadata_bytes`/`snapshot_bytes` report current requested container storage, and their peak fields retain the high-water reserved usage. `metadata_allocation_refusals` counts quota/underlying allocation refusals; `registration_refusals` counts optional source registrations declined on allocation pressure. Empty retired containers release capacity.
-- This is **not yet a complete compiler or combined-host ledger**. It excludes fixed owner/Arc/Rc headers, allocator overhead, Cranelift's internal/transient/retained allocations (including its provider's internal records) and process RSS. Luna's persistent entry flags and outer mapping-record storage now use the metadata ledger; pinned native mappings remain separately charged after retirement. Complete compiler accounting, combined-limit policy and bounded eviction before Phase 3/7 acceptance; container limits must not be advertised as an RSS or hostile-compiler ceiling.
+- This is **not yet a complete compiler or combined-host ledger**. It excludes fixed owner/Arc/Rc headers, allocator overhead, Cranelift's internal/transient/retained allocations (including its provider's internal records) and process RSS. Luna's persistent entry flags and outer mapping-record storage use the metadata ledger; pinned mappings remain charged after retirement. Bounded unleased LRU eviction now exists, but complete compiler accounting, combined-limit policy and sparse-cache compaction remain required before Phase 3/7 acceptance. Container limits are not an RSS or hostile-compiler ceiling.
 - Existing `Lua::total_memory()` and memory limits still describe the collector, not compiler/JIT memory. Configure native limits separately; do not treat GC metrics as a process memory ceiling.
 - `native_entries` counts real machine-code invocations, including immediate guard exits. `native_instructions` counts completed logical bytecodes, not CPU instructions. `interpreted_instructions` counts the reference VM's reported instructions, which exclude some transition opcodes. `interpreted_slices` counts completed slices that fetched an interpreted opcode. `hook_exits` counts slices kept interpreted with hooks enabled.
 - `code_lookups` counts eligible slice-local cache probes; `code_leases` counts successful owned leases, even when an entry is interpreted. A single VM slice reuses its lease across native/reference fragments, but repacks canonical registers for every invocation. Hotness observation remains per interpreted dispatch when no code is installed.
@@ -80,3 +97,26 @@ Remaining stages include complete boundary/IR/cache accounting, broader helper/h
 `make jit-profile` retains Rust symbols and attempts an opt-level-3 perf capture of the checked upvalue workload; it requires host perf permission and does not alter kernel settings. `make jit-rust-assembly` extracts symbol-retained Rust dispatch/helper/invocation assembly without perf permission. These are diagnostic lanes, not acceptance timing builds or native JIT disassembly. On the current host perf recording is denied (`perf_event_paranoid=4`); Rust assembly verified that outlining removed the native scratch probe page from `run_vm`.
 
 `make jit-cost-profile PROFILE_CASE=float_loop` uses Callgrind from the Nix shell on symbol-retained matched no-JIT/compiled-Off probes at opt-level 3. `PROFILE_MODE=auto` instead profiles the JIT artifact in Auto against the feature-disabled interpreter; the worker must assert real native work. Collection toggles only within `*run_vm*`; the command fails on a nonzero child exit or empty profile. Raw instruction-level events, exclusive annotations, hashes, settings and checked worker output live under `target/jit-evidence/feature-cost/speed-symbols/callgrind/<case>/<mode>/` (with a target-qualified directory when requested). Warm corpus cases are selectable; normal checked cost comparisons reject `--case` and continue to require all nine controls. These are simulated instruction/cache/branch events, not hardware cycles, wall-time acceptance or native-machine-code validation.
+
+`make jit-disassembly` dumps finalized, relocated native code for scalar-loop
+and table/helper fixtures through an explicitly invoked ignored test. The
+scalar kernel executes to the checked 5050 return value; the table kernel exits
+before allocation when supplied a null helper host. GNU objdump from the Nix
+shell disassembles the live module bytes at their actual entry addresses.
+Source, decoded PC/entry flags, constants, ABI/target and helper addresses,
+execution counts, environment, tool version and hashes accompany the binaries
+and assembly under `target/jit-evidence/native/<target-or-host>/`. Mappings are
+reclaimed after dumping; addresses are valid only for that diagnostic process.
+The target rejects missing test execution or empty/wrong-architecture artifacts.
+`make jit-platform` includes it, so the native CI matrix retains these artifacts.
+This is not full symbolization, platform certification or an unsafe-code proof;
+raw disassembly may decode embedded constants as instructions. Production
+builds gain no dump API, file writes or retained diagnostic state.
+
+`make jit-bench-build` and `make jit-bench-run` separate compilation from timing.
+The combined `make jit-bench`, performance and shipping targets still build then
+run. Run-only accepts an immutable copied artifact through `JIT_BENCH_BINARY`;
+its embedded optimization label remains authoritative. `--check` rejects
+shipping or unspecified labels rather than applying the opt-level-3 acceptance
+gate to the wrong build. Run-only does not guarantee an idle machine: do not run
+acceptance timings alongside builds, tests, fuzzing or profiling.

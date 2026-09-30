@@ -142,6 +142,8 @@ pub struct JitStats {
     pub hook_exits: u64,
     pub compilation_requests: u64,
     pub compilation_failures: u64,
+    pub cache_evictions: u64,
+    pub cache_eviction_refusals: u64,
     pub registered_prototypes: usize,
     pub installed_regions: u64,
     pub code_bytes: usize,
@@ -180,7 +182,12 @@ pub(crate) struct Manager {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    code: MetadataMap<u64, Rc<backend::Code>>,
+    clock: u64,
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    code: MetadataMap<u64, CachedCode>,
     #[cfg(all(
         test,
         target_os = "linux",
@@ -214,6 +221,11 @@ impl Default for Manager {
             metadata,
             snapshots,
             memory: Arc::new(AtomicUsize::new(0)),
+            #[cfg(all(
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))]
+            clock: 0,
         }
     }
 }
@@ -225,7 +237,49 @@ pub(crate) struct Tracking {
     queued: bool,
 }
 
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+struct CachedCode {
+    code: Rc<backend::Code>,
+    last_used: u64,
+}
+
 impl Manager {
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    fn evict_for_retry(&mut self, id: u64) -> bool {
+        if self.config.mode != JitMode::Auto
+            || !self
+                .tracked
+                .get(&id)
+                .is_some_and(|tracking| tracking.attempts < self.config.max_compile_attempts)
+        {
+            return false;
+        }
+        let victim = self
+            .code
+            .iter()
+            .filter(|(candidate, entry)| **candidate != id && Rc::strong_count(&entry.code) == 1)
+            .min_by_key(|(candidate, entry)| (entry.last_used, **candidate))
+            .map(|(candidate, _)| *candidate);
+        let Some(victim) = victim else {
+            self.stats.cache_eviction_refusals =
+                self.stats.cache_eviction_refusals.saturating_add(1);
+            return false;
+        };
+        self.code.remove(&victim);
+        if let Some(tracking) = self.tracked.get_mut(&victim) {
+            tracking.hotness = 0;
+        }
+        self.tracked.get_mut(&id).unwrap().attempts += 1;
+        self.stats.cache_evictions = self.stats.cache_evictions.saturating_add(1);
+        true
+    }
+
     pub(crate) fn configure(&mut self, config: JitConfig) {
         if config.max_metadata_bytes < self.config.max_metadata_bytes {
             self.clear_registrations();
@@ -399,14 +453,30 @@ impl Runtime {
             };
             #[cfg(test)]
             let failure = self.0.borrow().memory_failure;
-            let result = backend::compile_in(
-                &snapshot,
-                memory,
-                limit,
-                metadata,
-                #[cfg(test)]
-                failure,
-            );
+            let compile = || {
+                backend::compile_in(
+                    &snapshot,
+                    memory.clone(),
+                    limit,
+                    metadata.clone(),
+                    #[cfg(test)]
+                    failure,
+                )
+            };
+            let mut result = compile();
+            if matches!(&result, Err(JitError::ResourceLimit("native mappings"))) {
+                let retry = {
+                    let mut manager = self.0.borrow_mut();
+                    manager.evict_for_retry(id)
+                };
+                if retry {
+                    let mut manager = self.0.borrow_mut();
+                    manager.stats.compilation_failures =
+                        manager.stats.compilation_failures.saturating_add(1);
+                    drop(manager);
+                    result = compile();
+                }
+            }
             let mut manager = self.0.borrow_mut();
             match result {
                 Ok(code) => {
@@ -416,7 +486,15 @@ impl Runtime {
                                 manager.stats.compilation_failures.saturating_add(1);
                             return Err(JitError::ResourceLimit("JIT metadata"));
                         }
-                        manager.code.insert(id, Rc::new(code));
+                        manager.clock = manager.clock.saturating_add(1);
+                        let last_used = manager.clock;
+                        manager.code.insert(
+                            id,
+                            CachedCode {
+                                code: Rc::new(code),
+                                last_used,
+                            },
+                        );
                         manager.stats.installed_regions =
                             manager.stats.installed_regions.saturating_add(1);
                     }
@@ -452,7 +530,11 @@ impl Runtime {
                 return None;
             }
             manager.stats.code_lookups = manager.stats.code_lookups.saturating_add(1);
-            let code = manager.code.get(&id).cloned()?;
+            let last_used = manager.clock.saturating_add(1);
+            let entry = manager.code.get_mut(&id)?;
+            entry.last_used = last_used;
+            let code = entry.code.clone();
+            manager.clock = last_used;
             manager.stats.code_leases = manager.stats.code_leases.saturating_add(1);
             Some(Prepared { code })
         }
@@ -684,5 +766,257 @@ mod policy_tests {
         }));
         manager.enqueue(1, true);
         assert!(manager.queue.is_empty());
+    }
+}
+
+#[cfg(all(
+    test,
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod eviction_tests {
+    use super::*;
+
+    fn snapshot() -> ir::Snapshot {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let prototype =
+                crate::FunctionPrototype::compile(ctx, "eviction", b"return 42").unwrap();
+            ir::Snapshot::new(&prototype, 4096, 65536).unwrap()
+        })
+    }
+
+    fn request(runtime: &Runtime, id: u64) -> Result<(), JitError> {
+        {
+            let mut manager = runtime.0.borrow_mut();
+            manager.tracked.entry(id).or_default();
+            manager.enqueue(id, true);
+            assert_eq!(manager.next_request(), Some(id));
+        }
+        runtime.compile(id, snapshot())
+    }
+
+    fn two_module_cache() -> (Runtime, usize) {
+        let runtime = Runtime::new();
+        runtime.0.borrow_mut().configure(JitConfig {
+            mode: JitMode::Auto,
+            ..JitConfig::default()
+        });
+        request(&runtime, 1).unwrap();
+        let bytes = runtime.usage();
+        assert!(bytes > 0);
+        runtime.0.borrow_mut().config.max_code_bytes = 2 * bytes;
+        request(&runtime, 2).unwrap();
+        assert_eq!(runtime.usage(), 2 * bytes);
+        (runtime, bytes)
+    }
+
+    fn assert_executable(prepared: &Prepared) {
+        let mut slots = vec![
+            abi::Slot {
+                tag: abi::NIL,
+                bits: 0
+            };
+            prepared.code.registers
+        ];
+        let exit = prepared.code.invoke(&mut slots, 0, 64);
+        assert_eq!((exit.pc, exit.instructions, exit.reason), (1, 1, 0));
+        assert_eq!((slots[0].tag, slots[0].bits), (abi::INTEGER, 42));
+    }
+
+    #[test]
+    fn pressure_evicts_lru_and_charges_retry_without_resetting_victim_attempts() {
+        let (runtime, bytes) = two_module_cache();
+        drop(runtime.lookup(1).unwrap());
+        request(&runtime, 3).unwrap();
+        assert_eq!(runtime.usage(), 2 * bytes);
+        {
+            let manager = runtime.0.borrow();
+            assert!(manager.code.contains_key(&1));
+            assert!(!manager.code.contains_key(&2));
+            assert!(manager.code.contains_key(&3));
+            assert_eq!(manager.tracked[&2].attempts, 1);
+            assert_eq!(manager.tracked[&2].hotness, 0);
+            assert_eq!(manager.tracked[&3].attempts, 2);
+            assert_eq!(manager.stats.cache_evictions, 1);
+            assert_eq!(manager.stats.compilation_failures, 1);
+        }
+        assert_executable(&runtime.lookup(3).unwrap());
+        assert!(matches!(
+            request(&runtime, 2),
+            Err(JitError::ResourceLimit("native mappings"))
+        ));
+        let mut manager = runtime.0.borrow_mut();
+        assert_eq!(manager.tracked[&2].attempts, 2);
+        assert_eq!(manager.stats.cache_evictions, 1);
+        assert_eq!(manager.stats.compilation_failures, 2);
+        manager.enqueue(2, true);
+        assert!(manager.queue.is_empty());
+        manager.clear();
+        assert!(manager
+            .tracked
+            .values()
+            .all(|tracking| tracking.attempts == 0));
+        drop(manager);
+        assert_eq!(runtime.usage(), 0);
+    }
+
+    #[test]
+    fn leases_refuse_eviction_and_survive_explicit_retirement_until_final_drop() {
+        let (runtime, bytes) = two_module_cache();
+        let first = runtime.lookup(1).unwrap();
+        let second = runtime.lookup(2).unwrap();
+        assert!(matches!(
+            request(&runtime, 3),
+            Err(JitError::ResourceLimit("native mappings"))
+        ));
+        {
+            let manager = runtime.0.borrow();
+            assert_eq!(manager.code.len(), 2);
+            assert_eq!(manager.stats.cache_evictions, 0);
+            assert_eq!(manager.stats.cache_eviction_refusals, 1);
+            assert_eq!(manager.tracked[&3].attempts, 1);
+        }
+        assert_executable(&first);
+        assert_executable(&second);
+        drop(second);
+        request(&runtime, 4).unwrap();
+        assert_executable(&first);
+        assert_executable(&runtime.lookup(4).unwrap());
+        let metadata = runtime.0.borrow().metadata.0.clone();
+        runtime.0.borrow_mut().clear_registrations();
+        assert_eq!(runtime.usage(), bytes);
+        assert!(metadata.current() > 0);
+        assert_executable(&first);
+        drop(first);
+        assert_eq!(runtime.usage(), 0);
+        assert_eq!(metadata.current(), 0);
+    }
+
+    #[test]
+    fn saturated_recency_clock_uses_generation_tiebreak() {
+        let (runtime, _) = two_module_cache();
+        runtime.0.borrow_mut().clock = u64::MAX;
+        drop(runtime.lookup(2).unwrap());
+        drop(runtime.lookup(1).unwrap());
+        request(&runtime, 3).unwrap();
+        let manager = runtime.0.borrow();
+        assert_eq!(manager.clock, u64::MAX);
+        assert!(!manager.code.contains_key(&1));
+        assert!(manager.code.contains_key(&2));
+        assert!(manager.code.contains_key(&3));
+    }
+
+    #[test]
+    fn exhausted_budget_preserves_existing_cache_without_eviction() {
+        let (runtime, bytes) = two_module_cache();
+        runtime.0.borrow_mut().config.max_compile_attempts = 1;
+        assert!(matches!(
+            request(&runtime, 3),
+            Err(JitError::ResourceLimit("native mappings"))
+        ));
+        assert_eq!(runtime.usage(), 2 * bytes);
+        let manager = runtime.0.borrow();
+        assert_eq!(manager.stats.cache_evictions, 0);
+        assert_eq!(manager.tracked[&3].attempts, 1);
+        assert_eq!(manager.code.len(), 2);
+    }
+
+    #[test]
+    fn oversized_retry_stops_after_one_victim_and_two_failed_compilations() {
+        let (runtime, bytes) = two_module_cache();
+        {
+            let mut manager = runtime.0.borrow_mut();
+            manager.tracked.insert(3, Tracking::default());
+            manager.enqueue(3, true);
+            assert_eq!(manager.next_request(), Some(3));
+        }
+        let source = format!("local sum=0 {} return sum", "sum=sum+1 ".repeat(1000));
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype =
+                crate::FunctionPrototype::compile(ctx, "oversized", source.as_bytes()).unwrap();
+            ir::Snapshot::new(&prototype, 4096, 65536).unwrap()
+        });
+        assert!(matches!(
+            runtime.compile(3, snapshot),
+            Err(JitError::ResourceLimit("native mappings"))
+        ));
+        assert_eq!(runtime.usage(), bytes);
+        let manager = runtime.0.borrow();
+        assert_eq!(manager.stats.cache_evictions, 1);
+        assert_eq!(manager.stats.compilation_failures, 2);
+        assert_eq!(manager.tracked[&3].attempts, 2);
+        assert!(!manager.code.contains_key(&1));
+        assert!(manager.code.contains_key(&2));
+        assert!(!manager.code.contains_key(&3));
+    }
+
+    #[test]
+    fn metadata_refusal_does_not_evict_or_consume_a_retry() {
+        let (runtime, bytes) = two_module_cache();
+        {
+            let mut manager = runtime.0.borrow_mut();
+            manager.tracked.insert(3, Tracking::default());
+            manager.enqueue(3, true);
+            assert_eq!(manager.next_request(), Some(3));
+            manager.metadata.0.set_limit(1);
+        }
+        assert!(matches!(
+            runtime.compile(3, snapshot()),
+            Err(JitError::ResourceLimit("JIT metadata"))
+        ));
+        assert_eq!(runtime.usage(), 2 * bytes);
+        let manager = runtime.0.borrow();
+        assert_eq!(manager.code.len(), 2);
+        assert_eq!(manager.stats.cache_evictions, 0);
+        assert_eq!(manager.stats.cache_eviction_refusals, 0);
+        assert_eq!(manager.stats.compilation_failures, 1);
+        assert_eq!(manager.tracked[&3].attempts, 1);
+    }
+
+    #[test]
+    fn lookup_misses_preserve_clock_and_successful_hits_update_entry_only() {
+        let (runtime, _) = two_module_cache();
+        let (clock, stats) = {
+            let manager = runtime.0.borrow();
+            (manager.clock, manager.stats)
+        };
+        assert!(runtime.lookup(999).is_none());
+        {
+            let manager = runtime.0.borrow();
+            assert_eq!(manager.clock, clock);
+            assert_eq!(manager.stats.code_lookups, stats.code_lookups + 1);
+            assert_eq!(manager.stats.code_leases, stats.code_leases);
+        }
+        drop(runtime.lookup(1).unwrap());
+        let manager = runtime.0.borrow();
+        assert_eq!(manager.clock, clock + 1);
+        assert_eq!(manager.code[&1].last_used, clock + 1);
+        assert_eq!(manager.stats.code_lookups, stats.code_lookups + 2);
+        assert_eq!(manager.stats.code_leases, stats.code_leases + 1);
+        assert_eq!(manager.tracked[&1].attempts, 1);
+        assert!(!manager.tracked[&1].queued);
+    }
+
+    #[test]
+    fn cache_entry_recency_is_charged_by_the_metadata_allocator() {
+        let ledger = Ledger::new(65536);
+        let allocator = BudgetAllocator(ledger.clone());
+        let mut bare: MetadataMap<u64, Rc<backend::Code>> = metadata_map(allocator.clone());
+        bare.try_reserve(1).unwrap();
+        let bare_bytes = ledger.current();
+        drop(bare);
+        assert_eq!(ledger.current(), 0);
+        ledger.set_limit(bare_bytes);
+        let mut entries: MetadataMap<u64, CachedCode> = metadata_map(allocator);
+        assert!(entries.try_reserve(1).is_err());
+        assert_eq!(ledger.current(), 0);
+        assert_eq!(ledger.refusals(), 1);
+        ledger.set_limit(65536);
+        entries.try_reserve(1).unwrap();
+        assert!(ledger.current() > bare_bytes);
+        drop(entries);
+        assert_eq!(ledger.current(), 0);
     }
 }
