@@ -2460,9 +2460,57 @@ upstream-compatibility claim. No API, layout, unsafe code, resource limit or
 benchmark gate changes. All 15 focused heap tests pass; fresh full GNU
 verification passes 2710 executions / 410 suite invocations, including the
 expanded peer invariant, native/reference and exactly-once finalization cases.
-Format, baseline Clippy and workflow lint pass. Full musl and selected Miri are
-running in session `86474`; resume that handle rather than restarting on an
-observation timeout. Native/shipping performance remains open.
+Format, baseline Clippy and workflow lint pass. Fresh full musl verification
+also passes 2710 executions / 410 suite invocations. Selected Rust-only Miri
+passes 25 tests in six namespaces with default flags and explicit seed 1;
+default checks and the existing native-finalization exclusion are unchanged.
+Sessions `86474` and `36876` are terminal, exit 0. GNU and musl smoke artifacts
+are respectively `target/jit-evidence/fuzz/1790799710794221835-4130209` and
+`target/jit-evidence/fuzz/1790799947829714574-4152489`. Exact before/after,
+verification and separate Miri environment/namespace logs are archived in
+`target/jit-evidence/weak-value-reattach/`. Native/shipping performance remains
+open.
+
+### Session summary: complete weak-value ephemeron retirement
+
+**Goal:** fully implement this plan; verify the adjacent weak-value transition
+and repair its registry lifecycle without changing the native execution contract.
+
+**Instructions:** Make/Nix verification, built-in patches, functional comments,
+incremental unsigned title-only commits and unchanged acceptance thresholds.
+Engram is unavailable; preserve the handoff in this document.
+
+**Discoveries:** plain `v` attachment has the same stale ephemeron registration
+problem as the previously fixed `kv` path. The public test fails before the fix
+with 113 rather than 0 after collection. Retiring the typed weak-key registry
+entry is required in both weak-value branches; changing only the mode field is
+still distinct from attaching it. Preserve peer registrations and later `k`
+enrollment, and do not make unverified upstream compatibility claims in comments.
+
+**Accomplished:** extended native/reference, exactly-once finalization and
+Rust-only peer invariant tests across repeated `k`/`kv`/`v` transitions.
+Committed the one-line retirement fix, expanded tests and functional comment as
+`f3df12c`, unsigned and title-only. Native setter totals are exactly five
+allocations and ten writes. Full GNU and musl gates each pass 2710 executions /
+410 suite invocations; selected Miri passes 25 tests with default flags and
+seed 1. Format, baseline Clippy, workflow lint and supervised smoke pass. All
+owned sessions are terminal; artifact paths are recorded above. No public API,
+GC object layout, native ABI, quota or benchmark threshold changed.
+
+**Next steps:** characterize metatable removal under the current sticky-storage
+contract and continue remaining guard/transition stress. Resume measured native
+invocation/helper overhead work with independent speed and shipping controls;
+do not benchmark through unrelated builds or repeat rejected identity caches
+without new evidence. Complete compiler/combined-host bounds, broad unsafe/fuzz
+coverage and actual ARM64/hosted acceptance. Performance acceptance is unproven;
+the full goal remains active and incomplete.
+
+**Relevant files:** `src/table/table.rs` retires ephemerons for plain `v` as well
+as `kv`; `src/finalizers.rs` expands Rust-only registry invariants;
+`tests/jit_heap.rs` checks repeated native/reference mode transitions;
+`tests/weak_tables.rs` checks finalization across both weak-value modes;
+`PLAN_JIT.md` records failures, scope and verification;
+`target/jit-evidence/weak-value-reattach/` retains raw evidence.
 
 ## 15. Primary references
 
