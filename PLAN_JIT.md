@@ -2655,6 +2655,66 @@ evidence ledger; `src/jit/abi.rs` contains the next conversion inspection target
 `target/jit-evidence/rust-assembly.log` contains completed assembly output;
 `/tmp/luna-jit-scalar-dispatch-baseline-assembly.log` records the successful build.
 
+### Scalar writeback dispatch experiment
+
+The completed symbol-bearing assembly shows direct branches for `from_value`
+but a five-way indirect jump table for each `Slot::value` writeback in
+`Runtime::invoke<8>`. Test an explicit integer branch in `write_back`, leaving
+the complete existing conversion as the fallback. This is a candidate, not an
+accepted optimization. Preserve reference writes, all scalar bits, invalid-tag
+rejection, counters and ABI v3. Add independent scalar conversion expectations
+and a Make-backed focused ABI test lane. Compare copied artifacts against the
+unchanged committed production baseline with repeated native and matched
+disabled-JIT speed/shipping checks before retaining any runtime change.
+
+### Scalar writeback result: reject integer specialization
+
+The candidate emits a direct integer branch ahead of the original jump table.
+Focused checks pass: ABI 4, helpers 3, heap 15 and upvalues 6. The independent
+new ABI test checks 16 scalar payloads against 10 destination variants, including
+both function kinds, signed extremes, signed zero, subnormal and NaN payloads.
+Construct branded `Value` fixtures inside `Lua::enter`; constructing the vector
+outside initially produced an invariance error, not a runtime failure.
+
+Repeated opt-level-3 native comparisons do not justify retaining the candidate:
+
+| Case | Baseline first/repeat | Candidate first/repeat |
+| --- | --- | --- |
+| Integer | 2.4661 / 2.4727 | 2.5244 / 2.7889 |
+| Float | 4.3917 / 4.3328 | 4.5906 / 4.7393 |
+| Table | 1.1573 / 1.1052 | 1.0891 / 1.0659 |
+| Upvalue | 0.6773 / 0.6699 | 0.6866 / 0.6717 |
+| Metamethod | 0.8223 / 0.8230 | 0.8441 / 0.8277 |
+| Callback | 0.8381 / 0.8270 | 0.7879 / 0.8053 |
+| Allocation | 1.0020 / 1.0034 | 1.0344 / 1.0257 |
+| Oslo, unscored | 0.9220 / 0.9177 | 0.8823 / 0.9163 |
+| Cold | 0.9978 / 0.9749 | 1.0100 / 1.0098 |
+
+Candidate speed disabled-JIT controls pass twice; baseline float controls fail
+twice (1.0542/1.0554). Integer controls have substantial dispersion, so passing
+ratios are not proof of a causal disabled-JIT optimization. Shipping fails for
+both: baseline integer 1.1022/1.1062 and upvalue 1.1240/1.1255; candidate integer
+1.1169/1.1143 and upvalue 1.1101/1.1092. Candidate allocation also fails once
+(1.0516). Identical no-JIT binaries within each profile establish matched
+controls. Table and callback native performance worsen, with no repeatable
+upvalue gain. Removed the runtime specialization; retain only the independent
+ABI regression and `make jit-abi` lane. All original gates remain unchanged.
+
+Copied binaries, hashes, configurations, both assembly files, source patch,
+all twelve repeated runs, raw dispersion and exit statuses are archived under
+`target/jit-evidence/scalar-writeback/`. Baseline native SHA-256 is
+`b1ae2ae2bc1b519bb6a2637ff609cc11ee47f55b95df42725add78e0e0558069`;
+rejected candidate is
+`8414ae313cbd42bc3a3d1269f5b4fb7bc4f54d1fe5889b459d4898c5289fff49`.
+Sessions `70945` (initial fixture error), `92065`, `27303` and `45843` are terminal.
+No accepted runtime optimization or release performance claim follows.
+
+Restored runtime plus the retained independent regression pass `make fmt-check
+jit-abi`. The pinned `nix develop .#miri -c make jit-miri` lane passes 26 tests
+across six selected Rust-only namespaces, including all four ABI tests. It does
+not execute or prove generated machine-code safety. Miri and restored logs are
+archived with the experiment; session `33893` is terminal.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

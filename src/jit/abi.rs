@@ -160,6 +160,70 @@ mod tests {
     }
 
     #[test]
+    fn scalar_conversions_preserve_payloads_across_destination_types() {
+        let integers = [i64::MIN, -1, 0, 1, i64::MAX];
+        let number_bits = [
+            0,
+            (-0.0f64).to_bits(),
+            f64::INFINITY.to_bits(),
+            f64::NEG_INFINITY.to_bits(),
+            1,
+            u64::MAX,
+            0x7ff0_0000_0000_0001,
+            0x7ff8_0000_0000_1234,
+        ];
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let mut values = vec![
+                (Value::Nil, NIL, 0),
+                (Value::Boolean(false), BOOLEAN, 0),
+                (Value::Boolean(true), BOOLEAN, 1),
+            ];
+            values.extend(
+                integers
+                    .into_iter()
+                    .map(|value| (Value::Integer(value), INTEGER, value as u64)),
+            );
+            values.extend(
+                number_bits
+                    .into_iter()
+                    .map(|bits| (Value::Number(f64::from_bits(bits)), NUMBER, bits)),
+            );
+            let destinations = [
+                Value::Nil,
+                Value::Boolean(true),
+                Value::Integer(-42),
+                Value::Number(-0.0),
+                Value::String(crate::String::from_slice(&ctx, b"replace")),
+                Value::Table(crate::Table::new(&ctx)),
+                Value::Function(
+                    crate::Closure::load(ctx, None, b"return 42")
+                        .unwrap()
+                        .into(),
+                ),
+                Value::Thread(crate::Thread::new(ctx)),
+                Value::UserData(crate::UserData::new_static(&ctx, 42i64)),
+                Value::Function(
+                    crate::Callback::from_fn(&ctx, |_, _, _| Ok(crate::CallbackReturn::Return))
+                        .into(),
+                ),
+            ];
+            for &(expected, tag, bits) in &values {
+                let encoded = Slot::from_value(expected);
+                assert_eq!(encoded.tag, tag);
+                assert_eq!(encoded.bits, bits);
+                for original in destinations {
+                    let slot = Slot { tag, bits };
+                    let mut dest = original;
+                    slot.write_back(&mut dest);
+                    assert_identical(dest, expected);
+                    assert_identical(slot.value(original), expected);
+                }
+            }
+        });
+    }
+
+    #[test]
     fn reference_materialization_preserves_canonical_object_identity() {
         let mut lua = crate::Lua::empty();
         lua.enter(|ctx| {

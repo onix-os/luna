@@ -48,7 +48,7 @@ $(info ------------------------------------------)
 .PHONY: jit-disassembly
 .PHONY: jit-bench-build jit-bench-run
 .PHONY: jit-miri
-.PHONY: jit-helpers
+.PHONY: jit-helpers jit-abi
 
 ci-check:
 	@$(ACTIONLINT) .github/workflows/tests.yml
@@ -185,6 +185,9 @@ jit-backend:
 
 jit-helpers:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::helpers::tests
+
+jit-abi:
+	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests
 
 jit-native:
 	@$(CARGO) test -p luna --features jit --test jit_native $(TARGET_ARG) $(ARGS)
@@ -407,6 +410,7 @@ help:
 	@echo "  jit-fuzz     Run bounded seeded campaigns (FUZZ_TARGET/CASES/SEEDS)"
 	@echo "  jit-heap     Run native heap/upvalue mutation and GC tests"
 	@echo "  jit-upvalues Test upvalue aliases, foreign stacks and GC"
+	@echo "  jit-abi      Test scalar and reference ABI conversions"
 	@echo "  jit-registers Test register-255 and stack-256 boundaries"
 	@echo "  jit-policy   Test quota refusal and configuration retirement"
 	@echo "  jit-resources Test owned-container budgets and reclamation"
