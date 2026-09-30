@@ -18,6 +18,38 @@ pub(crate) struct Snapshot {
     pub(super) prototypes: usize,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{RegisterIndex, VarCount};
+
+    #[test]
+    fn fixed_set_list_sources_must_fit_the_declared_frame() {
+        let mut snapshot = Snapshot {
+            operations: super::super::resources::owned(&[
+                Operation::SetList {
+                    base: RegisterIndex(0),
+                    count: VarCount::constant(2),
+                },
+                Operation::Return {
+                    start: RegisterIndex(0),
+                    count: VarCount::constant(0),
+                },
+            ]),
+            constants: super::super::resources::owned(&[]),
+            registers: 4,
+            upvalues: 0,
+            prototypes: 0,
+        };
+        snapshot.verify().unwrap();
+        snapshot.operations[0] = Operation::SetList {
+            base: RegisterIndex(0),
+            count: VarCount::constant(3),
+        };
+        assert!(matches!(snapshot.verify(), Err(JitError::Compilation(_))));
+    }
+}
+
 impl Snapshot {
     #[cfg(test)]
     pub fn new(
@@ -135,7 +167,9 @@ impl Snapshot {
                 SetUpTable { table, key, value } => {
                     rc(key) && rc(value) && usize::from(table.0) < self.upvalues
                 }
-                SetList { base, .. } => range(base.0, 2),
+                SetList { base, count } => {
+                    range(base.0, 2 + usize::from(count.to_constant().unwrap_or(0)))
+                }
                 Call {
                     func,
                     args,
