@@ -58,7 +58,7 @@ jit-miri:
 	@set -o pipefail; { rustc -vV; $(CARGO) miri --version; printf 'MIRIFLAGS=%s\ntarget=%s\n' "$${MIRIFLAGS:-}" '$(MIRI_TARGET)'; } 2>&1 | tee '$(MIRI_DIR)/environment.log'
 	@set -o pipefail; $(CARGO) miri setup --target '$(MIRI_TARGET)' 2>&1 | tee '$(MIRI_DIR)/setup.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::resources::tests -- --test-threads=1 --skip jit::resources::tests::installation_refusal_reclaims_generated_mappings 2>&1 | tee '$(MIRI_DIR)/jit::resources::tests.log'
-	@set -e -o pipefail; for filter in jit::abi::tests jit::helpers::tests jit::registry::tests jit::policy_tests; do \
+	@set -e -o pipefail; for filter in jit::abi::tests jit::helpers::tests jit::registry::tests jit::policy_tests finalizers::tests; do \
 		$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' "$$filter" -- --test-threads=1 2>&1 | tee '$(MIRI_DIR)'/"$$filter".log; \
 	done
 

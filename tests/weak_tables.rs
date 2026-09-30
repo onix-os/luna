@@ -547,6 +547,46 @@ fn a_back_reference_does_not_survive_repeated_collection() -> Result<(), ExternE
 
 /// `"kv"` is both: keys weak *and* values weak, so an entry goes when either side does.
 #[test]
+fn reattached_weak_modes_retire_ephemerons_without_losing_finalization() -> Result<(), ExternError>
+{
+    assert_eq!(
+        eval(
+            r#"
+            local finalized = 0
+            local function exercise()
+                local key = {}
+                local mode = {__mode = "k", __gc = function() finalized = finalized + 1 end}
+                local cache = setmetatable({}, mode)
+                local function fill() cache[key] = {marker = 113} end
+                for _ = 1, 3 do
+                    fill()
+                    collectgarbage("collect")
+                    collectgarbage("collect")
+                    assert(cache[key].marker == 113)
+                    mode.__mode = "kv"
+                    collectgarbage("collect")
+                    collectgarbage("collect")
+                    assert(cache[key].marker == 113)
+                    setmetatable(cache, mode)
+                    collectgarbage("collect")
+                    collectgarbage("collect")
+                    assert(cache[key] == nil)
+                    mode.__mode = "k"
+                    setmetatable(cache, mode)
+                end
+            end
+            exercise()
+            collectgarbage("collect")
+            collectgarbage("collect")
+            return finalized
+            "#,
+        )?,
+        1
+    );
+    Ok(())
+}
+
+#[test]
 fn mode_kv_is_weak_on_both_sides() -> Result<(), ExternError> {
     assert_eq!(
         eval(&format!(

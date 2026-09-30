@@ -2343,6 +2343,51 @@ observation timeout. No production layout, helper ABI, quota or benchmark gate
 changes. These cases reduce the open lifecycle matrix but do not prove every
 interleaving, weak-key/ephemeron transition or guard invalidation path.
 
+### Verified weak-key reattachment defect
+
+A Make-backed interpreter probe reproduces a shared-runtime defect: populate a
+`k` table under a strongly held key, warm/read its retained value, change the
+metatable mode to `kv` and reattach it, then collect twice. The value incorrectly
+survives. The baseline command `nix develop -c make run EXAMPLE=interpreter
+ARGS=/tmp/luna-weak-key-reattach.lua` exits 2 with the explicit assertion
+`reattaching kv retained the old ephemeron value`; log is
+`/tmp/luna-jit-weak-key-reattach-probe.log`.
+
+`set_metatable` avoids registering new `kv` tables for ephemeron revival, but
+does not retire an earlier `k` registration. `Finalizers::mark_ephemerons`
+therefore continues reviving the old table's values. Fix the weak-key registry
+and its deduplication set together on `kv` attachment, preserving attachment-
+time mode semantics, table/userdata finalization registrations and later `k`
+re-registration. Add public regression coverage before changing production code.
+
+### Weak-key reattachment fix
+
+The new public heap regression first fails on the restored baseline (113 rather
+than 0 after `kv` reattachment), preserved in
+`/tmp/luna-jit-weak-key-reattach-before.log`. The initial command-format failure
+is separately retained in the `before-argument-error.log` and is not behavioral
+evidence. The corrected targeted command uses Make's `ARGS='test_name -- --exact'`.
+
+Added private `Finalizers::unregister_weak_keys` to retire only the matching
+pointer's `WeakKeys` deduplication key and weak-table vector entry together.
+`Table::set_metatable` calls it only when attaching `kv`; ordinary `k`
+registration remains unchanged. This uses no new unsafe code, fields, public
+API or GC layout. Repeated `k`/`kv` reattachment can re-enroll the table without
+duplicating entries or removing its independent `Table` finalization key.
+The original interpreter probe now exits 0, and all 15 focused heap tests pass,
+including actual native weak writes/reads and exact allocation/write counts.
+
+Added a normal interpreter/feature-enabled regression for repeated reattachment
+and exactly-once table finalization, and a Rust-only registry invariant test
+covering an unaffected peer sharing the same mutated metatable. Included that
+namespace in the pinned Make Miri gate without changing exclusions or interpreter
+checks. Fresh full GNU verification passes 2710 executions / 410 suite
+invocations, including the new invariant test, Off/native reattachment case and
+exactly-once finalization regression. Format, baseline Clippy and workflow lint
+also pass. Full musl and fresh selected Miri verification are still running in
+session `28310`; resume that exact handle on observation timeout. No native or
+shipping performance acceptance is claimed for this correctness fix.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

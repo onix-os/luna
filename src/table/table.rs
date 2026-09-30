@@ -244,11 +244,11 @@ impl<'gc> Table<'gc> {
                 let mode = mode.as_bytes();
                 if mode.contains(&b'k') {
                     self.0.borrow_mut(&ctx).raw_table.make_keys_weak(&ctx);
-                    // Ephemeron revival is for `"k"` alone. Under `"kv"` the value is weak in its
-                    // own right and must die when nothing else holds it, however alive its key is,
-                    // so putting values back would be exactly wrong.
+                    // Revive values only for weak-key-only tables.
                     if !mode.contains(&b'v') {
                         ctx.finalizers().register_weak_keys(&ctx, self.0);
+                    } else {
+                        ctx.finalizers().unregister_weak_keys(&ctx, self.0);
                     }
                 } else if mode.contains(&b'v') {
                     self.0.borrow_mut(&ctx).raw_table.make_values_weak(&ctx);

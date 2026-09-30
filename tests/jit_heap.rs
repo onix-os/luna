@@ -406,6 +406,82 @@ fn rust_weak_mode_mutation_and_reattachment_preserve_native_collection() -> Resu
 }
 
 #[test]
+fn weak_key_ephemeron_registration_follows_reattached_modes() -> Result<(), ExternError> {
+    fn run(lua: &mut Lua, closure: &luna::StashedClosure) -> Result<i64, ExternError> {
+        let executor =
+            lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(closure).into(), ())));
+        lua.execute(&executor)
+    }
+    fn collect(lua: &mut Lua) {
+        lua.gc_collect();
+        lua.gc_collect();
+    }
+    fn attach(lua: &mut Lua, mode: &str) {
+        lua.enter(|ctx| {
+            let cache: Table = ctx.get_global("cache").unwrap();
+            let mt: Table = ctx.get_global("mode").unwrap();
+            mt.set_field(ctx, "__mode", ctx.intern(mode.as_bytes()));
+            cache.set_metatable(ctx, Some(mt));
+        });
+    }
+    for native in [false, true] {
+        let mut lua = state(native);
+        lua.enter(|ctx| {
+            let cache = Table::new(&ctx);
+            let mt = Table::new(&ctx);
+            mt.set_field(ctx, "__mode", "k");
+            cache.set_metatable(ctx, Some(mt));
+            ctx.set_global("cache", cache);
+            ctx.set_global("mode", mt);
+            ctx.set_global("key", Table::new(&ctx));
+        });
+        let (getter, setter) = lua.try_enter(|ctx| {
+            let getter = Closure::load(
+                ctx,
+                None,
+                b"local value=cache[key] if value then return value.marker end return 0",
+            )?;
+            let setter = Closure::load(
+                ctx,
+                None,
+                b"local value={marker=113} cache[key]=value return cache[key].marker",
+            )?;
+            Ok((ctx.stash(getter), ctx.stash(setter)))
+        })?;
+        lua.prepare_jit().unwrap();
+        assert_eq!(run(&mut lua, &setter)?, 113);
+        collect(&mut lua);
+        assert_eq!(run(&mut lua, &getter)?, 113);
+        lua.enter(|ctx| {
+            let mt: Table = ctx.get_global("mode").unwrap();
+            mt.set_field(ctx, "__mode", "kv");
+        });
+        collect(&mut lua);
+        assert_eq!(run(&mut lua, &getter)?, 113);
+        attach(&mut lua, "kv");
+        collect(&mut lua);
+        assert_eq!(run(&mut lua, &getter)?, 0);
+        for _ in 0..2 {
+            attach(&mut lua, "k");
+            assert_eq!(run(&mut lua, &setter)?, 113);
+            collect(&mut lua);
+            assert_eq!(run(&mut lua, &getter)?, 113);
+            attach(&mut lua, "kv");
+            collect(&mut lua);
+            assert_eq!(run(&mut lua, &getter)?, 0);
+        }
+        let stats = lua.jit_stats();
+        assert_eq!(stats.native_instructions > 0, native);
+        if native {
+            assert_eq!(stats.native_allocations, 3);
+            assert_eq!(stats.native_table_writes, 6);
+            assert!(stats.native_table_reads >= 12);
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn readonly_and_invalid_key_failures_remain_typed_interpreter_errors() -> Result<(), ExternError> {
     for script in [
         b"local x=target[1] target[1]=x+1".as_slice(),
