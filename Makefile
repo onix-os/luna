@@ -68,6 +68,9 @@ $(info ------------------------------------------)
 .PHONY: jit-host-memory jit-host-ledger jit-host-native jit-host-finish
 .PHONY: jit-host-finish-async jit-host-reference
 .PHONY: jit-owner jit-owner-installation jit-owner-miri
+.PHONY: jit-memory-status jit-memory-status-pure jit-memory-status-native jit-memory-status-miri
+.PHONY: jit-atomic-owner-ordering-miri
+.PHONY: jit-memory-status-boundary
 .PHONY: jit-clippy
 
 ci-check:
@@ -80,7 +83,8 @@ jit-miri:
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::resources::tests -- --test-threads=1 --skip jit::resources::tests::installation_refusal_reclaims_generated_mappings 2>&1 | tee '$(MIRI_DIR)/jit::resources::tests.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::block_map_quota_refuses_before_host_setup_and_releases_storage -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/block-map-quota.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::entry_path_quota_refuses_before_host_setup_and_releases_storage -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/entry-path-quota.log'
-	@set -e -o pipefail; for filter in jit::abi::tests jit::helpers::tests jit::registry::tests jit::ir::tests jit::flow::tests jit::work::tests jit::preds::tests jit::dominance::tests jit::owner::tests jit::tags::tests jit::shape::tests jit::backend::comparison_tests jit::backend::loop_tests jit::backend::transfer_tests jit::backend::helper_flow_tests jit::backend::ownership_tests jit::access::tests jit::backend::access_tests jit::entry_flow::tests jit::entry_flow::region_tests jit::exit_flow::tests jit::exits::tests jit::backend::exit_tests jit::policy_tests finalizers::tests lua::memory_tests; do \
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::status_refusal_precedes_host_setup_and_releases_entry_storage -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/memory-status-quota.log'
+	@set -e -o pipefail; for filter in jit::abi::tests jit::helpers::tests jit::registry::tests jit::ir::tests jit::flow::tests jit::work::tests jit::preds::tests jit::dominance::tests jit::owner::tests jit::atomic_owner::tests jit::memory_status::tests jit::tags::tests jit::shape::tests jit::backend::comparison_tests jit::backend::loop_tests jit::backend::transfer_tests jit::backend::helper_flow_tests jit::backend::ownership_tests jit::access::tests jit::backend::access_tests jit::entry_flow::tests jit::entry_flow::region_tests jit::exit_flow::tests jit::exits::tests jit::backend::exit_tests jit::policy_tests finalizers::tests lua::memory_tests; do \
 		$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' "$$filter" -- --test-threads=1 2>&1 | tee '$(MIRI_DIR)'/"$$filter".log; \
 	done
 
@@ -390,6 +394,27 @@ jit-owner-installation:
 
 jit-owner-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::owner::tests -- --test-threads=1
+
+jit-memory-status: jit-memory-status-pure jit-memory-status-native
+
+jit-memory-status-pure:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::atomic_owner::tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::memory_status::tests
+	@$(MAKE) --no-print-directory jit-memory-status-boundary
+
+jit-memory-status-boundary:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::status_refusal_precedes_host_setup_and_releases_entry_storage -- --exact
+
+jit-memory-status-native:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::status_refusal_preserves_live_module_and_same_snapshot_recovers -- --exact
+
+jit-memory-status-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::atomic_owner::tests -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::memory_status::tests -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::status_refusal_precedes_host_setup_and_releases_entry_storage -- --exact --test-threads=1
+
+jit-atomic-owner-ordering-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::atomic_owner::tests::final_drop_acquires_writes_from_other_owners_without_external_sync -- --exact --test-threads=1
 
 jit-dominance:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::dominance::tests

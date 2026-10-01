@@ -18,16 +18,16 @@ pub(super) struct Shared<T> {
     marker: PhantomData<Rc<T>>,
 }
 
-struct Allocation<T> {
-    pointer: NonNull<Inner<T>>,
-    allocator: BudgetAllocator,
+pub(super) struct Allocation<T> {
+    pub pointer: NonNull<T>,
+    pub allocator: BudgetAllocator,
 }
 
 impl<T> Drop for Allocation<T> {
     fn drop(&mut self) {
         unsafe {
             self.allocator
-                .deallocate(self.pointer.cast(), Layout::new::<Inner<T>>())
+                .deallocate(self.pointer.cast(), Layout::new::<T>())
         };
     }
 }

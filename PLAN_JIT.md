@@ -6719,9 +6719,67 @@ Use Make/Nix for relevant validation and patch tools for edits.
 - `JIT.md` — current runtime and ownership safety scope.
 - `src/jit/owner.rs` — accepted cached-owner allocation and reclamation milestone.
 
+### Compiler-status accounting decision (2026-10-01)
+
+Replace the backend's three independent std Arc error flags with one private
+budgeted `AtomicShared<MemoryStatus>` owner. The trait declaration alone has no
+Send bound, but pinned JITBuilder::memory_provider takes `Box<dyn
+JITMemoryProvider + Send>`: the first focused compile correctly rejected the
+single-thread owner. Keep that rejection as draft evidence, not acceptance.
+Use a separate strong-only atomic owner with Send/Sync requiring `T: Send + Sync`,
+checked Relaxed clone increments and AcqRel final decrement. The cached-code
+owner remains single-threaded and unchanged. Test concurrent clone/drop and
+destructor visibility under Miri; do not add an unsafe Send escape to it.
+Keep the flag operations atomic
+and their existing error precedence. Admit this owner through metadata/shared
+host limits before JITBuilder setup; allocation refusal is typed JIT metadata
+exhaustion and rolls back earlier entry storage. The provider retains the owner
+until module reclamation. Test exact parent/child charging, quota and underlying
+refusal, and compilation failure before any mapping. This does not account the
+provider box, runtime bootstrap or Cranelift-owned buffers; those remain open.
+
+### Compiler-status refusal oracle discovery
+
+An unlimited status allocator made two pure charging/refusal fixtures fail but
+the initial live-module refusal fixture still passed: a later mapping-record
+reservation could return the same JIT metadata error under the same small quota.
+That pass did not prove the intended pre-host boundary. Add a test-only host-setup
+sentinel immediately after status admission, select it only for refused attempts,
+and require the same exact status error before reaching it. Preserve real peer
+execution/recovery and unmodified mapping safety. Keep this initial mutation log
+as incomplete oracle evidence, then repeat both refusal lanes with the stronger
+boundary fixture. No initial native-oracle success is claimed.
+
+### Compiler-status mutation sensitivity
+
+After adding the pre-host sentinel, the unlimited-status-allocator mutation made
+two pure flag fixtures, the exact pre-host boundary fixture and the live-module
+refusal/recovery fixture fail (each requested Make lane exit 2). The initial
+passing native draft remains distinguished from these corrected oracle results.
+A second mutation replaced atomic-owner AcqRel decrement with Relaxed. Pinned
+Miri rejected the disjoint-cell visibility fixture with a data race at final
+destruction (Make exit 2). Each worker writes only its distinct UnsafeCell before
+dropping its owner; no barrier/join precedes destruction, so the owner decrement
+is the required synchronization boundary. This is scoped owner evidence, not a
+generated-code or whole-compiler security proof. Both owned mutation jobs were
+terminal before source restoration; restored focused/Miri checks remain required.
+
+### Restored compiler-status focused acceptance
+
+Restored owner/status source hashes match their pre-mutation originals. Focused
+Make targets passed seven atomic-owner fixtures, three status fixtures, the exact
+pre-host boundary and live-module recovery fixtures, existing single-thread owner
+and eviction tests, and resource checks. Isolated pinned Miri passed eleven tests
+(seven atomic-owner, three status, one pre-host boundary) with default flags.
+The stronger UnsafeCell visibility fixture is present in this restored run.
+The pinned JITBuilder Send bound is respected; no cached-code auto traits changed.
+Full native-platform gates, selected Miri and supervised campaigns are still
+required for this source milestone. No performance result follows from it.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
+- [Rust reference-counted destruction](https://doc.rust-lang.org/nomicon/arc-mutex/arc-drop.html) — release/acquire lifetime synchronization; Luna uses an AcqRel decrement and its own exact-layout, strong-only allocation.
 - [Cranelift IR](https://github.com/bytecodealliance/wasmtime/blob/main/cranelift/docs/ir.md) — validate against the pinned version, not moving-main assumptions.
 - [Cranelift frontend / FunctionBuilder](https://docs.wasmtime.dev/api/cranelift/prelude/struct.FunctionBuilder.html) — SSA construction and stack-map facilities; their existence does not integrate Luna's collector automatically.
 - [LuaJIT language/runtime compatibility](https://luajit.org/extensions.html) — why this plan is not a transparent LuaJIT integration.

@@ -21,6 +21,11 @@ mod access;
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
+mod atomic_owner;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 mod backend;
 #[cfg(all(
     target_os = "linux",
@@ -52,6 +57,11 @@ mod fuzz;
 mod helper_flow;
 mod helpers;
 pub(crate) mod ir;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod memory_status;
 #[cfg(test)]
 mod model;
 #[cfg(all(

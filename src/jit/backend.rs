@@ -1,7 +1,7 @@
 use std::{
     io,
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicUsize, Ordering},
         Arc,
     },
 };
@@ -19,9 +19,11 @@ use cranelift_module::{default_libcall_names, Linkage, Module, ModuleResult};
 
 use super::{
     abi::{self, Entry, Exit, Slot},
+    atomic_owner::AtomicShared,
     exits::Kind as ExitKind,
     helpers,
     ir::Snapshot,
+    memory_status::MemoryStatus,
     resources::BudgetAllocator,
     JitError,
 };
@@ -30,9 +32,7 @@ use crate::opcode::{Operation, RCIndex};
 struct Memory {
     allocations: BudgetVec<(SystemMemoryProvider, usize), BudgetAllocator>,
     total: Arc<AtomicUsize>,
-    quota_refused: Arc<AtomicBool>,
-    metadata_refused: Arc<AtomicBool>,
-    unavailable: Arc<AtomicBool>,
+    status: AtomicShared<MemoryStatus>,
     #[cfg(test)]
     failure: Failure,
     limit: usize,
@@ -63,11 +63,11 @@ impl JITMemoryProvider for Memory {
             .checked_add(self.page - 1)
             .map(|size| size / self.page * self.page)
             .ok_or_else(|| {
-                self.quota_refused.store(true, Ordering::Relaxed);
+                self.status.quota_refused.store(true, Ordering::Relaxed);
                 io::Error::other("native allocation size overflow")
             })?;
         self.allocations.try_reserve_exact(1).map_err(|_| {
-            self.metadata_refused.store(true, Ordering::Relaxed);
+            self.status.metadata_refused.store(true, Ordering::Relaxed);
             io::Error::other("native allocation record quota exhausted")
         })?;
         self.total
@@ -75,7 +75,7 @@ impl JITMemoryProvider for Memory {
                 used.checked_add(bytes).filter(|next| *next <= self.limit)
             })
             .map_err(|_| {
-                self.quota_refused.store(true, Ordering::Relaxed);
+                self.status.quota_refused.store(true, Ordering::Relaxed);
                 io::Error::other("native memory quota exhausted")
             })?;
         if self
@@ -86,14 +86,14 @@ impl JITMemoryProvider for Memory {
             .is_err()
         {
             self.total.fetch_sub(bytes, Ordering::Relaxed);
-            self.quota_refused.store(true, Ordering::Relaxed);
+            self.status.quota_refused.store(true, Ordering::Relaxed);
             return Err(io::Error::other("host memory quota exhausted"));
         }
         #[cfg(test)]
         if self.failure == Failure::Allocate {
             self.total.fetch_sub(bytes, Ordering::Relaxed);
             self.allocations.allocator().0.release_external(bytes);
-            self.unavailable.store(true, Ordering::Relaxed);
+            self.status.unavailable.store(true, Ordering::Relaxed);
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 "injected native allocation denial",
@@ -109,7 +109,7 @@ impl JITMemoryProvider for Memory {
                 unsafe { provider.free_memory() };
                 self.total.fetch_sub(bytes, Ordering::Relaxed);
                 self.allocations.allocator().0.release_external(bytes);
-                self.unavailable.store(true, Ordering::Relaxed);
+                self.status.unavailable.store(true, Ordering::Relaxed);
                 Err(error)
             }
         }
@@ -122,14 +122,14 @@ impl JITMemoryProvider for Memory {
     fn finalize(&mut self, protection: BranchProtection) -> ModuleResult<()> {
         #[cfg(test)]
         if self.failure == Failure::Protect {
-            self.unavailable.store(true, Ordering::Relaxed);
+            self.status.unavailable.store(true, Ordering::Relaxed);
             return Err(cranelift_module::ModuleError::Backend(anyhow::anyhow!(
                 "injected native protection denial"
             )));
         }
         for (provider, _) in &mut self.allocations {
             if let Err(error) = provider.finalize(protection) {
-                self.unavailable.store(true, Ordering::Relaxed);
+                self.status.unavailable.store(true, Ordering::Relaxed);
                 return Err(error);
             }
         }
@@ -189,6 +189,7 @@ impl Code {
 #[cfg(test)]
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum Failure {
+    DetectHostSetup,
     RefuseOwnerStorage,
     RefuseOwnerAllocation,
     RefusePredecessors,
@@ -267,19 +268,15 @@ pub(super) fn compile_in(
         .try_reserve_exact(snapshot.operations.len())
         .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
     entries.extend(graph.nodes.iter().map(|node| node.lowering.native()));
-    let quota_refused = Arc::new(AtomicBool::new(false));
-    let metadata_refused = Arc::new(AtomicBool::new(false));
-    let unavailable = Arc::new(AtomicBool::new(false));
+    let status = MemoryStatus::try_new(metadata.clone())?;
+    #[cfg(test)]
+    if failure == Failure::DetectHostSetup {
+        return Err(JitError::Compilation("injected host setup probe".into()));
+    }
     let fail = |error: cranelift_module::ModuleError| {
-        if metadata_refused.load(Ordering::Relaxed) {
-            JitError::ResourceLimit("JIT metadata")
-        } else if quota_refused.load(Ordering::Relaxed) {
-            JitError::ResourceLimit("native mappings")
-        } else if unavailable.load(Ordering::Relaxed) {
-            JitError::Unavailable("native memory allocation or protection denied")
-        } else {
-            JitError::Compilation(error.to_string())
-        }
+        status
+            .error()
+            .unwrap_or_else(|| JitError::Compilation(error.to_string()))
     };
     let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     if page <= 0 {
@@ -298,9 +295,7 @@ pub(super) fn compile_in(
     jit.memory_provider(Box::new(Memory {
         allocations: BudgetVec::new_in(metadata),
         total,
-        quota_refused: quota_refused.clone(),
-        metadata_refused: metadata_refused.clone(),
-        unavailable: unavailable.clone(),
+        status: status.clone(),
         #[cfg(test)]
         failure,
         limit,
@@ -4250,9 +4245,10 @@ mod memory_tests {
                 2 * 1024 * 1024,
             ))),
             total: Arc::new(AtomicUsize::new(0)),
-            quota_refused: Arc::new(AtomicBool::new(false)),
-            metadata_refused: Arc::new(AtomicBool::new(false)),
-            unavailable: Arc::new(AtomicBool::new(false)),
+            status: MemoryStatus::try_new(BudgetAllocator(super::super::resources::Ledger::new(
+                4096,
+            )))
+            .unwrap(),
             failure: Failure::None,
             limit: pages * page as usize,
             page: page as usize,
@@ -4276,8 +4272,8 @@ mod memory_tests {
         assert_eq!(memory.total.load(Ordering::Relaxed), memory.page);
         assert_eq!(host.current(), baseline + memory.page);
         assert_eq!(host.refusals(), 1);
-        assert!(memory.quota_refused.load(Ordering::Relaxed));
-        assert!(!memory.metadata_refused.load(Ordering::Relaxed));
+        assert!(memory.status.quota_refused.load(Ordering::Relaxed));
+        assert!(!memory.status.metadata_refused.load(Ordering::Relaxed));
         unsafe {
             memory.free_memory();
             memory.free_memory();
@@ -4313,7 +4309,7 @@ mod memory_tests {
             .is_null());
         assert_eq!(total.load(Ordering::Relaxed), memory.page);
         assert!(memory.allocate(1, 1, JITMemoryKind::Executable).is_err());
-        assert!(memory.quota_refused.load(Ordering::Relaxed));
+        assert!(memory.status.quota_refused.load(Ordering::Relaxed));
         assert_eq!(total.load(Ordering::Relaxed), memory.page);
         drop(memory);
         assert_eq!(total.load(Ordering::Relaxed), 0);
@@ -4326,7 +4322,7 @@ mod memory_tests {
         assert!(memory
             .allocate(usize::MAX, 1, JITMemoryKind::Executable)
             .is_err());
-        assert!(memory.quota_refused.load(Ordering::Relaxed));
+        assert!(memory.status.quota_refused.load(Ordering::Relaxed));
         assert_eq!(memory.total.load(Ordering::Relaxed), 0);
         assert!(memory.allocations.is_empty());
     }
@@ -4354,17 +4350,20 @@ mod memory_tests {
         let metadata = memory.allocations.allocator().0.clone();
         metadata.set_limit(1);
         assert!(memory.allocate(1, 1, JITMemoryKind::Executable).is_err());
-        assert!(memory.metadata_refused.load(Ordering::Relaxed));
-        assert!(!memory.quota_refused.load(Ordering::Relaxed));
+        assert!(memory.status.metadata_refused.load(Ordering::Relaxed));
+        assert!(!memory.status.quota_refused.load(Ordering::Relaxed));
         assert_eq!(memory.total.load(Ordering::Relaxed), 0);
         assert_eq!(metadata.current(), 0);
         metadata.set_limit(4096);
-        memory.metadata_refused.store(false, Ordering::Relaxed);
+        memory
+            .status
+            .metadata_refused
+            .store(false, Ordering::Relaxed);
         memory.allocate(1, 1, JITMemoryKind::Executable).unwrap();
         let retained = metadata.current();
         metadata.set_limit(retained);
         assert!(memory.allocate(1, 1, JITMemoryKind::Executable).is_err());
-        assert!(memory.metadata_refused.load(Ordering::Relaxed));
+        assert!(memory.status.metadata_refused.load(Ordering::Relaxed));
         assert_eq!(memory.allocations.len(), 1);
         assert_eq!(memory.total.load(Ordering::Relaxed), memory.page);
         assert_eq!(metadata.current(), retained);
@@ -4396,6 +4395,142 @@ mod memory_tests {
         assert_eq!(total.load(Ordering::Relaxed), 0);
         assert_eq!(metadata.current(), 0);
         assert_eq!(metadata.refusals(), 1);
+    }
+
+    #[test]
+    fn status_refusal_precedes_host_setup_and_releases_entry_storage() {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype = crate::FunctionPrototype::compile(ctx, "status", b"return 42").unwrap();
+            Snapshot::new(&prototype, 4096, 4096).unwrap()
+        });
+        let snapshot_ledger = snapshot.operations.allocator().0.clone();
+        let snapshot_baseline = snapshot_ledger.current();
+        let entry_bytes = snapshot.operations.len();
+        let owner_bytes = AtomicShared::<MemoryStatus>::allocation_bytes();
+        for cause in 0..3 {
+            let host = super::super::resources::Ledger::new(if cause == 1 {
+                entry_bytes + owner_bytes - 1
+            } else {
+                65536
+            });
+            let metadata = super::super::resources::Ledger::child(
+                if cause == 0 {
+                    entry_bytes + owner_bytes - 1
+                } else {
+                    65536
+                },
+                host.clone(),
+            );
+            if cause == 2 {
+                metadata.fail_after(1);
+            }
+            let total = Arc::new(AtomicUsize::new(0));
+            assert!(matches!(
+                compile_in(
+                    &snapshot,
+                    total.clone(),
+                    65536,
+                    BudgetAllocator(metadata.clone()),
+                    super::super::work::Limits::from(&super::super::JitConfig::default()),
+                    Failure::DetectHostSetup
+                ),
+                Err(JitError::ResourceLimit("JIT metadata"))
+            ));
+            assert_eq!(
+                (
+                    metadata.current(),
+                    host.current(),
+                    total.load(Ordering::Relaxed)
+                ),
+                (0, 0, 0)
+            );
+            assert_eq!(metadata.refusals(), 1);
+            assert_eq!(snapshot_ledger.current(), snapshot_baseline);
+        }
+    }
+
+    #[test]
+    fn status_refusal_preserves_live_module_and_same_snapshot_recovers() {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype =
+                crate::FunctionPrototype::compile(ctx, "status-peer", b"return 42").unwrap();
+            Snapshot::new(&prototype, 4096, 4096).unwrap()
+        });
+        for cause in 0..3 {
+            let host = super::super::resources::Ledger::new(2 * 1024 * 1024);
+            let metadata = super::super::resources::Ledger::child(65536, host.clone());
+            let total = Arc::new(AtomicUsize::new(0));
+            let compile_module = |failure| {
+                compile_in(
+                    &snapshot,
+                    total.clone(),
+                    1024 * 1024,
+                    BudgetAllocator(metadata.clone()),
+                    super::super::work::Limits::from(&super::super::JitConfig::default()),
+                    failure,
+                )
+            };
+            let peer = compile_module(Failure::None).unwrap();
+            let baseline = (
+                metadata.current(),
+                host.current(),
+                total.load(Ordering::Relaxed),
+            );
+            let admission =
+                snapshot.operations.len() + AtomicShared::<MemoryStatus>::allocation_bytes() - 1;
+            match cause {
+                0 => metadata.set_limit(baseline.0 + admission),
+                1 => host.set_limit(baseline.1 + admission),
+                _ => metadata.fail_after(1),
+            }
+            assert!(matches!(
+                compile_module(Failure::DetectHostSetup),
+                Err(JitError::ResourceLimit("JIT metadata"))
+            ));
+            assert_eq!(
+                (
+                    metadata.current(),
+                    host.current(),
+                    total.load(Ordering::Relaxed)
+                ),
+                baseline
+            );
+            let mut slots = vec![
+                Slot {
+                    tag: abi::NIL,
+                    bits: 0
+                };
+                peer.registers
+            ];
+            let exit = peer.invoke(&mut slots, 0, 64);
+            assert!(exit.instructions > 0);
+            let Operation::Return { start, .. } = snapshot.operations[exit.pc as usize] else {
+                panic!("peer did not reach its interpreted return");
+            };
+            assert_eq!(
+                (
+                    slots[usize::from(start.0)].tag,
+                    slots[usize::from(start.0)].bits
+                ),
+                (abi::INTEGER, 42)
+            );
+            metadata.set_limit(65536);
+            host.set_limit(2 * 1024 * 1024);
+            metadata.fail_after(usize::MAX);
+            let recovered = compile_module(Failure::None).unwrap();
+            assert!(recovered.invoke(&mut slots, 0, 64).instructions > 0);
+            drop((peer, recovered));
+            assert_eq!(
+                (
+                    metadata.current(),
+                    host.current(),
+                    total.load(Ordering::Relaxed)
+                ),
+                (0, 0, 0)
+            );
+        }
     }
 
     #[test]
