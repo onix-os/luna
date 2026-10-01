@@ -50,7 +50,7 @@ $(info ------------------------------------------)
 .PHONY: jit-bench-build jit-bench-run
 .PHONY: jit-metrics jit-metrics-build jit-metrics-run jit-metrics-tests
 .PHONY: jit-miri
-.PHONY: jit-helpers jit-abi jit-config jit-registry jit-suspension jit-ir
+.PHONY: jit-helpers jit-abi jit-config jit-registry jit-suspension jit-ir jit-generic-for
 
 ci-check:
 	@$(ACTIONLINT) .github/workflows/tests.yml
@@ -215,6 +215,12 @@ jit-registry:
 jit-ir:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::ir::tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::flow::tests
+
+jit-generic-for:
+	@$(CARGO) test --locked -p luna --test vm_semantics $(TARGET_ARG) generic_for
+	@set -e; for mode in off auto force; do \
+		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test vm_semantics $(TARGET_ARG) generic_for; \
+	done
 
 jit-suspension:
 	@$(CARGO) test --locked -p luna --features jit --test jit_suspension $(TARGET_ARG)
