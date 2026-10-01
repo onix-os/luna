@@ -1135,7 +1135,8 @@ mod memory_tests {
     #[test]
     fn bootstrap_floor_survives_cache_clear_and_denies_growth_below_it() {
         let mut lua = Lua::empty();
-        let expected = 3 * crate::jit::resources::LedgerRef::allocation_bytes();
+        let expected = 3 * crate::jit::resources::LedgerRef::allocation_bytes()
+            + crate::jit::RuntimeOwner::allocation_bytes();
         assert_eq!(lua.jit_stats().bootstrap_bytes, expected);
         assert_eq!(lua.accounted_memory(), lua.total_memory() + expected);
         lua.clear_jit_cache();

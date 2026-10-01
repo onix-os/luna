@@ -1,6 +1,6 @@
 //! Optional native execution configuration and per-state diagnostics.
 
-use std::{cell::RefCell, rc::Rc, sync::atomic::Ordering};
+use std::{cell::RefCell, sync::atomic::Ordering};
 
 use ahash::RandomState;
 use allocator_api2::vec::Vec;
@@ -558,7 +558,10 @@ impl Manager {
 
 #[derive(Clone, Collect)]
 #[collect(require_static)]
-pub(crate) struct Runtime(pub(crate) Rc<RefCell<Manager>>);
+pub(crate) struct Runtime(pub(crate) RuntimeOwner);
+
+pub(crate) type RuntimeOwner =
+    global_owner::GlobalShared<RefCell<Manager>, resources::HeaderCharge>;
 
 pub(crate) struct Prepared {
     #[cfg(all(
@@ -570,7 +573,16 @@ pub(crate) struct Prepared {
 
 impl Runtime {
     pub(crate) fn new() -> Self {
-        Self(Rc::new(RefCell::new(Manager::default())))
+        Self::try_new(Manager::default())
+            .unwrap_or_else(|_| std::alloc::handle_alloc_error(RuntimeOwner::allocation_layout()))
+    }
+
+    fn try_new(manager: Manager) -> Result<Self, allocator_api2::alloc::AllocError> {
+        let charge = resources::HeaderCharge::try_new(
+            manager.host.clone(),
+            RuntimeOwner::allocation_bytes(),
+        )?;
+        RuntimeOwner::try_new(RefCell::new(manager), charge).map(Self)
     }
 
     pub(crate) fn record_interpreter(&self, instructions: u32, executed: bool) {
@@ -869,6 +881,102 @@ impl Runtime {
 }
 
 #[cfg(test)]
+mod runtime_owner_tests {
+    use super::*;
+
+    #[test]
+    fn exact_charge_survives_clones_and_releases_after_final_runtime_drop() {
+        let runtime = Runtime::new();
+        let host = runtime.0.borrow().host.clone();
+        let expected = 3 * LedgerRef::allocation_bytes() + RuntimeOwner::allocation_bytes();
+        assert_eq!(
+            (host.accounted(), host.bootstrap_bytes(), host.current()),
+            (expected, expected, 0)
+        );
+        let peer = runtime.clone();
+        assert_eq!(RuntimeOwner::strong_count(&runtime.0), 2);
+        runtime.0.borrow_mut().config.hot_threshold = 17;
+        drop(runtime);
+        assert_eq!(host.accounted(), expected);
+        assert_eq!(peer.0.borrow().config.hot_threshold, 17);
+        peer.0.borrow_mut().clear_registrations();
+        assert_eq!(host.accounted(), expected);
+        drop(peer);
+        assert_eq!(
+            (host.accounted(), host.bootstrap_bytes(), host.current()),
+            (
+                LedgerRef::allocation_bytes(),
+                LedgerRef::allocation_bytes(),
+                0
+            )
+        );
+    }
+
+    #[test]
+    fn quota_and_underlying_refusal_drop_manager_and_retain_no_runtime_charge() {
+        for underlying in [false, true] {
+            let manager = Manager::default();
+            let host = manager.host.clone();
+            let baseline = host.accounted();
+            host.set_limit(baseline + RuntimeOwner::allocation_bytes() - usize::from(!underlying));
+            let result = if underlying {
+                global_owner::with_allocation_denied(|| Runtime::try_new(manager))
+            } else {
+                Runtime::try_new(manager)
+            };
+            assert!(result.is_err());
+            assert_eq!(
+                (host.accounted(), host.bootstrap_bytes(), host.current()),
+                (
+                    LedgerRef::allocation_bytes(),
+                    LedgerRef::allocation_bytes(),
+                    0
+                )
+            );
+            assert_eq!(host.refusals(), usize::from(!underlying));
+        }
+    }
+
+    #[test]
+    fn exact_ceiling_admits_and_cell_borrow_unwind_preserves_owner() {
+        let manager = Manager::default();
+        let host = manager.host.clone();
+        let expected = host.accounted() + RuntimeOwner::allocation_bytes();
+        host.set_limit(expected);
+        let runtime = Runtime::try_new(manager).unwrap();
+        assert_eq!(host.accounted(), expected);
+        let borrow = runtime.0.borrow();
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| runtime.0.borrow_mut()))
+                .is_err()
+        );
+        drop(borrow);
+        runtime.0.borrow_mut().clear_registrations();
+        assert_eq!(host.accounted(), expected);
+        drop(runtime);
+        assert_eq!(host.accounted(), LedgerRef::allocation_bytes());
+    }
+
+    #[test]
+    fn runtime_owner_remains_non_send_and_non_sync() {
+        trait AmbiguousSend<A> {
+            fn check() {}
+        }
+        impl<T: ?Sized> AmbiguousSend<()> for T {}
+        impl<T: ?Sized + Send> AmbiguousSend<u8> for T {}
+        trait AmbiguousSync<A> {
+            fn check() {}
+        }
+        impl<T: ?Sized> AmbiguousSync<()> for T {}
+        impl<T: ?Sized + Sync> AmbiguousSync<u8> for T {}
+        let _ = <RuntimeOwner as AmbiguousSend<_>>::check;
+        let _ = <RuntimeOwner as AmbiguousSync<_>>::check;
+        let _ = <Runtime as AmbiguousSend<_>>::check;
+        let _ = <Runtime as AmbiguousSync<_>>::check;
+    }
+}
+
+#[cfg(test)]
 mod policy_tests {
     use super::*;
 
@@ -972,18 +1080,23 @@ mod eviction_tests {
         });
         request(&runtime, 1).unwrap();
         let lease = runtime.lookup(1).unwrap();
-        let (host, counter, metadata, bytes) = {
+        let (host, counter, metadata, bytes, bootstrap) = {
             let manager = runtime.0.borrow();
             (
                 manager.host.clone(),
                 MappingCounter::new(manager.metadata.0.clone()),
                 manager.metadata.clone(),
                 runtime.usage(),
+                manager.host.bootstrap_bytes(),
             )
         };
         assert!(bytes > 0);
         runtime.0.borrow_mut().clear_registrations();
         drop(runtime);
+        assert_eq!(
+            host.bootstrap_bytes(),
+            bootstrap - RuntimeOwner::allocation_bytes() - LedgerRef::allocation_bytes()
+        );
         assert_eq!(counter.load(Ordering::Relaxed), bytes);
         assert_executable(&lease);
         assert!(matches!(

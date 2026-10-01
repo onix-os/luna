@@ -252,7 +252,7 @@ pub(super) fn run(snapshot: &Snapshot, slots: &mut [Slot], start: usize, budget:
 ))]
 mod tests {
     use super::*;
-    use std::{rc::Rc, sync::atomic::Ordering};
+    use std::sync::atomic::Ordering;
 
     fn snapshot(source: &[u8]) -> Snapshot {
         let mut lua = crate::Lua::empty();
@@ -551,7 +551,7 @@ mod tests {
             manager
                 .code
                 .insert(1, super::super::CachedCode { code, last_used: 0 });
-            let runtime = super::super::Runtime(Rc::new(std::cell::RefCell::new(manager)));
+            let runtime = super::super::Runtime::try_new(manager).unwrap();
             let lease = runtime.lookup(1).unwrap();
             if let Some(configuration) = configuration {
                 runtime.0.borrow_mut().configure(configuration);

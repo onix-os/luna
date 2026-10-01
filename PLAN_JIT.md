@@ -7505,6 +7505,23 @@ focused results are not yet full GNU/musl/selected-Miri acceptance.
 2. Header charges must reserve the same atomic total as payloads and remain held
    until after actual deallocation, not merely until payload destruction starts.
 
+### Decision — charge the runtime owner through the host root
+
+Replace the last runtime Rc with the existing exact-layout GlobalShared owner
+over RefCell<Manager>, retaining a bootstrap charge in its post-deallocation
+guard. RefCell remains non-Sync; GlobalShared requires both Send and Sync for
+transfer, preserving the old non-Send/non-Sync runtime. Root ledgers do not own
+the runtime, so retaining the root in its charge introduces no ownership cycle.
+
+Factor the existing root header admission into HeaderCharge::try_new and use it
+for both child ledgers and runtime ownership. Admit actual layout before Global
+allocation; quota/underlying refusal must drop the input manager, release its
+child owners and retain no runtime charge. A private fallible factory supports
+proof; existing infallible Lua constructors keep their allocation contract.
+The live-state floor becomes three ledger layouts plus the runtime layout, not
+zero after cache clear. This closes bootstrap owner accounting, not remaining
+Cranelift working buffers, allocator overhead or process RSS.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

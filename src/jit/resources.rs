@@ -19,6 +19,30 @@ pub(crate) struct HeaderCharge {
     bytes: usize,
 }
 
+impl HeaderCharge {
+    pub(super) fn try_new(ledger: LedgerRef, bytes: usize) -> Result<Self, AllocError> {
+        let root = MappingCounter::new(ledger).0;
+        let old = root
+            .current
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                current.checked_add(bytes).filter(|next| {
+                    !root.enforce_bootstrap || *next <= root.limit.load(Ordering::Relaxed)
+                })
+            })
+            .map_err(|_| {
+                root.refused();
+                AllocError
+            })?;
+        root.bootstrap.fetch_add(bytes, Ordering::Relaxed);
+        root.accounted_peak
+            .fetch_max(old + bytes, Ordering::Relaxed);
+        Ok(Self {
+            root: Some(root),
+            bytes,
+        })
+    }
+}
+
 impl Drop for HeaderCharge {
     fn drop(&mut self) {
         if let Some(root) = &self.root {
@@ -89,25 +113,7 @@ impl Ledger {
             return Err(AllocError);
         }
         let charge = if let Some(parent) = &parent {
-            let root = MappingCounter::new(parent.clone()).0;
-            let old = root
-                .current
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-                    current.checked_add(bytes).filter(|next| {
-                        !root.enforce_bootstrap || *next <= root.limit.load(Ordering::Relaxed)
-                    })
-                })
-                .map_err(|_| {
-                    root.refused();
-                    AllocError
-                })?;
-            root.bootstrap.fetch_add(bytes, Ordering::Relaxed);
-            root.accounted_peak
-                .fetch_max(old + bytes, Ordering::Relaxed);
-            HeaderCharge {
-                root: Some(root),
-                bytes,
-            }
+            HeaderCharge::try_new(parent.clone(), bytes)?
         } else {
             HeaderCharge {
                 root: None,
