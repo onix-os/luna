@@ -119,8 +119,8 @@ work. Each header contains only its source-PC constant, unsigned count-versus-
 budget test and conditional exhausted/body edge. Exhaustion preserves source PC
 and count; each operation body has only its own header as predecessor. Exact-
 counted trampoline/body records are snapshot-quota-charged before host compiler
-setup and can refuse with `ResourceLimit("entry path verification")`. CFG and
-compiler jump-table storage remain outside the incomplete ledger. These checks
+setup and can refuse with `ResourceLimit("entry path verification")`. Compiler
+jump-table storage remains outside the incomplete ledger. These checks
 do not independently establish opcode equivalence, alias/liveness, runtime
 materialization or compiler resource isolation.
 Source-region ranges additionally classify every physical block and branch.
@@ -145,6 +145,20 @@ These scans reuse the region map without new worklists and reject unknown value
 unions rather than infer foreign ownership. Binding does not independently prove
 every opcode's expression, optimizer correctness, runtime helper/GC behavior,
 alias/liveness or full compiler accounting.
+Standalone predecessor queries use a Luna-owned sorted edge vector charged to the
+snapshot ledger before allocation. Terminal branch destinations are counted
+before reservation; repeated destinations from one instruction are deduplicated
+without releasing retained capacity charges. Predecessor order matches Cranelift's
+instruction order, including unreachable and non-layout block queries. Entry,
+helper, transfer, comparison, loop and scalar guard checks use this graph.
+Verification dominance uses snapshot-charged node, iterative DFS stack and
+postorder vectors; only nodes remain after construction. Storage refusal reports
+`ResourceLimit("frontend dominance storage")`. Construction is limited to
+`64 * (DFG blocks + reserved raw predecessor edges + 1)` charged steps, refusing
+with `ResourceLimit("frontend dominance work")` before codegen. This bounds the
+analysis, not total compiler CPU time. Backend internals, frontend builder storage
+and fixed owner allocations remain outside the ledger. This is not complete
+compiler working-memory or RSS accounting.
 The retained, fallible PC-to-block map is charged to the snapshot ledger and
 can refuse with `ResourceLimit("frontend block map")` before compiler/host setup.
 Semantic checks are
@@ -152,8 +166,7 @@ vacuous only on guarded paths proven unreachable without queried-tag assumptions
 physical store coverage and record counts still apply. This does not prove full
 payload selection, operation equivalence, liveness, aliasing or complete typed SSA.
 Luna-owned store/input records and worklists use the snapshot ledger and can report
-`ResourceLimit("scalar tag verification")`; compiler CFG/dominator storage remains
-outside the current ledger. Record-envelope violations are compiler errors and
+`ResourceLimit("scalar tag verification")`. Record-envelope violations are compiler errors and
 never silently grow verification storage.
 
 Completed full and incremental GC cycles retire dead source registrations and
@@ -167,8 +180,11 @@ The disabled `service_jit()` fast path remains unchanged.
 - `max_code_bytes` bounds actual page-rounded JIT mappings, including the compiler's code/readonly/writable segments. Retired but pinned mappings remain charged until the last lease drops. Allocation failure frees partial mappings and leaves interpretation usable.
 - `max_metadata_bytes` independently bounds requested allocation layouts for weak registrations, tracking/code-index maps, pending identities, preparation ID buffers, native-entry flags and mapping records. Containers use a shared fallible allocator; retained capacity and temporary old/new growth are charged. Registration refusal leaves ordinary source loading/interpreting usable; metadata allocation refusal is typed `ResourceLimit("JIT metadata")`. Lowering this ceiling retires registrations, code and requests; existing closures continue interpreted, and new source loads can register after limits are raised. Active leases keep their entry flags/mapping records and remain charged until their final owner drops, even above a newly reduced quota. Ordinary cache clearing retains live source registrations.
 - Owned operation/constant snapshot vectors have a separate allocator and `max_snapshot_bytes` ceiling; their charges follow the vectors' actual lifetime and release on success, refusal or panic. `metadata_bytes`/`snapshot_bytes` report current requested container storage, and their peak fields retain the high-water reserved usage. `metadata_allocation_refusals` counts quota/underlying allocation refusals; `registration_refusals` counts optional source registrations declined on allocation pressure. Empty retired containers release capacity.
-- This is **not yet a complete compiler or combined-host ledger**. It excludes fixed owner/Arc/Rc headers, allocator overhead, Cranelift's internal/transient/retained allocations (including its provider's internal records) and process RSS. Luna's persistent entry flags and outer mapping-record storage use the metadata ledger; pinned mappings remain charged after retirement. Bounded unleased LRU eviction and fallible sparse-container compaction exist, but complete compiler accounting and combined-limit policy remain required before Phase 3/7 acceptance. Container limits are not an RSS or hostile-compiler ceiling.
-- Existing `Lua::total_memory()` and memory limits still describe the collector, not compiler/JIT memory. Configure native limits separately; do not treat GC metrics as a process memory ceiling.
+- Cached code uses a private strong-only shared owner whose count, allocator handle, padding and `Code` payload are one exact budgeted allocation. Allocation is fallible before publication; refusal frees the just-compiled module and does not evict a live peer. Cache retirement retains the charge until the final lease drops. This does not account runtime/bootstrap owners, compiler status Arc flags or provider boxes.
+- Metadata and snapshot allocators share a state-owned host ledger with page-rounded mappings. Parent and individual quota admission both precede allocation; temporary old/new growth and failed-provider rollback apply to the parent too. `accounted_jit_bytes`/`accounted_jit_peak_bytes` report current/high-water reservations across those categories; `host_allocation_refusals` counts parent quota refusals. Mapping pages do not consume the metadata quota.
+- `Lua::total_memory()` remains collector-only. Additive `Lua::accounted_memory()` includes collector allocations plus the charged JIT categories; without the JIT feature the two metrics are equal. `set_memory_limit` applies to accounted usage. JIT admission uses headroom refreshed at host/arena/GC boundaries, with typed `ResourceLimit("host memory")` from public preparation/service. Lowered limits deny growth without invalidating active leases. Removing a limit restores admission; individual JIT ceilings remain in force.
+- Synchronous/asynchronous finish checks reclaim idle cached code and collect twice before stopping an over-limit executor. They check before running more work, before final completion and before polling a parked foreign future. Manual `Executor::step` remains host-controlled. GC allocation within a slice can overshoot, and finalizer/host allocations are not made fallible by this policy.
+- This is **not yet a complete compiler ledger**. It excludes fixed owner/Arc/Rc headers, allocator overhead, Cranelift's internal/transient/retained allocations (including its provider's internal records) and process RSS. Luna's persistent entry flags and outer mapping-record storage use the shared ledgers; pinned mappings remain charged after retirement. Bounded unleased LRU eviction and fallible sparse-container compaction exist, but full compiler/fixed-owner accounting remains required before Phase 3/7 acceptance. Accounted limits are not an RSS or hostile-compiler ceiling.
 - `native_entries` counts real machine-code invocations, including immediate guard exits. `native_instructions` counts completed logical bytecodes, not CPU instructions. `interpreted_instructions` counts the reference VM's reported instructions, which exclude some transition opcodes. `interpreted_slices` counts completed slices that fetched an interpreted opcode. `hook_exits` counts slices kept interpreted with hooks enabled.
 - `code_lookups` counts eligible slice-local cache probes; `code_leases` counts successful owned leases, even when an entry is interpreted. A single VM slice reuses its lease across native/reference fragments, but repacks canonical registers for every invocation. Hotness observation remains per interpreted dispatch when no code is installed.
 - `helper_calls` counts scoped helper attempts, `helper_instructions` counts completed helper-backed bytecodes, and `helper_declines` counts effect-free fallback requests. Table/upvalue/allocation counters count successful accesses; table-through-upvalue operations include a successful upvalue read. These are real native helper paths, not the interpreter's opcode loop.
@@ -186,17 +202,18 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 6. Helper gateway signatures use opaque pointers and fixed-width immediate operands. The gateway catches Rust unwind payloads and returns an explicit panic exit; after native return, Rust resumes the same payload rather than converting it to Lua success or interpreter fallback. No helper invokes user callbacks, Lua code, frame transitions, the compiler, or collection. Rust `panic=abort` still aborts normally. A deliberately conflicting table borrow verifies the unwind profile returns through the generated frame and leaves the state reusable.
 7. Helpers advance the canonical PC before effects, restore it when declining before effects, and return at most one completed logical operation per call. Guard failures do not perform a table mutation, user callback, or Lua error before interpreter retry. Fresh metatable contents and interception/readonly flags are consulted on each access; no invalidation cache or table layout assumptions exist yet.
 8. Tests hold a code lease across cache retirement and verify memory returns to zero after the last lease drops. Scalar boundary tests compare every entry and budget against an independent Rust model. Heap tests compare per-slice fuel/state with full GC after every slice, prove heap counters, exercise weak tables, readonly/invalid-key typed errors, open/closed upvalues, Rust interception mutation, and reentrant callbacks. Extend this review for every new helper, cached assumption, or frame transition.
+9. The private cached-code owner has no weak handles or raw-pointer escape API. A checked `Cell` count governs immutable shared access; its marker preserves single-thread ownership. Construction obtains an initialized typed allocator-api2 box and transfers its allocation/allocator. Final destruction uses the same typed layout and allocator with a deallocation guard, including value-destructor unwind. Alias/alignment/count/identity/drop behavior is covered by selected Miri; generated-code safety still depends on the preceding ABI, source and lease checks.
 
 ## Verification and remaining work
 
-The expanded supervised heap campaign and case-limit fix (`3762300`)
+The fallible cached-code owner implementation (`c5ba20a`)
 passes `nix develop -c make jit-verify clippy jit-clippy` on x86-64 GNU and
-with `TARGET=x86_64-unknown-linux-musl`: each reports 4400 passing tests across
-422 suite results and 24 ignored tests. Selected pure-Rust/pure-IR Miri checks
-pass 211 tests across 25 selected suite results with default `MIRIFLAGS`; they do not execute
+with `TARGET=x86_64-unknown-linux-musl`: each reports 4625 passing tests across
+434 suite results and 24 ignored tests. Selected pure-Rust/pure-IR Miri checks
+pass 240 tests across 29 selected suite results with default `MIRIFLAGS`; they do not execute
 generated native code. Clippy retains the existing warning backlog, so these are
 not strict-warning acceptance. Raw revision-scoped evidence is stored locally in
-`target/jit-evidence/heap-expanded/`. Seeded scalar/admission campaigns additionally
+`target/jit-evidence/owner/`. Seeded scalar/admission campaigns additionally
 pass 4096 generated cases per platform, each checking 1641780 native invocations
 against the independent slice model; both platforms reuse the same four seeds.
 Separate six-family heap campaigns pass 96 cases per platform, comparing 6344

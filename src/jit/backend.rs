@@ -41,9 +41,11 @@ struct Memory {
 
 impl Memory {
     fn release(&mut self) {
+        let ledger = self.allocations.allocator().0.clone();
         for (mut provider, bytes) in self.allocations.drain(..) {
             unsafe { provider.free_memory() };
             self.total.fetch_sub(bytes, Ordering::Relaxed);
+            ledger.release_external(bytes);
         }
         self.allocations = BudgetVec::new_in(self.allocations.allocator().clone());
     }
@@ -76,9 +78,21 @@ impl JITMemoryProvider for Memory {
                 self.quota_refused.store(true, Ordering::Relaxed);
                 io::Error::other("native memory quota exhausted")
             })?;
+        if self
+            .allocations
+            .allocator()
+            .0
+            .reserve_external(bytes)
+            .is_err()
+        {
+            self.total.fetch_sub(bytes, Ordering::Relaxed);
+            self.quota_refused.store(true, Ordering::Relaxed);
+            return Err(io::Error::other("host memory quota exhausted"));
+        }
         #[cfg(test)]
         if self.failure == Failure::Allocate {
             self.total.fetch_sub(bytes, Ordering::Relaxed);
+            self.allocations.allocator().0.release_external(bytes);
             self.unavailable.store(true, Ordering::Relaxed);
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
@@ -94,6 +108,7 @@ impl JITMemoryProvider for Memory {
             Err(error) => {
                 unsafe { provider.free_memory() };
                 self.total.fetch_sub(bytes, Ordering::Relaxed);
+                self.allocations.allocator().0.release_external(bytes);
                 self.unavailable.store(true, Ordering::Relaxed);
                 Err(error)
             }
@@ -174,6 +189,11 @@ impl Code {
 #[cfg(test)]
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum Failure {
+    RefuseOwnerStorage,
+    RefuseOwnerAllocation,
+    RefusePredecessors,
+    RefuseDominanceStorage,
+    RefuseDominanceWork,
     #[default]
     None,
     Allocate,
@@ -492,6 +512,25 @@ pub(super) fn compile_in(
         .block_params(context.func.layout.entry_block().unwrap())
         .try_into()
         .map_err(|_| JitError::Compilation("invalid native entry parameters".into()))?;
+    #[cfg(test)]
+    if failure == Failure::RefusePredecessors {
+        let ledger = &snapshot.operations.allocator().0;
+        ledger.set_limit(ledger.current());
+    }
+    #[cfg(test)]
+    if failure == Failure::RefuseDominanceStorage {
+        let allocator = snapshot.operations.allocator();
+        let baseline = allocator.0.current();
+        let graph = super::preds::Predecessors::new(&context.func, allocator.clone())?;
+        let limit = allocator.0.current();
+        drop(graph);
+        assert_eq!(allocator.0.current(), baseline);
+        allocator.0.set_limit(limit);
+    }
+    #[cfg(test)]
+    if failure == Failure::RefuseDominanceWork {
+        stores.refuse_dominance_work();
+    }
     stores.verify(
         &context.func,
         parameters[0],
@@ -3178,6 +3217,88 @@ mod memory_tests {
     }
 
     #[test]
+    fn predecessor_quota_refuses_before_codegen_and_releases_storage() {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype = crate::FunctionPrototype::compile(
+                ctx,
+                "predecessor-quota",
+                b"local x=1 local y=x+2 return y",
+            )
+            .unwrap();
+            Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
+        });
+        let ledger = snapshot.operations.allocator().0.clone();
+        let baseline = ledger.current();
+        let total = Arc::new(AtomicUsize::new(0));
+        let result = compile_in(
+            &snapshot,
+            total.clone(),
+            8 * 1024 * 1024,
+            BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
+            super::super::work::Limits::from(&super::super::JitConfig::default()),
+            Failure::RefusePredecessors,
+        );
+        assert!(
+            matches!(
+                result,
+                Err(JitError::ResourceLimit("frontend predecessor graph"))
+            ),
+            "{:?}",
+            result.as_ref().err()
+        );
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+        assert_eq!(ledger.current(), baseline);
+        assert_eq!(ledger.refusals(), 1);
+    }
+
+    fn dominance_refusal(failure: Failure, expected: &'static str, refusals: usize) {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype = crate::FunctionPrototype::compile(
+                ctx,
+                "dominance-quota",
+                b"local x=1 local y=x+2 return y",
+            )
+            .unwrap();
+            Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
+        });
+        let ledger = snapshot.operations.allocator().0.clone();
+        let baseline = ledger.current();
+        let total = Arc::new(AtomicUsize::new(0));
+        let result = compile_in(
+            &snapshot,
+            total.clone(),
+            8 * 1024 * 1024,
+            BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
+            super::super::work::Limits::from(&super::super::JitConfig::default()),
+            failure,
+        );
+        assert!(
+            matches!(result, Err(JitError::ResourceLimit(reason)) if reason == expected),
+            "{:?}",
+            result.as_ref().err()
+        );
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+        assert_eq!(ledger.current(), baseline);
+        assert_eq!(ledger.refusals(), refusals);
+    }
+
+    #[test]
+    fn dominance_storage_refuses_before_codegen_and_releases_storage() {
+        dominance_refusal(
+            Failure::RefuseDominanceStorage,
+            "frontend dominance storage",
+            1,
+        );
+    }
+
+    #[test]
+    fn dominance_work_refuses_before_codegen_and_releases_storage() {
+        dominance_refusal(Failure::RefuseDominanceWork, "frontend dominance work", 0);
+    }
+
+    #[test]
     fn entry_path_quota_refuses_before_host_setup_and_releases_storage() {
         let mut lua = crate::Lua::empty();
         let snapshot = lua.enter(|ctx| {
@@ -4136,6 +4257,49 @@ mod memory_tests {
             limit: pages * page as usize,
             page: page as usize,
         }
+    }
+
+    #[test]
+    fn host_page_quota_preserves_prior_segment_and_releases_parent_charges() {
+        let host = super::super::resources::Ledger::new(usize::MAX);
+        let metadata = super::super::resources::Ledger::child(65536, host.clone());
+        let mut memory = memory(4);
+        memory.allocations = BudgetVec::new_in(BudgetAllocator(metadata.clone()));
+        memory.allocations.try_reserve_exact(2).unwrap();
+        let baseline = host.current();
+        host.set_limit(baseline + memory.page);
+        memory.allocate(1, 1, JITMemoryKind::Executable).unwrap();
+        assert_eq!(host.current(), baseline + memory.page);
+        assert_eq!(metadata.current(), baseline);
+        assert!(memory.allocate(1, 1, JITMemoryKind::Executable).is_err());
+        assert_eq!(memory.allocations.len(), 1);
+        assert_eq!(memory.total.load(Ordering::Relaxed), memory.page);
+        assert_eq!(host.current(), baseline + memory.page);
+        assert_eq!(host.refusals(), 1);
+        assert!(memory.quota_refused.load(Ordering::Relaxed));
+        assert!(!memory.metadata_refused.load(Ordering::Relaxed));
+        unsafe {
+            memory.free_memory();
+            memory.free_memory();
+        }
+        assert_eq!((host.current(), metadata.current()), (0, 0));
+        assert_eq!(memory.total.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn host_page_reservation_rolls_back_on_provider_denial() {
+        let host = super::super::resources::Ledger::new(usize::MAX);
+        let metadata = super::super::resources::Ledger::child(65536, host.clone());
+        let mut memory = memory(4);
+        memory.allocations = BudgetVec::new_in(BudgetAllocator(metadata.clone()));
+        memory.failure = Failure::Allocate;
+        assert!(memory.allocate(1, 1, JITMemoryKind::Executable).is_err());
+        assert_eq!(memory.total.load(Ordering::Relaxed), 0);
+        assert_eq!(host.current(), metadata.current());
+        assert!(host.peak() >= metadata.current() + memory.page);
+        assert_eq!(host.refusals(), 0);
+        drop(memory);
+        assert_eq!((host.current(), metadata.current()), (0, 0));
     }
 
     #[test]

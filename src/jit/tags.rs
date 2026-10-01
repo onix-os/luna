@@ -1,14 +1,13 @@
 use allocator_api2::vec::Vec;
-use cranelift_codegen::{
-    dominator_tree::DominatorTree,
-    flowgraph::ControlFlowGraph,
-    ir::{
-        condcodes::IntCC, types, Block, BlockArg, Function, Inst, InstructionData, MemFlagsData,
-        Opcode, Value, ValueDef,
-    },
+use cranelift_codegen::ir::{
+    condcodes::IntCC, types, Block, BlockArg, Function, Inst, InstructionData, MemFlagsData,
+    Opcode, Value, ValueDef,
 };
 
-use super::{abi, flow::FlowGraph, resources::BudgetAllocator, JitError};
+use super::{
+    abi, dominance::Dominators, flow::FlowGraph, preds::Predecessors, resources::BudgetAllocator,
+    JitError,
+};
 use crate::opcode::{Operation, RCIndex};
 
 const ALL: u8 = (1 << (abi::REFERENCE + 1)) - 1;
@@ -260,6 +259,8 @@ pub(super) struct Stores {
     expected_inputs: Option<usize>,
     expected_float_inputs: Option<usize>,
     overflowed: bool,
+    #[cfg(test)]
+    dominance_work: Option<usize>,
 }
 
 fn refused() -> JitError {
@@ -391,7 +392,14 @@ impl Stores {
             expected_inputs: Some(input_capacity),
             expected_float_inputs: Some(float_count),
             overflowed: false,
+            #[cfg(test)]
+            dominance_work: None,
         })
+    }
+
+    #[cfg(test)]
+    pub fn refuse_dominance_work(&mut self) {
+        self.dominance_work = Some(0);
     }
 
     #[cfg(test)]
@@ -604,10 +612,16 @@ impl Stores {
         if found == 0 && self.inputs.is_empty() {
             return Ok(());
         }
-        let mut cfg = ControlFlowGraph::new();
-        cfg.compute(function);
-        let mut dominators = DominatorTree::new();
-        dominators.compute(function, &cfg);
+        let cfg = Predecessors::new(function, self.records.allocator().clone())?;
+        #[cfg(not(test))]
+        let dominators = Dominators::new(function, &cfg, self.records.allocator().clone())?;
+        #[cfg(test)]
+        let dominators = match self.dominance_work {
+            Some(work) => {
+                Dominators::with_limit(function, &cfg, self.records.allocator().clone(), work)?
+            }
+            None => Dominators::new(function, &cfg, self.records.allocator().clone())?,
+        };
         let mut pending = Vec::new_in(self.records.allocator().clone());
         pending
             .try_reserve_exact(function.dfg.num_values())
@@ -1014,14 +1028,15 @@ impl Stores {
         if blocks.len() != snapshot.operations.len() {
             return Err(invalid());
         }
-        let mut cfg = ControlFlowGraph::new();
-        if self
+        let cfg = if self
             .transfer_edges
             .iter()
             .any(|record| record.split.is_some())
         {
-            cfg.compute(function);
-        }
+            Predecessors::new(function, self.records.allocator().clone())?
+        } else {
+            Predecessors::empty(self.records.allocator().clone())
+        };
         let mut writes = 0usize;
         let mut edges = self.transfer_edges.iter();
         for (pc, &op) in snapshot.operations.iter().enumerate() {
@@ -1422,10 +1437,11 @@ impl Stores {
         if blocks.len() != snapshot.operations.len() {
             return Err(invalid());
         }
-        let mut cfg = ControlFlowGraph::new();
-        if !self.preps.is_empty() || !self.loops.is_empty() {
-            cfg.compute(function);
-        }
+        let cfg = if !self.preps.is_empty() || !self.loops.is_empty() {
+            Predecessors::new(function, self.records.allocator().clone())?
+        } else {
+            Predecessors::empty(self.records.allocator().clone())
+        };
         let mut preps = self.preps.iter();
         let mut loops = self.loops.iter();
         for (pc, &op) in snapshot.operations.iter().enumerate() {
@@ -1666,10 +1682,11 @@ impl Stores {
         if blocks.len() != snapshot.operations.len() {
             return Err(invalid());
         }
-        let mut cfg = ControlFlowGraph::new();
-        if !self.comparisons.is_empty() {
-            cfg.compute(function);
-        }
+        let cfg = if !self.comparisons.is_empty() {
+            Predecessors::new(function, self.records.allocator().clone())?
+        } else {
+            Predecessors::empty(self.records.allocator().clone())
+        };
         let mut records = self.comparisons.iter();
         for (pc, &op) in snapshot.operations.iter().enumerate() {
             let (left, right, skip_if) = match op {
@@ -2443,7 +2460,7 @@ fn same_value(function: &Function, left: Value, right: Value) -> bool {
     function.dfg.resolve_aliases(left) == function.dfg.resolve_aliases(right)
 }
 
-fn single_predecessor(cfg: &ControlFlowGraph, block: Block, inst: Inst) -> bool {
+fn single_predecessor(cfg: &Predecessors, block: Block, inst: Inst) -> bool {
     let mut predecessors = cfg.pred_iter(block);
     predecessors
         .next()
@@ -2453,7 +2470,7 @@ fn single_predecessor(cfg: &ControlFlowGraph, block: Block, inst: Inst) -> bool 
 
 fn loop_split(
     function: &Function,
-    cfg: &ControlFlowGraph,
+    cfg: &Predecessors,
     inst: Inst,
     inputs: &[(Value, Value)],
     part: super::shape::LoopExpression,
@@ -2573,8 +2590,8 @@ fn scalar_transfer_writes(op: Operation, snapshot: &super::ir::Snapshot) -> Opti
 
 struct Analysis<'a> {
     function: &'a Function,
-    cfg: &'a ControlFlowGraph,
-    dominators: &'a DominatorTree,
+    cfg: &'a Predecessors,
+    dominators: &'a Dominators,
     slots: Value,
     registers: usize,
     pending: Vec<Value, BudgetAllocator>,
@@ -3008,6 +3025,7 @@ mod tests {
             },
             records,
             overflowed: false,
+            dominance_work: None,
         };
         let mut function = Function::new();
         function
@@ -3249,7 +3267,8 @@ mod tests {
             write(builder, stores, slots, tag, NUMERIC);
             builder.ins().return_(&[]);
             let ledger = &stores.records.allocator().0;
-            ledger.set_limit(ledger.current());
+            let (_, working) = Dominators::storage_bytes(builder.func.dfg.num_blocks());
+            ledger.set_limit(ledger.current() + working);
         });
         assert!(matches!(
             result,
@@ -3266,7 +3285,8 @@ mod tests {
             builder.ins().return_(&[]);
             let ledger = stores.records.allocator().0.clone();
             let pending = builder.func.dfg.num_values() * std::mem::size_of::<Value>();
-            let peak = ledger.current() + pending;
+            let (nodes, working) = Dominators::storage_bytes(builder.func.dfg.num_blocks());
+            let peak = ledger.current() + working.max(nodes + pending);
             ledger.set_limit(peak);
             retained = Some((ledger, peak));
         });

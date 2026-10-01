@@ -557,6 +557,53 @@ sensitive to bypassing the check. Full GNU/musl gates, selected pure Miri and
 scalar/admission campaigns pass. This does not complete opcode/source-map,
 runtime helper/GC/alias/liveness, compiler accounting or Phase 3 acceptance.
 
+Budgeted physical predecessor graphs (`e5af701`) replace standalone predecessor
+CFG allocations in entry/helper/transfer/comparison/loop and scalar guard checks.
+The sorted edge vector reserves raw terminal-destination count before allocation,
+deduplicates by target/instruction and retains capacity charges. Five pure graph
+fixtures (including 64 cyclic/layout-order cases) match Cranelift; quota/global
+allocation/malformed-target rollback and native refusal before codegen pass.
+Budget-bypass mutations fail the accounting oracles. Full GNU/musl, selected Miri
+and unchanged scalar/heap campaigns pass. Subsequent dominance accounting is
+described below; backend internals, fixed owners and combined-host accounting
+remain open. Phase 3 is not complete.
+
+Budgeted dominance (`cdb9001`) replaces the remaining verification-only Cranelift
+CFG/tree with snapshot-charged nodes, iterative DFS stack and postorder storage.
+Immediate dominators use a bounded reverse-postorder fixed point; construction
+refuses work beyond `64 * (DFG blocks + raw predecessor capacity + 1)` before
+codegen. Eight pure fixtures and two backend refusals cover defined Cranelift
+agreement, quota/global-allocation rollback, all construction work prefixes and
+zero generated mappings on refusal. Both storage/work bypass mutations are
+detected. Full GNU/musl gates pass 4480 tests each; selected Miri passes 224 tests
+and unchanged supervised scalar/heap campaigns pass. This covers owned
+verification dominance, not backend/frontend-builder allocation, compiler CPU
+isolation, fixed owners, combined-host limits or Phase 3/release acceptance.
+
+Shared host admission (`a81ca75`) attaches metadata/snapshot quotas and
+page-rounded mappings to one state-owned parent ledger. Parent and individual
+admission precede allocation, including old/new growth; rollback and active-lease
+retention are tested. Additive `accounted_memory` preserves `total_memory` as GC
+only. Existing host limits use accounted usage and refreshed GC headroom for JIT
+admission. Sync/async finish reclaims idle code and checks final completion and
+foreign-await boundaries. Exact combined peak/one-byte-short refusal, same-source
+recovery, state isolation, atomic parent sharing and deliberate bypass mutations
+pass. Full GNU/musl gates pass 4580 tests each; selected Miri passes 232 tests.
+This enforces charged categories, not compiler-internal/fixed-owner allocations,
+per-GC-allocation limits or RSS. Phase 3/release acceptance remains incomplete.
+
+Fallible cached-code ownership (`c5ba20a`) charges the exact count/allocator/
+padding/`Code` allocation to metadata and the shared parent. A private strong-only
+owner preserves immutable leases, pointer identity and eviction count semantics;
+typed quota/underlying-allocation refusal before publication frees only the new
+module. Eight pure/Miri fixtures cover lifetime, aliasing, alignment, checked
+count, panic cleanup and reference-model agreement. The installation fixture
+preserves a native peer and restores the same refused source after reset.
+Budget/reclamation bypass mutations are detected. Full GNU/musl gates pass 4625
+tests each; selected Miri passes 240 tests. Runtime/bootstrap owners, status Arc
+flags, provider boxes and compiler buffers remain open; this does not complete
+fixed-owner/compiler accounting or Phase 3/release acceptance.
+
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
@@ -6058,6 +6105,619 @@ mix timings/profiles with builds or tests.
 - `Makefile` — bounded default heap case count forwarded to recursive Make.
 - `JIT.md`, `PLAN_JIT.md` — exact acceptance scope and open obligations.
 - `target/jit-evidence/heap-expanded/` — local raw revision-scoped artifacts.
+
+### Budgeted physical predecessor graph decision
+
+Timing preflight found a live Molla cargo/test job; no benchmark/profile may run
+alongside it. The current opt-level-3 benchmark build completed without timing.
+Proceed with controllable compiler accounting: replace standalone Cranelift CFG
+allocations used only for predecessor queries with a Luna-owned, quota-charged
+sorted edge vector. Match terminal-branch predecessor semantics, instruction-order
+iteration and duplicate-destination deduplication; retain raw edge capacity charges.
+Use the graph in entry/helper/transfer/loop/comparison and scalar guard queries.
+Cranelift CFG/dominator structures needed by dominator computation remain outside
+the ledger, as do backend internals and fixed owners; this is not complete
+compiler/RSS accounting. Differential graph fixtures, quota/allocation rollback
+and native refusal-before-mapping tests must precede acceptance. No performance
+gain is claimed without an uncontended matched measurement.
+
+### Predecessor accounting and mutation review
+
+Five pure graph tests match Cranelift predecessor order/sets for duplicate
+branches/tables, sparse and unused blocks, unreachable islands and 64 deterministic
+cyclic/layout-order fixtures. They check exact retained-capacity charges, empty
+zero-quota construction, quota and underlying allocation refusal, malformed-target
+rollback and final zero usage. One actual backend test exhausts the snapshot
+ledger before graph construction and requires the predecessor-specific refusal,
+zero native mapping bytes and exact snapshot baseline restoration.
+
+Temporarily using a fresh unlimited ledger instead of the caller's allocator
+failed four pure tests (empty graph passed) and the native refusal test; both Make
+lanes exited 2. The native test distinguished later scalar-workspace refusal from
+the required earlier predecessor refusal. The shared allocator was restored after
+the exact owned mutation job completed. No corrupted native code was executed.
+Logs: `/tmp/luna-jit-preds-bypass-pure.log` and
+`/tmp/luna-jit-preds-bypass-backend.log`. Pure graph tests join selected Miri; the
+backend refusal fixture constructs a native module and is not in that Miri lane.
+
+The opt-level-3 benchmark binary built at clean revision `da18229` is frozen under
+`target/jit-evidence/preds/benchmark-baseline/` with its hash/build log. It has not
+been timed; global preflight still observes unrelated Molla builds/tests.
+
+### Budgeted predecessor graph acceptance session (2026-10-01)
+
+## Goal
+Continue full plan implementation on `feat/native-jit`: prepare matched current
+performance artifacts and reduce controllable compiler-accounting gaps. The
+previous goal turn made progress with expanded lifecycle coverage and acceptance.
+
+## Instructions
+Use Nix/Make and patch tools, keep unsigned title-only incremental commits, and
+preserve all final requirements and frozen performance thresholds. Global timing
+guards include unrelated projects; do not stop their jobs or silently ignore them.
+
+## Discoveries
+- Cranelift predecessor sets are keyed by the terminal branch instruction;
+  repeated destinations from that instruction count once, in instruction order.
+  A sorted budgeted vector reproduces those queries without uncharged standalone
+  CFG forests. Raw capacity remains charged after deduplication.
+- Dominator computation still needs Cranelift CFG/tree storage. Replacing query
+  graphs does not establish complete compiler memory, fixed-owner or RSS bounds.
+- Initial global preflight observed Molla tests. After owned acceptance jobs
+  completed, a fresh preflight observed an unrelated `make run` (PID 2718237).
+  Seven known sleeping provider orphans remained PPID 1 with zero CPU ticks.
+  No benchmark/profile was launched; no other process was stopped.
+
+## Accomplished
+- Source changes committed separately at `e5af701`. Six tests cover five pure
+  graph fixtures and native predecessor-specific refusal before codegen/mapping.
+  Temporary unlimited-ledger mutation failed four pure tests and the native
+  refusal test; shared allocation was restored before focused acceptance.
+- Full owned session `98103` completed GNU and musl with exit 0: **4430 passing
+  tests / 422 suite results / 24 ignored per platform**. Existing Clippy warnings
+  remain; no new predecessor-module warnings or strict acceptance is claimed.
+- Miri session `95612` completed with exit 0: **216 tests / 26 suite results /
+  0 ignored**, pinned nightly 2026-08-16 / rustc `67854e511`, default empty flags.
+  Five graph tests join the pure lane; generated code and native module refusal
+  are not executed under Miri.
+- Supervised session `86202` completed all four platform/workload lanes with
+  exit 0. Each platform passes **4096 scalar/admission cases / 1641780 kernel
+  invocations / 4758522 native instructions**, and **96 heap cases / 6344 main
+  slices / 725 yields / 1633 callbacks / 96 retirements / 964 host reads /
+  2809 userdata observations / 65297 native instructions**. Both platforms reuse
+  the same seeds/programs, not independently unique-program counts.
+- Baseline opt-level-3 benchmark build `96411` completed at clean `da18229`.
+  Candidate build `32524` completed at `e5af701`. Frozen binaries, source IDs,
+  hashes and build logs are in `target/jit-evidence/preds/benchmark-baseline/`
+  and `benchmark-candidate/`; neither was timed.
+- Revision-scoped focused/mutation/full/Miri/smoke/long-run artifacts, recursive
+  source hashes and fresh timing preflight are archived in
+  `target/jit-evidence/preds/`. Hashes match after all gates. All owned jobs,
+  including the abandoned broad source-location search, are terminal.
+- No performance improvement, ARM/hosted run or whole-plan acceptance is claimed.
+
+## Next Steps
+- Measure/profile the frozen matched artifacts only after fresh global pre/post
+  contention guards pass; preserve the current timing refusal as such, not a
+  performance result. Unmet runtime/shipping thresholds still require work.
+- Continue controllable dominance/compiler/fixed-owner and combined-host
+  accounting, runtime/helper/source-map/GC/alias/liveness review, broader guard
+  combinations and native platform evidence. The full goal remains active.
+
+## Relevant Files
+- `src/jit/preds.rs` — charged sorted terminal-edge graph and pure fixtures.
+- `src/jit/tags.rs`, `entry_flow.rs`, `helper_flow.rs` — budgeted query integration.
+- `src/jit/backend.rs` — predecessor quota hook and no-mapping refusal test.
+- `src/jit/resources.rs` — test-only underlying allocation-failure setter.
+- `Makefile` — predecessor targets and selected pure Miri wiring.
+- `JIT.md`, `PLAN_JIT.md` — accepted scope and remaining obligations.
+- `target/jit-evidence/preds/` — local raw evidence and untimed benchmark binaries.
+
+### Budgeted dominance analysis decision
+
+Replace the two remaining verification-only Cranelift CFG/dominator allocations
+with a Luna-owned immediate-dominator analysis. Reserve node, DFS stack and
+postorder vectors through the snapshot allocator before use. Traverse terminal
+successors iteratively, then compute immediate dominators in reverse postorder
+with bounded intersection/fixed-point work. Charge construction work against
+`64 * (DFG blocks + reserved raw predecessor edges + 1)` and refuse exhaustion
+before codegen; this is a derived admission ceiling, not runtime fuel or hard
+compiler CPU isolation. Preserve block self-dominance, reachability and immediate
+dominators against the pinned Cranelift reference, including irreducible cycles,
+duplicate destinations, sparse IDs and unreachable blocks. Retain only the node
+vector after construction and release temporary storage on every error. Backend
+internals, frontend builder allocations and fixed owners remain outside the
+ledger. Global timing preflight still observes unrelated `make run`; no new
+benchmark/profile or gain is claimed.
+
+### Unreachable dominance comparison discovery
+
+The first differential fixture found Cranelift returning true for two different
+unreachable blocks: its interval comparison uses default interval values, while
+its API states cross-block unreachable dominance is ill defined. Compare exact
+reachability/idoms for all blocks and exact dominance for reachable pairs; retain
+explicit self-dominance and reject other unreachable pairs in Luna's analysis.
+Production region validation checks reachability first, and scalar guard walking
+uses immediate dominators, so no reliance on undefined unreachable dominance is
+introduced or removed. This is a reference-fixture correction, not a claimed
+runtime misexecution or an upstream security defect.
+
+### Progress checkpoint after context recovery (2026-10-01)
+
+## Goal
+Implement this plan on `feat/native-jit`; the plan itself is already written.
+The overall implementation remains active and has no release acceptance.
+
+## Instructions
+Use Makefile tasks through the repo-native Nix environment, patch tools for
+edits, and incremental unsigned, title-only Conventional Commits. Preserve
+acceptance thresholds and report incomplete work without claiming success.
+
+## Discoveries
+- The new dominance analysis charges storage before the existing scalar
+  verification workspace. Two workspace-specific quota fixtures now refuse at
+  the earlier stage; their budgets need adjustment while preserving the exact
+  scalar-workspace error and rollback assertions.
+- The five pure dominance fixtures pass, including comparison against the
+  pinned Cranelift reference for defined reachability/dominance behavior.
+- No Engram tools are available in this environment. This checkpoint retains
+  session context in the plan instead; the memory registry has no Luna match.
+
+## Accomplished
+- Verified live branch, worktree and commits. Latest accepted source is
+  `e5af701`, followed by acceptance documentation `0d80b37`.
+- That accepted revision passed GNU and musl gates: 4430 tests each, plus 216
+  selected Miri tests and the supervised scalar and heap campaigns recorded
+  above. These counts do not validate the current uncommitted dominance work.
+- Budgeted dominance is integrated locally but uncommitted. The latest focused
+  run passed its five pure tests, then passed 35 scalar-tag tests and failed two
+  quota fixtures. The boundary target did not run after the failure.
+- All three owned dominance test jobs are terminal; no current performance
+  result or completed full-implementation claim is made.
+
+## Next Steps
+- Adjust the two quota fixtures to admit dominance storage, preserving their
+  original scalar-workspace-specific refusal and cleanup oracles.
+- Add backend dominance storage/work refusal evidence, selected Miri wiring,
+  and mutation-sensitive coverage; rerun focused gates before a source commit.
+- Run full GNU, musl, selected Miri and supervised campaigns on that revision.
+- Remaining release work includes performance gates, compiler/combined-host
+  accounting, broader safety review and actual ARM64/platform evidence.
+
+## Relevant Files
+- `src/jit/dominance.rs` — uncommitted budgeted dominance implementation/tests.
+- `src/jit/tags.rs` — integration and the two failing workspace quota fixtures.
+- `src/jit/entry_flow.rs`, `src/jit/preds.rs`, `src/jit/mod.rs` — integration.
+- `Makefile` — current pure dominance target; further acceptance wiring pending.
+- `/tmp/luna-jit-dominance-integrated.log` — terminal focused-run failure evidence.
+- `PLAN_JIT.md` — detailed plan, acceptance history and this progress checkpoint.
+
+### Scalar-workspace quota fixture adjustment
+
+Dominance admission precedes scalar verification worklists, so the original
+fixture limits now refuse at the newly charged stage. Budget the dominance
+construction peak, then the retained nodes plus pending worklist, while keeping
+the exact `scalar tag verification` error, zero final charges, exact peak and
+one allocation refusal assertions. The new backend fixtures independently pin
+dominance storage/work errors and require zero generated mappings. Work refusal
+does not increment allocator-refusal counters. All injected work limits are
+per-`Stores`, test-only state; no process-global mutation knob is introduced.
+
+### Dominance admission oracle sensitivity
+
+The focused GNU gate passes eight pure analysis fixtures, two backend refusal
+fixtures, all 37 scalar-tag fixtures and the boundary/resource targets. The
+Cranelift differential fixture covers 256 seeded graphs; construction-prefix
+refusals cover DFS and fixed-point/intersection work, exact storage admission and
+one-byte-short refusal, three partial allocator failures, non-layout targets and
+empty zero-quota analysis. Existing Clippy warning backlog remains unchanged.
+
+Two temporary mutations were run to terminal before restoration. Disabling work
+charging made two pure fixtures and the backend work refusal fail. Replacing the
+snapshot allocator with an independent unlimited ledger made four pure fixtures
+and the backend storage refusal fail. In the latter case backend refusal moved
+to scalar verification, demonstrating why the exact stage/error matters. No
+corrupted native code was executed. Raw logs are in
+`target/jit-evidence/dominance/`; full platform/Miri acceptance is still pending.
+
+### Combined-host accounting follow-up routing
+
+Live inspection after dominance acceptance confirms that JIT mapping,
+snapshot and metadata usage have separate counters in `Lua::jit_stats` and
+`Runtime`; `service_jit` creates an owned snapshot and invokes `Runtime::compile`
+outside the arena. The existing `finish`/`finish_async` ceiling checks call
+`total_memory` between slices. That public metric is explicitly collector-tracked
+allocation only and excludes JIT containers, mappings and compiler-owned storage;
+the current ceiling therefore does not enforce combined collector/JIT usage.
+Follow-up host-limit work must preserve that metric's public contract while
+reviewing service/preparation admission, retained
+leases and config changes, rather than silently relabel GC metrics or mistake
+snapshot quotas for a combined host ceiling. No combined-limit implementation
+or acceptance is claimed by this dominance change.
+
+### Budgeted dominance acceptance session (2026-10-01)
+
+## Goal
+Continue the full implementation on `feat/native-jit` by replacing uncharged
+verification dominance graphs. The overall goal remains active and incomplete.
+
+## Instructions
+Use repo-native Make/Nix gates, patches rather than Python, incremental unsigned
+title-only Conventional Commits and unchanged acceptance thresholds. Do not run
+timings alongside unrelated builds/tests/profiles or ignore arbitrary make jobs.
+
+## Discoveries
+- `total_memory` is collector allocation only; its documented exclusion of JIT
+  storage must survive combined-host limit work. The current between-slice
+  memory ceiling does not enforce combined collector/JIT usage.
+- Newly charged dominance construction changes quota-fixture admission order.
+  The original scalar-workspace-specific errors and cleanup/peak checks remain
+  intact after budgeting that preceding stage.
+- Only reachable-pair dominance is well-defined in the reference. Reachability
+  and immediate dominators still match across every block in 256 seeded graphs.
+- After all owned gates/builds became terminal, fresh global preflight found
+  unrelated `make run` PID 2878331. No timings/profiles were run or gains claimed.
+
+## Accomplished
+- Source committed separately at `cdb9001`: eight pure fixtures, two backend
+  refusal fixtures, charged dominance integration and selected Miri wiring.
+- Focused job `7224` passed; work-bypass job `83805` and storage-bypass job
+  `39368` each detected the intended pure/backend failures. Their mutations
+  were restored after terminal status; restored job `56963` passed and the
+  original dominance source hash matched. No corrupted native code executed.
+- Full job `37764` completed GNU and musl, both exit 0: **4480 passing tests /
+  422 suite results / 24 ignored tests** per target. Existing Clippy warnings
+  remain; this is not strict-warning acceptance.
+- Miri job `26686` completed exit 0: **224 passing tests / 27 suite results / 0
+  ignored**, pinned nightly 2026-08-16, rustc `67854e511`, default `MIRIFLAGS`.
+  Selected Miri does not execute generated code or heap/native campaigns.
+- Campaign job `49145` completed all four platform/workload lanes exit 0.
+  Scalar/admission: **4096 cases / 1641780 native invocations / 4758522 native
+  instructions** per platform. Heap: **96 cases / 6344 main slices / 725 yields /
+  1633 callbacks / 96 retirements / 964 host reads / 2809 userdata observations /
+  65297 native instructions** per platform. Helper counters: **22144 table reads /
+  7393 table writes / 1655 allocations / 21701 upvalue reads / 996 upvalue writes /
+  1179 declines**. Platforms reuse the same seeds/programs, not independent
+  unique-program coverage; nested/finalizer internal slices are not paired.
+- Untimed opt-level-3 candidate build `35831` completed at `cdb9001`, exit 0;
+  binary/source ID/build log/hash retained. This is not performance evidence.
+- Raw focused/mutation/full/Miri logs, exact campaign/smoke artifact directories,
+  source hashes and aggregates are under `target/jit-evidence/dominance/`.
+  Recursive source and frozen binary hashes verified after all jobs terminated.
+
+## Next Steps
+- Implement and verify combined-host enforcement without changing GC metric
+  meaning, including preparation/service, config changes and active leases.
+- Continue frontend/backend/fixed-owner accounting and the remaining opcode/
+  source-map, helper/GC/alias/liveness and broader safety review obligations.
+- Run frozen performance gates only after global preflight admits timing;
+  historical performance failures remain unresolved, with no threshold waiver.
+- Gather actual ARM64/hosted platform evidence when available. Do not mark the
+  full plan complete from this bounded verification-analysis improvement.
+
+## Relevant Files
+- `src/jit/dominance.rs` — charged, work-bounded analysis and pure fixtures.
+- `src/jit/preds.rs` — raw edge capacity for the derived analysis work ceiling.
+- `src/jit/tags.rs`, `src/jit/entry_flow.rs` — dominance integration.
+- `src/jit/backend.rs` — typed storage/work refusal before codegen/mapping.
+- `Makefile` — focused dominance targets and selected Miri namespace.
+- `JIT.md`, `PLAN_JIT.md` — current verified scope and remaining requirements.
+- `src/lua.rs`, `src/jit/mod.rs` — combined-host follow-up routing, unchanged.
+- `target/jit-evidence/dominance/` — local acceptance and untimed binary artifacts.
+
+### Shared host-admission ledger decision
+
+Keep `Lua::total_memory` collector-only. Add an additive `accounted_memory` metric
+for collector-tracked allocations plus charged JIT containers/snapshots and
+page-rounded native mappings. Attach the existing metadata and snapshot ledgers
+to one state-owned parent ledger; reserve both child and parent before allocation
+and roll back both on failure. Reserve mapped pages against that same parent
+without charging them as metadata. Mapping, protection and underlying allocation
+failure must reclaim only that compilation's reservations, including active
+lease retention until final release.
+
+Refresh the parent's headroom from `set_memory_limit - total_memory` at host/arena
+boundaries and compilation/preparation entry, without relabelling GC metrics or
+changing individual JIT quotas. Refused parent admission reports a typed host
+memory resource error through public preparation/service. Lowered limits may be
+below already-owned storage; deny growth rather than invalidate active leases.
+Use combined accounted usage for synchronous/asynchronous finish checks,
+including before suspension/final completion, and retire idle cached code before
+collecting twice and stopping an over-limit executor. Manual stepping remains
+host-controlled, and GC growth within a slice can still overshoot.
+
+This is combined enforcement for the allocations actually charged to the JIT
+ledgers, not process RSS or complete compiler isolation. Backend/frontend-builder
+internals, fixed owners and allocator overhead remain explicit follow-up scope;
+future charges must join the same parent rather than create independent ceilings.
+No performance threshold or full-plan acceptance is waived by this decision.
+
+### Host-admission fast-path review
+
+The first focused host-memory run passes exact combined peak/one-byte-short
+admission, same-state source recovery, native-then-foreign-await cancellation,
+lease retention, provider rollback and parent sharing/concurrency fixtures.
+Review found the initial public service wrapper would refresh/clone host ledger
+state even when JIT was Off. Keep the original Off return before that wrapper,
+and bypass host-limit normalization/refresh when no memory ceiling is configured.
+Arena/GC headroom refresh is likewise conditional on a configured ceiling. This
+preserves the disabled service's control path; it is not a measured performance
+claim or acceptance of the outstanding compiled-Off gates.
+
+### Finish completion/suspension memory-check fix
+
+The synchronous finish loop previously returned immediately on a completed VM
+slice, bypassing its memory check; asynchronous finish took and awaited a parked
+foreign future before checking memory. The shared enforcement helper now checks
+final completion and checks before polling foreign futures, preserving the
+collector-only public metric. A final-result string allocation regression passes
+with and without JIT. An integrated native loop followed by a retaining callback
+and foreign await stops the executor with zero foreign-future polls. Cache
+reclamation before stopping also preserves a live source's result through the
+interpreter. These are bounded lifecycle proofs, not a hard per-GC-allocation or
+wall-clock ceiling. Mutation sensitivity and full acceptance remain pending.
+
+### Shared-host and finish oracle sensitivity
+
+Removing child-parent attachment made all five new pure parent-ledger fixtures
+fail and both provider parent-accounting fixtures fail. Disabling finish
+enforcement made the cached-code reclamation and native/foreign-await fixtures
+fail; the latter observed one foreign-future poll instead of zero. The no-JIT
+final-result fixture likewise failed with `Result` instead of `Stopped`. Each
+owned mutation job ran to terminal before restoration. Both modified source
+hashes match the pre-mutation files. No generated instruction semantics were
+corrupted; mutated native execution remained bounded by the existing source/fuel
+rules. Logs are retained under `target/jit-evidence/host-memory/`. Full GNU,
+musl, selected Miri and supervised campaigns remain pending on restored source.
+
+### Shared host-memory acceptance session (2026-10-01)
+
+## Goal
+Continue the full implementation by enforcing a shared host ceiling over the
+charged JIT categories while preserving the collector metric. The overall goal
+remains active and incomplete; the previous goal turn made verified progress.
+
+## Instructions
+Use repo-native Make/Nix tasks, patch tools, and incremental unsigned title-only
+Conventional Commits. Preserve acceptance thresholds and active-lease validity.
+Do not run benchmark/profile timing alongside unrelated builds/tests/profiles.
+
+## Discoveries
+- Parent admission must cover transient old/new capacity and mapped pages as
+  well as retained containers; page charges must not consume metadata quota.
+- A lowered host ceiling can be below already-pinned code. Denying growth and
+  retaining charges preserves the lease until its final owner drops.
+- Sync final completion and async parked-future paths previously bypassed their
+  memory checks. Their regression fixtures now pass, including no-JIT final
+  result allocation and zero foreign-future polls after real native work.
+- Keep the existing Off service return before host-ledger handling. No-limit
+  service/preparation bypass headroom normalization; this is source-level
+  fast-path preservation, not current performance acceptance.
+- Fresh post-gate global preflight still finds unrelated `make run` PID 2878331.
+  No timings/profiles were run. Fixed owners and compiler internals remain outside
+  accounted usage; it is not a process RSS or hostile-compiler ceiling.
+
+## Accomplished
+- Source committed separately at `a81ca75`. Added shared parent admission,
+  mapping rollback/release, additive metrics, host compilation refusal,
+  GC-headroom refresh and sync/async finish enforcement.
+- Draft job `71815`, focused jobs `74448`/`81486` and restored job `3549` passed.
+  An earlier compile-only draft was corrected to access the private runtime
+  through `Context`, without widening `Lua` field visibility.
+- Parent-bypass job `71062` detected five pure and two provider fixture failures.
+  Finish-bypass job `26055` detected two native/async and one no-JIT final-result
+  fixture failures. Both jobs were terminal before restoration, and both source
+  hashes matched the pre-mutation originals.
+- Full job `34854` completed GNU and musl exit 0: **4580 passing tests / 434 suite
+  results / 24 ignored tests** each. Existing Clippy warnings remain; these are
+  not strict-warning gates.
+- Miri job `57149` completed exit 0: **232 passing tests / 28 suite results / 0
+  ignored**, pinned nightly 2026-08-16, rustc `67854e511`, default `MIRIFLAGS`.
+  This includes atomic parent sharing, allocation rollback and pure Lua/GC
+  headroom tests; it does not execute generated code or foreign-await/native
+  campaigns.
+- Campaign job `94001` completed all four lanes exit 0. Per platform:
+  **4096 scalar/admission cases / 1641780 native invocations / 4758522 native
+  instructions**; **96 heap cases / 6344 main slices / 725 yields / 1633 callbacks /
+  96 retirements / 964 host reads / 2809 userdata observations / 65297 native
+  instructions**. Helper totals: **22144 table reads / 7393 table writes / 1655
+  allocations / 21701 upvalue reads / 996 upvalue writes / 1179 declines**.
+  Both platforms reuse the same seeds/programs. These campaigns exercise the
+  shared ledger without imposing host limits; targeted fixtures supply host-limit
+  evidence. Nested/finalizer internal slices are not independently paired.
+- Untimed opt-level-3 candidate build `38883` completed at `a81ca75` exit 0;
+  binary, source ID, build log and hash retained. No performance result is claimed.
+- All owned jobs are terminal. Raw logs, exact campaign/smoke directories, Miri
+  environment, aggregate counts and source/binary hashes are retained under
+  `target/jit-evidence/host-memory/`; hashes verified after completion.
+
+## Next Steps
+- Complete fixed-owner and frontend/backend compiler allocation accounting or
+  an equally faithful bounded compiler policy; do not call charged-category
+  admission a complete compiler memory ceiling.
+- Continue complete opcode/source-map and helper/GC/alias/liveness safety proofs.
+- Resolve the frozen performance and compiled-Off controls when global preflight
+  admits clean timing. No thresholds, statistics or coverage requirements waived.
+- Gather actual ARM64/hosted evidence and clear strict-Clippy backlog before
+  claiming the plan's release gates. Do not mark the full goal complete yet.
+
+## Relevant Files
+- `src/jit/resources.rs` — parent/child quota reservation and atomic pure fixtures.
+- `src/jit/backend.rs` — mapped-page parent reservation, rollback and cleanup.
+- `src/jit/mod.rs` — shared state ledger, metrics and lease/provider denial tests.
+- `src/lua.rs` — accounted metric, admission/headroom refresh and finish checks.
+- `tests/jit_memory.rs` — native admission/refusal/recovery/await lifecycle checks.
+- `tests/memory_accounting.rs` — feature-independent metric/final-result checks.
+- `Makefile` — focused host targets and selected Miri Lua namespace.
+- `JIT.md`, `PLAN_JIT.md` — verified scope, evidence and remaining obligations.
+- `target/jit-evidence/host-memory/` — local evidence and untimed candidate binary.
+
+### Fallible cached-code owner decision
+
+Replace only the private cached-code `std::rc::Rc<Code>` allocation with a
+budget-allocated strong-only shared owner. Its exact typed allocation includes
+the count, allocator handle, padding and `Code` payload; no private standard
+library control-block layout is assumed. Use the existing allocator-api2
+`Box::try_new_in` for admission/underlying allocation and reconstruct that same
+box/allocator only on final-owner destruction. A checked strong count, pointer
+identity and normal immutable dereference cover the existing private cache/lease
+operations. No weak pointers or cross-thread sharing are introduced. Quota or
+underlying allocation refusal before cache publication must drop the compiled
+module and release mappings/metadata, preserving interpretation and recovery.
+
+This adds a small private unsafe ownership boundary requiring allocation/drop,
+alignment, panic, count-overflow, identity and alias-lifetime Miri proof before
+acceptance. Preserve eviction/retirement semantics and do not estimate std Rc/Arc
+headers. Runtime/bootstrap owners, compiler status Arc flags, provider boxes and
+compiler-owned buffers remain separate outstanding scope. No complete fixed-owner
+or compiler-memory claim follows from charging the cached-code owner.
+
+### Cached-owner panic cleanup discovery
+
+Pinned allocator-api2 0.2.21 `Box::drop` calls value destruction before explicit
+deallocation without a separate unwind guard. Reconstructing/dropping that box
+would therefore retain the allocation if the value destructor panics. The private
+owner instead pairs the original `into_raw_with_allocator` allocation with a
+typed deallocation guard, then calls `drop_in_place` on the inner value. The guard
+uses the same allocator and `Layout<Inner<T>>` on normal and unwinding paths.
+Dedicated child/parent charge and single-destruction fixtures cover this boundary.
+This is a Luna owner design adjustment, not an allocator-api2 memory-safety defect.
+
+### Cached-owner refusal and reclamation oracle sensitivity
+
+The focused gate passes eight pure ownership fixtures and the existing eviction,
+resource and host-limit checks. One new installation fixture covers both owner
+quota and underlying-allocation refusal after module creation: a live peer stays
+native, the refused source stays interpretable, resetting admission restores that
+same source, and final collection releases all charged storage.
+
+A temporary unlimited-owner allocator made five pure fixtures fail; the exact
+installation fixture also failed when run through its new dedicated Make target.
+The first installation invocation preceded target creation and failed only for a
+missing Make rule; that draft is retained separately and is not oracle evidence.
+A separate reclamation bypass made seven pure fixtures fail, including destructor
+unwind cleanup. Owned mutation jobs were terminal before restoration and the
+owner source hash matched its original. No generated instructions were corrupted.
+Full GNU/musl, selected Miri and supervised campaigns remain pending.
+
+### Isolated cached-owner Miri acceptance
+
+`nix develop .#miri -c make jit-owner-miri` passed all eight ownership fixtures on
+restored source, including over-alignment/live aliases, interior mutation,
+checked-count overflow, parent rollback and panicking-destructor reclamation.
+The count model matches std Rc over 1024 clone/retirement operations. This is
+isolated primitive evidence, not execution of generated code or full-plan
+acceptance; full selected Miri and both native platform gates remain pending.
+
+### Cached-code owner acceptance session (2026-10-01)
+
+## Goal
+Continue full implementation by making cached-code owner allocation fallible and
+charged through final lease retirement. The previous goal turn made verified
+progress; this goal remains active and incomplete.
+
+## Instructions
+Use repo-native Make/Nix tasks, patch tools and incremental unsigned title-only
+Conventional Commits. Preserve lease semantics and all frozen acceptance gates.
+No timing/profile alongside unrelated builds/tests/profiles; no new dependency or
+nightly requirement is introduced by this stable allocator-api2 owner.
+
+## Discoveries
+- Do not assume private std Rc/Arc control-block layouts. The custom private
+  owner uses its own exact typed allocation, with no weak/raw escape API and a
+  marker preserving single-thread sharing.
+- Pinned allocator-api2 box drop performs value destruction before explicit
+  deallocation. A separate typed deallocation guard is needed here for value
+  destructor unwind; its child/parent charges are released even on panic.
+- No complete fixed-owner/working-memory claim follows: runtime/bootstrap
+  owners, compiler status Arc flags, provider boxes and compiler-owned buffers
+  still need faithful accounting/bounded policy.
+- After owned jobs became terminal, fresh global preflight still observed
+  unrelated `make run` PID 2878331. No timings/profiles or gains are claimed.
+
+## Accomplished
+- Source committed separately at `c5ba20a`: private owner primitive, cache/lease
+  integration, exact installation refusal/recovery fixture and Make/Miri wiring.
+- Focused job `6383` passed eight pure owner tests, fourteen eviction tests and
+  the resource/host checks. Draft job `78804` found a test-only std Rc fixture;
+  the fixture was updated to use the real owner rather than weaken its oracle.
+- Budget bypass job `90985` detected five pure failures. Its initial installation
+  invocation had a missing Make rule and is explicitly not oracle evidence;
+  corrected exact job `82515` detected the real installation refusal failure.
+  Reclamation bypass job `39688` detected seven pure failures. All mutations were
+  restored after terminal status; source hash matched. Restored job `15453` passed.
+- Isolated Miri job `55586` passed all eight owner fixtures. Full selected Miri
+  job `44068` completed exit 0: **240 tests / 29 suite results / 0 ignored**, pinned
+  nightly 2026-08-16, rustc `67854e511`, default `MIRIFLAGS`. No generated code or
+  native heap campaign runs under these Miri checks.
+- Full job `94299` completed GNU and musl exit 0: **4625 passing tests / 434 suite
+  results / 24 ignored tests** each. Existing Clippy warnings remain; this is not
+  strict-warning acceptance.
+- Campaign job `11783` completed all four lanes exit 0. Per platform:
+  **4096 scalar/admission cases / 1641780 native invocations / 4758522 native
+  instructions**; **96 heap cases / 6344 main slices / 725 yields / 1633 callbacks /
+  96 retirements / 964 host reads / 2809 userdata observations / 65297 native
+  instructions**. Helper totals: **22144 table reads / 7393 table writes / 1655
+  allocations / 21701 upvalue reads / 996 upvalue writes / 1179 declines**.
+  Platforms reuse the same seeds/programs; nested/finalizer internal slices are
+  not independently paired. No generated instruction semantics were mutated.
+- Untimed opt-level-3 build `89759` completed at `c5ba20a` exit 0; binary/source ID/
+  log/hash retained. This is not performance evidence.
+- Raw focused/mutation/Miri/full logs, exact campaign/smoke directories, aggregate
+  counts and verified source/binary hashes are retained locally under
+  `target/jit-evidence/owner/`. All owned jobs are terminal.
+
+## Next Steps
+- Complete runtime/bootstrap and status/provider fixed-owner accounting, plus
+  frontend/backend compiler buffer limits or faithful bounded compiler policy.
+- Continue complete opcode/source-map and helper/GC/alias/liveness safety proofs.
+- Resolve frozen native and compiled-Off performance controls only after clean
+  global timing preflight; thresholds/statistics/coverage remain unchanged.
+- Gather actual ARM64/hosted evidence and address strict-Clippy backlog before
+  release acceptance. The full plan is not achieved by this owner milestone.
+
+## Relevant Files
+- `src/jit/owner.rs` — exact-layout strong-only owner and eight pure fixtures.
+- `src/jit/mod.rs` — cache/lease integration and peer/refusal/recovery fixture.
+- `src/jit/model.rs` — retained-lease fixture uses the real budgeted owner.
+- `src/jit/backend.rs` — test-only owner-storage/underlying refusal selectors.
+- `Makefile` — owner, exact installation and isolated/selected Miri targets.
+- `JIT.md`, `PLAN_JIT.md` — ownership safety scope and acceptance evidence.
+- `target/jit-evidence/owner/` — local raw evidence and untimed candidate binary.
+
+### Recovered status checkpoint (2026-10-01)
+
+## Goal
+Report the actual plan and implementation status after context recovery; the
+full implementation goal remains active and incomplete.
+
+## Instructions
+Keep incremental commits unsigned, title-only and Conventional Commit formatted.
+Use Make/Nix for relevant validation and patch tools for edits.
+
+## Discoveries
+- Live HEAD is `0f5300e`, following source milestone `c5ba20a`; the worktree was
+  clean at recovery. The plan is already written, not awaiting an initial draft.
+- Engram tools are unavailable in this session; this checkpoint preserves the
+  recovered state in the plan. The local memory registry had no matching entry.
+
+## Accomplished
+- Recovered the cached-owner milestone and its already completed acceptance:
+  GNU/musl 4625 passing tests each and selected Miri 240 passing tests. These
+  counts are prior completed evidence, not a new validation run in this turn.
+- All owned validation jobs were terminal at the recovered checkpoint. No
+  current performance acceptance or complete release acceptance is claimed.
+
+## Next Steps
+- Finish runtime/bootstrap and compiler-memory accounting or bounded policy,
+  remaining safety proofs, frozen performance controls and actual ARM64 evidence.
+- Resume timing only after a fresh global preflight permits it; the previous
+  preflight was obstructed by an unrelated `make run` process.
+
+## Relevant Files
+- `PLAN_JIT.md` — detailed plan, milestone evidence and remaining acceptance.
+- `JIT.md` — current runtime and ownership safety scope.
+- `src/jit/owner.rs` — accepted cached-owner allocation and reclamation milestone.
 
 ## 15. Primary references
 
