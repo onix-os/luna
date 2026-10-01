@@ -548,6 +548,15 @@ Canonical helper status/effect contracts remain separate. Full source-record/
 instruction/source-map equivalence, runtime helper/GC/alias/liveness review,
 compiler accounting and Phase 3 acceptance remain open.
 
+Semantic source binding (`93a5909`) now ties every recorded instruction/value
+definition to the verified physical source region. Generic store/input PCs use
+their existing charged vectors; masks/destinations match decoded access. Exact
+adjacent default-flag I64 tag/payload pairs and physical payload coverage refuse
+orphan writes. Fourteen negative pure and fourteen backend mutation tests are
+sensitive to bypassing the check. Full GNU/musl gates, selected pure Miri and
+scalar/admission campaigns pass. This does not complete opcode/source-map,
+runtime helper/GC/alias/liveness, compiler accounting or Phase 3 acceptance.
+
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
@@ -651,6 +660,24 @@ compiler accounting and Phase 3 acceptance remain open.
 ### Phase 9 — Harden and establish supported-platform evidence
 
 **Status:** IN PROGRESS. **Depends on:** Phase 8; introduce fuzzing earlier as soon as Phase 3/4 provide targets. Seeded admission/scalar campaigns execute in supervised limited child processes with tested panic/signal/timeout propagation; allocation/protection denial and full GNU/musl x86-64 gates pass. The full heap/lifecycle corpus, coverage-guided campaigns, CPU-feature mismatch, remaining refusal/eviction cases, unsafe/Miri review and ARM64/hosted evidence remain open.
+
+Supervised heap/lifecycle coverage (`a951643`) adds four parameterized source
+families in fresh Off/Auto states. GNU/musl each pass 128 cases with per-slice
+fuel/mode/state agreement, full host GC, ordered callback effects, yields,
+close/error paths, weak tables, native helper counters and code retirement.
+The native full gate includes heap smoke; larger `heap` campaigns have independent
+counters and preserve old admission/scalar replay meaning. Selected pure Miri
+passes but does not execute the heap/native corpus. These finite templates do not
+complete the broader heap/lifecycle/coverage-guided or safety obligations.
+
+Expanded lifecycle coverage (`bf42216`, recursive case-limit fix `3762300`)
+consumes alternating host tables/userdata from Lua and observes current/retained
+markers across mutation and GC. Six families add documented weak-mode reattachment,
+resurrection and bounded reentrant callbacks. Manual-step hosts service pending
+finalizers and fail on warnings; main-slice fuel/mode and ordered effects agree.
+GNU/musl each pass 96 expensive cases under unchanged worker limits. This is not
+individual native userdata-instruction coverage or paired internal-finalizer
+slice evidence; full safety/guard/lifecycle obligations remain open.
 
 **Files:** `fuzz/`, fuzz/gate targets, JIT validation/runtime tests, workflow/environment configuration, security documentation.
 
@@ -5660,6 +5687,377 @@ Commits. No benchmark/profile workloads alongside correctness jobs.
 - `Makefile` — dedicated region gates and pure Miri lane.
 - `JIT.md`, `PLAN_JIT.md` — public scope, current evidence and open obligations.
 - `target/jit-evidence/region-flow/` — local revision-scoped raw acceptance artifacts.
+
+### Semantic record ownership and payload coverage decision
+
+Bind every semantic instruction/value record to the independently verified
+physical source region. Add source PCs to generic scalar-store/numeric-input
+records, charged through their existing exact-counted vectors. Check recorded
+store masks/destinations against decoded source access, require exact adjacent
+tag/payload pairs, and audit every physical scratch payload store against such
+a pair. Existing common tag verification skips payload-offset stores; local
+semantic checks do not independently provide whole-function payload coverage.
+Bind arithmetic/truth/comparison/loop/transfer/helper record fields and their
+value definitions to the declared source PC. Reuse the charged region map and
+bounded record scans without new worklists or unsafe code. Constructor size/quota
+tests must retain rollback semantics. These bindings do not claim optimizer
+correctness, runtime helper/GC/alias/liveness or complete compiler accounting.
+
+### Semantic ownership and orphan-payload regression review
+
+- Production binding passes existing native boundary/model checks. Generic store
+  and input PCs enlarge their existing charged layouts; constructor/quota tests
+  derive sizes from these types and still preserve rollback/peak semantics.
+- Pure emitter/IR fixtures cover all supported record families, including all
+  nine helpers, scalar/reference constants, arithmetic, truth/comparisons and
+  numeric loops. They test binding, not whole entry/region/source lowering.
+- The orphan payload fixture explicitly passes the old common tag verifier after
+  inserting a valid I64 scratch payload store, then the new binding pass rejects
+  it. This closes a verification gap; no pre-existing Lua runtime misexecution
+  or exploitable public input is claimed from the synthetic fixture.
+- Focused binding/tag/boundary/heap/resource/Clippy gates exited zero: fifteen
+  pure tests, fourteen actual backend corruptions and 368 boundary/four ignored.
+  No new module warnings; inherited Clippy backlog remains.
+
+### Semantic binding mutation sensitivity
+
+Temporarily bypassing production/pure binding checks failed all fourteen pure
+negative tests (one comprehensive positive passed) and all fourteen individual
+actual backend tests; both Make lanes exited 2. This covers source-PC ownership
+for every record family, foreign value definitions, broadened store masks,
+decoded destination mismatch and orphan payload writes. Pure mutated fixtures
+pass Cranelift IR validation; no corrupted generated code is executed. Both
+calls were restored after owned session `75630` became terminal. Logs:
+`/tmp/luna-jit-source-binding-bypass-pure.log` and
+`/tmp/luna-jit-source-binding-bypass-backend.log`.
+
+### Resumed source-binding checkpoint (2026-10-01)
+
+## Goal
+Continue full implementation of this plan on `feat/native-jit`; the overall
+goal remains incomplete.
+
+## Instructions
+Use repo-native Make targets, unsigned title-only Conventional Commits, and
+incremental source/evidence commits. Do not mix timing runs with builds/tests.
+
+## Discoveries
+- Source ownership binding checks decoded stores and every recorded semantic
+  instruction/value against the verified physical source region.
+- The orphan-payload fixture passes the previous common store verifier but is
+  refused by binding; this is a verification gap, not demonstrated runtime
+  misexecution.
+- Bypassing binding makes all 14 negative pure and all 14 backend tests fail.
+  Both production and pure calls have been restored.
+
+## Accomplished
+- Recovered the exact restored focused job `19195`; it completed with
+  `GATE_EXIT=0` in `/tmp/luna-jit-source-binding-restored.log`.
+- Previous region-flow acceptance is committed at `f00b009`, with evidence
+  documentation at `5a53461`.
+- Source binding is committed separately at `93a5909` (unsigned, title only).
+  Its focused gate passed 15 pure binding tests, 14 backend refusal tests and
+  the 368-test native boundary suite (4 ignored). The requested formatting,
+  tag, heap/resource and Clippy targets completed with exit 0; inherited
+  Clippy warnings remain. Full GNU/musl/Miri/campaign acceptance for this
+  revision has not yet been run.
+- Source hashes and restored/bypass logs are archived under
+  `target/jit-evidence/source-binding/`.
+
+## Next Steps
+- Run full GNU/musl gates, selected Miri, and supervised differential campaigns;
+  archive logs and report actual results before updating acceptance counts.
+- Continue the broader compiler/runtime safety, accounting, platform, and
+  performance work. No current performance acceptance is claimed.
+
+## Relevant Files
+- `src/jit/tags.rs` — semantic ownership and physical payload coverage.
+- `src/jit/entry_flow.rs` — verified source-region ownership queries.
+- `src/jit/helper_flow.rs` — helper instruction ownership.
+- `src/jit/backend.rs` — production gate and pure/native refusal tests.
+- `Makefile` — focused binding and selected Miri targets.
+- `JIT.md` — verifier scope; latest acceptance still describes region-flow.
+
+### Source-binding acceptance session (2026-10-01)
+
+## Goal
+Continue the full plan on `feat/native-jit`; validate source binding without
+narrowing the overall completion contract. The preceding goal turn made
+progress by committing source binding and its checkpoint.
+
+## Instructions
+Keep source and acceptance commits separate, unsigned and title-only. Use Make
+inside the repo's Nix environments. Do not run timings alongside validation.
+
+## Discoveries
+- Revision `93a5909` preserves all current full GNU/musl suites and the selected
+  pure-Rust/IR Miri lane. Clippy still reports inherited warnings; this is not
+  strict-warning acceptance.
+- Scalar campaigns use the same four seeds/programs on both platforms. They
+  cover malformed admission and scalar native/model agreement, not native
+  heap helpers or arbitrary Lua-program equivalence.
+
+## Accomplished
+- Owned full-gate session `51909` completed both GNU and musl with exit 0:
+  **4394 passing tests / 421 suite results / 24 ignored per platform**.
+- Owned Miri session `30393` completed with exit 0: **211 passing tests /
+  25 suite results / 0 ignored**. Pinned nightly 2026-08-16 reports rustc/Miri
+  `67854e511`, default empty `MIRIFLAGS`. Generated native code is not executed
+  under Miri.
+- Owned supervised campaign session `4173` completed GNU and musl with exit 0.
+  Each platform reports **4096 cases / 1641780 kernel invocations / 4758522
+  completed native instructions**, plus malformed admission mutations. Limits
+  remain 60 seconds wall / 30 seconds CPU / 2 GiB address space per worker.
+- Archived source revision/hashes, raw full/focused/bypass logs, Miri environment
+  and suite logs, and the exact campaign directories under
+  `target/jit-evidence/source-binding/`. Source hashes match after all gates.
+- No timing/profile, performance improvement, ARM/hosted execution or whole-plan
+  acceptance is claimed. All owned validation handles are terminal.
+
+## Next Steps
+- Extend supervised differential coverage to heap/helper/lifecycle programs;
+  current scalar campaigns do not exercise those native boundaries.
+- Continue instruction/source-map and helper/GC/alias/liveness review, compiler
+  and combined-host accounting, platform evidence and failing performance gates.
+- Keep the goal active; every final done criterion remains subject to its own
+  current-state evidence rather than these narrower passing gates.
+
+## Relevant Files
+- `JIT.md` — current revision-scoped validation counts and verifier limits.
+- `PLAN_JIT.md` — Phase 3 evidence and open completion obligations.
+- `target/jit-evidence/source-binding/` — local raw acceptance artifacts.
+- `src/jit/fuzz.rs` — existing supervised admission/scalar campaign; heap
+  coverage is the next hardening work item, not implemented this session.
+
+### Supervised heap/lifecycle campaign decision
+
+Add an explicit `heap` fuzz target alongside the existing admission/scalar `all`
+target. Preserve `all`'s existing seed/program meaning rather than silently
+changing old reproduction commands or inflating scalar coverage. Add a dedicated
+heap smoke target to the full native gate. Generate bounded source programs in
+fresh Off/Auto states, comparing every slice's completion/mode/fuel, ordered Rust
+callback effects, yield values and final results. Collect between every slice,
+retire/reprepare code at a deterministic host boundary, and require actual native
+table/allocation/upvalue work. Parameterized families cover alias/root replacement,
+metamethod fallback, weak tables and catchable errors/close ordering. Reuse the
+existing limited subprocess supervisor; no malformed heap program is executed.
+Keep scalar counters separate from heap counters. This is seeded integration
+stress, not coverage-guided fuzzing or complete helper/collector safety proof.
+
+### Heap campaign oracle sensitivity
+
+Focused draft validation passed twelve family/seed executions, four-seed
+eight-case supervised heap runs, existing heap tests and Clippy. Temporarily
+disabling the native state failed the required re-preparation assertion;
+temporarily adding one to native Rust callback mutations failed ordered callback
+comparison at seed 0 / family 1 / slice 4. Both Make jobs exited 2 and both edits
+were restored only after their exact owned jobs became terminal. These tests
+demonstrate sensitivity to absent compilation and divergent callback effects,
+not a comprehensive mutation score. No runtime implementation defect is claimed.
+Logs: `/tmp/luna-jit-heap-fuzz-bypass-disabled.log` and
+`/tmp/luna-jit-heap-fuzz-bypass-callback.log`.
+
+### Supervised heap campaign acceptance session (2026-10-01)
+
+## Goal
+Continue full plan implementation on `feat/native-jit`, extending hardening from
+scalar/admission kernels to bounded integrated heap/lifecycle programs. The
+previous goal turn made progress by completing source-binding acceptance.
+
+## Instructions
+Use Nix/Make and patch tools, keep incremental unsigned title-only commits, and
+keep timings separate from builds/tests. Preserve frozen performance thresholds
+and the full plan's completion criteria.
+
+## Discoveries
+- Parameterized heap cases can compare exact fuel/mode at every host slice while
+  collecting both states between slices. Weak-table assertions, close-handler
+  callback ordering and yields all pass on GNU and musl.
+- The oracle refuses absent native re-preparation and divergent callback effects
+  under temporary mutations. These are harness-sensitivity tests, not discovered
+  runtime defects or a comprehensive mutation score.
+- Host replacement writes a rooted field each slice; the current scripts do not
+  consume that replacement field. This exercises barrier/root retention but does
+  not establish fresh native reads of the host-replaced object. Broader mutation
+  and userdata/reentrancy/finalizer cases remain required.
+
+## Accomplished
+- Source/test/docs changes committed separately at `a951643`; no runtime fast
+  path or performance threshold changed. Both temporary mutations were restored.
+- Full owned session `38951` completed GNU and musl with exit 0: **4400 passing
+  tests / 422 suite results / 24 ignored per platform**. Existing Clippy warnings
+  remain; no new heap-module warnings or strict-warning acceptance is claimed.
+- Owned campaign session `97512` completed all four platform/workload lanes.
+  Each platform's separate 32-case/four-seed heap campaign reports **128 cases /
+  6611 slices / 659 yields / 2720 callbacks / 128 retirements / 70475 native
+  instructions**. Counters include **20237 table reads / 8378 table writes /
+  2502 allocations / 23378 upvalue reads / 1342 upvalue writes / 1390 declines**.
+- Each platform's unchanged four-seed scalar/admission campaign also passes
+  **4096 cases / 1641780 invocations / 4758522 native instructions**. Both
+  platforms reuse the same seeds/programs; these are executions, not independent
+  unique-program counts. Heap families are templates with randomized parameters
+  and fuel/retirement schedules, not coverage-guided fuzzing.
+- Selected Miri session `92463` completed with exit 0: **211 tests / 25 suite
+  results / 0 ignored**, pinned nightly 2026-08-16 / rustc `67854e511`, empty
+  default `MIRIFLAGS`. It does not execute native code or the heap campaign.
+- Archived raw focused/mutation/full/Miri/campaign logs, exact smoke/long-run
+  directories, environment, source revision and recursive source hashes under
+  `target/jit-evidence/heap-campaign/`; hashes match after acceptance.
+- All owned jobs are terminal. No timings/profiles, performance improvement,
+  ARM/hosted execution or whole-plan completion is claimed.
+
+## Next Steps
+- Extend heap corpus to consumed host replacements, userdata, interleaved
+  executors, reentrancy, weak-mode changes, finalization/resurrection and further
+  helper guard/error combinations, with observable state/effect checks.
+- Continue complete instruction/source-map and runtime helper/GC/alias/liveness
+  review, compiler/combined-host accounting, platform evidence and unmet
+  performance gates. Do not mark the full goal complete from these finite runs.
+
+## Relevant Files
+- `src/jit/fuzz/heap.rs` — parameterized source families and differential oracle.
+- `src/jit/fuzz.rs` — explicit heap worker target and separate counters.
+- `Makefile` — heap campaigns, focused fixture target and full-gate smoke wiring.
+- `JIT.md`, `PLAN_JIT.md` — scope, acceptance evidence and remaining obligations.
+- `target/jit-evidence/heap-campaign/` — local revision-scoped raw artifacts.
+
+### Consumed host replacements and lifecycle expansion decision
+
+Expand the existing heap target from four to six source families. Initialize the
+shared root before execution, alternate host-replaced tables and userdata proxies,
+and consume the current replacement from the common Lua update function. Observe
+both current and last-consumed object kind/identity/scalar fields at each slice,
+including after GC, and count host reads separately. Mutate retained objects before
+replacing the current root to exercise live aliases. Add weak-mode mutation and
+finalizer resurrection with bounded reentrant callbacks. Preserve the exact
+Off/native slice/effect oracle and resource-limited supervisor. Report observed
+userdata samples as observations, not per-instruction native userdata coverage.
+This extends finite integration stress without claiming full GC/helper safety or
+changing runtime fast paths, performance thresholds or compiler architecture.
+
+### Weak-mode fixture correction
+
+The first new weak-mode fixture failed in the Off reference state, not as a
+differential JIT mismatch. Source inspection confirms `Table::set_metatable`
+performs storage conversion at attachment; `COMPATIBILITY.md` explicitly documents
+that changing `__mode` alone does not retroactively alter storage. Isolating
+temporaries in helper functions did not change the reference failure, so no
+temporary-root or compiler-liveness bug is inferred. The fixture now follows the
+existing `tests/weak_tables.rs` reattachment contract: a live weak key retains its
+value before reattachment, then `v`/`kv` reattachment retires ephemeron retention,
+and `k` reattachment restores the live-key case. No interpreter semantics are
+changed or broader Lua-compatibility claim added.
+
+### Manual-step finalizer service discovery
+
+The new resurrection fixture initially failed in the Off reference state because
+the harness drove `Executor::step` manually but did not drain queued Lua finalizers.
+`Lua::gc_collect` queues handlers; `Lua::finish` calls the public
+`Lua::run_finalizers` between slices, and that method explicitly requires manual
+step hosts to call it. The harness now services finalizers after each host GC,
+compares callback effects immediately afterwards, and treats finalizer warnings
+as test failures. Nested/finalizer execution uses its own executor drive; the
+paired fuel/mode oracle describes the main executor's host slices, not a claimed
+per-internal-slice proof for all finalizer executors. No runtime fix is implied.
+
+### Expanded fixture retirement scheduling correction
+
+After finalizer service was added, the reentrant family finished its main executor
+before a previously chosen late retirement slice; the required retirement count
+correctly failed. Nested work runs on separate executors, so main-slice count need
+not scale with total Lua work. Choose retirement among early main boundaries 1..3
+and still require exactly one successful retire/reprepare per case. The dedicated
+heap Make target now defaults to 24 expensive cases per seed; explicit command-line
+`FUZZ_CASES` overrides remain intact, with unchanged subprocess resource ceilings.
+
+### Consumed replacement oracle sensitivity
+
+Changing only the native state's source update to consume `item.id` rather than
+`item.slice` failed selected-state agreement at seed 0 / family 0: value 5 versus
+6, while both states had read the same userdata identity and slice field. The
+Make test exited 2, and the temporary source transformation was restored after
+owned session `27558` became terminal. This demonstrates sensitivity to consumed
+host scalar divergence, not a compiler/runtime defect or complete stale-read
+proof. Log: `/tmp/luna-jit-heap-expanded-bypass-host.log`.
+
+### Recursive heap case-limit forwarding fix
+
+Dry-run evidence after `bf42216` showed the dedicated target's target-specific
+24-case value was not forwarded into recursive Make: the child read its global
+256-case default. Pass the expanded `FUZZ_CASES` explicitly to the child recipe.
+This preserves user command-line overrides and prevents the advertised default
+from exceeding the intended expensive-campaign size. The earlier explicit-case
+focused tests were unaffected. Archive the failing default dry run and the fixed
+default/override evidence separately; do not treat the draft default as accepted.
+
+### Expanded heap lifecycle acceptance session (2026-10-01)
+
+## Goal
+Continue full implementation on `feat/native-jit`; make host replacements
+observable to Lua and extend bounded lifecycle hardening. The previous goal turn
+made progress with four-family heap campaign implementation and acceptance.
+
+## Instructions
+Use Nix/Make and patch tools, keep unsigned title-only incremental commits and
+preserve the full completion contract and frozen performance thresholds. Never
+mix timings/profiles with builds or tests.
+
+## Discoveries
+- Weak storage conversion occurs at metatable attachment, not an isolated
+  `__mode` field change. The first fixture's reference failure was corrected to
+  the documented reattachment contract; no JIT or interpreter bug is claimed.
+- Manual `Executor::step` hosts must call `Lua::run_finalizers`; collecting alone
+  queues handlers. Paired main slices do not imply individually paired nested
+  or finalizer executor slices.
+- Recursive Make re-read the global 256-case default instead of the parent's
+  target-specific 24. Explicit forwarding fixes the default while preserving
+  command-line overrides (24 default / 12 explicit verified by dry runs).
+- Object observations compare kind, ID markers and scalar fields, not cross-state
+  GC pointer addresses. Userdata samples can repeat a retained object and do not
+  count individual native userdata instructions.
+
+## Accomplished
+- Expanded source/test/docs committed at `bf42216`; recursive Make fix committed
+  separately at `3762300`. Restored the temporary divergent host-read source
+  after its exact owned test became terminal; it failed as expected with exit 2.
+- Focused checks passed 18 family/seed executions, four-seed smoke and existing
+  heap tests, formatting and Clippy. The added modulo-style warning was fixed;
+  inherited Clippy warnings remain and strict-warning acceptance is not claimed.
+- Full owned job `97543` completed GNU and musl with exit 0, each **4400 passing
+  tests / 422 suite results / 24 ignored**. Expanded families remain within one
+  unit test, so suite counts do not inflate with each parameter execution.
+- Campaign job `37194` completed all four platform/workload lanes. Each platform's
+  actual default heap target used 24 cases per seed and reports **96 cases /
+  6344 main slices / 725 yields / 1633 callbacks / 96 retirements / 964 host
+  reads / 2809 userdata observations / 65297 native instructions**. Helper
+  counters: **22144 table reads / 7393 table writes / 1655 allocations / 21701
+  upvalue reads / 996 upvalue writes / 1179 declines**.
+- Each unchanged scalar/admission campaign also passed **4096 cases / 1641780
+  invocations / 4758522 native instructions**. GNU/musl reuse seeds/programs;
+  the six heap families are finite parameterized templates, not independently
+  unique-program counts or coverage-guided fuzzing.
+- Miri job `14402` completed with exit 0: **211 tests / 25 suite results / 0
+  ignored**, pinned nightly 2026-08-16 / rustc `67854e511`, default empty flags.
+  It does not execute generated code or the native heap campaign.
+- Revision-scoped raw draft/diagnostic/focused/mutation/dry-run/full/Miri/campaign
+  artifacts and recursive source hashes are in `target/jit-evidence/heap-expanded/`;
+  hashes match after all gates. All owned jobs are terminal. No performance,
+  ARM/hosted or full-plan acceptance is claimed.
+
+## Next Steps
+- Return to the unmet runtime/performance gates: obtain an uncontended matched
+  current baseline/profile before making causal optimizations or claiming gains.
+- Complete compiler/combined-host accounting, source-map/helper/GC/alias/liveness
+  review, remaining lifecycle/guard combinations and platform evidence. Keep
+  the goal active; no required final criterion is waived by these passing tests.
+
+## Relevant Files
+- `src/jit/fuzz/heap.rs` — consumed replacements, userdata observations,
+  reentrant/resurrection and reattachment fixtures, manual finalizer service.
+- `src/jit/fuzz.rs` — independent host-read/userdata counters.
+- `Makefile` — bounded default heap case count forwarded to recursive Make.
+- `JIT.md`, `PLAN_JIT.md` — exact acceptance scope and open obligations.
+- `target/jit-evidence/heap-expanded/` — local raw revision-scoped artifacts.
 
 ## 15. Primary references
 

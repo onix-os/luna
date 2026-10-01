@@ -60,6 +60,9 @@ $(info ------------------------------------------)
 .PHONY: jit-exit-flow jit-exit-flow-backend
 .PHONY: jit-entry-flow jit-entry-flow-backend
 .PHONY: jit-region-flow jit-region-flow-backend
+.PHONY: jit-source-binding jit-source-binding-backend
+.PHONY: jit-fuzz-heap
+.PHONY: jit-heap-campaign-tests
 .PHONY: jit-clippy
 
 ci-check:
@@ -72,7 +75,7 @@ jit-miri:
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::resources::tests -- --test-threads=1 --skip jit::resources::tests::installation_refusal_reclaims_generated_mappings 2>&1 | tee '$(MIRI_DIR)/jit::resources::tests.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::block_map_quota_refuses_before_host_setup_and_releases_storage -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/block-map-quota.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::entry_path_quota_refuses_before_host_setup_and_releases_storage -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/entry-path-quota.log'
-	@set -e -o pipefail; for filter in jit::abi::tests jit::helpers::tests jit::registry::tests jit::ir::tests jit::flow::tests jit::work::tests jit::tags::tests jit::shape::tests jit::backend::comparison_tests jit::backend::loop_tests jit::backend::transfer_tests jit::backend::helper_flow_tests jit::access::tests jit::backend::access_tests jit::entry_flow::tests jit::entry_flow::region_tests jit::exit_flow::tests jit::exits::tests jit::backend::exit_tests jit::policy_tests finalizers::tests; do \
+	@set -e -o pipefail; for filter in jit::abi::tests jit::helpers::tests jit::registry::tests jit::ir::tests jit::flow::tests jit::work::tests jit::tags::tests jit::shape::tests jit::backend::comparison_tests jit::backend::loop_tests jit::backend::transfer_tests jit::backend::helper_flow_tests jit::backend::ownership_tests jit::access::tests jit::backend::access_tests jit::entry_flow::tests jit::entry_flow::region_tests jit::exit_flow::tests jit::exits::tests jit::backend::exit_tests jit::policy_tests finalizers::tests; do \
 		$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' "$$filter" -- --test-threads=1 2>&1 | tee '$(MIRI_DIR)'/"$$filter".log; \
 	done
 
@@ -256,6 +259,7 @@ jit-input:
 	@$(MAKE) --no-print-directory jit-loop-source
 	@$(MAKE) --no-print-directory jit-transfer-source
 	@$(MAKE) --no-print-directory jit-helper-flow
+	@$(MAKE) --no-print-directory jit-source-binding
 
 jit-helper-flow:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::helper_flow_tests
@@ -328,6 +332,13 @@ jit-region-flow:
 jit-region-flow-backend:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::corrupted_region_flow_
 
+jit-source-binding:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::ownership_tests
+	@$(MAKE) --no-print-directory jit-source-binding-backend
+
+jit-source-binding-backend:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::corrupted_binding_
+
 jit-generic-for:
 	@$(CARGO) test --locked -p luna --test vm_semantics $(TARGET_ARG) generic_for
 	@set -e; for mode in off auto force; do \
@@ -356,6 +367,14 @@ jit-fuzz-smoke:
 	@case "$$(uname -sm)" in 'Linux x86_64'|'Linux aarch64') ;; *) echo 'Native fuzz requires supported Linux host'; exit 2;; esac
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::fuzz::supervisor_rejects_panics_signals_and_timeouts -- --exact --ignored --nocapture
 	@$(MAKE) --no-print-directory jit-fuzz FUZZ_CASES=24
+	@$(MAKE) --no-print-directory jit-fuzz-heap FUZZ_CASES=8
+
+jit-fuzz-heap: FUZZ_CASES = 24
+jit-fuzz-heap:
+	@$(MAKE) --no-print-directory jit-fuzz FUZZ_TARGET=heap FUZZ_CASES='$(FUZZ_CASES)'
+
+jit-heap-campaign-tests:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::fuzz::heap::
 
 jit-fuzz:
 	@case "$$(uname -sm)" in 'Linux x86_64'|'Linux aarch64') ;; *) echo 'Native fuzz requires supported Linux host'; exit 2;; esac
@@ -564,8 +583,9 @@ help:
 	@echo "  jit-boundary Test native exits against the Rust boundary model"
 	@echo "  jit-native   Run integrated native execution and lifecycle tests"
 	@echo "  jit-numeric  Check reference and exact native numeric comparisons"
-	@echo "  jit-fuzz-smoke Run supervised admission/scalar fuzz smoke"
+	@echo "  jit-fuzz-smoke Run supervised admission/scalar/heap smoke"
 	@echo "  jit-fuzz     Run bounded seeded campaigns (FUZZ_TARGET/CASES/SEEDS)"
+	@echo "  jit-fuzz-heap Run supervised heap/lifecycle campaigns"
 	@echo "  jit-heap     Run native heap/upvalue mutation and GC tests"
 	@echo "  jit-upvalues Test upvalue aliases, foreign stacks and GC"
 	@echo "  jit-abi      Test scalar and reference ABI conversions"

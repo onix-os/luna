@@ -134,6 +134,17 @@ is `ResourceLimit("source path verification")`. Helper declines/panics retain
 their independently verified status flow and canonical runtime effect contract.
 This structural path proof does not prove helper effects/borrows/GC, full
 instruction equivalence/source maps, alias/liveness or complete compiler accounting.
+Semantic records additionally bind every declared instruction and value definition
+to its physical source region, including scalar stores/inputs, arithmetic, truth,
+comparison, loop, transfer and helper records. Generic store/input PCs are charged
+in their existing exact-counted vectors. Store masks/destinations must match
+decoded source access; default-flag I64 tag/payload stores must form exact adjacent
+pairs. Every physical scratch payload store must belong to one recorded pair,
+refusing orphan payload writes that common tag admission alone does not detect.
+These scans reuse the region map without new worklists and reject unknown value
+unions rather than infer foreign ownership. Binding does not independently prove
+every opcode's expression, optimizer correctness, runtime helper/GC behavior,
+alias/liveness or full compiler accounting.
 The retained, fallible PC-to-block map is charged to the snapshot ledger and
 can refuse with `ResourceLimit("frontend block map")` before compiler/host setup.
 Semantic checks are
@@ -178,17 +189,24 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 ## Verification and remaining work
 
-The numeric/source, helper/exit-flow and entry/region implementation (`f00b009`)
+The expanded supervised heap campaign and case-limit fix (`3762300`)
 passes `nix develop -c make jit-verify clippy jit-clippy` on x86-64 GNU and
-with `TARGET=x86_64-unknown-linux-musl`: each reports 4249 passing tests across
-421 suite results and 24 ignored tests. Selected pure-Rust/pure-IR Miri checks
-pass 196 tests across 24 selected suite results with default `MIRIFLAGS`; they do not execute
+with `TARGET=x86_64-unknown-linux-musl`: each reports 4400 passing tests across
+422 suite results and 24 ignored tests. Selected pure-Rust/pure-IR Miri checks
+pass 211 tests across 25 selected suite results with default `MIRIFLAGS`; they do not execute
 generated native code. Clippy retains the existing warning backlog, so these are
 not strict-warning acceptance. Raw revision-scoped evidence is stored locally in
-`target/jit-evidence/region-flow/`. Seeded scalar/admission campaigns additionally
+`target/jit-evidence/heap-expanded/`. Seeded scalar/admission campaigns additionally
 pass 4096 generated cases per platform, each checking 1641780 native invocations
 against the independent slice model; both platforms reuse the same four seeds.
-These campaigns do not cover native heap helpers. Performance thresholds, ARM64 execution,
+Separate six-family heap campaigns pass 96 cases per platform, comparing 6344
+main-executor slices, 725 yields and 1633 callback effects, with 65297 completed
+native instructions, 964 consumed host reads and table/allocation/upvalue counters.
+The 2809 userdata observations are repeated state samples, not individual native
+userdata-instruction coverage. Nested/finalizer internal slices are not separately
+paired. The same seeds and parameterized families
+are reused on both platforms; this is not independent unique-program coverage.
+Miri does not execute these heap/native programs. Performance thresholds, ARM64 execution,
 complete compiler accounting and the full plan's remaining proofs are not accepted.
 
 `nix develop -c make jit-metrics` builds a separate opt-level-3 scheduling probe.
@@ -340,7 +358,30 @@ Use `make jit-boundary`, `make jit-native`, `make jit-heap`, `make jit-policy`, 
 
 `make jit-verify` also runs `make jit-fuzz-smoke` on supported Linux hosts. This initial deterministic campaign creates 24 bounded scalar CFGs for each of four seeds and tests every entry (including unknown PCs), seven budgets, integer/float/mixed register inputs, guard exits and code reclamation against the Rust boundary model. Admission mutations check malformed operands, branches, register capacity and noncanonical descriptors; the backend revalidates before compiler setup or native allocation. Workers verify their inherited resource limits. Every worker has a separate process, 30-second CPU and 60-second wall deadline, 2 GiB address-space limit, disabled core dumps and 16 MiB output limit. Nonzero exit, signal, timeout or mismatch fails the gate; injected failure tests verify supervisor behavior. Seed-specific logs, campaign settings and replay commands live under `target/jit-evidence/fuzz/`.
 
-Run a larger bounded campaign with `make jit-fuzz FUZZ_TARGET=all FUZZ_CASES=1024 FUZZ_SEEDS=0,1,42,0xdeadbeef`; `FUZZ_TARGET` may also be `admission` or `scalar`. Cases are bounded to 1..10000 per seed and 1..64 seeds. Fixed per-worker resource ceilings remain in force, so an overlarge campaign can legitimately fail on its deadline. This seeded harness is not coverage-guided fuzzing, does not execute mutated IR in Luna's reference VM, and does not yet cover the full heap/callback/lifecycle mutation corpus or Miri/platform acceptance.
+Run a larger bounded campaign with `make jit-fuzz FUZZ_TARGET=all FUZZ_CASES=1024 FUZZ_SEEDS=0,1,42,0xdeadbeef`; `FUZZ_TARGET` may also be `admission`, `scalar` or `heap`. `all` retains its admission/scalar meaning for existing replay commands. Cases are bounded to 1..10000 per seed and 1..64 seeds. Fixed per-worker resource ceilings remain in force, so an overlarge campaign can legitimately fail on its deadline. This seeded harness is not coverage-guided fuzzing, does not execute mutated IR in Luna's reference VM, and does not establish the full heap/callback/lifecycle mutation corpus or Miri/platform acceptance.
+
+`make jit-fuzz-heap` defaults to 24 expensive heap/lifecycle cases per seed;
+explicit `FUZZ_CASES` overrides are respected. `jit-fuzz-smoke` includes eight
+cases per seed. Six parameterized source
+families exercise nested/cyclic aliases, open/closed upvalues, metamethod fallback,
+weak-mode reattachment, catchable nil-key errors with close handlers, bounded
+reentrant callbacks and finalizer resurrection. Fresh Off/Auto states
+compare each slice's fuel/mode, ordered Rust callback effects, selected global
+state, yielded values and final results. Every slice includes full host GC and
+replacement of a rooted table/userdata field consumed by Lua. Current and
+last-consumed object kind/ID-marker/scalar fields are observed before/after GC;
+retained aliases are mutated before replacement. The manual-step host drains
+queued finalizers and refuses unexpected warnings. One early host boundary
+retires/reprepares code.
+Each case requires native table/allocation/upvalue counters, suspension and
+mapping/snapshot/queue cleanup. Heap counters are reported separately from scalar
+kernel invocations. Host-read counts and userdata observations are separate from
+native operation counts; repeated userdata samples do not identify individual
+native userdata instructions. `make jit-heap-campaign-tests` exercises all six
+families for three fixed seeds. Fuel/mode comparisons apply to main-executor
+host slices; nested/finalizer internal slices are not individually paired.
+Neither this finite corpus nor selected state observations
+prove arbitrary heap equivalence, full collector safety or compiler accounting.
 
 `make jit-bench` checks results and native counters. The first measured scalar tier improved the float loop substantially but regressed heap/callback-heavy workloads; **performance acceptance has not passed**. Repeated shipping and matched size/disabled-cost artifacts are recorded in `PLAN_JIT.md`; those runs include failed 5% compiled-Off controls at both profiles. Three dispatch restructuring experiments worsened the controls and were removed. Coverage, cold compilation cost, profitable mixed workloads and broader platform evidence still need completion. The plan's frozen performance thresholds are not waived.
 

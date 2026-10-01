@@ -249,6 +249,21 @@ impl Paths {
             .map(|_| pc)
     }
 
+    pub fn owns_inst(&self, function: &Function, pc: usize, inst: Inst) -> bool {
+        function
+            .layout
+            .inst_block(inst)
+            .is_some_and(|block| self.owner(block) == Some(pc))
+    }
+
+    pub fn owns_value(&self, function: &Function, pc: usize, value: Value) -> bool {
+        match function.dfg.value_def(function.dfg.resolve_aliases(value)) {
+            ValueDef::Result(inst, _) => self.owns_inst(function, pc, inst),
+            ValueDef::Param(block, _) => self.owner(block) == Some(pc),
+            ValueDef::Union(_, _) => false,
+        }
+    }
+
     pub fn verify_regions(
         &self,
         function: &Function,
