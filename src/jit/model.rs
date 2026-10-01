@@ -537,7 +537,7 @@ mod tests {
             let memory = Arc::new(AtomicUsize::new(0));
             let mut manager = super::super::Manager::default();
             let metadata = manager.metadata.0.clone();
-            let code = Rc::new(
+            let code = super::super::owner::Shared::try_new(
                 super::super::backend::compile_in(
                     &snapshot,
                     memory.clone(),
@@ -547,7 +547,9 @@ mod tests {
                     super::super::backend::Failure::None,
                 )
                 .unwrap(),
-            );
+                manager.metadata.clone(),
+            )
+            .unwrap();
             manager.memory = memory.clone();
             manager.config.mode = super::super::JitMode::Auto;
             manager

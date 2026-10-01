@@ -189,6 +189,8 @@ impl Code {
 #[cfg(test)]
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum Failure {
+    RefuseOwnerStorage,
+    RefuseOwnerAllocation,
     RefusePredecessors,
     RefuseDominanceStorage,
     RefuseDominanceWork,

@@ -58,6 +58,11 @@ mod model;
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
+mod owner;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 mod preds;
 pub(crate) mod registry;
 pub(crate) mod resources;
@@ -311,7 +316,7 @@ pub(crate) struct Tracking {
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 struct CachedCode {
-    code: Rc<backend::Code>,
+    code: owner::Shared<backend::Code>,
     last_used: u64,
 }
 
@@ -392,7 +397,9 @@ impl Manager {
         let victim = self
             .code
             .iter()
-            .filter(|(candidate, entry)| **candidate != id && Rc::strong_count(&entry.code) == 1)
+            .filter(|(candidate, entry)| {
+                **candidate != id && owner::Shared::strong_count(&entry.code) == 1
+            })
             .min_by_key(|(candidate, entry)| (entry.last_used, **candidate))
             .map(|(candidate, _)| *candidate);
         let Some(victim) = victim else {
@@ -543,7 +550,7 @@ pub(crate) struct Prepared {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    code: Rc<backend::Code>,
+    code: owner::Shared<backend::Code>,
 }
 
 impl Runtime {
@@ -622,15 +629,27 @@ impl Runtime {
                                 manager.stats.compilation_failures.saturating_add(1);
                             return Err(JitError::ResourceLimit("JIT metadata"));
                         }
+                        #[cfg(test)]
+                        match failure {
+                            backend::Failure::RefuseOwnerStorage => {
+                                manager.metadata.0.set_limit(manager.metadata.0.current())
+                            }
+                            backend::Failure::RefuseOwnerAllocation => {
+                                manager.metadata.0.fail_after(0)
+                            }
+                            _ => {}
+                        }
+                        let code = match owner::Shared::try_new(code, manager.metadata.clone()) {
+                            Ok(code) => code,
+                            Err(_) => {
+                                manager.stats.compilation_failures =
+                                    manager.stats.compilation_failures.saturating_add(1);
+                                return Err(JitError::ResourceLimit("JIT metadata"));
+                            }
+                        };
                         manager.clock = manager.clock.saturating_add(1);
                         let last_used = manager.clock;
-                        manager.code.insert(
-                            id,
-                            CachedCode {
-                                code: Rc::new(code),
-                                last_used,
-                            },
-                        );
+                        manager.code.insert(id, CachedCode { code, last_used });
                         manager.stats.installed_regions =
                             manager.stats.installed_regions.saturating_add(1);
                     }
@@ -930,6 +949,78 @@ mod eviction_tests {
     use super::*;
 
     #[test]
+    fn cached_owner_refusal_preserves_peer_and_refused_source_then_recovers() {
+        for failure in [
+            backend::Failure::RefuseOwnerStorage,
+            backend::Failure::RefuseOwnerAllocation,
+        ] {
+            let mut lua = crate::Lua::empty();
+            lua.gc_stop();
+            lua.set_jit_config(JitConfig {
+                mode: JitMode::Auto,
+                ..Default::default()
+            })
+            .unwrap();
+            let peer =
+                lua.enter(|ctx| ctx.stash(crate::Closure::load(ctx, None, b"return 42").unwrap()));
+            assert_eq!(lua.prepare_jit().unwrap(), 1);
+            let baseline = lua.jit_stats().code_bytes;
+            let source = lua.enter(|ctx| {
+                ctx.stash(crate::Closure::load(ctx, None, b"local x=40 return x+2").unwrap())
+            });
+            lua.enter(|ctx| ctx.jit().0.borrow_mut().memory_failure = failure);
+            assert!(matches!(
+                lua.prepare_jit(),
+                Err(JitError::ResourceLimit("JIT metadata"))
+            ));
+            let stats = lua.jit_stats();
+            assert_eq!(
+                (
+                    stats.code_bytes,
+                    stats.snapshot_bytes,
+                    stats.installed_regions,
+                    stats.compilation_failures
+                ),
+                (baseline, 0, 1, 1)
+            );
+            let peer_executor = lua
+                .enter(|ctx| ctx.stash(crate::Executor::start(ctx, ctx.fetch(&peer).into(), ())));
+            assert_eq!(lua.execute::<i64>(&peer_executor).unwrap(), 42);
+            assert!(lua.jit_stats().native_entries > 0);
+            lua.enter(|ctx| {
+                let mut manager = ctx.jit().0.borrow_mut();
+                manager.memory_failure = backend::Failure::None;
+                manager
+                    .metadata
+                    .0
+                    .set_limit(manager.config.max_metadata_bytes);
+                manager.metadata.0.fail_after(usize::MAX);
+            });
+            let mut config = lua.jit_config();
+            config.mode = JitMode::Off;
+            lua.set_jit_config(config).unwrap();
+            let source_executor = lua
+                .enter(|ctx| ctx.stash(crate::Executor::start(ctx, ctx.fetch(&source).into(), ())));
+            let entries = lua.jit_stats().native_entries;
+            assert_eq!(lua.execute::<i64>(&source_executor).unwrap(), 42);
+            assert_eq!(lua.jit_stats().native_entries, entries);
+            let mut config = lua.jit_config();
+            config.mode = JitMode::Auto;
+            lua.set_jit_config(config).unwrap();
+            lua.clear_jit_cache();
+            assert_eq!(lua.prepare_jit().unwrap(), 2);
+            let recovered = lua
+                .enter(|ctx| ctx.stash(crate::Executor::start(ctx, ctx.fetch(&source).into(), ())));
+            assert_eq!(lua.execute::<i64>(&recovered).unwrap(), 42);
+            assert!(lua.jit_stats().native_entries > entries);
+            drop((peer, source, peer_executor, source_executor, recovered));
+            lua.gc_collect();
+            lua.gc_collect();
+            assert_eq!(lua.jit_stats().accounted_jit_bytes, 0);
+        }
+    }
+
+    #[test]
     fn host_ceiling_shrink_retains_live_lease_charges_until_final_drop() {
         let mut lua = crate::Lua::empty();
         lua.set_jit_config(JitConfig {
@@ -1122,7 +1213,7 @@ mod eviction_tests {
                 manager.code.capacity(),
                 manager.queue.capacity(),
             );
-            let owners = Rc::strong_count(&lease.code);
+            let owners = owner::Shared::strong_count(&lease.code);
             let recency = manager.code[&1].last_used;
             manager.compact_metadata();
             assert_eq!(manager.stats.metadata_compaction_attempts, 3);
@@ -1138,7 +1229,7 @@ mod eviction_tests {
                 ),
                 capacity
             );
-            assert_eq!(Rc::strong_count(&lease.code), owners);
+            assert_eq!(owner::Shared::strong_count(&lease.code), owners);
             assert_eq!(manager.code[&1].last_used, recency);
             let pending = &manager.tracked[&3];
             assert_eq!(
@@ -1189,7 +1280,7 @@ mod eviction_tests {
             manager.stats.queued_requests = 1;
             (
                 manager.metadata.0.current(),
-                Rc::strong_count(&lease.code),
+                owner::Shared::strong_count(&lease.code),
                 manager.code[&1].last_used,
             )
         };
@@ -1208,8 +1299,8 @@ mod eviction_tests {
             );
             assert_eq!(manager.code[&1].last_used, recency);
             assert_eq!(manager.clock, clock);
-            assert!(Rc::ptr_eq(&manager.code[&1].code, &lease.code));
-            assert_eq!(Rc::strong_count(&lease.code), owner_count);
+            assert!(owner::Shared::ptr_eq(&manager.code[&1].code, &lease.code));
+            assert_eq!(owner::Shared::strong_count(&lease.code), owner_count);
             let pending = &manager.tracked[&3];
             assert_eq!(
                 (pending.hotness, pending.attempts, pending.queued),
@@ -1410,7 +1501,8 @@ mod eviction_tests {
     fn cache_entry_recency_is_charged_by_the_metadata_allocator() {
         let ledger = Ledger::new(65536);
         let allocator = BudgetAllocator(ledger.clone());
-        let mut bare: MetadataMap<u64, Rc<backend::Code>> = metadata_map(allocator.clone());
+        let mut bare: MetadataMap<u64, owner::Shared<backend::Code>> =
+            metadata_map(allocator.clone());
         bare.try_reserve(1).unwrap();
         let bare_bytes = ledger.current();
         drop(bare);
