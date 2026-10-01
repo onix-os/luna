@@ -45,6 +45,7 @@ $(info ------------------------------------------)
 .PHONY: jit-deps jit-check jit-test jit-test-all jit-test-doc jit-rustdoc jit-verify jit-tree jit-reference jit-backend jit-boundary jit-native jit-numeric jit-heap jit-registers jit-policy jit-resources jit-example jit-bench jit-bench-paired jit-performance jit-profile jit-profile-build jit-rust-assembly jit-fuzz-smoke jit-fuzz jit-evidence environment
 .PHONY: ci-check jit-platform
 .PHONY: jit-size jit-size-build jit-cost-tests jit-cost-native jit-shipping
+.PHONY: jit-size-run jit-cost-native-run
 .PHONY: jit-cost-profile
 .PHONY: jit-disassembly
 .PHONY: jit-bench-build jit-bench-run
@@ -145,9 +146,17 @@ jit-size-build:
 	@size $(COST_DIR)/no-jit $(COST_DIR)/jit-off | tee $(COST_DIR)/sections.log
 
 jit-cost-native: jit-size-build
+	@$(MAKE) --no-print-directory jit-cost-native-run
+
+jit-cost-native-run:
+	@test -x '$(COST_DIR)/jit-off'
 	@set -o pipefail; $(COST_DIR)/jit-off --mode auto --iterations 1 2>&1 | tee $(COST_DIR)/native-proof.log
 
-jit-size: jit-cost-native
+jit-size: jit-size-build
+	@$(MAKE) --no-print-directory jit-size-run
+
+jit-size-run: jit-cost-native-run
+	@test -x '$(COST_DIR)/no-jit'
 	@set -o pipefail; $(COST_DIR)/no-jit --compare $(COST_DIR)/no-jit $(COST_DIR)/jit-off --samples $(COST_SAMPLES) --iterations $(COST_ITERATIONS) --check 2>&1 | tee $(COST_DIR)/cost.log
 
 jit-cost-profile:
