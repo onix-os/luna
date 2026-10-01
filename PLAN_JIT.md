@@ -431,6 +431,11 @@ Basic-block analysis is now integrated (`56bc035`): bounded in-place partitions
 and header/linear successor checks preserve every legal PC. Full typed/data-flow
 and exit-snapshot analysis remains open; this does not complete Phase 3.
 
+Finalized image detachment (`f875233`) removes the retained Cranelift module from
+cached code. Code directly owns all provider mappings; the temporary charged
+handoff/provider and compiler internals drop before publication. Structural
+admission and transient compiler working-memory bounds remain distinct and open.
+
 Owned canonical exit descriptors (`f347245`) now constrain emitted exit kinds,
 PC/error positions and full fixed-register materialization prefixes. Conservative
 compiler write markers reject retries after current-instruction stores. Full
@@ -7687,6 +7692,114 @@ No benchmark timing is accepted while unrelated global build/benchmark jobs run.
 
 1. Fixed ABI/helper arities allow stack arrays without allocating temporary vectors.
 2. Declaration-order mutation tests exercise both early-error and panic cleanup.
+
+### Decision — detach finalized mappings from compiler ownership
+
+Pinned Cranelift JITModule retains its ISA, symbol/declaration tables, compiled
+blobs, code ranges and finalization queues. Luna only needs the finalized entry
+and all provider-owned mappings after relocations/protection complete. Add a
+fallibly metadata-charged, strong-only mutex handoff between the provider adapter
+and compilation wrapper. On success, move the complete Memory owner into Code,
+drop the module/provider and their charge, then publish Code. On any failure,
+the last handoff owner drops Memory and releases mappings normally. Keep all
+executable, read-only and writable segments together; do not copy machine code
+or assume private Cranelift layouts. Handoff is empty after transfer and cannot
+release detached mappings. No compiler state survives in cached Code.
+This removes retained compiler buffers; transient compiler working memory and
+hard CPU/process isolation remain separate open requirements. The pinned module
+has no Drop implementation or external unwind registration requiring it to remain
+alive; its code-range table is an internal lookup used while linking.
+
+### Environment recovery — separate build volume
+
+Full GNU gate `90927` terminated exit 2: several ld.lld links died with SIGBUS.
+At that point `/home/bresilla/data` had about 200 MB free; the logs do not prove
+the underlying cause. Musl did not start. This is failed/draft evidence, not
+acceptance. Do not remove previous artifacts or evidence. A fresh retry uses
+`CARGO_TARGET_DIR=/home/bresilla/.cache/luna-jit/f875233`, on `/home` (213 GB free),
+with the same Nix/Make/toolchain/profile/gates. Restrict build parallelism to four
+Cargo jobs. This changes artifact location, not correctness/performance policy.
+The independently running selected Miri handle remains `33278`; do not restart it.
+
+### Miri environment failure and retry
+
+Selected Miri `33278` terminated exit 2 after the tags namespace's 37 tests
+passed: rustc then failed writing dep-graph.part.bin with explicit ENOSPC.
+This is not a passing full lane. Retry uses the separate `/home` volume with
+`CARGO_TARGET_DIR=/home/bresilla/.cache/luna-jit/miri-f875233`, unchanged pinned
+Miri/empty flags/selected namespaces. An external change subsequently restored
+space on `/home/bresilla/data`; no files were deleted by this task.
+
+### Session summary — finalized image ownership acceptance
+
+## Goal
+- Continue full PLAN_JIT.md implementation on `feat/native-jit`.
+
+## Instructions
+- Preserve incremental unsigned/title-only Conventional Commits, Nix/Make gates,
+  original performance thresholds and honest incomplete status. No Python edits.
+
+## Discoveries
+- Pinned JITModule retains compiler tables/ISA/blobs after finalization. All
+  relocations are complete before provider finalization; retaining the complete
+  provider Memory value keeps every mapping/address alive without the module.
+- Cranelift-jit defaults to no optional features; its optional Wasmtime unwind
+  lookup is not enabled. There is no module Drop/external registration requiring
+  compiler ownership to survive. Generated-frame unwinding stays prohibited.
+- Full-build failures coincided with disk pressure; Miri explicitly reports
+  ENOSPC. A separate `/home` Cargo target directory permits unchanged gates
+  without deleting files. Benchmark build recipes separately force repo target;
+  their artifact-location behavior is not changed or used by these retries.
+
+## Accomplished
+- `f875233` commits a fallibly charged mutex handoff/provider adapter; success
+  moves Memory directly into Code and drops module/provider/temporary charges
+  before publication. Failure releases unclaimed mappings with the last owner.
+- Five pure/Miri handoff fixtures cover exact quota/lifetime, refusals/retry,
+  final-owner cleanup, mutation/error/panic poison and borrowed aligned worker
+  transfer. Two native fixtures verify retained-storage accounting, execution
+  after compiler destruction and adapter refusal/free/drop after detachment.
+- Focused native/Clippy `17637` and isolated Miri `30874` exit 0; existing
+  141 lib-test warnings remain. Retention mutation `12207` exits 2 with the
+  exact-storage test failing; restoration `1024` exits 0 and hash matches.
+- Full retry `29283` exits 0: GNU and musl each **4915 passing executions /
+  434 suites / 24 ignored**. Counts repeat mode/doc suites, not unique tests.
+- Selected Miri retry `29083` exits 0: **288 tests / 42 suites / 0 ignored**,
+  pinned nightly 2026-08-16 rustc `67854e511`, empty flags/default checks.
+  Generated-code/OS-worker/native-map tests are not executed under Miri.
+- Long campaigns `29032` exit 0. Per platform: **4096 scalar/admission cases /
+  1641780 native invocations / 4758522 native instructions**; **96 heap cases /
+  6344 main slices / 725 yields / 1633 callbacks / 96 retirements / 964 host
+  reads / 2809 userdata observations / 65297 native instructions**. Helpers:
+  **22144 table reads / 7393 table writes / 1655 allocations / 21701 upvalue
+  reads / 996 upvalue writes / 1179 declines**. Platforms reuse seeds/programs;
+  userdata samples and nested/finalizer slices are not unique instruction proof.
+- Failed GNU `90927` and Miri `33278` remain draft logs, not acceptance. No owned
+  test/build/campaign jobs remain running; revision-scoped logs, source hashes,
+  environments and copied full-smoke/long campaign directories are retained in
+  `target/jit-evidence/detached-image/`. Engram unavailable; context saved here.
+
+## Next Steps
+- Bound remaining transient compiler work/memory where controllable; complete
+  safety/liveness/alias/GC review, broader coverage-guided/unsafe stress and
+  unchanged performance controls. Retained compiler state is now removed, not
+  a complete compiler/RSS ceiling or production-readiness proof.
+- Obtain executed ARM64/hosted evidence and strict-Clippy acceptance. No timing
+  was run amid unrelated global jobs; previous failed performance gates remain
+  failed and are not waived. Full goal stays active and incomplete.
+
+## Relevant Files
+- `src/jit/handoff.rs` — exact charged, strong-only, one-shot transfer slot.
+- `src/jit/backend.rs` — provider adapter, compiler disposal, direct mapping owner.
+- `src/jit/mod.rs`, `Makefile` — gated module, focused/native/selected-Miri coverage.
+- `JIT.md`, `PLAN_JIT.md` — scoped acceptance and remaining scope.
+- `target/jit-evidence/detached-image/` — accepted and failed/draft evidence.
+
+## Key Learnings:
+
+1. Finalized mappings can outlive Cranelift's compiler tables without moving code
+   or relying on private layouts when the provider's complete owner is retained.
+2. A passing Miri namespace followed by ENOSPC is a failed lane, not acceptance.
 
 ## 15. Primary references
 
