@@ -467,6 +467,13 @@ Equivalent inverted selectors are accepted; backend corruption tests refuse
 swapped arms and unsigned conversion before codegen/mapping. This does not yet
 tie every arithmetic/comparison operand or opcode to its decoded source operation.
 
+Arithmetic-source verification (`93ae88d`) now binds Add/Sub/Mul/Div records to
+decoded PC/arm order, exact integer/float opcode, left/right register or constant
+provenance, verified conversion operands and actual adjacent result stores.
+Default native memory flags and sorted/bounded input-record cardinality are
+required. Comparison/loop/move semantics, complete source maps, path-sensitive
+transitions, liveness and alias proofs remain open; Phase 3 is not complete.
+
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
@@ -4328,6 +4335,120 @@ component evidence from full-plan acceptance. No sub-agents or performance runs.
 - `Makefile` — `jit-float-input`, invoked by the existing numeric/tag gates.
 - `JIT.md`, `PLAN_JIT.md` — contract, phase status, verified scope and exclusions.
 - `target/jit-evidence/float-inputs/` — local raw verification and campaign artifacts.
+
+### Arithmetic source-equivalence decision
+
+Add quota-charged, exact-counted records for each integer/float Add/Sub/Mul arm
+and the float Div arm. Verify decoded source opcode, operand order and exact
+register/constant tag/payload provenance against actual SSA. Float operands must
+be the already verified conversion records for those exact source pairs. Tie the
+result to the destination's actual adjacent tag/payload stores. Consume records
+in decoded-PC/arm order and use sorted input-record lookup, avoiding quadratic
+search or new uncharged workspaces. Inject wrong opcode, reversed operands and
+wrong destination before codegen. This covers these four arithmetic operations;
+comparison/loop/move semantics, full source-map/path-sensitive and alias/liveness
+proofs remain separate requirements, not implicitly completed by this increment.
+
+Require monotone input instruction IDs and at most two input records per consumer.
+Otherwise a sorted duplicate run could turn each arithmetic lookup into an
+unbounded linear scan and make whole verification quadratic. Current integer,
+comparison and loop consumers record at most two operands; float selectors one.
+Malformed record cardinality is a compiler error, not a workspace growth request.
+
+Address/offset/type identity alone does not establish canonical scratch semantics:
+IR memory flags can specify a different byte order. Require the emitter's default
+native flags for arithmetic source loads, result stores and bitcasts (including
+selected Number conversion arms), and reject altered flags in pure IR tests.
+Do not silently assume these interned instruction flags are always canonical.
+
+### Arithmetic source-equivalence verification session
+
+#### Goal
+
+Bind actual arithmetic SSA to decoded source operations and verify this increment
+while keeping the full requested native-JIT plan active and incomplete.
+
+#### Instructions
+
+Use repository Make tasks through Nix, patch tools for edits, and separate unsigned
+title-only Conventional implementation/evidence commits. Preserve scope and frozen
+acceptance thresholds. No sub-agents, timing/profile runs, pushes or hosted runs.
+
+#### Discoveries
+
+- Previous goal turn was progress: float-selector proof and complete verification
+  were committed. This turn adds operand/opcode/destination source binding.
+- Tag validity and SSA dependency alone allow wrong-opcode, reversed-operand,
+  wrong-register and wrong-destination lowering. Separate source records catch
+  these while preserving the existing integer/float admission checks.
+- Sorted lookup also needs bounded duplicate cardinality; otherwise a repeated
+  consumer run can turn whole verification quadratic. At most two records per
+  consumer match current lowering and bound each matched lookup.
+- Matching memory address, offset and type does not establish canonical bytes.
+  Interned flags can change endianness; canonical arithmetic loads/stores/bitcasts
+  now require the emitter's default native flags, with a pure-IR refusal regression.
+
+#### Accomplished
+
+- Committed `93ae88d` (`feat(jit): verify arithmetic source operands`), unsigned
+  and title-only. Added fallible quota-charged arithmetic records, exact arm counts,
+  source-PC/arm order, actual opcode/operand provenance and result-store checks.
+  Source operands must be exact adjacent register reads or exact constant tag/bits;
+  float operands must use the matching previously verified conversion record.
+  Stores now return their emitted instruction identity for compiler-side recording.
+  Production ABI and emitted kernel operations remain unchanged.
+- Seven new pure-IR tests cover all four source operations/register and constant
+  operands, opcode/order/source/destination corruption, constant tags/bits, result
+  payload/tag stores, record envelopes/cardinality, canonical memory flags and
+  constructor quota-refusal rollback. Four independent actual-backend corruptions
+  refuse before codegen/mapping; `make jit-arithmetic` is integrated into input gates.
+- Bypassing arithmetic consumption in production and fixtures caused four pure
+  test failures and all four backend corruption failures (both Make gates exited
+  two). Restored both consumers. Malformed kernels were never executed. Final
+  focused `fmt fmt-check jit-tags jit-ir jit-boundary jit-heap jit-resources
+  jit-clippy` exited zero: 283 passes / 22 suite results / 4 ignored; namespace
+  repetitions are not distinct tests. No new `src/jit/tags.rs` Clippy warning.
+- Full `nix develop -c make jit-verify clippy jit-clippy`, followed by the same
+  command with `TARGET=x86_64-unknown-linux-musl`, exited zero on each platform:
+  3189 passed / 421 suite results / 24 ignored. Interpreter/default, Off/Auto/Force,
+  all-features Force, docs and supervised smoke are included. Existing lint
+  warnings remain advisory, not strict-warning acceptance. Rust/Cargo is 1.97.1.
+- Selected `nix develop .#miri -c make jit-miri
+  MIRI_DIR=target/jit-evidence/arithmetic-source/miri` exited zero: 96 passing tests
+  across 14 namespaces, default `MIRIFLAGS`, pinned Miri `67854e511`. Pure-IR source
+  verification runs here; actual native execution and JITBuilder faults do not.
+- Repeated `nix develop -c make jit-fuzz FUZZ_TARGET=all FUZZ_CASES=1024
+  FUZZ_SEEDS=0,1,0xdeadbeef,0xffffffffffffffff` on GNU and with the musl target.
+  Both exited zero. Each checks 4096 generated snapshots plus malformed mutations,
+  three input variations, every entry PC and seven budgets: 1641780 kernel
+  invocations / 4758522 completed native instructions, with mapping/metadata and
+  snapshot charges released. Both targets reuse the same seeds/programs; this
+  is not 8192 distinct generated programs or a native heap/lifecycle campaign.
+- Archived full/focused/mutation logs, both campaigns, environment and source
+  identity/hashes under `target/jit-evidence/arithmetic-source/`. Rechecked code,
+  Makefile and lockfile hashes after all runs; only PLAN documentation was dirty.
+  Owned sessions `45426`, `38781`, `94114`, `90363`, mutation `88398`, full `35263`,
+  Miri `89857` and campaign `89219` are terminal; no owned job remains.
+- Updated Phase 3 and public evidence/contract. No performance measurement was
+  taken; outstanding native/shipping performance failures remain failures.
+
+#### Next Steps
+
+- Bind comparison/loop/move and branch semantics to source operations, including
+  mixed integer/float limits and NaN behavior; retain independent per-PC/fuel tests.
+- Complete path-sensitive transitions, error/source-map/liveness/alias review,
+  compiler/fixed-owner/combined-host accounting and the approved isolation model.
+- Continue heap/lifecycle hardening, controlled performance fixes and actual
+  ARM64/hosted evidence when authorized/available. Full-plan acceptance stays open.
+
+#### Relevant Files
+
+- `src/jit/tags.rs` — charged arithmetic records, source/opcode/provenance/result
+  proof, bounded input lookup, canonical memory flags and seven new pure tests.
+- `src/jit/backend.rs` — recording actual result stores and four corruption tests.
+- `Makefile` — `jit-arithmetic` within existing numeric/tag verification.
+- `JIT.md`, `PLAN_JIT.md` — contract, phase status and revision-scoped evidence.
+- `target/jit-evidence/arithmetic-source/` — local raw verification/campaign artifacts.
 
 ## 15. Primary references
 
