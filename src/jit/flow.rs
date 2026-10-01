@@ -233,6 +233,7 @@ pub(super) struct Node {
     pub reachable: bool,
     pub block_start: u32,
     pub block_end: u32,
+    pub exit: super::exits::Snapshot,
 }
 
 impl Node {
@@ -271,6 +272,7 @@ impl FlowGraph {
                 reachable: false,
                 block_start: u32::MAX,
                 block_end: 0,
+                exit: super::exits::Snapshot::new(pc as u32, snapshot.registers as u16, lowering),
             };
             if !node.valid_effects() {
                 return Err(JitError::Compilation(format!(
@@ -880,6 +882,7 @@ mod tests {
             reachable: true,
             block_start: 0,
             block_end: 1,
+            exit: super::super::exits::Snapshot::new(0, 4, Lowering::Direct),
         };
         assert!(!node.valid_effects());
         node.native_effects = Effects(Effects::ALLOCATE);

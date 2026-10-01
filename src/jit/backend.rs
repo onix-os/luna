@@ -19,6 +19,7 @@ use cranelift_module::{default_libcall_names, Linkage, Module, ModuleResult};
 
 use super::{
     abi::{self, Entry, Exit, Slot},
+    exits::Kind as ExitKind,
     helpers,
     ir::Snapshot,
     resources::BudgetAllocator,
@@ -329,12 +330,14 @@ pub(super) fn compile_in(
                 helpers: &helper_refs,
                 count: zero,
                 pc: 0,
+                written: false,
             };
             for (pc, op) in snapshot.operations.iter().copied().enumerate() {
                 emitter.pc = pc;
+                emitter.written = false;
                 emitter.builder.switch_to_block(blocks[pc]);
                 emitter.count = emitter.builder.block_params(blocks[pc])[0];
-                let pc_value = emitter.builder.ins().iconst(types::I64, pc as i64);
+                let pc_value = emitter.exit_pc(ExitKind::Budget);
                 let limit = emitter.builder.ins().icmp(
                     IntCC::UnsignedGreaterThanOrEqual,
                     emitter.count,
@@ -352,11 +355,16 @@ pub(super) fn compile_in(
                 emitter.emit(op);
             }
         }
-        for (block, reason) in [(fallback, 0), (guard, 1), (exhausted, 2), (panicked, 3)] {
+        for (block, reason) in [
+            (fallback, ExitKind::Interpreter),
+            (guard, ExitKind::Guard),
+            (exhausted, ExitKind::Budget),
+            (panicked, ExitKind::Panic),
+        ] {
             builder.switch_to_block(block);
             let pc = builder.block_params(block)[0];
             let count = builder.block_params(block)[1];
-            let reason = builder.ins().iconst(types::I32, reason);
+            let reason = builder.ins().iconst(types::I32, i64::from(reason as u32));
             builder
                 .ins()
                 .store(MemFlagsData::new(), pc, arguments[3], 0);
@@ -402,11 +410,36 @@ struct Emitter<'a, 'b> {
     helpers: &'a [(u32, cranelift_codegen::ir::FuncRef)],
     pc: usize,
     count: IrValue,
+    written: bool,
 }
 
 impl Emitter<'_, '_> {
+    fn exit_state(&self, kind: ExitKind) -> super::exits::State {
+        let state = self.graph.nodes[self.pc]
+            .exit
+            .state(kind, self.written)
+            .expect("invalid native exit snapshot");
+        assert_eq!(
+            usize::from(state.materialized_slots),
+            self.snapshot.registers
+        );
+        assert_eq!(state.resume_pc as usize, self.pc);
+        assert_eq!(
+            state.frame_pc as usize,
+            self.pc + usize::from(kind == ExitKind::Panic)
+        );
+        state
+    }
+
+    fn exit_pc(&mut self, kind: ExitKind) -> IrValue {
+        let state = self.exit_state(kind);
+        self.constant(u64::from(state.resume_pc))
+    }
+
     fn helper(&mut self, kind: u32, a: u32, b: u32, c: u32) {
         assert!(self.graph.nodes[self.pc].lowering.accepts_helper(kind));
+        self.exit_state(ExitKind::Interpreter);
+        self.exit_state(ExitKind::Panic);
         let args: Vec<_> = [a, b, c, self.pc as u32]
             .into_iter()
             .map(|arg| self.builder.ins().iconst(types::I32, i64::from(arg)))
@@ -437,7 +470,7 @@ impl Emitter<'_, '_> {
             self.builder
                 .ins()
                 .icmp_imm_u(IntCC::Equal, status, i64::from(abi::HELPER_PANICKED));
-        let pc = self.constant(self.pc as u64);
+        let pc = self.exit_pc(ExitKind::Interpreter);
         self.builder.ins().brif(
             panic,
             self.panicked,
@@ -481,6 +514,7 @@ impl Emitter<'_, '_> {
     }
 
     fn store(&mut self, register: u8, tag: IrValue, bits: IrValue) {
+        self.written = true;
         self.builder.ins().store(
             MemFlagsData::new(),
             tag,
@@ -502,7 +536,7 @@ impl Emitter<'_, '_> {
 
     fn require(&mut self, condition: IrValue) {
         let next = self.builder.create_block();
-        let pc = self.constant(self.pc as u64);
+        let pc = self.exit_pc(ExitKind::Guard);
         self.builder.ins().brif(
             condition,
             next,
@@ -563,7 +597,7 @@ impl Emitter<'_, '_> {
     }
 
     fn bail(&mut self) {
-        let pc = self.constant(self.pc as u64);
+        let pc = self.exit_pc(ExitKind::Interpreter);
         self.builder
             .ins()
             .jump(self.fallback, &[pc.into(), self.count.into()]);
@@ -1017,6 +1051,125 @@ impl Emitter<'_, '_> {
         self.advance((self.pc + 1).checked_add_signed(isize::from(jump)).unwrap());
         self.builder.switch_to_block(done);
         self.advance(self.pc + 1);
+    }
+}
+
+#[cfg(test)]
+mod exit_tests {
+    use super::*;
+    use crate::types::{RegisterIndex, VarCount};
+
+    fn rejects_after_store(op: Operation, kind: ExitKind) {
+        let snapshot = Snapshot {
+            operations: super::super::resources::owned(&[
+                op,
+                Operation::Return {
+                    start: RegisterIndex(0),
+                    count: VarCount::constant(0),
+                },
+            ]),
+            constants: super::super::resources::owned(&[]),
+            registers: 4,
+            upvalues: 1,
+            prototypes: 0,
+        };
+        let graph = super::super::flow::FlowGraph::new(&snapshot).unwrap();
+        let mut function = cranelift_codegen::ir::Function::new();
+        let mut context = FunctionBuilderContext::new();
+        let mut builder = FunctionBuilder::new(&mut function, &mut context);
+        let entry = builder.create_block();
+        builder.switch_to_block(entry);
+        let slots = builder.ins().iconst(types::I64, 0);
+        let count = builder.ins().iconst(types::I32, 0);
+        let blocks = [entry, entry];
+        let mut emitter = Emitter {
+            builder: &mut builder,
+            snapshot: &snapshot,
+            graph: &graph,
+            blocks: &blocks,
+            slots,
+            fallback: entry,
+            guard: entry,
+            panicked: entry,
+            host: slots,
+            helpers: &[],
+            pc: 0,
+            count,
+            written: false,
+        };
+        emitter.exit_state(kind);
+        let tag = emitter.constant(abi::INTEGER);
+        let bits = emitter.constant(42);
+        emitter.store(0, tag, bits);
+        let condition = emitter.builder.ins().iconst(types::I8, 1);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match kind {
+            ExitKind::Guard => emitter.require(condition),
+            ExitKind::Interpreter if matches!(op, Operation::NewTable { .. }) => {
+                emitter.helper(abi::HELPER_NEW_TABLE, 0, 0, 0);
+            }
+            ExitKind::Interpreter => emitter.bail(),
+            ExitKind::Budget => {
+                emitter.exit_pc(ExitKind::Budget);
+            }
+            ExitKind::Panic => unreachable!(),
+        }));
+        let payload = result.expect_err("emitter admitted a retry exit after scalar effects");
+        let message = payload
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| payload.downcast_ref::<&str>().copied())
+            .unwrap();
+        assert!(
+            message.contains("invalid native exit snapshot"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn scalar_guard_after_a_store_is_rejected_before_branch_emission() {
+        rejects_after_store(
+            Operation::Add {
+                dest: RegisterIndex(0),
+                left: RegisterIndex(1).into(),
+                right: RegisterIndex(2).into(),
+            },
+            ExitKind::Guard,
+        );
+    }
+
+    #[test]
+    fn interpreter_fallback_after_a_store_is_rejected_before_branch_emission() {
+        rejects_after_store(
+            Operation::Return {
+                start: RegisterIndex(0),
+                count: VarCount::constant(0),
+            },
+            ExitKind::Interpreter,
+        );
+    }
+
+    #[test]
+    fn helper_decline_after_a_store_is_rejected_before_helper_emission() {
+        rejects_after_store(
+            Operation::NewTable {
+                dest: RegisterIndex(0),
+                array_size: 0,
+                map_size: 0,
+            },
+            ExitKind::Interpreter,
+        );
+    }
+
+    #[test]
+    fn budget_exit_after_a_store_is_rejected_before_pc_emission() {
+        rejects_after_store(
+            Operation::LoadBool {
+                dest: RegisterIndex(0),
+                value: true,
+                skip_next: false,
+            },
+            ExitKind::Budget,
+        );
     }
 }
 

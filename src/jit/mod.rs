@@ -21,6 +21,7 @@ mod abi;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod backend;
+mod exits;
 mod flow;
 #[cfg(all(
     test,
@@ -771,7 +772,7 @@ impl Runtime {
         manager.stats.guard_exits = manager
             .stats
             .guard_exits
-            .saturating_add(u64::from(exit.reason == 1));
+            .saturating_add(u64::from(exit.reason == exits::Kind::Guard as u32));
         if let Some(payload) = frame.panic.take() {
             drop(manager);
             std::panic::resume_unwind(payload);

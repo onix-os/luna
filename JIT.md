@@ -166,6 +166,16 @@ are released before installation completes. `make jit-ir` covers flow/effect and
 allocation rollback tests, also selected by the Rust-only Miri lane. This is not
 full typed/effect SSA or a crafted-binary verification/security claim.
 
+Each charged node also owns an exit snapshot: current PC, canonical fixed-register
+prefix and admitted interpreter/guard/budget/helper-panic outcomes. Compiler
+guards and retry exits are refused after scalar stores in the current instruction;
+helper panic keeps the current instruction's frame/error PC at PC plus one and
+uses the existing rooted payload/materialization path. This conservative compiler
+write marker is not path-sensitive SSA. Wire reasons and ABI v3 are unchanged,
+and these checks add no native dispatch work. `make jit-exits` tests snapshot
+contracts and rejects four injected retry-after-store IR emission cases without
+executing native code; the selected Miri lane includes those Rust-only tests.
+
 Host service/preparation sweeps compact sparse registration, tracking, code
 index and queue storage. Nonempty containers qualify at capacity 64 or greater
 and at most quarter occupancy. Replacement storage is reserved fallibly before
