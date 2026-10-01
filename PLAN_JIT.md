@@ -4061,6 +4061,90 @@ Engram tools remain unavailable; persist this checkpoint here instead.
 - `Makefile`, `JIT.md`, `PLAN_JIT.md` — scoped gates, contract and evidence.
 - `target/jit-evidence/scalar-tags/` — source identity, raw gates and mutation logs.
 
+### Numeric input-proof decision
+
+Extend scalar verification with charged, bounded numeric-consumer records. Infer
+tag masks through compound Boolean guards using bounded three-valued predicate
+evaluation. Numeric operands must satisfy their consumer's Integer or Numeric
+mask, and tag/bits loads must be adjacent reads of the same scratch slot (or
+canonical constant pairs). Check that the recorded consumer actually depends on
+the payload. Deliberately omit numeric guards in a test-only backend variant and
+require pre-codegen refusal. Keep production ABI/kernel operations unchanged.
+This establishes input-tag/load-pair admission, not full operation equivalence,
+payload selection proofs, liveness or alias analysis; those requirements remain.
+
+The existing per-PC model exposed a necessary distinction: a constant Number
+operand leaves a generated integer arm statically impossible. Skip semantic proof
+obligations only when a dominating single-predecessor guarded edge is contradicted
+by a bounded predicate evaluation with no queried-tag assumptions. Do not treat an
+unseeded phi or merely unknown tag as proof of unreachability. This preserves
+valid constant/mixed numeric and interpreter-fallback programs without weakening
+reachable input checks. Track exact expected numeric-record counts per prototype
+so missing records fail compilation rather than silently removing obligations.
+
+### Numeric input-proof continuation checkpoint
+
+The numeric input admission changes are implemented but not yet committed or
+fully accepted. The focused run before mutation passed 229 tests across 18 suite
+results. Bypassing the consumer proof caused five pure-IR failures and the actual
+backend omitted-guard regression to fail; the mutation has been restored. Resume
+owned session `79118` and inspect `/tmp/luna-jit-input-restored.log` before starting
+another run. Full GNU/musl and selected Miri gates for this revision remain pending.
+The last committed full verification remains `e747b07`, documented in `31bfa64`.
+No new performance measurements were taken; outstanding performance acceptance,
+full dataflow/alias proofs and broader platform evidence remain incomplete.
+
+### Numeric input-proof status session
+
+#### Goal
+
+Report current plan/implementation progress and commit the tested numeric-input
+safety increment without claiming full-plan acceptance.
+
+#### Instructions
+
+Keep commits incremental, unsigned, title-only and Conventional. Use Make through
+the repository's Nix environment. Do not weaken outstanding acceptance gates.
+
+#### Discoveries
+
+- Session `79118` is no longer available. Its restored focused log ends with the
+  completed Clippy profile and contains 230 passing tests across 19 suite results,
+  including repeated namespaces; this is not a unique-test count. No matching
+  active build/test process was found. The lost handle's exit code was not recovered.
+- Compound guard proofs must distinguish unsupported non-Boolean expressions
+  from unknown Boolean values. Constant-false dominated paths need separate
+  unreachability proof, not assumptions about a queried runtime tag.
+
+#### Accomplished
+
+- Committed `c5c2297` (`feat(jit): verify guarded numeric input pairs`), unsigned
+  and title-only. Input records, bounded guard proof, actual payload dependency,
+  eight pure-IR cases and omitted-guard backend refusal are included.
+- Restored the consumer-proof mutation. Five pure checks and the actual backend
+  fault regression had failed under the mutation, establishing that the checks
+  exercise the production admission path. Updated the public contract in `JIT.md`.
+- Verified `git diff --check`; recorded progress without a completion percentage
+  or a claim that the full native tier is accepted.
+
+#### Next Steps
+
+- Run full GNU/musl verification and selected Miri for `c5c2297`; these remain
+  pending. Preserve the focused and mutation logs as revision-scoped evidence.
+- Continue remaining typed-dataflow/alias/liveness proofs, compiler accounting,
+  lifecycle/platform validation and controlled performance work. Existing table,
+  upvalue and callback failures remain failures. The full goal stays incomplete.
+
+#### Relevant Files
+
+- `src/jit/tags.rs` — numeric records, tag/payload admission and pure-IR tests.
+- `src/jit/backend.rs` — consumer recording and omitted-guard fault regression.
+- `Makefile` — focused `jit-input` gate and integration into `jit-tags`.
+- `JIT.md`, `PLAN_JIT.md` — current contract, progress and remaining acceptance.
+- `/tmp/luna-jit-input-restored.log` — completed focused test/lint output.
+- `/tmp/luna-jit-input-consumer-mutation.log`,
+  `/tmp/luna-jit-input-pipeline-mutation.log` — expected negative mutation results.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
