@@ -211,20 +211,29 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 ## Verification and remaining work
 
-The budgeted outer provider-box implementation (`a509d78`)
+The owned mapping-record implementation and repaired reclamation probe (`4f737c2`)
 passes `nix develop -c make jit-verify clippy jit-clippy` on x86-64 GNU and
-with `TARGET=x86_64-unknown-linux-musl`: each reports 4725 passing tests across
+with `TARGET=x86_64-unknown-linux-musl`: each reports 4765 passing tests across
 434 suite results and 24 ignored tests. Selected pure-Rust/pure-IR Miri checks
-pass 258 tests across 34 selected suite results with default `MIRIFLAGS`; they do not execute
+pass 261 tests across 36 selected suite results with default `MIRIFLAGS`; they do not execute
 generated native code. Clippy retains the existing warning backlog, so these are
 not strict-warning acceptance. Raw revision-scoped evidence is stored locally in
-`target/jit-evidence/provider-box/`. Six transfer tests cover exact Global layout,
+`target/jit-evidence/segments/`. Two pure request tests cover page/alignment/payload
+bounds and overflow; six provider fixtures cover real RW/RX/R permissions, fixed
+record storage across finalization, padding/zero-size admission, record refusal,
+partial protection failure and physical reclamation. The isolated reclamation
+worker probes every page before/after free without allocating after free. Initial
+musl /proc-observer failure is retained separately: its String allocation reused
+the freed address. Padding, RX-to-readonly and reclamation bypass mutations are
+detected; no mutated mapping is executed as native code.
+Six transfer tests cover exact Global layout,
 alignment/borrow/ZST behavior, Send trait-object erasure, quota/underlying refusal,
 and scope/value panic cleanup. Exact pre-host and live-module fixtures distinguish
 provider admission from the earlier status allocation, preserve a native peer and
 recover the same snapshot. Transfer-admission and charge-release bypass mutations
-are detected. This accounts the concrete outer provider box, not its internal
-SystemMemoryProvider records or all compiler working storage.
+are detected. Concrete outer provider and actual mapping-record storage are now
+charged, but runtime/bootstrap owners and other compiler working storage remain
+outside this milestone.
 Seven atomic-owner tests include concurrent
 clone/drop, final-destructor visibility without external synchronization, exact
 alignment/lifetime/accounting, panic cleanup, allocation refusal and checked

@@ -630,6 +630,19 @@ acceptance.
 
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
+Owned mapping records (`26c6067`, observer repair `4f737c2`) replace the opaque
+SystemMemoryProvider vectors with fallibly charged Segment records and inline
+anonymous memmap2 handles. Page-rounded alignment padding is admitted before
+mapping; payload bounds, zero-size and overflow are checked. Protection preserves
+RW-to-RX/R, writable data, cache maintenance and feature-gated ARM64 BTI, without
+record growth. Real permission, partial-failure and allocation-free per-page
+reclamation probes pass on GNU/musl; bypass mutations are detected. Full current
+gates pass 4765 tests each and selected Miri passes 261 tests. Initial musl failure
+from an allocating /proc observer is retained, not hidden or counted as passing.
+Runtime/bootstrap and other compiler buffers, complete safety proofs, frozen
+performance controls and ARM64/hosted execution remain open; Phase 3/release
+acceptance is still incomplete.
+
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
 2. Explicitly classify every opcode through an exhaustive match. Unknown/malformed input is refused; unsupported valid work exits to the interpreter.
 3. Add private source-provenance registration and generation-safe code identities without breaking public prototype construction.
@@ -7119,9 +7132,103 @@ all its raw evidence and the failed original musl gate are kept under
 rerun after restored hash verification. The runtime mapping implementation did
 not change in this test-observer repair.
 
+### Owned mapping-record acceptance session (2026-10-01)
+
+## Goal
+Continue full implementation by eliminating uncharged provider-private mapping
+record vectors while preserving alignment, ownership and executable-memory
+protection. Previous goal turn made verified provider-box progress. This turn
+makes verified mapping/source and reclamation-oracle progress. Full goal remains
+active and incomplete.
+
+## Instructions
+Use Make/Nix, patch tools and separate unsigned title-only Conventional Commits.
+Preserve all safety, resource and frozen performance gates. Never time/profile
+alongside unrelated builds/tests/profiles, including other projects.
+
+## Discoveries
+- Pinned SystemMemoryProvider has infallible private record vectors and appends
+  empty records during finalization. Pinned Linux memmap2 has inline pointer/len
+  handles; budgeted Segment records eliminate those vectors rather than estimate
+  their layout. Optional direct dependencies match already locked memmap2 0.9.11
+  and compiler-internal icache 49.0.1; no package version/checksum changed.
+- Upstream icache is an unsupported internal API. Exact pin/source review and
+  actual platform gates remain necessary; no ARM64 execution proof is claimed.
+- `/proc/self/maps` allocates during observation and can reuse a freed address
+  even in a dedicated musl worker. Replace post-free observation with stack-only
+  mincore for every former page, with mapped success controls before reclamation
+  and exact -1/ENOMEM afterward. Keep live permission observations unchanged.
+- A failed protection conversion can destroy an unpublished handle early while
+  its reservation remains conservatively retained through module cleanup. Owned
+  byte counts must survive even when that handle is absent.
+- Final global preflight sees unrelated molla GPU test Make/Cargo/runtime jobs
+  (3550540/3550545/3551277), not the prior idle make-run job. No arbitrary job is
+  excluded or killed, no timings/profiles ran, and no speedup is claimed.
+
+## Accomplished
+- Source `26c6067` separately commits fallible owned records, inline anonymous
+  maps, checked padding/payload bounds, stable finalization, cache maintenance,
+  partial-protection refusal/retry and OS permission/reclamation fixtures.
+- Padding mutation `92730` makes both pure request fixtures fail (Make exit 2).
+  RX-to-readonly mutation `76477` makes three of six provider fixtures fail
+  (exit 2). No mutated mapping is executed; source hash matches after restoration.
+- Restored focused `62266` passes **124 tests / 22 suite results / 0 ignored**;
+  isolated Miri `53148` passes **3 / 2 / 0**. Final focused/Clippy `30454` and Miri
+  `88791` pass after removing new enumerate/manual-inspect warnings without
+  suppression. Existing 141 lib-test warning backlog remains.
+- Original full job `17659` passes GNU but fails musl (exit 2) in the allocating
+  reclamation observer. Original Miri `4735` completes **261 / 36 / 0** at
+  `26c6067` before edits. All original jobs are terminal, not restarted from a
+  timeout. Their raw gates/campaigns/untimed candidate are archived separately in
+  `draft-26c6067/`; original musl failure is not acceptance.
+- Oracle repair `4f737c2` separately commits allocation-free, positive-controlled
+  per-page reclamation. Focused GNU/musl `7784` passes 16 mapping/provider tests
+  each. Reclamation bypass `50970` makes the exact worker fail on both platforms
+  (Make exits 2); terminal before restoration, matching source hashes. Restored
+  exact both-platform `15455` passes before the fix commit.
+- Current full GNU/musl `25103` completes both exit 0: **4765 passing tests /
+  434 suite results / 24 ignored** each. Counts include repeated mode/doc suites,
+  not unique tests. Clippy is not strict-warning acceptance.
+- Current selected Miri `3511` completes exit 0: **261 tests / 36 suite results /
+  0 ignored**, nightly 2026-08-16, rustc `67854e511`, empty MIRIFLAGS. No generated
+  instructions, anonymous mappings or OS reclamation worker run under Miri.
+- Current campaigns `38859` complete all four lanes exit 0. Per platform:
+  **4096 scalar/admission cases / 1641780 native invocations / 4758522 native
+  instructions**; **96 heap cases / 6344 main slices / 725 yields / 1633 callbacks /
+  96 retirements / 964 host reads / 2809 userdata observations / 65297 native
+  instructions**. Helpers: **22144 table reads / 7393 table writes / 1655
+  allocations / 21701 upvalue reads / 996 upvalue writes / 1179 declines**.
+  Both platforms reuse seeds/programs; userdata observations are not instruction
+  coverage and nested/finalizer internal slices are not independently paired.
+- Current untimed opt3 build `29806` completes exit 0 at `4f737c2`; source ID,
+  binary and verified hash retained. No timing or performance result follows.
+- Current and draft logs, exact long-campaign/full-smoke directories, Miri
+  environment, aggregate counts and verified source/binary hashes are under
+  `target/jit-evidence/segments/`. All owned jobs in this turn are terminal.
+
+## Next Steps
+- Account runtime/bootstrap owners and remaining frontend/backend compiler
+  buffers or implement the approved faithful bounded compiler policy.
+- Complete opcode/source-map/helper/GC/alias/liveness/lifecycle safety proofs
+  and broader coverage-guided/unsafe stress; seeded campaigns are not exhaustive.
+- Resolve native and compiled-Off controls after clean global preflight, without
+  changing frozen thresholds or independent-median statistics.
+- Gather executed ARM64/hosted evidence and address strict-Clippy backlog before
+  release acceptance. No complete compiler/RSS or whole-goal claim yet.
+
+## Relevant Files
+- `src/jit/segments.rs` — checked requests, inline mapping/protection and two pure fixtures.
+- `src/jit/backend.rs` — owned records, stable finalization and six provider fixtures.
+- `src/jit/mod.rs` — supported-platform segment wiring.
+- `Cargo.toml`, `Cargo.lock` — explicit optional exact already-resolved mapping/cache pins.
+- `Makefile` — pure/native/reclamation and selected/isolated Miri targets.
+- `JIT.md`, `PLAN_JIT.md` — protection/accounting scope, failure and acceptance evidence.
+- `target/jit-evidence/segments/` — revision-scoped current and original failed-run artifacts.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
+- [Linux mincore contract](https://man7.org/linux/man-pages/man2/mincore.2.html) — page-aligned probes and exact ENOMEM for unmapped memory; the reclamation fixture supplies mapped success controls before checking every freed page.
 - [Rust Box memory layout](https://doc.rust-lang.org/std/boxed/index.html#memory-layout) — initialized Global allocations with the correct concrete layout can transfer to a standard Box; the provider charge is retained separately through its destruction.
 - [Rust reference-counted destruction](https://doc.rust-lang.org/nomicon/arc-mutex/arc-drop.html) — release/acquire lifetime synchronization; Luna uses an AcqRel decrement and its own exact-layout, strong-only allocation.
 - [Cranelift IR](https://github.com/bytecodealliance/wasmtime/blob/main/cranelift/docs/ir.md) — validate against the pinned version, not moving-main assumptions.
