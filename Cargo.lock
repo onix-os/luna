@@ -413,10 +413,12 @@ dependencies = [
  "hashbrown 0.14.5",
  "libc",
  "luna-derive",
+ "memmap2",
  "ottavino-gc-arena",
  "rand",
  "rustyline",
  "thiserror",
+ "wasmtime-internal-jit-icache-coherence",
 ]
 
 [[package]]

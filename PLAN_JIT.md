@@ -7021,6 +7021,75 @@ profiles alongside unrelated builds/tests/profiles, including other projects.
 - `JIT.md`, `PLAN_JIT.md` — current safety/accounting scope and evidence.
 - `target/jit-evidence/provider-box/` — local acceptance and untimed candidate.
 
+### Owned mapping-record decision (2026-10-01)
+
+The prior goal turn made verified provider-box progress (`a509d78`, `71871f6`).
+Pinned SystemMemoryProvider still uses private infallible Vec<PtrLen> buffers;
+finalization even appends empty readonly/code records. Do not estimate their
+private layouts or call the outer provider charge complete mapping bookkeeping.
+Replace those per-segment delegates with one owned anonymous memmap2 mapping per
+fallibly budgeted Segment record. MmapMut/Mmap contain inline OS mapping handles,
+not record vectors. Keep OS unmapping semantics consistent with the pinned
+delegate. Bounds/admission precede anonymous mapping; over-aligned requests reserve
+all padding pages, zero-sized requests reserve a live page, invalid/overflowing
+requests refuse without mapping. No addresses are persisted beyond module leases.
+
+Keep the same cache-maintenance implementation as pinned Cranelift, with its exact
+internal icache crate version explicitly optional/pinned. Clear executable ranges
+before RX protection, preserve feature-gated Linux ARM64 BTI, and pipeline-flush
+after all segments. The upstream icache crate is an internal, unsupported API;
+dependency upgrades require renewed source review and platform evidence. GNU/musl
+execution and /proc permission checks must prove RW-to-RX/R and stable writable
+data, alignment, quota rollback and idempotent finalization/reclamation. Pure
+request/protection planning runs under Miri, never anonymous/native execution.
+This closes provider-owned record allocations, not runtime/bootstrap or other
+compiler buffers, whole compiler/RSS bounds, or ARM64 execution acceptance.
+
+### Owned mapping-record discovery and oracle sensitivity
+
+Pinned memmap2 0.9.11's Linux MmapInner stores only pointer/length inline, so owned
+Segment records can account the actual provider bookkeeping without guessing
+Cranelift-private PtrLen layouts. Protection transitions consume the writable
+mapping handle; failed transitions may free that unpublished mapping early while
+its reservation remains conservatively retained until module cleanup. Every
+segment's reserved bytes remain available for rollback even when its handle is
+absent after failure. Partial protection refusal preserves all other owned maps.
+
+Request tests cover 4096/16384/65536-byte pages, sub-page and over-page alignments,
+all page-aligned offsets for the covered alignments, zero-size and overflow.
+An extra checked payload-end guard precedes aligned pointer creation. Omitting
+padding made both pure request fixtures fail (`92730`, Make exit 2), without OS
+mapping or generated execution. Replacing RX with readonly protection made three
+native permission/reclamation fixtures fail (`76477`, exit 2); these only inspect
+permissions/read initialized bytes and never execute the mutated mapping.
+No generated instructions were corrupted and both mutation jobs were terminal
+before restoration. Source hash and restored focused/Miri gates remain required.
+
+### Owned mapping focused acceptance
+
+Restored Segment source matches its pre-mutation hash. Focused `62266` passes
+124 tests / 22 suite results / 0 ignored across mapping/status/owner/host/resource
+lanes; isolated Miri `53148` passes three tests / two suite results / 0 ignored.
+Six native provider fixtures inspect real RW/RX/R permissions, no record growth
+across sixteen finalizations, alignment/padding quota, underlying record refusal,
+partial protection failure/retry and zero-size admission. A bounded isolated OS
+worker verifies the finalized mapping actually disappears after reclamation,
+without racing address reuse in other parallel tests. The initial helper-attribute
+compile draft is retained separately, not acceptance. Focused Clippy found an
+unused production enumerate index from test-only fault injection; split the
+test/production iterator bindings rather than silence the warning. Full GNU/
+musl, selected Miri, campaigns and restored Clippy remain required for this stage.
+
+### Final focused owned-mapping gate
+
+The final iterator/request-error refinements pass all eight focused segment
+fixtures plus Clippy (`30454` exit 0); the existing 141 lib-test warning backlog
+remains, with no new segment/manual-inspect/enumerate warning. Use inspect_err
+for flag observation, preserving the original I/O error. Final isolated selected
+Miri (`88791`) passes three tests with default flags. Code/record accounting,
+permission and cache/branch source review are ready for full platform gates;
+no current performance or ARM64 acceptance is implied.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
