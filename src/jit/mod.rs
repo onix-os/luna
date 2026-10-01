@@ -1,10 +1,6 @@
 //! Optional native execution configuration and per-state diagnostics.
 
-use std::{
-    cell::RefCell,
-    rc::Rc,
-    sync::{atomic::Ordering, Arc},
-};
+use std::{cell::RefCell, rc::Rc, sync::atomic::Ordering};
 
 use ahash::RandomState;
 use allocator_api2::vec::Vec;
@@ -52,6 +48,7 @@ mod fuzz;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod global_box;
+mod global_owner;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -94,7 +91,7 @@ mod shape;
 ))]
 mod tags;
 mod work;
-use resources::{BudgetAllocator, Compaction, Compactor, Ledger, MappingCounter};
+use resources::{BudgetAllocator, Compaction, Compactor, Ledger, LedgerRef, MappingCounter};
 
 pub(crate) type MetadataMap<K, V> = HashMap<K, V, RandomState, BudgetAllocator>;
 
@@ -220,6 +217,7 @@ pub struct JitStats {
     pub metadata_peak_bytes: usize,
     pub metadata_allocation_refusals: usize,
     pub accounted_jit_bytes: usize,
+    pub bootstrap_bytes: usize,
     pub accounted_jit_peak_bytes: usize,
     pub host_allocation_refusals: usize,
     pub metadata_compaction_attempts: u64,
@@ -258,7 +256,7 @@ pub(crate) struct Manager {
     code_compactor: Compactor,
     pub(crate) metadata: BudgetAllocator,
     pub(crate) snapshots: BudgetAllocator,
-    pub(crate) host: Arc<Ledger>,
+    pub(crate) host: LedgerRef,
     pub(crate) memory: MappingCounter,
     #[cfg(all(
         target_os = "linux",
@@ -281,7 +279,7 @@ pub(crate) struct Manager {
 impl Default for Manager {
     fn default() -> Self {
         let config = JitConfig::default();
-        let host = Ledger::new(usize::MAX);
+        let host = Ledger::host(usize::MAX);
         let metadata = BudgetAllocator(Ledger::child(config.max_metadata_bytes, host.clone()));
         let snapshots = BudgetAllocator(Ledger::child(config.max_snapshot_bytes, host.clone()));
         Self {
@@ -1085,7 +1083,10 @@ mod eviction_tests {
             drop((peer, source, peer_executor, source_executor, recovered));
             lua.gc_collect();
             lua.gc_collect();
-            assert_eq!(lua.jit_stats().accounted_jit_bytes, 0);
+            assert_eq!(
+                lua.jit_stats().accounted_jit_bytes,
+                lua.jit_stats().bootstrap_bytes
+            );
         }
     }
 
@@ -1120,7 +1121,7 @@ mod eviction_tests {
         assert_eq!(stats.snapshot_bytes, 0);
         assert_eq!(
             stats.accounted_jit_bytes,
-            stats.code_bytes + stats.metadata_bytes
+            stats.code_bytes + stats.metadata_bytes + stats.bootstrap_bytes
         );
         assert_eq!(
             lua.accounted_memory(),
@@ -1128,8 +1129,14 @@ mod eviction_tests {
         );
         assert_executable(&lease);
         drop(lease);
-        assert_eq!(lua.jit_stats().accounted_jit_bytes, 0);
-        assert_eq!(lua.accounted_memory(), lua.total_memory());
+        assert_eq!(
+            lua.jit_stats().accounted_jit_bytes,
+            lua.jit_stats().bootstrap_bytes
+        );
+        assert_eq!(
+            lua.accounted_memory(),
+            lua.total_memory() + lua.jit_stats().bootstrap_bytes
+        );
     }
 
     #[test]
@@ -1154,7 +1161,10 @@ mod eviction_tests {
                 ),
                 (0, 0, 0)
             );
-            assert_eq!(stats.accounted_jit_bytes, stats.metadata_bytes);
+            assert_eq!(
+                stats.accounted_jit_bytes,
+                stats.metadata_bytes + stats.bootstrap_bytes
+            );
             lua.enter(|ctx| ctx.jit().0.borrow_mut().memory_failure = backend::Failure::None);
             lua.clear_jit_cache();
             assert_eq!(lua.prepare_jit().unwrap(), 1);
@@ -1167,7 +1177,10 @@ mod eviction_tests {
             drop(closure);
             lua.gc_collect();
             lua.gc_collect();
-            assert_eq!(lua.jit_stats().accounted_jit_bytes, 0);
+            assert_eq!(
+                lua.jit_stats().accounted_jit_bytes,
+                lua.jit_stats().bootstrap_bytes
+            );
         }
     }
 

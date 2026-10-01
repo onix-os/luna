@@ -2,17 +2,37 @@ use std::{
     alloc::Layout,
     ops::Deref,
     ptr::NonNull,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 use allocator_api2::alloc::{AllocError, Allocator, Global};
 use ottavino_gc_arena::Collect;
+#[cfg(test)]
+use std::sync::Arc;
+
+use super::global_owner::GlobalShared;
+
+pub(crate) type LedgerRef = GlobalShared<Ledger, HeaderCharge>;
+
+pub(crate) struct HeaderCharge {
+    root: Option<LedgerRef>,
+    bytes: usize,
+}
+
+impl Drop for HeaderCharge {
+    fn drop(&mut self) {
+        if let Some(root) = &self.root {
+            root.bootstrap.fetch_sub(self.bytes, Ordering::Relaxed);
+            root.current.fetch_sub(self.bytes, Ordering::Relaxed);
+        }
+    }
+}
 
 pub(crate) struct Ledger {
-    parent: Option<Arc<Ledger>>,
+    parent: Option<LedgerRef>,
+    bootstrap: AtomicUsize,
+    accounted_peak: AtomicUsize,
+    enforce_bootstrap: bool,
     mapped: AtomicUsize,
     current: AtomicUsize,
     peak: AtomicUsize,
@@ -29,29 +49,103 @@ impl Ledger {
             .store(allocations, Ordering::Relaxed);
     }
 
-    pub fn new(limit: usize) -> Arc<Self> {
-        Self::with_parent(limit, None)
+    #[cfg(test)]
+    pub fn new(limit: usize) -> LedgerRef {
+        Self::with_parent(limit, None, false)
     }
 
-    pub fn child(limit: usize, parent: Arc<Ledger>) -> Arc<Self> {
-        Self::with_parent(limit, Some(parent))
+    pub fn host(limit: usize) -> LedgerRef {
+        Self::with_parent(limit, None, true)
     }
 
-    fn with_parent(limit: usize, parent: Option<Arc<Ledger>>) -> Arc<Self> {
-        Arc::new(Self {
-            parent,
-            mapped: AtomicUsize::new(0),
-            current: AtomicUsize::new(0),
-            peak: AtomicUsize::new(0),
-            limit: AtomicUsize::new(limit),
-            refusals: AtomicUsize::new(0),
-            #[cfg(test)]
-            allocations_before_failure: AtomicUsize::new(usize::MAX),
-        })
+    pub fn try_host(limit: usize) -> Result<LedgerRef, AllocError> {
+        Self::try_with_parent(limit, None, true)
+    }
+
+    pub fn child(limit: usize, parent: LedgerRef) -> LedgerRef {
+        Self::with_parent(limit, Some(parent), false)
+    }
+
+    pub fn try_child(limit: usize, parent: LedgerRef) -> Result<LedgerRef, AllocError> {
+        Self::try_with_parent(limit, Some(parent), false)
+    }
+
+    fn with_parent(limit: usize, parent: Option<LedgerRef>, enforce: bool) -> LedgerRef {
+        let result = match parent {
+            Some(parent) => Self::try_child(limit, parent),
+            None if enforce => Self::try_host(limit),
+            None => Self::try_with_parent(limit, None, false),
+        };
+        result.unwrap_or_else(|_| std::alloc::handle_alloc_error(LedgerRef::allocation_layout()))
+    }
+
+    fn try_with_parent(
+        limit: usize,
+        parent: Option<LedgerRef>,
+        enforce: bool,
+    ) -> Result<LedgerRef, AllocError> {
+        let bytes = LedgerRef::allocation_bytes();
+        if parent.is_none() && enforce && bytes > limit {
+            return Err(AllocError);
+        }
+        let charge = if let Some(parent) = &parent {
+            let root = MappingCounter::new(parent.clone()).0;
+            let old = root
+                .current
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                    current.checked_add(bytes).filter(|next| {
+                        !root.enforce_bootstrap || *next <= root.limit.load(Ordering::Relaxed)
+                    })
+                })
+                .map_err(|_| {
+                    root.refused();
+                    AllocError
+                })?;
+            root.bootstrap.fetch_add(bytes, Ordering::Relaxed);
+            root.accounted_peak
+                .fetch_max(old + bytes, Ordering::Relaxed);
+            HeaderCharge {
+                root: Some(root),
+                bytes,
+            }
+        } else {
+            HeaderCharge {
+                root: None,
+                bytes: 0,
+            }
+        };
+        let root_bytes = if parent.is_none() { bytes } else { 0 };
+        GlobalShared::try_new(
+            Self {
+                parent,
+                bootstrap: AtomicUsize::new(root_bytes),
+                accounted_peak: AtomicUsize::new(root_bytes),
+                enforce_bootstrap: enforce,
+                mapped: AtomicUsize::new(0),
+                current: AtomicUsize::new(root_bytes),
+                peak: AtomicUsize::new(0),
+                limit: AtomicUsize::new(limit),
+                refusals: AtomicUsize::new(0),
+                #[cfg(test)]
+                allocations_before_failure: AtomicUsize::new(usize::MAX),
+            },
+            charge,
+        )
     }
 
     pub fn current(&self) -> usize {
+        self.current
+            .load(Ordering::Relaxed)
+            .saturating_sub(self.bootstrap_bytes())
+    }
+    pub fn accounted(&self) -> usize {
         self.current.load(Ordering::Relaxed)
+    }
+    pub fn bootstrap_bytes(&self) -> usize {
+        self.bootstrap.load(Ordering::Relaxed)
+    }
+    pub fn accounted_peak(&self) -> usize {
+        self.accounted_peak.load(Ordering::Relaxed)
     }
     pub fn peak(&self) -> usize {
         self.peak.load(Ordering::Relaxed)
@@ -63,18 +157,26 @@ impl Ledger {
         self.limit.store(limit, Ordering::Relaxed);
     }
     pub fn fits(&self, bytes: usize) -> bool {
-        self.current()
-            .checked_add(bytes)
-            .is_some_and(|usage| usage <= self.limit.load(Ordering::Relaxed))
+        (if self.enforce_bootstrap {
+            self.accounted()
+        } else {
+            self.current()
+        })
+        .checked_add(bytes)
+        .is_some_and(|usage| usage <= self.limit.load(Ordering::Relaxed))
     }
 
     fn reserve(&self, bytes: usize) -> Result<(), AllocError> {
         let old = self
             .current
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-                current
-                    .checked_add(bytes)
-                    .filter(|next| *next <= self.limit.load(Ordering::Relaxed))
+                current.checked_add(bytes).filter(|next| {
+                    next.saturating_sub(if self.enforce_bootstrap {
+                        0
+                    } else {
+                        self.bootstrap_bytes()
+                    }) <= self.limit.load(Ordering::Relaxed)
+                })
             })
             .map_err(|_| {
                 self.refused();
@@ -87,7 +189,12 @@ impl Ledger {
                 return Err(AllocError);
             }
         }
-        self.peak.fetch_max(old + bytes, Ordering::Relaxed);
+        self.peak.fetch_max(
+            (old + bytes).saturating_sub(self.bootstrap_bytes()),
+            Ordering::Relaxed,
+        );
+        self.accounted_peak
+            .fetch_max(old + bytes, Ordering::Relaxed);
         Ok(())
     }
 
@@ -121,10 +228,10 @@ impl Ledger {
 }
 
 #[derive(Clone)]
-pub(crate) struct MappingCounter(Arc<Ledger>);
+pub(crate) struct MappingCounter(LedgerRef);
 
 impl MappingCounter {
-    pub fn new(mut ledger: Arc<Ledger>) -> Self {
+    pub fn new(mut ledger: LedgerRef) -> Self {
         while let Some(parent) = &ledger.parent {
             ledger = parent.clone();
         }
@@ -141,6 +248,96 @@ impl Deref for MappingCounter {
 }
 
 #[cfg(test)]
+mod bootstrap_tests {
+    use super::*;
+
+    #[test]
+    fn exact_root_and_nested_header_lifetimes_leave_only_live_owners_charged() {
+        let bytes = LedgerRef::allocation_bytes();
+        let host = Ledger::try_host(3 * bytes).unwrap();
+        assert_eq!(
+            (host.accounted(), host.bootstrap_bytes(), host.current()),
+            (bytes, bytes, 0)
+        );
+        let child = Ledger::try_child(8, host.clone()).unwrap();
+        let leaf = Ledger::try_child(8, child.clone()).unwrap();
+        assert_eq!(
+            (host.accounted(), host.bootstrap_bytes()),
+            (3 * bytes, 3 * bytes)
+        );
+        assert!(Ledger::try_child(8, host.clone()).is_err());
+        assert_eq!(host.refusals(), 1);
+        drop(child);
+        assert_eq!(host.bootstrap_bytes(), 3 * bytes);
+        drop(leaf);
+        assert_eq!(
+            (host.accounted(), host.bootstrap_bytes(), host.current()),
+            (bytes, bytes, 0)
+        );
+        assert_eq!(host.accounted_peak(), 3 * bytes);
+    }
+
+    #[test]
+    fn one_byte_short_root_child_and_underlying_refusal_retain_no_new_charge() {
+        let bytes = LedgerRef::allocation_bytes();
+        assert!(Ledger::try_host(bytes - 1).is_err());
+        let host = Ledger::try_host(2 * bytes - 1).unwrap();
+        assert!(Ledger::try_child(0, host.clone()).is_err());
+        assert_eq!(host.accounted(), bytes);
+        host.set_limit(2 * bytes);
+        super::super::global_owner::with_allocation_denied(|| {
+            assert!(Ledger::try_child(0, host.clone()).is_err());
+        });
+        assert_eq!((host.accounted(), host.bootstrap_bytes()), (bytes, bytes));
+        let child = Ledger::try_child(0, host.clone()).unwrap();
+        assert_eq!(host.accounted(), 2 * bytes);
+        drop(child);
+        assert_eq!(host.accounted(), bytes);
+    }
+
+    #[test]
+    fn concurrent_header_and_payload_admission_share_one_atomic_ceiling() {
+        let bytes = LedgerRef::allocation_bytes();
+        let host = Ledger::try_host(2 * bytes).unwrap();
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let mut workers = std::vec::Vec::new();
+        for header in [true, false] {
+            let host = host.clone();
+            let barrier = barrier.clone();
+            workers.push(std::thread::spawn(move || {
+                barrier.wait();
+                if header {
+                    let child = Ledger::try_child(0, host);
+                    barrier.wait();
+                    child.is_ok()
+                } else {
+                    let allocator = BudgetAllocator(host);
+                    let layout = Layout::from_size_align(bytes, 8).unwrap();
+                    let allocation = allocator.allocate(layout);
+                    barrier.wait();
+                    if let Ok(pointer) = allocation {
+                        unsafe { allocator.deallocate(pointer.cast(), layout) };
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }));
+        }
+        let admitted = workers
+            .into_iter()
+            .map(|worker| usize::from(worker.join().unwrap()))
+            .sum::<usize>();
+        assert_eq!(admitted, 1);
+        assert_eq!(
+            (host.accounted(), host.bootstrap_bytes(), host.refusals()),
+            (bytes, bytes, 1)
+        );
+        assert_eq!(host.accounted_peak(), 2 * bytes);
+    }
+}
+
+#[cfg(test)]
 mod mapping_tests {
     use super::*;
 
@@ -153,8 +350,8 @@ mod mapping_tests {
         let first = MappingCounter::new(host.clone());
         let second = MappingCounter::new(leaf.clone());
         let third = second.clone();
-        assert!(Arc::ptr_eq(&first.0, &host));
-        assert!(Arc::ptr_eq(&first.0, &second.0));
+        assert!(LedgerRef::ptr_eq(&first.0, &host));
+        assert!(LedgerRef::ptr_eq(&first.0, &second.0));
         assert_eq!(first.fetch_add(4096, Ordering::Relaxed), 0);
         assert_eq!(third.load(Ordering::Relaxed), 4096);
         assert_eq!(second.fetch_sub(4096, Ordering::Relaxed), 4096);
@@ -170,16 +367,14 @@ mod mapping_tests {
     #[test]
     fn final_counter_keeps_root_alive_after_all_allocator_handles_drop() {
         let host = Ledger::new(4096);
-        let weak = Arc::downgrade(&host);
         let child = Ledger::child(4096, host.clone());
         let counter = MappingCounter::new(child.clone());
         let peer = counter.clone();
         counter.store(4096, Ordering::Relaxed);
         drop((host, child, counter));
-        assert!(weak.upgrade().is_some());
+        assert_eq!(LedgerRef::strong_count(&peer.0), 1);
         assert_eq!(peer.fetch_sub(4096, Ordering::Relaxed), 4096);
         drop(peer);
-        assert!(weak.upgrade().is_none());
     }
 
     #[test]
@@ -214,7 +409,7 @@ pub(super) fn owned<T: Clone>(values: &[T]) -> allocator_api2::vec::Vec<T, Budge
 
 #[derive(Clone, Collect)]
 #[collect(require_static)]
-pub(crate) struct BudgetAllocator(pub Arc<Ledger>);
+pub(crate) struct BudgetAllocator(pub LedgerRef);
 
 #[derive(Default, Collect)]
 #[collect(require_static)]
@@ -803,10 +998,12 @@ mod tests {
     #[test]
     fn reservation_overflow_is_refused_without_changing_usage() {
         let ledger = Ledger::new(usize::MAX);
-        ledger.reserve(usize::MAX).unwrap();
+        let payload = usize::MAX - ledger.bootstrap_bytes();
+        ledger.reserve(payload).unwrap();
         assert!(ledger.reserve(1).is_err());
-        assert_eq!(ledger.current(), usize::MAX);
-        ledger.release(usize::MAX);
+        assert_eq!(ledger.current(), payload);
+        assert_eq!(ledger.accounted(), usize::MAX);
+        ledger.release(payload);
         assert_eq!(ledger.current(), 0);
     }
 }

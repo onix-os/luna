@@ -7359,6 +7359,41 @@ updates under Miri, plus live-module/retired-lease quota enforcement natively.
 2. Inline mapped usage eliminates a separate owner allocation without claiming
    that existing bootstrap headers or complete compiler memory are accounted.
 
+### Decision — exact ledger-owner bootstrap accounting
+
+Replace private Ledger Arcs with a strong-only Global owner whose concrete inner
+layout is known. Its final-drop guard deallocates before releasing an inline
+parent-root header charge, including destructor unwinding. Root and child headers
+are attributed separately from payload/container bytes. Production host roots
+enforce the combined total; standalone private test/snapshot ledgers retain their
+payload-only ceilings. Both kinds expose actual owner bytes explicitly.
+
+The host root's single reservation atomic includes header and payload bytes, so
+concurrent reservations cannot overbook a header-adjusted limit. Child creation
+admits its exact header before Global allocation and rolls back on allocation
+refusal. Add fallible root/child factories; existing infallible Lua construction
+keeps its existing allocation-failure contract, with no configured quota at that
+boundary. Do not claim whole-state OOM recovery. Runtime Rc remains a separate
+remaining owner after this step; no guessed Arc header or RSS estimate is used.
+
+### Ledger-owner focused findings
+
+Six Global-owner fixtures and three bootstrap fixtures pass in native and isolated
+Miri runs. Final isolated Miri `33466` is terminal, default flags; final focused
+Clippy `27310` is terminal and returns to the existing 141 lib-test warnings after
+moving the new test module below implementation items (no suppression).
+
+The first focused gate `94117` correctly exposes old zero-after-cache-clear
+assertions: the state still owns three ledger headers. Tests now require their
+exact layout-derived floor, and separate container/code reclamation remains zero.
+The next focused gate `5352` exposes the old usize::MAX payload overflow fixture:
+the root header already consumes part of the representable total. The repaired
+fixture fills the entire accounted usize::MAX total, then verifies one more byte
+is refused and all payload charge rolls back. Restored broad focused `95695`
+passes host limits, exact/one-byte-short preparation, refusal/recovery, detached
+lease behavior, previous status/provider ownership and policy checks. These
+focused results are not yet full GNU/musl/selected-Miri acceptance.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

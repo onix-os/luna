@@ -344,8 +344,9 @@ impl Lua {
         stats.metadata_allocation_refusals = manager.metadata.0.refusals();
         stats.snapshot_bytes = manager.snapshots.0.current();
         stats.snapshot_peak_bytes = manager.snapshots.0.peak();
-        stats.accounted_jit_bytes = manager.host.current();
-        stats.accounted_jit_peak_bytes = manager.host.peak();
+        stats.accounted_jit_bytes = manager.host.accounted();
+        stats.bootstrap_bytes = manager.host.bootstrap_bytes();
+        stats.accounted_jit_peak_bytes = manager.host.accounted_peak();
         stats.host_allocation_refusals = manager.host.refusals();
         stats
     }
@@ -565,7 +566,7 @@ impl Lua {
     pub fn accounted_memory(&self) -> usize {
         let bytes = self.total_memory();
         #[cfg(feature = "jit")]
-        let bytes = bytes.saturating_add(self.jit.0.borrow().host.current());
+        let bytes = bytes.saturating_add(self.jit.0.borrow().host.accounted());
         bytes
     }
 
@@ -1132,6 +1133,26 @@ mod memory_tests {
 
     #[cfg(feature = "jit")]
     #[test]
+    fn bootstrap_floor_survives_cache_clear_and_denies_growth_below_it() {
+        let mut lua = Lua::empty();
+        let expected = 3 * crate::jit::resources::LedgerRef::allocation_bytes();
+        assert_eq!(lua.jit_stats().bootstrap_bytes, expected);
+        assert_eq!(lua.accounted_memory(), lua.total_memory() + expected);
+        lua.clear_jit_cache();
+        lua.gc_collect();
+        assert_eq!(lua.jit_stats().accounted_jit_bytes, expected);
+        lua.set_memory_limit(Some(lua.total_memory() + expected - 1));
+        let metadata = lua.jit.0.borrow().metadata.clone();
+        let mut values = allocator_api2::vec::Vec::<u8, _>::new_in(metadata);
+        assert!(values.try_reserve_exact(1).is_err());
+        assert_eq!(lua.jit_stats().accounted_jit_bytes, expected);
+        lua.set_memory_limit(Some(lua.total_memory() + expected + 1));
+        values.try_reserve_exact(1).unwrap();
+        assert_eq!(lua.jit_stats().accounted_jit_bytes, expected + 1);
+    }
+
+    #[cfg(feature = "jit")]
+    #[test]
     fn accounted_usage_combines_children_and_limit_removal_restores_admission() {
         use allocator_api2::vec::Vec;
         let mut lua = Lua::empty();
@@ -1150,18 +1171,27 @@ mod memory_tests {
                 stats.snapshot_bytes,
                 stats.accounted_jit_bytes
             ),
-            (8, 12, 20)
+            (8, 12, 20 + stats.bootstrap_bytes)
         );
-        assert_eq!(lua.accounted_memory(), lua.total_memory() + 20);
+        assert_eq!(
+            lua.accounted_memory(),
+            lua.total_memory() + 20 + stats.bootstrap_bytes
+        );
         lua.set_memory_limit(Some(lua.accounted_memory()));
         let mut extra = Vec::<u8, _>::new_in(metadata);
         assert!(extra.try_reserve_exact(1).is_err());
         assert_eq!(lua.jit_stats().host_allocation_refusals, 1);
         lua.set_memory_limit(None);
         extra.try_reserve_exact(1).unwrap();
-        assert_eq!(lua.jit_stats().accounted_jit_bytes, 21);
+        assert_eq!(
+            lua.jit_stats().accounted_jit_bytes,
+            21 + stats.bootstrap_bytes
+        );
         drop((first, second, extra));
-        assert_eq!(lua.accounted_memory(), lua.total_memory());
+        assert_eq!(
+            lua.accounted_memory(),
+            lua.total_memory() + lua.jit_stats().bootstrap_bytes
+        );
     }
 
     #[cfg(feature = "jit")]
@@ -1176,7 +1206,10 @@ mod memory_tests {
         let allocator = lua.jit.0.borrow().metadata.clone();
         let mut values = Vec::<u8, _>::new_in(allocator);
         assert!(values.try_reserve_exact(8).is_err());
-        assert_eq!(lua.jit_stats().accounted_jit_bytes, 0);
+        assert_eq!(
+            lua.jit_stats().accounted_jit_bytes,
+            lua.jit_stats().bootstrap_bytes
+        );
         drop(retained);
         lua.gc_collect();
         lua.gc_collect();
