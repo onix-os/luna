@@ -600,11 +600,48 @@ module. Eight pure/Miri fixtures cover lifetime, aliasing, alignment, checked
 count, panic cleanup and reference-model agreement. The installation fixture
 preserves a native peer and restores the same refused source after reset.
 Budget/reclamation bypass mutations are detected. Full GNU/musl gates pass 4625
-tests each; selected Miri passes 240 tests. Runtime/bootstrap owners, status Arc
-flags, provider boxes and compiler buffers remain open; this does not complete
+tests each; selected Miri passes 240 tests. At that milestone runtime/bootstrap
+owners, status Arc flags, provider boxes and compiler buffers remained open; it did not complete
 fixed-owner/compiler accounting or Phase 3/release acceptance.
 
+Compiler/provider status ownership (`757ec71`) replaces the three uncharged Arc
+flags with one exact metadata/parent-charged atomic owner before host setup.
+JITBuilder's Send requirement is respected without changing cached-code traits.
+Seven atomic-owner and three status fixtures cover synchronization, destruction,
+alignment/borrows, exact admission/rollback and error precedence; a pre-host
+sentinel distinguishes status refusal from a later same-typed refusal. Native
+peer execution and same-snapshot recovery pass. Budget and ordering mutations
+are detected, including an actual Miri data race under Relaxed drop. Full GNU/
+musl gates pass 4685 tests each and selected Miri passes 251 tests. Runtime/
+bootstrap owners, provider boxes and compiler buffers remain open; Phase 3 and
+release acceptance are still incomplete.
+
+Fallible outer provider-box ownership (`a509d78`) charges the exact concrete
+Memory payload before JITBuilder setup. Its Global allocation transfers to the
+required standard Box; an earlier-declared charge survives failure/unwinding and
+is retained in Code until after module destruction. Six pure/Miri fixtures cover
+layout/borrow/ZST/Send-erasure, refusal and both panic paths. An exact third-
+allocation refusal fixture and provider sentinel preserve a native peer and
+recover the same snapshot. Admission/release bypasses are detected. Full GNU/
+musl gates pass 4725 tests each; selected Miri passes 258 tests. Runtime/bootstrap
+owners, SystemMemoryProvider internal records and other compiler buffers remain
+open. This does not complete Phase 3, the compiler memory ceiling or release
+acceptance.
+
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
+
+Owned mapping records (`26c6067`, observer repair `4f737c2`) replace the opaque
+SystemMemoryProvider vectors with fallibly charged Segment records and inline
+anonymous memmap2 handles. Page-rounded alignment padding is admitted before
+mapping; payload bounds, zero-size and overflow are checked. Protection preserves
+RW-to-RX/R, writable data, cache maintenance and feature-gated ARM64 BTI, without
+record growth. Real permission, partial-failure and allocation-free per-page
+reclamation probes pass on GNU/musl; bypass mutations are detected. Full current
+gates pass 4765 tests each and selected Miri passes 261 tests. Initial musl failure
+from an allocating /proc observer is retained, not hidden or counted as passing.
+Runtime/bootstrap and other compiler buffers, complete safety proofs, frozen
+performance controls and ARM64/hosted execution remain open; Phase 3/release
+acceptance is still incomplete.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
 2. Explicitly classify every opcode through an exhaustive match. Unknown/malformed input is refused; unsupported valid work exits to the interpreter.
@@ -6719,9 +6756,481 @@ Use Make/Nix for relevant validation and patch tools for edits.
 - `JIT.md` — current runtime and ownership safety scope.
 - `src/jit/owner.rs` — accepted cached-owner allocation and reclamation milestone.
 
+### Compiler-status accounting decision (2026-10-01)
+
+Replace the backend's three independent std Arc error flags with one private
+budgeted `AtomicShared<MemoryStatus>` owner. The trait declaration alone has no
+Send bound, but pinned JITBuilder::memory_provider takes `Box<dyn
+JITMemoryProvider + Send>`: the first focused compile correctly rejected the
+single-thread owner. Keep that rejection as draft evidence, not acceptance.
+Use a separate strong-only atomic owner with Send/Sync requiring `T: Send + Sync`,
+checked Relaxed clone increments and AcqRel final decrement. The cached-code
+owner remains single-threaded and unchanged. Test concurrent clone/drop and
+destructor visibility under Miri; do not add an unsafe Send escape to it.
+Keep the flag operations atomic
+and their existing error precedence. Admit this owner through metadata/shared
+host limits before JITBuilder setup; allocation refusal is typed JIT metadata
+exhaustion and rolls back earlier entry storage. The provider retains the owner
+until module reclamation. Test exact parent/child charging, quota and underlying
+refusal, and compilation failure before any mapping. This does not account the
+provider box, runtime bootstrap or Cranelift-owned buffers; those remain open.
+
+### Compiler-status refusal oracle discovery
+
+An unlimited status allocator made two pure charging/refusal fixtures fail but
+the initial live-module refusal fixture still passed: a later mapping-record
+reservation could return the same JIT metadata error under the same small quota.
+That pass did not prove the intended pre-host boundary. Add a test-only host-setup
+sentinel immediately after status admission, select it only for refused attempts,
+and require the same exact status error before reaching it. Preserve real peer
+execution/recovery and unmodified mapping safety. Keep this initial mutation log
+as incomplete oracle evidence, then repeat both refusal lanes with the stronger
+boundary fixture. No initial native-oracle success is claimed.
+
+### Compiler-status mutation sensitivity
+
+After adding the pre-host sentinel, the unlimited-status-allocator mutation made
+two pure flag fixtures, the exact pre-host boundary fixture and the live-module
+refusal/recovery fixture fail (each requested Make lane exit 2). The initial
+passing native draft remains distinguished from these corrected oracle results.
+A second mutation replaced atomic-owner AcqRel decrement with Relaxed. Pinned
+Miri rejected the disjoint-cell visibility fixture with a data race at final
+destruction (Make exit 2). Each worker writes only its distinct UnsafeCell before
+dropping its owner; no barrier/join precedes destruction, so the owner decrement
+is the required synchronization boundary. This is scoped owner evidence, not a
+generated-code or whole-compiler security proof. Both owned mutation jobs were
+terminal before source restoration; restored focused/Miri checks remain required.
+
+### Restored compiler-status focused acceptance
+
+Restored owner/status source hashes match their pre-mutation originals. Focused
+Make targets passed seven atomic-owner fixtures, three status fixtures, the exact
+pre-host boundary and live-module recovery fixtures, existing single-thread owner
+and eviction tests, and resource checks. Isolated pinned Miri passed eleven tests
+(seven atomic-owner, three status, one pre-host boundary) with default flags.
+The stronger UnsafeCell visibility fixture is present in this restored run.
+The pinned JITBuilder Send bound is respected; no cached-code auto traits changed.
+Full native-platform gates, selected Miri and supervised campaigns are still
+required for this source milestone. No performance result follows from it.
+
+### Compiler-status ownership acceptance session (2026-10-01)
+
+## Goal
+Continue full PLAN_JIT implementation by charging fallible compiler/provider
+status ownership and proving its lifetime boundary. The preceding status-only
+turn was not implementation progress; this turn makes verified source progress.
+The full goal remains active and incomplete.
+
+## Instructions
+Use Make/Nix, patch tools and separate incremental unsigned title-only
+Conventional Commits. Preserve frozen performance thresholds and all safety
+gates. Do not run timings/profiles alongside any unrelated build/test/profile.
+
+## Discoveries
+- The pinned provider trait declaration alone does not show the effective
+  bound: JITBuilder requires a Send provider. Draft compile `70453` rejected
+  the single-thread owner; no unsafe Send escape was added to it.
+- Same-typed errors can mask a wrong refusal boundary. Initial budget mutation
+  `50168` made two pure fixtures fail but its native fixture passed through a
+  later mapping-record refusal. A test-only post-status host-setup sentinel
+  makes the required admission boundary observable.
+- An atomic owner must synchronize final destruction with prior owners.
+  AcqRel decrement and the existing typed deallocation guard cover normal and
+  panicking destruction. Selected Miri catches the Relaxed-decrement mutation
+  as a data race at final destruction; generated code is not involved.
+- Stable Clippy retains the existing 141 lib-test warning backlog. The pinned
+  newer Miri toolchain also warns about fetch_update deprecation; no warnings
+  are hidden and no strict-warning acceptance is claimed.
+- Fresh post-terminal timing preflight still sees unrelated `make run` PID
+  2878331. No timing/profile was run and no speedup is claimed.
+
+## Accomplished
+- Source milestone `757ec71` separately commits atomic ownership, budgeted
+  status integration, exact pre-host/live-module fixtures, Make/Miri wiring and
+  safety/accounting documentation. Cached-code ownership remains single-threaded.
+- Corrected budget mutation `64663` makes two pure status fixtures and the live
+  native fixture fail; dedicated boundary job `81003` also fails. Each Make
+  lane exits 2. Initial weaker draft logs remain separately identified.
+- Ordering mutation `7774` exits 2 under pinned Miri with an actual data race.
+  Every owned mutation job was terminal before restoration. Owner/status hashes
+  match the pre-mutation originals. Restored focused `46452` passes **67 tests /
+  9 suite results / 0 ignored**; isolated Miri `98473` passes **11 / 3 / 0**.
+- Full GNU/musl job `29797` completes both exit 0: **4685 passing tests / 434
+  suite results / 24 ignored** each. Counts include repeated mode/doc suites,
+  not unique tests. Full selected Miri `4543` completes exit 0: **251 tests /
+  32 suite results / 0 ignored**, nightly 2026-08-16, rustc `67854e511`, empty
+  MIRIFLAGS. Native instructions and native heap programs do not run under Miri.
+- Campaign job `20106` completes all four lanes exit 0. Per platform: **4096
+  scalar/admission cases / 1641780 native invocations / 4758522 native
+  instructions**; **96 heap cases / 6344 main slices / 725 yields / 1633 callbacks /
+  96 retirements / 964 host reads / 2809 userdata observations / 65297 native
+  instructions**. Helpers: **22144 table reads / 7393 table writes / 1655
+  allocations / 21701 upvalue reads / 996 upvalue writes / 1179 declines**.
+  Both platforms use the same seeds/programs; observations are not instruction
+  coverage, and nested/finalizer internal slices are not independently paired.
+- Untimed opt-level-3 build `59343` completes exit 0 at `757ec71`; its binary,
+  source ID and verified hash are retained. This is not performance evidence.
+- Raw draft/restored/mutation/full logs, exact campaign and full-gate smoke
+  directories, Miri environment, aggregate counts, verified source/binary hashes
+  and global timing preflight are retained in `target/jit-evidence/memory-status/`.
+  All owned jobs in this turn are terminal; there is nothing to restart.
+
+## Next Steps
+- Account runtime/bootstrap and provider-box ownership, and complete faithful
+  frontend/backend compiler-buffer accounting or the approved bounded policy.
+- Continue complete opcode/source-map/helper/GC/alias/liveness and lifecycle
+  safety proofs; seeded campaigns do not substitute for coverage-guided proof.
+- Resolve native and compiled-Off performance controls after a clean global
+  preflight, retaining existing thresholds and independent-median statistics.
+- Gather executed ARM64/hosted evidence and address strict-Clippy backlog before
+  release acceptance. No complete fixed-owner/compiler memory or RSS claim yet.
+
+## Relevant Files
+- `src/jit/atomic_owner.rs` — fallible strong-only atomic owner and seven fixtures.
+- `src/jit/memory_status.rs` — shared provider flags, classification and three fixtures.
+- `src/jit/owner.rs` — exact typed deallocation guard shared by both owner types.
+- `src/jit/backend.rs` — budgeted status admission, sentinel and recovery tests.
+- `src/jit/mod.rs` — supported-platform module wiring.
+- `Makefile` — focused/boundary/native/ordering/selected-Miri targets.
+- `JIT.md`, `PLAN_JIT.md` — current safety scope, gates and outstanding work.
+- `target/jit-evidence/memory-status/` — local acceptance and untimed build evidence.
+
+### Provider-box accounting decision (2026-10-01)
+
+The prior goal turn made verified implementation progress (`757ec71`, `93edfeb`).
+Next charge the exact concrete Memory provider box, not an estimated trait-object
+header. Pinned JITBuilder requires a standard global Box and cannot accept an
+allocator-api2 Box. Allocate the typed payload fallibly using BudgetAllocator
+(whose underlying allocator is Global), transfer its initialized pointer to the
+standard global Box, and retain a separate exact-layout charge until after that
+box is destroyed. Declare the charge before builder/module ownership on compiler
+failure paths; move it into Code on success, whose Drop frees its module before
+field destruction. Keep destructor-unwind ordering explicit and test it under
+Miri. No new allocation/owner dependency or unstable allocator API is needed.
+
+This separately retained charge is a private lifecycle contract: it must never
+drop before the transferred box, including panics. Test allocation refusal,
+alignment/ZST/borrow behavior, underlying Global compatibility, panic cleanup and
+both pre-host and live-peer refusal/recovery boundaries. Existing status sentinel
+must still distinguish its earlier refusal boundary. Runtime/bootstrap owners
+and Cranelift's internal buffers/provider records remain outstanding.
+
+### Provider-box boundary calibration
+
+Provider refusal fixtures must permit two metadata allocations (entries and
+status) before injecting underlying refusal into the third, provider payload
+allocation. The initial copied fixture permitted only one and therefore exercised
+the earlier status boundary. Corrected fixtures use fail_after(2), an exact
+provider pre-host sentinel, and peak checks distinguishing status admission from
+provider allocation. Draft focused/Miri logs remain separately identified.
+Corrected focused provider tests pass seven tests; isolated Miri passes six,
+including the actual sysconf pre-host path without suppressing Miri diagnostics.
+No complete provider/native-platform acceptance follows until broader gates run.
+
+### Provider-box mutation sensitivity
+
+An unlimited transfer allocator makes the exact admission, pre-host boundary and
+native live-peer/recovery fixtures each fail (job `6416`, three Make exits 2).
+The original transfer source hash matches after restoration. A separate charge
+release bypass makes all six pure transfer fixtures fail, including erased Send
+trait-object payload destruction and both scope/value panic cleanup. Native code
+is not corrupted. Restore only after the owned mutation job is terminal, then
+verify the newer baseline hash including the added erasure fixture and rerun
+focused/Miri checks. These tests cover the private transfer/charge lifecycle, not
+Cranelift internal buffers, provider inner records or all runtime fixed owners.
+
+### Restored provider-box focused acceptance
+
+Restored transfer source matches the baseline hash including trait-object erasure.
+Focused Make job `88379` passes 75 tests / 12 suite results / 0 ignored, including
+eight provider tests and existing status/owner/resource fixtures. Isolated pinned
+Miri `29479` passes seven tests / two suite results / 0 ignored with default flags.
+The provider payload is accepted only after entries/status storage, and the
+exact underlying-failure fixture reaches the provider reservation before refusing.
+Builder/module locals drop before the earlier-declared charge; successful Code
+owns that charge and frees its module before automatic field destruction. Full
+native platform gates, selected Miri and supervised campaigns remain required.
+
+### Outer provider-box acceptance session (2026-10-01)
+
+## Goal
+Continue full implementation by making the concrete native provider-box
+allocation fallible and exactly charged through module reclamation. The prior
+goal turn made verified status-ownership progress; this turn makes another source
+milestone. The full goal remains active and incomplete.
+
+## Instructions
+Use Make/Nix, patch tools and separate unsigned title-only Conventional Commits.
+Preserve all resource/safety/performance acceptance gates. Never run timings or
+profiles alongside unrelated builds/tests/profiles, including other projects.
+
+## Discoveries
+- Cranelift requires a standard Box. Pinned allocator-api2 Global delegates to
+  the same process global allocator; initialized concrete-layout allocation can
+  transfer without reallocating or assuming a private control-block header.
+- The charge must survive the transferred box. Declaration order is explicit:
+  charge before provider before builder/module; successful Code frees its module
+  before automatic charge-field destruction. Standard Box handles value panic
+  deallocation; selected Miri tests this separately from allocator-api2 box drop.
+- Underlying provider refusal must follow two successful metadata allocations,
+  not one. The initial copied draft exercised status refusal; corrected fixtures
+  use fail_after(2), a provider sentinel and exact peak assertions.
+- Fresh post-terminal preflight no longer sees the former `make run` PID 2878331.
+  It sees a new unrelated `make run` PID 3346164 and live molla primitive bench
+  Make/Cargo/runtime workers. Timing remains forbidden; no process was excluded
+  or killed and no timing/profile result is claimed.
+
+## Accomplished
+- Source committed separately at `a509d78`: private typed Global Box transfer,
+  retained charge, pre-host provider admission, Code lifetime integration,
+  six pure fixtures, exact boundary/live-module fixtures and Make/Miri wiring.
+- Initial focused `42413`/`98695` and Miri `89167` were terminal before fixture
+  calibration. Corrected pre-erasure focused `64795` and Miri `52193` passed;
+  draft logs remain distinguished from the final fixture set.
+- Admission mutation `6416` makes exact pure admission, provider boundary and
+  native peer/recovery lanes each fail (Make exits 2). Restored original hash
+  matched. A new Send trait-object erasure fixture then established the updated
+  baseline. Release bypass `57083` makes all six pure fixtures fail (exit 2).
+  That job was terminal before restoration; updated baseline hash matches.
+- Restored focused `88379` passes **75 tests / 12 suite results / 0 ignored**;
+  isolated pinned Miri `29479` passes **7 / 2 / 0** with default flags.
+- Full GNU/musl `47544` completes both exit 0: **4725 passing tests / 434 suite
+  results / 24 ignored** each, including repeated mode/doc suites rather than
+  unique tests. Existing Clippy 141 lib-test warning backlog remains; no strict-
+  warning acceptance is claimed.
+- Full selected Miri `38958` completes exit 0: **258 tests / 34 suite results /
+  0 ignored**, pinned nightly 2026-08-16, rustc `67854e511`, empty MIRIFLAGS.
+  It does not execute generated instructions or native heap programs.
+- Campaign `22220` completes all four lanes exit 0. Per platform: **4096 scalar/
+  admission cases / 1641780 native invocations / 4758522 native instructions**;
+  **96 heap cases / 6344 main slices / 725 yields / 1633 callbacks / 96 retirements /
+  964 host reads / 2809 userdata observations / 65297 native instructions**.
+  Helpers: **22144 table reads / 7393 table writes / 1655 allocations / 21701
+  upvalue reads / 996 upvalue writes / 1179 declines**. Both platforms reuse seeds
+  and programs; userdata observations are not instruction coverage and nested/
+  finalizer internal slices are not independently paired.
+- Untimed opt-level-3 build `29498` completes exit 0 at `a509d78`. Its binary,
+  source ID and verified hash are retained, without a performance claim.
+- Raw draft/restored/mutation/full logs, exact campaign/smoke directories, Miri
+  environment, aggregate counts and verified source/binary hashes are archived
+  in `target/jit-evidence/provider-box/`. All owned jobs in this turn are terminal.
+
+## Next Steps
+- Account runtime/bootstrap owners and SystemMemoryProvider's inner records;
+  complete compiler-buffer accounting or the approved faithful bounded policy.
+- Continue complete opcode/source-map/helper/GC/alias/liveness/lifecycle safety
+  proofs and broader coverage-guided/unsafe stress.
+- Resolve frozen native and compiled-Off controls after clean global preflight;
+  preserve thresholds and independent-median statistics.
+- Gather actual ARM64/hosted evidence and address strict-Clippy backlog before
+  release acceptance. No full compiler/RSS or whole-goal acceptance yet.
+
+## Relevant Files
+- `src/jit/global_box.rs` — exact Global transfer, charge and six pure fixtures.
+- `src/jit/resources.rs` — private ledger release for transferred Global storage.
+- `src/jit/backend.rs` — fallible provider, Code-held charge and two refusal fixtures.
+- `src/jit/mod.rs` — supported-platform transfer-module wiring.
+- `Makefile` — pure/admission/boundary/native and selected/isolated Miri targets.
+- `JIT.md`, `PLAN_JIT.md` — current safety/accounting scope and evidence.
+- `target/jit-evidence/provider-box/` — local acceptance and untimed candidate.
+
+### Owned mapping-record decision (2026-10-01)
+
+The prior goal turn made verified provider-box progress (`a509d78`, `71871f6`).
+Pinned SystemMemoryProvider still uses private infallible Vec<PtrLen> buffers;
+finalization even appends empty readonly/code records. Do not estimate their
+private layouts or call the outer provider charge complete mapping bookkeeping.
+Replace those per-segment delegates with one owned anonymous memmap2 mapping per
+fallibly budgeted Segment record. MmapMut/Mmap contain inline OS mapping handles,
+not record vectors. Keep OS unmapping semantics consistent with the pinned
+delegate. Bounds/admission precede anonymous mapping; over-aligned requests reserve
+all padding pages, zero-sized requests reserve a live page, invalid/overflowing
+requests refuse without mapping. No addresses are persisted beyond module leases.
+
+Keep the same cache-maintenance implementation as pinned Cranelift, with its exact
+internal icache crate version explicitly optional/pinned. Clear executable ranges
+before RX protection, preserve feature-gated Linux ARM64 BTI, and pipeline-flush
+after all segments. The upstream icache crate is an internal, unsupported API;
+dependency upgrades require renewed source review and platform evidence. GNU/musl
+execution and /proc permission checks must prove RW-to-RX/R and stable writable
+data, alignment, quota rollback and idempotent finalization/reclamation. Pure
+request/protection planning runs under Miri, never anonymous/native execution.
+This closes provider-owned record allocations, not runtime/bootstrap or other
+compiler buffers, whole compiler/RSS bounds, or ARM64 execution acceptance.
+
+### Owned mapping-record discovery and oracle sensitivity
+
+Pinned memmap2 0.9.11's Linux MmapInner stores only pointer/length inline, so owned
+Segment records can account the actual provider bookkeeping without guessing
+Cranelift-private PtrLen layouts. Protection transitions consume the writable
+mapping handle; failed transitions may free that unpublished mapping early while
+its reservation remains conservatively retained until module cleanup. Every
+segment's reserved bytes remain available for rollback even when its handle is
+absent after failure. Partial protection refusal preserves all other owned maps.
+
+Request tests cover 4096/16384/65536-byte pages, sub-page and over-page alignments,
+all page-aligned offsets for the covered alignments, zero-size and overflow.
+An extra checked payload-end guard precedes aligned pointer creation. Omitting
+padding made both pure request fixtures fail (`92730`, Make exit 2), without OS
+mapping or generated execution. Replacing RX with readonly protection made three
+native permission/reclamation fixtures fail (`76477`, exit 2); these only inspect
+permissions/read initialized bytes and never execute the mutated mapping.
+No generated instructions were corrupted and both mutation jobs were terminal
+before restoration. Source hash and restored focused/Miri gates remain required.
+
+### Owned mapping focused acceptance
+
+Restored Segment source matches its pre-mutation hash. Focused `62266` passes
+124 tests / 22 suite results / 0 ignored across mapping/status/owner/host/resource
+lanes; isolated Miri `53148` passes three tests / two suite results / 0 ignored.
+Six native provider fixtures inspect real RW/RX/R permissions, no record growth
+across sixteen finalizations, alignment/padding quota, underlying record refusal,
+partial protection failure/retry and zero-size admission. A bounded isolated OS
+worker verifies the finalized mapping actually disappears after reclamation,
+without racing address reuse in other parallel tests. The initial helper-attribute
+compile draft is retained separately, not acceptance. Focused Clippy found an
+unused production enumerate index from test-only fault injection; split the
+test/production iterator bindings rather than silence the warning. Full GNU/
+musl, selected Miri, campaigns and restored Clippy remain required for this stage.
+
+### Final focused owned-mapping gate
+
+The final iterator/request-error refinements pass all eight focused segment
+fixtures plus Clippy (`30454` exit 0); the existing 141 lib-test warning backlog
+remains, with no new segment/manual-inspect/enumerate warning. Use inspect_err
+for flag observation, preserving the original I/O error. Final isolated selected
+Miri (`88791`) passes three tests with default flags. Code/record accounting,
+permission and cache/branch source review are ready for full platform gates;
+no current performance or ARM64 acceptance is implied.
+
+### Musl reclamation observer failure (2026-10-01)
+
+Full GNU at `26c6067` passed, but musl exited 2 in the isolated reclamation worker:
+the post-free /proc observer returned a fresh RW mapping at the old address.
+Reading /proc allocates a String and can itself reuse the just-freed mapping,
+even with other tests isolated. This failure remains recorded; it is not a
+passed musl gate or permission to remove the physical reclamation assertion.
+Replace only the post-free allocating observer with an allocation-free mincore
+syscall over the page-aligned former payload address, requiring failure with
+ENOMEM. Retain allocating permission observations while the mapping is live.
+Finish the original owned Miri job before changing its source revision, then
+commit this oracle repair separately and rerun current-source platform/Miri gates.
+The source/runtime mapping ownership is unchanged by this observer correction.
+
+### Repaired allocation-free reclamation oracle
+
+The repaired worker captures the actual mapping base/length while live, then
+requires mincore success for every mapped page before reclamation and -1/ENOMEM
+for every former page afterward. The post-free probe uses a stack byte and no
+allocating /proc read, preserving physical reclamation proof across GNU and musl.
+Focused both-platform job `7784` passes eight mapping plus eight provider-box
+tests per platform. A deliberate reclamation bypass (`50970`) makes the exact
+worker fixture fail on both platforms (Make exits 2), with no native instruction
+execution. The original Miri `4735` completed exit 0 at `26c6067` before edits;
+all its raw evidence and the failed original musl gate are kept under
+`target/jit-evidence/segments/draft-26c6067/`. Current-source gates must still be
+rerun after restored hash verification. The runtime mapping implementation did
+not change in this test-observer repair.
+
+### Owned mapping-record acceptance session (2026-10-01)
+
+## Goal
+Continue full implementation by eliminating uncharged provider-private mapping
+record vectors while preserving alignment, ownership and executable-memory
+protection. Previous goal turn made verified provider-box progress. This turn
+makes verified mapping/source and reclamation-oracle progress. Full goal remains
+active and incomplete.
+
+## Instructions
+Use Make/Nix, patch tools and separate unsigned title-only Conventional Commits.
+Preserve all safety, resource and frozen performance gates. Never time/profile
+alongside unrelated builds/tests/profiles, including other projects.
+
+## Discoveries
+- Pinned SystemMemoryProvider has infallible private record vectors and appends
+  empty records during finalization. Pinned Linux memmap2 has inline pointer/len
+  handles; budgeted Segment records eliminate those vectors rather than estimate
+  their layout. Optional direct dependencies match already locked memmap2 0.9.11
+  and compiler-internal icache 49.0.1; no package version/checksum changed.
+- Upstream icache is an unsupported internal API. Exact pin/source review and
+  actual platform gates remain necessary; no ARM64 execution proof is claimed.
+- `/proc/self/maps` allocates during observation and can reuse a freed address
+  even in a dedicated musl worker. Replace post-free observation with stack-only
+  mincore for every former page, with mapped success controls before reclamation
+  and exact -1/ENOMEM afterward. Keep live permission observations unchanged.
+- A failed protection conversion can destroy an unpublished handle early while
+  its reservation remains conservatively retained through module cleanup. Owned
+  byte counts must survive even when that handle is absent.
+- Final global preflight sees unrelated molla GPU test Make/Cargo/runtime jobs
+  (3550540/3550545/3551277), not the prior idle make-run job. No arbitrary job is
+  excluded or killed, no timings/profiles ran, and no speedup is claimed.
+
+## Accomplished
+- Source `26c6067` separately commits fallible owned records, inline anonymous
+  maps, checked padding/payload bounds, stable finalization, cache maintenance,
+  partial-protection refusal/retry and OS permission/reclamation fixtures.
+- Padding mutation `92730` makes both pure request fixtures fail (Make exit 2).
+  RX-to-readonly mutation `76477` makes three of six provider fixtures fail
+  (exit 2). No mutated mapping is executed; source hash matches after restoration.
+- Restored focused `62266` passes **124 tests / 22 suite results / 0 ignored**;
+  isolated Miri `53148` passes **3 / 2 / 0**. Final focused/Clippy `30454` and Miri
+  `88791` pass after removing new enumerate/manual-inspect warnings without
+  suppression. Existing 141 lib-test warning backlog remains.
+- Original full job `17659` passes GNU but fails musl (exit 2) in the allocating
+  reclamation observer. Original Miri `4735` completes **261 / 36 / 0** at
+  `26c6067` before edits. All original jobs are terminal, not restarted from a
+  timeout. Their raw gates/campaigns/untimed candidate are archived separately in
+  `draft-26c6067/`; original musl failure is not acceptance.
+- Oracle repair `4f737c2` separately commits allocation-free, positive-controlled
+  per-page reclamation. Focused GNU/musl `7784` passes 16 mapping/provider tests
+  each. Reclamation bypass `50970` makes the exact worker fail on both platforms
+  (Make exits 2); terminal before restoration, matching source hashes. Restored
+  exact both-platform `15455` passes before the fix commit.
+- Current full GNU/musl `25103` completes both exit 0: **4765 passing tests /
+  434 suite results / 24 ignored** each. Counts include repeated mode/doc suites,
+  not unique tests. Clippy is not strict-warning acceptance.
+- Current selected Miri `3511` completes exit 0: **261 tests / 36 suite results /
+  0 ignored**, nightly 2026-08-16, rustc `67854e511`, empty MIRIFLAGS. No generated
+  instructions, anonymous mappings or OS reclamation worker run under Miri.
+- Current campaigns `38859` complete all four lanes exit 0. Per platform:
+  **4096 scalar/admission cases / 1641780 native invocations / 4758522 native
+  instructions**; **96 heap cases / 6344 main slices / 725 yields / 1633 callbacks /
+  96 retirements / 964 host reads / 2809 userdata observations / 65297 native
+  instructions**. Helpers: **22144 table reads / 7393 table writes / 1655
+  allocations / 21701 upvalue reads / 996 upvalue writes / 1179 declines**.
+  Both platforms reuse seeds/programs; userdata observations are not instruction
+  coverage and nested/finalizer internal slices are not independently paired.
+- Current untimed opt3 build `29806` completes exit 0 at `4f737c2`; source ID,
+  binary and verified hash retained. No timing or performance result follows.
+- Current and draft logs, exact long-campaign/full-smoke directories, Miri
+  environment, aggregate counts and verified source/binary hashes are under
+  `target/jit-evidence/segments/`. All owned jobs in this turn are terminal.
+
+## Next Steps
+- Account runtime/bootstrap owners and remaining frontend/backend compiler
+  buffers or implement the approved faithful bounded compiler policy.
+- Complete opcode/source-map/helper/GC/alias/liveness/lifecycle safety proofs
+  and broader coverage-guided/unsafe stress; seeded campaigns are not exhaustive.
+- Resolve native and compiled-Off controls after clean global preflight, without
+  changing frozen thresholds or independent-median statistics.
+- Gather executed ARM64/hosted evidence and address strict-Clippy backlog before
+  release acceptance. No complete compiler/RSS or whole-goal claim yet.
+
+## Relevant Files
+- `src/jit/segments.rs` — checked requests, inline mapping/protection and two pure fixtures.
+- `src/jit/backend.rs` — owned records, stable finalization and six provider fixtures.
+- `src/jit/mod.rs` — supported-platform segment wiring.
+- `Cargo.toml`, `Cargo.lock` — explicit optional exact already-resolved mapping/cache pins.
+- `Makefile` — pure/native/reclamation and selected/isolated Miri targets.
+- `JIT.md`, `PLAN_JIT.md` — protection/accounting scope, failure and acceptance evidence.
+- `target/jit-evidence/segments/` — revision-scoped current and original failed-run artifacts.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
+- [Linux mincore contract](https://man7.org/linux/man-pages/man2/mincore.2.html) — page-aligned probes and exact ENOMEM for unmapped memory; the reclamation fixture supplies mapped success controls before checking every freed page.
+- [Rust Box memory layout](https://doc.rust-lang.org/std/boxed/index.html#memory-layout) — initialized Global allocations with the correct concrete layout can transfer to a standard Box; the provider charge is retained separately through its destruction.
+- [Rust reference-counted destruction](https://doc.rust-lang.org/nomicon/arc-mutex/arc-drop.html) — release/acquire lifetime synchronization; Luna uses an AcqRel decrement and its own exact-layout, strong-only allocation.
 - [Cranelift IR](https://github.com/bytecodealliance/wasmtime/blob/main/cranelift/docs/ir.md) — validate against the pinned version, not moving-main assumptions.
 - [Cranelift frontend / FunctionBuilder](https://docs.wasmtime.dev/api/cranelift/prelude/struct.FunctionBuilder.html) — SSA construction and stack-map facilities; their existence does not integrate Luna's collector automatically.
 - [LuaJIT language/runtime compatibility](https://luajit.org/extensions.html) — why this plan is not a transparent LuaJIT integration.

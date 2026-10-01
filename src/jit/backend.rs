@@ -1,7 +1,7 @@
 use std::{
     io,
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicUsize, Ordering},
         Arc,
     },
 };
@@ -12,27 +12,27 @@ use cranelift_codegen::ir::{
     types, AbiParam, Block, Inst, InstBuilder, MemFlagsData, Value as IrValue,
 };
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
-use cranelift_jit::{
-    BranchProtection, JITBuilder, JITMemoryKind, JITMemoryProvider, JITModule, SystemMemoryProvider,
-};
+use cranelift_jit::{BranchProtection, JITBuilder, JITMemoryKind, JITMemoryProvider, JITModule};
 use cranelift_module::{default_libcall_names, Linkage, Module, ModuleResult};
 
 use super::{
     abi::{self, Entry, Exit, Slot},
+    atomic_owner::AtomicShared,
     exits::Kind as ExitKind,
+    global_box::{self, Charge as ProviderCharge},
     helpers,
     ir::Snapshot,
+    memory_status::MemoryStatus,
     resources::BudgetAllocator,
+    segments::{Request, Segment},
     JitError,
 };
 use crate::opcode::{Operation, RCIndex};
 
 struct Memory {
-    allocations: BudgetVec<(SystemMemoryProvider, usize), BudgetAllocator>,
+    allocations: BudgetVec<Segment, BudgetAllocator>,
     total: Arc<AtomicUsize>,
-    quota_refused: Arc<AtomicBool>,
-    metadata_refused: Arc<AtomicBool>,
-    unavailable: Arc<AtomicBool>,
+    status: AtomicShared<MemoryStatus>,
     #[cfg(test)]
     failure: Failure,
     limit: usize,
@@ -42,8 +42,9 @@ struct Memory {
 impl Memory {
     fn release(&mut self) {
         let ledger = self.allocations.allocator().0.clone();
-        for (mut provider, bytes) in self.allocations.drain(..) {
-            unsafe { provider.free_memory() };
+        for segment in self.allocations.drain(..) {
+            let bytes = segment.bytes;
+            drop(segment);
             self.total.fetch_sub(bytes, Ordering::Relaxed);
             ledger.release_external(bytes);
         }
@@ -59,15 +60,12 @@ impl Drop for Memory {
 
 impl JITMemoryProvider for Memory {
     fn allocate(&mut self, size: usize, align: u64, kind: JITMemoryKind) -> io::Result<*mut u8> {
-        let bytes = size
-            .checked_add(self.page - 1)
-            .map(|size| size / self.page * self.page)
-            .ok_or_else(|| {
-                self.quota_refused.store(true, Ordering::Relaxed);
-                io::Error::other("native allocation size overflow")
-            })?;
+        let request = Request::new(size, align, self.page).inspect_err(|_| {
+            self.status.quota_refused.store(true, Ordering::Relaxed);
+        })?;
+        let bytes = request.bytes;
         self.allocations.try_reserve_exact(1).map_err(|_| {
-            self.metadata_refused.store(true, Ordering::Relaxed);
+            self.status.metadata_refused.store(true, Ordering::Relaxed);
             io::Error::other("native allocation record quota exhausted")
         })?;
         self.total
@@ -75,7 +73,7 @@ impl JITMemoryProvider for Memory {
                 used.checked_add(bytes).filter(|next| *next <= self.limit)
             })
             .map_err(|_| {
-                self.quota_refused.store(true, Ordering::Relaxed);
+                self.status.quota_refused.store(true, Ordering::Relaxed);
                 io::Error::other("native memory quota exhausted")
             })?;
         if self
@@ -86,30 +84,28 @@ impl JITMemoryProvider for Memory {
             .is_err()
         {
             self.total.fetch_sub(bytes, Ordering::Relaxed);
-            self.quota_refused.store(true, Ordering::Relaxed);
+            self.status.quota_refused.store(true, Ordering::Relaxed);
             return Err(io::Error::other("host memory quota exhausted"));
         }
         #[cfg(test)]
         if self.failure == Failure::Allocate {
             self.total.fetch_sub(bytes, Ordering::Relaxed);
             self.allocations.allocator().0.release_external(bytes);
-            self.unavailable.store(true, Ordering::Relaxed);
+            self.status.unavailable.store(true, Ordering::Relaxed);
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 "injected native allocation denial",
             ));
         }
-        let mut provider = SystemMemoryProvider::new();
-        match provider.allocate(size, align, kind) {
-            Ok(pointer) => {
-                self.allocations.push((provider, bytes));
+        match Segment::new(request, kind) {
+            Ok((segment, pointer)) => {
+                self.allocations.push(segment);
                 Ok(pointer)
             }
             Err(error) => {
-                unsafe { provider.free_memory() };
                 self.total.fetch_sub(bytes, Ordering::Relaxed);
                 self.allocations.allocator().0.release_external(bytes);
-                self.unavailable.store(true, Ordering::Relaxed);
+                self.status.unavailable.store(true, Ordering::Relaxed);
                 Err(error)
             }
         }
@@ -122,23 +118,44 @@ impl JITMemoryProvider for Memory {
     fn finalize(&mut self, protection: BranchProtection) -> ModuleResult<()> {
         #[cfg(test)]
         if self.failure == Failure::Protect {
-            self.unavailable.store(true, Ordering::Relaxed);
+            self.status.unavailable.store(true, Ordering::Relaxed);
             return Err(cranelift_module::ModuleError::Backend(anyhow::anyhow!(
                 "injected native protection denial"
             )));
         }
-        for (provider, _) in &mut self.allocations {
-            if let Err(error) = provider.finalize(protection) {
-                self.unavailable.store(true, Ordering::Relaxed);
-                return Err(error);
+        #[cfg(test)]
+        let segments = self.allocations.iter_mut().enumerate();
+        #[cfg(not(test))]
+        let segments = self.allocations.iter_mut();
+        for segment in segments {
+            #[cfg(test)]
+            let (index, segment) = segment;
+            #[cfg(test)]
+            if self.failure == Failure::ProtectAfterFirst && index == 1 {
+                self.status.unavailable.store(true, Ordering::Relaxed);
+                return Err(cranelift_module::ModuleError::Backend(anyhow::anyhow!(
+                    "injected partial protection denial"
+                )));
+            }
+            if let Err(error) = segment.finalize(protection) {
+                self.status.unavailable.store(true, Ordering::Relaxed);
+                return Err(cranelift_module::ModuleError::Backend(anyhow::Error::new(
+                    error,
+                )));
             }
         }
-        Ok(())
+        wasmtime_jit_icache_coherence::pipeline_flush_mt().map_err(|error| {
+            self.status.unavailable.store(true, Ordering::Relaxed);
+            cranelift_module::ModuleError::Backend(anyhow::anyhow!(
+                "native pipeline flush: {error}"
+            ))
+        })
     }
 }
 
 pub(super) struct Code {
     module: Option<JITModule>,
+    _provider_charge: ProviderCharge,
     entry: Entry,
     #[cfg(test)]
     byte_len: usize,
@@ -189,6 +206,9 @@ impl Code {
 #[cfg(test)]
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum Failure {
+    DetectHostSetup,
+    DetectProviderSetup,
+    ProtectAfterFirst,
     RefuseOwnerStorage,
     RefuseOwnerAllocation,
     RefusePredecessors,
@@ -267,24 +287,41 @@ pub(super) fn compile_in(
         .try_reserve_exact(snapshot.operations.len())
         .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
     entries.extend(graph.nodes.iter().map(|node| node.lowering.native()));
-    let quota_refused = Arc::new(AtomicBool::new(false));
-    let metadata_refused = Arc::new(AtomicBool::new(false));
-    let unavailable = Arc::new(AtomicBool::new(false));
+    let status = MemoryStatus::try_new(metadata.clone())?;
+    #[cfg(test)]
+    if failure == Failure::DetectHostSetup {
+        return Err(JitError::Compilation("injected host setup probe".into()));
+    }
     let fail = |error: cranelift_module::ModuleError| {
-        if metadata_refused.load(Ordering::Relaxed) {
-            JitError::ResourceLimit("JIT metadata")
-        } else if quota_refused.load(Ordering::Relaxed) {
-            JitError::ResourceLimit("native mappings")
-        } else if unavailable.load(Ordering::Relaxed) {
-            JitError::Unavailable("native memory allocation or protection denied")
-        } else {
-            JitError::Compilation(error.to_string())
-        }
+        status
+            .error()
+            .unwrap_or_else(|| JitError::Compilation(error.to_string()))
     };
     let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     if page <= 0 {
         return Err(JitError::Unavailable(
             "cannot determine native memory page size",
+        ));
+    }
+    let provider_charge;
+    let provider;
+    (provider, provider_charge) = global_box::try_new(
+        Memory {
+            allocations: BudgetVec::new_in(metadata.clone()),
+            total,
+            status: status.clone(),
+            #[cfg(test)]
+            failure,
+            limit,
+            page: page as usize,
+        },
+        metadata,
+    )
+    .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
+    #[cfg(test)]
+    if failure == Failure::DetectProviderSetup {
+        return Err(JitError::Compilation(
+            "injected provider setup probe".into(),
         ));
     }
     let mut jit = JITBuilder::with_flags(
@@ -295,17 +332,7 @@ pub(super) fn compile_in(
     for (_, name, entry) in helpers::SYMBOLS {
         jit.symbol(name, entry as *const u8);
     }
-    jit.memory_provider(Box::new(Memory {
-        allocations: BudgetVec::new_in(metadata),
-        total,
-        quota_refused: quota_refused.clone(),
-        metadata_refused: metadata_refused.clone(),
-        unavailable: unavailable.clone(),
-        #[cfg(test)]
-        failure,
-        limit,
-        page: page as usize,
-    }));
+    jit.memory_provider(provider);
     let mut module = JITModule::new(jit);
     let ptr = module.target_config().pointer_type();
     let mut signature = module.make_signature();
@@ -607,6 +634,7 @@ pub(super) fn compile_in(
         unsafe { std::mem::transmute::<*const u8, Entry>(module.get_finalized_function(function)) };
     Ok(Code {
         module: Some(module),
+        _provider_charge: provider_charge,
         entry,
         #[cfg(test)]
         byte_len,
@@ -4250,13 +4278,245 @@ mod memory_tests {
                 2 * 1024 * 1024,
             ))),
             total: Arc::new(AtomicUsize::new(0)),
-            quota_refused: Arc::new(AtomicBool::new(false)),
-            metadata_refused: Arc::new(AtomicBool::new(false)),
-            unavailable: Arc::new(AtomicBool::new(false)),
+            status: MemoryStatus::try_new(BudgetAllocator(super::super::resources::Ledger::new(
+                4096,
+            )))
+            .unwrap(),
             failure: Failure::None,
             limit: pages * page as usize,
             page: page as usize,
         }
+    }
+
+    fn segment_permissions(pointer: *const u8) -> Option<String> {
+        let address = pointer as usize;
+        std::fs::read_to_string("/proc/self/maps")
+            .unwrap()
+            .lines()
+            .find_map(|line| {
+                let mut fields = line.split_whitespace();
+                let (start, end) = fields.next()?.split_once('-')?;
+                let start = usize::from_str_radix(start, 16).ok()?;
+                let end = usize::from_str_radix(end, 16).ok()?;
+                (start <= address && address < end).then(|| fields.next().unwrap().to_owned())
+            })
+    }
+
+    #[test]
+    fn segment_permissions_and_repeated_finalization_keep_record_storage_fixed() {
+        let mut memory = memory(16);
+        let metadata = memory.allocations.allocator().0.clone();
+        let exec = memory.allocate(64, 8, JITMemoryKind::Executable).unwrap();
+        let readonly = memory.allocate(64, 8, JITMemoryKind::ReadOnly).unwrap();
+        let writable = memory.allocate(64, 8, JITMemoryKind::Writable).unwrap();
+        for pointer in [exec, readonly, writable] {
+            unsafe {
+                pointer.write(0x5a);
+            }
+            assert!(segment_permissions(pointer).unwrap().starts_with("rw-"));
+        }
+        let baseline = (
+            memory.allocations.len(),
+            memory.allocations.capacity(),
+            metadata.current(),
+            memory.total.load(Ordering::Relaxed),
+        );
+        memory.finalize(BranchProtection::None).unwrap();
+        assert!(segment_permissions(exec).unwrap().starts_with("r-x"));
+        assert!(segment_permissions(readonly).unwrap().starts_with("r--"));
+        assert!(segment_permissions(writable).unwrap().starts_with("rw-"));
+        for pointer in [exec, readonly, writable] {
+            assert_eq!(unsafe { pointer.read() }, 0x5a);
+        }
+        for _ in 0..16 {
+            memory.finalize(BranchProtection::None).unwrap();
+        }
+        assert_eq!(
+            (
+                memory.allocations.len(),
+                memory.allocations.capacity(),
+                metadata.current(),
+                memory.total.load(Ordering::Relaxed)
+            ),
+            baseline
+        );
+        memory.release();
+        assert_eq!(
+            (metadata.current(), memory.total.load(Ordering::Relaxed)),
+            (0, 0)
+        );
+    }
+
+    #[test]
+    fn segment_over_alignment_charges_padding_and_preserves_peer_on_refusal() {
+        let mut memory = memory(8);
+        let align = memory.page * 4;
+        let size = memory.page + 17;
+        let pointer = memory
+            .allocate(size, align as u64, JITMemoryKind::Writable)
+            .unwrap();
+        assert_eq!(pointer as usize % align, 0);
+        assert_eq!(memory.total.load(Ordering::Relaxed), memory.page * 5);
+        unsafe {
+            pointer.write(42);
+            pointer.add(size - 1).write(84);
+        }
+        assert!(memory
+            .allocate(1, align as u64, JITMemoryKind::Writable)
+            .is_err());
+        assert_eq!(memory.allocations.len(), 1);
+        assert_eq!(memory.total.load(Ordering::Relaxed), memory.page * 5);
+        assert_eq!(
+            unsafe { (pointer.read(), pointer.add(size - 1).read()) },
+            (42, 84)
+        );
+        memory.release();
+        assert_eq!(memory.total.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn segment_partial_protection_failure_retains_every_mapping_until_reclamation() {
+        let mut memory = memory(8);
+        let metadata = memory.allocations.allocator().0.clone();
+        let exec = memory.allocate(64, 8, JITMemoryKind::Executable).unwrap();
+        let readonly = memory.allocate(64, 8, JITMemoryKind::ReadOnly).unwrap();
+        let writable = memory.allocate(64, 8, JITMemoryKind::Writable).unwrap();
+        let baseline = (metadata.current(), memory.total.load(Ordering::Relaxed));
+        memory.failure = Failure::ProtectAfterFirst;
+        assert!(memory.finalize(BranchProtection::None).is_err());
+        assert!(memory.status.unavailable.load(Ordering::Relaxed));
+        assert!(segment_permissions(exec).unwrap().starts_with("r-x"));
+        assert!(segment_permissions(readonly).unwrap().starts_with("rw-"));
+        assert!(segment_permissions(writable).unwrap().starts_with("rw-"));
+        assert_eq!(
+            (metadata.current(), memory.total.load(Ordering::Relaxed)),
+            baseline
+        );
+        memory.failure = Failure::None;
+        memory.finalize(BranchProtection::None).unwrap();
+        assert!(segment_permissions(readonly).unwrap().starts_with("r--"));
+        memory.release();
+        assert_eq!(
+            (metadata.current(), memory.total.load(Ordering::Relaxed)),
+            (0, 0)
+        );
+    }
+
+    #[test]
+    fn segment_zero_request_maps_a_live_page_and_invalid_alignment_never_reserves() {
+        let mut memory = memory(1);
+        let metadata = memory.allocations.allocator().0.clone();
+        for align in [0, 3] {
+            assert!(memory.allocate(1, align, JITMemoryKind::Writable).is_err());
+            assert_eq!(
+                (metadata.current(), memory.total.load(Ordering::Relaxed)),
+                (0, 0)
+            );
+        }
+        let pointer = memory.allocate(0, 8, JITMemoryKind::Writable).unwrap();
+        assert!(!pointer.is_null());
+        assert_eq!(memory.total.load(Ordering::Relaxed), memory.page);
+        unsafe {
+            pointer.write(42);
+        }
+        memory.release();
+        assert_eq!(
+            (metadata.current(), memory.total.load(Ordering::Relaxed)),
+            (0, 0)
+        );
+    }
+
+    #[test]
+    fn segment_record_underlying_refusal_precedes_mapping() {
+        let mut memory = memory(4);
+        let metadata = memory.allocations.allocator().0.clone();
+        metadata.fail_after(0);
+        assert!(memory.allocate(1, 8, JITMemoryKind::Executable).is_err());
+        assert!(memory.status.metadata_refused.load(Ordering::Relaxed));
+        assert_eq!(
+            (
+                memory.allocations.len(),
+                metadata.current(),
+                memory.total.load(Ordering::Relaxed)
+            ),
+            (0, 0, 0)
+        );
+        assert_eq!(metadata.refusals(), 1);
+    }
+
+    #[test]
+    fn segment_reclamation_os_worker() {
+        const FILTER: &str = "jit::backend::memory_tests::segment_reclamation_os_worker";
+        if std::env::var_os("LUNA_SEGMENT_RECLAIM_WORKER").is_none() {
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", FILTER, "--nocapture"])
+                .env("LUNA_SEGMENT_RECLAIM_WORKER", "1")
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            loop {
+                if let Some(status) = child.try_wait().unwrap() {
+                    assert!(status.success());
+                    break;
+                }
+                if std::time::Instant::now() >= deadline {
+                    child.kill().unwrap();
+                    child.wait().unwrap();
+                    panic!("segment worker timeout");
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            return;
+        }
+        let mut memory = memory(16);
+        let metadata = memory.allocations.allocator().0.clone();
+        let pointer = memory
+            .allocate(
+                memory.page + 17,
+                (memory.page * 4) as u64,
+                JITMemoryKind::Executable,
+            )
+            .unwrap();
+        assert!(segment_permissions(pointer).unwrap().starts_with("rw-"));
+        memory.finalize(BranchProtection::None).unwrap();
+        assert!(segment_permissions(pointer).unwrap().starts_with("r-x"));
+        let base = memory.allocations[0].base() as usize;
+        let bytes = memory.allocations[0].bytes;
+        let mut resident = 0u8;
+        assert_eq!(base % memory.page, 0);
+        for offset in (0..bytes).step_by(memory.page) {
+            assert_eq!(
+                unsafe {
+                    libc::mincore(
+                        (base + offset) as *mut libc::c_void,
+                        memory.page,
+                        &mut resident,
+                    )
+                },
+                0
+            );
+        }
+        memory.release();
+        for offset in (0..bytes).step_by(memory.page) {
+            let result = unsafe {
+                libc::mincore(
+                    (base + offset) as *mut libc::c_void,
+                    memory.page,
+                    &mut resident,
+                )
+            };
+            assert_eq!(result, -1);
+            assert_eq!(
+                io::Error::last_os_error().raw_os_error(),
+                Some(libc::ENOMEM)
+            );
+        }
+        assert_eq!(
+            (metadata.current(), memory.total.load(Ordering::Relaxed)),
+            (0, 0)
+        );
+        memory.release();
     }
 
     #[test]
@@ -4276,8 +4536,8 @@ mod memory_tests {
         assert_eq!(memory.total.load(Ordering::Relaxed), memory.page);
         assert_eq!(host.current(), baseline + memory.page);
         assert_eq!(host.refusals(), 1);
-        assert!(memory.quota_refused.load(Ordering::Relaxed));
-        assert!(!memory.metadata_refused.load(Ordering::Relaxed));
+        assert!(memory.status.quota_refused.load(Ordering::Relaxed));
+        assert!(!memory.status.metadata_refused.load(Ordering::Relaxed));
         unsafe {
             memory.free_memory();
             memory.free_memory();
@@ -4313,7 +4573,7 @@ mod memory_tests {
             .is_null());
         assert_eq!(total.load(Ordering::Relaxed), memory.page);
         assert!(memory.allocate(1, 1, JITMemoryKind::Executable).is_err());
-        assert!(memory.quota_refused.load(Ordering::Relaxed));
+        assert!(memory.status.quota_refused.load(Ordering::Relaxed));
         assert_eq!(total.load(Ordering::Relaxed), memory.page);
         drop(memory);
         assert_eq!(total.load(Ordering::Relaxed), 0);
@@ -4326,7 +4586,7 @@ mod memory_tests {
         assert!(memory
             .allocate(usize::MAX, 1, JITMemoryKind::Executable)
             .is_err());
-        assert!(memory.quota_refused.load(Ordering::Relaxed));
+        assert!(memory.status.quota_refused.load(Ordering::Relaxed));
         assert_eq!(memory.total.load(Ordering::Relaxed), 0);
         assert!(memory.allocations.is_empty());
     }
@@ -4354,17 +4614,20 @@ mod memory_tests {
         let metadata = memory.allocations.allocator().0.clone();
         metadata.set_limit(1);
         assert!(memory.allocate(1, 1, JITMemoryKind::Executable).is_err());
-        assert!(memory.metadata_refused.load(Ordering::Relaxed));
-        assert!(!memory.quota_refused.load(Ordering::Relaxed));
+        assert!(memory.status.metadata_refused.load(Ordering::Relaxed));
+        assert!(!memory.status.quota_refused.load(Ordering::Relaxed));
         assert_eq!(memory.total.load(Ordering::Relaxed), 0);
         assert_eq!(metadata.current(), 0);
         metadata.set_limit(4096);
-        memory.metadata_refused.store(false, Ordering::Relaxed);
+        memory
+            .status
+            .metadata_refused
+            .store(false, Ordering::Relaxed);
         memory.allocate(1, 1, JITMemoryKind::Executable).unwrap();
         let retained = metadata.current();
         metadata.set_limit(retained);
         assert!(memory.allocate(1, 1, JITMemoryKind::Executable).is_err());
-        assert!(memory.metadata_refused.load(Ordering::Relaxed));
+        assert!(memory.status.metadata_refused.load(Ordering::Relaxed));
         assert_eq!(memory.allocations.len(), 1);
         assert_eq!(memory.total.load(Ordering::Relaxed), memory.page);
         assert_eq!(metadata.current(), retained);
@@ -4396,6 +4659,289 @@ mod memory_tests {
         assert_eq!(total.load(Ordering::Relaxed), 0);
         assert_eq!(metadata.current(), 0);
         assert_eq!(metadata.refusals(), 1);
+    }
+
+    #[test]
+    fn status_refusal_precedes_host_setup_and_releases_entry_storage() {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype = crate::FunctionPrototype::compile(ctx, "status", b"return 42").unwrap();
+            Snapshot::new(&prototype, 4096, 4096).unwrap()
+        });
+        let snapshot_ledger = snapshot.operations.allocator().0.clone();
+        let snapshot_baseline = snapshot_ledger.current();
+        let entry_bytes = snapshot.operations.len();
+        let owner_bytes = AtomicShared::<MemoryStatus>::allocation_bytes();
+        for cause in 0..3 {
+            let host = super::super::resources::Ledger::new(if cause == 1 {
+                entry_bytes + owner_bytes - 1
+            } else {
+                65536
+            });
+            let metadata = super::super::resources::Ledger::child(
+                if cause == 0 {
+                    entry_bytes + owner_bytes - 1
+                } else {
+                    65536
+                },
+                host.clone(),
+            );
+            if cause == 2 {
+                metadata.fail_after(1);
+            }
+            let total = Arc::new(AtomicUsize::new(0));
+            assert!(matches!(
+                compile_in(
+                    &snapshot,
+                    total.clone(),
+                    65536,
+                    BudgetAllocator(metadata.clone()),
+                    super::super::work::Limits::from(&super::super::JitConfig::default()),
+                    Failure::DetectHostSetup
+                ),
+                Err(JitError::ResourceLimit("JIT metadata"))
+            ));
+            assert_eq!(
+                (
+                    metadata.current(),
+                    host.current(),
+                    total.load(Ordering::Relaxed)
+                ),
+                (0, 0, 0)
+            );
+            assert_eq!(metadata.refusals(), 1);
+            assert_eq!(snapshot_ledger.current(), snapshot_baseline);
+        }
+    }
+
+    #[test]
+    fn status_refusal_preserves_live_module_and_same_snapshot_recovers() {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype =
+                crate::FunctionPrototype::compile(ctx, "status-peer", b"return 42").unwrap();
+            Snapshot::new(&prototype, 4096, 4096).unwrap()
+        });
+        for cause in 0..3 {
+            let host = super::super::resources::Ledger::new(2 * 1024 * 1024);
+            let metadata = super::super::resources::Ledger::child(65536, host.clone());
+            let total = Arc::new(AtomicUsize::new(0));
+            let compile_module = |failure| {
+                compile_in(
+                    &snapshot,
+                    total.clone(),
+                    1024 * 1024,
+                    BudgetAllocator(metadata.clone()),
+                    super::super::work::Limits::from(&super::super::JitConfig::default()),
+                    failure,
+                )
+            };
+            let peer = compile_module(Failure::None).unwrap();
+            let baseline = (
+                metadata.current(),
+                host.current(),
+                total.load(Ordering::Relaxed),
+            );
+            let admission =
+                snapshot.operations.len() + AtomicShared::<MemoryStatus>::allocation_bytes() - 1;
+            match cause {
+                0 => metadata.set_limit(baseline.0 + admission),
+                1 => host.set_limit(baseline.1 + admission),
+                _ => metadata.fail_after(1),
+            }
+            assert!(matches!(
+                compile_module(Failure::DetectHostSetup),
+                Err(JitError::ResourceLimit("JIT metadata"))
+            ));
+            assert_eq!(
+                (
+                    metadata.current(),
+                    host.current(),
+                    total.load(Ordering::Relaxed)
+                ),
+                baseline
+            );
+            let mut slots = vec![
+                Slot {
+                    tag: abi::NIL,
+                    bits: 0
+                };
+                peer.registers
+            ];
+            let exit = peer.invoke(&mut slots, 0, 64);
+            assert!(exit.instructions > 0);
+            let Operation::Return { start, .. } = snapshot.operations[exit.pc as usize] else {
+                panic!("peer did not reach its interpreted return");
+            };
+            assert_eq!(
+                (
+                    slots[usize::from(start.0)].tag,
+                    slots[usize::from(start.0)].bits
+                ),
+                (abi::INTEGER, 42)
+            );
+            metadata.set_limit(65536);
+            host.set_limit(2 * 1024 * 1024);
+            metadata.fail_after(usize::MAX);
+            let recovered = compile_module(Failure::None).unwrap();
+            assert!(recovered.invoke(&mut slots, 0, 64).instructions > 0);
+            drop((peer, recovered));
+            assert_eq!(
+                (
+                    metadata.current(),
+                    host.current(),
+                    total.load(Ordering::Relaxed)
+                ),
+                (0, 0, 0)
+            );
+        }
+    }
+
+    #[test]
+    fn provider_box_refusal_precedes_host_setup_and_releases_entry_storage() {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype = crate::FunctionPrototype::compile(ctx, "status", b"return 42").unwrap();
+            Snapshot::new(&prototype, 4096, 4096).unwrap()
+        });
+        let snapshot_ledger = snapshot.operations.allocator().0.clone();
+        let snapshot_baseline = snapshot_ledger.current();
+        let entry_bytes = snapshot.operations.len();
+        let owner_bytes = AtomicShared::<MemoryStatus>::allocation_bytes()
+            + std::alloc::Layout::new::<Memory>().size();
+        for cause in 0..3 {
+            let host = super::super::resources::Ledger::new(if cause == 1 {
+                entry_bytes + owner_bytes - 1
+            } else {
+                65536
+            });
+            let metadata = super::super::resources::Ledger::child(
+                if cause == 0 {
+                    entry_bytes + owner_bytes - 1
+                } else {
+                    65536
+                },
+                host.clone(),
+            );
+            if cause == 2 {
+                metadata.fail_after(2);
+            }
+            let total = Arc::new(AtomicUsize::new(0));
+            assert!(matches!(
+                compile_in(
+                    &snapshot,
+                    total.clone(),
+                    65536,
+                    BudgetAllocator(metadata.clone()),
+                    super::super::work::Limits::from(&super::super::JitConfig::default()),
+                    Failure::DetectProviderSetup
+                ),
+                Err(JitError::ResourceLimit("JIT metadata"))
+            ));
+            assert_eq!(
+                (
+                    metadata.current(),
+                    host.current(),
+                    total.load(Ordering::Relaxed)
+                ),
+                (0, 0, 0)
+            );
+            assert_eq!(
+                metadata.peak(),
+                if cause == 2 {
+                    entry_bytes + owner_bytes
+                } else {
+                    entry_bytes + AtomicShared::<MemoryStatus>::allocation_bytes()
+                }
+            );
+            assert_eq!(metadata.refusals(), 1);
+            assert_eq!(snapshot_ledger.current(), snapshot_baseline);
+        }
+    }
+
+    #[test]
+    fn provider_box_refusal_preserves_live_module_and_same_snapshot_recovers() {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype =
+                crate::FunctionPrototype::compile(ctx, "status-peer", b"return 42").unwrap();
+            Snapshot::new(&prototype, 4096, 4096).unwrap()
+        });
+        for cause in 0..3 {
+            let host = super::super::resources::Ledger::new(2 * 1024 * 1024);
+            let metadata = super::super::resources::Ledger::child(65536, host.clone());
+            let total = Arc::new(AtomicUsize::new(0));
+            let compile_module = |failure| {
+                compile_in(
+                    &snapshot,
+                    total.clone(),
+                    1024 * 1024,
+                    BudgetAllocator(metadata.clone()),
+                    super::super::work::Limits::from(&super::super::JitConfig::default()),
+                    failure,
+                )
+            };
+            let peer = compile_module(Failure::None).unwrap();
+            let baseline = (
+                metadata.current(),
+                host.current(),
+                total.load(Ordering::Relaxed),
+            );
+            let admission = snapshot.operations.len()
+                + AtomicShared::<MemoryStatus>::allocation_bytes()
+                + std::alloc::Layout::new::<Memory>().size()
+                - 1;
+            match cause {
+                0 => metadata.set_limit(baseline.0 + admission),
+                1 => host.set_limit(baseline.1 + admission),
+                _ => metadata.fail_after(2),
+            }
+            assert!(matches!(
+                compile_module(Failure::DetectProviderSetup),
+                Err(JitError::ResourceLimit("JIT metadata"))
+            ));
+            assert_eq!(
+                (
+                    metadata.current(),
+                    host.current(),
+                    total.load(Ordering::Relaxed)
+                ),
+                baseline
+            );
+            let mut slots = vec![
+                Slot {
+                    tag: abi::NIL,
+                    bits: 0
+                };
+                peer.registers
+            ];
+            let exit = peer.invoke(&mut slots, 0, 64);
+            assert!(exit.instructions > 0);
+            let Operation::Return { start, .. } = snapshot.operations[exit.pc as usize] else {
+                panic!("peer did not reach its interpreted return");
+            };
+            assert_eq!(
+                (
+                    slots[usize::from(start.0)].tag,
+                    slots[usize::from(start.0)].bits
+                ),
+                (abi::INTEGER, 42)
+            );
+            metadata.set_limit(65536);
+            host.set_limit(2 * 1024 * 1024);
+            metadata.fail_after(usize::MAX);
+            let recovered = compile_module(Failure::None).unwrap();
+            assert!(recovered.invoke(&mut slots, 0, 64).instructions > 0);
+            drop((peer, recovered));
+            assert_eq!(
+                (
+                    metadata.current(),
+                    host.current(),
+                    total.load(Ordering::Relaxed)
+                ),
+                (0, 0, 0)
+            );
+        }
     }
 
     #[test]

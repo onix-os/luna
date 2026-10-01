@@ -21,6 +21,11 @@ mod access;
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
+mod atomic_owner;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 mod backend;
 #[cfg(all(
     target_os = "linux",
@@ -49,9 +54,19 @@ mod fuzz;
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
+mod global_box;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 mod helper_flow;
 mod helpers;
 pub(crate) mod ir;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod memory_status;
 #[cfg(test)]
 mod model;
 #[cfg(all(
@@ -66,6 +81,11 @@ mod owner;
 mod preds;
 pub(crate) mod registry;
 pub(crate) mod resources;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod segments;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
