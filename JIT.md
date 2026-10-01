@@ -57,8 +57,27 @@ slot loads require dominating, single-predecessor guarded edges to exclude
 references. Merged/bypassed guards, reference-contaminated phis, unrecorded stores
 and unsupported memory-store forms are refused. Input slot tags are the five ABI
 v3 tags produced by canonical packing and helpers, not arbitrary external native
-buffers. This is not payload, liveness, alias or complete typed-SSA verification.
-Luna-owned store records/worklists use the snapshot ledger and can report
+buffers. Numeric-consumer records additionally require Integer or Numeric tag
+admission, adjacent tag/payload loads from the same slot (or constant pairs), and
+an actual SSA dependency on the recorded payload. Compound Boolean guards use a
+bounded predicate evaluator; arbitrary non-Boolean operands supply no proof.
+Exact expected record counts reject missing obligations. Explicitly marked F64
+conversion selectors require semantic checks: each possible
+numeric tag must select signed integer conversion or Number bitcast of the same
+recorded payload. Equivalent inverted selector/arm polarity is accepted; unknown
+conditions, swapped arms, unsigned conversion and foreign payloads are refused.
+Source-derived exact float-record counts prevent reclassifying away the proof.
+Add/Sub/Mul/Div records additionally bind decoded PC/arm order, exact opcode,
+left/right register or constant identities, verified float-conversion inputs,
+and the result's adjacent destination tag/payload stores. Input-record ordering
+and a maximum of two records per consumer bound lookup work. Arithmetic loads,
+stores and bitcasts require the emitter's default native memory flags. These
+records use the same snapshot ledger and reject missing/extra obligations.
+Semantic checks are
+vacuous only on guarded paths proven unreachable without queried-tag assumptions;
+physical store coverage and record counts still apply. This does not prove full
+payload selection, operation equivalence, liveness, aliasing or complete typed SSA.
+Luna-owned store/input records and worklists use the snapshot ledger and can report
 `ResourceLimit("scalar tag verification")`; compiler CFG/dominator storage remains
 outside the current ledger. Record-envelope violations are compiler errors and
 never silently grow verification storage.
@@ -95,6 +114,19 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 8. Tests hold a code lease across cache retirement and verify memory returns to zero after the last lease drops. Scalar boundary tests compare every entry and budget against an independent Rust model. Heap tests compare per-slice fuel/state with full GC after every slice, prove heap counters, exercise weak tables, readonly/invalid-key typed errors, open/closed upvalues, Rust interception mutation, and reentrant callbacks. Extend this review for every new helper, cached assumption, or frame transition.
 
 ## Verification and remaining work
+
+The numeric-input, float-conversion and arithmetic-source implementation (`93ae88d`)
+passes `nix develop -c make jit-verify clippy jit-clippy` on x86-64 GNU and
+with `TARGET=x86_64-unknown-linux-musl`: each reports 3189 passing tests across
+421 suite results and 24 ignored tests. Selected pure-Rust/pure-IR Miri checks
+pass 96 tests across 14 namespaces with default `MIRIFLAGS`; they do not execute
+generated native code. Clippy retains the existing warning backlog, so these are
+not strict-warning acceptance. Raw revision-scoped evidence is stored locally in
+`target/jit-evidence/arithmetic-source/`. Seeded scalar/admission campaigns additionally
+pass 4096 generated cases per platform, each checking 1641780 native invocations
+against the independent slice model; both platforms reuse the same four seeds.
+These campaigns do not cover native heap helpers. Performance thresholds, ARM64 execution,
+complete compiler accounting and the full plan's remaining proofs are not accepted.
 
 `nix develop -c make jit-metrics` builds a separate opt-level-3 scheduling probe.
 Use `ARGS='--mode all --samples 3 --fuel 64'`; `--case` selects a shared benchmark,
