@@ -205,6 +205,8 @@ pub(super) enum Failure {
     CorruptHelperFlow(super::helper_flow::Fault),
     CorruptExitFlow(super::exit_flow::Fault),
     CorruptEntryFlow(super::entry_flow::Fault),
+    CorruptRegionFlow(super::entry_flow::RegionFault),
+    RefuseRegionWorkspace,
 }
 
 #[cfg(test)]
@@ -332,6 +334,7 @@ pub(super) fn compile_in(
             paths.record(super::entry_flow::Point {
                 trampoline: builder.create_block(),
                 body: builder.create_block(),
+                region: [0, 0],
             });
         }
         root = paths.emit_entry(&mut builder, &blocks, fallback);
@@ -359,6 +362,7 @@ pub(super) fn compile_in(
                 omit_numeric_guards: failure == Failure::OmitNumericGuards,
             };
             for (pc, op) in snapshot.operations.iter().copied().enumerate() {
+                let start = emitter.builder.func.dfg.num_blocks() as u32;
                 emitter.pc = pc;
                 emitter.written = false;
                 emitter.builder.switch_to_block(blocks[pc]);
@@ -379,6 +383,7 @@ pub(super) fn compile_in(
                 );
                 emitter.builder.switch_to_block(body);
                 emitter.emit(op);
+                paths.region(pc, start, emitter.builder.func.dfg.num_blocks() as u32);
             }
         }
         for (block, reason) in [
@@ -537,6 +542,16 @@ pub(super) fn compile_in(
         paths.corrupt(&mut context.func, &blocks, &mut root, fallback, fault);
     }
     paths.verify(&context.func, snapshot, &blocks, root, fallback, exhausted)?;
+    #[cfg(test)]
+    if let Failure::CorruptRegionFlow(fault) = failure {
+        paths.corrupt_region(&mut context.func, &blocks, root, &exit_handlers, fault);
+    }
+    #[cfg(test)]
+    if failure == Failure::RefuseRegionWorkspace {
+        let ledger = &snapshot.operations.allocator().0;
+        ledger.set_limit(ledger.current());
+    }
+    paths.verify_regions(&context.func, &graph, &blocks, root, &exit_handlers)?;
     module
         .define_function(function, &mut context)
         .map_err(fail)?;
@@ -2569,6 +2584,116 @@ mod helper_flow_tests {
 #[cfg(test)]
 mod memory_tests {
     use super::*;
+    fn refuse_region_failure(failure: Failure, quota: bool) {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype = crate::FunctionPrototype::compile(
+                ctx,
+                "region-flow-corruption",
+                b"local a=1 local b=a return b",
+            )
+            .unwrap();
+            Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
+        });
+        let ledger = snapshot.operations.allocator().0.clone();
+        let baseline = ledger.current();
+        let total = Arc::new(AtomicUsize::new(0));
+        let result = compile_in(
+            &snapshot,
+            total.clone(),
+            8 * 1024 * 1024,
+            BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
+            super::super::work::Limits::from(&super::super::JitConfig::default()),
+            failure,
+        );
+        if quota {
+            assert!(
+                matches!(
+                    result,
+                    Err(JitError::ResourceLimit("source path verification"))
+                ),
+                "{:?}",
+                result.as_ref().err()
+            );
+            assert_eq!(ledger.refusals(), 1);
+        } else {
+            assert!(
+                matches!(result, Err(JitError::Compilation(ref message))
+                if message == "invalid source region data flow"),
+                "{:?}",
+                result.as_ref().err()
+            );
+        }
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+        assert_eq!(ledger.current(), baseline);
+    }
+    #[test]
+    fn corrupted_region_flow_workspace_quota_is_refused_before_mapping() {
+        refuse_region_failure(Failure::RefuseRegionWorkspace, true);
+    }
+    macro_rules! region_flow_corruption {
+        ($name:ident, $fault:ident) => {
+            #[test]
+            fn $name() {
+                refuse_region_failure(
+                    Failure::CorruptRegionFlow(super::super::entry_flow::RegionFault::$fault),
+                    false,
+                );
+            }
+        };
+    }
+    region_flow_corruption!(
+        corrupted_region_flow_gap_is_refused_before_codegen_and_mapping,
+        Gap
+    );
+    region_flow_corruption!(
+        corrupted_region_flow_end_is_refused_before_codegen_and_mapping,
+        End
+    );
+    region_flow_corruption!(
+        corrupted_region_flow_missing_is_refused_before_codegen_and_mapping,
+        Missing
+    );
+    region_flow_corruption!(
+        corrupted_region_flow_fuel_is_refused_before_codegen_and_mapping,
+        Fuel
+    );
+    region_flow_corruption!(
+        corrupted_region_flow_successor_is_refused_before_codegen_and_mapping,
+        Successor
+    );
+    region_flow_corruption!(
+        corrupted_region_flow_retry_is_refused_before_codegen_and_mapping,
+        Retry
+    );
+    region_flow_corruption!(
+        corrupted_region_flow_pc_is_refused_before_codegen_and_mapping,
+        Pc
+    );
+    region_flow_corruption!(
+        corrupted_region_flow_count_is_refused_before_codegen_and_mapping,
+        Count
+    );
+    region_flow_corruption!(
+        corrupted_region_flow_kind_is_refused_before_codegen_and_mapping,
+        Kind
+    );
+    region_flow_corruption!(
+        corrupted_region_flow_root_is_refused_before_codegen_and_mapping,
+        Root
+    );
+    region_flow_corruption!(
+        corrupted_region_flow_cycle_is_refused_before_codegen_and_mapping,
+        Cycle
+    );
+    region_flow_corruption!(
+        corrupted_region_flow_cross_is_refused_before_codegen_and_mapping,
+        Cross
+    );
+    region_flow_corruption!(
+        corrupted_region_flow_unreachable_is_refused_before_codegen_and_mapping,
+        Unreachable
+    );
 
     #[test]
     fn high_and_invalid_entry_pcs_preserve_pc_and_slots_without_work() {

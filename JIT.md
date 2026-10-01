@@ -121,8 +121,19 @@ and count; each operation body has only its own header as predecessor. Exact-
 counted trampoline/body records are snapshot-quota-charged before host compiler
 setup and can refuse with `ResourceLimit("entry path verification")`. CFG and
 compiler jump-table storage remain outside the incomplete ledger. These checks
-do not establish all private-block paths or source transitions, alias/liveness,
-runtime materialization or compiler resource isolation.
+do not independently establish opcode equivalence, alias/liveness, runtime
+materialization or compiler resource isolation.
+Source-region ranges additionally classify every physical block and branch.
+Private blocks must be dominated by their own operation body; private edges stay
+within that source region and move forward, preventing uncharged private cycles.
+Cross-source edges must be decoded successors with one fuel increment. Shared
+retry exits require an admitted kind, exact source PC and unchanged count.
+A snapshot-quota-charged byte workspace propagates scalar stores across every
+private predecessor and rejects retry/guard exits after any path writes; refusal
+is `ResourceLimit("source path verification")`. Helper declines/panics retain
+their independently verified status flow and canonical runtime effect contract.
+This structural path proof does not prove helper effects/borrows/GC, full
+instruction equivalence/source maps, alias/liveness or complete compiler accounting.
 The retained, fallible PC-to-block map is charged to the snapshot ledger and
 can refuse with `ResourceLimit("frontend block map")` before compiler/host setup.
 Semantic checks are
