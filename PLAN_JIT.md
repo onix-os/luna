@@ -5039,6 +5039,76 @@ Conventional Commits. No benchmark/profile runs alongside correctness jobs.
 - `JIT.md`, `PLAN_JIT.md` — public scope, latest evidence and unfinished work.
 - `target/jit-evidence/transfer-source/` — local raw acceptance artifacts.
 
+### Helper call and status-flow verification decision
+
+Introduce a separate verifier module with exact-counted, snapshot-ledger-charged
+helper records. Independently decode source helper kind/operand encodings and
+verify actual direct imported calls, host/slot pointers, six-argument signature,
+source PC, status-result identity, completed/panic tests, success fuel/target
+and declined/panic PC/count/target edges. Audit physical call coverage and forbid
+extra stores in helper call/status blocks. Reference Move/LoadConstant and all
+table/upvalue helpers are included. Runtime helper effects/borrows/GC and shared
+exit-handler/source-path proofs remain distinct; this pass does not prove them.
+Use fixed-size retained import-reference storage; compiler CFG storage remains
+outside the incomplete ledger. No new native ABI or unsafe block is required.
+
+### Helper-flow recovery checkpoint
+
+- Branch: `feat/native-jit`; latest accepted source commit `a702b37`, with
+  verification recorded in `5457227`.
+- The helper call/status-flow verifier is an uncommitted draft in
+  `src/jit/helper_flow.rs`, wired through `backend.rs`, `tags.rs`, `mod.rs`,
+  and the Makefile. The restored focused run is recorded in
+  `/tmp/luna-jit-helper-flow-focused.log`; it completed successfully.
+- Helper-flow mutation bypass, full GNU/musl gates, selected Miri and supervised
+  campaigns have not been run for this draft. Prior scalar-transfer acceptance
+  must not be reported as helper-flow acceptance.
+- No owned test job remains live and no new timing/profile was performed.
+- Next: prove mutation sensitivity, restore the verifier, update the public
+  contract, commit the feature separately, then run full acceptance and commit
+  its evidence. Shared exits/global paths and performance gates remain open.
+
+### Session summary: live progress status
+
+#### Goal
+
+Answer the user's progress question using the current file, branch, commits and
+acceptance log rather than inferred completion or a guessed percentage.
+
+#### Instructions
+
+Keep progress visible and use incremental unsigned, title-only Conventional
+Commits. Preserve the uncommitted helper-flow implementation for its own feature
+commit after validation.
+
+#### Discoveries
+
+- The requested plan already exists and is committed. Implementation is ongoing
+  on `feat/native-jit`; plan completion is not release acceptance.
+- The helper-flow focused log ends with `GATE_EXIT=0`, but full acceptance and
+  mutation sensitivity have not yet been established for this draft.
+
+#### Accomplished
+
+- Verified live branch/status, latest accepted source/evidence commits and the
+  focused helper-flow log. Recorded a recovery checkpoint without changing code
+  or running new correctness/performance workloads.
+- Confirmed the latest two existing commits are unsigned and have no body.
+
+#### Next Steps
+
+- Complete helper-flow mutation sensitivity, restored verification, its feature
+  commit and full acceptance evidence in separate commits.
+- Continue shared exit/global path proofs, accounting, lifecycle/platform
+  verification and unchanged performance gates. The implementation is incomplete.
+
+#### Relevant Files
+
+- `PLAN_JIT.md` — implementation plan, recovery checkpoint and progress evidence.
+- `src/jit/helper_flow.rs`, `src/jit/backend.rs`, `src/jit/tags.rs`,
+  `src/jit/mod.rs`, `Makefile` — uncommitted helper-flow work, unchanged here.
+- `/tmp/luna-jit-helper-flow-focused.log` — successful focused draft run.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
