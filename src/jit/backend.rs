@@ -178,6 +178,7 @@ pub(super) enum Failure {
     None,
     Allocate,
     Protect,
+    CorruptTag,
 }
 
 #[cfg(test)]
@@ -206,6 +207,7 @@ pub(super) fn compile_in(
 ) -> Result<Code, JitError> {
     let expansion = super::work::Expansion::admit(snapshot, work)?;
     let graph = super::flow::FlowGraph::new(snapshot)?;
+    let mut stores = super::tags::Stores::new(&graph, snapshot.operations.allocator().clone())?;
     let mut entries = BudgetVec::new_in(metadata.clone());
     entries
         .try_reserve_exact(snapshot.operations.len())
@@ -334,6 +336,7 @@ pub(super) fn compile_in(
                 count: zero,
                 pc: 0,
                 written: false,
+                stores: &mut stores,
             };
             for (pc, op) in snapshot.operations.iter().copied().enumerate() {
                 emitter.pc = pc;
@@ -382,6 +385,10 @@ pub(super) fn compile_in(
         builder.seal_all_blocks();
         builder.finalize(module.target_config());
     }
+    #[cfg(test)]
+    if failure == Failure::CorruptTag {
+        stores.corrupt_first(&mut context.func);
+    }
     let blocks = context.func.layout.blocks().count();
     let instructions = context
         .func
@@ -390,6 +397,16 @@ pub(super) fn compile_in(
         .map(|block| context.func.layout.block_insts(block).count())
         .sum();
     expansion.verify_actual(instructions, blocks)?;
+    let parameters = context
+        .func
+        .dfg
+        .block_params(context.func.layout.entry_block().unwrap());
+    stores.verify(
+        &context.func,
+        parameters[0],
+        Some(parameters[3]),
+        snapshot.registers,
+    )?;
     module
         .define_function(function, &mut context)
         .map_err(fail)?;
@@ -422,6 +439,7 @@ struct Emitter<'a, 'b> {
     pc: usize,
     count: IrValue,
     written: bool,
+    stores: &'a mut super::tags::Stores,
 }
 
 impl Emitter<'_, '_> {
@@ -548,12 +566,14 @@ impl Emitter<'_, '_> {
             "invalid native register write"
         );
         self.written = true;
-        self.builder.ins().store(
+        let inst = self.builder.ins().store(
             MemFlagsData::new(),
             tag,
             self.slots,
             i32::from(register) * 16,
         );
+        self.stores
+            .record(inst, self.graph.nodes[self.pc].access.scalar_tags());
         self.builder.ins().store(
             MemFlagsData::new(),
             bits,
@@ -1111,6 +1131,9 @@ mod exit_tests {
             prototypes: 0,
         };
         let graph = super::super::flow::FlowGraph::new(&snapshot).unwrap();
+        let mut stores =
+            super::super::tags::Stores::new(&graph, snapshot.operations.allocator().clone())
+                .unwrap();
         let mut function = cranelift_codegen::ir::Function::new();
         let mut context = FunctionBuilderContext::new();
         let mut builder = FunctionBuilder::new(&mut function, &mut context);
@@ -1133,6 +1156,7 @@ mod exit_tests {
             pc: 0,
             count,
             written: false,
+            stores: &mut stores,
         };
         action(&mut emitter);
     }
@@ -1331,6 +1355,29 @@ mod access_tests {
 #[cfg(test)]
 mod memory_tests {
     use super::*;
+
+    #[test]
+    fn corrupted_scalar_store_is_refused_before_codegen_and_mapping() {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype =
+                crate::FunctionPrototype::compile(ctx, "corrupt-tag", b"return 42").unwrap();
+            Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
+        });
+        let total = Arc::new(AtomicUsize::new(0));
+        let result = compile_in(
+            &snapshot,
+            total.clone(),
+            8 * 1024 * 1024,
+            BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
+            super::super::work::Limits::from(&super::super::JitConfig::default()),
+            Failure::CorruptTag,
+        );
+        assert!(
+            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")
+        );
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+    }
 
     #[test]
     #[ignore = "writes generated-kernel artifacts through make jit-disassembly"]

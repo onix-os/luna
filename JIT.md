@@ -51,6 +51,18 @@ Every generated operation checks the remaining reference slice allowance before 
 
 ## Resources and counters
 
+Before code generation, scalar-tag verification checks actual scratch stores and
+their opcode-specific tag admissions. Constants and phi inputs supply tag unions;
+slot loads require dominating, single-predecessor guarded edges to exclude
+references. Merged/bypassed guards, reference-contaminated phis, unrecorded stores
+and unsupported memory-store forms are refused. Input slot tags are the five ABI
+v3 tags produced by canonical packing and helpers, not arbitrary external native
+buffers. This is not payload, liveness, alias or complete typed-SSA verification.
+Luna-owned store records/worklists use the snapshot ledger and can report
+`ResourceLimit("scalar tag verification")`; compiler CFG/dominator storage remains
+outside the current ledger. Record-envelope violations are compiler errors and
+never silently grow verification storage.
+
 Completed full and incremental GC cycles retire dead source registrations and
 their cached code even while JIT is Off. Live closures keep their registrations;
 partial cycles can defer retirement until completion. GC performs no compilation.

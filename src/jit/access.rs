@@ -29,6 +29,13 @@ impl Registers {
     pub fn contains(self, register: u8) -> bool {
         self.0[usize::from(register) / 64] & (1 << (register % 64)) != 0
     }
+
+    pub fn count(self) -> usize {
+        self.0
+            .into_iter()
+            .map(|word| word.count_ones() as usize)
+            .sum()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -249,6 +256,10 @@ impl Access {
 
     pub fn permits_scalar_tag(self, tag: u64) -> bool {
         tag < abi::REFERENCE && self.tags & (1 << tag) != 0
+    }
+
+    pub fn scalar_tags(self) -> u8 {
+        self.tags & ((1 << abi::REFERENCE) - 1)
     }
 
     pub fn permits_helper(self, kind: u32, a: u32, b: u32, c: u32) -> bool {

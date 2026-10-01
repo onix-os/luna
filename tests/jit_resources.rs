@@ -130,6 +130,47 @@ fn source(lua: &mut Lua, text: &[u8]) -> Result<StashedExecutor, ExternError> {
 }
 
 #[test]
+fn scalar_verifier_workspace_refusal_preserves_source_and_recovers() -> Result<(), ExternError> {
+    let script = b"local x=40 return x+2";
+    let mut probe = state();
+    let _probe = source(&mut probe, script)?;
+    assert_eq!(probe.prepare_jit().unwrap(), 1);
+    let peak = probe.jit_stats().snapshot_peak_bytes;
+    let mut lua = state();
+    let mut config = lua.jit_config();
+    config.max_snapshot_bytes = peak - 1;
+    lua.set_jit_config(config).unwrap();
+    let closure =
+        lua.try_enter(|ctx| Ok(ctx.stash(Closure::load(ctx, Some("resources"), script)?)))?;
+    let executor = lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&closure).into(), ())));
+    assert!(matches!(
+        lua.prepare_jit(),
+        Err(JitError::ResourceLimit("scalar tag verification"))
+    ));
+    let stats = lua.jit_stats();
+    assert_eq!(
+        (
+            stats.snapshot_bytes,
+            stats.code_bytes,
+            stats.native_entries,
+            stats.cache_evictions
+        ),
+        (0, 0, 0, 0)
+    );
+    assert_eq!(lua.execute::<i64>(&executor)?, 42);
+    assert_eq!(lua.jit_stats().native_entries, 0);
+    let mut config = lua.jit_config();
+    config.max_snapshot_bytes = JitConfig::default().max_snapshot_bytes;
+    lua.set_jit_config(config).unwrap();
+    lua.clear_jit_cache();
+    assert_eq!(lua.prepare_jit().unwrap(), 1);
+    let executor = lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&closure).into(), ())));
+    assert_eq!(lua.execute::<i64>(&executor)?, 42);
+    assert!(lua.jit_stats().native_instructions > 0);
+    Ok(())
+}
+
+#[test]
 fn warm_source_identity_survives_code_clear_but_not_registration_reset() -> Result<(), ExternError>
 {
     fn execute(lua: &mut Lua, closure: &luna::StashedClosure) -> Result<i64, ExternError> {
