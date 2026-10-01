@@ -489,6 +489,16 @@ corruption tests and independent native/model campaigns pass; loop/move,
 whole-program path/source-map, alias/liveness and complete accounting proofs
 remain open. Phase 3 is not complete.
 
+Numeric-loop source verification (`21de70e`) now checks NumericForPrep/Loop source
+registers, nonzero-step retry, integer/float splits, typed index arithmetic,
+signed-overflow suppression, directional integer/IEEE limits, actual phi triples,
+unconditional index and taken-only visible-variable stores, decoded targets and
+one logical fuel increment. Unexpected stores in verified arms/finish blocks are
+refused. Records are exact-counted and snapshot-quota-charged, with constructor
+rollback tests for both kinds. Local loop proof and independent native/model
+campaigns do not complete move or whole-program path/source-map/alias/liveness
+proof, complete compiler accounting or Phase 3 acceptance.
+
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
@@ -4768,6 +4778,131 @@ Conventional Commits. Run no benchmark or profile alongside correctness jobs.
 - `Makefile` — dedicated comparison gates and selected pure Miri lane.
 - `JIT.md`, `PLAN_JIT.md` — public scope, revision-specific evidence and open work.
 - `target/jit-evidence/comparison-source/` — local raw acceptance artifacts.
+
+### Numeric-loop source verification decision
+
+Add separately exact-counted, snapshot-ledger-charged preparation and step
+records. Match source register identities, nonzero-step guard, integer/float
+split, subtraction/addition, signed-overflow suppression, directional limit
+conditions and conversion payloads with bounded typed expressions. Validate
+actual phi inputs, unconditional index update, taken-only visible-variable
+update, decoded jump/fallthrough targets and exactly one logical fuel increment.
+Pure emitter/IR fixtures and actual backend corruption refusals will supplement,
+not replace, the independent native slice model and differential campaigns.
+The loop pass computes one compiler CFG outside the still-incomplete ledger;
+it does not claim whole-program source/path, move, alias or liveness proof.
+
+### Numeric-loop mutation sensitivity and fixture review
+
+The first wired verifier passed the existing native model/boundary lane. Pure
+fixtures now cover preparation/step at two register bases and backward, self
+and forward decoded jumps. The owned CFG rejects targets at the source length,
+so that draft invalid fixture was removed rather than treated as valid source.
+Branch-target mutations preserve each origin's count argument, avoiding invalid
+SSA cross-arm dependencies. Cranelift verifies mutated pure IR before Luna's
+source verifier, so the negative fixtures are not mere malformed-SSA checks.
+
+Disabling loop verification in both production and pure fixtures caused
+`make jit-loop-source` to fail **7 of 8** pure tests and the separate
+`make jit-loop-source-backend` to fail **17 of 20** actual backend corruption
+tests (Make exits 2). Three backend mutations remain refused by existing numeric
+admission: both swapped type splits and unsigned-overflow index lowering. The
+loop verifier uniquely protects the remaining arithmetic/zero/overflow/bounds,
+phi/store/source/target/fuel obligations. No malformed native code is invoked.
+Common verification also retains record cardinality/growth checks; the grouped
+envelope test detects source-PC corruption when loop verification is absent.
+Both verification calls are restored before acceptance. Raw mutation logs are
+`/tmp/luna-jit-loop-mutation-{pure,backend}.log`; owned session `8235` is terminal.
+
+### Loop source commit and live acceptance handles
+
+`21de70e` is the unsigned, title-only implementation commit. Restored focused
+gates pass **185 native boundary tests, 4 ignored**, plus all eight pure loop
+fixtures, twenty actual backend corruption refusals and both preparation/step
+quota rollback variants. Full GNU/musl acceptance is owned session `39810`;
+selected Miri is `1403`; supervised GNU/musl campaigns are `27291`. Poll these
+exact handles; timeout is not termination. Source/Make hashes and focused/
+mutation logs are under `target/jit-evidence/loop-source/`. Compiler-generated
+native instructions have not changed deliberately; no new timing, profile or
+performance improvement is claimed while correctness jobs run.
+
+### Session summary: accepted numeric-loop source verification
+
+#### Goal
+
+Continue full `PLAN_JIT.md` implementation on `feat/native-jit`; add and verify
+the numeric-loop source proof without changing the objective or release gates.
+The preceding comparison-source turn was progress, not a blocker or wait.
+
+#### Instructions
+
+Use Make/Nix, patch tools and incremental unsigned, title-only Conventional
+Commits. No benchmark/profile runs alongside builds or correctness jobs.
+
+#### Discoveries
+
+- Overflow matching must identify the second result of the same-shaped signed
+  add, not mistake it for the index result. Fixed bounded expression trees
+  match integer/IEEE direction and limit semantics without dynamic worklists.
+- Mutated branch targets must retain their originating count SSA argument.
+  Swapping complete block calls creates a dominance error rather than a valid
+  semantic mutant. Source CFG admission rejects jumps to the source length.
+- Existing numeric checks independently refuse swapped integer/float splits
+  and unsigned-overflow lowering. Seventeen other actual backend mutations
+  require the new source-loop pass for refusal.
+
+#### Accomplished
+
+- Committed `21de70e`: exact-counted preparation/step records, source/guard/split/
+  arithmetic/overflow/bounds/phi/write/target/fuel checks, dedicated Make lanes,
+  eight pure fixture tests, twenty actual backend corruption tests and exact
+  partial-allocation rollback for both loop kinds. No new unsafe blocks.
+- Verifier-bypass evidence: **7 pure failures / 17 backend failures**, with the
+  other three backend faults still refused by common numeric admission. Restored
+  both verifier calls before focused acceptance and before the feature commit.
+- Restored focused gates pass **185 native boundary tests / 4 ignored**, plus
+  all loop/tag/heap/resource lanes; Clippy passes with its inherited warnings.
+- GNU and musl each passed `nix develop -c make jit-verify clippy jit-clippy`
+  (musl adds `TARGET=x86_64-unknown-linux-musl`): **3479 passed / 421 suite
+  results / 24 ignored**, exit zero. Reference/Off/Auto/Force, async/derive and
+  documentation lanes remain included. Strict-lint acceptance is not claimed.
+- Selected `nix develop .#miri -c make jit-miri` passed **120 tests / 18 suite
+  results** with pinned nightly 2026-08-16, rustc `67854e511`, default
+  `MIRIFLAGS`. Pure loop emitter/IR verification is covered; generated machine
+  code and actual native compiler-module construction are not Miri-covered.
+- Supervised `make jit-fuzz FUZZ_TARGET=all FUZZ_CASES=1024
+  FUZZ_SEEDS=0,1,0xdeadbeef,0xffffffffffffffff` passed on GNU and musl:
+  **4096 generated snapshots plus malformed mutations / 1641780 kernel
+  invocations / 4758522 completed native instructions each**. The four seeds
+  and programs are reused across platforms, not 8192 unique programs. These
+  scalar/admission campaigns do not complete heap/lifecycle fuzz acceptance.
+- Acceptance sessions `39810`, `1403`, `27291`, restored focused `12165` and
+  mutation `8235` are terminal. Source/Make hashes revalidated unchanged after
+  all acceptance runs. Raw revision-scoped logs, campaign artifacts, Miri,
+  source identity and summary are under `target/jit-evidence/loop-source/`.
+
+#### Next Steps
+
+- Complete move/load/jump source semantics and whole-program transition/exit/
+  source-map/path review. Keep full canonical materialization until alias and
+  liveness proofs justify any reduction.
+- Complete compiler/fixed-owner/combined host accounting and approved isolation
+  policy, broader heap/lifecycle campaigns and actual ARM/hosted execution.
+- Meet unchanged native table/upvalue/callback and shipping compiled-Off
+  performance controls. Prior revision-scoped failures remain failures; no
+  current benchmark, profile or performance improvement is claimed here.
+- Full implementation goal remains active and incomplete. No phase or final
+  checklist item is closed solely on these local loop checks.
+
+#### Relevant Files
+
+- `src/jit/tags.rs` — charged loop records, source/CFG/phi/store/branch checks,
+  corruption hooks, fixed-sized argument inspection and quota rollback tests.
+- `src/jit/shape.rs` — bounded numeric-loop expressions and overflow-result match.
+- `src/jit/backend.rs` — emitted-point capture, pure fixtures and backend faults.
+- `Makefile` — loop-source gates and selected pure-loop Miri lane.
+- `JIT.md`, `PLAN_JIT.md` — public scope, current evidence and unfinished work.
+- `target/jit-evidence/loop-source/` — local raw acceptance artifacts.
 
 ## 15. Primary references
 
