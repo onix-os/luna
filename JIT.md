@@ -208,14 +208,21 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 ## Verification and remaining work
 
-The fallible cached-code owner implementation (`c5ba20a`)
+The budgeted compiler-status ownership implementation (`757ec71`)
 passes `nix develop -c make jit-verify clippy jit-clippy` on x86-64 GNU and
-with `TARGET=x86_64-unknown-linux-musl`: each reports 4625 passing tests across
+with `TARGET=x86_64-unknown-linux-musl`: each reports 4685 passing tests across
 434 suite results and 24 ignored tests. Selected pure-Rust/pure-IR Miri checks
-pass 240 tests across 29 selected suite results with default `MIRIFLAGS`; they do not execute
+pass 251 tests across 32 selected suite results with default `MIRIFLAGS`; they do not execute
 generated native code. Clippy retains the existing warning backlog, so these are
 not strict-warning acceptance. Raw revision-scoped evidence is stored locally in
-`target/jit-evidence/owner/`. Seeded scalar/admission campaigns additionally
+`target/jit-evidence/memory-status/`. Seven atomic-owner tests include concurrent
+clone/drop, final-destructor visibility without external synchronization, exact
+alignment/lifetime/accounting, panic cleanup, allocation refusal and checked
+overflow. Three status tests and a pre-host sentinel verify budget admission and
+error precedence. A live-module fixture proves native peer preservation and
+same-snapshot recovery. Budget bypass and relaxed-drop mutations are detected;
+the initial weaker refusal fixture is retained as draft rather than proof.
+Seeded scalar/admission campaigns additionally
 pass 4096 generated cases per platform, each checking 1641780 native invocations
 against the independent slice model; both platforms reuse the same four seeds.
 Separate six-family heap campaigns pass 96 cases per platform, comparing 6344

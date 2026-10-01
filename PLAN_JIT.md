@@ -600,9 +600,21 @@ module. Eight pure/Miri fixtures cover lifetime, aliasing, alignment, checked
 count, panic cleanup and reference-model agreement. The installation fixture
 preserves a native peer and restores the same refused source after reset.
 Budget/reclamation bypass mutations are detected. Full GNU/musl gates pass 4625
-tests each; selected Miri passes 240 tests. Runtime/bootstrap owners, status Arc
-flags, provider boxes and compiler buffers remain open; this does not complete
+tests each; selected Miri passes 240 tests. At that milestone runtime/bootstrap
+owners, status Arc flags, provider boxes and compiler buffers remained open; it did not complete
 fixed-owner/compiler accounting or Phase 3/release acceptance.
+
+Compiler/provider status ownership (`757ec71`) replaces the three uncharged Arc
+flags with one exact metadata/parent-charged atomic owner before host setup.
+JITBuilder's Send requirement is respected without changing cached-code traits.
+Seven atomic-owner and three status fixtures cover synchronization, destruction,
+alignment/borrows, exact admission/rollback and error precedence; a pre-host
+sentinel distinguishes status refusal from a later same-typed refusal. Native
+peer execution and same-snapshot recovery pass. Budget and ordering mutations
+are detected, including an actual Miri data race under Relaxed drop. Full GNU/
+musl gates pass 4685 tests each and selected Miri passes 251 tests. Runtime/
+bootstrap owners, provider boxes and compiler buffers remain open; Phase 3 and
+release acceptance are still incomplete.
 
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
@@ -6775,6 +6787,88 @@ The stronger UnsafeCell visibility fixture is present in this restored run.
 The pinned JITBuilder Send bound is respected; no cached-code auto traits changed.
 Full native-platform gates, selected Miri and supervised campaigns are still
 required for this source milestone. No performance result follows from it.
+
+### Compiler-status ownership acceptance session (2026-10-01)
+
+## Goal
+Continue full PLAN_JIT implementation by charging fallible compiler/provider
+status ownership and proving its lifetime boundary. The preceding status-only
+turn was not implementation progress; this turn makes verified source progress.
+The full goal remains active and incomplete.
+
+## Instructions
+Use Make/Nix, patch tools and separate incremental unsigned title-only
+Conventional Commits. Preserve frozen performance thresholds and all safety
+gates. Do not run timings/profiles alongside any unrelated build/test/profile.
+
+## Discoveries
+- The pinned provider trait declaration alone does not show the effective
+  bound: JITBuilder requires a Send provider. Draft compile `70453` rejected
+  the single-thread owner; no unsafe Send escape was added to it.
+- Same-typed errors can mask a wrong refusal boundary. Initial budget mutation
+  `50168` made two pure fixtures fail but its native fixture passed through a
+  later mapping-record refusal. A test-only post-status host-setup sentinel
+  makes the required admission boundary observable.
+- An atomic owner must synchronize final destruction with prior owners.
+  AcqRel decrement and the existing typed deallocation guard cover normal and
+  panicking destruction. Selected Miri catches the Relaxed-decrement mutation
+  as a data race at final destruction; generated code is not involved.
+- Stable Clippy retains the existing 141 lib-test warning backlog. The pinned
+  newer Miri toolchain also warns about fetch_update deprecation; no warnings
+  are hidden and no strict-warning acceptance is claimed.
+- Fresh post-terminal timing preflight still sees unrelated `make run` PID
+  2878331. No timing/profile was run and no speedup is claimed.
+
+## Accomplished
+- Source milestone `757ec71` separately commits atomic ownership, budgeted
+  status integration, exact pre-host/live-module fixtures, Make/Miri wiring and
+  safety/accounting documentation. Cached-code ownership remains single-threaded.
+- Corrected budget mutation `64663` makes two pure status fixtures and the live
+  native fixture fail; dedicated boundary job `81003` also fails. Each Make
+  lane exits 2. Initial weaker draft logs remain separately identified.
+- Ordering mutation `7774` exits 2 under pinned Miri with an actual data race.
+  Every owned mutation job was terminal before restoration. Owner/status hashes
+  match the pre-mutation originals. Restored focused `46452` passes **67 tests /
+  9 suite results / 0 ignored**; isolated Miri `98473` passes **11 / 3 / 0**.
+- Full GNU/musl job `29797` completes both exit 0: **4685 passing tests / 434
+  suite results / 24 ignored** each. Counts include repeated mode/doc suites,
+  not unique tests. Full selected Miri `4543` completes exit 0: **251 tests /
+  32 suite results / 0 ignored**, nightly 2026-08-16, rustc `67854e511`, empty
+  MIRIFLAGS. Native instructions and native heap programs do not run under Miri.
+- Campaign job `20106` completes all four lanes exit 0. Per platform: **4096
+  scalar/admission cases / 1641780 native invocations / 4758522 native
+  instructions**; **96 heap cases / 6344 main slices / 725 yields / 1633 callbacks /
+  96 retirements / 964 host reads / 2809 userdata observations / 65297 native
+  instructions**. Helpers: **22144 table reads / 7393 table writes / 1655
+  allocations / 21701 upvalue reads / 996 upvalue writes / 1179 declines**.
+  Both platforms use the same seeds/programs; observations are not instruction
+  coverage, and nested/finalizer internal slices are not independently paired.
+- Untimed opt-level-3 build `59343` completes exit 0 at `757ec71`; its binary,
+  source ID and verified hash are retained. This is not performance evidence.
+- Raw draft/restored/mutation/full logs, exact campaign and full-gate smoke
+  directories, Miri environment, aggregate counts, verified source/binary hashes
+  and global timing preflight are retained in `target/jit-evidence/memory-status/`.
+  All owned jobs in this turn are terminal; there is nothing to restart.
+
+## Next Steps
+- Account runtime/bootstrap and provider-box ownership, and complete faithful
+  frontend/backend compiler-buffer accounting or the approved bounded policy.
+- Continue complete opcode/source-map/helper/GC/alias/liveness and lifecycle
+  safety proofs; seeded campaigns do not substitute for coverage-guided proof.
+- Resolve native and compiled-Off performance controls after a clean global
+  preflight, retaining existing thresholds and independent-median statistics.
+- Gather executed ARM64/hosted evidence and address strict-Clippy backlog before
+  release acceptance. No complete fixed-owner/compiler memory or RSS claim yet.
+
+## Relevant Files
+- `src/jit/atomic_owner.rs` — fallible strong-only atomic owner and seven fixtures.
+- `src/jit/memory_status.rs` — shared provider flags, classification and three fixtures.
+- `src/jit/owner.rs` — exact typed deallocation guard shared by both owner types.
+- `src/jit/backend.rs` — budgeted status admission, sentinel and recovery tests.
+- `src/jit/mod.rs` — supported-platform module wiring.
+- `Makefile` — focused/boundary/native/ordering/selected-Miri targets.
+- `JIT.md`, `PLAN_JIT.md` — current safety scope, gates and outstanding work.
+- `target/jit-evidence/memory-status/` — local acceptance and untimed build evidence.
 
 ## 15. Primary references
 
