@@ -1,3 +1,4 @@
+use crate::jit::resources::MappingCounter;
 use crate::{
     opcode::{Operation, RCIndex},
     Constant,
@@ -251,13 +252,7 @@ pub(super) fn run(snapshot: &Snapshot, slots: &mut [Slot], start: usize, budget:
 ))]
 mod tests {
     use super::*;
-    use std::{
-        rc::Rc,
-        sync::{
-            atomic::{AtomicUsize, Ordering},
-            Arc,
-        },
-    };
+    use std::{rc::Rc, sync::atomic::Ordering};
 
     fn snapshot(source: &[u8]) -> Snapshot {
         let mut lua = crate::Lua::empty();
@@ -295,7 +290,7 @@ mod tests {
         ];
         for program in programs {
             let snapshot = snapshot(program);
-            let memory = Arc::new(AtomicUsize::new(0));
+            let memory = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
             let code =
                 super::super::backend::compile(&snapshot, memory.clone(), 8 * 1024 * 1024).unwrap();
             for pc in 0..snapshot.operations.len() {
@@ -435,7 +430,8 @@ mod tests {
                         prototypes: 0,
                     };
                     snapshot.verify().unwrap();
-                    let memory = Arc::new(AtomicUsize::new(0));
+                    let memory =
+                        MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
                     let code =
                         super::super::backend::compile(&snapshot, memory.clone(), 8 * 1024 * 1024)
                             .unwrap();
@@ -481,7 +477,7 @@ mod tests {
     #[test]
     fn unknown_entry_declines_before_budget_checks() {
         let snapshot = snapshot(b"return 42");
-        let memory = Arc::new(AtomicUsize::new(0));
+        let memory = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
         let code =
             super::super::backend::compile(&snapshot, memory.clone(), 8 * 1024 * 1024).unwrap();
         for pc in [
@@ -534,7 +530,7 @@ mod tests {
             }),
         ] {
             let snapshot = snapshot(b"local x=40 return x+2");
-            let memory = Arc::new(AtomicUsize::new(0));
+            let memory = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
             let mut manager = super::super::Manager::default();
             let metadata = manager.metadata.0.clone();
             let code = super::super::owner::Shared::try_new(

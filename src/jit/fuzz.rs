@@ -1,13 +1,11 @@
+use crate::jit::resources::MappingCounter;
 use std::{
     fs::{self, File},
     io,
     os::unix::process::CommandExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
+    sync::atomic::Ordering,
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -247,7 +245,7 @@ fn invalidate(snapshot: &mut Snapshot, mutation: usize) {
 
 fn reject(snapshot: &Snapshot) {
     assert!(matches!(snapshot.verify(), Err(JitError::Compilation(_))));
-    let memory = Arc::new(AtomicUsize::new(0));
+    let memory = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
     assert!(matches!(
         backend::compile(snapshot, memory.clone(), 8 * 1024 * 1024),
         Err(JitError::Compilation(_))
@@ -270,7 +268,7 @@ fn admission_rejects_all_malformed_mutations_without_mapping_memory() {
 
 fn scalar_case(random: &mut Random, snapshot: &Snapshot, seed: u64, case: usize) -> (usize, u64) {
     snapshot.verify().unwrap();
-    let memory = Arc::new(AtomicUsize::new(0));
+    let memory = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
     let code = backend::compile(snapshot, memory.clone(), 8 * 1024 * 1024).unwrap();
     let metadata = code.entries.allocator().0.clone();
     let mut invocations = 0;

@@ -7225,6 +7225,51 @@ alongside unrelated builds/tests/profiles, including other projects.
 - `JIT.md`, `PLAN_JIT.md` — protection/accounting scope, failure and acceptance evidence.
 - `target/jit-evidence/segments/` — revision-scoped current and original failed-run artifacts.
 
+### Continuation checkpoint — owned mapping acceptance recovered
+
+## Goal
+- Continue the full native-tier implementation on `feat/native-jit`; the previous
+  turn made verified implementation progress, not a blocked or completed goal.
+
+## Discoveries
+- The current accepted source is `4f737c2`, documented by `a57f617`; mapping
+  reclamation observations must not allocate after unmapping.
+- Engram tools are unavailable. This checkpoint preserves the recovered state
+  in the project plan rather than modifying the external memory folder.
+
+## Accomplished
+- Recovered the completed mapping milestone and its revision-scoped evidence:
+  GNU/musl 4765 passing tests each, selected Miri 261, supervised campaigns and
+  untimed candidate. No owned jobs remain live in the recovered checkpoint.
+
+## Next Steps
+- Inspect and account runtime/bootstrap owners, then continue compiler memory
+  bounds, safety proofs, unchanged performance gates and ARM64/hosted evidence.
+- Recheck current process state before any timings; unrelated jobs cannot be
+  excluded. Do not claim performance acceptance from the untimed binary.
+
+## Relevant Files
+- `src/jit/segments.rs`, `src/jit/backend.rs` — accepted owned mapping implementation.
+- `target/jit-evidence/segments/` — current and original failed-run evidence.
+- `PLAN_JIT.md` — full remaining scope and recovered session checkpoint.
+
+### Decision — fold mapping usage into the host ledger
+
+The runtime currently allocates an independent `Arc<AtomicUsize>` solely for
+mapped-page usage. Store that atomic inline in the existing root host ledger and
+use a private cloneable `MappingCounter` handle to that root instead. Constructing
+or cloning the handle allocates nothing; compiler modules and detached leases
+retain the same counter/root even after cache retirement or runtime destruction.
+Child-ledger handles resolve to the root, so no independent page quota can arise
+from rebuilding a child. Preserve distinct mapped and combined-host counters,
+existing page/host admission order, rollback and public statistics.
+
+This eliminates one separate bootstrap control allocation, not all bootstrap
+allocations: runtime Rc and root/child Ledger Arcs still need a faithful complete
+accounting policy. No guessed standard-library control-block layout is charged.
+Verify root identity, clone/lifetime, quota independence and shared counter
+updates under Miri, plus live-module/retired-lease quota enforcement natively.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

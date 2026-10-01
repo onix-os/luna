@@ -1,5 +1,6 @@
 use std::{
     alloc::Layout,
+    ops::Deref,
     ptr::NonNull,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -12,6 +13,7 @@ use ottavino_gc_arena::Collect;
 
 pub(crate) struct Ledger {
     parent: Option<Arc<Ledger>>,
+    mapped: AtomicUsize,
     current: AtomicUsize,
     peak: AtomicUsize,
     limit: AtomicUsize,
@@ -38,6 +40,7 @@ impl Ledger {
     fn with_parent(limit: usize, parent: Option<Arc<Ledger>>) -> Arc<Self> {
         Arc::new(Self {
             parent,
+            mapped: AtomicUsize::new(0),
             current: AtomicUsize::new(0),
             peak: AtomicUsize::new(0),
             limit: AtomicUsize::new(limit),
@@ -114,6 +117,89 @@ impl Ledger {
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
                 Some(count.saturating_add(1))
             });
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct MappingCounter(Arc<Ledger>);
+
+impl MappingCounter {
+    pub fn new(mut ledger: Arc<Ledger>) -> Self {
+        while let Some(parent) = &ledger.parent {
+            ledger = parent.clone();
+        }
+        Self(ledger)
+    }
+}
+
+impl Deref for MappingCounter {
+    type Target = AtomicUsize;
+
+    fn deref(&self) -> &AtomicUsize {
+        &self.0.mapped
+    }
+}
+
+#[cfg(test)]
+mod mapping_tests {
+    use super::*;
+
+    #[test]
+    fn nested_children_and_clones_share_root_without_allocation() {
+        let host = Ledger::new(0);
+        let child = Ledger::child(0, host.clone());
+        let leaf = Ledger::child(0, child.clone());
+        host.fail_after(0);
+        let first = MappingCounter::new(host.clone());
+        let second = MappingCounter::new(leaf.clone());
+        let third = second.clone();
+        assert!(Arc::ptr_eq(&first.0, &host));
+        assert!(Arc::ptr_eq(&first.0, &second.0));
+        assert_eq!(first.fetch_add(4096, Ordering::Relaxed), 0);
+        assert_eq!(third.load(Ordering::Relaxed), 4096);
+        assert_eq!(second.fetch_sub(4096, Ordering::Relaxed), 4096);
+        assert_eq!(first.load(Ordering::Relaxed), 0);
+        for ledger in [&host, &child, &leaf] {
+            assert_eq!(
+                (ledger.current(), ledger.peak(), ledger.refusals()),
+                (0, 0, 0)
+            );
+        }
+    }
+
+    #[test]
+    fn final_counter_keeps_root_alive_after_all_allocator_handles_drop() {
+        let host = Ledger::new(4096);
+        let weak = Arc::downgrade(&host);
+        let child = Ledger::child(4096, host.clone());
+        let counter = MappingCounter::new(child.clone());
+        let peer = counter.clone();
+        counter.store(4096, Ordering::Relaxed);
+        drop((host, child, counter));
+        assert!(weak.upgrade().is_some());
+        assert_eq!(peer.fetch_sub(4096, Ordering::Relaxed), 4096);
+        drop(peer);
+        assert!(weak.upgrade().is_none());
+    }
+
+    #[test]
+    fn independent_roots_keep_mapping_and_host_quotas_distinct() {
+        let first = Ledger::new(128);
+        let second = Ledger::new(128);
+        let counter = MappingCounter::new(first.clone());
+        let other = MappingCounter::new(second.clone());
+        let allocator = BudgetAllocator(first.clone());
+        let layout = Layout::from_size_align(64, 8).unwrap();
+        let allocation = allocator.allocate(layout).unwrap();
+        counter.store(4096, Ordering::Relaxed);
+        assert_eq!((first.current(), other.load(Ordering::Relaxed)), (64, 0));
+        assert!(!first.fits(65));
+        unsafe { allocator.deallocate(allocation.cast(), layout) };
+        assert_eq!(
+            (first.current(), counter.load(Ordering::Relaxed)),
+            (0, 4096)
+        );
+        counter.store(0, Ordering::Relaxed);
     }
 }
 

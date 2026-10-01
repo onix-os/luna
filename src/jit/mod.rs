@@ -3,10 +3,7 @@
 use std::{
     cell::RefCell,
     rc::Rc,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
+    sync::{atomic::Ordering, Arc},
 };
 
 use ahash::RandomState;
@@ -97,7 +94,7 @@ mod shape;
 ))]
 mod tags;
 mod work;
-use resources::{BudgetAllocator, Compaction, Compactor, Ledger};
+use resources::{BudgetAllocator, Compaction, Compactor, Ledger, MappingCounter};
 
 pub(crate) type MetadataMap<K, V> = HashMap<K, V, RandomState, BudgetAllocator>;
 
@@ -262,7 +259,7 @@ pub(crate) struct Manager {
     pub(crate) metadata: BudgetAllocator,
     pub(crate) snapshots: BudgetAllocator,
     pub(crate) host: Arc<Ledger>,
-    pub(crate) memory: Arc<AtomicUsize>,
+    pub(crate) memory: MappingCounter,
     #[cfg(all(
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
@@ -313,8 +310,8 @@ impl Default for Manager {
             memory_failure: backend::Failure::None,
             metadata,
             snapshots,
+            memory: MappingCounter::new(host.clone()),
             host,
-            memory: Arc::new(AtomicUsize::new(0)),
             #[cfg(all(
                 target_os = "linux",
                 any(target_arch = "x86_64", target_arch = "aarch64")
@@ -967,6 +964,58 @@ mod policy_tests {
 ))]
 mod eviction_tests {
     use super::*;
+
+    #[test]
+    fn mapping_counter_retains_detached_lease_after_runtime_destruction() {
+        let runtime = Runtime::new();
+        runtime.0.borrow_mut().configure(JitConfig {
+            mode: JitMode::Auto,
+            ..Default::default()
+        });
+        request(&runtime, 1).unwrap();
+        let lease = runtime.lookup(1).unwrap();
+        let (host, counter, metadata, bytes) = {
+            let manager = runtime.0.borrow();
+            (
+                manager.host.clone(),
+                MappingCounter::new(manager.metadata.0.clone()),
+                manager.metadata.clone(),
+                runtime.usage(),
+            )
+        };
+        assert!(bytes > 0);
+        runtime.0.borrow_mut().clear_registrations();
+        drop(runtime);
+        assert_eq!(counter.load(Ordering::Relaxed), bytes);
+        assert_executable(&lease);
+        assert!(matches!(
+            backend::compile_in(
+                &snapshot(),
+                counter.clone(),
+                bytes,
+                metadata.clone(),
+                work::Limits::from(&JitConfig::default()),
+                backend::Failure::None,
+            ),
+            Err(JitError::ResourceLimit("native mappings"))
+        ));
+        assert_eq!(counter.load(Ordering::Relaxed), bytes);
+        assert_executable(&lease);
+        drop(lease);
+        assert_eq!((counter.load(Ordering::Relaxed), host.current()), (0, 0));
+        let recovered = backend::compile_in(
+            &snapshot(),
+            counter.clone(),
+            bytes,
+            metadata,
+            work::Limits::from(&JitConfig::default()),
+            backend::Failure::None,
+        )
+        .unwrap();
+        assert_eq!(counter.load(Ordering::Relaxed), bytes);
+        drop(recovered);
+        assert_eq!((counter.load(Ordering::Relaxed), host.current()), (0, 0));
+    }
 
     #[test]
     fn cached_owner_refusal_preserves_peer_and_refused_source_then_recovers() {

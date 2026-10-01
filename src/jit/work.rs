@@ -268,19 +268,16 @@ mod tests {
     fn backend_work_refusal_precedes_graph_metadata_and_mapping_allocation() {
         use super::super::{
             backend,
-            resources::{BudgetAllocator, Ledger},
+            resources::{BudgetAllocator, Ledger, MappingCounter},
         };
-        use std::sync::{
-            atomic::{AtomicUsize, Ordering},
-            Arc,
-        };
+        use std::sync::atomic::Ordering;
 
         for instructions in [true, false] {
             let source = snapshot(0, 1);
             let storage = source.operations.allocator().0.clone();
             storage.set_limit(storage.current());
             let metadata = Ledger::new(0);
-            let mappings = Arc::new(AtomicUsize::new(0));
+            let mappings = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
             let before = (storage.current(), storage.peak(), storage.refusals());
             let mut limits = Limits::from(&JitConfig::default());
             let expected = if instructions {
