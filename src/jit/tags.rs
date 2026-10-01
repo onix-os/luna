@@ -3,13 +3,13 @@ use cranelift_codegen::{
     dominator_tree::DominatorTree,
     flowgraph::ControlFlowGraph,
     ir::{
-        condcodes::IntCC, types, Block, BlockArg, Function, Inst, InstructionData, Opcode, Value,
-        ValueDef,
+        condcodes::IntCC, types, Block, BlockArg, Function, Inst, InstructionData, MemFlagsData,
+        Opcode, Value, ValueDef,
     },
 };
 
 use super::{abi, flow::FlowGraph, resources::BudgetAllocator, JitError};
-use crate::opcode::Operation;
+use crate::opcode::{Operation, RCIndex};
 
 const ALL: u8 = (1 << (abi::REFERENCE + 1)) - 1;
 
@@ -27,9 +27,29 @@ struct Input {
     float: bool,
 }
 
+#[derive(Clone, Copy)]
+struct Arithmetic {
+    pc: usize,
+    result: Value,
+    inputs: [(Value, Value); 2],
+    store: Inst,
+    floating: bool,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy)]
+pub(super) enum ArithmeticCorruption {
+    Opcode,
+    Operands,
+    Source,
+    Destination,
+}
+
 pub(super) struct Stores {
     records: Vec<Store, BudgetAllocator>,
     inputs: Vec<Input, BudgetAllocator>,
+    arithmetic: Vec<Arithmetic, BudgetAllocator>,
+    expected_arithmetic: Option<usize>,
     expected_inputs: Option<usize>,
     expected_float_inputs: Option<usize>,
     overflowed: bool,
@@ -49,6 +69,7 @@ impl Stores {
         let mut capacity = 0usize;
         let mut input_capacity = 0usize;
         let mut float_count = 0usize;
+        let mut arithmetic_count = 0usize;
         for &op in &snapshot.operations {
             let count = match op {
                 Operation::Add { .. }
@@ -73,6 +94,13 @@ impl Stores {
                 _ => 0,
             };
             float_count = float_count.checked_add(floats).ok_or_else(refused)?;
+            arithmetic_count = arithmetic_count
+                .checked_add(match op {
+                    Operation::Add { .. } | Operation::Sub { .. } | Operation::Mul { .. } => 2,
+                    Operation::Div { .. } => 1,
+                    _ => 0,
+                })
+                .ok_or_else(refused)?;
         }
         for node in &graph.nodes {
             if node.lowering.native() {
@@ -83,13 +111,19 @@ impl Stores {
         }
         let mut records = Vec::new_in(allocator.clone());
         records.try_reserve_exact(capacity).map_err(|_| refused())?;
-        let mut inputs = Vec::new_in(allocator);
+        let mut inputs = Vec::new_in(allocator.clone());
         inputs
             .try_reserve_exact(input_capacity)
+            .map_err(|_| refused())?;
+        let mut arithmetic = Vec::new_in(allocator);
+        arithmetic
+            .try_reserve_exact(arithmetic_count)
             .map_err(|_| refused())?;
         Ok(Self {
             records,
             inputs,
+            arithmetic,
+            expected_arithmetic: Some(arithmetic_count),
             expected_inputs: Some(input_capacity),
             expected_float_inputs: Some(float_count),
             overflowed: false,
@@ -106,6 +140,27 @@ impl Stores {
 
     pub fn numeric_input(&mut self, inst: Inst, tag: Value, bits: Value) {
         self.input(inst, tag, bits, false);
+    }
+
+    pub fn arithmetic(
+        &mut self,
+        pc: usize,
+        result: Value,
+        inputs: [(Value, Value); 2],
+        store: Inst,
+        floating: bool,
+    ) {
+        if self.arithmetic.len() == self.arithmetic.capacity() {
+            self.overflowed = true;
+            return;
+        }
+        self.arithmetic.push(Arithmetic {
+            pc,
+            result,
+            inputs,
+            store,
+            floating,
+        });
     }
 
     pub fn float_input(&mut self, inst: Inst, tag: Value, bits: Value) {
@@ -134,6 +189,17 @@ impl Stores {
     ) -> Result<(), JitError> {
         if registers > 256
             || self.overflowed
+            || self
+                .expected_arithmetic
+                .is_some_and(|count| self.arithmetic.len() != count)
+            || self
+                .inputs
+                .windows(2)
+                .any(|pair| pair[0].inst.as_u32() > pair[1].inst.as_u32())
+            || self
+                .inputs
+                .windows(3)
+                .any(|group| group[0].inst == group[2].inst)
             || self
                 .expected_inputs
                 .is_some_and(|count| self.inputs.len() != count)
@@ -252,6 +318,213 @@ impl Stores {
         Ok(())
     }
 
+    pub fn verify_arithmetic(
+        &self,
+        function: &Function,
+        slots: Value,
+        snapshot: &super::ir::Snapshot,
+    ) -> Result<(), JitError> {
+        if self
+            .inputs
+            .windows(2)
+            .any(|pair| pair[0].inst.as_u32() > pair[1].inst.as_u32())
+            || self
+                .inputs
+                .windows(3)
+                .any(|group| group[0].inst == group[2].inst)
+        {
+            return Err(invalid());
+        }
+        let mut records = self.arithmetic.iter();
+        for (pc, &op) in snapshot.operations.iter().enumerate() {
+            let (dest, left, right, integer, float) = match op {
+                Operation::Add { dest, left, right } => {
+                    (dest, left, right, Some(Opcode::Iadd), Opcode::Fadd)
+                }
+                Operation::Sub { dest, left, right } => {
+                    (dest, left, right, Some(Opcode::Isub), Opcode::Fsub)
+                }
+                Operation::Mul { dest, left, right } => {
+                    (dest, left, right, Some(Opcode::Imul), Opcode::Fmul)
+                }
+                Operation::Div { dest, left, right } => (dest, left, right, None, Opcode::Fdiv),
+                _ => continue,
+            };
+            for opcode in integer.into_iter().chain(std::iter::once(float)) {
+                let record = records.next().ok_or_else(invalid)?;
+                let floating = opcode == float;
+                if record.pc != pc || record.floating != floating {
+                    return Err(invalid());
+                }
+                let result = function.dfg.resolve_aliases(record.result);
+                let ValueDef::Result(inst, 0) = function.dfg.value_def(result) else {
+                    return Err(invalid());
+                };
+                let InstructionData::Binary {
+                    opcode: actual,
+                    args,
+                } = function.dfg.insts[inst]
+                else {
+                    return Err(invalid());
+                };
+                if actual != opcode
+                    || function.dfg.value_type(result)
+                        != if floating { types::F64 } else { types::I64 }
+                {
+                    return Err(invalid());
+                }
+                for ((tag, bits), (operand, value)) in record
+                    .inputs
+                    .into_iter()
+                    .zip([(left, args[0]), (right, args[1])])
+                {
+                    if !source_operand(function, slots, snapshot, operand, tag, bits) {
+                        return Err(invalid());
+                    }
+                    let value = function.dfg.resolve_aliases(value);
+                    let consumer = if floating {
+                        let ValueDef::Result(inst, 0) = function.dfg.value_def(value) else {
+                            return Err(invalid());
+                        };
+                        inst
+                    } else {
+                        if value != function.dfg.resolve_aliases(bits) {
+                            return Err(invalid());
+                        }
+                        inst
+                    };
+                    let start = self
+                        .inputs
+                        .partition_point(|input| input.inst.as_u32() < consumer.as_u32());
+                    if !self.inputs[start..]
+                        .iter()
+                        .take_while(|input| input.inst == consumer)
+                        .any(|input| {
+                            input.float == floating
+                                && function.dfg.resolve_aliases(input.tag)
+                                    == function.dfg.resolve_aliases(tag)
+                                && function.dfg.resolve_aliases(input.bits)
+                                    == function.dfg.resolve_aliases(bits)
+                        })
+                    {
+                        return Err(invalid());
+                    }
+                }
+                let InstructionData::Store {
+                    args,
+                    offset,
+                    flags,
+                    ..
+                } = function.dfg.insts[record.store]
+                else {
+                    return Err(invalid());
+                };
+                let stored = function.dfg.resolve_aliases(args[0]);
+                if function.dfg.resolve_aliases(args[1]) != function.dfg.resolve_aliases(slots)
+                    || function.dfg.mem_flags[flags] != MemFlagsData::new()
+                    || i32::from(offset) != i32::from(dest.0) * 16 + 8
+                    || function.dfg.value_type(stored) != types::I64
+                    || function.layout.inst_block(record.store) != function.layout.inst_block(inst)
+                    || function.layout.inst_block(inst).is_none()
+                {
+                    return Err(invalid());
+                }
+                if floating {
+                    let ValueDef::Result(cast, 0) = function.dfg.value_def(stored) else {
+                        return Err(invalid());
+                    };
+                    let InstructionData::LoadNoOffset {
+                        opcode: Opcode::Bitcast,
+                        arg,
+                        flags,
+                    } = function.dfg.insts[cast]
+                    else {
+                        return Err(invalid());
+                    };
+                    if function.dfg.resolve_aliases(arg) != result
+                        || function.dfg.mem_flags[flags] != MemFlagsData::new()
+                    {
+                        return Err(invalid());
+                    }
+                } else if stored != result {
+                    return Err(invalid());
+                }
+                let prior = function
+                    .layout
+                    .prev_inst(record.store)
+                    .ok_or_else(invalid)?;
+                let InstructionData::Store {
+                    args,
+                    offset,
+                    flags,
+                    ..
+                } = function.dfg.insts[prior]
+                else {
+                    return Err(invalid());
+                };
+                if function.dfg.resolve_aliases(args[1]) != function.dfg.resolve_aliases(slots)
+                    || function.dfg.mem_flags[flags] != MemFlagsData::new()
+                    || i32::from(offset) != i32::from(dest.0) * 16
+                    || literal(function, args[0])
+                        != Some(if floating { abi::NUMBER } else { abi::INTEGER })
+                {
+                    return Err(invalid());
+                }
+            }
+        }
+        if records.next().is_some() {
+            return Err(invalid());
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn corrupt_arithmetic_first(
+        &self,
+        function: &mut Function,
+        fault: ArithmeticCorruption,
+        registers: usize,
+    ) {
+        let record = self.arithmetic.first().expect("missing arithmetic");
+        match fault {
+            ArithmeticCorruption::Opcode | ArithmeticCorruption::Operands => {
+                let inst = function.dfg.value_def(record.result).unwrap_inst();
+                let InstructionData::Binary { opcode, args } = &mut function.dfg.insts[inst] else {
+                    panic!("missing arithmetic operands")
+                };
+                if matches!(fault, ArithmeticCorruption::Operands) {
+                    args.swap(0, 1);
+                } else {
+                    *opcode = match *opcode {
+                        Opcode::Iadd => Opcode::Isub,
+                        Opcode::Isub | Opcode::Imul => Opcode::Iadd,
+                        Opcode::Fadd => Opcode::Fsub,
+                        _ => Opcode::Fadd,
+                    };
+                }
+            }
+            ArithmeticCorruption::Source => {
+                for value in [record.inputs[0].0, record.inputs[0].1] {
+                    let inst = function.dfg.value_def(value).unwrap_inst();
+                    let InstructionData::Load { offset, .. } = &mut function.dfg.insts[inst] else {
+                        panic!("missing register operand")
+                    };
+                    *offset = ((i32::from(*offset) + 16) % (registers as i32 * 16)).into();
+                }
+            }
+            ArithmeticCorruption::Destination => {
+                let prior = function.layout.prev_inst(record.store).unwrap();
+                for inst in [prior, record.store] {
+                    let InstructionData::Store { offset, .. } = &mut function.dfg.insts[inst]
+                    else {
+                        panic!("missing destination store")
+                    };
+                    *offset = ((i32::from(*offset) + 16) % (registers as i32 * 16)).into();
+                }
+            }
+        }
+    }
+
     #[cfg(test)]
     pub fn corrupt_first(&self, function: &mut Function) {
         use cranelift_codegen::{
@@ -289,6 +562,64 @@ impl Stores {
                 unreachable!()
             };
             args.swap(1, 2);
+        }
+    }
+}
+
+fn literal(function: &Function, value: Value) -> Option<u64> {
+    let value = function.dfg.resolve_aliases(value);
+    if function.dfg.value_type(value) != types::I64 {
+        return None;
+    }
+    let ValueDef::Result(inst, 0) = function.dfg.value_def(value) else {
+        return None;
+    };
+    match function.dfg.insts[inst] {
+        InstructionData::UnaryImm {
+            opcode: Opcode::Iconst,
+            imm,
+        } => Some(imm.bits() as u64),
+        _ => None,
+    }
+}
+
+fn source_operand(
+    function: &Function,
+    slots: Value,
+    snapshot: &super::ir::Snapshot,
+    operand: RCIndex,
+    tag: Value,
+    bits: Value,
+) -> bool {
+    let tag = function.dfg.resolve_aliases(tag);
+    let bits = function.dfg.resolve_aliases(bits);
+    if function.dfg.value_type(tag) != types::I64 || function.dfg.value_type(bits) != types::I64 {
+        return false;
+    }
+    match operand {
+        RCIndex::Constant(index) => {
+            snapshot
+                .constants
+                .get(usize::from(index.0))
+                .is_some_and(|slot| {
+                    literal(function, tag) == Some(slot.tag)
+                        && literal(function, bits) == Some(slot.bits)
+                })
+        }
+        RCIndex::Register(index) => {
+            if usize::from(index.0) >= snapshot.registers {
+                return false;
+            }
+            let (ValueDef::Result(tag_inst, 0), ValueDef::Result(bits_inst, 0)) =
+                (function.dfg.value_def(tag), function.dfg.value_def(bits))
+            else {
+                return false;
+            };
+            let slots = function.dfg.resolve_aliases(slots);
+            let offset = i32::from(index.0) * 16;
+            matches!(function.dfg.insts[tag_inst], InstructionData::Load { opcode: Opcode::Load, arg, offset: actual, flags } if function.dfg.resolve_aliases(arg) == slots && i32::from(actual) == offset && function.dfg.mem_flags[flags] == MemFlagsData::new())
+                && matches!(function.dfg.insts[bits_inst], InstructionData::Load { opcode: Opcode::Load, arg, offset: actual, flags } if function.dfg.resolve_aliases(arg) == slots && i32::from(actual) == offset + 8 && function.dfg.mem_flags[flags] == MemFlagsData::new())
+                && function.layout.next_inst(tag_inst) == Some(bits_inst)
         }
     }
 }
@@ -357,9 +688,9 @@ impl Analysis<'_> {
                     InstructionData::LoadNoOffset {
                         opcode: Opcode::Bitcast,
                         arg,
-                        ..
+                        flags,
                     },
-                ) => arg,
+                ) if self.function.dfg.mem_flags[flags] == MemFlagsData::new() => arg,
                 _ => return false,
             };
             if self.function.dfg.resolve_aliases(operand)
@@ -684,10 +1015,23 @@ mod tests {
     fn fixture(
         action: impl FnOnce(&mut FunctionBuilder<'_>, Value, Value, &mut Stores),
     ) -> Result<(), JitError> {
+        fixture_in(None, action)
+    }
+
+    fn fixture_in(
+        snapshot: Option<&super::super::ir::Snapshot>,
+        action: impl FnOnce(&mut FunctionBuilder<'_>, Value, Value, &mut Stores),
+    ) -> Result<(), JitError> {
         let allocator = BudgetAllocator(Ledger::new(1024 * 1024));
         let mut records = Vec::new_in(allocator);
         records.try_reserve_exact(8).unwrap();
         let mut stores = Stores {
+            arithmetic: {
+                let mut arithmetic = Vec::new_in(records.allocator().clone());
+                arithmetic.try_reserve_exact(8).unwrap();
+                arithmetic
+            },
+            expected_arithmetic: None,
             expected_inputs: None,
             expected_float_inputs: None,
             inputs: {
@@ -723,7 +1067,13 @@ mod tests {
         }
         cranelift_codegen::verify_function(&function, &settings::Flags::new(settings::builder()))
             .unwrap();
-        let result = stores.verify(&function, slots, None, 4);
+        let result = stores.verify(&function, slots, None, 4).and_then(|_| {
+            if let Some(snapshot) = snapshot {
+                stores.verify_arithmetic(&function, slots, snapshot)
+            } else {
+                Ok(())
+            }
+        });
         let ledger = stores.records.allocator().0.clone();
         drop(stores);
         assert_eq!(ledger.current(), 0);
@@ -1396,6 +1746,322 @@ mod tests {
                 builder.ins().return_(&[]);
             }));
         }
+    }
+
+    fn arithmetic_snapshot(kind: usize, constants: bool) -> super::super::ir::Snapshot {
+        use crate::types::{ConstantIndex8, RegisterIndex, VarCount};
+        let left = if constants {
+            RCIndex::Constant(ConstantIndex8(0))
+        } else {
+            RCIndex::Register(RegisterIndex(0))
+        };
+        let right = if constants {
+            RCIndex::Constant(ConstantIndex8(1))
+        } else {
+            RCIndex::Register(RegisterIndex(1))
+        };
+        let dest = RegisterIndex(2);
+        let op = match kind {
+            0 => Operation::Add { dest, left, right },
+            1 => Operation::Sub { dest, left, right },
+            2 => Operation::Mul { dest, left, right },
+            _ => Operation::Div { dest, left, right },
+        };
+        super::super::ir::Snapshot {
+            operations: super::super::resources::owned(&[
+                op,
+                Operation::Return {
+                    start: dest,
+                    count: VarCount::constant(1),
+                },
+            ]),
+            constants: super::super::resources::owned(&[
+                abi::Slot {
+                    tag: abi::INTEGER,
+                    bits: (-41i64) as u64,
+                },
+                abi::Slot {
+                    tag: abi::NUMBER,
+                    bits: 2.0f64.to_bits(),
+                },
+            ]),
+            registers: 4,
+            upvalues: 0,
+            prototypes: 0,
+        }
+    }
+
+    fn arithmetic_fixture(
+        kind: usize,
+        constants: bool,
+        change: impl FnOnce(&mut FunctionBuilder<'_>, &mut Stores),
+    ) -> Result<(), JitError> {
+        let snapshot = arithmetic_snapshot(kind, constants);
+        snapshot.verify().unwrap();
+        fixture_in(Some(&snapshot), |builder, slots, _, stores| {
+            let mut pairs = [(slots, slots); 2];
+            for (index, pair) in pairs.iter_mut().enumerate() {
+                *pair = if constants {
+                    let slot = snapshot.constants[index];
+                    (
+                        builder.ins().iconst(types::I64, slot.tag as i64),
+                        builder.ins().iconst(types::I64, slot.bits as i64),
+                    )
+                } else {
+                    (
+                        builder.ins().load(
+                            types::I64,
+                            MemFlagsData::new(),
+                            slots,
+                            index as i32 * 16,
+                        ),
+                        builder.ins().load(
+                            types::I64,
+                            MemFlagsData::new(),
+                            slots,
+                            index as i32 * 16 + 8,
+                        ),
+                    )
+                };
+                let integer = builder
+                    .ins()
+                    .icmp_imm_s(IntCC::Equal, pair.0, abi::INTEGER as i64);
+                let number = builder
+                    .ins()
+                    .icmp_imm_s(IntCC::Equal, pair.0, abi::NUMBER as i64);
+                let numeric = builder.ins().bor(integer, number);
+                let accepted = builder.create_block();
+                let declined = builder.create_block();
+                builder.ins().brif(numeric, accepted, &[], declined, &[]);
+                builder.switch_to_block(declined);
+                builder.ins().return_(&[]);
+                builder.switch_to_block(accepted);
+            }
+            let float = builder.create_block();
+            if kind == 3 {
+                builder.ins().jump(float, &[]);
+            } else {
+                let li = builder
+                    .ins()
+                    .icmp_imm_s(IntCC::Equal, pairs[0].0, abi::INTEGER as i64);
+                let ri = builder
+                    .ins()
+                    .icmp_imm_s(IntCC::Equal, pairs[1].0, abi::INTEGER as i64);
+                let both = builder.ins().band(li, ri);
+                let integer = builder.create_block();
+                builder.ins().brif(both, integer, &[], float, &[]);
+                builder.switch_to_block(integer);
+                let result = match kind {
+                    0 => builder.ins().iadd(pairs[0].1, pairs[1].1),
+                    1 => builder.ins().isub(pairs[0].1, pairs[1].1),
+                    _ => builder.ins().imul(pairs[0].1, pairs[1].1),
+                };
+                let inst = builder.func.dfg.value_def(result).unwrap_inst();
+                for (tag, bits) in pairs {
+                    stores.numeric_input(inst, tag, bits);
+                }
+                let tag = builder.ins().iconst(types::I64, abi::INTEGER as i64);
+                let store = builder.ins().store(MemFlagsData::new(), tag, slots, 32);
+                stores.record(store, NUMERIC);
+                let store = builder.ins().store(MemFlagsData::new(), result, slots, 40);
+                stores.arithmetic(0, result, pairs, store, false);
+                builder.ins().return_(&[]);
+            }
+            builder.switch_to_block(float);
+            let mut values = [slots; 2];
+            for ((tag, bits), value) in pairs.into_iter().zip(&mut values) {
+                let integer = builder
+                    .ins()
+                    .icmp_imm_s(IntCC::Equal, tag, abi::INTEGER as i64);
+                let converted = builder.ins().fcvt_from_sint(types::F64, bits);
+                let number = builder.ins().bitcast(types::F64, MemFlagsData::new(), bits);
+                *value = builder.ins().select(integer, converted, number);
+                stores.float_input(builder.func.dfg.value_def(*value).unwrap_inst(), tag, bits);
+            }
+            let result = match kind {
+                0 => builder.ins().fadd(values[0], values[1]),
+                1 => builder.ins().fsub(values[0], values[1]),
+                2 => builder.ins().fmul(values[0], values[1]),
+                _ => builder.ins().fdiv(values[0], values[1]),
+            };
+            let bits = builder
+                .ins()
+                .bitcast(types::I64, MemFlagsData::new(), result);
+            let tag = builder.ins().iconst(types::I64, abi::NUMBER as i64);
+            let store = builder.ins().store(MemFlagsData::new(), tag, slots, 32);
+            stores.record(store, NUMERIC);
+            let store = builder.ins().store(MemFlagsData::new(), bits, slots, 40);
+            stores.arithmetic(0, result, pairs, store, true);
+            builder.ins().return_(&[]);
+            change(builder, stores);
+        })
+    }
+
+    #[test]
+    fn arithmetic_records_match_all_four_source_operations_and_operand_kinds() {
+        for kind in 0..4 {
+            for constants in [false, true] {
+                arithmetic_fixture(kind, constants, |_, _| {}).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn arithmetic_source_proof_rejects_wrong_opcodes_order_registers_and_destinations() {
+        for fault in [
+            ArithmeticCorruption::Opcode,
+            ArithmeticCorruption::Operands,
+            ArithmeticCorruption::Source,
+            ArithmeticCorruption::Destination,
+        ] {
+            rejected(arithmetic_fixture(1, false, |builder, stores| {
+                stores.corrupt_arithmetic_first(builder.func, fault, 4)
+            }));
+        }
+        rejected(arithmetic_fixture(3, false, |builder, stores| {
+            stores.corrupt_arithmetic_first(builder.func, ArithmeticCorruption::Opcode, 4)
+        }));
+    }
+
+    #[test]
+    fn arithmetic_constant_provenance_checks_exact_tag_and_payload_bits() {
+        for tag in [false, true] {
+            rejected(arithmetic_fixture(3, true, |builder, stores| {
+                let record = stores.arithmetic[0];
+                let value = if tag {
+                    record.inputs[1].0
+                } else {
+                    record.inputs[1].1
+                };
+                let inst = builder.func.dfg.value_def(value).unwrap_inst();
+                let InstructionData::UnaryImm { imm, .. } = &mut builder.func.dfg.insts[inst]
+                else {
+                    unreachable!()
+                };
+                *imm = if tag { abi::INTEGER as i64 } else { 123 }.into();
+            }));
+        }
+    }
+
+    #[test]
+    fn arithmetic_result_proof_checks_payload_and_result_tag_stores() {
+        for tag in [false, true] {
+            rejected(arithmetic_fixture(1, false, |builder, stores| {
+                let record = stores.arithmetic[0];
+                if tag {
+                    use cranelift_codegen::cursor::{Cursor, FuncCursor};
+                    let prior = builder.func.layout.prev_inst(record.store).unwrap();
+                    let mut cursor = FuncCursor::new(builder.func);
+                    cursor.goto_inst(prior);
+                    let wrong = cursor.ins().iconst(types::I64, abi::NUMBER as i64);
+                    let InstructionData::Store { args, .. } = &mut cursor.func.dfg.insts[prior]
+                    else {
+                        unreachable!()
+                    };
+                    args[0] = wrong;
+                } else {
+                    let InstructionData::Store { args, .. } =
+                        &mut builder.func.dfg.insts[record.store]
+                    else {
+                        unreachable!()
+                    };
+                    args[0] = record.inputs[0].1;
+                }
+            }));
+        }
+    }
+
+    #[test]
+    fn arithmetic_record_envelopes_reject_missing_extra_pc_arm_and_growth() {
+        for mode in 0..6 {
+            rejected(arithmetic_fixture(1, false, |_, stores| match mode {
+                0 => stores.arithmetic.clear(),
+                1 => {
+                    let record = stores.arithmetic[0];
+                    stores.arithmetic.push(record);
+                }
+                2 => stores.arithmetic[0].pc = 1,
+                3 => stores.arithmetic[0].floating = true,
+                4 => {
+                    let input = stores.inputs[0];
+                    stores.inputs.insert(0, input);
+                }
+                _ => {
+                    let record = stores.arithmetic[0];
+                    stores.arithmetic = Vec::new_in(stores.arithmetic.allocator().clone());
+                    stores.arithmetic(
+                        record.pc,
+                        record.result,
+                        record.inputs,
+                        record.store,
+                        record.floating,
+                    );
+                }
+            }));
+        }
+    }
+
+    #[test]
+    fn arithmetic_memory_shapes_reject_noncanonical_load_store_and_cast_flags() {
+        for mode in 0..5 {
+            rejected(arithmetic_fixture(3, false, |builder, stores| {
+                let record = stores.arithmetic[0];
+                let flags = builder.func.dfg.mem_flags.insert_unchecked(
+                    MemFlagsData::new().with_endianness(cranelift_codegen::ir::Endianness::Big),
+                );
+                let inst = match mode {
+                    0 => builder.func.dfg.value_def(record.inputs[0].1).unwrap_inst(),
+                    1 => record.store,
+                    2 => builder.func.layout.prev_inst(record.store).unwrap(),
+                    3 => {
+                        let InstructionData::Store { args, .. } =
+                            builder.func.dfg.insts[record.store]
+                        else {
+                            unreachable!()
+                        };
+                        builder.func.dfg.value_def(args[0]).unwrap_inst()
+                    }
+                    _ => {
+                        let input = stores.inputs.iter().find(|input| input.float).unwrap();
+                        let InstructionData::Ternary { args, .. } =
+                            builder.func.dfg.insts[input.inst]
+                        else {
+                            unreachable!()
+                        };
+                        builder.func.dfg.value_def(args[2]).unwrap_inst()
+                    }
+                };
+                match &mut builder.func.dfg.insts[inst] {
+                    InstructionData::Load { flags: value, .. }
+                    | InstructionData::Store { flags: value, .. }
+                    | InstructionData::LoadNoOffset { flags: value, .. } => *value = flags,
+                    _ => unreachable!(),
+                }
+            }));
+        }
+    }
+
+    #[test]
+    fn arithmetic_record_allocation_refusal_releases_partial_storage() {
+        let snapshot = arithmetic_snapshot(0, false);
+        let graph = FlowGraph::new(&snapshot).unwrap();
+        let ledger = snapshot.operations.allocator().0.clone();
+        let before = ledger.current();
+        let stores = graph
+            .nodes
+            .iter()
+            .filter(|node| node.lowering.native())
+            .map(|node| 2 * node.access.writes.count())
+            .sum::<usize>();
+        ledger.set_limit(
+            before + stores * std::mem::size_of::<Store>() + 4 * std::mem::size_of::<Input>(),
+        );
+        assert!(matches!(
+            Stores::new(&graph, &snapshot),
+            Err(JitError::ResourceLimit("scalar tag verification"))
+        ));
+        assert_eq!(ledger.current(), before);
+        assert_eq!(ledger.refusals(), 1);
     }
 
     #[test]

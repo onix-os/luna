@@ -53,7 +53,7 @@ $(info ------------------------------------------)
 .PHONY: jit-miri
 .PHONY: jit-helpers jit-abi jit-config jit-registry jit-suspension jit-ir jit-generic-for jit-exits jit-access
 .PHONY: jit-tags
-.PHONY: jit-input jit-float-input
+.PHONY: jit-input jit-float-input jit-arithmetic
 .PHONY: jit-clippy
 
 ci-check:
@@ -242,6 +242,10 @@ jit-tags:
 jit-input:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::omitted_numeric_guards_are_refused_before_codegen_and_mapping
 	@$(MAKE) --no-print-directory jit-float-input
+	@$(MAKE) --no-print-directory jit-arithmetic
+
+jit-arithmetic:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::corrupted_arithmetic_
 
 jit-float-input:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::corrupted_float_

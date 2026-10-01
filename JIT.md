@@ -67,6 +67,12 @@ numeric tag must select signed integer conversion or Number bitcast of the same
 recorded payload. Equivalent inverted selector/arm polarity is accepted; unknown
 conditions, swapped arms, unsigned conversion and foreign payloads are refused.
 Source-derived exact float-record counts prevent reclassifying away the proof.
+Add/Sub/Mul/Div records additionally bind decoded PC/arm order, exact opcode,
+left/right register or constant identities, verified float-conversion inputs,
+and the result's adjacent destination tag/payload stores. Input-record ordering
+and a maximum of two records per consumer bound lookup work. Arithmetic loads,
+stores and bitcasts require the emitter's default native memory flags. These
+records use the same snapshot ledger and reject missing/extra obligations.
 Semantic checks are
 vacuous only on guarded paths proven unreachable without queried-tag assumptions;
 physical store coverage and record counts still apply. This does not prove full
