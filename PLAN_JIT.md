@@ -9,6 +9,25 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Progress snapshot — 2026-10-01
+
+The plan exists; implementation is underway, not release-ready. The committed
+native tier executes Luna bytecode through Cranelift without replacing Luna's
+runtime. Current-frame upvalue alias repair is committed as `710dd33`, with
+acceptance recorded in `040d46d`. Its GNU and musl gates each report 4941 passing
+test executions across repeated modes/suites, not 4941 unique tests.
+
+Current uncommitted work is the separate coverage-guided fuzz package. Its
+locked all-target check and three integrated test functions pass; the actual
+instrumented build failed because cargo-fuzz 0.13.1 rejects `--locked` on its
+build command. No coverage-guided campaign has passed yet. Repair the wrapper
+and validate lock preservation before accepting this work.
+
+Historical performance gates still fail for upvalues/callbacks and table
+acceleration. Fresh performance acceptance, remaining compiler-memory and
+safety review, actual ARM64 execution and hosted-CI evidence remain outstanding.
+Do not infer a completion percentage or delivery date from commit/test counts.
+
 Build a native JIT for Luna's existing runtime. Keep its language, Rust bindings, values, collector, stackless executor, and scheduling model. Frequently executed code should become native code without moving into another interpreter.
 
 This is **not** a plan to embed the LuaJIT product, expose LuaJIT's FFI, or become compatible with LuaJIT native modules. LuaJIT has its own runtime and targets Lua 5.1 with extensions. Choosing that ecosystem instead requires a separately approved runtime migration, not an implementation shortcut inside this plan.
@@ -7939,6 +7958,58 @@ This runtime alias case is now tested, not a full liveness/alias proof.
 1. Upvalue rebinding can make a cell alias the executing frame's own register.
 2. Reading canonical values is insufficient when native scratch is pending;
    alias writes must update both representations before exit materialization.
+
+### Decision — separate coverage-guided public-API fuzz package
+
+Add the Phase 9 `fuzz/` package with two libFuzzer targets. Byte-controlled,
+bounded scalar and heap/current-frame-alias programs use the public source
+loader, separate fresh Off/Auto states, paired per-step fuel/mode checks, GC,
+exact primitive types and finite numeric bits, NaN-category agreement, and
+native counters. NaN payloads are not compared. Inputs select structures and
+operands directly rather than hashing into a random seed. Preserve the existing
+fixed-seed campaigns and their replay meaning. No private native-compilation
+backdoor or production feature is added. The package is excluded from normal
+workspace builds; its dependency lock and fixed corpus seeds are tracked.
+Use a pinned nightly fuzz Nix shell, Make wrappers, explicit run/input/RSS/
+timeout limits and retained corpus/crash artifacts. Instrumented Rust/compiler
+coverage is not instrumentation of generated machine code, and finite generated
+grammars do not establish arbitrary-source or complete security coverage.
+Primary tool guidance: [Rust Fuzz Book](https://rust-fuzz.github.io/book/cargo-fuzz/tutorial.html).
+
+### Session summary — restored checkpoint and progress report
+
+## Goal
+- Continue the active full implementation goal on `feat/native-jit`; answer the
+  user's overdue progress request with checked repository evidence.
+
+## Instructions
+- Keep incremental unsigned/title-only Conventional Commits and use Make and
+  patch tools. Report incomplete acceptance honestly rather than lowering gates.
+
+## Discoveries
+- Live HEAD is `040d46d`; the coverage package and wrappers are uncommitted.
+- The pinned cargo-fuzz command rejects the wrapper's `--locked` argument;
+  this is a tool invocation failure, not an instrumented fuzz acceptance result.
+- Engram tools are unavailable and the memory registry has no Luna/PLAN_JIT
+  match. This checkpoint persists project context without external memory edits.
+
+## Accomplished
+- Recovered the existing alias acceptance and coverage-package focused logs.
+- Added a short front-page status separating committed functionality, draft
+  fuzz work, failed performance gates and remaining platform/safety acceptance.
+- Corrected the fuzz oracle description: NaN category, not NaN payload equality.
+
+## Next Steps
+- Inspect cargo-fuzz help through Make, repair the wrapper and enforce lock
+  preservation, then build and run bounded instrumented scalar/heap campaigns.
+- Complete the remaining original performance, safety and platform gates.
+  The goal remains active; no completion or release readiness is claimed.
+
+## Relevant Files
+- `PLAN_JIT.md` — live progress snapshot and restored working checkpoint.
+- `fuzz/`, `Makefile`, `flake.nix` — uncommitted coverage-package work.
+- `target/jit-evidence/coverage-package/` — focused pass and failed build logs.
+- `target/jit-evidence/current-frame-upvalues/` — committed alias acceptance.
 
 ## 15. Primary references
 
