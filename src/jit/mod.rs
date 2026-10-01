@@ -22,6 +22,11 @@ mod access;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod backend;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod exit_flow;
 mod exits;
 mod flow;
 #[cfg(all(

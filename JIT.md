@@ -104,7 +104,14 @@ source PC and unchanged count. Missing/extra calls, unexpected stores in helper
 call/status blocks, and record growth are refused before code generation.
 Exact-counted helper records use the snapshot ledger and can refuse with
 `ResourceLimit("helper call verification")`. This local IR check does not prove
-runtime helper effects/borrows/GC, shared exit-handler stores or global source paths.
+runtime helper effects/borrows/GC or global source paths.
+The four shared exit handlers independently bind the entry ABI, distinct handler
+blocks and typed PC/count parameters to three exact default-flag stores at the
+Exit ABI offsets, canonical reason and empty return. All physical returns must
+belong to these handlers. Direct output-pointer accesses outside them and its
+escape through branch arguments are refused. This pass uses fixed-size stack
+storage and a bounded linear IR scan without new allocated records. It proves
+local handler output, not correct source/fuel on every predecessor or global paths.
 The retained, fallible PC-to-block map is charged to the snapshot ledger and
 can refuse with `ResourceLimit("frontend block map")` before compiler/host setup.
 Semantic checks are

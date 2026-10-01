@@ -203,6 +203,7 @@ pub(super) enum Failure {
     CorruptLoop(bool, super::tags::LoopCorruption),
     CorruptTransfer(super::tags::TransferCorruption),
     CorruptHelperFlow(super::helper_flow::Fault),
+    CorruptExitFlow(super::exit_flow::Fault),
 }
 
 #[cfg(test)]
@@ -306,7 +307,7 @@ pub(super) fn compile_in(
     let mut context = module.make_context();
     context.func.signature = signature;
     let mut fb_context = FunctionBuilderContext::new();
-    let (fallback, guard, panicked, helper_refs);
+    let (fallback, guard, exhausted, panicked, helper_refs);
     {
         let mut builder = FunctionBuilder::new(&mut context.func, &mut fb_context);
         let entry = builder.create_block();
@@ -319,7 +320,7 @@ pub(super) fn compile_in(
         }
         fallback = builder.create_block();
         guard = builder.create_block();
-        let exhausted = builder.create_block();
+        exhausted = builder.create_block();
         panicked = builder.create_block();
         for block in [fallback, guard, exhausted, panicked] {
             builder.append_block_param(block, types::I64);
@@ -531,6 +532,14 @@ pub(super) fn compile_in(
             panicked,
         },
     )?;
+    let exit_handlers = [fallback, guard, exhausted, panicked];
+    #[cfg(test)]
+    let mut exit_handlers = exit_handlers;
+    #[cfg(test)]
+    if let Failure::CorruptExitFlow(fault) = failure {
+        super::exit_flow::corrupt(&mut context.func, &mut exit_handlers, fault);
+    }
+    super::exit_flow::verify(&context.func, &exit_handlers)?;
     module
         .define_function(function, &mut context)
         .map_err(fail)?;
@@ -2563,6 +2572,111 @@ mod helper_flow_tests {
 #[cfg(test)]
 mod memory_tests {
     use super::*;
+
+    fn refuse_corrupted_exit_flow(fault: super::super::exit_flow::Fault) {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype =
+                crate::FunctionPrototype::compile(ctx, "exit-flow-corruption", b"return 42")
+                    .unwrap();
+            Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
+        });
+        let total = Arc::new(AtomicUsize::new(0));
+        let result = compile_in(
+            &snapshot,
+            total.clone(),
+            8 * 1024 * 1024,
+            BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
+            super::super::work::Limits::from(&super::super::JitConfig::default()),
+            Failure::CorruptExitFlow(fault),
+        );
+        assert!(
+            matches!(result, Err(JitError::Compilation(ref message))
+            if message == "invalid shared exit data flow"),
+            "{:?}",
+            result.as_ref().err()
+        );
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+    }
+
+    macro_rules! exit_flow_corruption {
+        ($name:ident, $fault:ident) => {
+            #[test]
+            fn $name() {
+                refuse_corrupted_exit_flow(super::super::exit_flow::Fault::$fault);
+            }
+        };
+    }
+
+    exit_flow_corruption!(
+        corrupted_exit_flow_output_branch_is_refused_before_codegen_and_mapping,
+        OutputBranch
+    );
+    exit_flow_corruption!(
+        corrupted_exit_flow_pc_width_is_refused_before_codegen_and_mapping,
+        PcWidth
+    );
+    exit_flow_corruption!(
+        corrupted_exit_flow_count_width_is_refused_before_codegen_and_mapping,
+        CountWidth
+    );
+
+    exit_flow_corruption!(
+        corrupted_exit_flow_pc_is_refused_before_codegen_and_mapping,
+        Pc
+    );
+    exit_flow_corruption!(
+        corrupted_exit_flow_count_is_refused_before_codegen_and_mapping,
+        Count
+    );
+    exit_flow_corruption!(
+        corrupted_exit_flow_reason_is_refused_before_codegen_and_mapping,
+        Reason
+    );
+    exit_flow_corruption!(
+        corrupted_exit_flow_base_is_refused_before_codegen_and_mapping,
+        Base
+    );
+    exit_flow_corruption!(
+        corrupted_exit_flow_offset_is_refused_before_codegen_and_mapping,
+        Offset
+    );
+    exit_flow_corruption!(
+        corrupted_exit_flow_flags_is_refused_before_codegen_and_mapping,
+        Flags
+    );
+    exit_flow_corruption!(
+        corrupted_exit_flow_extra_store_is_refused_before_codegen_and_mapping,
+        ExtraStore
+    );
+    exit_flow_corruption!(
+        corrupted_exit_flow_missing_store_is_refused_before_codegen_and_mapping,
+        MissingStore
+    );
+    exit_flow_corruption!(
+        corrupted_exit_flow_store_order_is_refused_before_codegen_and_mapping,
+        StoreOrder
+    );
+    exit_flow_corruption!(
+        corrupted_exit_flow_return_is_refused_before_codegen_and_mapping,
+        Return
+    );
+    exit_flow_corruption!(
+        corrupted_exit_flow_extra_return_is_refused_before_codegen_and_mapping,
+        ExtraReturn
+    );
+    exit_flow_corruption!(
+        corrupted_exit_flow_output_use_is_refused_before_codegen_and_mapping,
+        OutputUse
+    );
+    exit_flow_corruption!(
+        corrupted_exit_flow_duplicate_handler_is_refused_before_codegen_and_mapping,
+        DuplicateHandler
+    );
+    exit_flow_corruption!(
+        corrupted_exit_flow_signature_is_refused_before_codegen_and_mapping,
+        Signature
+    );
 
     #[test]
     fn corrupted_scalar_store_is_refused_before_codegen_and_mapping() {
