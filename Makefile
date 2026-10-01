@@ -369,6 +369,7 @@ jit-fuzz-smoke:
 	@$(MAKE) --no-print-directory jit-fuzz FUZZ_CASES=24
 	@$(MAKE) --no-print-directory jit-fuzz-heap FUZZ_CASES=8
 
+jit-fuzz-heap: FUZZ_CASES = 24
 jit-fuzz-heap:
 	@$(MAKE) --no-print-directory jit-fuzz FUZZ_TARGET=heap
 

@@ -400,7 +400,7 @@ fn worker() {
     }
     if target == "heap" {
         let h = heap_counts;
-        eprintln!("heap completed seed={seed} cases={} slices={} yields={} callbacks={} retirements={} native_instructions={} table_reads={} table_writes={} allocations={} upvalue_reads={} upvalue_writes={} declines={}", h.cases, h.slices, h.yields, h.callbacks, h.retirements, h.instructions, h.reads, h.writes, h.allocations, h.upvalue_reads, h.upvalue_writes, h.declines);
+        eprintln!("heap completed seed={seed} cases={} slices={} yields={} callbacks={} retirements={} host_reads={} userdata_observations={} native_instructions={} table_reads={} table_writes={} allocations={} upvalue_reads={} upvalue_writes={} declines={}", h.cases, h.slices, h.yields, h.callbacks, h.retirements, h.host_reads, h.userdata_observations, h.instructions, h.reads, h.writes, h.allocations, h.upvalue_reads, h.upvalue_writes, h.declines);
     } else {
         eprintln!("completed seed={seed} cases={cases} target={target} kernel_invocations={invocations} native_instructions={instructions}");
     }

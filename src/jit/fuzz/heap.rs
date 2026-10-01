@@ -1,8 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    Callback, CallbackReturn, Closure, Executor, ExecutorMode, Fuel, JitConfig, JitMode, JitStats,
-    Lua, StashedExecutor, Table, Value,
+    Callback, CallbackReturn, Closure, Context, Executor, ExecutorMode, Fuel, Function, JitConfig,
+    JitMode, JitStats, Lua, StashedExecutor, Table, UserData, Value,
 };
 
 use super::Random;
@@ -16,6 +16,8 @@ pub(super) struct Counts {
     pub yields: usize,
     pub callbacks: usize,
     pub retirements: usize,
+    pub host_reads: usize,
+    pub userdata_observations: usize,
     pub instructions: u64,
     pub reads: u64,
     pub writes: u64,
@@ -32,6 +34,8 @@ impl Counts {
         self.yields += other.yields;
         self.callbacks += other.callbacks;
         self.retirements += other.retirements;
+        self.host_reads += other.host_reads;
+        self.userdata_observations += other.userdata_observations;
         self.instructions += other.instructions;
         self.reads += other.reads;
         self.writes += other.writes;
@@ -127,13 +131,75 @@ fn program(random: &mut Random, family: usize) -> String {
             end
         "#
         }
+        4 => {
+            r#"
+            local key={}
+            local mode={__mode='k'}
+            local cache=setmetatable({},mode)
+            local function store(v) cache[key]={value=v} end
+            local function read() return cache[key].value end
+            for i=1,iterations do
+                store(i+salt)
+                collectgarbage('collect')
+                collectgarbage('collect')
+                assert(read()==i+salt,'ephemeron lost its value')
+                mode.__mode=i%2==0 and 'kv' or 'v'
+                collectgarbage('collect')
+                collectgarbage('collect')
+                coroutine.yield(i,total,true)
+                assert(read()==i+salt,'mode changed without reattachment')
+                total=total+update(read())
+                setmetatable(cache,mode)
+                collectgarbage('collect')
+                collectgarbage('collect')
+                coroutine.yield(i,total,true)
+                assert(cache[key]==nil,'reattached weak mode retained dead value')
+                mode.__mode='k'
+                setmetatable(cache,mode)
+                tick({value=i+salt},i)
+            end
+        "#
+        }
+        5 => {
+            r#"
+            local saved local ran=0
+            local function release(v)
+                local object=setmetatable({value=v}, {
+                    __gc=function(self)
+                        ran=ran+1
+                        tick(self,-self.value)
+                        self.value=salt+ran
+                        saved=self
+                    end
+                })
+            end
+            release(salt)
+            collectgarbage('collect')
+            coroutine.yield(0,total,true)
+            collectgarbage('collect')
+            assert(saved and ran==1,'finalizer did not resurrect exactly once')
+            for i=1,iterations do
+                total=total+nested(function()
+                    local item={value=saved.value+i}
+                    tick(item,i)
+                    return update(item.value)
+                end)
+                if i%stride==0 then coroutine.yield(i,total,true) end
+            end
+            saved=nil
+            collectgarbage('collect')
+            coroutine.yield(iterations,total,true)
+            collectgarbage('collect')
+            assert(ran==1,'resurrected object finalized twice')
+        "#
+        }
         _ => unreachable!(),
     };
     format!(
         "local iterations={iterations} local stride={stride} local salt={salt}\n\
-         shared={{value=0,count=0}} local total=0 local n=0\n\
-         local function update(v) n=n+v shared.value=n shared.count=shared.count+1 return n end\n\
-         {body}\nreturn total,n,shared.count==iterations"
+         local total=0 local n=0\n\
+         local function update(v) local item=shared.host v=v+item.slice shared.last=item shared.reads=shared.reads+1 n=n+v shared.value=n shared.count=shared.count+1 return n end\n\
+         {body}\nreturn total,n,shared.count==iterations and shared.reads==iterations"
     )
 }
 
@@ -160,20 +226,83 @@ fn state(native: bool, script: &str) -> (Lua, StashedExecutor, Journal) {
             Ok(CallbackReturn::Return)
         });
         ctx.set_global("tick", tick);
+        let nested = Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let function: Function = stack.consume(ctx)?;
+            let executor = Executor::start(ctx, function, ());
+            let mut finished = false;
+            for _ in 0..64 {
+                if executor.step(ctx, &mut Fuel::with(128)).unwrap() {
+                    finished = true;
+                    break;
+                }
+            }
+            assert!(finished, "bounded nested callback exceeded its slice limit");
+            let value = executor.take_result::<i64>(ctx).unwrap()?;
+            stack.replace(ctx, value);
+            Ok(CallbackReturn::Return)
+        });
+        ctx.set_global("nested", nested);
+        ctx.set_global(
+            "warn",
+            Callback::from_fn(&ctx, |_, _, _| {
+                panic!("unexpected heap campaign finalizer warning")
+            }),
+        );
+        let shared = Table::new(&ctx);
+        shared.set_field(ctx, "value", 0);
+        shared.set_field(ctx, "count", 0);
+        shared.set_field(ctx, "reads", 0);
+        ctx.set_global("shared", shared);
         let closure = Closure::load(ctx, Some("heap-fuzz"), script.as_bytes()).unwrap();
         ctx.stash(Executor::start(ctx, closure.into(), ()))
     });
+    mutate(&mut lua, 0);
     lua.prepare_jit().unwrap();
     (lua, executor, journal)
 }
 
-fn observe(lua: &mut Lua) -> (i64, i64) {
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Observation {
+    value: i64,
+    count: i64,
+    reads: usize,
+    host: Option<(bool, i64, i64)>,
+    last: Option<(bool, i64, i64)>,
+}
+
+fn object<'gc>(ctx: Context<'gc>, value: Value<'gc>) -> Option<(bool, i64, i64)> {
+    match value {
+        Value::Nil => None,
+        Value::Table(table) => Some((
+            false,
+            table.get(ctx, "id").unwrap(),
+            table.get(ctx, "slice").unwrap(),
+        )),
+        Value::UserData(data) => {
+            let proxy = match data.metatable().unwrap().get_value(ctx, "__index") {
+                Value::Table(table) => table,
+                _ => panic!("userdata proxy lost its table"),
+            };
+            Some((
+                true,
+                *data.downcast_static::<i64>().unwrap(),
+                proxy.get(ctx, "slice").unwrap(),
+            ))
+        }
+        _ => panic!("unexpected host object kind"),
+    }
+}
+
+fn observe(lua: &mut Lua) -> Observation {
     lua.enter(|ctx| match ctx.get_global_value("shared") {
-        Value::Table(table) => (
-            table.get(ctx, "value").unwrap(),
-            table.get(ctx, "count").unwrap(),
-        ),
-        Value::Nil => (0, 0),
+        Value::Table(table) => Observation {
+            value: table.get(ctx, "value").unwrap(),
+            count: table.get(ctx, "count").unwrap(),
+            reads: table.get(ctx, "reads").unwrap(),
+            host: object(ctx, table.get_value(ctx, "host")),
+            last: object(ctx, table.get_value(ctx, "last")),
+        },
+        Value::Nil => Observation::default(),
         _ => panic!("shared global lost its table identity"),
     })
 }
@@ -181,9 +310,34 @@ fn observe(lua: &mut Lua) -> (i64, i64) {
 fn mutate(lua: &mut Lua, slice: usize) {
     lua.enter(|ctx| {
         if let Value::Table(table) = ctx.get_global_value("shared") {
+            for key in ["host", "last"] {
+                let proxy = match table.get_value(ctx, key) {
+                    Value::Table(object) => Some(object),
+                    Value::UserData(data) => {
+                        match data.metatable().unwrap().get_value(ctx, "__index") {
+                            Value::Table(object) => Some(object),
+                            _ => panic!("userdata proxy lost its table"),
+                        }
+                    }
+                    Value::Nil => None,
+                    _ => panic!("unexpected retained host object kind"),
+                };
+                if let Some(proxy) = proxy {
+                    proxy.set_field(ctx, "slice", (slice + 1000) as i64);
+                }
+            }
             let object = Table::new(&ctx);
-            object.set_field(ctx, "slice", slice as i64);
-            table.set_field(ctx, "host", object);
+            object.set_field(ctx, "id", slice as i64);
+            object.set_field(ctx, "slice", (slice % 17 + 1) as i64);
+            if slice.is_multiple_of(2) {
+                table.set_field(ctx, "host", object);
+            } else {
+                let data = UserData::new_static(&ctx, slice as i64);
+                let mt = Table::new(&ctx);
+                mt.set_field(ctx, "__index", object);
+                data.set_metatable(ctx, Some(mt));
+                table.set_field(ctx, "host", data);
+            }
         }
     });
 }
@@ -216,9 +370,10 @@ fn assert_native(stats: JitStats) {
 }
 
 pub(super) fn run(random: &mut Random, seed: u64, case: usize) -> Counts {
-    let family = case % 4;
+    let family = case % 6;
+    eprintln!("heap seed={seed} case={case} family={family}");
     let script = program(random, family);
-    let retire_at = 3 + random.index(12);
+    let retire_at = 1 + random.index(3);
     let (mut reference, left, left_journal) = state(false, &script);
     let (mut native, right, right_journal) = state(true, &script);
     let mut counts = Counts::default();
@@ -236,12 +391,20 @@ pub(super) fn run(random: &mut Random, seed: u64, case: usize) -> Counts {
             *left_journal.borrow(),
             "seed={seed} case={case} slice={slice}: callback effects"
         );
-        assert_eq!(observe(&mut native), observe(&mut reference));
+        let actual_state = observe(&mut native);
+        assert_eq!(actual_state, observe(&mut reference));
+        counts.userdata_observations += usize::from(actual_state.last.is_some_and(|item| item.0));
         counts.slices += 1;
         for lua in [&mut reference, &mut native] {
             mutate(lua, slice);
             lua.gc_collect();
+            lua.run_finalizers();
         }
+        assert_eq!(
+            *right_journal.borrow(),
+            *left_journal.borrow(),
+            "seed={seed} case={case} slice={slice}: post-GC callback effects"
+        );
         assert_eq!(observe(&mut native), observe(&mut reference));
         if slice == retire_at {
             native.clear_jit_cache();
@@ -279,6 +442,8 @@ pub(super) fn run(random: &mut Random, seed: u64, case: usize) -> Counts {
     }
     counts.cases = 1;
     counts.callbacks = right_journal.borrow().len();
+    counts.host_reads = observe(&mut native).reads;
+    assert!(counts.host_reads > 0);
     counts.instructions = stats.native_instructions;
     counts.reads = stats.native_table_reads;
     counts.writes = stats.native_table_writes;
@@ -291,6 +456,7 @@ pub(super) fn run(random: &mut Random, seed: u64, case: usize) -> Counts {
     for lua in [&mut reference, &mut native] {
         lua.clear_jit_cache();
         lua.gc_collect();
+        lua.run_finalizers();
         let stats = lua.jit_stats();
         assert_eq!(stats.code_bytes, 0);
         assert_eq!(stats.snapshot_bytes, 0);
@@ -303,9 +469,12 @@ pub(super) fn run(random: &mut Random, seed: u64, case: usize) -> Counts {
 fn families_execute_native_helpers_and_match_every_slice() {
     for seed in [0, 1, u64::MAX] {
         let mut random = Random(seed);
-        for case in 0..4 {
+        let mut observed = 0;
+        for case in 0..6 {
             let counts = run(&mut random, seed, case);
             assert!(counts.callbacks > 0);
+            observed += counts.userdata_observations;
         }
+        assert!(observed > 0);
     }
 }
