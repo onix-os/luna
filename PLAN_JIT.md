@@ -6685,6 +6685,40 @@ nightly requirement is introduced by this stable allocator-api2 owner.
 - `JIT.md`, `PLAN_JIT.md` — ownership safety scope and acceptance evidence.
 - `target/jit-evidence/owner/` — local raw evidence and untimed candidate binary.
 
+### Recovered status checkpoint (2026-10-01)
+
+## Goal
+Report the actual plan and implementation status after context recovery; the
+full implementation goal remains active and incomplete.
+
+## Instructions
+Keep incremental commits unsigned, title-only and Conventional Commit formatted.
+Use Make/Nix for relevant validation and patch tools for edits.
+
+## Discoveries
+- Live HEAD is `0f5300e`, following source milestone `c5ba20a`; the worktree was
+  clean at recovery. The plan is already written, not awaiting an initial draft.
+- Engram tools are unavailable in this session; this checkpoint preserves the
+  recovered state in the plan. The local memory registry had no matching entry.
+
+## Accomplished
+- Recovered the cached-owner milestone and its already completed acceptance:
+  GNU/musl 4625 passing tests each and selected Miri 240 passing tests. These
+  counts are prior completed evidence, not a new validation run in this turn.
+- All owned validation jobs were terminal at the recovered checkpoint. No
+  current performance acceptance or complete release acceptance is claimed.
+
+## Next Steps
+- Finish runtime/bootstrap and compiler-memory accounting or bounded policy,
+  remaining safety proofs, frozen performance controls and actual ARM64 evidence.
+- Resume timing only after a fresh global preflight permits it; the previous
+  preflight was obstructed by an unrelated `make run` process.
+
+## Relevant Files
+- `PLAN_JIT.md` — detailed plan, milestone evidence and remaining acceptance.
+- `JIT.md` — current runtime and ownership safety scope.
+- `src/jit/owner.rs` — accepted cached-owner allocation and reclamation milestone.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
