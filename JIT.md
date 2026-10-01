@@ -189,19 +189,22 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 ## Verification and remaining work
 
-The source-binding implementation with supervised heap campaigns (`a951643`)
+The expanded supervised heap campaign and case-limit fix (`3762300`)
 passes `nix develop -c make jit-verify clippy jit-clippy` on x86-64 GNU and
 with `TARGET=x86_64-unknown-linux-musl`: each reports 4400 passing tests across
 422 suite results and 24 ignored tests. Selected pure-Rust/pure-IR Miri checks
 pass 211 tests across 25 selected suite results with default `MIRIFLAGS`; they do not execute
 generated native code. Clippy retains the existing warning backlog, so these are
 not strict-warning acceptance. Raw revision-scoped evidence is stored locally in
-`target/jit-evidence/heap-campaign/`. Seeded scalar/admission campaigns additionally
+`target/jit-evidence/heap-expanded/`. Seeded scalar/admission campaigns additionally
 pass 4096 generated cases per platform, each checking 1641780 native invocations
 against the independent slice model; both platforms reuse the same four seeds.
-Separate heap campaigns pass 128 cases per platform, comparing 6611 slices,
-659 yields and 2720 callback effects, with 70475 completed native instructions
-and table/allocation/upvalue counters. The same seeds and parameterized families
+Separate six-family heap campaigns pass 96 cases per platform, comparing 6344
+main-executor slices, 725 yields and 1633 callback effects, with 65297 completed
+native instructions, 964 consumed host reads and table/allocation/upvalue counters.
+The 2809 userdata observations are repeated state samples, not individual native
+userdata-instruction coverage. Nested/finalizer internal slices are not separately
+paired. The same seeds and parameterized families
 are reused on both platforms; this is not independent unique-program coverage.
 Miri does not execute these heap/native programs. Performance thresholds, ARM64 execution,
 complete compiler accounting and the full plan's remaining proofs are not accepted.

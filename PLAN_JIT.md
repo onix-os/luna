@@ -670,6 +670,15 @@ counters and preserve old admission/scalar replay meaning. Selected pure Miri
 passes but does not execute the heap/native corpus. These finite templates do not
 complete the broader heap/lifecycle/coverage-guided or safety obligations.
 
+Expanded lifecycle coverage (`bf42216`, recursive case-limit fix `3762300`)
+consumes alternating host tables/userdata from Lua and observes current/retained
+markers across mutation and GC. Six families add documented weak-mode reattachment,
+resurrection and bounded reentrant callbacks. Manual-step hosts service pending
+finalizers and fail on warnings; main-slice fuel/mode and ordered effects agree.
+GNU/musl each pass 96 expensive cases under unchanged worker limits. This is not
+individual native userdata-instruction coverage or paired internal-finalizer
+slice evidence; full safety/guard/lifecycle obligations remain open.
+
 **Files:** `fuzz/`, fuzz/gate targets, JIT validation/runtime tests, workflow/environment configuration, security documentation.
 
 1. Fuzz validated IR construction and code generation separately from execution. Reject malformed IR before unsafe code entry.
@@ -5911,6 +5920,144 @@ and the full plan's completion criteria.
 - `Makefile` — heap campaigns, focused fixture target and full-gate smoke wiring.
 - `JIT.md`, `PLAN_JIT.md` — scope, acceptance evidence and remaining obligations.
 - `target/jit-evidence/heap-campaign/` — local revision-scoped raw artifacts.
+
+### Consumed host replacements and lifecycle expansion decision
+
+Expand the existing heap target from four to six source families. Initialize the
+shared root before execution, alternate host-replaced tables and userdata proxies,
+and consume the current replacement from the common Lua update function. Observe
+both current and last-consumed object kind/identity/scalar fields at each slice,
+including after GC, and count host reads separately. Mutate retained objects before
+replacing the current root to exercise live aliases. Add weak-mode mutation and
+finalizer resurrection with bounded reentrant callbacks. Preserve the exact
+Off/native slice/effect oracle and resource-limited supervisor. Report observed
+userdata samples as observations, not per-instruction native userdata coverage.
+This extends finite integration stress without claiming full GC/helper safety or
+changing runtime fast paths, performance thresholds or compiler architecture.
+
+### Weak-mode fixture correction
+
+The first new weak-mode fixture failed in the Off reference state, not as a
+differential JIT mismatch. Source inspection confirms `Table::set_metatable`
+performs storage conversion at attachment; `COMPATIBILITY.md` explicitly documents
+that changing `__mode` alone does not retroactively alter storage. Isolating
+temporaries in helper functions did not change the reference failure, so no
+temporary-root or compiler-liveness bug is inferred. The fixture now follows the
+existing `tests/weak_tables.rs` reattachment contract: a live weak key retains its
+value before reattachment, then `v`/`kv` reattachment retires ephemeron retention,
+and `k` reattachment restores the live-key case. No interpreter semantics are
+changed or broader Lua-compatibility claim added.
+
+### Manual-step finalizer service discovery
+
+The new resurrection fixture initially failed in the Off reference state because
+the harness drove `Executor::step` manually but did not drain queued Lua finalizers.
+`Lua::gc_collect` queues handlers; `Lua::finish` calls the public
+`Lua::run_finalizers` between slices, and that method explicitly requires manual
+step hosts to call it. The harness now services finalizers after each host GC,
+compares callback effects immediately afterwards, and treats finalizer warnings
+as test failures. Nested/finalizer execution uses its own executor drive; the
+paired fuel/mode oracle describes the main executor's host slices, not a claimed
+per-internal-slice proof for all finalizer executors. No runtime fix is implied.
+
+### Expanded fixture retirement scheduling correction
+
+After finalizer service was added, the reentrant family finished its main executor
+before a previously chosen late retirement slice; the required retirement count
+correctly failed. Nested work runs on separate executors, so main-slice count need
+not scale with total Lua work. Choose retirement among early main boundaries 1..3
+and still require exactly one successful retire/reprepare per case. The dedicated
+heap Make target now defaults to 24 expensive cases per seed; explicit command-line
+`FUZZ_CASES` overrides remain intact, with unchanged subprocess resource ceilings.
+
+### Consumed replacement oracle sensitivity
+
+Changing only the native state's source update to consume `item.id` rather than
+`item.slice` failed selected-state agreement at seed 0 / family 0: value 5 versus
+6, while both states had read the same userdata identity and slice field. The
+Make test exited 2, and the temporary source transformation was restored after
+owned session `27558` became terminal. This demonstrates sensitivity to consumed
+host scalar divergence, not a compiler/runtime defect or complete stale-read
+proof. Log: `/tmp/luna-jit-heap-expanded-bypass-host.log`.
+
+### Recursive heap case-limit forwarding fix
+
+Dry-run evidence after `bf42216` showed the dedicated target's target-specific
+24-case value was not forwarded into recursive Make: the child read its global
+256-case default. Pass the expanded `FUZZ_CASES` explicitly to the child recipe.
+This preserves user command-line overrides and prevents the advertised default
+from exceeding the intended expensive-campaign size. The earlier explicit-case
+focused tests were unaffected. Archive the failing default dry run and the fixed
+default/override evidence separately; do not treat the draft default as accepted.
+
+### Expanded heap lifecycle acceptance session (2026-10-01)
+
+## Goal
+Continue full implementation on `feat/native-jit`; make host replacements
+observable to Lua and extend bounded lifecycle hardening. The previous goal turn
+made progress with four-family heap campaign implementation and acceptance.
+
+## Instructions
+Use Nix/Make and patch tools, keep unsigned title-only incremental commits and
+preserve the full completion contract and frozen performance thresholds. Never
+mix timings/profiles with builds or tests.
+
+## Discoveries
+- Weak storage conversion occurs at metatable attachment, not an isolated
+  `__mode` field change. The first fixture's reference failure was corrected to
+  the documented reattachment contract; no JIT or interpreter bug is claimed.
+- Manual `Executor::step` hosts must call `Lua::run_finalizers`; collecting alone
+  queues handlers. Paired main slices do not imply individually paired nested
+  or finalizer executor slices.
+- Recursive Make re-read the global 256-case default instead of the parent's
+  target-specific 24. Explicit forwarding fixes the default while preserving
+  command-line overrides (24 default / 12 explicit verified by dry runs).
+- Object observations compare kind, ID markers and scalar fields, not cross-state
+  GC pointer addresses. Userdata samples can repeat a retained object and do not
+  count individual native userdata instructions.
+
+## Accomplished
+- Expanded source/test/docs committed at `bf42216`; recursive Make fix committed
+  separately at `3762300`. Restored the temporary divergent host-read source
+  after its exact owned test became terminal; it failed as expected with exit 2.
+- Focused checks passed 18 family/seed executions, four-seed smoke and existing
+  heap tests, formatting and Clippy. The added modulo-style warning was fixed;
+  inherited Clippy warnings remain and strict-warning acceptance is not claimed.
+- Full owned job `97543` completed GNU and musl with exit 0, each **4400 passing
+  tests / 422 suite results / 24 ignored**. Expanded families remain within one
+  unit test, so suite counts do not inflate with each parameter execution.
+- Campaign job `37194` completed all four platform/workload lanes. Each platform's
+  actual default heap target used 24 cases per seed and reports **96 cases /
+  6344 main slices / 725 yields / 1633 callbacks / 96 retirements / 964 host
+  reads / 2809 userdata observations / 65297 native instructions**. Helper
+  counters: **22144 table reads / 7393 table writes / 1655 allocations / 21701
+  upvalue reads / 996 upvalue writes / 1179 declines**.
+- Each unchanged scalar/admission campaign also passed **4096 cases / 1641780
+  invocations / 4758522 native instructions**. GNU/musl reuse seeds/programs;
+  the six heap families are finite parameterized templates, not independently
+  unique-program counts or coverage-guided fuzzing.
+- Miri job `14402` completed with exit 0: **211 tests / 25 suite results / 0
+  ignored**, pinned nightly 2026-08-16 / rustc `67854e511`, default empty flags.
+  It does not execute generated code or the native heap campaign.
+- Revision-scoped raw draft/diagnostic/focused/mutation/dry-run/full/Miri/campaign
+  artifacts and recursive source hashes are in `target/jit-evidence/heap-expanded/`;
+  hashes match after all gates. All owned jobs are terminal. No performance,
+  ARM/hosted or full-plan acceptance is claimed.
+
+## Next Steps
+- Return to the unmet runtime/performance gates: obtain an uncontended matched
+  current baseline/profile before making causal optimizations or claiming gains.
+- Complete compiler/combined-host accounting, source-map/helper/GC/alias/liveness
+  review, remaining lifecycle/guard combinations and platform evidence. Keep
+  the goal active; no required final criterion is waived by these passing tests.
+
+## Relevant Files
+- `src/jit/fuzz/heap.rs` — consumed replacements, userdata observations,
+  reentrant/resurrection and reattachment fixtures, manual finalizer service.
+- `src/jit/fuzz.rs` — independent host-read/userdata counters.
+- `Makefile` — bounded default heap case count forwarded to recursive Make.
+- `JIT.md`, `PLAN_JIT.md` — exact acceptance scope and open obligations.
+- `target/jit-evidence/heap-expanded/` — local raw revision-scoped artifacts.
 
 ## 15. Primary references
 
