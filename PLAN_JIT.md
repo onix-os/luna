@@ -548,6 +548,15 @@ Canonical helper status/effect contracts remain separate. Full source-record/
 instruction/source-map equivalence, runtime helper/GC/alias/liveness review,
 compiler accounting and Phase 3 acceptance remain open.
 
+Semantic source binding (`93a5909`) now ties every recorded instruction/value
+definition to the verified physical source region. Generic store/input PCs use
+their existing charged vectors; masks/destinations match decoded access. Exact
+adjacent default-flag I64 tag/payload pairs and physical payload coverage refuse
+orphan writes. Fourteen negative pure and fourteen backend mutation tests are
+sensitive to bypassing the check. Full GNU/musl gates, selected pure Miri and
+scalar/admission campaigns pass. This does not complete opcode/source-map,
+runtime helper/GC/alias/liveness, compiler accounting or Phase 3 acceptance.
+
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
@@ -5750,6 +5759,57 @@ incremental source/evidence commits. Do not mix timing runs with builds/tests.
 - `src/jit/backend.rs` — production gate and pure/native refusal tests.
 - `Makefile` — focused binding and selected Miri targets.
 - `JIT.md` — verifier scope; latest acceptance still describes region-flow.
+
+### Source-binding acceptance session (2026-10-01)
+
+## Goal
+Continue the full plan on `feat/native-jit`; validate source binding without
+narrowing the overall completion contract. The preceding goal turn made
+progress by committing source binding and its checkpoint.
+
+## Instructions
+Keep source and acceptance commits separate, unsigned and title-only. Use Make
+inside the repo's Nix environments. Do not run timings alongside validation.
+
+## Discoveries
+- Revision `93a5909` preserves all current full GNU/musl suites and the selected
+  pure-Rust/IR Miri lane. Clippy still reports inherited warnings; this is not
+  strict-warning acceptance.
+- Scalar campaigns use the same four seeds/programs on both platforms. They
+  cover malformed admission and scalar native/model agreement, not native
+  heap helpers or arbitrary Lua-program equivalence.
+
+## Accomplished
+- Owned full-gate session `51909` completed both GNU and musl with exit 0:
+  **4394 passing tests / 421 suite results / 24 ignored per platform**.
+- Owned Miri session `30393` completed with exit 0: **211 passing tests /
+  25 suite results / 0 ignored**. Pinned nightly 2026-08-16 reports rustc/Miri
+  `67854e511`, default empty `MIRIFLAGS`. Generated native code is not executed
+  under Miri.
+- Owned supervised campaign session `4173` completed GNU and musl with exit 0.
+  Each platform reports **4096 cases / 1641780 kernel invocations / 4758522
+  completed native instructions**, plus malformed admission mutations. Limits
+  remain 60 seconds wall / 30 seconds CPU / 2 GiB address space per worker.
+- Archived source revision/hashes, raw full/focused/bypass logs, Miri environment
+  and suite logs, and the exact campaign directories under
+  `target/jit-evidence/source-binding/`. Source hashes match after all gates.
+- No timing/profile, performance improvement, ARM/hosted execution or whole-plan
+  acceptance is claimed. All owned validation handles are terminal.
+
+## Next Steps
+- Extend supervised differential coverage to heap/helper/lifecycle programs;
+  current scalar campaigns do not exercise those native boundaries.
+- Continue instruction/source-map and helper/GC/alias/liveness review, compiler
+  and combined-host accounting, platform evidence and failing performance gates.
+- Keep the goal active; every final done criterion remains subject to its own
+  current-state evidence rather than these narrower passing gates.
+
+## Relevant Files
+- `JIT.md` — current revision-scoped validation counts and verifier limits.
+- `PLAN_JIT.md` — Phase 3 evidence and open completion obligations.
+- `target/jit-evidence/source-binding/` — local raw acceptance artifacts.
+- `src/jit/fuzz.rs` — existing supervised admission/scalar campaign; heap
+  coverage is the next hardening work item, not implemented this session.
 
 ## 15. Primary references
 
