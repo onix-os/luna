@@ -341,15 +341,13 @@ pub(super) fn compile_in(
         helper_signature.params.push(AbiParam::new(ty));
     }
     helper_signature.returns.push(AbiParam::new(types::I32));
-    let helper_ids = helpers::SYMBOLS
-        .iter()
-        .map(|(kind, name, _)| {
-            module
-                .declare_function(name, Linkage::Import, &helper_signature)
-                .map(|id| (*kind, id))
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(fail)?;
+    let helper_ids = super::arrays::try_array::<_, _, { helpers::SYMBOLS.len() }>(|index| {
+        let (kind, name, _) = helpers::SYMBOLS[index];
+        module
+            .declare_function(name, Linkage::Import, &helper_signature)
+            .map(|id| (kind, id))
+    })
+    .map_err(fail)?;
     let mut context = module.make_context();
     context.func.signature = signature;
     let mut fb_context = FunctionBuilderContext::new();
@@ -359,7 +357,10 @@ pub(super) fn compile_in(
         let entry = builder.create_block();
         builder.append_block_params_for_function_params(entry);
         builder.switch_to_block(entry);
-        let arguments = builder.block_params(entry).to_vec();
+        let arguments: [IrValue; 5] = builder
+            .block_params(entry)
+            .try_into()
+            .map_err(|_| JitError::Compilation("invalid native entry parameters".into()))?;
         blocks.extend((0..snapshot.operations.len()).map(|_| builder.create_block()));
         for block in &blocks {
             builder.append_block_param(*block, types::I32);
@@ -689,10 +690,8 @@ impl Emitter<'_, '_> {
         );
         self.exit_state(ExitKind::Interpreter);
         self.exit_state(ExitKind::Panic);
-        let args: Vec<_> = [a, b, c, self.pc as u32]
-            .into_iter()
-            .map(|arg| self.builder.ins().iconst(types::I32, i64::from(arg)))
-            .collect();
+        let args = [a, b, c, self.pc as u32]
+            .map(|arg| self.builder.ins().iconst(types::I32, i64::from(arg)));
         let helper = self
             .helpers
             .iter()
