@@ -427,6 +427,10 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 **Status:** IN PROGRESS. **Depends on:** Phase 2. Owned snapshots and a quota-charged instruction-level CFG validate all successors/operands, preserve legal PC re-entry, and feed exhaustive lowering/native-effect admission. Weak generation IDs, bounded queues/attempts, leased code, capped mappings, bounded unleased LRU eviction and fallible sparse-metadata compaction exist. Full typed/region/effect/exit review, complete accounting, combined-limit semantics and hardening remain open.
 
+Basic-block analysis is now integrated (`56bc035`): bounded in-place partitions
+and header/linear successor checks preserve every legal PC. Full typed/data-flow
+and exit-snapshot analysis remains open; this does not complete Phase 3.
+
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
@@ -3326,6 +3330,131 @@ for relevant validation, patch tools for edits, and do not weaken acceptance.
 - `src/thread/vm.rs`, `tests/vm_semantics.rs`, `tests/jit_heap.rs` — false-key
   generic-loop semantics and reference/native regressions.
 - `target/jit-evidence/generic-for/` — final-revision verification/artifact logs.
+
+### Bounded region-analysis decision
+
+Extend each quota-charged owned CFG node with its half-open basic-block bounds.
+Build a linear-time partition in place: branch targets, branch fallthroughs,
+unconditional jumps and interpreter continuations start blocks; interpreted
+operations are singleton barriers. Keep unreachable code in the partition and
+retain all legal instruction-PC entries. Native helpers do not become opaque
+interpreter barriers; their existing conservative effects still apply.
+Validate edges as either sequential within a block or targeting a block header,
+and consume that validation in backend successor assertions. The larger Node
+allocation remains charged by the existing snapshot ledger; partitioning adds
+no allocation, recursion, unbounded worklist or VM dispatch work. This is block
+analysis, not typed SSA, dominance/liveness, or a complete exit-snapshot proof.
+
+Owned session `6674` completed both final-revision release builds and copied
+artifacts under `target/jit-evidence/generic-for/`. An attempted timing admission
+was refused by the conservative process guard because unrelated Melchior debug
+example processes were present. No timing command ran and no performance result
+is inferred. Region changes now need their own correctness validation.
+
+`56bc035` separately commits that implementation and four new tests. Focused
+`make fmt fmt-check jit-ir jit-boundary jit-heap jit-resources` passes 119 tests
+across seven suite results. The new deterministic property case checks 4096
+graphs (one through eight instructions) with branches, skips, loops, calls,
+terminal/dead code, consistent interval partitions, reachable successors and
+zero residual allocation. This is Rust graph analysis, not 4096 executed native
+kernels or coverage-guided fuzzing. GNU and musl `make jit-verify clippy` each
+pass 2864 tests/421 suite results, 24 ignored, on the region revision; Clippy
+retains its warning backlog. Selected default-flags Miri passes 42 tests/eight
+namespaces on pinned nightly `67854e511`, including all 4096 Rust graph cases.
+This does not add generated-code, executable-finalization or suspension Miri
+coverage. Matching benchmark/metrics release builds complete and their copied
+binaries, hashes and source revision are archived under
+`target/jit-evidence/regions/`. Sessions `70602` and `84863` are terminal.
+
+### Region-revision paired performance and separate observations
+
+The initially conservative guard treated every target-directory executable as
+a potential active test. Inspection identifies the seven Melchior fake-provider
+examples as long-running, sleeping PPID-1 orphans, not live build/test handles.
+For the subsequent region-revision measurements, pre/post guards still refuse
+build/test/profile processes; those specific sleeping orphan examples are
+recorded separately. Their PID/state/parent/user/system CPU-tick records are
+identical before and after each run (all CPU ticks zero). No unrelated job is
+killed. This documents the actual guard scope rather than claiming an empty
+machine or silently ignoring active tests.
+
+Two sequential eleven-pair native runs of the frozen `56bc035` artifact both
+fail `make jit-bench-run --check` (Make exit 2, three workload thresholds each).
+Median paired speedups, first/repeat:
+
+| Workload | First | Repeat | Required | Result |
+| --- | ---: | ---: | ---: | --- |
+| integer_loop | 2.7354 | 2.7232 | 2.0 | pass |
+| float_loop | 4.8519 | 4.8297 | 2.0 | pass |
+| array_table | 1.1375 | 1.1243 | 1.25 | fail |
+| closure_upvalue | 0.7471 | 0.7609 | 1.25 | fail |
+| polymorphic_metamethod | 0.8397 | 0.8380 | 0.8333 | pass, near threshold |
+| rust_callbacks | 0.7957 | 0.7713 | 0.8333 | fail |
+| allocation_gc | 1.0468 | 1.0129 | 0.8333 | pass |
+| oslo_predicate | 0.9047 | 0.8903 | unscored | observational |
+| cold_config | 0.9903 | 1.0067 | 0.8696 | pass |
+
+The sequential `make jit-metrics-run` with `--mode all --samples 1 --fuel 64`
+passes (exit 0): 27 ordinary cases, 12 verified churn passes, three churn
+reports/three zero-ledger cleanup rows and six verified suspension cases.
+All 45 result rows carrying a verified field report `verified=1`. The three
+cleanup rows each return registrations/code/metadata/snapshot storage to zero.
+These are one-sample cold/service/slice/coverage/resource observations, not
+paired performance acceptance. Source/binary hashes, raw logs, status files,
+process guards and idle-orphan comparisons are retained with the artifacts.
+Measurement session `86493` is terminal. Matching speed/shipping compiled-Off
+controls have not been rerun on this revision, and their acceptance stays open.
+
+### Session summary: bounded regions and measured remaining gaps
+
+#### Goal
+
+Fully implement this plan on the separate JIT branch, retaining all correctness,
+performance, resource, hardening and supported-platform acceptance requirements.
+
+#### Instructions
+
+Use Make in the pinned Nix environments, patch edits, functional code comments,
+and separate unsigned title-only Conventional Commits. Do not relax gates or
+substitute correctness evidence for performance acceptance.
+
+#### Discoveries
+
+- Basic blocks can be partitioned in-place using charged node records with no
+  additional allocation or native dispatch work; interpreter operations remain
+  singleton barriers and arbitrary validated PC re-entry remains legal.
+- Current numeric speedups pass, but table/upvalue/callback thresholds fail in
+  both fresh paired runs. No release-performance acceptance is established.
+- Sleeping orphan example processes need explicit classification and recorded
+  CPU-tick comparisons; a blanket target-path guard can refuse idle processes.
+
+#### Accomplished
+
+- Committed production block analysis/backend integration as `56bc035`.
+- Passed 119 focused tests; 2864 GNU and 2864 musl full-gate tests, 24 ignored
+  per target; selected Rust-only Miri 42 tests/eight namespaces.
+- Built/captured matching release artifacts, measured two failed paired native
+  gates and passing separately scoped metrics, preserving raw evidence.
+- Previous final generic-for artifact builds and verification are terminal.
+
+#### Next Steps
+
+- Continue typed scalar/data-flow and exit-snapshot analysis, complete transition
+  matrices, resource accounting/isolation, unsafe review and broader campaigns.
+- Improve measured table/upvalue/callback paths without regressing the frozen
+  compiled-Off speed/shipping controls; rerun all matching performance gates.
+- Collect actual ARM64/hosted execution evidence when available and authorized.
+- The full goal remains active/incomplete; local implementation work is available.
+
+#### Relevant Files
+
+- `src/jit/flow.rs` — owned charged basic-block partition, edge admission and
+  four new regression/property tests.
+- `src/jit/backend.rs` — generated successor validation consumes block analysis.
+- `JIT.md` — documents block-analysis scope and exclusions.
+- `PLAN_JIT.md` — revision-specific acceptance and remaining full-goal work.
+- `target/jit-evidence/regions/` — full/focused/Miri logs, copied artifacts,
+  hashes, paired failures, observational metrics and process-guard evidence.
 
 ## 15. Primary references
 
