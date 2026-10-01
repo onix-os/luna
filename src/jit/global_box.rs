@@ -47,7 +47,7 @@ mod tests {
     #[test]
     fn exact_charge_outlives_box_and_destructor_observes_reservation() {
         struct Probe {
-            ledger: std::sync::Arc<Ledger>,
+            ledger: crate::jit::resources::LedgerRef,
             dropped: Rc<Cell<usize>>,
         }
         impl Drop for Probe {
@@ -139,7 +139,7 @@ mod tests {
             fn answer(&self) -> usize;
         }
         struct Provider {
-            ledger: std::sync::Arc<Ledger>,
+            ledger: crate::jit::resources::LedgerRef,
             dropped: std::sync::Arc<std::sync::atomic::AtomicUsize>,
         }
         impl Answer for Provider {
@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn scope_panic_drops_box_before_charge_and_reclaims_global_allocation() {
-        struct Probe(std::sync::Arc<Ledger>);
+        struct Probe(crate::jit::resources::LedgerRef);
         impl Drop for Probe {
             fn drop(&mut self) {
                 assert_eq!(self.0.current(), Layout::new::<Self>().size());
@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn value_panic_keeps_charge_until_standard_box_unwind_deallocation() {
-        struct Probe(std::sync::Arc<Ledger>);
+        struct Probe(crate::jit::resources::LedgerRef);
         impl Drop for Probe {
             fn drop(&mut self) {
                 assert_eq!(self.0.current(), Layout::new::<Self>().size());

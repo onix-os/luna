@@ -44,7 +44,7 @@ fn accounted_usage_matches_live_components_and_gc_remains_unchanged() {
     assert_eq!(stats.snapshot_bytes, 0);
     assert_eq!(
         stats.accounted_jit_bytes,
-        stats.code_bytes + stats.metadata_bytes
+        stats.code_bytes + stats.metadata_bytes + stats.bootstrap_bytes
     );
     assert_eq!(lua.total_memory(), gc);
     assert_eq!(lua.total_memory(), lua.gc_metrics().total_allocation());
@@ -52,8 +52,14 @@ fn accounted_usage_matches_live_components_and_gc_remains_unchanged() {
     drop(executor);
     lua.gc_collect();
     lua.gc_collect();
-    assert_eq!(lua.jit_stats().accounted_jit_bytes, 0);
-    assert_eq!(lua.accounted_memory(), lua.total_memory());
+    assert_eq!(
+        lua.jit_stats().accounted_jit_bytes,
+        lua.jit_stats().bootstrap_bytes
+    );
+    assert_eq!(
+        lua.accounted_memory(),
+        lua.total_memory() + lua.jit_stats().bootstrap_bytes
+    );
 }
 
 #[test]
@@ -85,7 +91,10 @@ fn exact_combined_peak_admits_and_one_byte_less_refuses_and_recovers() -> Result
                 (0, 0, 0)
             );
             assert!(stats.host_allocation_refusals > 0);
-            assert_eq!(stats.accounted_jit_bytes, stats.metadata_bytes);
+            assert_eq!(
+                stats.accounted_jit_bytes,
+                stats.metadata_bytes + stats.bootstrap_bytes
+            );
             assert!(lua.accounted_memory() <= limit);
             lua.set_memory_limit(None);
             let mut config = lua.jit_config();
@@ -130,7 +139,10 @@ fn service_refuses_snapshot_after_headroom_is_exhausted_and_preserves_frame(
         (stats.snapshot_bytes, stats.code_bytes, stats.native_entries),
         (0, 0, 0)
     );
-    assert_eq!(stats.accounted_jit_bytes, stats.metadata_bytes);
+    assert_eq!(
+        stats.accounted_jit_bytes,
+        stats.metadata_bytes + stats.bootstrap_bytes
+    );
     assert!(stats.host_allocation_refusals > 0);
     lua.set_memory_limit(None);
     assert_eq!(lua.execute::<i64>(&executor)?, 1000);
@@ -141,7 +153,8 @@ fn service_refuses_snapshot_after_headroom_is_exhausted_and_preserves_frame(
 fn finish_reclaims_cached_code_before_stopping_a_live_source() -> Result<(), ExternError> {
     let (mut lua, executor) = state(b"local x=40 return x+2");
     lua.prepare_jit().unwrap();
-    let limit = lua.total_memory() + lua.jit_stats().metadata_bytes;
+    let limit =
+        lua.total_memory() + lua.jit_stats().metadata_bytes + lua.jit_stats().bootstrap_bytes;
     assert!(lua.accounted_memory() > limit);
     lua.set_memory_limit(Some(limit));
     assert_eq!(lua.execute::<i64>(&executor)?, 42);

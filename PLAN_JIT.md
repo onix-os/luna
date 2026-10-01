@@ -431,6 +431,11 @@ Basic-block analysis is now integrated (`56bc035`): bounded in-place partitions
 and header/linear successor checks preserve every legal PC. Full typed/data-flow
 and exit-snapshot analysis remains open; this does not complete Phase 3.
 
+Finalized image detachment (`f875233`) removes the retained Cranelift module from
+cached code. Code directly owns all provider mappings; the temporary charged
+handoff/provider and compiler internals drop before publication. Structural
+admission and transient compiler working-memory bounds remain distinct and open.
+
 Owned canonical exit descriptors (`f347245`) now constrain emitted exit kinds,
 PC/error positions and full fixed-register materialization prefixes. Conservative
 compiler write markers reject retries after current-instruction stores. Full
@@ -636,12 +641,45 @@ anonymous memmap2 handles. Page-rounded alignment padding is admitted before
 mapping; payload bounds, zero-size and overflow are checked. Protection preserves
 RW-to-RX/R, writable data, cache maintenance and feature-gated ARM64 BTI, without
 record growth. Real permission, partial-failure and allocation-free per-page
-reclamation probes pass on GNU/musl; bypass mutations are detected. Full current
+reclamation probes pass on GNU/musl; bypass mutations are detected. At that checkpoint,
 gates pass 4765 tests each and selected Miri passes 261 tests. Initial musl failure
 from an allocating /proc observer is retained, not hidden or counted as passing.
 Runtime/bootstrap and other compiler buffers, complete safety proofs, frozen
 performance controls and ARM64/hosted execution remain open; Phase 3/release
 acceptance is still incomplete.
+
+Shared root mapping usage (`1fad6d4`) removes the independent counter Arc by
+storing its atomic inline in the host Ledger. Allocation-free handles resolve
+children to the root; detached leases preserve that root/counter after runtime
+destruction. Three pure/Miri fixtures and one native lifecycle/quota/recovery
+fixture detect root-resolution bypass. Full GNU/musl gates pass 4785 executions
+each; selected Miri passes 264 tests. Root/child Ledger and runtime Rc owners
+remain outside the complete accounting policy. No Phase 3 completion or current
+performance claim follows.
+
+Exact ledger ownership (`8078b2f`) replaces private Arc headers with a concrete
+strong-only Global layout. Root/child header charges now contribute to
+`bootstrap_bytes`, accounted usage/peak and the combined host ceiling. Child
+headers and payloads share one atomic reservation total. A deallocation guard
+releases header charge after physical freeing, including value unwinding.
+Six owner, three bootstrap and one Lua-floor fixtures pass; release/quota bypass,
+relaxed-drop/data-race and physical-deallocation/leak mutations are detected.
+Full GNU/musl gates pass 4835 executions each; selected Miri passes 274 tests.
+The runtime Rc and remaining Cranelift working storage remain unaccounted;
+initial infallible Lua construction does not gain whole-state OOM recovery.
+Phase 3, performance controls and release acceptance remain incomplete.
+
+Runtime ownership (`c385b10`) closes the remaining state-bootstrap Rc allocation
+using the tested exact Global owner over RefCell<Manager>. Layout admission and
+post-deallocation charge release share the root header policy. The retained state
+floor is three ledger layouts plus the runtime layout. Four pure/Miri fixtures
+cover clones, quota/underlying refusal with input cleanup, exact admission and
+borrow-unwind recovery, and compile-time non-Send/non-Sync traits. Detached native
+leases retain mapping/root quota after runtime destruction while its own charge
+disappears. Charge bypass is detected. Full GNU/musl gates pass 4855 executions
+each; selected Miri passes 278 tests. Remaining compiler internal/retained buffers,
+allocator overhead/RSS, safety proofs, performance and ARM64/hosted evidence still
+prevent Phase 3/release acceptance.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
 2. Explicitly classify every opcode through an exhaustive match. Unknown/malformed input is refused; unsupported valid work exits to the interpreter.
@@ -7224,6 +7262,544 @@ alongside unrelated builds/tests/profiles, including other projects.
 - `Makefile` — pure/native/reclamation and selected/isolated Miri targets.
 - `JIT.md`, `PLAN_JIT.md` — protection/accounting scope, failure and acceptance evidence.
 - `target/jit-evidence/segments/` — revision-scoped current and original failed-run artifacts.
+
+### Continuation checkpoint — owned mapping acceptance recovered
+
+## Goal
+- Continue the full native-tier implementation on `feat/native-jit`; the previous
+  turn made verified implementation progress, not a blocked or completed goal.
+
+## Discoveries
+- The current accepted source is `4f737c2`, documented by `a57f617`; mapping
+  reclamation observations must not allocate after unmapping.
+- Engram tools are unavailable. This checkpoint preserves the recovered state
+  in the project plan rather than modifying the external memory folder.
+
+## Accomplished
+- Recovered the completed mapping milestone and its revision-scoped evidence:
+  GNU/musl 4765 passing tests each, selected Miri 261, supervised campaigns and
+  untimed candidate. No owned jobs remain live in the recovered checkpoint.
+
+## Next Steps
+- Inspect and account runtime/bootstrap owners, then continue compiler memory
+  bounds, safety proofs, unchanged performance gates and ARM64/hosted evidence.
+- Recheck current process state before any timings; unrelated jobs cannot be
+  excluded. Do not claim performance acceptance from the untimed binary.
+
+## Relevant Files
+- `src/jit/segments.rs`, `src/jit/backend.rs` — accepted owned mapping implementation.
+- `target/jit-evidence/segments/` — current and original failed-run evidence.
+- `PLAN_JIT.md` — full remaining scope and recovered session checkpoint.
+
+### Decision — fold mapping usage into the host ledger
+
+The runtime currently allocates an independent `Arc<AtomicUsize>` solely for
+mapped-page usage. Store that atomic inline in the existing root host ledger and
+use a private cloneable `MappingCounter` handle to that root instead. Constructing
+or cloning the handle allocates nothing; compiler modules and detached leases
+retain the same counter/root even after cache retirement or runtime destruction.
+Child-ledger handles resolve to the root, so no independent page quota can arise
+from rebuilding a child. Preserve distinct mapped and combined-host counters,
+existing page/host admission order, rollback and public statistics.
+
+This eliminates one separate bootstrap control allocation, not all bootstrap
+allocations: runtime Rc and root/child Ledger Arcs still need a faithful complete
+accounting policy. No guessed standard-library control-block layout is charged.
+Verify root identity, clone/lifetime, quota independence and shared counter
+updates under Miri, plus live-module/retired-lease quota enforcement natively.
+
+### Root mapping-counter acceptance session (2026-10-01)
+
+## Goal
+- Continue full native-tier implementation by removing the independent runtime
+  mapped-page counter allocation without weakening quota or lease lifetime rules.
+
+## Instructions
+- Keep unsigned, title-only incremental Conventional Commits; use Nix/Make and
+  patch tools. Do not time workloads alongside any project's builds/tests.
+
+## Discoveries
+- Mapping usage can live inline in the existing host root Ledger. Resolving
+  child handles to the root preserves one quota across modules and detached
+  leases without allocating another counter/control block.
+- Mapped-page and combined-host counters must remain distinct: a counter update
+  is not a host reservation. Provider admission/rollback/release still performs
+  both operations at the existing boundaries.
+- Final preflight detects unrelated astrocraft Make/Cargo/rustdoc jobs
+  (3670786/3670927/3675647). Earlier molla jobs are no longer the current blocker.
+  No arbitrary jobs are killed/excluded; no timings or profiles ran.
+
+## Accomplished
+- `1fad6d4` separately commits the inline root atomic, allocation-free private
+  MappingCounter, runtime/backend/model/fuzz migration and Make-backed fixtures.
+- Three pure tests verify nested-child/root identity, clone/update sharing,
+  lifetime after allocator handles drop, independent roots and quota separation.
+- A native fixture destroys the runtime while a detached lease remains callable,
+  proves the retained shared page counter refuses another module, then verifies
+  final-drop zero accounting and same-budget successful recompilation.
+- Focused `47306` passes **49 tests / 11 suites / 0 ignored**. It exposed a new
+  production-unused test import; moved it into its test scope, without suppressions.
+  Isolated Miri `96264` passes **3 / 1 / 0**.
+- Root-resolution bypass `24160` is terminal and fails one pure and one native
+  fixture (Make exit 2 each). Restored source hash matches. Restored counter and
+  Clippy `83704`, isolated Miri `66419` both exit 0; existing 141 lib-test warnings
+  remain, so this is not strict-Clippy acceptance.
+- Full GNU/musl `97084` completes both exit 0: **4785 passing executions /
+  434 suite results / 24 ignored** per platform. These repeat mode/doc suites,
+  not unique tests. Selected Miri `85875` completes exit 0: **264 tests /
+  37 suites / 0 ignored**, default empty MIRIFLAGS, nightly 2026-08-16 rustc
+  `67854e511`. No mapping/generated-execution/OS worker fixtures run under Miri.
+- Campaigns `11609` complete all four GNU/musl lanes exit 0. Per platform:
+  **4096 scalar/admission cases / 1641780 native invocations / 4758522 native
+  instructions**; **96 heap cases / 6344 main slices / 725 yields / 1633 callbacks /
+  96 retirements / 964 host reads / 2809 userdata observations / 65297 native
+  instructions**. Helpers: **22144 table reads / 7393 table writes / 1655
+  allocations / 21701 upvalue reads / 996 upvalue writes / 1179 declines**.
+  Both platforms reuse seeds/programs; repeated userdata samples are not native
+  instruction coverage and nested/finalizer internal slices are not paired.
+- Untimed opt3 `16691` completes exit 0; source ID, immutable candidate and binary
+  hash verified. Source hashes match. Current logs, exact long/full-smoke campaign
+  directories, counters, environment and artifacts are retained under
+  `target/jit-evidence/mapping-counter/`. All owned jobs are terminal.
+
+## Next Steps
+- Account remaining runtime Rc and root/child Ledger control owners; the inline
+  atomic removes a separate owner but does not account the existing root layout.
+- Complete frontend/backend compiler working-memory bounds and safety/lifecycle
+  proofs, broader coverage-guided/unsafe stress, unchanged performance controls,
+  actual ARM64/hosted execution and strict-Clippy acceptance.
+- Performance remains unaccepted. Recheck global contention before timing the
+  new candidate; historical failed gates are neither waived nor current results.
+- Full objective remains active and incomplete; this turn made verified progress.
+
+## Relevant Files
+- `src/jit/resources.rs` — inline mapped atomic, root-resolving handle, three pure tests.
+- `src/jit/mod.rs` — shared runtime root and detached native-lease lifecycle fixture.
+- `src/jit/backend.rs` — counter type migration, unchanged dual-quota policy.
+- `src/jit/fuzz.rs`, `src/jit/model.rs`, `src/jit/work.rs` — oracle/campaign migration.
+- `Makefile` — focused/native/isolated and selected-Miri counter targets.
+- `JIT.md`, `PLAN_JIT.md` — precise scope, acceptance and remaining requirements.
+- `target/jit-evidence/mapping-counter/` — revision-scoped evidence and untimed candidate.
+
+## Key Learnings:
+
+1. Resolve page-counter handles to the host root, not a newly rebuilt child ledger;
+   detached code must keep the same mapped quota after runtime/cache destruction.
+2. Inline mapped usage eliminates a separate owner allocation without claiming
+   that existing bootstrap headers or complete compiler memory are accounted.
+
+### Decision — exact ledger-owner bootstrap accounting
+
+Replace private Ledger Arcs with a strong-only Global owner whose concrete inner
+layout is known. Its final-drop guard deallocates before releasing an inline
+parent-root header charge, including destructor unwinding. Root and child headers
+are attributed separately from payload/container bytes. Production host roots
+enforce the combined total; standalone private test/snapshot ledgers retain their
+payload-only ceilings. Both kinds expose actual owner bytes explicitly.
+
+The host root's single reservation atomic includes header and payload bytes, so
+concurrent reservations cannot overbook a header-adjusted limit. Child creation
+admits its exact header before Global allocation and rolls back on allocation
+refusal. Add fallible root/child factories; existing infallible Lua construction
+keeps its existing allocation-failure contract, with no configured quota at that
+boundary. Do not claim whole-state OOM recovery. Runtime Rc remains a separate
+remaining owner after this step; no guessed Arc header or RSS estimate is used.
+
+### Ledger-owner focused findings
+
+Six Global-owner fixtures and three bootstrap fixtures pass in native and isolated
+Miri runs. Final isolated Miri `33466` is terminal, default flags; final focused
+Clippy `27310` is terminal and returns to the existing 141 lib-test warnings after
+moving the new test module below implementation items (no suppression).
+
+The first focused gate `94117` correctly exposes old zero-after-cache-clear
+assertions: the state still owns three ledger headers. Tests now require their
+exact layout-derived floor, and separate container/code reclamation remains zero.
+The next focused gate `5352` exposes the old usize::MAX payload overflow fixture:
+the root header already consumes part of the representable total. The repaired
+fixture fills the entire accounted usize::MAX total, then verifies one more byte
+is refused and all payload charge rolls back. Restored broad focused `95695`
+passes host limits, exact/one-byte-short preparation, refusal/recovery, detached
+lease behavior, previous status/provider ownership and policy checks. These
+focused results are not yet full GNU/musl/selected-Miri acceptance.
+
+### Exact ledger-owner acceptance session (2026-10-01)
+
+## Goal
+- Continue full implementation on `feat/native-jit` by accounting actual root and
+  child owner layouts without guessing std Arc internals or weakening host limits.
+
+## Instructions
+- The user asks for honest progress after two days of work. Do not call this
+  almost finished or provide an unsupported ETA; prioritize the full acceptance
+  checklist instead of presenting partial safety milestones as completion.
+- Keep incremental unsigned/title-only commits, Nix/Make validation, patch edits,
+  and global no-concurrent-build/test timing rules.
+
+## Discoveries
+- A state retains three ledger owners after cache/prototype cleanup. Their exact
+  bootstrap floor is nonzero until those owners actually deallocate; dynamic
+  metadata/snapshot/mapping cleanup remains independently zero.
+- Header and payload reservation must share one raw atomic total. Separate
+  subtraction-based admission would risk concurrent overbooking. The payload
+  current/peak metrics remain distinct from accounted usage/peak and bootstrap.
+- A moved inline charge held by the typed final-drop guard can retain the parent
+  root until physical deallocation, including value unwinding. Root self-layout
+  is counted while the root exists; no self-retaining ownership cycle is needed.
+- Engram remains unavailable; decisions and this structured summary are saved in
+  the project plan, not the external memory folder.
+
+## Accomplished
+- `8078b2f` commits exact strong-only Global owners, header admission/rollback,
+  fallible private root/child factories and public `bootstrap_bytes`. Existing
+  infallible Lua construction preserves its allocation-failure contract, without
+  claiming whole-state OOM recovery. Runtime Rc remains a separate open owner.
+- Draft `94117` catches two obsolete zero-floor assertions. Draft `5352` catches
+  the old usize::MAX payload fixture, now corrected to fill the entire accounted
+  usize::MAX total before proving one more byte refuses. Failed drafts remain raw
+  evidence, not acceptance. Broad restored `95695` passes **98 tests / 22 suites /
+  0 ignored**. Final focused/Clippy `27310` exits 0, removes the new test-module
+  placement warning without suppression, and retains the 141 lib-test backlog.
+- Final isolated Miri `33466` passes **9 tests / 2 suites / 0 ignored**. Six owner
+  fixtures cover clone/drop/overflow, exact alignment/borrowed values, allocation
+  denial, panic cleanup and destructor visibility without prior joins. Three
+  bootstrap fixtures cover nested lifetimes, quota/underlying refusal/recovery,
+  and concurrent header/payload admission. The Lua floor test uses exact layout.
+- Relaxed-drop mutation `18343` exits 0 only because its wrapper requires Make
+  failure: Make exits 2 and Miri reports a data race. Physical-deallocation bypass
+  `68026` similarly catches six Miri leak errors (Make exit 2). Header-release
+  bypass `8025` catches two bootstrap failures (exit 2). Admission bypass `45842`
+  catches two Lua failures and one native exact/one-byte-short peak failure (both
+  Make exits 2). Every job is terminal before source restoration; original hashes
+  match. No default Miri safety/leak checks are disabled.
+- Full GNU/musl `96044` completes both exit 0: **4835 passing executions /
+  434 suites / 24 ignored** per platform. Counts include repeated mode/doc suites,
+  not unique tests. Selected Miri `60799` completes exit 0: **274 tests /
+  39 suites / 0 ignored**, nightly 2026-08-16 rustc `67854e511`, empty flags. No
+  anonymous maps, generated instructions, OS workers or native heap programs run
+  under Miri. Clippy is not strict-warning acceptance.
+- Four long campaigns `88977` finish exit 0. Per platform: **4096 scalar/admission
+  cases / 1641780 native invocations / 4758522 native instructions**; **96 heap
+  cases / 6344 main slices / 725 yields / 1633 callbacks / 96 retirements /
+  964 host reads / 2809 userdata observations / 65297 native instructions**.
+  Helpers: **22144 table reads / 7393 table writes / 1655 allocations /
+  21701 upvalue reads / 996 upvalue writes / 1179 declines**. Seeds/programs are
+  reused across platforms; userdata samples are not instruction coverage and
+  nested/finalizer internal slices are not independently paired.
+- Untimed opt3 `54224` completes exit 0; immutable candidate, source ID and binary
+  hash retained and verified. Exact long/full-smoke campaign directories, source
+  hashes, counters, environment and current acceptance logs are under
+  `target/jit-evidence/ledger-owner/`. All owned jobs are terminal.
+- Final global preflight sees unrelated molla Make/Cargo/GPU test jobs
+  (3788434/3788486/3861457). No arbitrary jobs are killed/excluded, no timings or
+  profiles run, and no current performance claim follows.
+
+## Next Steps
+- Account the remaining runtime Rc owner and complete compiler working-memory
+  bounds; exact ledger headers do not close the whole resource contract.
+- Complete opcode/source-map/helper/GC/alias/liveness/lifecycle safety proofs and
+  broader coverage-guided/unsafe stress beyond seeded campaigns.
+- Resolve unchanged native and compiled-Off performance controls after a clean
+  global preflight; previous failures are not waived or current results.
+- Collect executed ARM64/hosted evidence and strict-Clippy acceptance. The full
+  goal remains active and incomplete; this turn made verified implementation progress.
+
+## Relevant Files
+- `src/jit/global_owner.rs` — exact Global allocation, atomic owner and post-free charge guard.
+- `src/jit/resources.rs` — LedgerRef, bootstrap/header quota and three pure fixtures.
+- `src/jit/mod.rs` — host root and additive bootstrap stats, lifecycle expectations.
+- `src/lua.rs` — accounted metrics include actual headers; retained-floor fixture.
+- `src/jit/global_box.rs`, `src/jit/preds.rs` — owner-handle fixture migration.
+- `tests/jit_memory.rs` — exact combined peak, retained floor and recovery expectations.
+- `Makefile` — focused and selected/isolated-Miri ledger-owner targets.
+- `JIT.md`, `PLAN_JIT.md` — precise current accounting/acceptance/remaining scope.
+- `target/jit-evidence/ledger-owner/` — revision-scoped evidence and untimed candidate.
+
+## Key Learnings:
+
+1. A live Lua state retains ledger headers after cache reclamation; report that
+   exact floor instead of claiming all JIT-owned bytes become zero.
+2. Header charges must reserve the same atomic total as payloads and remain held
+   until after actual deallocation, not merely until payload destruction starts.
+
+### Decision — charge the runtime owner through the host root
+
+Replace the last runtime Rc with the existing exact-layout GlobalShared owner
+over RefCell<Manager>, retaining a bootstrap charge in its post-deallocation
+guard. RefCell remains non-Sync; GlobalShared requires both Send and Sync for
+transfer, preserving the old non-Send/non-Sync runtime. Root ledgers do not own
+the runtime, so retaining the root in its charge introduces no ownership cycle.
+
+Factor the existing root header admission into HeaderCharge::try_new and use it
+for both child ledgers and runtime ownership. Admit actual layout before Global
+allocation; quota/underlying refusal must drop the input manager, release its
+child owners and retain no runtime charge. A private fallible factory supports
+proof; existing infallible Lua constructors keep their allocation contract.
+The live-state floor becomes three ledger layouts plus the runtime layout, not
+zero after cache clear. This closes bootstrap owner accounting, not remaining
+Cranelift working buffers, allocator overhead or process RSS.
+
+### Runtime-owner acceptance session (2026-10-01)
+
+## Goal
+- Continue full implementation by closing the remaining state-bootstrap runtime
+  Rc footprint while preserving arena/executor and single-threaded ownership rules.
+
+## Instructions
+- Keep honest progress and incremental unsigned/title-only commits. Use Nix/Make
+  and patch edits; no timing alongside any project's build/test/benchmark jobs.
+
+## Discoveries
+- The existing Global owner can own RefCell<Manager>; requiring both Send and
+  Sync for transfer keeps the runtime non-Send/non-Sync without new unsafe code.
+- HeaderCharge can serve both ledger and runtime layout admission. The runtime
+  retains the root through post-deallocation charge release without a cycle,
+  since the root does not own the runtime.
+- A detached lease outlives runtime destruction: its mapping and metadata-owner
+  charges remain, while the freed runtime and snapshot-ledger charges disappear.
+- One model fixture directly constructed the old Rc tuple wrapper. Both initial
+  focused `99304` and initial Miri `75581` fail compilation (E0308); migrated it
+  to the fallible factory. Those drafts are not runtime/Miri acceptance.
+
+## Accomplished
+- `c385b10` commits exact runtime ownership, common header admission, private
+  fallible runtime construction, layout-derived retained floor and factory/model
+  migration. Existing infallible Lua constructors keep their OOM contract.
+- Four fixtures cover charge retention through clones/final cleanup, quota and
+  underlying refusal with manager input cleanup, exact-ceiling admission and
+  borrow-unwind recovery, plus compile-time negative Send/Sync checks. Native
+  detached-lease coverage now asserts the precise freed bootstrap categories.
+- Restored broad focused `61706` passes **82 tests / 16 suites / 0 ignored**;
+  isolated Miri `63358` passes **4 / 1 / 0**. Charge bypass `41897` catches three
+  owner failures and one Lua-floor failure (both Make exits 2), terminal before
+  restoration; original mod.rs hash matches. Final focused/Clippy `72108` and
+  isolated Miri `51612` both exit 0; no new Clippy warnings or suppression.
+- Full GNU/musl `20950` completes both exit 0: **4855 passing executions /
+  434 suites / 24 ignored** each. Counts repeat mode/doc suites, not unique tests.
+  Selected Miri `53184` completes exit 0: **278 tests / 40 suites / 0 ignored**,
+  default empty flags, nightly 2026-08-16 rustc `67854e511`. No generated execution,
+  anonymous maps, OS workers or native heap programs run under Miri. Existing
+  141 lib-test Clippy warnings remain; strict-warning acceptance is still open.
+- Four campaigns `25525` complete exit 0. Per platform: **4096 scalar/admission
+  cases / 1641780 native invocations / 4758522 native instructions**; **96 heap
+  cases / 6344 main slices / 725 yields / 1633 callbacks / 96 retirements /
+  964 host reads / 2809 userdata observations / 65297 native instructions**.
+  Helpers: **22144 table reads / 7393 table writes / 1655 allocations /
+  21701 upvalue reads / 996 upvalue writes / 1179 declines**. The platforms reuse
+  seeds/programs; repeated userdata samples are not instruction coverage, and
+  nested/finalizer internal slices are not independently paired.
+- Untimed opt3 `7288` completes exit 0. Current source hashes, binary hash/source
+  ID, exact long/full-smoke campaign directories, environments and gate logs are
+  retained under `target/jit-evidence/runtime-owner/`. All owned jobs are terminal.
+- Fresh global preflight sees unrelated molla benchmark Make/Cargo/runtime/active
+  worker (3969019/3969024/3969029/3969030) and make-run 4008051. No arbitrary jobs
+  are killed/excluded; no timings/profiles run, and no current speedup is claimed.
+- Engram remains unavailable; project decisions/session context are persisted in
+  this plan without modifying the external memory folder.
+
+## Next Steps
+- Complete remaining frontend/backend compiler working-memory bounds. State
+  bootstrap, cached/status/provider owners and mapping records are accounted,
+  not all Cranelift buffers, allocator overhead or process RSS.
+- Complete opcode/source-map/helper/GC/alias/liveness/lifecycle safety proofs,
+  broader coverage-guided/unsafe stress and unchanged performance controls.
+- Obtain executed ARM64/hosted evidence and strict-Clippy acceptance. Recheck
+  global contention before timing the current candidate; historical failed gates
+  remain failures, not waived or current results.
+- The full objective remains active and incomplete; this turn made verified progress.
+
+## Relevant Files
+- `src/jit/mod.rs` — exact runtime owner/factory, four fixtures and detached lease accounting.
+- `src/jit/resources.rs` — common root header-charge admission.
+- `src/jit/model.rs` — direct-wrapper fixture migrated to the fallible factory.
+- `src/lua.rs` — ledger-plus-runtime retained-floor expectation.
+- `Makefile` — focused/native/isolated and selected-Miri runtime-owner gates.
+- `JIT.md`, `PLAN_JIT.md` — current precise bootstrap/acceptance/remaining scope.
+- `target/jit-evidence/runtime-owner/` — revision-scoped evidence and untimed candidate.
+
+## Key Learnings:
+
+1. A root-retaining post-deallocation charge can account the runtime owner without
+   a cycle, because the host ledger does not own the runtime.
+2. Runtime RefCell ownership remains non-Send/non-Sync even when its backing
+   strong counter is atomic; trait checks preserve that embedding boundary.
+
+### Decision — eliminate fixed-size frontend temporary vectors
+
+The backend still allocates three avoidable std vectors: nine helper declaration
+IDs, five copied entry parameters, and four constant helper arguments for every
+emitted helper instruction. Replace these with fixed stack arrays. Preserve
+fallible declaration order/early exit and cleanup with a private safe try-array
+collector; preserve exact entry arity through checked slice-to-array conversion.
+The emitter's existing fixed import-reference array and source/helper-flow
+verification remain unchanged. Cranelift-owned signature/DFG/context/module
+buffers remain separate open working-memory accounting, not hidden by this step.
+
+### Compaction checkpoint — frontend arrays in progress
+
+Recovered HEAD is `2fe5baf`; fixed frontend-array changes in backend.rs,
+mod.rs, arrays.rs and Makefile are not yet committed. Focused Make/Clippy
+handle `62942` finished exit 0 (18 tests, four suites, zero ignored); isolated
+Miri `19649` finished exit 0 (12 tests, two suites, zero ignored). Evidence is
+under `target/jit-evidence/frontend-arrays/`. No owned jobs remain running.
+Next: add arrays to selected Miri, test mutation sensitivity, restore and commit
+the source milestone, then record revision-scoped acceptance. Full compiler
+memory bounds, safety review, performance gates and ARM64 evidence remain open.
+Engram tools are unavailable; a registry search found no relevant Luna memory.
+No benchmark timing is accepted while unrelated global build/benchmark jobs run.
+
+### Session summary — frontend array milestone
+
+## Goal
+- Continue the full native-JIT plan on `feat/native-jit`; report actual progress.
+
+## Instructions
+- Keep commits incremental, unsigned, title-only and Conventional Commits.
+- Use Make through the repo's Nix environments; no Python edits.
+
+## Discoveries
+- Nine helper declarations, five entry parameters and four helper constants
+  need no heap vectors. Safe fixed arrays preserve order, errors and cleanup.
+- Cranelift-owned signatures/IR/context/module allocations remain unbounded by
+  the completed ownership policy. This small milestone does not resolve them.
+
+## Accomplished
+- `f4d2ea9` commits fixed frontend temporaries, five collector fixtures, focused
+  Make/Miri gates and inclusion in the full selected-Miri namespace loop.
+- Reversed callback-index mutation `12233` exits 2 with three failures (order,
+  early-error cleanup, panic-prefix cleanup); restoration matches original hash.
+- Restored GNU/Clippy `3458` exits 0: 18 tests/four suites/zero ignored, existing
+  141 lib-test Clippy warnings. Restored musl `28260` exits 0: 18/four/zero.
+  Restored isolated Miri `31978` exits 0: 12/two/zero, default checks unchanged.
+- All owned handles are terminal. Logs and source hashes are under
+  `target/jit-evidence/frontend-arrays/`. No new full-suite/campaign or timing
+  claim is made. Prior full GNU/musl/Miri evidence remains scoped to `c385b10`.
+- Engram tools unavailable; no relevant external-memory registry match found.
+
+## Next Steps
+- Resolve compiler-owned working-memory bounds, remaining safety/stress review,
+  unchanged performance acceptance, ARM64/hosted validation and strict Clippy.
+- Full objective remains active and incomplete. No truthful completion date or
+  percentage can be inferred from the passing focused milestone.
+
+## Relevant Files
+- `src/jit/arrays.rs` — safe fallible fixed-array collector and cleanup fixtures.
+- `src/jit/backend.rs`, `src/jit/mod.rs` — frontend array integration.
+- `Makefile` — focused and selected-Miri coverage.
+- `JIT.md`, `PLAN_JIT.md` — scoped acceptance and incomplete objective.
+
+## Key Learnings:
+
+1. Fixed ABI/helper arities allow stack arrays without allocating temporary vectors.
+2. Declaration-order mutation tests exercise both early-error and panic cleanup.
+
+### Decision — detach finalized mappings from compiler ownership
+
+Pinned Cranelift JITModule retains its ISA, symbol/declaration tables, compiled
+blobs, code ranges and finalization queues. Luna only needs the finalized entry
+and all provider-owned mappings after relocations/protection complete. Add a
+fallibly metadata-charged, strong-only mutex handoff between the provider adapter
+and compilation wrapper. On success, move the complete Memory owner into Code,
+drop the module/provider and their charge, then publish Code. On any failure,
+the last handoff owner drops Memory and releases mappings normally. Keep all
+executable, read-only and writable segments together; do not copy machine code
+or assume private Cranelift layouts. Handoff is empty after transfer and cannot
+release detached mappings. No compiler state survives in cached Code.
+This removes retained compiler buffers; transient compiler working memory and
+hard CPU/process isolation remain separate open requirements. The pinned module
+has no Drop implementation or external unwind registration requiring it to remain
+alive; its code-range table is an internal lookup used while linking.
+
+### Environment recovery — separate build volume
+
+Full GNU gate `90927` terminated exit 2: several ld.lld links died with SIGBUS.
+At that point `/home/bresilla/data` had about 200 MB free; the logs do not prove
+the underlying cause. Musl did not start. This is failed/draft evidence, not
+acceptance. Do not remove previous artifacts or evidence. A fresh retry uses
+`CARGO_TARGET_DIR=/home/bresilla/.cache/luna-jit/f875233`, on `/home` (213 GB free),
+with the same Nix/Make/toolchain/profile/gates. Restrict build parallelism to four
+Cargo jobs. This changes artifact location, not correctness/performance policy.
+The independently running selected Miri handle remains `33278`; do not restart it.
+
+### Miri environment failure and retry
+
+Selected Miri `33278` terminated exit 2 after the tags namespace's 37 tests
+passed: rustc then failed writing dep-graph.part.bin with explicit ENOSPC.
+This is not a passing full lane. Retry uses the separate `/home` volume with
+`CARGO_TARGET_DIR=/home/bresilla/.cache/luna-jit/miri-f875233`, unchanged pinned
+Miri/empty flags/selected namespaces. An external change subsequently restored
+space on `/home/bresilla/data`; no files were deleted by this task.
+
+### Session summary — finalized image ownership acceptance
+
+## Goal
+- Continue full PLAN_JIT.md implementation on `feat/native-jit`.
+
+## Instructions
+- Preserve incremental unsigned/title-only Conventional Commits, Nix/Make gates,
+  original performance thresholds and honest incomplete status. No Python edits.
+
+## Discoveries
+- Pinned JITModule retains compiler tables/ISA/blobs after finalization. All
+  relocations are complete before provider finalization; retaining the complete
+  provider Memory value keeps every mapping/address alive without the module.
+- Cranelift-jit defaults to no optional features; its optional Wasmtime unwind
+  lookup is not enabled. There is no module Drop/external registration requiring
+  compiler ownership to survive. Generated-frame unwinding stays prohibited.
+- Full-build failures coincided with disk pressure; Miri explicitly reports
+  ENOSPC. A separate `/home` Cargo target directory permits unchanged gates
+  without deleting files. Benchmark build recipes separately force repo target;
+  their artifact-location behavior is not changed or used by these retries.
+
+## Accomplished
+- `f875233` commits a fallibly charged mutex handoff/provider adapter; success
+  moves Memory directly into Code and drops module/provider/temporary charges
+  before publication. Failure releases unclaimed mappings with the last owner.
+- Five pure/Miri handoff fixtures cover exact quota/lifetime, refusals/retry,
+  final-owner cleanup, mutation/error/panic poison and borrowed aligned worker
+  transfer. Two native fixtures verify retained-storage accounting, execution
+  after compiler destruction and adapter refusal/free/drop after detachment.
+- Focused native/Clippy `17637` and isolated Miri `30874` exit 0; existing
+  141 lib-test warnings remain. Retention mutation `12207` exits 2 with the
+  exact-storage test failing; restoration `1024` exits 0 and hash matches.
+- Full retry `29283` exits 0: GNU and musl each **4915 passing executions /
+  434 suites / 24 ignored**. Counts repeat mode/doc suites, not unique tests.
+- Selected Miri retry `29083` exits 0: **288 tests / 42 suites / 0 ignored**,
+  pinned nightly 2026-08-16 rustc `67854e511`, empty flags/default checks.
+  Generated-code/OS-worker/native-map tests are not executed under Miri.
+- Long campaigns `29032` exit 0. Per platform: **4096 scalar/admission cases /
+  1641780 native invocations / 4758522 native instructions**; **96 heap cases /
+  6344 main slices / 725 yields / 1633 callbacks / 96 retirements / 964 host
+  reads / 2809 userdata observations / 65297 native instructions**. Helpers:
+  **22144 table reads / 7393 table writes / 1655 allocations / 21701 upvalue
+  reads / 996 upvalue writes / 1179 declines**. Platforms reuse seeds/programs;
+  userdata samples and nested/finalizer slices are not unique instruction proof.
+- Failed GNU `90927` and Miri `33278` remain draft logs, not acceptance. No owned
+  test/build/campaign jobs remain running; revision-scoped logs, source hashes,
+  environments and copied full-smoke/long campaign directories are retained in
+  `target/jit-evidence/detached-image/`. Engram unavailable; context saved here.
+
+## Next Steps
+- Bound remaining transient compiler work/memory where controllable; complete
+  safety/liveness/alias/GC review, broader coverage-guided/unsafe stress and
+  unchanged performance controls. Retained compiler state is now removed, not
+  a complete compiler/RSS ceiling or production-readiness proof.
+- Obtain executed ARM64/hosted evidence and strict-Clippy acceptance. No timing
+  was run amid unrelated global jobs; previous failed performance gates remain
+  failed and are not waived. Full goal stays active and incomplete.
+
+## Relevant Files
+- `src/jit/handoff.rs` — exact charged, strong-only, one-shot transfer slot.
+- `src/jit/backend.rs` — provider adapter, compiler disposal, direct mapping owner.
+- `src/jit/mod.rs`, `Makefile` — gated module, focused/native/selected-Miri coverage.
+- `JIT.md`, `PLAN_JIT.md` — scoped acceptance and remaining scope.
+- `target/jit-evidence/detached-image/` — accepted and failed/draft evidence.
+
+## Key Learnings:
+
+1. Finalized mappings can outlive Cranelift's compiler tables without moving code
+   or relying on private layouts when the provider's complete owner is retained.
+2. A passing Miri namespace followed by ENOSPC is a failed lane, not acceptance.
 
 ## 15. Primary references
 

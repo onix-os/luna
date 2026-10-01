@@ -1,13 +1,6 @@
 //! Optional native execution configuration and per-state diagnostics.
 
-use std::{
-    cell::RefCell,
-    rc::Rc,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
-};
+use std::{cell::RefCell, sync::atomic::Ordering};
 
 use ahash::RandomState;
 use allocator_api2::vec::Vec;
@@ -17,6 +10,11 @@ use thiserror::Error;
 
 mod abi;
 mod access;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod arrays;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -55,6 +53,12 @@ mod fuzz;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod global_box;
+mod global_owner;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod handoff;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -97,7 +101,7 @@ mod shape;
 ))]
 mod tags;
 mod work;
-use resources::{BudgetAllocator, Compaction, Compactor, Ledger};
+use resources::{BudgetAllocator, Compaction, Compactor, Ledger, LedgerRef, MappingCounter};
 
 pub(crate) type MetadataMap<K, V> = HashMap<K, V, RandomState, BudgetAllocator>;
 
@@ -223,6 +227,7 @@ pub struct JitStats {
     pub metadata_peak_bytes: usize,
     pub metadata_allocation_refusals: usize,
     pub accounted_jit_bytes: usize,
+    pub bootstrap_bytes: usize,
     pub accounted_jit_peak_bytes: usize,
     pub host_allocation_refusals: usize,
     pub metadata_compaction_attempts: u64,
@@ -261,8 +266,8 @@ pub(crate) struct Manager {
     code_compactor: Compactor,
     pub(crate) metadata: BudgetAllocator,
     pub(crate) snapshots: BudgetAllocator,
-    pub(crate) host: Arc<Ledger>,
-    pub(crate) memory: Arc<AtomicUsize>,
+    pub(crate) host: LedgerRef,
+    pub(crate) memory: MappingCounter,
     #[cfg(all(
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
@@ -284,7 +289,7 @@ pub(crate) struct Manager {
 impl Default for Manager {
     fn default() -> Self {
         let config = JitConfig::default();
-        let host = Ledger::new(usize::MAX);
+        let host = Ledger::host(usize::MAX);
         let metadata = BudgetAllocator(Ledger::child(config.max_metadata_bytes, host.clone()));
         let snapshots = BudgetAllocator(Ledger::child(config.max_snapshot_bytes, host.clone()));
         Self {
@@ -313,8 +318,8 @@ impl Default for Manager {
             memory_failure: backend::Failure::None,
             metadata,
             snapshots,
+            memory: MappingCounter::new(host.clone()),
             host,
-            memory: Arc::new(AtomicUsize::new(0)),
             #[cfg(all(
                 target_os = "linux",
                 any(target_arch = "x86_64", target_arch = "aarch64")
@@ -563,7 +568,10 @@ impl Manager {
 
 #[derive(Clone, Collect)]
 #[collect(require_static)]
-pub(crate) struct Runtime(pub(crate) Rc<RefCell<Manager>>);
+pub(crate) struct Runtime(pub(crate) RuntimeOwner);
+
+pub(crate) type RuntimeOwner =
+    global_owner::GlobalShared<RefCell<Manager>, resources::HeaderCharge>;
 
 pub(crate) struct Prepared {
     #[cfg(all(
@@ -575,7 +583,16 @@ pub(crate) struct Prepared {
 
 impl Runtime {
     pub(crate) fn new() -> Self {
-        Self(Rc::new(RefCell::new(Manager::default())))
+        Self::try_new(Manager::default())
+            .unwrap_or_else(|_| std::alloc::handle_alloc_error(RuntimeOwner::allocation_layout()))
+    }
+
+    fn try_new(manager: Manager) -> Result<Self, allocator_api2::alloc::AllocError> {
+        let charge = resources::HeaderCharge::try_new(
+            manager.host.clone(),
+            RuntimeOwner::allocation_bytes(),
+        )?;
+        RuntimeOwner::try_new(RefCell::new(manager), charge).map(Self)
     }
 
     pub(crate) fn record_interpreter(&self, instructions: u32, executed: bool) {
@@ -874,6 +891,102 @@ impl Runtime {
 }
 
 #[cfg(test)]
+mod runtime_owner_tests {
+    use super::*;
+
+    #[test]
+    fn exact_charge_survives_clones_and_releases_after_final_runtime_drop() {
+        let runtime = Runtime::new();
+        let host = runtime.0.borrow().host.clone();
+        let expected = 3 * LedgerRef::allocation_bytes() + RuntimeOwner::allocation_bytes();
+        assert_eq!(
+            (host.accounted(), host.bootstrap_bytes(), host.current()),
+            (expected, expected, 0)
+        );
+        let peer = runtime.clone();
+        assert_eq!(RuntimeOwner::strong_count(&runtime.0), 2);
+        runtime.0.borrow_mut().config.hot_threshold = 17;
+        drop(runtime);
+        assert_eq!(host.accounted(), expected);
+        assert_eq!(peer.0.borrow().config.hot_threshold, 17);
+        peer.0.borrow_mut().clear_registrations();
+        assert_eq!(host.accounted(), expected);
+        drop(peer);
+        assert_eq!(
+            (host.accounted(), host.bootstrap_bytes(), host.current()),
+            (
+                LedgerRef::allocation_bytes(),
+                LedgerRef::allocation_bytes(),
+                0
+            )
+        );
+    }
+
+    #[test]
+    fn quota_and_underlying_refusal_drop_manager_and_retain_no_runtime_charge() {
+        for underlying in [false, true] {
+            let manager = Manager::default();
+            let host = manager.host.clone();
+            let baseline = host.accounted();
+            host.set_limit(baseline + RuntimeOwner::allocation_bytes() - usize::from(!underlying));
+            let result = if underlying {
+                global_owner::with_allocation_denied(|| Runtime::try_new(manager))
+            } else {
+                Runtime::try_new(manager)
+            };
+            assert!(result.is_err());
+            assert_eq!(
+                (host.accounted(), host.bootstrap_bytes(), host.current()),
+                (
+                    LedgerRef::allocation_bytes(),
+                    LedgerRef::allocation_bytes(),
+                    0
+                )
+            );
+            assert_eq!(host.refusals(), usize::from(!underlying));
+        }
+    }
+
+    #[test]
+    fn exact_ceiling_admits_and_cell_borrow_unwind_preserves_owner() {
+        let manager = Manager::default();
+        let host = manager.host.clone();
+        let expected = host.accounted() + RuntimeOwner::allocation_bytes();
+        host.set_limit(expected);
+        let runtime = Runtime::try_new(manager).unwrap();
+        assert_eq!(host.accounted(), expected);
+        let borrow = runtime.0.borrow();
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| runtime.0.borrow_mut()))
+                .is_err()
+        );
+        drop(borrow);
+        runtime.0.borrow_mut().clear_registrations();
+        assert_eq!(host.accounted(), expected);
+        drop(runtime);
+        assert_eq!(host.accounted(), LedgerRef::allocation_bytes());
+    }
+
+    #[test]
+    fn runtime_owner_remains_non_send_and_non_sync() {
+        trait AmbiguousSend<A> {
+            fn check() {}
+        }
+        impl<T: ?Sized> AmbiguousSend<()> for T {}
+        impl<T: ?Sized + Send> AmbiguousSend<u8> for T {}
+        trait AmbiguousSync<A> {
+            fn check() {}
+        }
+        impl<T: ?Sized> AmbiguousSync<()> for T {}
+        impl<T: ?Sized + Sync> AmbiguousSync<u8> for T {}
+        let _ = <RuntimeOwner as AmbiguousSend<_>>::check;
+        let _ = <RuntimeOwner as AmbiguousSync<_>>::check;
+        let _ = <Runtime as AmbiguousSend<_>>::check;
+        let _ = <Runtime as AmbiguousSync<_>>::check;
+    }
+}
+
+#[cfg(test)]
 mod policy_tests {
     use super::*;
 
@@ -969,6 +1082,63 @@ mod eviction_tests {
     use super::*;
 
     #[test]
+    fn mapping_counter_retains_detached_lease_after_runtime_destruction() {
+        let runtime = Runtime::new();
+        runtime.0.borrow_mut().configure(JitConfig {
+            mode: JitMode::Auto,
+            ..Default::default()
+        });
+        request(&runtime, 1).unwrap();
+        let lease = runtime.lookup(1).unwrap();
+        let (host, counter, metadata, bytes, bootstrap) = {
+            let manager = runtime.0.borrow();
+            (
+                manager.host.clone(),
+                MappingCounter::new(manager.metadata.0.clone()),
+                manager.metadata.clone(),
+                runtime.usage(),
+                manager.host.bootstrap_bytes(),
+            )
+        };
+        assert!(bytes > 0);
+        runtime.0.borrow_mut().clear_registrations();
+        drop(runtime);
+        assert_eq!(
+            host.bootstrap_bytes(),
+            bootstrap - RuntimeOwner::allocation_bytes() - LedgerRef::allocation_bytes()
+        );
+        assert_eq!(counter.load(Ordering::Relaxed), bytes);
+        assert_executable(&lease);
+        assert!(matches!(
+            backend::compile_in(
+                &snapshot(),
+                counter.clone(),
+                bytes,
+                metadata.clone(),
+                work::Limits::from(&JitConfig::default()),
+                backend::Failure::None,
+            ),
+            Err(JitError::ResourceLimit("native mappings"))
+        ));
+        assert_eq!(counter.load(Ordering::Relaxed), bytes);
+        assert_executable(&lease);
+        drop(lease);
+        assert_eq!((counter.load(Ordering::Relaxed), host.current()), (0, 0));
+        let recovered = backend::compile_in(
+            &snapshot(),
+            counter.clone(),
+            bytes,
+            metadata,
+            work::Limits::from(&JitConfig::default()),
+            backend::Failure::None,
+        )
+        .unwrap();
+        assert_eq!(counter.load(Ordering::Relaxed), bytes);
+        drop(recovered);
+        assert_eq!((counter.load(Ordering::Relaxed), host.current()), (0, 0));
+    }
+
+    #[test]
     fn cached_owner_refusal_preserves_peer_and_refused_source_then_recovers() {
         for failure in [
             backend::Failure::RefuseOwnerStorage,
@@ -1036,7 +1206,10 @@ mod eviction_tests {
             drop((peer, source, peer_executor, source_executor, recovered));
             lua.gc_collect();
             lua.gc_collect();
-            assert_eq!(lua.jit_stats().accounted_jit_bytes, 0);
+            assert_eq!(
+                lua.jit_stats().accounted_jit_bytes,
+                lua.jit_stats().bootstrap_bytes
+            );
         }
     }
 
@@ -1071,7 +1244,7 @@ mod eviction_tests {
         assert_eq!(stats.snapshot_bytes, 0);
         assert_eq!(
             stats.accounted_jit_bytes,
-            stats.code_bytes + stats.metadata_bytes
+            stats.code_bytes + stats.metadata_bytes + stats.bootstrap_bytes
         );
         assert_eq!(
             lua.accounted_memory(),
@@ -1079,8 +1252,14 @@ mod eviction_tests {
         );
         assert_executable(&lease);
         drop(lease);
-        assert_eq!(lua.jit_stats().accounted_jit_bytes, 0);
-        assert_eq!(lua.accounted_memory(), lua.total_memory());
+        assert_eq!(
+            lua.jit_stats().accounted_jit_bytes,
+            lua.jit_stats().bootstrap_bytes
+        );
+        assert_eq!(
+            lua.accounted_memory(),
+            lua.total_memory() + lua.jit_stats().bootstrap_bytes
+        );
     }
 
     #[test]
@@ -1105,7 +1284,10 @@ mod eviction_tests {
                 ),
                 (0, 0, 0)
             );
-            assert_eq!(stats.accounted_jit_bytes, stats.metadata_bytes);
+            assert_eq!(
+                stats.accounted_jit_bytes,
+                stats.metadata_bytes + stats.bootstrap_bytes
+            );
             lua.enter(|ctx| ctx.jit().0.borrow_mut().memory_failure = backend::Failure::None);
             lua.clear_jit_cache();
             assert_eq!(lua.prepare_jit().unwrap(), 1);
@@ -1118,7 +1300,10 @@ mod eviction_tests {
             drop(closure);
             lua.gc_collect();
             lua.gc_collect();
-            assert_eq!(lua.jit_stats().accounted_jit_bytes, 0);
+            assert_eq!(
+                lua.jit_stats().accounted_jit_bytes,
+                lua.jit_stats().bootstrap_bytes
+            );
         }
     }
 

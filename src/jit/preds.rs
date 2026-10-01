@@ -88,7 +88,7 @@ impl Predecessors {
 
 #[cfg(test)]
 mod tests {
-    use std::{mem::size_of, sync::Arc};
+    use std::mem::size_of;
 
     use cranelift_codegen::{
         cursor::{Cursor, FuncCursor},
@@ -169,7 +169,7 @@ mod tests {
                 Err(JitError::ResourceLimit("frontend predecessor graph"))
             ));
             assert_eq!(ledger.current(), 0);
-            assert_eq!(Arc::strong_count(&ledger), 1);
+            assert_eq!(crate::jit::resources::LedgerRef::strong_count(&ledger), 1);
         }
     }
 

@@ -1,10 +1,4 @@
-use std::{
-    io,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
-};
+use std::{io, sync::atomic::Ordering};
 
 use allocator_api2::vec::Vec as BudgetVec;
 use cranelift_codegen::ir::{
@@ -19,11 +13,12 @@ use super::{
     abi::{self, Entry, Exit, Slot},
     atomic_owner::AtomicShared,
     exits::Kind as ExitKind,
-    global_box::{self, Charge as ProviderCharge},
+    global_box,
+    handoff::Handoff,
     helpers,
     ir::Snapshot,
     memory_status::MemoryStatus,
-    resources::BudgetAllocator,
+    resources::{BudgetAllocator, MappingCounter},
     segments::{Request, Segment},
     JitError,
 };
@@ -31,7 +26,7 @@ use crate::opcode::{Operation, RCIndex};
 
 struct Memory {
     allocations: BudgetVec<Segment, BudgetAllocator>,
-    total: Arc<AtomicUsize>,
+    total: MappingCounter,
     status: AtomicShared<MemoryStatus>,
     #[cfg(test)]
     failure: Failure,
@@ -153,22 +148,36 @@ impl JITMemoryProvider for Memory {
     }
 }
 
+struct Provider(Handoff<Memory>);
+
+impl JITMemoryProvider for Provider {
+    fn allocate(&mut self, size: usize, align: u64, kind: JITMemoryKind) -> io::Result<*mut u8> {
+        self.0
+            .with_mut(|memory| memory.allocate(size, align, kind))
+            .unwrap_or_else(|| Err(io::Error::other("native memory already detached")))
+    }
+
+    unsafe fn free_memory(&mut self) {
+        self.0.with_mut(Memory::release);
+    }
+
+    fn finalize(&mut self, protection: BranchProtection) -> ModuleResult<()> {
+        match self.0.borrow_mut().as_mut() {
+            Some(memory) => memory.finalize(protection),
+            None => Err(cranelift_module::ModuleError::Backend(anyhow::anyhow!(
+                "native memory already detached"
+            ))),
+        }
+    }
+}
+
 pub(super) struct Code {
-    module: Option<JITModule>,
-    _provider_charge: ProviderCharge,
+    _memory: Memory,
     entry: Entry,
     #[cfg(test)]
     byte_len: usize,
     pub registers: usize,
     pub entries: BudgetVec<bool, BudgetAllocator>,
-}
-
-impl Drop for Code {
-    fn drop(&mut self) {
-        if let Some(module) = self.module.take() {
-            unsafe { module.free_memory() };
-        }
-    }
 }
 
 impl Code {
@@ -253,7 +262,7 @@ pub(super) enum Failure {
 #[cfg(test)]
 pub(super) fn compile(
     snapshot: &Snapshot,
-    total: Arc<AtomicUsize>,
+    total: MappingCounter,
     limit: usize,
 ) -> Result<Code, JitError> {
     compile_in(
@@ -268,7 +277,7 @@ pub(super) fn compile(
 
 pub(super) fn compile_in(
     snapshot: &Snapshot,
-    total: Arc<AtomicUsize>,
+    total: MappingCounter,
     limit: usize,
     metadata: BudgetAllocator,
     work: super::work::Limits,
@@ -303,9 +312,7 @@ pub(super) fn compile_in(
             "cannot determine native memory page size",
         ));
     }
-    let provider_charge;
-    let provider;
-    (provider, provider_charge) = global_box::try_new(
+    let memory = Handoff::try_new(
         Memory {
             allocations: BudgetVec::new_in(metadata.clone()),
             total,
@@ -315,9 +322,13 @@ pub(super) fn compile_in(
             limit,
             page: page as usize,
         },
-        metadata,
+        metadata.clone(),
     )
     .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
+    let provider_charge;
+    let provider;
+    (provider, provider_charge) = global_box::try_new(Provider(memory.clone()), metadata)
+        .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
     #[cfg(test)]
     if failure == Failure::DetectProviderSetup {
         return Err(JitError::Compilation(
@@ -347,15 +358,13 @@ pub(super) fn compile_in(
         helper_signature.params.push(AbiParam::new(ty));
     }
     helper_signature.returns.push(AbiParam::new(types::I32));
-    let helper_ids = helpers::SYMBOLS
-        .iter()
-        .map(|(kind, name, _)| {
-            module
-                .declare_function(name, Linkage::Import, &helper_signature)
-                .map(|id| (*kind, id))
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(fail)?;
+    let helper_ids = super::arrays::try_array::<_, _, { helpers::SYMBOLS.len() }>(|index| {
+        let (kind, name, _) = helpers::SYMBOLS[index];
+        module
+            .declare_function(name, Linkage::Import, &helper_signature)
+            .map(|id| (kind, id))
+    })
+    .map_err(fail)?;
     let mut context = module.make_context();
     context.func.signature = signature;
     let mut fb_context = FunctionBuilderContext::new();
@@ -365,7 +374,10 @@ pub(super) fn compile_in(
         let entry = builder.create_block();
         builder.append_block_params_for_function_params(entry);
         builder.switch_to_block(entry);
-        let arguments = builder.block_params(entry).to_vec();
+        let arguments: [IrValue; 5] = builder
+            .block_params(entry)
+            .try_into()
+            .map_err(|_| JitError::Compilation("invalid native entry parameters".into()))?;
         blocks.extend((0..snapshot.operations.len()).map(|_| builder.create_block()));
         for block in &blocks {
             builder.append_block_param(*block, types::I32);
@@ -632,9 +644,14 @@ pub(super) fn compile_in(
     module.finalize_definitions().map_err(fail)?;
     let entry =
         unsafe { std::mem::transmute::<*const u8, Entry>(module.get_finalized_function(function)) };
+    let image = memory
+        .take()
+        .ok_or_else(|| JitError::Compilation("missing finalized native memory".into()))?;
+    drop(module);
+    drop(provider_charge);
+    drop(memory);
     Ok(Code {
-        module: Some(module),
-        _provider_charge: provider_charge,
+        _memory: image,
         entry,
         #[cfg(test)]
         byte_len,
@@ -695,10 +712,8 @@ impl Emitter<'_, '_> {
         );
         self.exit_state(ExitKind::Interpreter);
         self.exit_state(ExitKind::Panic);
-        let args: Vec<_> = [a, b, c, self.pc as u32]
-            .into_iter()
-            .map(|arg| self.builder.ins().iconst(types::I32, i64::from(arg)))
-            .collect();
+        let args = [a, b, c, self.pc as u32]
+            .map(|arg| self.builder.ins().iconst(types::I32, i64::from(arg)));
         let helper = self
             .helpers
             .iter()
@@ -3013,7 +3028,7 @@ mod memory_tests {
         });
         let ledger = snapshot.operations.allocator().0.clone();
         let baseline = ledger.current();
-        let total = Arc::new(AtomicUsize::new(0));
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
         let result = compile_in(
             &snapshot,
             total.clone(),
@@ -3109,7 +3124,7 @@ mod memory_tests {
         });
         let ledger = snapshot.operations.allocator().0.clone();
         let baseline = ledger.current();
-        let total = Arc::new(AtomicUsize::new(0));
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
         let result = compile_in(
             &snapshot,
             total.clone(),
@@ -3215,7 +3230,7 @@ mod memory_tests {
                 crate::FunctionPrototype::compile(ctx, "high-pc", b"return 42").unwrap();
             Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
         });
-        let total = Arc::new(AtomicUsize::new(0));
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
         let code = compile(&snapshot, total.clone(), 8 * 1024 * 1024).unwrap();
         for pc in [
             snapshot.operations.len(),
@@ -3258,7 +3273,7 @@ mod memory_tests {
         });
         let ledger = snapshot.operations.allocator().0.clone();
         let baseline = ledger.current();
-        let total = Arc::new(AtomicUsize::new(0));
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
         let result = compile_in(
             &snapshot,
             total.clone(),
@@ -3293,7 +3308,7 @@ mod memory_tests {
         });
         let ledger = snapshot.operations.allocator().0.clone();
         let baseline = ledger.current();
-        let total = Arc::new(AtomicUsize::new(0));
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
         let result = compile_in(
             &snapshot,
             total.clone(),
@@ -3342,7 +3357,7 @@ mod memory_tests {
         drop(stores);
         drop(graph);
         ledger.set_limit(limit);
-        let total = Arc::new(AtomicUsize::new(0));
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
         let result = compile_in(
             &snapshot,
             total.clone(),
@@ -3371,7 +3386,7 @@ mod memory_tests {
                     .unwrap();
             Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
         });
-        let total = Arc::new(AtomicUsize::new(0));
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
         let result = compile_in(
             &snapshot,
             total.clone(),
@@ -3493,7 +3508,7 @@ mod memory_tests {
                     .unwrap();
             Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
         });
-        let total = Arc::new(AtomicUsize::new(0));
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
         let result = compile_in(
             &snapshot,
             total.clone(),
@@ -3598,7 +3613,7 @@ mod memory_tests {
                 crate::FunctionPrototype::compile(ctx, "corrupt-tag", b"return 42").unwrap();
             Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
         });
-        let total = Arc::new(AtomicUsize::new(0));
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
         let result = compile_in(
             &snapshot,
             total.clone(),
@@ -3622,7 +3637,7 @@ mod memory_tests {
                     .unwrap();
             Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
         });
-        let total = Arc::new(AtomicUsize::new(0));
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
         let result = compile_in(
             &snapshot,
             total.clone(),
@@ -3653,7 +3668,7 @@ mod memory_tests {
         drop(records);
         drop(graph);
         ledger.set_limit(limit);
-        let total = Arc::new(AtomicUsize::new(0));
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
         let result = compile_in(
             &snapshot,
             total.clone(),
@@ -3683,7 +3698,7 @@ mod memory_tests {
             .unwrap();
             Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
         });
-        let total = Arc::new(AtomicUsize::new(0));
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
         let result = compile_in(
             &snapshot,
             total.clone(),
@@ -3779,7 +3794,7 @@ mod memory_tests {
             .unwrap();
             Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
         });
-        let total = Arc::new(AtomicUsize::new(0));
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
         let result = compile_in(
             &snapshot,
             total.clone(),
@@ -3851,7 +3866,7 @@ mod memory_tests {
             .unwrap();
             Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
         });
-        let total = Arc::new(AtomicUsize::new(0));
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
         let result = compile_in(
             &snapshot,
             total.clone(),
@@ -3987,7 +4002,7 @@ mod memory_tests {
             .unwrap();
             Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
         });
-        let total = Arc::new(AtomicUsize::new(0));
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
         let result = compile_in(
             &snapshot,
             total.clone(),
@@ -4055,7 +4070,7 @@ mod memory_tests {
                 crate::FunctionPrototype::compile(ctx, "truth-corruption", source).unwrap();
             Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
         });
-        let total = Arc::new(AtomicUsize::new(0));
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
         let result = compile_in(
             &snapshot,
             total.clone(),
@@ -4102,7 +4117,7 @@ mod memory_tests {
             .unwrap();
             Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
         });
-        let total = Arc::new(AtomicUsize::new(0));
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
         let result = compile_in(
             &snapshot,
             total.clone(),
@@ -4148,7 +4163,7 @@ mod memory_tests {
             .unwrap();
             Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
         });
-        let total = Arc::new(AtomicUsize::new(0));
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
         let result = compile_in(
             &snapshot,
             total.clone(),
@@ -4197,7 +4212,7 @@ mod memory_tests {
                     crate::FunctionPrototype::compile(ctx, name, source.as_bytes()).unwrap();
                 Snapshot::new(&prototype, 4096, 65536).unwrap()
             });
-            let total = Arc::new(AtomicUsize::new(0));
+            let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
             let code = compile(&snapshot, total.clone(), 8 * 1024 * 1024).unwrap();
             assert!(code.byte_len > 0);
             assert!(code.byte_len <= total.load(Ordering::Relaxed));
@@ -4270,6 +4285,105 @@ mod memory_tests {
         }
     }
 
+    #[test]
+    fn finalized_image_retains_only_charged_runtime_storage() {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype =
+                crate::FunctionPrototype::compile(ctx, "detached", b"return 42").unwrap();
+            Snapshot::new(&prototype, 4096, 4096).unwrap()
+        });
+        let host = super::super::resources::Ledger::new(2 * 1024 * 1024);
+        let metadata = super::super::resources::Ledger::child(65536, host.clone());
+        let total = MappingCounter::new(host.clone());
+        let code = compile_in(
+            &snapshot,
+            total.clone(),
+            1024 * 1024,
+            BudgetAllocator(metadata.clone()),
+            super::super::work::Limits::from(&super::super::JitConfig::default()),
+            Failure::None,
+        )
+        .unwrap();
+        let retained = code.entries.capacity() * std::mem::size_of::<bool>()
+            + AtomicShared::<MemoryStatus>::allocation_bytes()
+            + code._memory.allocations.capacity() * std::mem::size_of::<Segment>();
+        assert_eq!(metadata.current(), retained);
+        let mapped = code
+            ._memory
+            .allocations
+            .iter()
+            .map(|segment| segment.bytes)
+            .sum::<usize>();
+        assert!(mapped > 0);
+        assert_eq!(
+            (host.current(), total.load(Ordering::Relaxed)),
+            (retained + mapped, mapped)
+        );
+        assert!(segment_permissions(code.entry as *const u8)
+            .unwrap()
+            .starts_with("r-x"));
+        let mut slots = vec![
+            Slot {
+                tag: abi::NIL,
+                bits: 0
+            };
+            code.registers
+        ];
+        let exit = code.invoke(&mut slots, 0, 64);
+        assert!(exit.instructions > 0);
+        let Operation::Return { start, .. } = snapshot.operations[exit.pc as usize] else {
+            panic!("detached image did not reach return");
+        };
+        assert_eq!(
+            (
+                slots[usize::from(start.0)].tag,
+                slots[usize::from(start.0)].bits
+            ),
+            (abi::INTEGER, 42)
+        );
+        drop(code);
+        assert_eq!(
+            (
+                metadata.current(),
+                host.current(),
+                total.load(Ordering::Relaxed)
+            ),
+            (0, 0, 0)
+        );
+    }
+
+    #[test]
+    fn detached_provider_cannot_allocate_finalize_or_release_image() {
+        let memory = memory(1);
+        let total = memory.total.clone();
+        let metadata = memory.allocations.allocator().0.clone();
+        let slot = Handoff::try_new(memory, BudgetAllocator(metadata.clone())).unwrap();
+        let mut provider = Provider(slot.clone());
+        provider.allocate(1, 1, JITMemoryKind::Executable).unwrap();
+        provider.finalize(BranchProtection::None).unwrap();
+        let image = slot.take().unwrap();
+        let mapped = total.load(Ordering::Relaxed);
+        assert!(mapped > 0);
+        assert!(provider.allocate(1, 1, JITMemoryKind::Executable).is_err());
+        assert!(provider.finalize(BranchProtection::None).is_err());
+        unsafe {
+            provider.free_memory();
+        }
+        assert_eq!(total.load(Ordering::Relaxed), mapped);
+        drop((provider, slot));
+        assert_eq!(total.load(Ordering::Relaxed), mapped);
+        assert_eq!(
+            metadata.current(),
+            image.allocations.capacity() * std::mem::size_of::<Segment>()
+        );
+        assert!(segment_permissions(image.allocations[0].base())
+            .unwrap()
+            .starts_with("r-x"));
+        drop(image);
+        assert_eq!((metadata.current(), total.load(Ordering::Relaxed)), (0, 0));
+    }
+
     fn memory(pages: usize) -> Memory {
         let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
         assert!(page > 0);
@@ -4277,7 +4391,7 @@ mod memory_tests {
             allocations: BudgetVec::new_in(BudgetAllocator(super::super::resources::Ledger::new(
                 2 * 1024 * 1024,
             ))),
-            total: Arc::new(AtomicUsize::new(0)),
+            total: MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX)),
             status: MemoryStatus::try_new(BudgetAllocator(super::super::resources::Ledger::new(
                 4096,
             )))
@@ -4643,7 +4757,7 @@ mod memory_tests {
                 crate::FunctionPrototype::compile(ctx, "entry-metadata", b"return 42").unwrap();
             Snapshot::new(&prototype, 4096, 4096).unwrap()
         });
-        let total = Arc::new(AtomicUsize::new(0));
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
         let metadata = super::super::resources::Ledger::new(1);
         assert!(matches!(
             compile_in(
@@ -4689,7 +4803,7 @@ mod memory_tests {
             if cause == 2 {
                 metadata.fail_after(1);
             }
-            let total = Arc::new(AtomicUsize::new(0));
+            let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
             assert!(matches!(
                 compile_in(
                     &snapshot,
@@ -4725,7 +4839,7 @@ mod memory_tests {
         for cause in 0..3 {
             let host = super::super::resources::Ledger::new(2 * 1024 * 1024);
             let metadata = super::super::resources::Ledger::child(65536, host.clone());
-            let total = Arc::new(AtomicUsize::new(0));
+            let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
             let compile_module = |failure| {
                 compile_in(
                     &snapshot,
@@ -4808,7 +4922,8 @@ mod memory_tests {
         let snapshot_baseline = snapshot_ledger.current();
         let entry_bytes = snapshot.operations.len();
         let owner_bytes = AtomicShared::<MemoryStatus>::allocation_bytes()
-            + std::alloc::Layout::new::<Memory>().size();
+            + Handoff::<Memory>::allocation_bytes()
+            + std::alloc::Layout::new::<Provider>().size();
         for cause in 0..3 {
             let host = super::super::resources::Ledger::new(if cause == 1 {
                 entry_bytes + owner_bytes - 1
@@ -4824,9 +4939,9 @@ mod memory_tests {
                 host.clone(),
             );
             if cause == 2 {
-                metadata.fail_after(2);
+                metadata.fail_after(3);
             }
-            let total = Arc::new(AtomicUsize::new(0));
+            let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
             assert!(matches!(
                 compile_in(
                     &snapshot,
@@ -4851,7 +4966,9 @@ mod memory_tests {
                 if cause == 2 {
                     entry_bytes + owner_bytes
                 } else {
-                    entry_bytes + AtomicShared::<MemoryStatus>::allocation_bytes()
+                    entry_bytes
+                        + AtomicShared::<MemoryStatus>::allocation_bytes()
+                        + Handoff::<Memory>::allocation_bytes()
                 }
             );
             assert_eq!(metadata.refusals(), 1);
@@ -4870,7 +4987,7 @@ mod memory_tests {
         for cause in 0..3 {
             let host = super::super::resources::Ledger::new(2 * 1024 * 1024);
             let metadata = super::super::resources::Ledger::child(65536, host.clone());
-            let total = Arc::new(AtomicUsize::new(0));
+            let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
             let compile_module = |failure| {
                 compile_in(
                     &snapshot,
@@ -4889,12 +5006,13 @@ mod memory_tests {
             );
             let admission = snapshot.operations.len()
                 + AtomicShared::<MemoryStatus>::allocation_bytes()
-                + std::alloc::Layout::new::<Memory>().size()
+                + Handoff::<Memory>::allocation_bytes()
+                + std::alloc::Layout::new::<Provider>().size()
                 - 1;
             match cause {
                 0 => metadata.set_limit(baseline.0 + admission),
                 1 => host.set_limit(baseline.1 + admission),
-                _ => metadata.fail_after(2),
+                _ => metadata.fail_after(3),
             }
             assert!(matches!(
                 compile_module(Failure::DetectProviderSetup),
