@@ -431,6 +431,11 @@ Basic-block analysis is now integrated (`56bc035`): bounded in-place partitions
 and header/linear successor checks preserve every legal PC. Full typed/data-flow
 and exit-snapshot analysis remains open; this does not complete Phase 3.
 
+Owned canonical exit descriptors (`f347245`) now constrain emitted exit kinds,
+PC/error positions and full fixed-register materialization prefixes. Conservative
+compiler write markers reject retries after current-instruction stores. Full
+path-sensitive typed/data-flow/transition review remains open.
+
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
@@ -677,13 +682,13 @@ Do not disable tests, lower safety guarantees, catch arbitrary crashes as succes
 | 0: reference/backend feasibility | IN PROGRESS | Baseline gates, accounting characterization, executed ABI experiment, pinned backend decision | Nix `make verify`, fuel probes, RX helper call and worker-transfer probes passed on x86-64 Linux; Cranelift 0.136.1/Rust 1.97.1 pinned. The inherited `never_loop` errors are fixed; baseline Clippy passes with a warning backlog, not strict acceptance. GNU/musl x86-64 native gates pass; native ARM64/hosted results remain uncollected. |
 | 1: configuration/gates | IN PROGRESS | Optional dependency isolation, capability tests, explicit mode wrappers | Optional dependency tree checked without compiler crates; Off constructors and explicit config tests pass. Force wrappers now prepare outside arena entries; same-entry execution is disclosed rather than falsely claimed forced. |
 | 2: runtime boundary | IN PROGRESS | PC/effect/fuel/rooted-state mock/reference tests | Boundary tests pass per-PC/per-budget scalar and mixed-numeric Rust-model agreement, pinning/retirement, admission and allocation failure cases. Fourteen native integrations cover interrupted fuel and side-effect-preserving guard bailout with GC between slices. Complete transition mock coverage pending. |
-| 3: IR/code ownership | IN PROGRESS | Verifier/admission/cache/lifetime/resource tests | Owned CFG (`8132143`) checks every successor, unreachable operands, loops/continuations and lowering/effects before code generation. Bounded basic blocks (`56bc035`) add charged in-place partitions and backend header/linear edge checks, with 4096 Rust graph property cases. Graph/worklist storage share the snapshot ledger; exact quota/refusal rollback and interpreter recovery pass. Fixed SetList value ranges are repaired (`91bec50`). Existing owned-container/mapping/lease tests remain passing. Full typed/data-flow/exit/effect review and fixed-owner/compiler/combined-host accounting remain incomplete. |
+| 3: IR/code ownership | IN PROGRESS | Verifier/admission/cache/lifetime/resource tests | Owned CFG (`8132143`) checks every successor, unreachable operands, loops/continuations and lowering/effects before code generation. Bounded basic blocks (`56bc035`) add charged in-place partitions and backend header/linear edge checks, with 4096 Rust graph property cases. Owned exit descriptors (`f347245`) constrain wire kinds, PCs/materialization and retries after scalar stores; four negative IR-emitter tests detect removal of the check. Graph/worklist/descriptors share the snapshot ledger; exact quota/refusal rollback and interpreter recovery pass. Fixed SetList value ranges are repaired (`91bec50`). Full typed/data-flow/path-sensitive exit/effect review and fixed-owner/compiler/combined-host accounting remain incomplete. |
 | 4: native slices | IN PROGRESS | Actual native counters, numeric/fuel correctness | Explicit example returned 5000050000 with 200007 native logical instructions; fourteen native tests pass. Scalar operations, numeric loops, guarded comparison, and interpreter fallback integrated. Helper-backed heap operations execute natively; broader numeric/error coverage remains open. |
 | 5: lifecycle integration | IN PROGRESS | Mixed-tier callbacks, async/coroutines, errors and close tests | Dedicated heap/upvalue tests cover reentry, close/error unwinding, panic materialization, debug mutation, shared captures and finalizer resurrection. Public coroutine/foreign-await scenarios (`7351b4b`) verify all three modes at fuel 1/64/65536, native table updates after resumption, GC while parked, six Pending polls/two Ready polls/six wakes, and no compilation inside slices. GNU/musl full-feature Force passes. Complete transition/error/mock coverage remains open. |
 | 6: heap/GC integration | IN PROGRESS | Native heap paths, barriers, GC/mutation/invalidation stress | Fresh helper guards preserve weak/readonly/intercept/invalid-key behavior. Every-slice GC, open/closed upvalues, pending-scalar panic inspection, debug local/upvalue join and finalizer-only native upvalue writes pass. Shared-cell tests additionally prove exact operation counts and write visibility across error guards, foreign stacks, GC and Rust reentry. Broader interleaved executors, mode mutations and exhaustive guard coverage remain open. |
 | 7: Auto policy | IN PROGRESS | Nonblocking stepping, owned compile work, limits/backoff, hot promotion | Bounded hot requests and explicit outside-arena service; configuration retirement, queue/attempt reductions, typed quota refusal and reset tests pass. LRU retry, charged recency, sparse compaction, refusal backoff and source collection preserve leases/live identities. Real hot queued-source GC tests (`5570951`) cancel dead requests without snapshot/compiler work, preserve a live peer's queue/identity and reclaim all accounted storage after its final drop. Injected blocked compiler and complete resource/diagnostic coverage remain open. |
-| 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Slice leases, ABI v3, operand synchronization and tiered scratch pass correctness. Repeated native table/upvalue/callback gates still fail; metamethod results are borderline. Latest baseline speed integer control fails first and passes repeat; shipping upvalues pass first (1.0493) and fail repeat (1.0530), so neither profile has repeatable disabled-JIT acceptance. Reference-move specialization is rejected for repeated shipping regressions. Separate cold/service/slice/cache-churn and coroutine/async observations exist, not paired release acceptance. Perf counters remain permission-denied; hardening/resource/performance work stays open. |
-| 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Limited supervised admission/scalar campaigns test signals/timeouts/inherited limits; a five-seed 5120-kernel campaign verifies exits/slots/reclamation. Latest full GNU/musl x86-64 gates on `56bc035` pass 2864 tests/421 suite results each, 24 ignored; allocation/protection refusal is tested. Pinned default-seed Rust-only Miri passes 42 tests/eight namespaces, including owned flow/block analysis, six-reference Move alias/scalar/panic checks and integrated queued-source retirement. Generated code, coroutine/foreign-await scenarios and executable finalization are not Miri-covered. Broader heap/lifecycle fuzz, complete unsafe review and actual ARM64/hosted evidence remain open. |
+| 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Slice leases, ABI v3, operand synchronization and tiered scratch pass correctness. Latest frozen `f347245` native table/upvalue/metamethod/callback gates fail in both eleven-pair runs. Matched GNU speed-profile compiled-Off/no-JIT controls pass all nine cases twice; shipping fails three/five cases, including upvalues 1.1790/1.1743, so complete disabled-JIT acceptance remains unmet. Both checkers gate on ratios of medians, not their separately printed median-paired fields. Reference-move specialization remains historically rejected. Separate cold/service/slice/cache-churn and suspension observations pass, not paired release acceptance. Perf counters remain permission-denied; hardening/resource/performance work stays open. |
+| 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Limited supervised admission/scalar campaigns test signals/timeouts/inherited limits; a five-seed 5120-kernel campaign verifies exits/slots/reclamation. Latest full GNU/musl x86-64 gates on `f347245` pass 2904 tests/421 suite results each, 24 ignored; allocation/protection refusal is tested. Pinned default-seed Rust-only Miri passes 50 tests/ten namespaces, including owned flow/block/exit analysis and pure IR-emitter rejection, reference Move alias/scalar/panic checks and queued-source retirement. Generated machine code, coroutine/foreign-await scenarios and executable finalization are not Miri-covered. Broader heap/lifecycle fuzz, complete unsafe review and actual ARM64/hosted evidence remain open. |
 | 10: release acceptance | IN PROGRESS | Complete gates, thresholds, docs/examples, actual CI | Prepared example and resource/security documentation exist. Active workflow wiring runs full GNU/musl x86-64 and GNU ARM64 gates, builds matched shipping artifacts and uploads evidence. Workflow lint/local musl integration pass; repeated local shipping/size/disabled-cost evidence is recorded. Actual hosted/ARM64 results, complete hardening and both native/disabled performance acceptance remain missing. |
 
 Status values: TODO, IN PROGRESS, COMPLETE, or BLOCKED with a concrete reason. Attach toolchain, platform, commands, counts, exclusions, and evidence paths when updating a row. COMPLETE requires the stated phase exit, not a percentage estimate.
@@ -3455,6 +3460,189 @@ substitute correctness evidence for performance acceptance.
 - `PLAN_JIT.md` — revision-specific acceptance and remaining full-goal work.
 - `target/jit-evidence/regions/` — full/focused/Miri logs, copied artifacts,
   hashes, paired failures, observational metrics and process-guard evidence.
+
+### Owned canonical exit-snapshot admission decision
+
+Add a compiler-owned exit descriptor to each charged CFG node. It records the
+current instruction PC, full fixed-register materialization prefix and admitted
+wire outcomes (interpreter/guard/budget/helper panic), using only fixed-width
+owned scalars. Guard/interpreter/budget exits require no scalar writes by the
+current instruction; helper panic preserves current instruction error position
+via frame PC plus one and may require partially changed state materialization.
+Keep existing wire values/signature (ABI v3) and rooted Rust panic payloads.
+
+Consume descriptors during emission of budget checks, scalar guards, interpreter
+bailouts and helper decline/panic paths. A conservative per-instruction compiler
+write marker refuses retry exits emitted after stores; it is not a path-sensitive
+SSA proof, and future guarded optimizations must model distinct paths explicitly.
+These checks run during compilation, not VM dispatch or native execution. All
+canonical scratch slots still materialize in the existing Rust wrapper; no cached
+references, new roots, or new runtime allocation are introduced. The descriptor
+is included in the existing fallibly allocated Node charge. `make jit-ir` and the
+selected Rust-only Miri lane include its standalone tests. Full typed/data-flow,
+per-transition/mock/error and exit-state review requirements remain open.
+
+Four pure Cranelift-IR emitter tests attempt scalar guard, interpreter fallback,
+helper decline and budget exits after a scalar store. A temporary mutation
+removing the write check makes all four fail (Make exit 2); restoring it passes.
+The helper case additionally verifies the specific snapshot-refusal panic rather
+than accepting an unrelated missing-symbol panic. No module, executable mapping
+or native invocation is created by these negative tests. Four standalone state
+tests cover class/helper-specific wire kinds, full-register retry states,
+partial-write panic positions and range/overflow refusal. Final focused
+`make fmt fmt-check jit-ir jit-boundary jit-heap jit-resources` passes 135 tests
+across nine suite results. Preserve the mutation failure and restored focused
+logs; full target/Miri evidence is still to be gathered on the committed revision.
+
+### Exit-snapshot verification checkpoint
+
+`f347245` commits the descriptor/emitter integration, unchanged v3 wire kinds,
+eight positive/negative tests, Make lane/Miri selection and scope documentation.
+Final `make jit-verify clippy` on GNU and musl each passes 2904 tests/421 suite
+results, 24 ignored. Baseline Clippy passes with its warning backlog, not strict
+acceptance. Default-flags pinned-nightly Miri passes 50 tests/ten namespaces,
+including the four new descriptor tests and four pure Cranelift-IR emitter
+rejection tests. IR construction is not generated machine-code execution,
+executable finalization, coroutine or foreign-await Miri coverage.
+
+Combined verification/release-build session `98315` is terminal and successful.
+Matching native benchmark/metrics binaries and SHA-256 hashes are copied under
+`target/jit-evidence/exits/`, alongside source revision and raw logs. GNU matched
+feature-cost speed/shipping artifact builds completed in owned session `67787`;
+those builds alone are not timing or disabled-cost acceptance. A
+separate Molla Cargo build/test was active when timing availability was inspected;
+timings were deferred at that checkpoint. Subsequent guarded measurements below
+use the matching artifacts only after builds/tests ended.
+The previous region-revision paired failures retain their exact scope.
+
+### Separate frozen feature-cost build/run lanes
+
+Add `make jit-cost-native-run` and `make jit-size-run` for already-built artifacts.
+The combined convenience targets preserve their build/proof/check behavior but
+delegate to the run-only lanes. Standalone runs first require executable paths;
+paired samples/iterations and the existing per-case five-percent limit remain
+unchanged. This makes both speed and shipping controls measurable after all
+builds and tests have ended, without an implicit rebuild changing the artifact
+being compared. Preserve hashes/configuration separately from timing/proof logs.
+No Rust/native runtime source changes accompany this Make workflow separation.
+
+### Matching exit-revision controls and performance evidence
+
+After all owned/external build/test processes ended, measurement session `72898`
+ran frozen `f347245` production artifacts through the run-only Make lanes. It is
+terminal (exit 0 means orchestration completed, not that every gate passed).
+Pre/post guards pass for every run; the seven separately recorded sleeping
+PPID-1 examples retain identical zero user/system CPU ticks. No builds, tests
+or profiles are knowingly run alongside these measurements.
+
+Each feature-cost run uses eleven paired samples/twenty iterations per sample,
+plus actual native proof for the JIT artifact. Speed passes all nine independent
+five-percent controls in both runs (exit 0/0). Shipping fails three/five controls
+(exit 2/2), including table/upvalue/metamethods in both runs and integer/float
+loops on repeat. Preserve outliers instead of claiming a repeatable shipping pass.
+Ratio-of-medians overhead controls (compiled-Off/no-JIT), first/repeat:
+
+| Workload | Speed first | Speed repeat | Shipping first | Shipping repeat |
+| --- | ---: | ---: | ---: | ---: |
+| integer_loop | 0.9970 | 1.0136 | 0.9277 | 1.2085 |
+| float_loop | 1.0291 | 1.0277 | 1.0419 | 1.0519 |
+| array_table | 0.9863 | 0.9856 | 1.0951 | 1.1052 |
+| closure_upvalue | 1.0086 | 1.0132 | 1.1790 | 1.1743 |
+| polymorphic_metamethod | 1.0349 | 1.0337 | 1.0651 | 1.0659 |
+| rust_callbacks | 1.0168 | 1.0186 | 1.0034 | 1.0006 |
+| allocation_gc | 0.9832 | 0.9844 | 1.0163 | 1.0197 |
+| oslo_predicate | 0.9989 | 1.0041 | 1.0094 | 1.0113 |
+| cold_config | 1.0174 | 1.0146 | 1.0086 | 1.0004 |
+
+Two eleven-pair native checks each fail four workload thresholds (exit 2/2).
+Actual gate speedups are ratios of Off/Auto medians, first/repeat:
+
+| Workload | First | Repeat | Required | Result |
+| --- | ---: | ---: | ---: | --- |
+| integer_loop | 2.6352 | 2.5172 | 2.0 | pass |
+| float_loop | 4.8199 | 4.5579 | 2.0 | pass |
+| array_table | 1.1905 | 1.1884 | 1.25 | fail |
+| closure_upvalue | 0.7761 | 0.7789 | 1.25 | fail |
+| polymorphic_metamethod | 0.8188 | 0.8293 | 0.8333 | fail |
+| rust_callbacks | 0.8112 | 0.7895 | 0.8333 | fail |
+| allocation_gc | 1.0086 | 1.0054 | 0.8333 | pass |
+| oslo_predicate | 0.9023 | 0.9342 | unscored | observational |
+| cold_config | 1.0172 | 0.9828 | 0.8696 | pass |
+
+**Gate metric discovery:** both existing checkers compare ratios of independently
+computed medians, not the separately reported median of paired ratios. The
+metamethod repeat's median paired speedup is 0.8493, but its gate ratio is 0.8293,
+so it correctly remains a failure under the frozen checker. Do not select the
+more favorable statistic or reinterpret historical tables as a changed gate.
+This revision is a correctness admission change, not a controlled performance
+optimization experiment; these results do not attribute shipping costs to any
+specific code change without a matching prior-revision comparison.
+
+The separate one-sample metrics protocol (`--mode all --samples 1 --fuel 64`)
+passes: 27 ordinary rows, twelve churn passes and six suspension rows all carry
+`verified=1`; three churn reports/three cleanup rows retain scope and return
+registrations/code/metadata/snapshots to zero. This is observational data, not
+paired acceptance. All source/binary hashes, build flags, dependency trees,
+native proofs, paired output/status files and guards live under
+`target/jit-evidence/exits/` (feature controls under `cost/{speed,shipping}`).
+
+### Session summary: canonical exit admission and matching controls
+
+#### Goal
+
+Fully implement this plan on the separate JIT branch, preserving the full
+correctness, performance, resource, hardening and platform acceptance scope.
+
+#### Instructions
+
+Use Make/Nix gates and patch edits; retain separate unsigned title-only
+Conventional Commits. Keep timing separate from builds/tests/profiles and never
+change thresholds or select a favorable statistic to hide a failed gate.
+
+#### Discoveries
+
+- Retry exits require an unmodified current instruction; helper panic keeps
+  PC-plus-one error positioning with rooted payload and full materialization.
+- The current compiler can enforce conservative owned exit descriptors without
+  adding VM/native work, but this is not path-sensitive typed SSA or full review.
+- Both benchmark checkers use ratio-of-medians gates; their median-paired fields
+  are separate observations, and can disagree near thresholds.
+- Current speed-profile disabled costs pass twice; shipping and native mixed/heap
+  acceptance still fail. No causal performance attribution is established.
+
+#### Accomplished
+
+- Committed descriptor/emitter integration and eight tests as `f347245`.
+- Proved all four retry-after-store emitter tests detect removal of the check.
+- Passed 135 focused tests, GNU/musl full gates with 2904 tests each/24 ignored,
+  and pinned Rust-only Miri 50 tests/ten namespaces; Clippy warning backlog remains.
+- Captured matching native/metrics and speed/shipping no-JIT/compiled-Off artifacts,
+  hashes, configuration, sizes, proofs, repeated gates and process observations.
+- Committed separate feature-cost build/run lanes (`f157abe`); positive runs
+  exercise both profiles. Missing-artifact and missing-baseline checks refuse
+  execution, including refusal before native proof when no baseline exists.
+- Owned sessions `98315`, `67787`, and `72898` are all terminal; no restart needed.
+
+#### Next Steps
+
+- Continue scalar/data-flow and path-sensitive exit/transition analysis and
+  source mappings; complete accounting/isolation and unsafe/lifecycle campaigns.
+- Diagnose shipping dispatch costs and native table/upvalue/meta/callback paths
+  using matching controlled artifacts; rerun every unchanged performance gate.
+- Collect actual ARM64/hosted execution evidence when available and authorized.
+- The full goal remains active/incomplete; meaningful local work remains.
+
+#### Relevant Files
+
+- `src/jit/exits.rs` — owned exit contracts, PC/materialization and class tests.
+- `src/jit/flow.rs` — descriptors reside in charged compiler-owned nodes.
+- `src/jit/backend.rs` — emission consumes contracts; conservative write marker
+  and four pure-IR negative tests.
+- `src/jit/mod.rs` — shared exit-kind discriminant in guard statistics.
+- `Makefile` — exit/Miri test selection and frozen feature-cost run lanes.
+- `JIT.md`, `PLAN_JIT.md` — scope, evidence and remaining full-goal requirements.
+- `target/jit-evidence/exits/` — revision-specific raw verification/artifact and
+  measurement records, including mutation and missing-baseline failures.
 
 ## 15. Primary references
 

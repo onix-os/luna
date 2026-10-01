@@ -155,8 +155,10 @@ jit-cost-native-run:
 jit-size: jit-size-build
 	@$(MAKE) --no-print-directory jit-size-run
 
-jit-size-run: jit-cost-native-run
+jit-size-run:
+	@test -x '$(COST_DIR)/jit-off'
 	@test -x '$(COST_DIR)/no-jit'
+	@$(MAKE) --no-print-directory jit-cost-native-run
 	@set -o pipefail; $(COST_DIR)/no-jit --compare $(COST_DIR)/no-jit $(COST_DIR)/jit-off --samples $(COST_SAMPLES) --iterations $(COST_ITERATIONS) --check 2>&1 | tee $(COST_DIR)/cost.log
 
 jit-cost-profile:
@@ -490,8 +492,10 @@ help:
 	@echo "  jit-shipping Publish checked paired timings at shipping opt-level s"
 	@echo "  jit-size     Measure matched binary size and 5% disabled overhead"
 	@echo "  jit-size-build Build/copy matched probes (SIZE_PROFILE=shipping|speed)"
+	@echo "  jit-size-run Check existing matched probes without rebuilding"
 	@echo "  jit-cost-tests Test feature-cost protocol and frozen overhead control"
 	@echo "  jit-cost-native Verify usable native code in the matched JIT artifact"
+	@echo "  jit-cost-native-run Verify existing native probes without rebuilding"
 	@echo "  jit-cost-profile Compare VM instruction/cache/branch counts (PROFILE_CASE=...)"
 	@echo "  jit-profile  Profile the short-function workload (requires perf permission)"
 	@echo "  jit-rust-assembly Inspect symbol-retained Rust dispatch/helper assembly"
