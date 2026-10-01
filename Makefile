@@ -53,6 +53,7 @@ $(info ------------------------------------------)
 .PHONY: jit-miri
 .PHONY: jit-helpers jit-abi jit-config jit-registry jit-suspension jit-ir jit-generic-for jit-exits jit-access
 .PHONY: jit-tags
+.PHONY: jit-input
 .PHONY: jit-clippy
 
 ci-check:
@@ -236,6 +237,10 @@ jit-ir:
 jit-tags:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::tags::tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::corrupted_scalar_store_is_refused_before_codegen_and_mapping
+	@$(MAKE) --no-print-directory jit-input
+
+jit-input:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::omitted_numeric_guards_are_refused_before_codegen_and_mapping
 
 jit-access:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::access_tests

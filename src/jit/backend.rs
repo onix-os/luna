@@ -179,6 +179,7 @@ pub(super) enum Failure {
     Allocate,
     Protect,
     CorruptTag,
+    OmitNumericGuards,
 }
 
 #[cfg(test)]
@@ -207,7 +208,7 @@ pub(super) fn compile_in(
 ) -> Result<Code, JitError> {
     let expansion = super::work::Expansion::admit(snapshot, work)?;
     let graph = super::flow::FlowGraph::new(snapshot)?;
-    let mut stores = super::tags::Stores::new(&graph, snapshot.operations.allocator().clone())?;
+    let mut stores = super::tags::Stores::new(&graph, snapshot)?;
     let mut entries = BudgetVec::new_in(metadata.clone());
     entries
         .try_reserve_exact(snapshot.operations.len())
@@ -337,6 +338,8 @@ pub(super) fn compile_in(
                 pc: 0,
                 written: false,
                 stores: &mut stores,
+                #[cfg(test)]
+                omit_numeric_guards: failure == Failure::OmitNumericGuards,
             };
             for (pc, op) in snapshot.operations.iter().copied().enumerate() {
                 emitter.pc = pc;
@@ -440,6 +443,8 @@ struct Emitter<'a, 'b> {
     count: IrValue,
     written: bool,
     stores: &'a mut super::tags::Stores,
+    #[cfg(test)]
+    omit_numeric_guards: bool,
 }
 
 impl Emitter<'_, '_> {
@@ -611,6 +616,10 @@ impl Emitter<'_, '_> {
     }
 
     fn require_numeric(&mut self, tag: IrValue) {
+        #[cfg(test)]
+        if self.omit_numeric_guards {
+            return;
+        }
         let int = self.tag_is(tag, abi::INTEGER);
         let float = self.tag_is(tag, abi::NUMBER);
         let numeric = self.builder.ins().bor(int, float);
@@ -624,7 +633,17 @@ impl Emitter<'_, '_> {
             .builder
             .ins()
             .bitcast(types::F64, MemFlagsData::new(), bits);
-        self.builder.ins().select(integer, converted, float)
+        let result = self.builder.ins().select(integer, converted, float);
+        self.numeric_input(result, tag, bits);
+        result
+    }
+
+    fn numeric_input(&mut self, point: IrValue, tag: IrValue, bits: IrValue) {
+        self.stores.numeric_input(
+            self.builder.func.dfg.value_def(point).unwrap_inst(),
+            tag,
+            bits,
+        );
     }
 
     fn advance(&mut self, next: usize) {
@@ -864,6 +883,8 @@ impl Emitter<'_, '_> {
                 Operation::Sub { .. } => self.builder.ins().isub(lb, rb),
                 _ => self.builder.ins().imul(lb, rb),
             };
+            self.numeric_input(bits, lt, lb);
+            self.numeric_input(bits, rt, rb);
             self.store_typed(dest, abi::INTEGER, bits);
             self.advance(self.pc + 1);
         }
@@ -913,9 +934,13 @@ impl Emitter<'_, '_> {
             .bitcast(types::F64, MemFlagsData::new(), rb);
         let float_result = self.builder.ins().fcmp(fcc, left, right);
         let result = self.builder.ins().select(integer, int_result, float_result);
+        self.numeric_input(result, lt, lb);
+        self.numeric_input(result, rt, rb);
         self.builder.ins().jump(join, &[result.into()]);
         self.builder.switch_to_block(mixed);
         let result = self.mixed_compare(op, lt, lb, rb);
+        self.numeric_input(result, lt, lb);
+        self.numeric_input(result, rt, rb);
         self.builder.ins().jump(join, &[result.into()]);
         self.builder.switch_to_block(join);
         let result = self.builder.block_params(join)[0];
@@ -1007,6 +1032,8 @@ impl Emitter<'_, '_> {
         let target = (self.pc + 1).checked_add_signed(isize::from(jump)).unwrap();
         self.builder.switch_to_block(integer);
         let index = self.builder.ins().isub(ib, sb);
+        self.numeric_input(index, it, ib);
+        self.numeric_input(index, st, sb);
         self.store_typed(base, abi::INTEGER, index);
         self.advance(target);
         self.builder.switch_to_block(float);
@@ -1039,6 +1066,8 @@ impl Emitter<'_, '_> {
         self.builder.append_block_param(join, types::I8);
         self.builder.switch_to_block(integer);
         let (index, overflow) = self.builder.ins().sadd_overflow(ib, sb);
+        self.numeric_input(index, it, ib);
+        self.numeric_input(index, st, sb);
         let negative = self.builder.ins().icmp_imm_s(IntCC::SignedLessThan, sb, 0);
         let ge = self
             .builder
@@ -1065,6 +1094,7 @@ impl Emitter<'_, '_> {
         let float_in_range = self.builder.ins().select(negative, ge, le);
         let li = self.tag_is(lt, abi::INTEGER);
         let in_range = self.builder.ins().select(li, int_in_range, float_in_range);
+        self.numeric_input(in_range, lt, lb);
         let not_overflow = self.builder.ins().bxor_imm_u(overflow, 1);
         let condition = self.builder.ins().band(not_overflow, in_range);
         let tag = self.constant(abi::INTEGER);
@@ -1131,9 +1161,7 @@ mod exit_tests {
             prototypes: 0,
         };
         let graph = super::super::flow::FlowGraph::new(&snapshot).unwrap();
-        let mut stores =
-            super::super::tags::Stores::new(&graph, snapshot.operations.allocator().clone())
-                .unwrap();
+        let mut stores = super::super::tags::Stores::new(&graph, &snapshot).unwrap();
         let mut function = cranelift_codegen::ir::Function::new();
         let mut context = FunctionBuilderContext::new();
         let mut builder = FunctionBuilder::new(&mut function, &mut context);
@@ -1157,6 +1185,7 @@ mod exit_tests {
             count,
             written: false,
             stores: &mut stores,
+            omit_numeric_guards: false,
         };
         action(&mut emitter);
     }
@@ -1372,6 +1401,30 @@ mod memory_tests {
             BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
             super::super::work::Limits::from(&super::super::JitConfig::default()),
             Failure::CorruptTag,
+        );
+        assert!(
+            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")
+        );
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn omitted_numeric_guards_are_refused_before_codegen_and_mapping() {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype =
+                crate::FunctionPrototype::compile(ctx, "omit-guards", b"local x=40 return x+2")
+                    .unwrap();
+            Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
+        });
+        let total = Arc::new(AtomicUsize::new(0));
+        let result = compile_in(
+            &snapshot,
+            total.clone(),
+            8 * 1024 * 1024,
+            BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
+            super::super::work::Limits::from(&super::super::JitConfig::default()),
+            Failure::OmitNumericGuards,
         );
         assert!(
             matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")

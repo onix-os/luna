@@ -57,8 +57,15 @@ slot loads require dominating, single-predecessor guarded edges to exclude
 references. Merged/bypassed guards, reference-contaminated phis, unrecorded stores
 and unsupported memory-store forms are refused. Input slot tags are the five ABI
 v3 tags produced by canonical packing and helpers, not arbitrary external native
-buffers. This is not payload, liveness, alias or complete typed-SSA verification.
-Luna-owned store records/worklists use the snapshot ledger and can report
+buffers. Numeric-consumer records additionally require Integer or Numeric tag
+admission, adjacent tag/payload loads from the same slot (or constant pairs), and
+an actual SSA dependency on the recorded payload. Compound Boolean guards use a
+bounded predicate evaluator; arbitrary non-Boolean operands supply no proof.
+Exact expected record counts reject missing obligations. Semantic checks are
+vacuous only on guarded paths proven unreachable without queried-tag assumptions;
+physical store coverage and record counts still apply. This does not prove full
+payload selection, operation equivalence, liveness, aliasing or complete typed SSA.
+Luna-owned store/input records and worklists use the snapshot ledger and can report
 `ResourceLimit("scalar tag verification")`; compiler CFG/dominator storage remains
 outside the current ledger. Record-envelope violations are compiler errors and
 never silently grow verification storage.

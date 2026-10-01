@@ -9,6 +9,7 @@ use cranelift_codegen::{
 };
 
 use super::{abi, flow::FlowGraph, resources::BudgetAllocator, JitError};
+use crate::opcode::Operation;
 
 const ALL: u8 = (1 << (abi::REFERENCE + 1)) - 1;
 
@@ -18,8 +19,17 @@ struct Store {
     allowed: u8,
 }
 
+#[derive(Clone, Copy)]
+struct Input {
+    inst: Inst,
+    tag: Value,
+    bits: Value,
+}
+
 pub(super) struct Stores {
     records: Vec<Store, BudgetAllocator>,
+    inputs: Vec<Input, BudgetAllocator>,
+    expected_inputs: Option<usize>,
     overflowed: bool,
 }
 
@@ -32,8 +42,25 @@ fn invalid() -> JitError {
 }
 
 impl Stores {
-    pub fn new(graph: &FlowGraph, allocator: BudgetAllocator) -> Result<Self, JitError> {
+    pub fn new(graph: &FlowGraph, snapshot: &super::ir::Snapshot) -> Result<Self, JitError> {
+        let allocator = snapshot.operations.allocator().clone();
         let mut capacity = 0usize;
+        let mut input_capacity = 0usize;
+        for &op in &snapshot.operations {
+            let count = match op {
+                Operation::Add { .. }
+                | Operation::Sub { .. }
+                | Operation::Mul { .. }
+                | Operation::Eq { .. }
+                | Operation::Less { .. }
+                | Operation::LessEq { .. }
+                | Operation::NumericForPrep { .. } => 4,
+                Operation::Div { .. } => 2,
+                Operation::NumericForLoop { .. } => 6,
+                _ => 0,
+            };
+            input_capacity = input_capacity.checked_add(count).ok_or_else(refused)?;
+        }
         for node in &graph.nodes {
             if node.lowering.native() {
                 capacity = capacity
@@ -41,10 +68,16 @@ impl Stores {
                     .ok_or_else(refused)?;
             }
         }
-        let mut records = Vec::new_in(allocator);
+        let mut records = Vec::new_in(allocator.clone());
         records.try_reserve_exact(capacity).map_err(|_| refused())?;
+        let mut inputs = Vec::new_in(allocator);
+        inputs
+            .try_reserve_exact(input_capacity)
+            .map_err(|_| refused())?;
         Ok(Self {
             records,
+            inputs,
+            expected_inputs: Some(input_capacity),
             overflowed: false,
         })
     }
@@ -57,6 +90,14 @@ impl Stores {
         self.records.push(Store { inst, allowed });
     }
 
+    pub fn numeric_input(&mut self, inst: Inst, tag: Value, bits: Value) {
+        if self.inputs.len() == self.inputs.capacity() {
+            self.overflowed = true;
+            return;
+        }
+        self.inputs.push(Input { inst, tag, bits });
+    }
+
     pub fn verify(
         &self,
         function: &Function,
@@ -66,6 +107,9 @@ impl Stores {
     ) -> Result<(), JitError> {
         if registers > 256
             || self.overflowed
+            || self
+                .expected_inputs
+                .is_some_and(|count| self.inputs.len() != count)
             || self
                 .records
                 .windows(2)
@@ -112,7 +156,7 @@ impl Stores {
         if found != self.records.len() {
             return Err(invalid());
         }
-        if found == 0 {
+        if found == 0 && self.inputs.is_empty() {
             return Ok(());
         }
         let mut cfg = ControlFlowGraph::new();
@@ -145,8 +189,32 @@ impl Stores {
                 .layout
                 .inst_block(record.inst)
                 .ok_or_else(invalid)?;
+            if analysis.unreachable(block) {
+                continue;
+            }
             let possible = analysis.possible(args[0], block)?;
             if possible == 0 || possible & !record.allowed != 0 {
+                return Err(invalid());
+            }
+        }
+        for input in &self.inputs {
+            let block = function.layout.inst_block(input.inst).ok_or_else(invalid)?;
+            if analysis.unreachable(block) {
+                continue;
+            }
+            let allowed = match function.dfg.insts[input.inst].opcode() {
+                Opcode::Iadd | Opcode::Isub | Opcode::Imul | Opcode::SaddOverflow => {
+                    1 << abi::INTEGER
+                }
+                Opcode::Select | Opcode::Band => (1 << abi::INTEGER) | (1 << abi::NUMBER),
+                _ => return Err(invalid()),
+            };
+            let possible = analysis.possible(input.tag, block)?;
+            if possible == 0
+                || possible & !allowed != 0
+                || !analysis.pair(input.tag, input.bits)
+                || !analysis.depends(input.inst, input.bits)?
+            {
                 return Err(invalid());
             }
         }
@@ -182,6 +250,11 @@ struct Analysis<'a> {
 }
 
 impl Analysis<'_> {
+    fn fresh(&mut self) -> Result<(), JitError> {
+        self.epoch = self.epoch.checked_add(1).ok_or_else(refused)?;
+        self.pending.clear();
+        Ok(())
+    }
     fn push(&mut self, value: Value) {
         let value = self.function.dfg.resolve_aliases(value);
         let seen = &mut self.seen[value.as_u32() as usize];
@@ -192,8 +265,7 @@ impl Analysis<'_> {
     }
 
     fn possible(&mut self, value: Value, store: Block) -> Result<u8, JitError> {
-        self.epoch = self.epoch.checked_add(1).ok_or_else(refused)?;
-        self.pending.clear();
+        self.fresh()?;
         self.push(value);
         let mut possible = 0;
         while let Some(value) = self.pending.pop() {
@@ -273,31 +345,13 @@ impl Analysis<'_> {
                         let yes = blocks[0].block(&self.function.dfg.value_lists);
                         let no = blocks[1].block(&self.function.dfg.value_lists);
                         if yes != no {
-                            let arg = self.function.dfg.resolve_aliases(arg);
-                            if let ValueDef::Result(inst, 0) = self.function.dfg.value_def(arg) {
-                                if let InstructionData::IntCompare { cond, args, .. } =
-                                    self.function.dfg.insts[inst]
+                            for tag in 0..=abi::REFERENCE {
+                                let mut remaining = 64;
+                                if let Some(Some(truth)) =
+                                    self.predicate(arg, Some(value), tag, &mut remaining)
                                 {
-                                    let constant = if self.function.dfg.resolve_aliases(args[0])
-                                        == value
-                                    {
-                                        Some(args[1])
-                                    } else if self.function.dfg.resolve_aliases(args[1]) == value {
-                                        Some(args[0])
-                                    } else {
-                                        None
-                                    };
-                                    if let Some(tag) =
-                                        constant.and_then(|constant| self.constant_tag(constant))
-                                    {
-                                        let bit = 1 << tag;
-                                        possible &= match (cond, yes == block) {
-                                            (IntCC::Equal, true) | (IntCC::NotEqual, false) => bit,
-                                            (IntCC::NotEqual, true) | (IntCC::Equal, false) => {
-                                                ALL & !bit
-                                            }
-                                            _ => ALL,
-                                        };
+                                    if truth != (yes == block) {
+                                        possible &= !(1 << tag);
                                     }
                                 }
                             }
@@ -313,7 +367,54 @@ impl Analysis<'_> {
         possible
     }
 
-    fn constant_tag(&self, value: Value) -> Option<u8> {
+    fn predicate(
+        &self,
+        condition: Value,
+        queried: Option<Value>,
+        tag: u64,
+        remaining: &mut usize,
+    ) -> Option<Option<bool>> {
+        *remaining = remaining.checked_sub(1)?;
+        let condition = self.function.dfg.resolve_aliases(condition);
+        let ValueDef::Result(inst, 0) = self.function.dfg.value_def(condition) else {
+            return None;
+        };
+        match self.function.dfg.insts[inst] {
+            InstructionData::IntCompare { cond, args, .. } => {
+                let left = self.literal(args[0], queried, tag);
+                let right = self.literal(args[1], queried, tag);
+                Some(match (left, right, cond) {
+                    (Some(left), Some(right), IntCC::Equal) => Some(left == right),
+                    (Some(left), Some(right), IntCC::NotEqual) => Some(left != right),
+                    _ => None,
+                })
+            }
+            InstructionData::Binary { opcode, args }
+                if matches!(opcode, Opcode::Band | Opcode::Bor | Opcode::Bxor) =>
+            {
+                let left = self.predicate(args[0], queried, tag, remaining)?;
+                let right = self.predicate(args[1], queried, tag, remaining)?;
+                Some(match (opcode, left, right) {
+                    (Opcode::Band, Some(false), _) | (Opcode::Band, _, Some(false)) => Some(false),
+                    (Opcode::Bor, Some(true), _) | (Opcode::Bor, _, Some(true)) => Some(true),
+                    (Opcode::Band, Some(left), Some(right)) => Some(left & right),
+                    (Opcode::Bor, Some(left), Some(right)) => Some(left | right),
+                    (Opcode::Bxor, Some(left), Some(right)) => Some(left ^ right),
+                    _ => None,
+                })
+            }
+            InstructionData::UnaryImm {
+                opcode: Opcode::Iconst,
+                imm,
+            } if matches!(imm.bits(), 0 | 1) => Some(Some(imm.bits() == 1)),
+            _ => None,
+        }
+    }
+
+    fn literal(&self, value: Value, queried: Option<Value>, tag: u64) -> Option<u64> {
+        if queried.is_some_and(|queried| self.function.dfg.resolve_aliases(value) == queried) {
+            return Some(tag);
+        }
         let ValueDef::Result(inst, 0) = self.function.dfg.value_def(value) else {
             return None;
         };
@@ -324,9 +425,125 @@ impl Analysis<'_> {
         else {
             return None;
         };
-        (0..=abi::REFERENCE as i64)
-            .contains(&imm.bits())
-            .then_some(imm.bits() as u8)
+        Some(imm.bits() as u64)
+    }
+
+    fn unreachable(&self, mut block: Block) -> bool {
+        loop {
+            let mut predecessors = self.cfg.pred_iter(block);
+            if let Some(predecessor) = predecessors.next() {
+                if predecessors.next().is_none() {
+                    if let InstructionData::Brif { arg, blocks, .. } =
+                        self.function.dfg.insts[predecessor.inst]
+                    {
+                        let yes = blocks[0].block(&self.function.dfg.value_lists);
+                        let no = blocks[1].block(&self.function.dfg.value_lists);
+                        let mut remaining = 64;
+                        if yes != no {
+                            if let Some(Some(truth)) = self.predicate(arg, None, 0, &mut remaining)
+                            {
+                                if truth != (yes == block) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let Some(parent) = self.dominators.idom(block) else {
+                return false;
+            };
+            block = parent;
+        }
+    }
+
+    fn pair(&self, tag: Value, bits: Value) -> bool {
+        if self.function.dfg.value_type(tag) != types::I64
+            || self.function.dfg.value_type(bits) != types::I64
+        {
+            return false;
+        }
+        let (ValueDef::Result(tag_inst, 0), ValueDef::Result(bits_inst, 0)) = (
+            self.function.dfg.value_def(tag),
+            self.function.dfg.value_def(bits),
+        ) else {
+            return false;
+        };
+        match (
+            self.function.dfg.insts[tag_inst],
+            self.function.dfg.insts[bits_inst],
+        ) {
+            (
+                InstructionData::UnaryImm {
+                    opcode: Opcode::Iconst,
+                    ..
+                },
+                InstructionData::UnaryImm {
+                    opcode: Opcode::Iconst,
+                    ..
+                },
+            ) => true,
+            (
+                InstructionData::Load {
+                    opcode: Opcode::Load,
+                    arg: tag_base,
+                    offset: tag_offset,
+                    ..
+                },
+                InstructionData::Load {
+                    opcode: Opcode::Load,
+                    arg: bits_base,
+                    offset: bits_offset,
+                    ..
+                },
+            ) => {
+                self.function.dfg.resolve_aliases(tag_base)
+                    == self.function.dfg.resolve_aliases(bits_base)
+                    && i32::from(tag_offset).checked_add(8) == Some(i32::from(bits_offset))
+                    && self.function.layout.next_inst(tag_inst) == Some(bits_inst)
+            }
+            _ => false,
+        }
+    }
+
+    fn depends(&mut self, inst: Inst, bits: Value) -> Result<bool, JitError> {
+        self.fresh()?;
+        let bits = self.function.dfg.resolve_aliases(bits);
+        for &value in self.function.dfg.inst_args(inst) {
+            self.push(value);
+        }
+        while let Some(value) = self.pending.pop() {
+            if value == bits {
+                return Ok(true);
+            }
+            match self.function.dfg.value_def(value) {
+                ValueDef::Result(inst, _) => {
+                    for &value in self.function.dfg.inst_args(inst) {
+                        self.push(value);
+                    }
+                }
+                ValueDef::Param(block, index) => {
+                    for predecessor in self.cfg.pred_iter(block) {
+                        for destination in self.function.dfg.insts[predecessor.inst]
+                            .branch_destination(
+                                &self.function.dfg.jump_tables,
+                                &self.function.dfg.exception_tables,
+                            )
+                        {
+                            if destination.block(&self.function.dfg.value_lists) == block {
+                                if let Some(BlockArg::Value(value)) =
+                                    destination.args(&self.function.dfg.value_lists).nth(index)
+                                {
+                                    self.push(value);
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(false)
     }
 }
 
@@ -350,6 +567,12 @@ mod tests {
         let mut records = Vec::new_in(allocator);
         records.try_reserve_exact(8).unwrap();
         let mut stores = Stores {
+            expected_inputs: None,
+            inputs: {
+                let mut inputs = Vec::new_in(records.allocator().clone());
+                inputs.try_reserve_exact(32).unwrap();
+                inputs
+            },
             records,
             overflowed: false,
         };
@@ -637,6 +860,252 @@ mod tests {
                     builder.ins().store(MemFlagsData::new(), tag, address, 0)
                 };
                 stores.record(inst, NUMERIC);
+                builder.ins().return_(&[]);
+            }));
+        }
+    }
+
+    fn numeric_use(
+        builder: &mut FunctionBuilder<'_>,
+        stores: &mut Stores,
+        tag: Value,
+        bits: Value,
+        integer: bool,
+    ) {
+        let result = if integer {
+            let one = builder.ins().iconst(types::I64, 1);
+            builder.ins().iadd(bits, one)
+        } else {
+            let is_integer = builder
+                .ins()
+                .icmp_imm_s(IntCC::Equal, tag, abi::INTEGER as i64);
+            let integer = builder.ins().fcvt_from_sint(types::F64, bits);
+            let float = builder.ins().bitcast(types::F64, MemFlagsData::new(), bits);
+            builder.ins().select(is_integer, integer, float)
+        };
+        stores.numeric_input(builder.func.dfg.value_def(result).unwrap_inst(), tag, bits);
+    }
+
+    #[test]
+    fn compound_numeric_guards_admit_correct_consumers_on_both_edges() {
+        for (integer, inverted) in [(false, false), (false, true), (true, false)] {
+            fixture(|builder, slots, choice, stores| {
+                let tag = builder
+                    .ins()
+                    .load(types::I64, MemFlagsData::new(), slots, 0);
+                let bits = builder
+                    .ins()
+                    .load(types::I64, MemFlagsData::new(), slots, 8);
+                let is_integer = builder
+                    .ins()
+                    .icmp_imm_s(IntCC::Equal, tag, abi::INTEGER as i64);
+                let second = if integer {
+                    builder.ins().icmp_imm_s(IntCC::NotEqual, choice, 0)
+                } else {
+                    builder
+                        .ins()
+                        .icmp_imm_s(IntCC::Equal, tag, abi::NUMBER as i64)
+                };
+                let mut condition = if integer {
+                    builder.ins().band(is_integer, second)
+                } else {
+                    builder.ins().bor(is_integer, second)
+                };
+                if inverted {
+                    condition = builder.ins().bxor_imm_u(condition, 1);
+                }
+                let accepted = builder.create_block();
+                let declined = builder.create_block();
+                let (yes, no) = if inverted {
+                    (declined, accepted)
+                } else {
+                    (accepted, declined)
+                };
+                builder.ins().brif(condition, yes, &[], no, &[]);
+                builder.switch_to_block(accepted);
+                numeric_use(builder, stores, tag, bits, integer);
+                builder.ins().return_(&[]);
+                builder.switch_to_block(declined);
+                builder.ins().return_(&[]);
+            })
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn numeric_consumers_reject_missing_or_scalar_only_guards() {
+        for scalar_guard in [false, true] {
+            rejected(fixture(|builder, slots, _, stores| {
+                let tag = builder
+                    .ins()
+                    .load(types::I64, MemFlagsData::new(), slots, 0);
+                let bits = builder
+                    .ins()
+                    .load(types::I64, MemFlagsData::new(), slots, 8);
+                let accepted = builder.create_block();
+                let declined = builder.create_block();
+                let condition = if scalar_guard {
+                    builder
+                        .ins()
+                        .icmp_imm_s(IntCC::NotEqual, tag, abi::REFERENCE as i64)
+                } else {
+                    builder.ins().iconst(types::I8, 1)
+                };
+                builder.ins().brif(condition, accepted, &[], declined, &[]);
+                builder.switch_to_block(accepted);
+                numeric_use(builder, stores, tag, bits, false);
+                builder.ins().return_(&[]);
+                builder.switch_to_block(declined);
+                builder.ins().return_(&[]);
+            }));
+        }
+    }
+
+    #[test]
+    fn input_tags_and_payloads_must_be_adjacent_reads_of_the_same_slot() {
+        for (offset, intervening) in [(8, false), (24, false), (8, true)] {
+            let result = fixture(|builder, slots, _, stores| {
+                let tag = builder
+                    .ins()
+                    .load(types::I64, MemFlagsData::new(), slots, 0);
+                if intervening {
+                    builder.ins().iconst(types::I64, 0);
+                }
+                let bits = builder
+                    .ins()
+                    .load(types::I64, MemFlagsData::new(), slots, offset);
+                let condition = builder
+                    .ins()
+                    .icmp_imm_s(IntCC::Equal, tag, abi::INTEGER as i64);
+                let accepted = builder.create_block();
+                let declined = builder.create_block();
+                builder.ins().brif(condition, accepted, &[], declined, &[]);
+                builder.switch_to_block(accepted);
+                numeric_use(builder, stores, tag, bits, true);
+                builder.ins().return_(&[]);
+                builder.switch_to_block(declined);
+                builder.ins().return_(&[]);
+            });
+            if offset == 8 && !intervening {
+                result.unwrap();
+            } else {
+                rejected(result);
+            }
+        }
+    }
+
+    #[test]
+    fn integer_consumers_require_integer_tags_and_the_recorded_payload() {
+        for (tag_value, consumed) in [
+            (abi::INTEGER, true),
+            (abi::NUMBER, true),
+            (abi::INTEGER, false),
+        ] {
+            let result = fixture(|builder, _, _, stores| {
+                let tag = builder.ins().iconst(types::I64, tag_value as i64);
+                let bits = builder.ins().iconst(types::I64, 42);
+                let one = builder.ins().iconst(types::I64, 1);
+                let actual = if consumed { bits } else { one };
+                let result = builder.ins().iadd(actual, one);
+                stores.numeric_input(builder.func.dfg.value_def(result).unwrap_inst(), tag, bits);
+                builder.ins().return_(&[]);
+            });
+            if tag_value == abi::INTEGER && consumed {
+                result.unwrap();
+            } else {
+                rejected(result);
+            }
+        }
+    }
+
+    #[test]
+    fn unsupported_non_boolean_operands_cannot_launder_guard_facts() {
+        rejected(fixture(|builder, slots, choice, stores| {
+            let tag = builder
+                .ins()
+                .load(types::I64, MemFlagsData::new(), slots, 0);
+            let bits = builder
+                .ins()
+                .load(types::I64, MemFlagsData::new(), slots, 8);
+            let integer = builder
+                .ins()
+                .icmp_imm_s(IntCC::Equal, tag, abi::INTEGER as i64);
+            let unknown = builder.ins().ireduce(types::I8, choice);
+            let either = builder.ins().bor(integer, unknown);
+            let condition = builder.ins().bxor_imm_u(either, 1);
+            let accepted = builder.create_block();
+            let declined = builder.create_block();
+            builder.ins().brif(condition, declined, &[], accepted, &[]);
+            builder.switch_to_block(accepted);
+            numeric_use(builder, stores, tag, bits, true);
+            builder.ins().return_(&[]);
+            builder.switch_to_block(declined);
+            builder.ins().return_(&[]);
+        }));
+    }
+
+    #[test]
+    fn bounded_predicates_refuse_deep_proofs_without_unbounded_recursion() {
+        rejected(fixture(|builder, slots, _, stores| {
+            let tag = builder
+                .ins()
+                .load(types::I64, MemFlagsData::new(), slots, 0);
+            let bits = builder
+                .ins()
+                .load(types::I64, MemFlagsData::new(), slots, 8);
+            let mut condition = builder
+                .ins()
+                .icmp_imm_s(IntCC::Equal, tag, abi::INTEGER as i64);
+            for _ in 0..70 {
+                condition = builder.ins().bxor_imm_u(condition, 0);
+            }
+            let accepted = builder.create_block();
+            let declined = builder.create_block();
+            builder.ins().brif(condition, accepted, &[], declined, &[]);
+            builder.switch_to_block(accepted);
+            numeric_use(builder, stores, tag, bits, true);
+            builder.ins().return_(&[]);
+            builder.switch_to_block(declined);
+            builder.ins().return_(&[]);
+        }));
+    }
+
+    #[test]
+    fn constant_false_dominated_paths_are_vacuous_not_compiler_failures() {
+        fixture(|builder, _, _, stores| {
+            let tag = builder.ins().iconst(types::I64, abi::REFERENCE as i64);
+            let bits = builder.ins().iconst(types::I64, 0);
+            let condition = builder
+                .ins()
+                .icmp_imm_s(IntCC::Equal, tag, abi::INTEGER as i64);
+            let impossible = builder.create_block();
+            let declined = builder.create_block();
+            builder
+                .ins()
+                .brif(condition, impossible, &[], declined, &[]);
+            builder.switch_to_block(impossible);
+            numeric_use(builder, stores, tag, bits, true);
+            builder.ins().return_(&[]);
+            builder.switch_to_block(declined);
+            builder.ins().return_(&[]);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn missing_input_records_and_input_growth_are_compiler_errors() {
+        for missing in [true, false] {
+            rejected(fixture(|builder, _, _, stores| {
+                if missing {
+                    stores.expected_inputs = Some(1);
+                } else {
+                    stores.inputs = Vec::new_in(stores.inputs.allocator().clone());
+                }
+                if !missing {
+                    let tag = builder.ins().iconst(types::I64, abi::INTEGER as i64);
+                    let bits = builder.ins().iconst(types::I64, 42);
+                    numeric_use(builder, stores, tag, bits, true);
+                }
                 builder.ins().return_(&[]);
             }));
         }
