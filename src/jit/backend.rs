@@ -191,6 +191,7 @@ pub(super) fn compile(
         total,
         limit,
         BudgetAllocator(super::resources::Ledger::new(2 * 1024 * 1024)),
+        super::work::Limits::from(&super::JitConfig::default()),
         Failure::None,
     )
 }
@@ -200,8 +201,10 @@ pub(super) fn compile_in(
     total: Arc<AtomicUsize>,
     limit: usize,
     metadata: BudgetAllocator,
+    work: super::work::Limits,
     #[cfg(test)] failure: Failure,
 ) -> Result<Code, JitError> {
+    let expansion = super::work::Expansion::admit(snapshot, work)?;
     let graph = super::flow::FlowGraph::new(snapshot)?;
     let mut entries = BudgetVec::new_in(metadata.clone());
     entries
@@ -379,6 +382,14 @@ pub(super) fn compile_in(
         builder.seal_all_blocks();
         builder.finalize(module.target_config());
     }
+    let blocks = context.func.layout.blocks().count();
+    let instructions = context
+        .func
+        .layout
+        .blocks()
+        .map(|block| context.func.layout.block_insts(block).count())
+        .sum();
+    expansion.verify_actual(instructions, blocks)?;
     module
         .define_function(function, &mut context)
         .map_err(fail)?;
@@ -1521,6 +1532,7 @@ mod memory_tests {
                 total.clone(),
                 4096,
                 BudgetAllocator(metadata.clone()),
+                super::super::work::Limits::from(&super::super::JitConfig::default()),
                 Failure::None
             ),
             Err(JitError::ResourceLimit("JIT metadata"))

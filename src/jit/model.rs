@@ -533,6 +533,7 @@ mod tests {
                     memory.clone(),
                     8 * 1024 * 1024,
                     manager.metadata.clone(),
+                    super::super::work::Limits::from(&super::super::JitConfig::default()),
                     super::super::backend::Failure::None,
                 )
                 .unwrap(),
