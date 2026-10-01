@@ -259,4 +259,57 @@ mod tests {
         ));
         assert_eq!(source.operations.allocator().0.current(), before);
     }
+
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[test]
+    fn backend_work_refusal_precedes_graph_metadata_and_mapping_allocation() {
+        use super::super::{
+            backend,
+            resources::{BudgetAllocator, Ledger},
+        };
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+
+        for instructions in [true, false] {
+            let source = snapshot(0, 1);
+            let storage = source.operations.allocator().0.clone();
+            storage.set_limit(storage.current());
+            let metadata = Ledger::new(0);
+            let mappings = Arc::new(AtomicUsize::new(0));
+            let before = (storage.current(), storage.peak(), storage.refusals());
+            let mut limits = Limits::from(&JitConfig::default());
+            let expected = if instructions {
+                limits.instructions = 1;
+                "IR instructions"
+            } else {
+                limits.blocks = 1;
+                "IR blocks"
+            };
+            assert!(matches!(
+                backend::compile_in(
+                    &source,
+                    mappings.clone(),
+                    0,
+                    BudgetAllocator(metadata.clone()),
+                    limits,
+                    backend::Failure::None,
+                ),
+                Err(JitError::ResourceLimit(reason)) if reason == expected
+            ));
+            assert_eq!(
+                (storage.current(), storage.peak(), storage.refusals()),
+                before
+            );
+            assert_eq!(
+                (metadata.current(), metadata.peak(), metadata.refusals()),
+                (0, 0, 0)
+            );
+            assert_eq!(mappings.load(Ordering::Relaxed), 0);
+        }
+    }
 }

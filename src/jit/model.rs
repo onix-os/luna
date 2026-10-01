@@ -522,6 +522,16 @@ mod tests {
                 max_metadata_bytes: 1,
                 ..super::super::JitConfig::default()
             }),
+            Some(super::super::JitConfig {
+                mode: super::super::JitMode::Auto,
+                max_ir_instructions: 1,
+                ..super::super::JitConfig::default()
+            }),
+            Some(super::super::JitConfig {
+                mode: super::super::JitMode::Auto,
+                max_ir_blocks: 1,
+                ..super::super::JitConfig::default()
+            }),
         ] {
             let snapshot = snapshot(b"local x=40 return x+2");
             let memory = Arc::new(AtomicUsize::new(0));
