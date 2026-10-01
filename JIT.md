@@ -150,6 +150,13 @@ These observational timings do not change the frozen paired performance gates.
 
 Before backend generation, an owned instruction-level
 CFG validates every operand and successor, including unreachable instructions.
+An in-place linear-time basic-block partition records half-open bounds in charged
+nodes. Branch/merge targets and interpreter continuations are block headers;
+interpreted operations are singleton barriers. Compiler edge checks reject
+nonsequential entry into a block interior. Arbitrary legal instruction-PC entry
+remains available to slices; block analysis does not remove native entries or
+introduce register caching across helpers. This is not a typed SSA/liveness or
+complete exit-snapshot proof.
 Reachability does not remove valid PC re-entry points. Exhaustive classifications
 separate direct/guarded/helper paths from interpreter transitions; generated
 successors and helper IDs must match that analysis. Whole-op user-code effects

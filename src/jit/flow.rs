@@ -231,6 +231,8 @@ pub(super) struct Node {
     pub effects: Effects,
     pub native_effects: Effects,
     pub reachable: bool,
+    pub block_start: u32,
+    pub block_end: u32,
 }
 
 impl Node {
@@ -267,6 +269,8 @@ impl FlowGraph {
                 effects,
                 native_effects,
                 reachable: false,
+                block_start: u32::MAX,
+                block_end: 0,
             };
             if !node.valid_effects() {
                 return Err(JitError::Compilation(format!(
@@ -286,7 +290,68 @@ impl FlowGraph {
                 }
             }
         }
-        Ok(Self { nodes })
+        nodes[0].block_start = 0;
+        for (pc, &op) in snapshot.operations.iter().enumerate() {
+            let node = nodes[pc];
+            if !node.lowering.native() {
+                nodes[pc].block_start = pc as u32;
+            }
+            let linear = node.lowering.native()
+                && node.successors == Successors([Some((pc + 1) as u32), None])
+                && !matches!(
+                    op,
+                    Operation::Jump { .. } | Operation::NumericForPrep { .. }
+                );
+            if !linear {
+                if pc + 1 < nodes.len() {
+                    nodes[pc + 1].block_start = (pc + 1) as u32;
+                }
+                for target in node.successors.0.into_iter().flatten() {
+                    nodes[target as usize].block_start = target;
+                }
+            }
+        }
+        let mut start = 0;
+        for node in &mut nodes {
+            if node.block_start != u32::MAX {
+                start = node.block_start;
+            }
+            node.block_start = start;
+        }
+        let mut end = nodes.len() as u32;
+        for (pc, node) in nodes.iter_mut().enumerate().rev() {
+            node.block_end = end;
+            if node.block_start == pc as u32 {
+                end = pc as u32;
+            }
+        }
+        let graph = Self { nodes };
+        for (pc, node) in graph.nodes.iter().enumerate() {
+            if node.block_start as usize > pc
+                || node.block_end as usize <= pc
+                || node.block_end as usize > graph.nodes.len()
+                || (!node.lowering.native()
+                    && (node.block_start as usize != pc || node.block_end as usize != pc + 1))
+                || node
+                    .successors
+                    .0
+                    .into_iter()
+                    .flatten()
+                    .any(|target| !graph.permits_edge(pc, target as usize))
+            {
+                return Err(JitError::Compilation(format!("invalid region at PC {pc}")));
+            }
+        }
+        Ok(graph)
+    }
+
+    pub fn permits_edge(&self, from: usize, to: usize) -> bool {
+        let (Some(source), Some(target)) = (self.nodes.get(from), self.nodes.get(to)) else {
+            return false;
+        };
+        source.successors.contains(to)
+            && (target.block_start as usize == to
+                || (source.block_start == target.block_start && to == from + 1))
     }
 }
 
@@ -314,6 +379,212 @@ mod tests {
             upvalues: 1,
             prototypes: 1,
         }
+    }
+
+    #[test]
+    fn blocks_partition_branches_merges_calls_loops_and_dead_code() {
+        let mov = Operation::Move {
+            dest: RegisterIndex(0),
+            source: RegisterIndex(1),
+        };
+        let source = snapshot(
+            &[
+                mov,
+                Operation::Test {
+                    value: RegisterIndex(0),
+                    is_true: true,
+                },
+                mov,
+                mov,
+                Operation::Call {
+                    func: RegisterIndex(0),
+                    args: VarCount::constant(0),
+                    returns: VarCount::constant(0),
+                },
+                mov,
+                Operation::Jump {
+                    offset: -4,
+                    close_upvalues: Opt254::none(),
+                },
+                mov,
+                ret(),
+            ],
+            BudgetAllocator(Ledger::new(65536)),
+        );
+        let graph = FlowGraph::new(&source).unwrap();
+        let expected = [
+            (0, 2),
+            (0, 2),
+            (2, 3),
+            (3, 4),
+            (4, 5),
+            (5, 7),
+            (5, 7),
+            (7, 8),
+            (8, 9),
+        ];
+        for (pc, (node, bounds)) in graph.nodes.iter().zip(expected).enumerate() {
+            assert_eq!((node.block_start, node.block_end), bounds, "PC {pc}");
+            for target in node.successors.0.into_iter().flatten() {
+                assert!(graph.permits_edge(pc, target as usize));
+            }
+        }
+        assert!(!graph.nodes[7].reachable);
+        assert!(!graph.nodes[8].reachable);
+        assert!(graph.nodes[7].lowering.native());
+        assert!(!graph.permits_edge(1, 4));
+        assert!(!graph.permits_edge(9, 0));
+        assert!(!graph.permits_edge(0, 9));
+    }
+
+    #[test]
+    fn unconditional_next_jumps_and_interpreter_barriers_split_blocks() {
+        let source = snapshot(
+            &[
+                Operation::NumericForPrep {
+                    base: RegisterIndex(0),
+                    jump: 0,
+                },
+                Operation::Jump {
+                    offset: 0,
+                    close_upvalues: Opt254::none(),
+                },
+                Operation::NewTable {
+                    dest: RegisterIndex(0),
+                    array_size: 0,
+                    map_size: 0,
+                },
+                Operation::Jump {
+                    offset: 0,
+                    close_upvalues: Opt254::some(0),
+                },
+                Operation::LoadBool {
+                    dest: RegisterIndex(1),
+                    value: true,
+                    skip_next: false,
+                },
+                ret(),
+            ],
+            BudgetAllocator(Ledger::new(65536)),
+        );
+        let graph = FlowGraph::new(&source).unwrap();
+        for (pc, node) in graph.nodes.iter().enumerate() {
+            assert_eq!(
+                (node.block_start, node.block_end),
+                (pc as u32, pc as u32 + 1)
+            );
+        }
+        assert!(graph.nodes[2].lowering.native());
+        assert!(!graph.nodes[3].lowering.native());
+    }
+
+    #[test]
+    fn a_branch_cannot_enter_an_unmarked_region_interior() {
+        let source = snapshot(
+            &[
+                Operation::Test {
+                    value: RegisterIndex(0),
+                    is_true: true,
+                },
+                Operation::LoadBool {
+                    dest: RegisterIndex(1),
+                    value: true,
+                    skip_next: false,
+                },
+                ret(),
+            ],
+            BudgetAllocator(Ledger::new(65536)),
+        );
+        let mut graph = FlowGraph::new(&source).unwrap();
+        assert!(graph.permits_edge(0, 2));
+        graph.nodes[2].block_start = 1;
+        assert!(!graph.permits_edge(0, 2));
+    }
+
+    #[test]
+    fn seeded_region_partitions_preserve_every_validated_pc_and_edge() {
+        let ledger = Ledger::new(65536);
+        let mut random = 0x6c75_6e61_7265_6769u64;
+        for case in 0..4096 {
+            let length = case % 8 + 1;
+            let mut operations = std::vec::Vec::new();
+            for pc in 0..length {
+                random ^= random << 13;
+                random ^= random >> 7;
+                random ^= random << 17;
+                let target = random as usize % length;
+                let jump = (target as isize - pc as isize - 1) as i16;
+                let op = match (random >> 32) % 8 {
+                    0 => ret(),
+                    1 => Operation::Jump {
+                        offset: jump,
+                        close_upvalues: Opt254::none(),
+                    },
+                    2 if pc + 1 < length => Operation::Move {
+                        dest: RegisterIndex(0),
+                        source: RegisterIndex(1),
+                    },
+                    3 if pc + 2 < length => Operation::Test {
+                        value: RegisterIndex(0),
+                        is_true: true,
+                    },
+                    4 if pc + 1 < length => Operation::NumericForLoop {
+                        base: RegisterIndex(0),
+                        jump,
+                    },
+                    5 if pc + 1 < length => Operation::Call {
+                        func: RegisterIndex(0),
+                        args: VarCount::constant(0),
+                        returns: VarCount::constant(0),
+                    },
+                    6 if pc + 2 < length => Operation::LoadBool {
+                        dest: RegisterIndex(0),
+                        value: false,
+                        skip_next: true,
+                    },
+                    _ => Operation::NumericForPrep {
+                        base: RegisterIndex(0),
+                        jump,
+                    },
+                };
+                operations.push(op);
+            }
+            {
+                let source = snapshot(&operations, BudgetAllocator(ledger.clone()));
+                let graph = FlowGraph::new(&source).unwrap();
+                let mut pc = 0;
+                while pc < length {
+                    let head = graph.nodes[pc];
+                    assert_eq!(head.block_start as usize, pc, "case {case}");
+                    let end = head.block_end as usize;
+                    assert!(end > pc && end <= length);
+                    for (index, node) in graph.nodes[pc..end].iter().enumerate() {
+                        assert_eq!(node.block_start, head.block_start);
+                        assert_eq!(node.block_end, head.block_end);
+                        if pc + index + 1 < end {
+                            assert!(node.lowering.native());
+                            assert_eq!(
+                                node.successors,
+                                Successors([Some((pc + index + 1) as u32), None])
+                            );
+                        }
+                        for target in node.successors.0.into_iter().flatten() {
+                            let destination = graph.nodes[target as usize];
+                            assert!(
+                                destination.block_start == target
+                                    || target as usize == pc + index + 1
+                            );
+                            if node.reachable {
+                                assert!(destination.reachable);
+                            }
+                        }
+                    }
+                    pc = end;
+                }
+            }
+            assert_eq!(ledger.current(), 0, "case {case}");
+        }
+        assert_eq!(ledger.refusals(), 0);
     }
 
     #[test]
@@ -607,6 +878,8 @@ mod tests {
             effects: Effects(Effects::USER_CODE),
             native_effects: Effects(Effects::USER_CODE),
             reachable: true,
+            block_start: 0,
+            block_end: 1,
         };
         assert!(!node.valid_effects());
         node.native_effects = Effects(Effects::ALLOCATE);

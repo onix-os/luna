@@ -537,7 +537,7 @@ impl Emitter<'_, '_> {
     }
 
     fn advance(&mut self, next: usize) {
-        assert!(self.graph.nodes[self.pc].successors.contains(next));
+        assert!(self.graph.permits_edge(self.pc, next));
         let count = self.builder.ins().iadd_imm_s(self.count, 1);
         if let Some(block) = self.blocks.get(next) {
             self.builder.ins().jump(*block, &[count.into()]);
@@ -550,8 +550,8 @@ impl Emitter<'_, '_> {
     }
 
     fn branch(&mut self, condition: IrValue, yes: usize, no: usize) {
-        assert!(self.graph.nodes[self.pc].successors.contains(yes));
-        assert!(self.graph.nodes[self.pc].successors.contains(no));
+        assert!(self.graph.permits_edge(self.pc, yes));
+        assert!(self.graph.permits_edge(self.pc, no));
         let count = self.builder.ins().iadd_imm_s(self.count, 1);
         self.builder.ins().brif(
             condition,
