@@ -36,6 +36,24 @@ struct Arithmetic {
     floating: bool,
 }
 
+#[derive(Clone, Copy)]
+struct Truth {
+    pc: usize,
+    tag: Value,
+    bits: Value,
+    point: Inst,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy)]
+pub(super) enum TruthCorruption {
+    Payload,
+    Source,
+    Condition,
+    Targets,
+    Count,
+}
+
 #[cfg(test)]
 #[derive(Clone, Copy)]
 pub(super) enum ArithmeticCorruption {
@@ -46,6 +64,8 @@ pub(super) enum ArithmeticCorruption {
 }
 
 pub(super) struct Stores {
+    truths: Vec<Truth, BudgetAllocator>,
+    expected_truths: Option<usize>,
     records: Vec<Store, BudgetAllocator>,
     inputs: Vec<Input, BudgetAllocator>,
     arithmetic: Vec<Arithmetic, BudgetAllocator>,
@@ -70,7 +90,11 @@ impl Stores {
         let mut input_capacity = 0usize;
         let mut float_count = 0usize;
         let mut arithmetic_count = 0usize;
+        let mut truth_count = 0usize;
         for &op in &snapshot.operations {
+            if matches!(op, Operation::Not { .. } | Operation::Test { .. }) {
+                truth_count = truth_count.checked_add(1).ok_or_else(refused)?;
+            }
             let count = match op {
                 Operation::Add { .. }
                 | Operation::Sub { .. }
@@ -115,11 +139,17 @@ impl Stores {
         inputs
             .try_reserve_exact(input_capacity)
             .map_err(|_| refused())?;
-        let mut arithmetic = Vec::new_in(allocator);
+        let mut arithmetic = Vec::new_in(allocator.clone());
         arithmetic
             .try_reserve_exact(arithmetic_count)
             .map_err(|_| refused())?;
+        let mut truths = Vec::new_in(allocator);
+        truths
+            .try_reserve_exact(truth_count)
+            .map_err(|_| refused())?;
         Ok(Self {
+            truths,
+            expected_truths: Some(truth_count),
             records,
             inputs,
             arithmetic,
@@ -140,6 +170,19 @@ impl Stores {
 
     pub fn numeric_input(&mut self, inst: Inst, tag: Value, bits: Value) {
         self.input(inst, tag, bits, false);
+    }
+
+    pub fn truth(&mut self, pc: usize, tag: Value, bits: Value, point: Inst) {
+        if self.truths.len() == self.truths.capacity() {
+            self.overflowed = true;
+            return;
+        }
+        self.truths.push(Truth {
+            pc,
+            tag,
+            bits,
+            point,
+        });
     }
 
     pub fn arithmetic(
@@ -189,6 +232,9 @@ impl Stores {
     ) -> Result<(), JitError> {
         if registers > 256
             || self.overflowed
+            || self
+                .expected_truths
+                .is_some_and(|count| self.truths.len() != count)
             || self
                 .expected_arithmetic
                 .is_some_and(|count| self.arithmetic.len() != count)
@@ -316,6 +362,186 @@ impl Stores {
             }
         }
         Ok(())
+    }
+
+    pub fn verify_truths(
+        &self,
+        function: &Function,
+        slots: Value,
+        snapshot: &super::ir::Snapshot,
+        blocks: &[Block],
+    ) -> Result<(), JitError> {
+        if blocks.len() != snapshot.operations.len() {
+            return Err(invalid());
+        }
+        let mut records = self.truths.iter();
+        for (pc, &op) in snapshot.operations.iter().enumerate() {
+            let source = match op {
+                Operation::Not { source, .. } => source,
+                Operation::Test { value, .. } => value,
+                _ => continue,
+            };
+            let record = records.next().ok_or_else(invalid)?;
+            if record.pc != pc
+                || !source_operand(
+                    function,
+                    slots,
+                    snapshot,
+                    RCIndex::Register(source),
+                    record.tag,
+                    record.bits,
+                )
+            {
+                return Err(invalid());
+            }
+            match op {
+                Operation::Not { dest, .. } => {
+                    let InstructionData::Store {
+                        args,
+                        offset,
+                        flags,
+                        ..
+                    } = function.dfg.insts[record.point]
+                    else {
+                        return Err(invalid());
+                    };
+                    if function.dfg.resolve_aliases(args[1]) != function.dfg.resolve_aliases(slots)
+                        || i32::from(offset) != i32::from(dest.0) * 16 + 8
+                        || function.dfg.mem_flags[flags] != MemFlagsData::new()
+                        || !super::shape::truth(
+                            function,
+                            args[0],
+                            record.tag,
+                            record.bits,
+                            true,
+                            true,
+                        )
+                    {
+                        return Err(invalid());
+                    }
+                    let prior = function
+                        .layout
+                        .prev_inst(record.point)
+                        .ok_or_else(invalid)?;
+                    let InstructionData::Store {
+                        args,
+                        offset,
+                        flags,
+                        ..
+                    } = function.dfg.insts[prior]
+                    else {
+                        return Err(invalid());
+                    };
+                    if function.dfg.resolve_aliases(args[1]) != function.dfg.resolve_aliases(slots)
+                        || i32::from(offset) != i32::from(dest.0) * 16
+                        || function.dfg.mem_flags[flags] != MemFlagsData::new()
+                        || literal(function, args[0]) != Some(abi::BOOLEAN)
+                    {
+                        return Err(invalid());
+                    }
+                }
+                Operation::Test { is_true, .. } => {
+                    let InstructionData::Brif {
+                        arg,
+                        blocks: destinations,
+                        ..
+                    } = function.dfg.insts[record.point]
+                    else {
+                        return Err(invalid());
+                    };
+                    if !super::shape::truth(function, arg, record.tag, record.bits, !is_true, false)
+                    {
+                        return Err(invalid());
+                    }
+                    let count = *function
+                        .dfg
+                        .block_params(blocks[pc])
+                        .first()
+                        .ok_or_else(invalid)?;
+                    for (destination, target) in destinations.into_iter().zip([pc + 2, pc + 1]) {
+                        if blocks.get(target).copied()
+                            != Some(destination.block(&function.dfg.value_lists))
+                        {
+                            return Err(invalid());
+                        }
+                        let mut args = destination.args(&function.dfg.value_lists);
+                        let Some(BlockArg::Value(value)) = args.next() else {
+                            return Err(invalid());
+                        };
+                        if args.next().is_some() || !super::shape::increment(function, value, count)
+                        {
+                            return Err(invalid());
+                        }
+                    }
+                }
+                _ => unreachable!(),
+            }
+        }
+        if records.next().is_some() {
+            return Err(invalid());
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn corrupt_truth(&self, function: &mut Function, fault: TruthCorruption, registers: usize) {
+        use cranelift_codegen::{
+            cursor::{Cursor, FuncCursor},
+            ir::InstBuilder,
+        };
+        let record = self.truths.first().expect("missing truth operation");
+        match fault {
+            TruthCorruption::Payload => {
+                let InstructionData::Store { args, .. } = &mut function.dfg.insts[record.point]
+                else {
+                    panic!("missing logical-not payload")
+                };
+                args[0] = record.bits;
+            }
+            TruthCorruption::Source => {
+                for value in [record.tag, record.bits] {
+                    let inst = function.dfg.value_def(value).unwrap_inst();
+                    let InstructionData::Load { offset, .. } = &mut function.dfg.insts[inst] else {
+                        panic!("missing source register")
+                    };
+                    *offset = ((i32::from(*offset) + 16) % (registers as i32 * 16)).into();
+                }
+            }
+            TruthCorruption::Condition => {
+                let InstructionData::Brif { arg, .. } = function.dfg.insts[record.point] else {
+                    panic!("missing truth branch")
+                };
+                let mut cursor = FuncCursor::new(function);
+                cursor.goto_inst(record.point);
+                let wrong = cursor.ins().bxor_imm_u(arg, 1);
+                let InstructionData::Brif { arg, .. } = &mut cursor.func.dfg.insts[record.point]
+                else {
+                    unreachable!()
+                };
+                *arg = wrong;
+            }
+            TruthCorruption::Targets => {
+                let InstructionData::Brif { blocks, .. } = &mut function.dfg.insts[record.point]
+                else {
+                    panic!("missing truth branch")
+                };
+                blocks.swap(0, 1);
+            }
+            TruthCorruption::Count => {
+                let InstructionData::Brif { blocks, .. } = function.dfg.insts[record.point] else {
+                    panic!("missing truth branch")
+                };
+                let Some(BlockArg::Value(value)) = blocks[0].args(&function.dfg.value_lists).next()
+                else {
+                    panic!("missing fuel count")
+                };
+                let inst = function.dfg.value_def(value).unwrap_inst();
+                let InstructionData::Binary { opcode, .. } = &mut function.dfg.insts[inst] else {
+                    panic!("missing fuel increment")
+                };
+                *opcode = Opcode::Isub;
+            }
+        }
     }
 
     pub fn verify_arithmetic(
@@ -1026,6 +1252,12 @@ mod tests {
         let mut records = Vec::new_in(allocator);
         records.try_reserve_exact(8).unwrap();
         let mut stores = Stores {
+            truths: {
+                let mut truths = Vec::new_in(records.allocator().clone());
+                truths.try_reserve_exact(8).unwrap();
+                truths
+            },
+            expected_truths: None,
             arithmetic: {
                 let mut arithmetic = Vec::new_in(records.allocator().clone());
                 arithmetic.try_reserve_exact(8).unwrap();
@@ -2062,6 +2294,175 @@ mod tests {
         ));
         assert_eq!(ledger.current(), before);
         assert_eq!(ledger.refusals(), 1);
+    }
+
+    fn truth_fixture(
+        test: Option<bool>,
+        change: impl FnOnce(&mut FunctionBuilder<'_>, &mut Stores, &[Block]),
+    ) -> Result<(), JitError> {
+        use crate::types::{RegisterIndex, VarCount};
+        let snapshot = super::super::ir::Snapshot {
+            operations: super::super::resources::owned(&[
+                if let Some(is_true) = test {
+                    Operation::Test {
+                        value: RegisterIndex(0),
+                        is_true,
+                    }
+                } else {
+                    Operation::Not {
+                        dest: RegisterIndex(1),
+                        source: RegisterIndex(0),
+                    }
+                },
+                Operation::Return {
+                    start: RegisterIndex(1),
+                    count: VarCount::constant(1),
+                },
+                Operation::Return {
+                    start: RegisterIndex(1),
+                    count: VarCount::constant(1),
+                },
+            ]),
+            constants: super::super::resources::owned(&[]),
+            registers: 4,
+            upvalues: 0,
+            prototypes: 0,
+        };
+        snapshot.verify().unwrap();
+        let graph = FlowGraph::new(&snapshot).unwrap();
+        let baseline = snapshot.operations.allocator().0.current();
+        let mut stores = Stores::new(&graph, &snapshot).unwrap();
+        let mut function = Function::new();
+        function.signature.params.push(AbiParam::new(types::I64));
+        let mut context = FunctionBuilderContext::new();
+        let slots;
+        let blocks;
+        {
+            let mut builder = FunctionBuilder::new(&mut function, &mut context);
+            let entry = builder.create_block();
+            builder.append_block_params_for_function_params(entry);
+            builder.switch_to_block(entry);
+            slots = builder.block_params(entry)[0];
+            blocks = [
+                builder.create_block(),
+                builder.create_block(),
+                builder.create_block(),
+            ];
+            for block in blocks {
+                builder.append_block_param(block, types::I32);
+            }
+            let zero = builder.ins().iconst(types::I32, 0);
+            builder.ins().jump(blocks[0], &[zero.into()]);
+            builder.switch_to_block(blocks[0]);
+            let tag = builder
+                .ins()
+                .load(types::I64, MemFlagsData::new(), slots, 0);
+            let bits = builder
+                .ins()
+                .load(types::I64, MemFlagsData::new(), slots, 8);
+            let nil = builder.ins().icmp_imm_s(IntCC::Equal, tag, abi::NIL as i64);
+            let boolean = builder
+                .ins()
+                .icmp_imm_s(IntCC::Equal, tag, abi::BOOLEAN as i64);
+            let zero = builder.ins().icmp_imm_s(IntCC::Equal, bits, 0);
+            let false_boolean = builder.ins().band(boolean, zero);
+            let false_value = builder.ins().bor(nil, false_boolean);
+            let truth = builder.ins().bxor_imm_u(false_value, 1);
+            let point = if let Some(is_true) = test {
+                let condition = if is_true {
+                    truth
+                } else {
+                    builder.ins().bxor_imm_u(truth, 1)
+                };
+                let count = builder.block_params(blocks[0])[0];
+                let increment = builder.ins().iadd_imm_s(count, 1);
+                builder.ins().brif(
+                    condition,
+                    blocks[2],
+                    &[increment.into()],
+                    blocks[1],
+                    &[increment.into()],
+                )
+            } else {
+                let opposite = builder.ins().bxor_imm_u(truth, 1);
+                let payload = builder.ins().uextend(types::I64, opposite);
+                let tag = builder.ins().iconst(types::I64, abi::BOOLEAN as i64);
+                let store = builder.ins().store(MemFlagsData::new(), tag, slots, 16);
+                stores.record(store, 1 << abi::BOOLEAN);
+                let point = builder.ins().store(MemFlagsData::new(), payload, slots, 24);
+                let count = builder.block_params(blocks[0])[0];
+                builder.ins().jump(blocks[1], &[count.into()]);
+                point
+            };
+            stores.truth(0, tag, bits, point);
+            for block in [blocks[1], blocks[2]] {
+                builder.switch_to_block(block);
+                builder.ins().return_(&[]);
+            }
+            change(&mut builder, &mut stores, &blocks);
+            builder.seal_all_blocks();
+            let isa = cranelift_codegen::isa::lookup_by_name(std::env::consts::ARCH)
+                .unwrap()
+                .finish(settings::Flags::new(settings::builder()))
+                .unwrap();
+            builder.finalize(isa.frontend_config());
+        }
+        cranelift_codegen::verify_function(&function, &settings::Flags::new(settings::builder()))
+            .unwrap();
+        let result = stores
+            .verify(&function, slots, None, 4)
+            .and_then(|_| stores.verify_truths(&function, slots, &snapshot, &blocks));
+        let ledger = snapshot.operations.allocator().0.clone();
+        drop(stores);
+        assert_eq!(ledger.current(), baseline);
+        result
+    }
+
+    #[test]
+    fn boolean_source_records_accept_not_and_both_test_polarities() {
+        for test in [None, Some(false), Some(true)] {
+            truth_fixture(test, |_, _, _| {}).unwrap();
+        }
+    }
+
+    #[test]
+    fn boolean_source_records_reject_payload_and_operand_corruption() {
+        for fault in [TruthCorruption::Payload, TruthCorruption::Source] {
+            rejected(truth_fixture(None, |builder, stores, _| {
+                stores.corrupt_truth(builder.func, fault, 4)
+            }));
+        }
+    }
+
+    #[test]
+    fn boolean_test_records_reject_polarity_target_and_fuel_corruption() {
+        for is_true in [false, true] {
+            for fault in [
+                TruthCorruption::Condition,
+                TruthCorruption::Targets,
+                TruthCorruption::Count,
+            ] {
+                rejected(truth_fixture(Some(is_true), |builder, stores, _| {
+                    stores.corrupt_truth(builder.func, fault, 4)
+                }));
+            }
+        }
+    }
+
+    #[test]
+    fn boolean_record_counts_pc_and_growth_cannot_remove_obligations() {
+        for mode in 0..4 {
+            rejected(truth_fixture(None, |_, stores, _| match mode {
+                0 => stores.truths.clear(),
+                1 => stores.truths[0].pc = 1,
+                2 => stores.expected_truths = Some(2),
+                _ => {
+                    let record = stores.truths[0];
+                    stores.truths = Vec::new_in(stores.truths.allocator().clone());
+                    stores.truth(record.pc, record.tag, record.bits, record.point);
+                }
+            }));
+        }
     }
 
     #[test]

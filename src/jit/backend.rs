@@ -186,6 +186,11 @@ pub(super) enum Failure {
     CorruptArithmeticOperands,
     CorruptArithmeticSource,
     CorruptArithmeticDestination,
+    CorruptTruthPayload,
+    CorruptTruthSource,
+    CorruptTruthCondition,
+    CorruptTruthTargets,
+    CorruptTruthCount,
 }
 
 #[cfg(test)]
@@ -215,6 +220,10 @@ pub(super) fn compile_in(
     let expansion = super::work::Expansion::admit(snapshot, work)?;
     let graph = super::flow::FlowGraph::new(snapshot)?;
     let mut stores = super::tags::Stores::new(&graph, snapshot)?;
+    let mut blocks = BudgetVec::new_in(snapshot.operations.allocator().clone());
+    blocks
+        .try_reserve_exact(snapshot.operations.len())
+        .map_err(|_| JitError::ResourceLimit("frontend block map"))?;
     let mut entries = BudgetVec::new_in(metadata.clone());
     entries
         .try_reserve_exact(snapshot.operations.len())
@@ -291,9 +300,7 @@ pub(super) fn compile_in(
         builder.append_block_params_for_function_params(entry);
         builder.switch_to_block(entry);
         let arguments = builder.block_params(entry).to_vec();
-        let blocks: Vec<_> = (0..snapshot.operations.len())
-            .map(|_| builder.create_block())
-            .collect();
+        blocks.extend((0..snapshot.operations.len()).map(|_| builder.create_block()));
         for block in &blocks {
             builder.append_block_param(*block, types::I32);
         }
@@ -419,14 +426,29 @@ pub(super) fn compile_in(
             stores.corrupt_arithmetic_first(&mut context.func, fault, snapshot.registers);
         }
     }
-    let blocks = context.func.layout.blocks().count();
+    #[cfg(test)]
+    {
+        use super::tags::TruthCorruption as Fault;
+        let fault = match failure {
+            Failure::CorruptTruthPayload => Some(Fault::Payload),
+            Failure::CorruptTruthSource => Some(Fault::Source),
+            Failure::CorruptTruthCondition => Some(Fault::Condition),
+            Failure::CorruptTruthTargets => Some(Fault::Targets),
+            Failure::CorruptTruthCount => Some(Fault::Count),
+            _ => None,
+        };
+        if let Some(fault) = fault {
+            stores.corrupt_truth(&mut context.func, fault, snapshot.registers);
+        }
+    }
+    let block_count = context.func.layout.blocks().count();
     let instructions = context
         .func
         .layout
         .blocks()
         .map(|block| context.func.layout.block_insts(block).count())
         .sum();
-    expansion.verify_actual(instructions, blocks)?;
+    expansion.verify_actual(instructions, block_count)?;
     let parameters = context
         .func
         .dfg
@@ -438,6 +460,7 @@ pub(super) fn compile_in(
         snapshot.registers,
     )?;
     stores.verify_arithmetic(&context.func, parameters[0], snapshot)?;
+    stores.verify_truths(&context.func, parameters[0], snapshot, &blocks)?;
     module
         .define_function(function, &mut context)
         .map_err(fail)?;
@@ -691,7 +714,7 @@ impl Emitter<'_, '_> {
         }
     }
 
-    fn branch(&mut self, condition: IrValue, yes: usize, no: usize) {
+    fn branch(&mut self, condition: IrValue, yes: usize, no: usize) -> Inst {
         assert!(self.graph.permits_edge(self.pc, yes));
         assert!(self.graph.permits_edge(self.pc, no));
         let count = self.builder.ins().iadd_imm_s(self.count, 1);
@@ -701,7 +724,7 @@ impl Emitter<'_, '_> {
             &[count.into()],
             self.blocks[no],
             &[count.into()],
-        );
+        )
     }
 
     fn bail(&mut self) {
@@ -789,14 +812,16 @@ impl Emitter<'_, '_> {
                 } else {
                     self.builder.ins().bxor_imm_u(truth, 1)
                 };
-                self.branch(condition, self.pc + 2, self.pc + 1);
+                let point = self.branch(condition, self.pc + 2, self.pc + 1);
+                self.stores.truth(self.pc, tag, bits, point);
             }
             Not { dest, source } => {
-                let (tag, bits) = self.load(source.0);
-                let truth = self.truth(tag, bits);
+                let (tag, payload) = self.load(source.0);
+                let truth = self.truth(tag, payload);
                 let opposite = self.builder.ins().bxor_imm_u(truth, 1);
                 let bits = self.builder.ins().uextend(types::I64, opposite);
-                self.store_typed(dest.0, abi::BOOLEAN, bits);
+                let point = self.store_typed(dest.0, abi::BOOLEAN, bits);
+                self.stores.truth(self.pc, tag, payload, point);
                 self.advance(self.pc + 1);
             }
             Add { dest, left, right }
@@ -1466,6 +1491,92 @@ mod memory_tests {
             matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")
         );
         assert_eq!(total.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn block_map_quota_refuses_before_host_setup_and_releases_storage() {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype =
+                crate::FunctionPrototype::compile(ctx, "block-map-quota", b"return 1").unwrap();
+            Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
+        });
+        let ledger = snapshot.operations.allocator().0.clone();
+        let baseline = ledger.current();
+        let graph = super::super::flow::FlowGraph::new(&snapshot).unwrap();
+        let records = super::super::tags::Stores::new(&graph, &snapshot).unwrap();
+        let limit = ledger.current();
+        drop(records);
+        drop(graph);
+        ledger.set_limit(limit);
+        let total = Arc::new(AtomicUsize::new(0));
+        let result = compile_in(
+            &snapshot,
+            total.clone(),
+            8 * 1024 * 1024,
+            BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
+            super::super::work::Limits::from(&super::super::JitConfig::default()),
+            Failure::None,
+        );
+        assert!(
+            matches!(result, Err(JitError::ResourceLimit("frontend block map"))),
+            "{:?}",
+            result.as_ref().err()
+        );
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+        assert_eq!(ledger.current(), baseline);
+        assert_eq!(ledger.refusals(), 1);
+    }
+
+    fn refuse_corrupted_truth(failure: Failure) {
+        let mut lua = crate::Lua::empty();
+        let source: &[u8] = if matches!(
+            failure,
+            Failure::CorruptTruthPayload | Failure::CorruptTruthSource
+        ) {
+            b"local x=42 local y=7 return not x"
+        } else {
+            b"local x=42 if x then return 1 else return 2 end"
+        };
+        let snapshot = lua.enter(|ctx| {
+            let prototype =
+                crate::FunctionPrototype::compile(ctx, "truth-corruption", source).unwrap();
+            Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
+        });
+        let total = Arc::new(AtomicUsize::new(0));
+        let result = compile_in(
+            &snapshot,
+            total.clone(),
+            8 * 1024 * 1024,
+            BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
+            super::super::work::Limits::from(&super::super::JitConfig::default()),
+            failure,
+        );
+        assert!(
+            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")
+        );
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn corrupted_truth_payload_is_refused_before_codegen_and_mapping() {
+        refuse_corrupted_truth(Failure::CorruptTruthPayload);
+    }
+    #[test]
+    fn corrupted_truth_source_is_refused_before_codegen_and_mapping() {
+        refuse_corrupted_truth(Failure::CorruptTruthSource);
+    }
+    #[test]
+    fn corrupted_truth_condition_is_refused_before_codegen_and_mapping() {
+        refuse_corrupted_truth(Failure::CorruptTruthCondition);
+    }
+    #[test]
+    fn corrupted_truth_targets_are_refused_before_codegen_and_mapping() {
+        refuse_corrupted_truth(Failure::CorruptTruthTargets);
+    }
+    #[test]
+    fn corrupted_truth_count_is_refused_before_codegen_and_mapping() {
+        refuse_corrupted_truth(Failure::CorruptTruthCount);
     }
 
     fn refuse_corrupted_arithmetic(failure: Failure) {

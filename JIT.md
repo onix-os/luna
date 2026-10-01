@@ -73,6 +73,11 @@ and the result's adjacent destination tag/payload stores. Input-record ordering
 and a maximum of two records per consumer bound lookup work. Arithmetic loads,
 stores and bitcasts require the emitter's default native memory flags. These
 records use the same snapshot ledger and reject missing/extra obligations.
+Not/Test records bind canonical source reads to a bounded typed Lua-truth
+expression: only nil and false are false. Logical-not payload/tag stores and
+Test's decoded polarity, branch targets and one-step fuel increment are checked.
+The retained, fallible PC-to-block map is charged to the snapshot ledger and
+can refuse with `ResourceLimit("frontend block map")` before compiler/host setup.
 Semantic checks are
 vacuous only on guarded paths proven unreachable without queried-tag assumptions;
 physical store coverage and record counts still apply. This does not prove full
