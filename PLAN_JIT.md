@@ -474,6 +474,12 @@ Default native memory flags and sorted/bounded input-record cardinality are
 required. Comparison/loop/move semantics, complete source maps, path-sensitive
 transitions, liveness and alias proofs remain open; Phase 3 is not complete.
 
+Boolean-source verification (`075a9b5`) now checks canonical Not/Test source reads,
+bounded typed Lua-truth expressions, Not payload/tag stores and Test polarity,
+ordered branch targets and one logical fuel increment. The retained PC-to-block
+map is now fallibly charged to the snapshot ledger and refuses before host setup.
+This does not complete comparison/loop or whole-program path/source-map proofs.
+
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
@@ -4449,6 +4455,127 @@ acceptance thresholds. No sub-agents, timing/profile runs, pushes or hosted runs
 - `Makefile` — `jit-arithmetic` within existing numeric/tag verification.
 - `JIT.md`, `PLAN_JIT.md` — contract, phase status and revision-scoped evidence.
 - `target/jit-evidence/arithmetic-source/` — local raw verification/campaign artifacts.
+
+### Boolean source/control-flow verification decision
+
+Extend source binding to native Not/Test semantic bodies and Test branch lowering.
+Charge exact-counted
+PC/operand/consumer records to the snapshot ledger. Match actual SSA against a
+bounded typed expression for Lua truth (only nil and false are false), then check
+logical-not extension/result stores or Test's decoded branch polarity/targets and
+one logical fuel increment from the source header. Reuse canonical source-load
+and memory-flag checks. The typed expression matcher provides reusable machinery
+for subsequent comparison/loop verification; it is not a replacement for those
+requirements or for full path-sensitive/alias/liveness proof.
+
+The frontend PC-to-block map was an uncharged standard Vec scoped to emission.
+Retain it through source verification using a fallible snapshot-ledger allocation,
+reserved before compiler/host setup. Report `ResourceLimit("frontend block map")`
+on refusal; do not replace the block identities with a count or duplicate the map.
+Its longer lifetime is now included in snapshot peak usage. Other compiler working
+and fixed-owner allocations remain outside the incomplete ledger.
+
+Target the block-map quota test after graph plus store-record allocation, using
+a scalar constant-load prototype. An empty return graph's transient worklist
+peak can consume the same headroom as its tiny final map; measuring only live
+post-graph bytes would refuse the graph instead of the intended map allocation.
+
+### Boolean source/control-flow verification session
+
+#### Goal
+
+Extend typed source/control-flow verification and compiler-owned buffer accounting,
+preserving the full requested native-JIT plan and remaining acceptance requirements.
+
+#### Instructions
+
+Use Make/Nix and patch tools; keep implementation/evidence commits separate,
+unsigned, title-only and Conventional. Do not change performance gates, delegate,
+push or claim unexecuted ARM64/hosted results. No benchmark/profile was run.
+
+#### Discoveries
+
+- Previous goal turn was progress: arithmetic-source verification and full evidence
+  were committed. This turn binds boolean semantics and conditional transitions.
+- Native truth must distinguish only nil and false; numeric zero and canonical
+  reference placeholders are true. Type/dependency admission alone does not prove
+  logical-not payload or branch polarity, ordered targets and fuel increment.
+- The PC-to-block map used an uncharged emission-local standard Vec. Source branch
+  verification needs its identities after emission. Retaining a fallibly charged
+  map fixes that buffer's accounting, not the whole compiler/host ledger.
+- Quota regression setup must include graph transient allocation headroom. An
+  empty-return graph cannot isolate map refusal from its transient worklist peak;
+  a scalar constant-load graph plus store-record allocation provides the intended
+  map-allocation refusal boundary. The targeted test runs under default Miri and
+  never reaches host ISA/JITBuilder setup.
+
+#### Accomplished
+
+- Committed `075a9b5` (`feat(jit): verify boolean source and branches`), unsigned
+  and title-only. Added exact-counted charged Not/Test records and canonical operand
+  provenance, logical-not result stores, Test polarity/targets and source-header
+  count-plus-one checks. `src/jit/shape.rs` provides bounded typed SSA expression
+  matching without dynamic verification buffers. Production ABI/kernel operations
+  remain unchanged. Comparison/loop/whole-path proofs are not completed here.
+- Charged the retained frontend block map to the snapshot ledger, reserving before
+  compiler/host setup. Refusal is `ResourceLimit("frontend block map")`. Retention
+  through verification affects snapshot peak usage; other compiler/fixed-owner
+  allocations remain excluded. Renamed the separate actual block-count variable
+  and retained the original input payload when recording logical-not provenance.
+- Added four pure boolean source tests, one typed/bounded matcher test, five actual
+  backend corruptions and one block-map quota-refusal/rollback regression. Pure
+  fixture storage returns exactly to its pre-record-allocation ledger baseline.
+- Bypassing truth consumption in fixtures and production caused three pure-test
+  failures and all five backend corruption failures (Make exits two). Restored
+  both consumers; malformed kernels were never executed. Final focused
+  `fmt fmt-check jit-tags jit-ir jit-boundary jit-heap jit-resources jit-clippy`
+  exited zero: 316 passes / 28 suite results / 4 ignored, including repetitions.
+  No new Clippy warning in `src/jit/tags.rs` or `src/jit/shape.rs`.
+- Full `nix develop -c make jit-verify clippy jit-clippy`, followed by the same
+  command with `TARGET=x86_64-unknown-linux-musl`, each exited zero: 3244 passed /
+  421 suite results / 24 ignored. This includes default interpreter, Off/Auto/Force,
+  all-features Force, docs and supervised smoke. Stable Rust/Cargo is 1.97.1;
+  existing advisory Clippy warnings remain, not strict-warning acceptance.
+- `nix develop .#miri -c make jit-miri
+  MIRI_DIR=target/jit-evidence/boolean-source/miri` exited zero: 102 passes across
+  16 selected suite results, default `MIRIFLAGS`, pinned Miri `67854e511`. Includes
+  pure truth/source/shape matching and the exact early block-map quota case, but
+  no actual native execution or JITBuilder corruption cases.
+- GNU and musl `make jit-fuzz FUZZ_TARGET=all FUZZ_CASES=1024
+  FUZZ_SEEDS=0,1,0xdeadbeef,0xffffffffffffffff` (through Nix, musl with its target)
+  each exited zero: 4096 generated snapshots plus malformed mutations, three input
+  variations, every entry PC and seven budgets. Each reports 1641780 kernel
+  invocations / 4758522 completed native instructions and released mapping,
+  metadata and snapshot charges. Both targets reuse the same four seeds/programs;
+  this is not 8192 distinct generated programs or a native heap/lifecycle campaign.
+- Archived full/focused/mutation logs, campaigns, source identity/hashes and
+  environment under `target/jit-evidence/boolean-source/`. All recorded source,
+  module/Makefile and lockfile hashes match after verification; only PLAN docs
+  were dirty during full gates. Owned sessions `76332`, `70142`, `39951` (draft
+  compiler errors), `50207`, `10476` (quota-test setup), `47772`, `29071`, mutation
+  `52781`, full `52021`, Miri `86018` and campaign `56039` are terminal.
+- Updated Phase 3 and public contract/evidence. No owned job remains. Prior
+  revision-scoped performance failures are unchanged and remain acceptance failures.
+
+#### Next Steps
+
+- Complete source comparison/loop/move/branch-transition proofs, including mixed
+  numeric boundaries and NaN; the typed matcher is reusable, not replacement scope.
+- Complete source maps/error positions/path sensitivity, liveness/alias review,
+  compiler/fixed-owner/combined-host accounting and approved isolation semantics.
+- Continue heap/lifecycle hardening, controlled performance fixes and actual
+  ARM64/hosted evidence when authorized/available. Keep full-plan acceptance open.
+
+#### Relevant Files
+
+- `src/jit/shape.rs` — bounded typed SSA truth/fuel matcher and pure test.
+- `src/jit/tags.rs` — charged boolean records, source/result/branch verification,
+  corruption hooks and four pure tests with exact storage release.
+- `src/jit/backend.rs` — point recording, retained charged block map, five actual
+  corruption cases and pre-host-setup quota refusal.
+- `src/jit/mod.rs`, `Makefile` — eligible-target module wiring, truth and Miri gates.
+- `JIT.md`, `PLAN_JIT.md` — contract, phase status and verified scope/exclusions.
+- `target/jit-evidence/boolean-source/` — raw revision-scoped local evidence.
 
 ## 15. Primary references
 
