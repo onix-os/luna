@@ -7619,6 +7619,75 @@ Cranelift working buffers, allocator overhead or process RSS.
 2. Runtime RefCell ownership remains non-Send/non-Sync even when its backing
    strong counter is atomic; trait checks preserve that embedding boundary.
 
+### Decision — eliminate fixed-size frontend temporary vectors
+
+The backend still allocates three avoidable std vectors: nine helper declaration
+IDs, five copied entry parameters, and four constant helper arguments for every
+emitted helper instruction. Replace these with fixed stack arrays. Preserve
+fallible declaration order/early exit and cleanup with a private safe try-array
+collector; preserve exact entry arity through checked slice-to-array conversion.
+The emitter's existing fixed import-reference array and source/helper-flow
+verification remain unchanged. Cranelift-owned signature/DFG/context/module
+buffers remain separate open working-memory accounting, not hidden by this step.
+
+### Compaction checkpoint — frontend arrays in progress
+
+Recovered HEAD is `2fe5baf`; fixed frontend-array changes in backend.rs,
+mod.rs, arrays.rs and Makefile are not yet committed. Focused Make/Clippy
+handle `62942` finished exit 0 (18 tests, four suites, zero ignored); isolated
+Miri `19649` finished exit 0 (12 tests, two suites, zero ignored). Evidence is
+under `target/jit-evidence/frontend-arrays/`. No owned jobs remain running.
+Next: add arrays to selected Miri, test mutation sensitivity, restore and commit
+the source milestone, then record revision-scoped acceptance. Full compiler
+memory bounds, safety review, performance gates and ARM64 evidence remain open.
+Engram tools are unavailable; a registry search found no relevant Luna memory.
+No benchmark timing is accepted while unrelated global build/benchmark jobs run.
+
+### Session summary — frontend array milestone
+
+## Goal
+- Continue the full native-JIT plan on `feat/native-jit`; report actual progress.
+
+## Instructions
+- Keep commits incremental, unsigned, title-only and Conventional Commits.
+- Use Make through the repo's Nix environments; no Python edits.
+
+## Discoveries
+- Nine helper declarations, five entry parameters and four helper constants
+  need no heap vectors. Safe fixed arrays preserve order, errors and cleanup.
+- Cranelift-owned signatures/IR/context/module allocations remain unbounded by
+  the completed ownership policy. This small milestone does not resolve them.
+
+## Accomplished
+- `f4d2ea9` commits fixed frontend temporaries, five collector fixtures, focused
+  Make/Miri gates and inclusion in the full selected-Miri namespace loop.
+- Reversed callback-index mutation `12233` exits 2 with three failures (order,
+  early-error cleanup, panic-prefix cleanup); restoration matches original hash.
+- Restored GNU/Clippy `3458` exits 0: 18 tests/four suites/zero ignored, existing
+  141 lib-test Clippy warnings. Restored musl `28260` exits 0: 18/four/zero.
+  Restored isolated Miri `31978` exits 0: 12/two/zero, default checks unchanged.
+- All owned handles are terminal. Logs and source hashes are under
+  `target/jit-evidence/frontend-arrays/`. No new full-suite/campaign or timing
+  claim is made. Prior full GNU/musl/Miri evidence remains scoped to `c385b10`.
+- Engram tools unavailable; no relevant external-memory registry match found.
+
+## Next Steps
+- Resolve compiler-owned working-memory bounds, remaining safety/stress review,
+  unchanged performance acceptance, ARM64/hosted validation and strict Clippy.
+- Full objective remains active and incomplete. No truthful completion date or
+  percentage can be inferred from the passing focused milestone.
+
+## Relevant Files
+- `src/jit/arrays.rs` — safe fallible fixed-array collector and cleanup fixtures.
+- `src/jit/backend.rs`, `src/jit/mod.rs` — frontend array integration.
+- `Makefile` — focused and selected-Miri coverage.
+- `JIT.md`, `PLAN_JIT.md` — scoped acceptance and incomplete objective.
+
+## Key Learnings:
+
+1. Fixed ABI/helper arities allow stack arrays without allocating temporary vectors.
+2. Declaration-order mutation tests exercise both early-error and panic cleanup.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

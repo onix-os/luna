@@ -213,6 +213,15 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 ## Verification and remaining work
 
+Frontend helper declarations, entry parameters and helper constants now use
+fixed stack arrays (`f4d2ea9`). Focused GNU and musl gates each pass 18 tests
+across four suites; isolated Miri passes 12 tests across two suites. Reversing
+declaration order fails three fixtures, including early-error and panic-prefix
+cleanup checks. Evidence is under `target/jit-evidence/frontend-arrays/`.
+These are focused results, not a new full-suite or performance acceptance.
+Cranelift-owned signatures, IR/context and module buffers remain outside the
+completed compiler-memory policy.
+
 The complete state-bootstrap owner accounting implementation (`c385b10`)
 passes `nix develop -c make jit-verify clippy jit-clippy` on x86-64 GNU and
 with `TARGET=x86_64-unknown-linux-musl`: each reports 4855 passing tests across
