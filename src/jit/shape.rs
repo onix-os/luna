@@ -1,5 +1,6 @@
 use cranelift_codegen::ir::{
-    condcodes::IntCC, types, Function, InstructionData, Opcode, Type, Value, ValueDef,
+    condcodes::{FloatCC, IntCC},
+    types, Function, InstructionData, MemFlagsData, Opcode, Type, Value, ValueDef,
 };
 
 use super::abi;
@@ -7,9 +8,13 @@ use super::abi;
 enum Expr<'a> {
     Value(Value),
     Int(Type, u64),
+    Float(u64),
     Compare(IntCC, &'a Expr<'a>, &'a Expr<'a>),
+    FloatCompare(FloatCC, &'a Expr<'a>, &'a Expr<'a>),
     Unary(Opcode, Type, &'a Expr<'a>),
+    Cast(Type, &'a Expr<'a>),
     Binary(Opcode, Type, &'a Expr<'a>, &'a Expr<'a>),
+    Select(Type, &'a Expr<'a>, &'a Expr<'a>, &'a Expr<'a>),
 }
 
 fn matches(
@@ -32,13 +37,64 @@ fn matches(
     let ty = function.dfg.value_type(value);
     match (expression, function.dfg.insts[inst]) {
         (
+            Expr::Float(bits),
+            InstructionData::UnaryIeee64 {
+                opcode: Opcode::F64const,
+                imm,
+            },
+        ) => ty == types::F64 && imm.bits() == *bits,
+        (
+            Expr::FloatCompare(expected, left, right),
+            InstructionData::FloatCompare {
+                opcode: Opcode::Fcmp,
+                cond,
+                args,
+            },
+        ) => {
+            ty == types::I8
+                && cond == *expected
+                && matches(function, args[0], left, remaining)
+                && matches(function, args[1], right, remaining)
+        }
+        (
+            Expr::Cast(expected_ty, input),
+            InstructionData::LoadNoOffset {
+                opcode: Opcode::Bitcast,
+                flags,
+                arg,
+            },
+        ) => {
+            ty == *expected_ty
+                && function.dfg.mem_flags[flags] == MemFlagsData::new()
+                && matches(function, arg, input, remaining)
+        }
+        (
+            Expr::Select(expected_ty, condition, yes, no),
+            InstructionData::Ternary {
+                opcode: Opcode::Select,
+                args,
+            },
+        ) => {
+            ty == *expected_ty
+                && matches(function, args[0], condition, remaining)
+                && matches(function, args[1], yes, remaining)
+                && matches(function, args[2], no, remaining)
+        }
+        (
             Expr::Int(expected, bits),
             InstructionData::UnaryImm {
                 opcode: Opcode::Iconst,
                 imm,
             },
         ) => ty == *expected && imm.bits() as u64 == *bits,
-        (Expr::Compare(expected, left, right), InstructionData::IntCompare { cond, args, .. }) => {
+        (
+            Expr::Compare(expected, left, right),
+            InstructionData::IntCompare {
+                opcode: Opcode::Icmp,
+                cond,
+                args,
+            },
+        ) => {
             ty == types::I8
                 && cond == *expected
                 && matches(function, args[0], left, remaining)
@@ -96,6 +152,84 @@ pub(super) fn increment(function: &Function, result: Value, base: Value) -> bool
     let one = Expr::Int(types::I32, 1);
     let increment = Expr::Binary(Opcode::Iadd, types::I32, &base, &one);
     matches(function, result, &increment, &mut 128)
+}
+
+pub(super) fn polarity(function: &Function, result: Value, base: Value, inverted: bool) -> bool {
+    let base = Expr::Value(base);
+    let one = Expr::Int(types::I8, 1);
+    let opposite = Expr::Binary(Opcode::Bxor, types::I8, &base, &one);
+    matches(
+        function,
+        result,
+        if inverted { &opposite } else { &base },
+        &mut 128,
+    )
+}
+
+pub(super) fn comparison(
+    function: &Function,
+    result: Value,
+    inputs: [(Value, Value); 2],
+    op: crate::opcode::Operation,
+    mixed: bool,
+) -> bool {
+    use crate::opcode::Operation;
+    let left_tag = Expr::Value(inputs[0].0);
+    let left = Expr::Value(inputs[0].1);
+    let right = Expr::Value(inputs[1].1);
+    let integer_tag = Expr::Int(types::I64, abi::INTEGER);
+    let left_integer = Expr::Compare(IntCC::Equal, &left_tag, &integer_tag);
+    let (icc, fcc) = match op {
+        Operation::Eq { .. } => (IntCC::Equal, FloatCC::Equal),
+        Operation::Less { .. } => (IntCC::SignedLessThan, FloatCC::LessThan),
+        Operation::LessEq { .. } => (IntCC::SignedLessThanOrEqual, FloatCC::LessThanOrEqual),
+        _ => return false,
+    };
+    if !mixed {
+        let int_result = Expr::Compare(icc, &left, &right);
+        let left_float = Expr::Cast(types::F64, &left);
+        let right_float = Expr::Cast(types::F64, &right);
+        let float_result = Expr::FloatCompare(fcc, &left_float, &right_float);
+        let selected = Expr::Select(types::I8, &left_integer, &int_result, &float_result);
+        return matches(function, result, &selected, &mut 1024);
+    }
+    let integer = Expr::Select(types::I64, &left_integer, &left, &right);
+    let raw = Expr::Select(types::I64, &left_integer, &right, &left);
+    let float = Expr::Cast(types::F64, &raw);
+    let truncated = Expr::Unary(Opcode::FcvtToSintSat, types::I64, &float);
+    let integral = Expr::Unary(Opcode::FcvtFromSint, types::F64, &truncated);
+    let tie = Expr::Compare(IntCC::Equal, &integer, &truncated);
+    let upper = Expr::Float(9_223_372_036_854_775_808.0f64.to_bits());
+    let below_upper = Expr::FloatCompare(FloatCC::LessThan, &float, &upper);
+    let whole = Expr::FloatCompare(FloatCC::Equal, &float, &integral);
+    let equal = Expr::Binary(Opcode::Band, types::I8, &tie, &whole);
+    let bounded_equal = Expr::Binary(Opcode::Band, types::I8, &equal, &below_upper);
+    if matches!(op, Operation::Eq { .. }) {
+        return matches(function, result, &bounded_equal, &mut 1024);
+    }
+    let int_less = Expr::Compare(IntCC::SignedLessThan, &integer, &truncated);
+    let fraction_above = Expr::FloatCompare(FloatCC::GreaterThan, &float, &integral);
+    let tie_less = Expr::Binary(Opcode::Band, types::I8, &tie, &fraction_above);
+    let less = Expr::Binary(Opcode::Bor, types::I8, &int_less, &tie_less);
+    let at_upper = Expr::FloatCompare(FloatCC::GreaterThanOrEqual, &float, &upper);
+    let bounded_less = Expr::Binary(Opcode::Bor, types::I8, &less, &at_upper);
+    let int_greater = Expr::Compare(IntCC::SignedGreaterThan, &integer, &truncated);
+    let fraction_below = Expr::FloatCompare(FloatCC::LessThan, &float, &integral);
+    let tie_greater = Expr::Binary(Opcode::Band, types::I8, &tie, &fraction_below);
+    let greater = Expr::Binary(Opcode::Bor, types::I8, &int_greater, &tie_greater);
+    let lower = Expr::Float((-9_223_372_036_854_775_808.0f64).to_bits());
+    let below_lower = Expr::FloatCompare(FloatCC::LessThan, &float, &lower);
+    let bounded_greater = Expr::Binary(Opcode::Bor, types::I8, &greater, &below_lower);
+    let forward = Expr::Select(types::I8, &left_integer, &bounded_less, &bounded_greater);
+    let inclusive = Expr::Binary(Opcode::Bor, types::I8, &forward, &bounded_equal);
+    let ordered = Expr::FloatCompare(FloatCC::Ordered, &float, &float);
+    let selected = if matches!(op, Operation::LessEq { .. }) {
+        &inclusive
+    } else {
+        &forward
+    };
+    let result_shape = Expr::Binary(Opcode::Band, types::I8, selected, &ordered);
+    matches(function, result, &result_shape, &mut 1024)
 }
 
 #[cfg(test)]

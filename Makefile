@@ -53,7 +53,7 @@ $(info ------------------------------------------)
 .PHONY: jit-miri
 .PHONY: jit-helpers jit-abi jit-config jit-registry jit-suspension jit-ir jit-generic-for jit-exits jit-access
 .PHONY: jit-tags
-.PHONY: jit-input jit-float-input jit-arithmetic jit-truth
+.PHONY: jit-input jit-float-input jit-arithmetic jit-truth jit-comparison jit-comparison-backend
 .PHONY: jit-clippy
 
 ci-check:
@@ -65,7 +65,7 @@ jit-miri:
 	@set -o pipefail; $(CARGO) miri setup --target '$(MIRI_TARGET)' 2>&1 | tee '$(MIRI_DIR)/setup.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::resources::tests -- --test-threads=1 --skip jit::resources::tests::installation_refusal_reclaims_generated_mappings 2>&1 | tee '$(MIRI_DIR)/jit::resources::tests.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::block_map_quota_refuses_before_host_setup_and_releases_storage -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/block-map-quota.log'
-	@set -e -o pipefail; for filter in jit::abi::tests jit::helpers::tests jit::registry::tests jit::ir::tests jit::flow::tests jit::work::tests jit::tags::tests jit::shape::tests jit::access::tests jit::backend::access_tests jit::exits::tests jit::backend::exit_tests jit::policy_tests finalizers::tests; do \
+	@set -e -o pipefail; for filter in jit::abi::tests jit::helpers::tests jit::registry::tests jit::ir::tests jit::flow::tests jit::work::tests jit::tags::tests jit::shape::tests jit::backend::comparison_tests jit::access::tests jit::backend::access_tests jit::exits::tests jit::backend::exit_tests jit::policy_tests finalizers::tests; do \
 		$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' "$$filter" -- --test-threads=1 2>&1 | tee '$(MIRI_DIR)'/"$$filter".log; \
 	done
 
@@ -245,6 +245,14 @@ jit-input:
 	@$(MAKE) --no-print-directory jit-float-input
 	@$(MAKE) --no-print-directory jit-arithmetic
 	@$(MAKE) --no-print-directory jit-truth
+	@$(MAKE) --no-print-directory jit-comparison
+
+jit-comparison:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::comparison_tests
+	@$(MAKE) --no-print-directory jit-comparison-backend
+
+jit-comparison-backend:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::corrupted_comparison_
 
 jit-truth:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::shape::tests

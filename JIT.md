@@ -76,6 +76,12 @@ records use the same snapshot ledger and reject missing/extra obligations.
 Not/Test records bind canonical source reads to a bounded typed Lua-truth
 expression: only nil and false are false. Logical-not payload/tag stores and
 Test's decoded polarity, branch targets and one-step fuel increment are checked.
+Eq/Less/LessEq records bind both source operands to exact same-type and mixed
+numeric expressions, including signed comparisons, fractional ties, IEEE
+ordering and saturating conversions at the +/-2^63 boundaries. Actual split
+edges, the two phi inputs, final branch polarity/targets and one-step fuel
+increment are verified. Comparison record storage is exact-counted and charged
+to the snapshot ledger; missing obligations and growth are refused.
 The retained, fallible PC-to-block map is charged to the snapshot ledger and
 can refuse with `ResourceLimit("frontend block map")` before compiler/host setup.
 Semantic checks are

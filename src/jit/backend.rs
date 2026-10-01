@@ -191,6 +191,15 @@ pub(super) enum Failure {
     CorruptTruthCondition,
     CorruptTruthTargets,
     CorruptTruthCount,
+    CorruptComparisonSame,
+    CorruptComparisonGuard,
+    CorruptComparisonBound,
+    CorruptComparisonSplit,
+    CorruptComparisonPhi,
+    CorruptComparisonTargets,
+    CorruptComparisonCount,
+    CorruptComparisonSource,
+    CorruptComparisonPolarity,
 }
 
 #[cfg(test)]
@@ -441,6 +450,25 @@ pub(super) fn compile_in(
             stores.corrupt_truth(&mut context.func, fault, snapshot.registers);
         }
     }
+    #[cfg(test)]
+    {
+        use super::tags::ComparisonCorruption as Fault;
+        let fault = match failure {
+            Failure::CorruptComparisonSame => Some(Fault::SameCondition),
+            Failure::CorruptComparisonGuard => Some(Fault::MixedGuard),
+            Failure::CorruptComparisonBound => Some(Fault::MixedBound),
+            Failure::CorruptComparisonSplit => Some(Fault::Split),
+            Failure::CorruptComparisonPhi => Some(Fault::Phi),
+            Failure::CorruptComparisonTargets => Some(Fault::Targets),
+            Failure::CorruptComparisonCount => Some(Fault::Count),
+            Failure::CorruptComparisonSource => Some(Fault::Source),
+            Failure::CorruptComparisonPolarity => Some(Fault::Polarity),
+            _ => None,
+        };
+        if let Some(fault) = fault {
+            stores.corrupt_comparison(&mut context.func, fault, snapshot.registers);
+        }
+    }
     let block_count = context.func.layout.blocks().count();
     let instructions = context
         .func
@@ -461,6 +489,7 @@ pub(super) fn compile_in(
     )?;
     stores.verify_arithmetic(&context.func, parameters[0], snapshot)?;
     stores.verify_truths(&context.func, parameters[0], snapshot, &blocks)?;
+    stores.verify_comparisons(&context.func, parameters[0], snapshot, &blocks)?;
     module
         .define_function(function, &mut context)
         .map_err(fail)?;
@@ -976,7 +1005,7 @@ impl Emitter<'_, '_> {
         let mixed = self.builder.create_block();
         let join = self.builder.create_block();
         self.builder.append_block_param(join, types::I8);
-        self.builder.ins().brif(same, same_type, &[], mixed, &[]);
+        let split = self.builder.ins().brif(same, same_type, &[], mixed, &[]);
         self.builder.switch_to_block(same_type);
         let integer = self.tag_is(lt, abi::INTEGER);
         let (icc, fcc) = match op {
@@ -995,11 +1024,13 @@ impl Emitter<'_, '_> {
             .bitcast(types::F64, MemFlagsData::new(), rb);
         let float_result = self.builder.ins().fcmp(fcc, left, right);
         let result = self.builder.ins().select(integer, int_result, float_result);
+        let same_result = result;
         self.numeric_input(result, lt, lb);
         self.numeric_input(result, rt, rb);
         self.builder.ins().jump(join, &[result.into()]);
         self.builder.switch_to_block(mixed);
         let result = self.mixed_compare(op, lt, lb, rb);
+        let mixed_result = result;
         self.numeric_input(result, lt, lb);
         self.numeric_input(result, rt, rb);
         self.builder.ins().jump(join, &[result.into()]);
@@ -1010,7 +1041,15 @@ impl Emitter<'_, '_> {
         } else {
             self.builder.ins().bxor_imm_u(result, 1)
         };
-        self.branch(skip, self.pc + 2, self.pc + 1);
+        let branch = self.branch(skip, self.pc + 2, self.pc + 1);
+        self.stores.comparison(super::tags::Comparison {
+            pc: self.pc,
+            inputs: [(lt, lb), (rt, rb)],
+            same: same_result,
+            mixed: mixed_result,
+            split,
+            branch,
+        });
     }
 
     fn mixed_compare(
@@ -1443,6 +1482,213 @@ mod access_tests {
 }
 
 #[cfg(test)]
+mod comparison_tests {
+    use super::super::tags::ComparisonCorruption as Fault;
+    use super::*;
+    use crate::types::{ConstantIndex8 as C, RegisterIndex as R, VarCount};
+
+    fn fixture(
+        kind: usize,
+        skip_if: bool,
+        constants: bool,
+        fault: Option<Fault>,
+    ) -> Result<(), JitError> {
+        let left = if constants {
+            RCIndex::Constant(C(0))
+        } else {
+            RCIndex::Register(R(0))
+        };
+        let right = if constants {
+            RCIndex::Constant(C(1))
+        } else {
+            RCIndex::Register(R(1))
+        };
+        let op = match kind {
+            0 => Operation::Eq {
+                left,
+                right,
+                skip_if,
+            },
+            1 => Operation::Less {
+                left,
+                right,
+                skip_if,
+            },
+            _ => Operation::LessEq {
+                left,
+                right,
+                skip_if,
+            },
+        };
+        let snapshot = Snapshot {
+            operations: super::super::resources::owned(&[
+                op,
+                Operation::Return {
+                    start: R(0),
+                    count: VarCount::constant(0),
+                },
+                Operation::Return {
+                    start: R(0),
+                    count: VarCount::constant(0),
+                },
+            ]),
+            constants: super::super::resources::owned(&[
+                Slot {
+                    tag: abi::INTEGER,
+                    bits: i64::MAX as u64,
+                },
+                Slot {
+                    tag: abi::NUMBER,
+                    bits: f64::NAN.to_bits(),
+                },
+            ]),
+            registers: 4,
+            upvalues: 0,
+            prototypes: 0,
+        };
+        snapshot.verify().unwrap();
+        let graph = super::super::flow::FlowGraph::new(&snapshot).unwrap();
+        let baseline = snapshot.operations.allocator().0.current();
+        let mut stores = super::super::tags::Stores::new(&graph, &snapshot).unwrap();
+        let mut function = cranelift_codegen::ir::Function::new();
+        function.signature.params.push(AbiParam::new(types::I64));
+        let mut context = FunctionBuilderContext::new();
+        let slots;
+        let blocks;
+        {
+            let mut builder = FunctionBuilder::new(&mut function, &mut context);
+            let entry = builder.create_block();
+            builder.append_block_params_for_function_params(entry);
+            builder.switch_to_block(entry);
+            slots = builder.block_params(entry)[0];
+            blocks = [
+                builder.create_block(),
+                builder.create_block(),
+                builder.create_block(),
+            ];
+            for block in blocks {
+                builder.append_block_param(block, types::I32);
+            }
+            let guard = builder.create_block();
+            builder.append_block_param(guard, types::I64);
+            builder.append_block_param(guard, types::I32);
+            let zero = builder.ins().iconst(types::I32, 0);
+            builder.ins().jump(blocks[0], &[zero.into()]);
+            builder.switch_to_block(blocks[0]);
+            let count = builder.block_params(blocks[0])[0];
+            let host = builder.ins().iconst(types::I64, 0);
+            let mut emitter = Emitter {
+                builder: &mut builder,
+                snapshot: &snapshot,
+                graph: &graph,
+                blocks: &blocks,
+                slots,
+                fallback: guard,
+                guard,
+                panicked: guard,
+                host,
+                helpers: &[],
+                pc: 0,
+                count,
+                written: false,
+                stores: &mut stores,
+                omit_numeric_guards: false,
+            };
+            emitter.emit(op);
+            for block in [blocks[1], blocks[2], guard] {
+                builder.switch_to_block(block);
+                builder.ins().return_(&[]);
+            }
+            builder.seal_all_blocks();
+            let isa = cranelift_codegen::isa::lookup_by_name(std::env::consts::ARCH)
+                .unwrap()
+                .finish(cranelift_codegen::settings::Flags::new(
+                    cranelift_codegen::settings::builder(),
+                ))
+                .unwrap();
+            builder.finalize(isa.frontend_config());
+        }
+        if let Some(fault) = fault {
+            stores.corrupt_comparison(&mut function, fault, snapshot.registers);
+        }
+        cranelift_codegen::verify_function(
+            &function,
+            &cranelift_codegen::settings::Flags::new(cranelift_codegen::settings::builder()),
+        )
+        .unwrap();
+        let result = stores
+            .verify(&function, slots, None, snapshot.registers)
+            .and_then(|_| stores.verify_comparisons(&function, slots, &snapshot, &blocks));
+        let ledger = snapshot.operations.allocator().0.clone();
+        drop(stores);
+        assert_eq!(ledger.current(), baseline);
+        result
+    }
+
+    fn refused(result: Result<(), JitError>) {
+        assert!(
+            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow"),
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn all_comparison_kinds_polarities_and_operand_forms_match_source() {
+        for kind in 0..3 {
+            for skip_if in [false, true] {
+                for constants in [false, true] {
+                    fixture(kind, skip_if, constants, None).unwrap();
+                }
+            }
+        }
+    }
+    #[test]
+    fn same_type_condition_corruption_is_refused() {
+        refused(fixture(1, true, false, Some(Fault::SameCondition)));
+    }
+    #[test]
+    fn mixed_nan_and_upper_bound_guard_corruption_is_refused() {
+        for kind in 0..3 {
+            refused(fixture(kind, true, false, Some(Fault::MixedGuard)));
+        }
+    }
+    #[test]
+    fn mixed_boundary_constant_corruption_is_refused() {
+        for kind in 0..3 {
+            refused(fixture(kind, true, false, Some(Fault::MixedBound)));
+        }
+    }
+    #[test]
+    fn split_phi_and_final_branch_corruption_is_refused() {
+        for fault in [Fault::Split, Fault::Phi, Fault::Targets] {
+            refused(fixture(1, true, false, Some(fault)));
+        }
+    }
+    #[test]
+    fn source_and_fuel_corruption_is_refused() {
+        for fault in [Fault::Source, Fault::Count] {
+            refused(fixture(1, true, false, Some(fault)));
+        }
+    }
+
+    #[test]
+    fn final_polarity_corruption_is_refused_for_each_operation_and_polarity() {
+        for kind in 0..3 {
+            for skip_if in [false, true] {
+                refused(fixture(kind, skip_if, false, Some(Fault::Polarity)));
+            }
+        }
+    }
+
+    #[test]
+    fn comparison_record_count_pc_and_capacity_cannot_remove_obligations() {
+        for fault in [Fault::Missing, Fault::ProgramCounter, Fault::Growth] {
+            refused(fixture(1, true, false, Some(fault)));
+        }
+    }
+}
+
+#[cfg(test)]
 mod memory_tests {
     use super::*;
 
@@ -1526,6 +1772,70 @@ mod memory_tests {
         assert_eq!(total.load(Ordering::Relaxed), 0);
         assert_eq!(ledger.current(), baseline);
         assert_eq!(ledger.refusals(), 1);
+    }
+
+    fn refuse_corrupted_comparison(failure: Failure) {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype = crate::FunctionPrototype::compile(
+                ctx,
+                "comparison-corruption",
+                b"local x=41 local y=2.5 if x<y then return 1 else return 2 end",
+            )
+            .unwrap();
+            Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
+        });
+        let total = Arc::new(AtomicUsize::new(0));
+        let result = compile_in(
+            &snapshot,
+            total.clone(),
+            8 * 1024 * 1024,
+            BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
+            super::super::work::Limits::from(&super::super::JitConfig::default()),
+            failure,
+        );
+        assert!(
+            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")
+        );
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn corrupted_comparison_same_is_refused_before_codegen_and_mapping() {
+        refuse_corrupted_comparison(Failure::CorruptComparisonSame);
+    }
+    #[test]
+    fn corrupted_comparison_guard_is_refused_before_codegen_and_mapping() {
+        refuse_corrupted_comparison(Failure::CorruptComparisonGuard);
+    }
+    #[test]
+    fn corrupted_comparison_bound_is_refused_before_codegen_and_mapping() {
+        refuse_corrupted_comparison(Failure::CorruptComparisonBound);
+    }
+    #[test]
+    fn corrupted_comparison_split_is_refused_before_codegen_and_mapping() {
+        refuse_corrupted_comparison(Failure::CorruptComparisonSplit);
+    }
+    #[test]
+    fn corrupted_comparison_phi_is_refused_before_codegen_and_mapping() {
+        refuse_corrupted_comparison(Failure::CorruptComparisonPhi);
+    }
+    #[test]
+    fn corrupted_comparison_targets_is_refused_before_codegen_and_mapping() {
+        refuse_corrupted_comparison(Failure::CorruptComparisonTargets);
+    }
+    #[test]
+    fn corrupted_comparison_count_is_refused_before_codegen_and_mapping() {
+        refuse_corrupted_comparison(Failure::CorruptComparisonCount);
+    }
+    #[test]
+    fn corrupted_comparison_source_is_refused_before_codegen_and_mapping() {
+        refuse_corrupted_comparison(Failure::CorruptComparisonSource);
+    }
+
+    #[test]
+    fn corrupted_comparison_polarity_is_refused_before_codegen_and_mapping() {
+        refuse_corrupted_comparison(Failure::CorruptComparisonPolarity);
     }
 
     fn refuse_corrupted_truth(failure: Failure) {
