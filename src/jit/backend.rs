@@ -178,6 +178,7 @@ pub(super) enum Failure {
     None,
     Allocate,
     Protect,
+    CorruptTag,
 }
 
 #[cfg(test)]
@@ -191,6 +192,7 @@ pub(super) fn compile(
         total,
         limit,
         BudgetAllocator(super::resources::Ledger::new(2 * 1024 * 1024)),
+        super::work::Limits::from(&super::JitConfig::default()),
         Failure::None,
     )
 }
@@ -200,9 +202,12 @@ pub(super) fn compile_in(
     total: Arc<AtomicUsize>,
     limit: usize,
     metadata: BudgetAllocator,
+    work: super::work::Limits,
     #[cfg(test)] failure: Failure,
 ) -> Result<Code, JitError> {
+    let expansion = super::work::Expansion::admit(snapshot, work)?;
     let graph = super::flow::FlowGraph::new(snapshot)?;
+    let mut stores = super::tags::Stores::new(&graph, snapshot.operations.allocator().clone())?;
     let mut entries = BudgetVec::new_in(metadata.clone());
     entries
         .try_reserve_exact(snapshot.operations.len())
@@ -331,6 +336,7 @@ pub(super) fn compile_in(
                 count: zero,
                 pc: 0,
                 written: false,
+                stores: &mut stores,
             };
             for (pc, op) in snapshot.operations.iter().copied().enumerate() {
                 emitter.pc = pc;
@@ -379,6 +385,28 @@ pub(super) fn compile_in(
         builder.seal_all_blocks();
         builder.finalize(module.target_config());
     }
+    #[cfg(test)]
+    if failure == Failure::CorruptTag {
+        stores.corrupt_first(&mut context.func);
+    }
+    let blocks = context.func.layout.blocks().count();
+    let instructions = context
+        .func
+        .layout
+        .blocks()
+        .map(|block| context.func.layout.block_insts(block).count())
+        .sum();
+    expansion.verify_actual(instructions, blocks)?;
+    let parameters = context
+        .func
+        .dfg
+        .block_params(context.func.layout.entry_block().unwrap());
+    stores.verify(
+        &context.func,
+        parameters[0],
+        Some(parameters[3]),
+        snapshot.registers,
+    )?;
     module
         .define_function(function, &mut context)
         .map_err(fail)?;
@@ -411,6 +439,7 @@ struct Emitter<'a, 'b> {
     pc: usize,
     count: IrValue,
     written: bool,
+    stores: &'a mut super::tags::Stores,
 }
 
 impl Emitter<'_, '_> {
@@ -438,6 +467,12 @@ impl Emitter<'_, '_> {
 
     fn helper(&mut self, kind: u32, a: u32, b: u32, c: u32) {
         assert!(self.graph.nodes[self.pc].lowering.accepts_helper(kind));
+        assert!(
+            self.graph.nodes[self.pc]
+                .access
+                .permits_helper(kind, a, b, c),
+            "invalid native helper operands"
+        );
         self.exit_state(ExitKind::Interpreter);
         self.exit_state(ExitKind::Panic);
         let args: Vec<_> = [a, b, c, self.pc as u32]
@@ -491,6 +526,14 @@ impl Emitter<'_, '_> {
     }
 
     fn load(&mut self, register: u8) -> (IrValue, IrValue) {
+        assert!(
+            self.graph.nodes[self.pc].lowering.native(),
+            "invalid native lowering"
+        );
+        assert!(
+            self.graph.nodes[self.pc].access.reads.contains(register),
+            "invalid native register read"
+        );
         let offset = i32::from(register) * 16;
         let tag = self
             .builder
@@ -514,13 +557,23 @@ impl Emitter<'_, '_> {
     }
 
     fn store(&mut self, register: u8, tag: IrValue, bits: IrValue) {
+        assert!(
+            self.graph.nodes[self.pc].lowering.native(),
+            "invalid native lowering"
+        );
+        assert!(
+            self.graph.nodes[self.pc].access.writes.contains(register),
+            "invalid native register write"
+        );
         self.written = true;
-        self.builder.ins().store(
+        let inst = self.builder.ins().store(
             MemFlagsData::new(),
             tag,
             self.slots,
             i32::from(register) * 16,
         );
+        self.stores
+            .record(inst, self.graph.nodes[self.pc].access.scalar_tags());
         self.builder.ins().store(
             MemFlagsData::new(),
             bits,
@@ -530,6 +583,10 @@ impl Emitter<'_, '_> {
     }
 
     fn store_typed(&mut self, register: u8, tag: u64, bits: IrValue) {
+        assert!(
+            self.graph.nodes[self.pc].access.permits_scalar_tag(tag),
+            "invalid native result tag"
+        );
         let tag = self.constant(tag);
         self.store(register, tag, bits);
     }
@@ -792,24 +849,24 @@ impl Emitter<'_, '_> {
         let (rt, rb) = self.operand(right);
         self.require_numeric(lt);
         self.require_numeric(rt);
-        let integer = self.builder.create_block();
         let float = self.builder.create_block();
-        let li = self.tag_is(lt, abi::INTEGER);
-        let ri = self.tag_is(rt, abi::INTEGER);
-        let both = self.builder.ins().band(li, ri);
         if matches!(op, Operation::Div { .. }) {
             self.builder.ins().jump(float, &[]);
         } else {
+            let integer = self.builder.create_block();
+            let li = self.tag_is(lt, abi::INTEGER);
+            let ri = self.tag_is(rt, abi::INTEGER);
+            let both = self.builder.ins().band(li, ri);
             self.builder.ins().brif(both, integer, &[], float, &[]);
+            self.builder.switch_to_block(integer);
+            let bits = match op {
+                Operation::Add { .. } => self.builder.ins().iadd(lb, rb),
+                Operation::Sub { .. } => self.builder.ins().isub(lb, rb),
+                _ => self.builder.ins().imul(lb, rb),
+            };
+            self.store_typed(dest, abi::INTEGER, bits);
+            self.advance(self.pc + 1);
         }
-        self.builder.switch_to_block(integer);
-        let bits = match op {
-            Operation::Add { .. } => self.builder.ins().iadd(lb, rb),
-            Operation::Sub { .. } => self.builder.ins().isub(lb, rb),
-            _ => self.builder.ins().imul(lb, rb),
-        };
-        self.store_typed(dest, abi::INTEGER, bits);
-        self.advance(self.pc + 1);
         self.builder.switch_to_block(float);
         let left = self.as_float(lt, lb);
         let right = self.as_float(rt, rb);
@@ -1059,7 +1116,7 @@ mod exit_tests {
     use super::*;
     use crate::types::{RegisterIndex, VarCount};
 
-    fn rejects_after_store(op: Operation, kind: ExitKind) {
+    pub(super) fn with_emitter(op: Operation, action: impl FnOnce(&mut Emitter<'_, '_>)) {
         let snapshot = Snapshot {
             operations: super::super::resources::owned(&[
                 op,
@@ -1074,6 +1131,9 @@ mod exit_tests {
             prototypes: 0,
         };
         let graph = super::super::flow::FlowGraph::new(&snapshot).unwrap();
+        let mut stores =
+            super::super::tags::Stores::new(&graph, snapshot.operations.allocator().clone())
+                .unwrap();
         let mut function = cranelift_codegen::ir::Function::new();
         let mut context = FunctionBuilderContext::new();
         let mut builder = FunctionBuilder::new(&mut function, &mut context);
@@ -1096,33 +1156,40 @@ mod exit_tests {
             pc: 0,
             count,
             written: false,
+            stores: &mut stores,
         };
-        emitter.exit_state(kind);
-        let tag = emitter.constant(abi::INTEGER);
-        let bits = emitter.constant(42);
-        emitter.store(0, tag, bits);
-        let condition = emitter.builder.ins().iconst(types::I8, 1);
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match kind {
-            ExitKind::Guard => emitter.require(condition),
-            ExitKind::Interpreter if matches!(op, Operation::NewTable { .. }) => {
-                emitter.helper(abi::HELPER_NEW_TABLE, 0, 0, 0);
-            }
-            ExitKind::Interpreter => emitter.bail(),
-            ExitKind::Budget => {
-                emitter.exit_pc(ExitKind::Budget);
-            }
-            ExitKind::Panic => unreachable!(),
-        }));
-        let payload = result.expect_err("emitter admitted a retry exit after scalar effects");
-        let message = payload
-            .downcast_ref::<String>()
-            .map(String::as_str)
-            .or_else(|| payload.downcast_ref::<&str>().copied())
-            .unwrap();
-        assert!(
-            message.contains("invalid native exit snapshot"),
-            "{message}"
-        );
+        action(&mut emitter);
+    }
+
+    fn rejects_after_store(op: Operation, kind: ExitKind) {
+        with_emitter(op, |emitter| {
+            emitter.exit_state(kind);
+            let tag = emitter.constant(abi::INTEGER);
+            let bits = emitter.constant(42);
+            emitter.store(0, tag, bits);
+            let condition = emitter.builder.ins().iconst(types::I8, 1);
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match kind {
+                ExitKind::Guard => emitter.require(condition),
+                ExitKind::Interpreter if matches!(op, Operation::NewTable { .. }) => {
+                    emitter.helper(abi::HELPER_NEW_TABLE, 0, 0, 0);
+                }
+                ExitKind::Interpreter => emitter.bail(),
+                ExitKind::Budget => {
+                    emitter.exit_pc(ExitKind::Budget);
+                }
+                ExitKind::Panic => unreachable!(),
+            }));
+            let payload = result.expect_err("emitter admitted a retry exit after scalar effects");
+            let message = payload
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| payload.downcast_ref::<&str>().copied())
+                .unwrap();
+            assert!(
+                message.contains("invalid native exit snapshot"),
+                "{message}"
+            );
+        });
     }
 
     #[test]
@@ -1140,9 +1207,9 @@ mod exit_tests {
     #[test]
     fn interpreter_fallback_after_a_store_is_rejected_before_branch_emission() {
         rejects_after_store(
-            Operation::Return {
-                start: RegisterIndex(0),
-                count: VarCount::constant(0),
+            Operation::Move {
+                dest: RegisterIndex(0),
+                source: RegisterIndex(1),
             },
             ExitKind::Interpreter,
         );
@@ -1174,8 +1241,143 @@ mod exit_tests {
 }
 
 #[cfg(test)]
+mod access_tests {
+    use super::*;
+    use crate::types::{RegisterIndex as R, VarCount};
+
+    fn rejects(op: Operation, expected: &str, action: impl FnOnce(&mut Emitter<'_, '_>)) {
+        super::exit_tests::with_emitter(op, |emitter| {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| action(emitter)));
+            let payload = result.expect_err("emitter admitted an undeclared access");
+            let message = payload
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| payload.downcast_ref::<&str>().copied())
+                .unwrap();
+            assert!(message.contains(expected), "{message}");
+        });
+    }
+
+    #[test]
+    fn interpreter_barrier_masks_do_not_grant_native_lowering() {
+        rejects(
+            Operation::Return {
+                start: R(0),
+                count: VarCount::constant(0),
+            },
+            "invalid native lowering",
+            |emitter| {
+                emitter.load(0);
+            },
+        );
+    }
+
+    #[test]
+    fn undeclared_in_bounds_register_read_is_rejected_before_load_emission() {
+        rejects(
+            Operation::Add {
+                dest: R(0),
+                left: R(1).into(),
+                right: R(2).into(),
+            },
+            "invalid native register read",
+            |emitter| {
+                emitter.load(3);
+            },
+        );
+    }
+
+    #[test]
+    fn undeclared_in_bounds_register_write_is_rejected_before_store_emission() {
+        rejects(
+            Operation::LoadBool {
+                dest: R(0),
+                value: true,
+                skip_next: false,
+            },
+            "invalid native register write",
+            |emitter| {
+                let tag = emitter.constant(abi::BOOLEAN);
+                let bits = emitter.constant(1);
+                emitter.store(1, tag, bits);
+            },
+        );
+    }
+
+    #[test]
+    fn a_known_scalar_result_cannot_change_the_opcode_output_type() {
+        rejects(
+            Operation::LoadBool {
+                dest: R(0),
+                value: true,
+                skip_next: false,
+            },
+            "invalid native result tag",
+            |emitter| {
+                let bits = emitter.constant(1);
+                emitter.store_typed(0, abi::INTEGER, bits);
+            },
+        );
+    }
+
+    #[test]
+    fn reference_results_cannot_bypass_the_canonical_helper_path() {
+        rejects(
+            Operation::NewTable {
+                dest: R(0),
+                array_size: 0,
+                map_size: 0,
+            },
+            "invalid native result tag",
+            |emitter| {
+                let bits = emitter.constant(0);
+                emitter.store_typed(0, abi::REFERENCE, bits);
+            },
+        );
+    }
+
+    #[test]
+    fn helper_register_operands_cannot_be_reencoded_as_constants() {
+        rejects(
+            Operation::GetTable {
+                dest: R(0),
+                table: R(1),
+                key: R(2).into(),
+            },
+            "invalid native helper operands",
+            |emitter| {
+                emitter.helper(abi::HELPER_GET_TABLE, 0, 1, abi::CONSTANT_OPERAND | 2);
+            },
+        );
+    }
+}
+
+#[cfg(test)]
 mod memory_tests {
     use super::*;
+
+    #[test]
+    fn corrupted_scalar_store_is_refused_before_codegen_and_mapping() {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype =
+                crate::FunctionPrototype::compile(ctx, "corrupt-tag", b"return 42").unwrap();
+            Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
+        });
+        let total = Arc::new(AtomicUsize::new(0));
+        let result = compile_in(
+            &snapshot,
+            total.clone(),
+            8 * 1024 * 1024,
+            BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
+            super::super::work::Limits::from(&super::super::JitConfig::default()),
+            Failure::CorruptTag,
+        );
+        assert!(
+            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")
+        );
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+    }
 
     #[test]
     #[ignore = "writes generated-kernel artifacts through make jit-disassembly"]
@@ -1377,6 +1579,7 @@ mod memory_tests {
                 total.clone(),
                 4096,
                 BudgetAllocator(metadata.clone()),
+                super::super::work::Limits::from(&super::super::JitConfig::default()),
                 Failure::None
             ),
             Err(JitError::ResourceLimit("JIT metadata"))

@@ -44,11 +44,130 @@ fn state() -> Lua {
     lua
 }
 
+#[test]
+fn ir_shape_refusal_preserves_interpretation_and_recovers_after_reset() -> Result<(), ExternError> {
+    for instructions in [true, false] {
+        let mut lua = state();
+        let mut config = lua.jit_config();
+        if instructions {
+            config.max_ir_instructions = 1;
+        } else {
+            config.max_ir_blocks = 1;
+        }
+        lua.set_jit_config(config).unwrap();
+        let closure = lua
+            .try_enter(|ctx| Ok(ctx.stash(Closure::load(ctx, None, b"local x=40 return x+2")?)))?;
+        let executor =
+            lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&closure).into(), ())));
+        let expected = if instructions {
+            "IR instructions"
+        } else {
+            "IR blocks"
+        };
+        assert!(
+            matches!(lua.prepare_jit(), Err(JitError::ResourceLimit(reason)) if reason == expected)
+        );
+        let stats = lua.jit_stats();
+        assert_eq!(stats.code_bytes, 0);
+        assert_eq!(stats.snapshot_bytes, 0);
+        assert_eq!(stats.native_entries, 0);
+        assert_eq!(stats.compilation_failures, 1);
+        assert_eq!(lua.execute::<i64>(&executor).unwrap(), 42);
+        assert_eq!(lua.jit_stats().native_entries, 0);
+        lua.set_jit_config(JitConfig {
+            mode: JitMode::Auto,
+            hot_threshold: 1,
+            ..JitConfig::default()
+        })
+        .unwrap();
+        lua.clear_jit_cache();
+        assert!(lua.prepare_jit().unwrap() > 0);
+        let executor =
+            lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&closure).into(), ())));
+        assert_eq!(lua.execute::<i64>(&executor)?, 42);
+        assert!(lua.jit_stats().native_entries > 0);
+        assert!(lua.jit_stats().native_instructions > 0);
+    }
+    Ok(())
+}
+
+#[test]
+fn lowering_ir_caps_retires_native_code_and_preserves_live_source() -> Result<(), ExternError> {
+    for instructions in [true, false] {
+        let mut lua = state();
+        let executor = source(&mut lua, b"local x=40 return x+2")?;
+        assert_eq!(lua.prepare_jit().unwrap(), 1);
+        assert!(lua.jit_stats().code_bytes > 0);
+        let mut config = lua.jit_config();
+        if instructions {
+            config.max_ir_instructions = 1;
+        } else {
+            config.max_ir_blocks = 1;
+        }
+        lua.set_jit_config(config).unwrap();
+        let stats = lua.jit_stats();
+        assert_eq!(
+            (
+                stats.code_bytes,
+                stats.snapshot_bytes,
+                stats.queued_requests
+            ),
+            (0, 0, 0)
+        );
+        assert_eq!(stats.registered_prototypes, 1);
+        assert_eq!(lua.execute::<i64>(&executor)?, 42);
+        assert_eq!(lua.jit_stats().native_entries, 0);
+        assert_eq!(lua.jit_stats().code_bytes, 0);
+    }
+    Ok(())
+}
+
 fn source(lua: &mut Lua, text: &[u8]) -> Result<StashedExecutor, ExternError> {
     lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, Some("resources"), text)?;
         Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
     })
+}
+
+#[test]
+fn scalar_verifier_workspace_refusal_preserves_source_and_recovers() -> Result<(), ExternError> {
+    let script = b"local x=40 return x+2";
+    let mut probe = state();
+    let _probe = source(&mut probe, script)?;
+    assert_eq!(probe.prepare_jit().unwrap(), 1);
+    let peak = probe.jit_stats().snapshot_peak_bytes;
+    let mut lua = state();
+    let mut config = lua.jit_config();
+    config.max_snapshot_bytes = peak - 1;
+    lua.set_jit_config(config).unwrap();
+    let closure =
+        lua.try_enter(|ctx| Ok(ctx.stash(Closure::load(ctx, Some("resources"), script)?)))?;
+    let executor = lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&closure).into(), ())));
+    assert!(matches!(
+        lua.prepare_jit(),
+        Err(JitError::ResourceLimit("scalar tag verification"))
+    ));
+    let stats = lua.jit_stats();
+    assert_eq!(
+        (
+            stats.snapshot_bytes,
+            stats.code_bytes,
+            stats.native_entries,
+            stats.cache_evictions
+        ),
+        (0, 0, 0, 0)
+    );
+    assert_eq!(lua.execute::<i64>(&executor)?, 42);
+    assert_eq!(lua.jit_stats().native_entries, 0);
+    let mut config = lua.jit_config();
+    config.max_snapshot_bytes = JitConfig::default().max_snapshot_bytes;
+    lua.set_jit_config(config).unwrap();
+    lua.clear_jit_cache();
+    assert_eq!(lua.prepare_jit().unwrap(), 1);
+    let executor = lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&closure).into(), ())));
+    assert_eq!(lua.execute::<i64>(&executor)?, 42);
+    assert!(lua.jit_stats().native_instructions > 0);
+    Ok(())
 }
 
 #[test]

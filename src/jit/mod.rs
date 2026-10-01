@@ -16,6 +16,7 @@ use ottavino_gc_arena::Collect;
 use thiserror::Error;
 
 mod abi;
+mod access;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -35,6 +36,12 @@ pub(crate) mod ir;
 mod model;
 pub(crate) mod registry;
 pub(crate) mod resources;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod tags;
+mod work;
 use resources::{BudgetAllocator, Compaction, Compactor, Ledger};
 
 pub(crate) type MetadataMap<K, V> = HashMap<K, V, RandomState, BudgetAllocator>;
@@ -57,6 +64,8 @@ pub struct JitConfig {
     pub mode: JitMode,
     pub hot_threshold: u32,
     pub max_prototype_instructions: usize,
+    pub max_ir_instructions: usize,
+    pub max_ir_blocks: usize,
     pub max_queue_entries: usize,
     pub max_code_bytes: usize,
     pub max_snapshot_bytes: usize,
@@ -70,6 +79,8 @@ impl Default for JitConfig {
             mode: JitMode::Off,
             hot_threshold: 64,
             max_prototype_instructions: 4096,
+            max_ir_instructions: 1024 * 1024,
+            max_ir_blocks: 65536,
             max_queue_entries: 16,
             max_code_bytes: 8 * 1024 * 1024,
             max_snapshot_bytes: 2 * 1024 * 1024,
@@ -87,6 +98,8 @@ impl JitConfig {
             ));
         }
         if self.max_prototype_instructions == 0
+            || self.max_ir_instructions == 0
+            || self.max_ir_blocks == 0
             || self.max_queue_entries == 0
             || self.max_code_bytes == 0
             || self.max_snapshot_bytes == 0
@@ -368,6 +381,8 @@ impl Manager {
             || config.max_code_bytes < self.config.max_code_bytes
             || config.max_snapshot_bytes < self.config.max_snapshot_bytes
             || config.max_prototype_instructions < self.config.max_prototype_instructions
+            || config.max_ir_instructions < self.config.max_ir_instructions
+            || config.max_ir_blocks < self.config.max_ir_blocks
         {
             self.clear();
         } else {
@@ -526,12 +541,13 @@ impl Runtime {
             any(target_arch = "x86_64", target_arch = "aarch64")
         ))]
         {
-            let (memory, limit, metadata) = {
+            let (memory, limit, metadata, work) = {
                 let manager = self.0.borrow();
                 (
                     manager.memory.clone(),
                     manager.config.max_code_bytes,
                     manager.metadata.clone(),
+                    work::Limits::from(&manager.config),
                 )
             };
             #[cfg(test)]
@@ -542,6 +558,7 @@ impl Runtime {
                     memory.clone(),
                     limit,
                     metadata.clone(),
+                    work,
                     #[cfg(test)]
                     failure,
                 )
@@ -1208,7 +1225,7 @@ mod eviction_tests {
         let snapshot = lua.enter(|ctx| {
             let prototype =
                 crate::FunctionPrototype::compile(ctx, "oversized", source.as_bytes()).unwrap();
-            ir::Snapshot::new(&prototype, 4096, 65536).unwrap()
+            ir::Snapshot::new(&prototype, 4096, JitConfig::default().max_snapshot_bytes).unwrap()
         });
         assert!(matches!(
             runtime.compile(3, snapshot),

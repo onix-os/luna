@@ -51,12 +51,25 @@ Every generated operation checks the remaining reference slice allowance before 
 
 ## Resources and counters
 
+Before code generation, scalar-tag verification checks actual scratch stores and
+their opcode-specific tag admissions. Constants and phi inputs supply tag unions;
+slot loads require dominating, single-predecessor guarded edges to exclude
+references. Merged/bypassed guards, reference-contaminated phis, unrecorded stores
+and unsupported memory-store forms are refused. Input slot tags are the five ABI
+v3 tags produced by canonical packing and helpers, not arbitrary external native
+buffers. This is not payload, liveness, alias or complete typed-SSA verification.
+Luna-owned store records/worklists use the snapshot ledger and can report
+`ResourceLimit("scalar tag verification")`; compiler CFG/dominator storage remains
+outside the current ledger. Record-envelope violations are compiler errors and
+never silently grow verification storage.
+
 Completed full and incremental GC cycles retire dead source registrations and
 their cached code even while JIT is Off. Live closures keep their registrations;
 partial cycles can defer retirement until completion. GC performs no compilation.
 The disabled `service_jit()` fast path remains unchanged.
 
 - `max_prototype_instructions` and `max_snapshot_bytes` bound snapshot admission before copying bytecode. Native scratch uses the smallest fitting 8/16/32/64/128/256-slot tier, bounded to 256 scalar slots. Scratch-bearing routines are non-inlined, so compiled-but-Off VM entries do not reserve their 4 KB maximum.
+- `max_ir_instructions` (1048576) and `max_ir_blocks` (65536) independently cap a conservative frontend expansion envelope before graph allocation or Cranelift setup. Actual frontend instruction/block counts must fit the admitted envelope before code generation. The estimate can reject a prototype below the source-opcode ceiling; these limits do not bound optimizer CPU time, compiler working memory or RSS. Lowering either limit retires cached code and pending requests; existing leases retain their normal lifetime policy.
 - `max_queue_entries` bounds pending identity requests. Saturating hotness and `max_compile_attempts` limit repeated failures; clearing the cache resets attempts.
 - `max_code_bytes` bounds actual page-rounded JIT mappings, including the compiler's code/readonly/writable segments. Retired but pinned mappings remain charged until the last lease drops. Allocation failure frees partial mappings and leaves interpretation usable.
 - `max_metadata_bytes` independently bounds requested allocation layouts for weak registrations, tracking/code-index maps, pending identities, preparation ID buffers, native-entry flags and mapping records. Containers use a shared fallible allocator; retained capacity and temporary old/new growth are charged. Registration refusal leaves ordinary source loading/interpreting usable; metadata allocation refusal is typed `ResourceLimit("JIT metadata")`. Lowering this ceiling retires registrations, code and requests; existing closures continue interpreted, and new source loads can register after limits are raised. Active leases keep their entry flags/mapping records and remain charged until their final owner drops, even above a newly reduced quota. Ordinary cache clearing retains live source registrations.
@@ -175,6 +188,18 @@ write marker is not path-sensitive SSA. Wire reasons and ABI v3 are unchanged,
 and these checks add no native dispatch work. `make jit-exits` tests snapshot
 contracts and rejects four injected retry-after-store IR emission cases without
 executing native code; the selected Miri lane includes those Rust-only tests.
+
+Owned nodes carry fixed-register read/may-write bitmaps, known scalar output tags
+and exact helper kind/operand records. Compiler loads/stores must use declared
+registers, known scalar stores must match result tags, and reference tags cannot
+be emitted through raw scalar stores. Helper operands distinguish constants and
+upvalue slots from frame registers. Unsupported instructions remain interpreted;
+their conservative full-frame masks do not grant native lowering. Conditional
+loop outputs are may-writes, not definite definitions. `make jit-access` tests
+the descriptors and six pure-IR rejection cases, also selected by Miri. These
+records share the snapshot allocation quota; no runtime checks, new references
+or ABI change are added. This is not optimizing typed SSA or a full value-bit,
+path-sensitive, variable-frame/liveness proof.
 
 Host service/preparation sweeps compact sparse registration, tracking, code
 index and queue storage. Nonempty containers qualify at capacity 64 or greater

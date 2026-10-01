@@ -102,6 +102,19 @@ fn configuration_is_validated_transactionally() {
     invalid.hot_threshold = 0;
     assert!(lua.set_jit_config(invalid).is_err());
     assert_eq!(lua.jit_config(), before);
+    for instructions in [true, false] {
+        let mut invalid = before.clone();
+        if instructions {
+            invalid.max_ir_instructions = 0;
+        } else {
+            invalid.max_ir_blocks = 0;
+        }
+        assert!(matches!(
+            lua.set_jit_config(invalid),
+            Err(JitError::InvalidConfiguration(_))
+        ));
+        assert_eq!(lua.jit_config(), before);
+    }
 }
 
 #[test]
