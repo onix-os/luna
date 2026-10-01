@@ -134,6 +134,17 @@ is `ResourceLimit("source path verification")`. Helper declines/panics retain
 their independently verified status flow and canonical runtime effect contract.
 This structural path proof does not prove helper effects/borrows/GC, full
 instruction equivalence/source maps, alias/liveness or complete compiler accounting.
+Semantic records additionally bind every declared instruction and value definition
+to its physical source region, including scalar stores/inputs, arithmetic, truth,
+comparison, loop, transfer and helper records. Generic store/input PCs are charged
+in their existing exact-counted vectors. Store masks/destinations must match
+decoded source access; default-flag I64 tag/payload stores must form exact adjacent
+pairs. Every physical scratch payload store must belong to one recorded pair,
+refusing orphan payload writes that common tag admission alone does not detect.
+These scans reuse the region map without new worklists and reject unknown value
+unions rather than infer foreign ownership. Binding does not independently prove
+every opcode's expression, optimizer correctness, runtime helper/GC behavior,
+alias/liveness or full compiler accounting.
 The retained, fallible PC-to-block map is charged to the snapshot ledger and
 can refuse with `ResourceLimit("frontend block map")` before compiler/host setup.
 Semantic checks are

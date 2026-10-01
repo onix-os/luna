@@ -65,6 +65,33 @@ fn refused() -> JitError {
 }
 
 impl Calls {
+    #[cfg(test)]
+    pub fn corrupt_ownership(&mut self) {
+        self.records[0].pc += 1;
+    }
+    pub fn verify_ownership(
+        &self,
+        function: &Function,
+        paths: &super::entry_flow::Paths,
+    ) -> Result<(), JitError> {
+        for record in &self.records {
+            if [
+                record.call,
+                record.completed,
+                record.success,
+                record.declined,
+            ]
+            .into_iter()
+            .any(|inst| !paths.owns_inst(function, record.pc, inst))
+            {
+                return Err(JitError::Compilation(
+                    "invalid semantic source ownership".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub fn new(snapshot: &Snapshot) -> Result<Self, JitError> {
         let mut count = 0usize;
         for &op in &snapshot.operations {

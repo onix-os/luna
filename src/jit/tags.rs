@@ -15,12 +15,14 @@ const ALL: u8 = (1 << (abi::REFERENCE + 1)) - 1;
 
 #[derive(Clone, Copy)]
 struct Store {
+    pc: usize,
     inst: Inst,
     allowed: u8,
 }
 
 #[derive(Clone, Copy)]
 struct Input {
+    pc: usize,
     inst: Inst,
     tag: Value,
     bits: Value,
@@ -171,6 +173,71 @@ pub(super) enum ArithmeticCorruption {
     Operands,
     Source,
     Destination,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum BindingFault {
+    StorePc,
+    StoreMask,
+    Destination,
+    InputPc,
+    InputValue,
+    ArithmeticPc,
+    TruthPc,
+    ComparisonPc,
+    PrepPc,
+    LoopPc,
+    TransferWritePc,
+    TransferEdgePc,
+    HelperPc,
+    ExtraPayload,
+}
+#[cfg(test)]
+impl Stores {
+    pub fn corrupt_binding(&mut self, function: &mut Function, slots: Value, fault: BindingFault) {
+        use BindingFault::*;
+        match fault {
+            StorePc => self.records[0].pc += 1,
+            StoreMask => self.records[0].allowed |= 1 << abi::REFERENCE,
+            InputPc => self.inputs[0].pc += 1,
+            InputValue => self.inputs[0].tag = slots,
+            ArithmeticPc => self.arithmetic[0].pc += 1,
+            TruthPc => self.truths[0].pc += 1,
+            ComparisonPc => self.comparisons[0].pc += 1,
+            PrepPc => self.preps[0].pc += 1,
+            LoopPc => self.loops[0].pc += 1,
+            TransferWritePc => self.transfer_writes[0].pc += 1,
+            TransferEdgePc => self.transfer_edges[0].pc += 1,
+            HelperPc => self.helper_calls.corrupt_ownership(),
+            Destination => {
+                let tag = self.records[0].inst;
+                let payload = function.layout.next_inst(tag).unwrap();
+                for inst in [tag, payload] {
+                    let InstructionData::Store { offset, .. } = &mut function.dfg.insts[inst]
+                    else {
+                        unreachable!()
+                    };
+                    *offset = (i32::from(*offset) + 16).into();
+                }
+            }
+            ExtraPayload => {
+                use cranelift_codegen::{
+                    cursor::{Cursor, FuncCursor},
+                    ir::InstBuilder,
+                };
+                let inst = self.records[0].inst;
+                let InstructionData::Store { args, offset, .. } = function.dfg.insts[inst] else {
+                    unreachable!()
+                };
+                let mut cursor = FuncCursor::new(function);
+                cursor.goto_inst(inst);
+                cursor
+                    .ins()
+                    .store(MemFlagsData::new(), args[0], args[1], i32::from(offset) + 8);
+            }
+        }
+    }
 }
 
 pub(super) struct Stores {
@@ -327,16 +394,26 @@ impl Stores {
         })
     }
 
+    #[cfg(test)]
     pub fn record(&mut self, inst: Inst, allowed: u8) {
+        self.record_at(0, inst, allowed);
+    }
+
+    pub fn record_at(&mut self, pc: usize, inst: Inst, allowed: u8) {
         if self.records.len() == self.records.capacity() {
             self.overflowed = true;
             return;
         }
-        self.records.push(Store { inst, allowed });
+        self.records.push(Store { pc, inst, allowed });
     }
 
+    #[cfg(test)]
     pub fn numeric_input(&mut self, inst: Inst, tag: Value, bits: Value) {
-        self.input(inst, tag, bits, false);
+        self.numeric_input_at(0, inst, tag, bits);
+    }
+
+    pub fn numeric_input_at(&mut self, pc: usize, inst: Inst, tag: Value, bits: Value) {
+        self.input(pc, inst, tag, bits, false);
     }
 
     pub fn truth(&mut self, pc: usize, tag: Value, bits: Value, point: Inst) {
@@ -414,16 +491,22 @@ impl Stores {
         });
     }
 
+    #[cfg(test)]
     pub fn float_input(&mut self, inst: Inst, tag: Value, bits: Value) {
-        self.input(inst, tag, bits, true);
+        self.float_input_at(0, inst, tag, bits);
     }
 
-    fn input(&mut self, inst: Inst, tag: Value, bits: Value, float: bool) {
+    pub fn float_input_at(&mut self, pc: usize, inst: Inst, tag: Value, bits: Value) {
+        self.input(pc, inst, tag, bits, true);
+    }
+
+    fn input(&mut self, pc: usize, inst: Inst, tag: Value, bits: Value, float: bool) {
         if self.inputs.len() == self.inputs.capacity() {
             self.overflowed = true;
             return;
         }
         self.inputs.push(Input {
+            pc,
             inst,
             tag,
             bits,
@@ -751,6 +834,173 @@ impl Stores {
             }
             _ => unreachable!(),
         }
+    }
+
+    pub fn verify_bindings(
+        &self,
+        function: &Function,
+        slots: Value,
+        paths: &super::entry_flow::Paths,
+        graph: &FlowGraph,
+    ) -> Result<(), JitError> {
+        let invalid = || JitError::Compilation("invalid semantic source ownership".into());
+        let check_inst = |pc, inst| {
+            if paths.owns_inst(function, pc, inst) {
+                Ok(())
+            } else {
+                Err(invalid())
+            }
+        };
+        let check_value = |pc, value| {
+            if paths.owns_value(function, pc, value) {
+                Ok(())
+            } else {
+                Err(invalid())
+            }
+        };
+        for record in &self.records {
+            check_inst(record.pc, record.inst)?;
+            let node = graph.nodes.get(record.pc).ok_or_else(invalid)?;
+            let InstructionData::Store {
+                args,
+                offset,
+                flags,
+                ..
+            } = function.dfg.insts[record.inst]
+            else {
+                return Err(invalid());
+            };
+            let offset = i32::from(offset);
+            if record.allowed != node.access.scalar_tags()
+                || !node.lowering.native()
+                || offset < 0
+                || offset % 16 != 0
+                || offset / 16 > u8::MAX as i32
+                || !node.access.writes.contains((offset / 16) as u8)
+                || function.dfg.mem_flags[flags] != MemFlagsData::new()
+                || function.dfg.resolve_aliases(args[1]) != function.dfg.resolve_aliases(slots)
+            {
+                return Err(invalid());
+            }
+            check_value(record.pc, args[0])?;
+            let payload = function.layout.next_inst(record.inst).ok_or_else(invalid)?;
+            check_inst(record.pc, payload)?;
+            let InstructionData::Store {
+                args: payload_args,
+                offset: payload_offset,
+                flags,
+                ..
+            } = function.dfg.insts[payload]
+            else {
+                return Err(invalid());
+            };
+            if i32::from(payload_offset) != offset + 8
+                || function.dfg.resolve_aliases(payload_args[1])
+                    != function.dfg.resolve_aliases(slots)
+                || function.dfg.value_type(args[0]) != types::I64
+                || function.dfg.value_type(payload_args[0]) != types::I64
+                || function.dfg.mem_flags[flags] != MemFlagsData::new()
+            {
+                return Err(invalid());
+            }
+            check_value(record.pc, payload_args[0])?;
+        }
+        let mut payloads = 0;
+        for block in function.layout.blocks() {
+            for inst in function.layout.block_insts(block) {
+                let InstructionData::Store { args, offset, .. } = function.dfg.insts[inst] else {
+                    continue;
+                };
+                if function.dfg.resolve_aliases(args[1]) != function.dfg.resolve_aliases(slots)
+                    || i32::from(offset) % 16 != 8
+                {
+                    continue;
+                }
+                let previous = function.layout.prev_inst(inst).ok_or_else(invalid)?;
+                self.records
+                    .binary_search_by_key(&previous.as_u32(), |record| record.inst.as_u32())
+                    .map_err(|_| invalid())?;
+                payloads += 1;
+            }
+        }
+        if payloads != self.records.len() {
+            return Err(invalid());
+        }
+        for record in &self.inputs {
+            check_inst(record.pc, record.inst)?;
+            check_value(record.pc, record.tag)?;
+            check_value(record.pc, record.bits)?;
+        }
+        for record in &self.arithmetic {
+            check_inst(record.pc, record.store)?;
+            check_value(record.pc, record.result)?;
+            for (tag, bits) in record.inputs {
+                check_value(record.pc, tag)?;
+                check_value(record.pc, bits)?;
+            }
+        }
+        for record in &self.truths {
+            check_inst(record.pc, record.point)?;
+            check_value(record.pc, record.tag)?;
+            check_value(record.pc, record.bits)?;
+        }
+        for record in &self.comparisons {
+            check_inst(record.pc, record.split)?;
+            check_inst(record.pc, record.branch)?;
+            check_value(record.pc, record.same)?;
+            check_value(record.pc, record.mixed)?;
+            for (tag, bits) in record.inputs {
+                check_value(record.pc, tag)?;
+                check_value(record.pc, bits)?;
+            }
+        }
+        for record in &self.preps {
+            for inst in [record.nonzero, record.split]
+                .into_iter()
+                .chain(record.stores)
+                .chain(record.next)
+            {
+                check_inst(record.pc, inst)?;
+            }
+            for (tag, bits) in record.inputs {
+                check_value(record.pc, tag)?;
+                check_value(record.pc, bits)?;
+            }
+        }
+        for record in &self.loops {
+            for inst in [
+                record.split,
+                record.store,
+                record.branch,
+                record.visible_store,
+            ]
+            .into_iter()
+            .chain(record.next)
+            {
+                check_inst(record.pc, inst)?;
+            }
+            for (tag, bits) in record.inputs {
+                check_value(record.pc, tag)?;
+                check_value(record.pc, bits)?;
+            }
+            for arm in record.arms {
+                check_inst(record.pc, arm.next)?;
+                for value in [arm.tag, arm.bits, arm.condition] {
+                    check_value(record.pc, value)?;
+                }
+            }
+        }
+        for record in &self.transfer_writes {
+            check_inst(record.pc, record.inst)?;
+        }
+        for record in &self.transfer_edges {
+            check_inst(record.pc, record.inst)?;
+            if let Some(split) = record.split {
+                check_inst(record.pc, split)?;
+            }
+        }
+        self.helper_calls.verify_ownership(function, paths)?;
+        Ok(())
     }
 
     pub fn verify_transfers(

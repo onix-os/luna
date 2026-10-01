@@ -207,6 +207,7 @@ pub(super) enum Failure {
     CorruptEntryFlow(super::entry_flow::Fault),
     CorruptRegionFlow(super::entry_flow::RegionFault),
     RefuseRegionWorkspace,
+    CorruptBinding(super::tags::BindingFault),
 }
 
 #[cfg(test)]
@@ -552,6 +553,11 @@ pub(super) fn compile_in(
         ledger.set_limit(ledger.current());
     }
     paths.verify_regions(&context.func, &graph, &blocks, root, &exit_handlers)?;
+    #[cfg(test)]
+    if let Failure::CorruptBinding(fault) = failure {
+        stores.corrupt_binding(&mut context.func, parameters[0], fault);
+    }
+    stores.verify_bindings(&context.func, parameters[0], &paths, &graph)?;
     module
         .define_function(function, &mut context)
         .map_err(fail)?;
@@ -727,8 +733,11 @@ impl Emitter<'_, '_> {
             self.slots,
             i32::from(register) * 16,
         );
-        self.stores
-            .record(inst, self.graph.nodes[self.pc].access.scalar_tags());
+        self.stores.record_at(
+            self.pc,
+            inst,
+            self.graph.nodes[self.pc].access.scalar_tags(),
+        );
         self.builder.ins().store(
             MemFlagsData::new(),
             bits,
@@ -789,7 +798,8 @@ impl Emitter<'_, '_> {
             .ins()
             .bitcast(types::F64, MemFlagsData::new(), bits);
         let result = self.builder.ins().select(integer, converted, float);
-        self.stores.float_input(
+        self.stores.float_input_at(
+            self.pc,
             self.builder.func.dfg.value_def(result).unwrap_inst(),
             tag,
             bits,
@@ -798,7 +808,8 @@ impl Emitter<'_, '_> {
     }
 
     fn numeric_input(&mut self, point: IrValue, tag: IrValue, bits: IrValue) {
-        self.stores.numeric_input(
+        self.stores.numeric_input_at(
+            self.pc,
             self.builder.func.dfg.value_def(point).unwrap_inst(),
             tag,
             bits,
@@ -2582,8 +2593,442 @@ mod helper_flow_tests {
 }
 
 #[cfg(test)]
+mod ownership_tests {
+    use super::super::{
+        entry_flow::{Paths, Point},
+        tags::BindingFault,
+    };
+    use super::*;
+    use crate::types::{
+        ConstantIndex16 as C16, ConstantIndex8 as C8, Opt254, RegisterIndex as R,
+        UpValueIndex as U, VarCount,
+    };
+
+    fn arithmetic() -> Operation {
+        Operation::Add {
+            dest: R(0),
+            left: R(1).into(),
+            right: RCIndex::Constant(C8(0)),
+        }
+    }
+    fn operation(fault: BindingFault) -> Operation {
+        use BindingFault::*;
+        match fault {
+            InputPc | InputValue | ArithmeticPc => arithmetic(),
+            TruthPc => Operation::Not {
+                dest: R(0),
+                source: R(1),
+            },
+            ComparisonPc => Operation::Less {
+                left: R(1).into(),
+                right: RCIndex::Constant(C8(0)),
+                skip_if: false,
+            },
+            PrepPc => Operation::NumericForPrep {
+                base: R(0),
+                jump: 0,
+            },
+            LoopPc => Operation::NumericForLoop {
+                base: R(0),
+                jump: 0,
+            },
+            HelperPc => Operation::NewTable {
+                dest: R(0),
+                array_size: 0,
+                map_size: 0,
+            },
+            _ => Operation::LoadBool {
+                dest: R(0),
+                value: true,
+                skip_next: false,
+            },
+        }
+    }
+
+    fn fixture(op: Operation, fault: Option<BindingFault>) -> Result<(), JitError> {
+        let snapshot = Snapshot {
+            operations: super::super::resources::owned(&[
+                op,
+                Operation::Return {
+                    start: R(0),
+                    count: VarCount::constant(0),
+                },
+                Operation::Return {
+                    start: R(0),
+                    count: VarCount::constant(0),
+                },
+            ]),
+            constants: super::super::resources::owned(&[
+                Slot {
+                    tag: abi::INTEGER,
+                    bits: 42,
+                },
+                Slot {
+                    tag: abi::REFERENCE,
+                    bits: 0,
+                },
+            ]),
+            registers: 8,
+            upvalues: 1,
+            prototypes: 0,
+        };
+        snapshot.verify().unwrap();
+        let graph = super::super::flow::FlowGraph::new(&snapshot).unwrap();
+        let ledger = snapshot.operations.allocator().0.clone();
+        let baseline = ledger.current();
+        let mut stores = super::super::tags::Stores::new(&graph, &snapshot).unwrap();
+        let mut paths = Paths::new(&snapshot).unwrap();
+        let mut function = cranelift_codegen::ir::Function::new();
+        function
+            .signature
+            .params
+            .extend([types::I64, types::I64].map(AbiParam::new));
+        let mut signature = function.signature.clone();
+        signature.params.extend([types::I32; 4].map(AbiParam::new));
+        signature.returns.push(AbiParam::new(types::I32));
+        let signature = function.import_signature(signature);
+        let imports: [_; 9] = std::array::from_fn(|index| {
+            let func = function.import_function(cranelift_codegen::ir::ExtFuncData {
+                name: cranelift_codegen::ir::ExternalName::testcase(format!(
+                    "owned_helper_{index}"
+                )),
+                signature,
+                colocated: false,
+                patchable: false,
+            });
+            (helpers::SYMBOLS[index].0, func)
+        });
+        let mut context = FunctionBuilderContext::new();
+        let slots;
+        {
+            let mut builder = FunctionBuilder::new(&mut function, &mut context);
+            let entry = builder.create_block();
+            builder.append_block_params_for_function_params(entry);
+            builder.switch_to_block(entry);
+            slots = builder.block_params(entry)[0];
+            let host = builder.block_params(entry)[1];
+            let blocks = std::array::from_fn::<_, 3, _>(|_| builder.create_block());
+            for block in blocks {
+                builder.append_block_param(block, types::I32);
+            }
+            let fallback = builder.create_block();
+            let guard = builder.create_block();
+            let panicked = builder.create_block();
+            for block in [fallback, guard, panicked] {
+                builder.append_block_param(block, types::I64);
+                builder.append_block_param(block, types::I32);
+            }
+            for body in blocks {
+                paths.record(Point {
+                    body,
+                    trampoline: entry,
+                    region: [0, 0],
+                });
+            }
+            let zero = builder.ins().iconst(types::I32, 0);
+            builder.ins().jump(blocks[0], &[zero.into()]);
+            builder.switch_to_block(blocks[0]);
+            let count = builder.block_params(blocks[0])[0];
+            let start = builder.func.dfg.num_blocks() as u32;
+            let mut emitter = Emitter {
+                builder: &mut builder,
+                snapshot: &snapshot,
+                graph: &graph,
+                blocks: &blocks,
+                slots,
+                fallback,
+                guard,
+                panicked,
+                host,
+                helpers: &imports,
+                count,
+                pc: 0,
+                written: false,
+                stores: &mut stores,
+                omit_numeric_guards: false,
+            };
+            emitter.emit(op);
+            let end = emitter.builder.func.dfg.num_blocks() as u32;
+            paths.region(0, start, end);
+            for pc in [1, 2] {
+                paths.region(pc, end, end);
+            }
+            for block in blocks
+                .into_iter()
+                .skip(1)
+                .chain([fallback, guard, panicked])
+            {
+                builder.switch_to_block(block);
+                builder.ins().return_(&[]);
+            }
+            builder.seal_all_blocks();
+            builder.finalize(
+                cranelift_codegen::isa::lookup_by_name(std::env::consts::ARCH)
+                    .unwrap()
+                    .finish(cranelift_codegen::settings::Flags::new(
+                        cranelift_codegen::settings::builder(),
+                    ))
+                    .unwrap()
+                    .frontend_config(),
+            );
+        }
+        stores
+            .verify(&function, slots, None, snapshot.registers)
+            .unwrap();
+        if let Some(fault) = fault {
+            stores.corrupt_binding(&mut function, slots, fault);
+        }
+        if fault == Some(BindingFault::ExtraPayload) {
+            stores
+                .verify(&function, slots, None, snapshot.registers)
+                .unwrap();
+        }
+        cranelift_codegen::verify_function(
+            &function,
+            &cranelift_codegen::settings::Flags::new(cranelift_codegen::settings::builder()),
+        )
+        .unwrap();
+        let result = stores.verify_bindings(&function, slots, &paths, &graph);
+        drop(stores);
+        drop(paths);
+        assert_eq!(ledger.current(), baseline);
+        result
+    }
+
+    #[test]
+    fn all_emitted_record_families_belong_to_their_source_region() {
+        let binary = |kind| match kind {
+            0 => arithmetic(),
+            1 => Operation::Sub {
+                dest: R(0),
+                left: R(1).into(),
+                right: RCIndex::Constant(C8(0)),
+            },
+            2 => Operation::Mul {
+                dest: R(0),
+                left: R(1).into(),
+                right: RCIndex::Constant(C8(0)),
+            },
+            _ => Operation::Div {
+                dest: R(0),
+                left: R(1).into(),
+                right: RCIndex::Constant(C8(0)),
+            },
+        };
+        let operations = [
+            Operation::Move {
+                dest: R(0),
+                source: R(1),
+            },
+            Operation::LoadConstant {
+                dest: R(0),
+                constant: C16(0),
+            },
+            Operation::LoadConstant {
+                dest: R(0),
+                constant: C16(1),
+            },
+            Operation::LoadBool {
+                dest: R(0),
+                value: true,
+                skip_next: true,
+            },
+            Operation::LoadNil {
+                dest: R(0),
+                count: 2,
+            },
+            Operation::Jump {
+                offset: 0,
+                close_upvalues: Opt254::none(),
+            },
+            Operation::Not {
+                dest: R(0),
+                source: R(1),
+            },
+            Operation::Test {
+                value: R(1),
+                is_true: false,
+            },
+            binary(0),
+            binary(1),
+            binary(2),
+            binary(3),
+            Operation::Eq {
+                left: R(1).into(),
+                right: RCIndex::Constant(C8(0)),
+                skip_if: false,
+            },
+            operation(BindingFault::ComparisonPc),
+            Operation::LessEq {
+                left: R(1).into(),
+                right: RCIndex::Constant(C8(0)),
+                skip_if: false,
+            },
+            operation(BindingFault::PrepPc),
+            operation(BindingFault::LoopPc),
+            operation(BindingFault::HelperPc),
+            Operation::GetTable {
+                dest: R(0),
+                table: R(1),
+                key: RCIndex::Constant(C8(0)),
+            },
+            Operation::SetTable {
+                table: R(0),
+                key: RCIndex::Constant(C8(0)),
+                value: R(1).into(),
+            },
+            Operation::GetUpTable {
+                dest: R(0),
+                table: U(0),
+                key: RCIndex::Constant(C8(0)),
+            },
+            Operation::SetUpTable {
+                table: U(0),
+                key: RCIndex::Constant(C8(0)),
+                value: R(1).into(),
+            },
+            Operation::GetUpValue {
+                dest: R(0),
+                source: U(0),
+            },
+            Operation::SetUpValue {
+                dest: U(0),
+                source: R(1),
+            },
+        ];
+        for op in operations {
+            fixture(op, None).unwrap();
+        }
+    }
+    macro_rules! rejected {
+        ($name:ident, $fault:ident) => {
+            #[test]
+            fn $name() {
+                let result = fixture(operation(BindingFault::$fault), Some(BindingFault::$fault));
+                assert!(matches!(result, Err(JitError::Compilation(ref message))
+                    if message == "invalid semantic source ownership"), "{result:?}");
+            }
+        };
+    }
+    rejected!(store_pc_is_refused, StorePc);
+    rejected!(store_mask_is_refused, StoreMask);
+    rejected!(destination_is_refused, Destination);
+    rejected!(input_pc_is_refused, InputPc);
+    rejected!(input_value_is_refused, InputValue);
+    rejected!(arithmetic_pc_is_refused, ArithmeticPc);
+    rejected!(truth_pc_is_refused, TruthPc);
+    rejected!(comparison_pc_is_refused, ComparisonPc);
+    rejected!(prep_pc_is_refused, PrepPc);
+    rejected!(loop_pc_is_refused, LoopPc);
+    rejected!(transfer_write_pc_is_refused, TransferWritePc);
+    rejected!(transfer_edge_pc_is_refused, TransferEdgePc);
+    rejected!(helper_pc_is_refused, HelperPc);
+    rejected!(extra_payload_is_refused, ExtraPayload);
+}
+
+#[cfg(test)]
 mod memory_tests {
     use super::*;
+    fn refuse_corrupted_binding(fault: super::super::tags::BindingFault) {
+        use super::super::tags::BindingFault::*;
+        let source: &[u8] = match fault {
+            TruthPc => b"local x=1 local a=not x if x then a=false end return a",
+            ComparisonPc => b"local x=1 if x<2 then return 1 end return 2",
+            PrepPc | LoopPc => b"local s=0 for i=1,3 do s=s+i end return s",
+            HelperPc => b"local t={} t.x=42 return t.x",
+            _ => b"local x=1 local a=x+1 local b=x+2 return a+b",
+        };
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype =
+                crate::FunctionPrototype::compile(ctx, "binding-corruption", source).unwrap();
+            Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
+        });
+        let ledger = snapshot.operations.allocator().0.clone();
+        let baseline = ledger.current();
+        let total = Arc::new(AtomicUsize::new(0));
+        let result = compile_in(
+            &snapshot,
+            total.clone(),
+            8 * 1024 * 1024,
+            BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
+            super::super::work::Limits::from(&super::super::JitConfig::default()),
+            Failure::CorruptBinding(fault),
+        );
+        assert!(
+            matches!(result, Err(JitError::Compilation(ref message))
+            if message == "invalid semantic source ownership"),
+            "{:?}",
+            result.as_ref().err()
+        );
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+        assert_eq!(ledger.current(), baseline);
+    }
+    macro_rules! binding_corruption {
+        ($name:ident, $fault:ident) => {
+            #[test]
+            fn $name() {
+                refuse_corrupted_binding(super::super::tags::BindingFault::$fault);
+            }
+        };
+    }
+    binding_corruption!(
+        corrupted_binding_store_pc_is_refused_before_codegen_and_mapping,
+        StorePc
+    );
+    binding_corruption!(
+        corrupted_binding_store_mask_is_refused_before_codegen_and_mapping,
+        StoreMask
+    );
+    binding_corruption!(
+        corrupted_binding_destination_is_refused_before_codegen_and_mapping,
+        Destination
+    );
+    binding_corruption!(
+        corrupted_binding_input_pc_is_refused_before_codegen_and_mapping,
+        InputPc
+    );
+    binding_corruption!(
+        corrupted_binding_input_value_is_refused_before_codegen_and_mapping,
+        InputValue
+    );
+    binding_corruption!(
+        corrupted_binding_arithmetic_pc_is_refused_before_codegen_and_mapping,
+        ArithmeticPc
+    );
+    binding_corruption!(
+        corrupted_binding_truth_pc_is_refused_before_codegen_and_mapping,
+        TruthPc
+    );
+    binding_corruption!(
+        corrupted_binding_comparison_pc_is_refused_before_codegen_and_mapping,
+        ComparisonPc
+    );
+    binding_corruption!(
+        corrupted_binding_prep_pc_is_refused_before_codegen_and_mapping,
+        PrepPc
+    );
+    binding_corruption!(
+        corrupted_binding_loop_pc_is_refused_before_codegen_and_mapping,
+        LoopPc
+    );
+    binding_corruption!(
+        corrupted_binding_transfer_write_pc_is_refused_before_codegen_and_mapping,
+        TransferWritePc
+    );
+    binding_corruption!(
+        corrupted_binding_transfer_edge_pc_is_refused_before_codegen_and_mapping,
+        TransferEdgePc
+    );
+    binding_corruption!(
+        corrupted_binding_helper_pc_is_refused_before_codegen_and_mapping,
+        HelperPc
+    );
+    binding_corruption!(
+        corrupted_binding_extra_payload_is_refused_before_codegen_and_mapping,
+        ExtraPayload
+    );
+
     fn refuse_region_failure(failure: Failure, quota: bool) {
         let mut lua = crate::Lua::empty();
         let snapshot = lua.enter(|ctx| {
