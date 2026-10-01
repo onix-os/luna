@@ -148,6 +148,34 @@ all accounted code/metadata/snapshot storage in Off as well as native modes.
 from ordinary workload rows. Calibration is not compilation in the Off state.
 These observational timings do not change the frozen paired performance gates.
 
+Before backend generation, an owned instruction-level
+CFG validates every operand and successor, including unreachable instructions.
+An in-place linear-time basic-block partition records half-open bounds in charged
+nodes. Branch/merge targets and interpreter continuations are block headers;
+interpreted operations are singleton barriers. Compiler edge checks reject
+nonsequential entry into a block interior. Arbitrary legal instruction-PC entry
+remains available to slices; block analysis does not remove native entries or
+introduce register caching across helpers. This is not a typed SSA/liveness or
+complete exit-snapshot proof.
+Reachability does not remove valid PC re-entry points. Exhaustive classifications
+separate direct/guarded/helper paths from interpreter transitions; generated
+successors and helper IDs must match that analysis. Whole-op user-code effects
+are opaque heap/upvalue mutation barriers, distinct from admitted native effects.
+Graph records and the bounded traversal worklist share the snapshot quota and
+are released before installation completes. `make jit-ir` covers flow/effect and
+allocation rollback tests, also selected by the Rust-only Miri lane. This is not
+full typed/effect SSA or a crafted-binary verification/security claim.
+
+Each charged node also owns an exit snapshot: current PC, canonical fixed-register
+prefix and admitted interpreter/guard/budget/helper-panic outcomes. Compiler
+guards and retry exits are refused after scalar stores in the current instruction;
+helper panic keeps the current instruction's frame/error PC at PC plus one and
+uses the existing rooted payload/materialization path. This conservative compiler
+write marker is not path-sensitive SSA. Wire reasons and ABI v3 are unchanged,
+and these checks add no native dispatch work. `make jit-exits` tests snapshot
+contracts and rejects four injected retry-after-store IR emission cases without
+executing native code; the selected Miri lane includes those Rust-only tests.
+
 Host service/preparation sweeps compact sparse registration, tracking, code
 index and queue storage. Nonempty containers qualify at capacity 64 or greater
 and at most quarter occupancy. Replacement storage is reserved fallibly before

@@ -32,6 +32,35 @@ fn source(lua: &mut Lua, source: &[u8]) -> Result<StashedExecutor, ExternError> 
 }
 
 #[test]
+fn generic_false_key_iteration_reaches_native_heap_work() -> Result<(), ExternError> {
+    let script = br#"
+        local function iter(_, key)
+            if key == nil then return false end
+            return nil
+        end
+        local t={} local total=0
+        for key in iter, nil, nil do
+            for i=1,200 do t[key]=i total=total+i end
+        end
+        return total+(t[false] or 0)
+    "#;
+    for native in [false, true] {
+        let mut lua = state(native);
+        let executor = source(&mut lua, script)?;
+        assert_eq!(lua.execute::<i64>(&executor)?, 20300);
+        let stats = lua.jit_stats();
+        if native {
+            assert!(stats.native_entries > 0);
+            assert!(stats.native_instructions > 0);
+            assert_eq!(stats.native_table_writes, 200);
+        } else {
+            assert_eq!(stats.native_entries, 0);
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn helper_dense_slices_keep_local_counts_bounded_and_cumulative_totals_wide(
 ) -> Result<(), ExternError> {
     let script = format!("local t={{}} {} return 42", "t[1]=42 ".repeat(256));

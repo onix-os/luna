@@ -13,6 +13,45 @@ fn eval<T: for<'gc> luna::FromMultiValue<'gc> + 'static>(source: &str) -> Result
 }
 
 #[test]
+fn generic_for_false_control_values_do_not_end_iteration() -> Result<(), ExternError> {
+    assert_eq!(
+        eval::<i64>(
+            r#"
+        local function iter(_, key)
+            if key == nil then return false, 42 end
+            if key == false then return true, 43 end
+            return nil, 1000
+        end
+        local total = 0
+        for key, value in iter, nil, nil do total = total + value end
+        return total
+    "#
+        )?,
+        85
+    );
+    Ok(())
+}
+
+#[test]
+fn generic_for_pairs_visits_false_keys_and_nil_still_ends_the_loop() -> Result<(), ExternError> {
+    assert_eq!(
+        eval::<i64>(
+            r#"
+        local total = 0
+        for key, value in pairs({[false]=42}) do
+            assert(key == false)
+            total = total + value
+        end
+        for key, value in function() return nil, 1000 end do total = total + value end
+        return total
+    "#
+        )?,
+        42
+    );
+    Ok(())
+}
+
+#[test]
 fn an_integer_for_loop_with_a_zero_step_errors() -> Result<(), ExternError> {
     let message = eval::<String>(
         r#"

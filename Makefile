@@ -45,12 +45,13 @@ $(info ------------------------------------------)
 .PHONY: jit-deps jit-check jit-test jit-test-all jit-test-doc jit-rustdoc jit-verify jit-tree jit-reference jit-backend jit-boundary jit-native jit-numeric jit-heap jit-registers jit-policy jit-resources jit-example jit-bench jit-bench-paired jit-performance jit-profile jit-profile-build jit-rust-assembly jit-fuzz-smoke jit-fuzz jit-evidence environment
 .PHONY: ci-check jit-platform
 .PHONY: jit-size jit-size-build jit-cost-tests jit-cost-native jit-shipping
+.PHONY: jit-size-run jit-cost-native-run
 .PHONY: jit-cost-profile
 .PHONY: jit-disassembly
 .PHONY: jit-bench-build jit-bench-run
 .PHONY: jit-metrics jit-metrics-build jit-metrics-run jit-metrics-tests
 .PHONY: jit-miri
-.PHONY: jit-helpers jit-abi jit-config jit-registry jit-suspension
+.PHONY: jit-helpers jit-abi jit-config jit-registry jit-suspension jit-ir jit-generic-for jit-exits
 
 ci-check:
 	@$(ACTIONLINT) .github/workflows/tests.yml
@@ -60,7 +61,7 @@ jit-miri:
 	@set -o pipefail; { rustc -vV; $(CARGO) miri --version; printf 'MIRIFLAGS=%s\ntarget=%s\n' "$${MIRIFLAGS:-}" '$(MIRI_TARGET)'; } 2>&1 | tee '$(MIRI_DIR)/environment.log'
 	@set -o pipefail; $(CARGO) miri setup --target '$(MIRI_TARGET)' 2>&1 | tee '$(MIRI_DIR)/setup.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::resources::tests -- --test-threads=1 --skip jit::resources::tests::installation_refusal_reclaims_generated_mappings 2>&1 | tee '$(MIRI_DIR)/jit::resources::tests.log'
-	@set -e -o pipefail; for filter in jit::abi::tests jit::helpers::tests jit::registry::tests jit::policy_tests finalizers::tests; do \
+	@set -e -o pipefail; for filter in jit::abi::tests jit::helpers::tests jit::registry::tests jit::ir::tests jit::flow::tests jit::exits::tests jit::backend::exit_tests jit::policy_tests finalizers::tests; do \
 		$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' "$$filter" -- --test-threads=1 2>&1 | tee '$(MIRI_DIR)'/"$$filter".log; \
 	done
 
@@ -145,9 +146,19 @@ jit-size-build:
 	@size $(COST_DIR)/no-jit $(COST_DIR)/jit-off | tee $(COST_DIR)/sections.log
 
 jit-cost-native: jit-size-build
+	@$(MAKE) --no-print-directory jit-cost-native-run
+
+jit-cost-native-run:
+	@test -x '$(COST_DIR)/jit-off'
 	@set -o pipefail; $(COST_DIR)/jit-off --mode auto --iterations 1 2>&1 | tee $(COST_DIR)/native-proof.log
 
-jit-size: jit-cost-native
+jit-size: jit-size-build
+	@$(MAKE) --no-print-directory jit-size-run
+
+jit-size-run:
+	@test -x '$(COST_DIR)/jit-off'
+	@test -x '$(COST_DIR)/no-jit'
+	@$(MAKE) --no-print-directory jit-cost-native-run
 	@set -o pipefail; $(COST_DIR)/no-jit --compare $(COST_DIR)/no-jit $(COST_DIR)/jit-off --samples $(COST_SAMPLES) --iterations $(COST_ITERATIONS) --check 2>&1 | tee $(COST_DIR)/cost.log
 
 jit-cost-profile:
@@ -211,6 +222,21 @@ jit-helpers:
 
 jit-registry:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::registry::tests
+
+jit-ir:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::ir::tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::flow::tests
+	@$(MAKE) --no-print-directory jit-exits
+
+jit-exits:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::exit_tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::exits::tests
+
+jit-generic-for:
+	@$(CARGO) test --locked -p luna --test vm_semantics $(TARGET_ARG) generic_for
+	@set -e; for mode in off auto force; do \
+		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test vm_semantics $(TARGET_ARG) generic_for; \
+	done
 
 jit-suspension:
 	@$(CARGO) test --locked -p luna --features jit --test jit_suspension $(TARGET_ARG)
@@ -457,6 +483,8 @@ help:
 	@echo "  jit-metrics-run Measure an existing artifact (JIT_METRICS_BINARY=path)"
 	@echo "  jit-metrics-tests Test scheduling observations and argument validation"
 	@echo "  jit-registry Test weak source registration and queued cancellation"
+	@echo "  jit-ir       Test owned operands, flow, effects, exits and quota"
+	@echo "  jit-exits    Test exit snapshots and retry-after-store rejection"
 	@echo "  jit-suspension Test native coroutine and foreign-await resumption"
 	@echo "  jit-bench-paired Alternate checked Off/Auto samples"
 	@echo "  jit-performance Check frozen paired workload thresholds"
@@ -464,8 +492,10 @@ help:
 	@echo "  jit-shipping Publish checked paired timings at shipping opt-level s"
 	@echo "  jit-size     Measure matched binary size and 5% disabled overhead"
 	@echo "  jit-size-build Build/copy matched probes (SIZE_PROFILE=shipping|speed)"
+	@echo "  jit-size-run Check existing matched probes without rebuilding"
 	@echo "  jit-cost-tests Test feature-cost protocol and frozen overhead control"
 	@echo "  jit-cost-native Verify usable native code in the matched JIT artifact"
+	@echo "  jit-cost-native-run Verify existing native probes without rebuilding"
 	@echo "  jit-cost-profile Compare VM instruction/cache/branch counts (PROFILE_CASE=...)"
 	@echo "  jit-profile  Profile the short-function workload (requires perf permission)"
 	@echo "  jit-rust-assembly Inspect symbol-retained Rust dispatch/helper assembly"
