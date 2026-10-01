@@ -3798,6 +3798,89 @@ acceptance with a smaller passing subset; keep timing separate from builds/tests
 - `target/jit-evidence/access/` — raw tests, mutations, artifacts, hashes, native
   failures, observational metrics and process guard records.
 
+### Compiler IR-expansion admission decision
+
+Add independent positive `max_ir_instructions`/`max_ir_blocks` limits, defaulting
+to 1048576/65536. Before graph allocation or Cranelift setup, validate the snapshot
+and compute a checked, allocation-free conservative expansion envelope: fixed
+dispatcher/exit allowance plus exhaustive per-op bounds, including LoadNil's
+two stores per element. Refuse excessive shape before expensive IR construction.
+After frontend construction and before code generation/native mapping, count
+actual layout instructions/blocks and require them to fit the admitted envelope.
+An envelope violation is a compiler invariant error, not permission to expand
+limits. Lowering either ceiling retires existing cached code/requests like other
+admission reductions; existing leases retain their normal lifetime policy.
+
+This bounds admitted IR shape, not Cranelift optimization complexity, allocator
+overhead, RSS, CPU time or a hard timeout. Working-memory accounting/isolation and
+combined-host limits remain open. No fuel/VM signature or native ABI change is
+introduced; source-level opcode/snapshot/native-mapping caps stay independent.
+
+### Recovered compiler-work checkpoint
+
+Context recovery verified branch `feat/native-jit` and the latest committed
+evidence at `487241b`. Compiler IR-expansion admission is uncommitted. The earlier
+focused Make run completed successfully, but subsequent public configuration and
+resource-test edits have not yet been validated. A newly added resource test uses
+an unverified executor-restart API; repair it before compiling or committing.
+The full goal remains active and incomplete; previous performance failures and
+uncollected platform/resource evidence remain requirements, not waived gates.
+
+### Session summary: plan status and compiler-work checkpoint
+
+#### Goal
+
+Report the plan's actual progress while preserving the active full-implementation
+goal on `feat/native-jit`. The plan exists and is committed; implementation is not
+acceptance-complete.
+
+#### Instructions
+
+Keep incremental unsigned title-only Conventional Commits, Make/Nix validation
+and patch edits. Report failed or missing acceptance honestly.
+
+#### Discoveries
+
+- Engram tools remain unavailable; this document preserves the session record.
+- A completed executor should not be restarted through invented APIs. Stashing
+  the original closure and starting another executor preserves prototype identity
+  for interpreter-refusal/native-recovery coverage.
+- Conservative IR-shape admission is not compiler CPU/RSS isolation or complete
+  working-memory accounting.
+
+#### Accomplished
+
+- Verified the branch, committed plan and last accepted evidence at `487241b`.
+- Repaired the unverified resource-test API and demonstrated interpretation on
+  each IR-cap refusal, then native execution of the same prototype after reset.
+- Committed frontend IR admission, configuration validation, five unit tests and
+  public recovery coverage as `973e08b`; its commit is unsigned and title-only.
+- `nix develop -c make fmt fmt-check jit-ir jit-boundary jit-heap jit-config
+  jit-resources` completed with exit 0: 173 passed across thirteen suite results.
+  Log: `/tmp/luna-jit-work-status.log`. Owned session `45707` is terminal.
+- GNU/musl/Miri evidence from `7c2d9af` remains revision-scoped: this session did
+  not rerun those full gates or performance measurements for `973e08b`.
+
+#### Next Steps
+
+- Extend IR-cap retirement/pinned-lease and preallocation-refusal coverage; rerun
+  full GNU/musl verification and the selected pinned Miri lane.
+- Complete remaining typed/data-flow/liveness, transition/unsafe/resource and
+  compiler-isolation requirements.
+- Resolve existing native table/upvalue/callback and shipping disabled-cost
+  failures; collect fresh matching measurements and required platform evidence.
+- Keep the full goal active/incomplete; no threshold or scope reduction approved.
+
+#### Relevant Files
+
+- `src/jit/work.rs` — allocation-free checked expansion admission and unit tests.
+- `src/jit/mod.rs`, `src/jit/backend.rs` — public limits, retirement and frontend
+  preflight/actual-count validation.
+- `src/jit/model.rs` — private compiler-call configuration.
+- `tests/jit_config.rs`, `tests/jit_resources.rs` — invalid-zero and same-prototype
+  refusal/recovery coverage.
+- `Makefile`, `JIT.md`, `PLAN_JIT.md` — validation filters, cap contract and status.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
