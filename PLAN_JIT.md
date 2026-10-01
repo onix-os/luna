@@ -616,6 +616,18 @@ musl gates pass 4685 tests each and selected Miri passes 251 tests. Runtime/
 bootstrap owners, provider boxes and compiler buffers remain open; Phase 3 and
 release acceptance are still incomplete.
 
+Fallible outer provider-box ownership (`a509d78`) charges the exact concrete
+Memory payload before JITBuilder setup. Its Global allocation transfers to the
+required standard Box; an earlier-declared charge survives failure/unwinding and
+is retained in Code until after module destruction. Six pure/Miri fixtures cover
+layout/borrow/ZST/Send-erasure, refusal and both panic paths. An exact third-
+allocation refusal fixture and provider sentinel preserve a native peer and
+recover the same snapshot. Admission/release bypasses are detected. Full GNU/
+musl gates pass 4725 tests each; selected Miri passes 258 tests. Runtime/bootstrap
+owners, SystemMemoryProvider internal records and other compiler buffers remain
+open. This does not complete Phase 3, the compiler memory ceiling or release
+acceptance.
+
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
@@ -6925,6 +6937,89 @@ exact underlying-failure fixture reaches the provider reservation before refusin
 Builder/module locals drop before the earlier-declared charge; successful Code
 owns that charge and frees its module before automatic field destruction. Full
 native platform gates, selected Miri and supervised campaigns remain required.
+
+### Outer provider-box acceptance session (2026-10-01)
+
+## Goal
+Continue full implementation by making the concrete native provider-box
+allocation fallible and exactly charged through module reclamation. The prior
+goal turn made verified status-ownership progress; this turn makes another source
+milestone. The full goal remains active and incomplete.
+
+## Instructions
+Use Make/Nix, patch tools and separate unsigned title-only Conventional Commits.
+Preserve all resource/safety/performance acceptance gates. Never run timings or
+profiles alongside unrelated builds/tests/profiles, including other projects.
+
+## Discoveries
+- Cranelift requires a standard Box. Pinned allocator-api2 Global delegates to
+  the same process global allocator; initialized concrete-layout allocation can
+  transfer without reallocating or assuming a private control-block header.
+- The charge must survive the transferred box. Declaration order is explicit:
+  charge before provider before builder/module; successful Code frees its module
+  before automatic charge-field destruction. Standard Box handles value panic
+  deallocation; selected Miri tests this separately from allocator-api2 box drop.
+- Underlying provider refusal must follow two successful metadata allocations,
+  not one. The initial copied draft exercised status refusal; corrected fixtures
+  use fail_after(2), a provider sentinel and exact peak assertions.
+- Fresh post-terminal preflight no longer sees the former `make run` PID 2878331.
+  It sees a new unrelated `make run` PID 3346164 and live molla primitive bench
+  Make/Cargo/runtime workers. Timing remains forbidden; no process was excluded
+  or killed and no timing/profile result is claimed.
+
+## Accomplished
+- Source committed separately at `a509d78`: private typed Global Box transfer,
+  retained charge, pre-host provider admission, Code lifetime integration,
+  six pure fixtures, exact boundary/live-module fixtures and Make/Miri wiring.
+- Initial focused `42413`/`98695` and Miri `89167` were terminal before fixture
+  calibration. Corrected pre-erasure focused `64795` and Miri `52193` passed;
+  draft logs remain distinguished from the final fixture set.
+- Admission mutation `6416` makes exact pure admission, provider boundary and
+  native peer/recovery lanes each fail (Make exits 2). Restored original hash
+  matched. A new Send trait-object erasure fixture then established the updated
+  baseline. Release bypass `57083` makes all six pure fixtures fail (exit 2).
+  That job was terminal before restoration; updated baseline hash matches.
+- Restored focused `88379` passes **75 tests / 12 suite results / 0 ignored**;
+  isolated pinned Miri `29479` passes **7 / 2 / 0** with default flags.
+- Full GNU/musl `47544` completes both exit 0: **4725 passing tests / 434 suite
+  results / 24 ignored** each, including repeated mode/doc suites rather than
+  unique tests. Existing Clippy 141 lib-test warning backlog remains; no strict-
+  warning acceptance is claimed.
+- Full selected Miri `38958` completes exit 0: **258 tests / 34 suite results /
+  0 ignored**, pinned nightly 2026-08-16, rustc `67854e511`, empty MIRIFLAGS.
+  It does not execute generated instructions or native heap programs.
+- Campaign `22220` completes all four lanes exit 0. Per platform: **4096 scalar/
+  admission cases / 1641780 native invocations / 4758522 native instructions**;
+  **96 heap cases / 6344 main slices / 725 yields / 1633 callbacks / 96 retirements /
+  964 host reads / 2809 userdata observations / 65297 native instructions**.
+  Helpers: **22144 table reads / 7393 table writes / 1655 allocations / 21701
+  upvalue reads / 996 upvalue writes / 1179 declines**. Both platforms reuse seeds
+  and programs; userdata observations are not instruction coverage and nested/
+  finalizer internal slices are not independently paired.
+- Untimed opt-level-3 build `29498` completes exit 0 at `a509d78`. Its binary,
+  source ID and verified hash are retained, without a performance claim.
+- Raw draft/restored/mutation/full logs, exact campaign/smoke directories, Miri
+  environment, aggregate counts and verified source/binary hashes are archived
+  in `target/jit-evidence/provider-box/`. All owned jobs in this turn are terminal.
+
+## Next Steps
+- Account runtime/bootstrap owners and SystemMemoryProvider's inner records;
+  complete compiler-buffer accounting or the approved faithful bounded policy.
+- Continue complete opcode/source-map/helper/GC/alias/liveness/lifecycle safety
+  proofs and broader coverage-guided/unsafe stress.
+- Resolve frozen native and compiled-Off controls after clean global preflight;
+  preserve thresholds and independent-median statistics.
+- Gather actual ARM64/hosted evidence and address strict-Clippy backlog before
+  release acceptance. No full compiler/RSS or whole-goal acceptance yet.
+
+## Relevant Files
+- `src/jit/global_box.rs` — exact Global transfer, charge and six pure fixtures.
+- `src/jit/resources.rs` — private ledger release for transferred Global storage.
+- `src/jit/backend.rs` — fallible provider, Code-held charge and two refusal fixtures.
+- `src/jit/mod.rs` — supported-platform transfer-module wiring.
+- `Makefile` — pure/admission/boundary/native and selected/isolated Miri targets.
+- `JIT.md`, `PLAN_JIT.md` — current safety/accounting scope and evidence.
+- `target/jit-evidence/provider-box/` — local acceptance and untimed candidate.
 
 ## 15. Primary references
 

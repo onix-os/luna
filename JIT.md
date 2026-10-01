@@ -198,7 +198,7 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 1. The v3 generated signature is `extern "C" fn(*mut Slot, u64, u32, *mut Exit, *mut Host)` with the platform's native C calling convention. `Slot` and `Exit` use `repr(C)` and asserted size/offsets. Nine fixed imported helpers use `extern "C" fn(*mut Host, *mut Slot, u32, u32, u32, u32) -> u32`; each specializes a const helper kind. The opaque host carries only the scoped frame pointer, not an indirect callback. Compiler lookup matches explicit unique kind keys, independent of registry order. No Rust enum, `Gc`, frame layout, or arena lifetime is assumed by generated code. There is no persisted native cache or public helper ABI to migrate.
 2. Snapshots contain decoded owned instructions and scalar tag/bits constants only. Reference constant placeholders resolve by validated index through the scoped helper's active closure, not cached GC pointers. Register, constant, upvalue, prototype, skip, and jump operands are validated before code generation. Code checks the budget at every instruction entry, including backedges.
-3. Each eligible VM frame slice acquires one `Rc<Code>` lease with its `JITModule` alive, releasing the manager borrow before execution. It reuses the lease across native/reference fragments and drops it on slice completion, frame transition, error or unwind; no scratch/host state survives an invocation. Scratch slots, exit buffer, opaque host, and borrowed Rust helper frame outlive the synchronous call. Entry/bounds checks select an outlined scratch tier large enough for the admitted prefix; every used `MaybeUninit` slot is written before a typed slice is formed, and the unused suffix is never read as `Slot`. Reference-result tests cover both sides of every tier boundary including 256. The lifetime-erasing pointer cast is confined to the scoped gateway; no pointer, GC reference, or helper result escapes into cached code. A null host in boundary-model tests declines helper work.
+3. Each eligible VM frame slice acquires one strong-owned `Code` lease with its `JITModule` alive, releasing the manager borrow before execution. It reuses the lease across native/reference fragments and drops it on slice completion, frame transition, error or unwind; no scratch/host state survives an invocation. Scratch slots, exit buffer, opaque host, and borrowed Rust helper frame outlive the synchronous call. Entry/bounds checks select an outlined scratch tier large enough for the admitted prefix; every used `MaybeUninit` slot is written before a typed slice is formed, and the unused suffix is never read as `Slot`. Reference-result tests cover both sides of every tier boundary including 256. The lifetime-erasing pointer cast is confined to the scoped gateway; no pointer, GC reference, or helper result escapes into cached code. A null host in boundary-model tests declines helper work.
 4. Helpers decode scalar operands from scratch and reference operands from canonical traced slots. Each destination synchronizes both representations; table/upvalue setters retain normal barrier APIs. Pending scalars materialize on every exit and before a caught panic resumes. No helper invokes collection, users, hooks, or frame changes. Existing upvalue access reads a closed cell, another stack, or registers above the current frame; its same-stack assertion excludes current-frame aliasing. Old canonical references can remain rooted until exit, but no collection can observe that interval. Any future callback/safepoint/current-frame-inspection helper must restore full synchronization first. No Rust heap layout is assumed by machine code.
 5. Each memory-provider allocation owns an independent system provider. Quota is reserved before allocation and undone on failure; finalization delegates RW-to-RX / readonly transitions and icache handling to the pinned compiler provider. No deliberate RWX mapping is requested. Failed compilation and code retirement explicitly free mappings; module drop alone is not relied on for reclamation.
 6. Helper gateway signatures use opaque pointers and fixed-width immediate operands. The gateway catches Rust unwind payloads and returns an explicit panic exit; after native return, Rust resumes the same payload rather than converting it to Lua success or interpreter fallback. No helper invokes user callbacks, Lua code, frame transitions, the compiler, or collection. Rust `panic=abort` still aborts normally. A deliberately conflicting table borrow verifies the unwind profile returns through the generated frame and leaves the state reusable.
@@ -210,14 +210,21 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 ## Verification and remaining work
 
-The budgeted compiler-status ownership implementation (`757ec71`)
+The budgeted outer provider-box implementation (`a509d78`)
 passes `nix develop -c make jit-verify clippy jit-clippy` on x86-64 GNU and
-with `TARGET=x86_64-unknown-linux-musl`: each reports 4685 passing tests across
+with `TARGET=x86_64-unknown-linux-musl`: each reports 4725 passing tests across
 434 suite results and 24 ignored tests. Selected pure-Rust/pure-IR Miri checks
-pass 251 tests across 32 selected suite results with default `MIRIFLAGS`; they do not execute
+pass 258 tests across 34 selected suite results with default `MIRIFLAGS`; they do not execute
 generated native code. Clippy retains the existing warning backlog, so these are
 not strict-warning acceptance. Raw revision-scoped evidence is stored locally in
-`target/jit-evidence/memory-status/`. Seven atomic-owner tests include concurrent
+`target/jit-evidence/provider-box/`. Six transfer tests cover exact Global layout,
+alignment/borrow/ZST behavior, Send trait-object erasure, quota/underlying refusal,
+and scope/value panic cleanup. Exact pre-host and live-module fixtures distinguish
+provider admission from the earlier status allocation, preserve a native peer and
+recover the same snapshot. Transfer-admission and charge-release bypass mutations
+are detected. This accounts the concrete outer provider box, not its internal
+SystemMemoryProvider records or all compiler working storage.
+Seven atomic-owner tests include concurrent
 clone/drop, final-destructor visibility without external synchronization, exact
 alignment/lifetime/accounting, panic cleanup, allocation refusal and checked
 overflow. Three status tests and a pre-host sentinel verify budget admission and
