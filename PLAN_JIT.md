@@ -508,6 +508,16 @@ edge record. Exact-counted records are charged and constructor refusals roll
 back. Reference move/constant helper call/status/exit and whole-program source/
 path review remain open; this does not complete all Move semantics or Phase 3.
 
+Helper call/status-flow verification (`e6f5d4c`) independently decodes all nine
+source helper kinds, including reference moves/constants. Actual direct imports,
+pointer identities, ABI, operands/PC, returned-status tests, success target/fuel
+and panic/decline target/PC/count are checked before code generation. Physical
+call coverage and extra-store refusal constrain helper call/status blocks.
+Exact-counted records use the snapshot ledger with constructor rollback coverage.
+Dedicated mutation, full GNU/musl, selected pure Miri and native/model campaigns
+pass. Runtime helper effects/borrows/GC, shared exit-handler stores, global source
+paths, complete accounting and Phase 3 acceptance remain open.
+
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
@@ -5108,6 +5118,110 @@ commit after validation.
 - `src/jit/helper_flow.rs`, `src/jit/backend.rs`, `src/jit/tags.rs`,
   `src/jit/mod.rs`, `Makefile` — uncommitted helper-flow work, unchanged here.
 - `/tmp/luna-jit-helper-flow-focused.log` — successful focused draft run.
+
+### Helper-flow mutation sensitivity
+
+Temporarily bypassed both production and pure-fixture helper verification calls.
+The pure lane failed all six negative tests (one positive passed), and the
+separate actual backend lane failed all fifteen corruption tests; both Make
+commands exited 2. These are authoritative mutation sensitivity results, not
+acceptance with the checks disabled. Both calls were restored immediately after
+the owned session `91618` became terminal. Raw logs:
+`/tmp/luna-jit-helper-flow-bypass-pure.log` and
+`/tmp/luna-jit-helper-flow-bypass-backend.log`.
+Retained import-array length now derives from `helpers::SYMBOLS.len()` rather
+than repeating nine. Next: restored focused gates and separate feature commit.
+
+### Helper-flow feature commit and acceptance jobs
+
+- Feature commit `e6f5d4c` is unsigned and title-only. It contains charged
+  exact-counted helper records, physical call coverage, source/ABI/status/edge
+  checks, seven pure tests, fifteen backend corruption tests, constructor rollback
+  coverage, Make/Miri lanes and the public contract.
+- Restored focused Make gates exited zero: seven pure tests, fifteen backend
+  corruption tests, 226 boundary tests (four ignored), tag/heap/resource lanes and
+  Clippy with the inherited warning backlog. No strict-warning acceptance.
+- Owned full GNU/musl session `15205`, selected Miri session `80558` and supervised
+  GNU/musl campaign session `16975` were launched against the feature commit.
+  They are live pending terminal results; do not restart based on observation
+  timeouts or report them as passed yet.
+- Source identity/hashes, restored and mutation logs are archived under
+  `target/jit-evidence/helper-flow/`. No performance timing/profile was launched.
+
+### Session summary: accepted helper call/status-flow verification
+
+#### Goal
+
+Continue full `PLAN_JIT.md` implementation on `feat/native-jit`, completing the
+helper-flow draft's mutation sensitivity, feature commit and acceptance without
+reducing the objective. The previous status-only turn did not establish new
+implementation acceptance; this turn completed the next available work.
+
+#### Instructions
+
+Use repo-native Make/Nix gates, patch tools and incremental unsigned title-only
+Conventional Commits. Do not run benchmarks/profiles alongside correctness jobs.
+
+#### Discoveries
+
+- Helper identity/operand checks must cover reference moves/constants as well
+  as table/upvalue operations. Physical call coverage independently rejects
+  unrecorded calls; helper status arms cannot contain additional stores.
+- Completion and panic conditions must consume the same actual status result.
+  Successful edges advance fuel once; declined/panic edges preserve source PC
+  and unchanged count. Shared exit-handler stores remain a distinct proof.
+- With both verifier calls bypassed, all six negative pure tests and all fifteen
+  actual backend corruption tests failed. The positive pure test passed. Both
+  verification calls were restored before any accepted gate or feature commit.
+
+#### Accomplished
+
+- Committed `e6f5d4c`: separate charged helper-flow verifier, source/import/ABI/
+  operand/status/edge checks, physical call coverage, extra-store refusal,
+  seven pure tests, fifteen individual backend corruption tests and allocation
+  rollback coverage. Retained import-array length derives from the symbol list.
+  No new unsafe blocks or ABI change.
+- Restored focused gates exited zero with 226 boundary tests and four ignored,
+  plus helper/tag/heap/resource lanes and Clippy's inherited warning backlog.
+- GNU/musl `nix develop -c make jit-verify clippy jit-clippy` (musl adds
+  `TARGET=x86_64-unknown-linux-musl`) both exited zero: 3684 passing tests,
+  421 suite results and 24 ignored each. This is not strict-warning acceptance.
+- `nix develop .#miri -c make jit-miri` exited zero: 137 tests across 20 selected
+  suite results, pinned nightly 2026-08-16/rustc `67854e511`, default MIRIFLAGS.
+  Helper-flow fixtures construct pure emitter/IR signatures, not a native module
+  or generated-code execution. Generated native code is not Miri acceptance.
+- GNU/musl supervised `make jit-fuzz FUZZ_TARGET=all FUZZ_CASES=1024
+  FUZZ_SEEDS=0,1,0xdeadbeef,0xffffffffffffffff` both exited zero: each checked
+  4096 generated snapshots plus malformed mutations, 1641780 native kernel
+  invocations and 4758522 completed native instructions against the independent
+  slice model. Both platforms reuse the same seeds/programs; not 8192 unique
+  programs. The campaigns do not cover native heap helpers.
+- Owned mutation session `91618`, restored focused `66534`, full gates `15205`,
+  Miri `80558` and campaigns `16975` are terminal. Revalidated unchanged source/
+  Make hashes after acceptance. Archived raw logs, Miri/campaign artifacts,
+  source identity/hashes and aggregate summary in `target/jit-evidence/helper-flow/`.
+- Updated Phase 3 and the public scope/evidence. No new performance timing,
+  profile, speedup or release acceptance is claimed.
+
+#### Next Steps
+
+- Verify actual shared exit-handler stores/returns and global source entry,
+  budget and transition paths; complete source-map, alias/liveness and runtime
+  helper lifecycle review. Keep canonical full-prefix materialization.
+- Complete compiler/fixed-owner/combined-host accounting and approved isolation,
+  broader heap/lifecycle stress and actual ARM/hosted evidence.
+- Meet unchanged native table/upvalue/callback and compiled-Off shipping gates.
+  Prior revision-scoped failures remain failures. The full goal stays active and
+  incomplete; these narrow proofs do not complete Phase 3 or release acceptance.
+
+#### Relevant Files
+
+- `src/jit/helper_flow.rs` — charged records and actual helper call/status proof.
+- `src/jit/backend.rs` — emitted instruction capture and corruption fixtures.
+- `src/jit/tags.rs`, `src/jit/mod.rs` — constructor rollback and module integration.
+- `Makefile` — dedicated helper gates and selected pure Miri lane.
+- `JIT.md`, `PLAN_JIT.md` — public scope, evidence and remaining obligations.
+- `target/jit-evidence/helper-flow/` — local raw acceptance artifacts.
 
 ## 15. Primary references
 
