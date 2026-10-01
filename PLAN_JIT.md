@@ -425,7 +425,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 3 — Build validated owned IR and bounded code ownership
 
-**Status:** IN PROGRESS. **Depends on:** Phase 2. Owned snapshots, exhaustive opcode validation/fallback classification, weak generation IDs, bounded queues/attempts, leased code, capped mappings, bounded unleased LRU eviction and fallible sparse-metadata compaction exist. Full CFG/effect review, complete accounting, combined-limit semantics and hardening remain open.
+**Status:** IN PROGRESS. **Depends on:** Phase 2. Owned snapshots and a quota-charged instruction-level CFG validate all successors/operands, preserve legal PC re-entry, and feed exhaustive lowering/native-effect admission. Weak generation IDs, bounded queues/attempts, leased code, capped mappings, bounded unleased LRU eviction and fallible sparse-metadata compaction exist. Full typed/region/effect/exit review, complete accounting, combined-limit semantics and hardening remain open.
 
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
@@ -673,7 +673,7 @@ Do not disable tests, lower safety guarantees, catch arbitrary crashes as succes
 | 0: reference/backend feasibility | IN PROGRESS | Baseline gates, accounting characterization, executed ABI experiment, pinned backend decision | Nix `make verify`, fuel probes, RX helper call and worker-transfer probes passed on x86-64 Linux; Cranelift 0.136.1/Rust 1.97.1 pinned. The inherited `never_loop` errors are fixed; baseline Clippy passes with a warning backlog, not strict acceptance. GNU/musl x86-64 native gates pass; native ARM64/hosted results remain uncollected. |
 | 1: configuration/gates | IN PROGRESS | Optional dependency isolation, capability tests, explicit mode wrappers | Optional dependency tree checked without compiler crates; Off constructors and explicit config tests pass. Force wrappers now prepare outside arena entries; same-entry execution is disclosed rather than falsely claimed forced. |
 | 2: runtime boundary | IN PROGRESS | PC/effect/fuel/rooted-state mock/reference tests | Boundary tests pass per-PC/per-budget scalar and mixed-numeric Rust-model agreement, pinning/retirement, admission and allocation failure cases. Fourteen native integrations cover interrupted fuel and side-effect-preserving guard bailout with GC between slices. Complete transition mock coverage pending. |
-| 3: IR/code ownership | IN PROGRESS | Verifier/admission/cache/lifetime/resource tests | Backend admission revalidation and malformed refusal pass. Shared fallible allocators charge registry/tracking/code-index/queue/preparation/snapshot and persistent backend entry/mapping-record layouts, including retained capacity and transient growth. Refusal, allocation/protection denial, partial cleanup and lower-limit retirement/lease tests pass. Fixed-owner/compiler and combined-host accounting remain incomplete. |
+| 3: IR/code ownership | IN PROGRESS | Verifier/admission/cache/lifetime/resource tests | Owned CFG (`8132143`) checks every successor, unreachable operands, loops/continuations and lowering/effects before code generation. Backend flags/helper IDs/emitted edges consume that classification. Graph/worklist storage share the snapshot ledger; exact quota/refusal rollback and interpreter recovery pass. Fixed SetList value ranges are repaired (`91bec50`). Existing owned-container/mapping/lease tests remain passing. Full typed/region/exit/effect review and fixed-owner/compiler/combined-host accounting remain incomplete. |
 | 4: native slices | IN PROGRESS | Actual native counters, numeric/fuel correctness | Explicit example returned 5000050000 with 200007 native logical instructions; fourteen native tests pass. Scalar operations, numeric loops, guarded comparison, and interpreter fallback integrated. Helper-backed heap operations execute natively; broader numeric/error coverage remains open. |
 | 5: lifecycle integration | IN PROGRESS | Mixed-tier callbacks, async/coroutines, errors and close tests | Dedicated heap/upvalue tests cover reentry, close/error unwinding, panic materialization, debug mutation, shared captures and finalizer resurrection. Public coroutine/foreign-await scenarios (`7351b4b`) verify all three modes at fuel 1/64/65536, native table updates after resumption, GC while parked, six Pending polls/two Ready polls/six wakes, and no compilation inside slices. GNU/musl full-feature Force passes. Complete transition/error/mock coverage remains open. |
 | 6: heap/GC integration | IN PROGRESS | Native heap paths, barriers, GC/mutation/invalidation stress | Fresh helper guards preserve weak/readonly/intercept/invalid-key behavior. Every-slice GC, open/closed upvalues, pending-scalar panic inspection, debug local/upvalue join and finalizer-only native upvalue writes pass. Shared-cell tests additionally prove exact operation counts and write visibility across error guards, foreign stacks, GC and Rust reentry. Broader interleaved executors, mode mutations and exhaustive guard coverage remain open. |
@@ -3190,6 +3190,141 @@ implementation work remains available. The full goal stays active/incomplete.
 `Makefile` adds focused lanes and includes async only for the metrics build;
 `JIT.md` documents measurement scopes; `PLAN_JIT.md` preserves the evidence and
 remaining work; `target/jit-evidence/suspension/` archives raw verification.
+
+### Fixed SetList operand admission defect
+
+Live verifier inspection found that fixed-count `SetList` checked only its table
+and index registers, not the following value registers consumed by
+`LuaFrame::set_table_list`. A four-register snapshot with base zero/count three
+was incorrectly admitted. A regression first reproduces that admission and then
+requires refusal. Validate the complete fixed range `base .. base + 2 + count`;
+variable-count lists continue to validate their fixed two-register prefix and
+leave runtime variable-stack shape checks to the interpreter. This is private
+native snapshot admission hardening, not a claim to validate crafted binary Lua
+execution. `make jit-ir` exposes the Rust-only verifier test.
+
+### Owned control-flow and effect admission design
+
+Build a compiler-owned instruction-level CFG from verified snapshots outside
+the arena/slice, with checked fallthrough/skip/jump/continuation/terminal edges,
+entry-zero reachability and bounded fallible traversal. Charge graph records and
+the worklist concurrently to the existing snapshot allocator, not an unmetered
+standard Vec; drop both before installation returns. Verify unreachable operands
+as well as reachable ones. Reachability does not suppress arbitrary validated
+PC re-entry, which existing budget/debug boundaries can require.
+
+Exhaustive opcode descriptions distinguish direct, guarded-scalar, scalar-or-
+helper, helper-only and interpreted lowering, with conservative whole-op effects
+separate from admitted native effects. Native effects cannot call user code,
+reshape frames or run close handlers; those paths still exit to the interpreter.
+Record heap/upvalue mutation, allocation, semantic error and Rust panic boundaries.
+User-code effects conservatively invalidate heap/upvalue state and may close
+resources; they are opaque barriers, not a purity annotation for metamethods.
+Backend entry flags now consume this classification instead of a duplicated
+opcode match. Emitted native successors and helper IDs are checked against the
+graph/classification at compilation, never by extra work in VM dispatch.
+
+NumericForPrep is an unconditional jump, unlike NumericForLoop's two successors.
+The old generic fallthrough requirement incorrectly rejected a valid terminal
+self-jumping preparation instruction. Central successor validation accepts that
+edge while continuing to refuse every invalid branch/skip, including dead code.
+This does not validate crafted binary execution or prove a full optimizing
+typed/effect SSA IR, exit-state model, source-map or transition matrix; those
+requirements remain part of the full goal.
+
+### Generic iterator false-key defect discovered during flow review
+
+`GenericForLoop` used truthiness to decide continuation despite its own opcode
+contract specifying a nil check. Both a custom iterator returning false/42 then
+true/43 and `pairs({[false]=42})` incorrectly yielded zero iterations. New
+reference regressions reproduce results zero instead of 85/42 before the fix.
+The [Lua 5.4 generic-for contract](https://www.lua.org/manual/5.4/manual.html#3.3.5)
+terminates on nil, not boolean false. Change only this VM continuation predicate
+to `!is_nil()`, retaining the original control value and all PC/frame transitions.
+Generic-loop instructions remain interpreted in the native tier; a mixed-tier
+regression must actually reach 200 native table writes inside the false-key
+iteration and return 20300 in both tiers. No performance threshold is changed.
+`make jit-generic-for` covers the two reference cases without JIT and with
+Off/Auto/Force feature configurations.
+
+### CFG verification checkpoint and distinct generic-for repair
+
+`91bec50` separately commits the fixed-list operand-range fix and reproducer;
+`8132143` commits owned flow/effects, compiler integration, eight graph tests,
+focused Make lane and expanded Miri selection. Full GNU/musl
+`make jit-verify clippy` each pass 2827 tests/421 suite results, 24 ignored, on
+that revision. Selected default-flags Miri passes 38 tests/eight namespaces,
+including the one verifier test and eight new flow tests. The host quota test
+invokes compiler admission but refuses before Cranelift code generation, memory
+mapping or executable calls; generated code remains outside Miri coverage.
+Raw evidence is under `target/jit-evidence/cfg/`, including the initial fixed-list
+failure, focused/full/Miri logs and copied release artifacts at `8132143`.
+
+The first native timing admission was refused because a separate Molla Cargo
+test was active; retain that process list and make no performance claim from
+that attempted run. The later generic-for fix changes production source again,
+so those copied artifacts are explicitly pre-fix evidence, not current binaries.
+All CFG build/verification handles are terminal.
+
+`1873875` separately commits the generic-loop nil predicate, two VM regressions,
+mixed-tier false-key/native-heap proof and focused Make wrapper. Before the fix,
+the custom iterator and `pairs` cases both returned zero instead of 85/42.
+After the fix, the two reference cases pass without JIT and with Off/Auto/Force;
+the heap suite passes sixteen cases, including exactly 200 native table writes
+and result 20300 for the new false-key case. Full gates/rebuilt release artifacts
+on the final combined revision are being gathered separately; earlier 2827-test
+results must not be claimed as validation of the later VM repair.
+
+### Recovered verification checkpoint
+
+After context recovery, Git confirms branch work through `1873875` and only this
+plan is modified. Resume owned verification session `6674` before starting any
+replacement gates. Its final output was truncated during context recovery;
+completion and final counts are not yet confirmed. No timing run on the final
+generic-for revision has been confirmed. Earlier CFG results retain their
+revision-specific scope and are not substituted for final acceptance.
+
+### Session summary: progress report and recovered final gates
+
+#### Goal
+
+Report the actual plan/implementation state and preserve the ongoing final
+verification without restarting its owned process.
+
+#### Instructions
+
+Keep separate unsigned, title-only Conventional Commits. Use Make through Nix
+for relevant validation, patch tools for edits, and do not weaken acceptance.
+
+#### Discoveries
+
+- The requested plan exists; implementation is active on `feat/native-jit`,
+  not release-accepted. Performance, complete hardening and ARM64 execution
+  evidence remain open.
+- Recovered session `6674` is live. GNU `make jit-verify clippy` on `1873875`
+  has finished with 2844 passed tests/421 suite results and 24 ignored; Clippy
+  completes with existing warnings. Musl is still running at this checkpoint.
+
+#### Accomplished
+
+- Verified the three recent production commits are unsigned and title-only.
+- Preserved separate fixed-list, owned flow/effects and false-key loop evidence.
+- Reported plan readiness separately from incomplete implementation acceptance.
+
+#### Next Steps
+
+- Resume `6674`; confirm musl completion and copied final release artifacts.
+- Gather isolated matching performance evidence without concurrent builds/tests.
+- Continue the open transition, accounting, hardening and platform requirements.
+
+#### Relevant Files
+
+- `PLAN_JIT.md` — phased implementation contract and revision-specific evidence.
+- `src/jit/flow.rs`, `src/jit/ir.rs`, `src/jit/backend.rs` — verified owned
+  instruction flow, operand admission and backend lowering checks.
+- `src/thread/vm.rs`, `tests/vm_semantics.rs`, `tests/jit_heap.rs` — false-key
+  generic-loop semantics and reference/native regressions.
+- `target/jit-evidence/generic-for/` — final-revision verification/artifact logs.
 
 ## 15. Primary references
 
