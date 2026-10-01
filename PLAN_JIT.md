@@ -564,8 +564,21 @@ deduplicates by target/instruction and retains capacity charges. Five pure graph
 fixtures (including 64 cyclic/layout-order cases) match Cranelift; quota/global
 allocation/malformed-target rollback and native refusal before codegen pass.
 Budget-bypass mutations fail the accounting oracles. Full GNU/musl, selected Miri
-and unchanged scalar/heap campaigns pass. Dominance CFG/tree, backend internals,
-fixed owners and combined-host accounting remain open; Phase 3 is not complete.
+and unchanged scalar/heap campaigns pass. Subsequent dominance accounting is
+described below; backend internals, fixed owners and combined-host accounting
+remain open. Phase 3 is not complete.
+
+Budgeted dominance (`cdb9001`) replaces the remaining verification-only Cranelift
+CFG/tree with snapshot-charged nodes, iterative DFS stack and postorder storage.
+Immediate dominators use a bounded reverse-postorder fixed point; construction
+refuses work beyond `64 * (DFG blocks + raw predecessor capacity + 1)` before
+codegen. Eight pure fixtures and two backend refusals cover defined Cranelift
+agreement, quota/global-allocation rollback, all construction work prefixes and
+zero generated mappings on refusal. Both storage/work bypass mutations are
+detected. Full GNU/musl gates pass 4480 tests each; selected Miri passes 224 tests
+and unchanged supervised scalar/heap campaigns pass. This covers owned
+verification dominance, not backend/frontend-builder allocation, compiler CPU
+isolation, fixed owners, combined-host limits or Phase 3/release acceptance.
 
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
@@ -6254,6 +6267,119 @@ acceptance thresholds and report incomplete work without claiming success.
 - `Makefile` — current pure dominance target; further acceptance wiring pending.
 - `/tmp/luna-jit-dominance-integrated.log` — terminal focused-run failure evidence.
 - `PLAN_JIT.md` — detailed plan, acceptance history and this progress checkpoint.
+
+### Scalar-workspace quota fixture adjustment
+
+Dominance admission precedes scalar verification worklists, so the original
+fixture limits now refuse at the newly charged stage. Budget the dominance
+construction peak, then the retained nodes plus pending worklist, while keeping
+the exact `scalar tag verification` error, zero final charges, exact peak and
+one allocation refusal assertions. The new backend fixtures independently pin
+dominance storage/work errors and require zero generated mappings. Work refusal
+does not increment allocator-refusal counters. All injected work limits are
+per-`Stores`, test-only state; no process-global mutation knob is introduced.
+
+### Dominance admission oracle sensitivity
+
+The focused GNU gate passes eight pure analysis fixtures, two backend refusal
+fixtures, all 37 scalar-tag fixtures and the boundary/resource targets. The
+Cranelift differential fixture covers 256 seeded graphs; construction-prefix
+refusals cover DFS and fixed-point/intersection work, exact storage admission and
+one-byte-short refusal, three partial allocator failures, non-layout targets and
+empty zero-quota analysis. Existing Clippy warning backlog remains unchanged.
+
+Two temporary mutations were run to terminal before restoration. Disabling work
+charging made two pure fixtures and the backend work refusal fail. Replacing the
+snapshot allocator with an independent unlimited ledger made four pure fixtures
+and the backend storage refusal fail. In the latter case backend refusal moved
+to scalar verification, demonstrating why the exact stage/error matters. No
+corrupted native code was executed. Raw logs are in
+`target/jit-evidence/dominance/`; full platform/Miri acceptance is still pending.
+
+### Combined-host accounting follow-up routing
+
+Live inspection after dominance acceptance confirms that JIT mapping,
+snapshot and metadata usage have separate counters in `Lua::jit_stats` and
+`Runtime`; `service_jit` creates an owned snapshot and invokes `Runtime::compile`
+outside the arena. The existing `finish`/`finish_async` ceiling checks call
+`total_memory` between slices. That public metric is explicitly collector-tracked
+allocation only and excludes JIT containers, mappings and compiler-owned storage;
+the current ceiling therefore does not enforce combined collector/JIT usage.
+Follow-up host-limit work must preserve that metric's public contract while
+reviewing service/preparation admission, retained
+leases and config changes, rather than silently relabel GC metrics or mistake
+snapshot quotas for a combined host ceiling. No combined-limit implementation
+or acceptance is claimed by this dominance change.
+
+### Budgeted dominance acceptance session (2026-10-01)
+
+## Goal
+Continue the full implementation on `feat/native-jit` by replacing uncharged
+verification dominance graphs. The overall goal remains active and incomplete.
+
+## Instructions
+Use repo-native Make/Nix gates, patches rather than Python, incremental unsigned
+title-only Conventional Commits and unchanged acceptance thresholds. Do not run
+timings alongside unrelated builds/tests/profiles or ignore arbitrary make jobs.
+
+## Discoveries
+- `total_memory` is collector allocation only; its documented exclusion of JIT
+  storage must survive combined-host limit work. The current between-slice
+  memory ceiling does not enforce combined collector/JIT usage.
+- Newly charged dominance construction changes quota-fixture admission order.
+  The original scalar-workspace-specific errors and cleanup/peak checks remain
+  intact after budgeting that preceding stage.
+- Only reachable-pair dominance is well-defined in the reference. Reachability
+  and immediate dominators still match across every block in 256 seeded graphs.
+- After all owned gates/builds became terminal, fresh global preflight found
+  unrelated `make run` PID 2878331. No timings/profiles were run or gains claimed.
+
+## Accomplished
+- Source committed separately at `cdb9001`: eight pure fixtures, two backend
+  refusal fixtures, charged dominance integration and selected Miri wiring.
+- Focused job `7224` passed; work-bypass job `83805` and storage-bypass job
+  `39368` each detected the intended pure/backend failures. Their mutations
+  were restored after terminal status; restored job `56963` passed and the
+  original dominance source hash matched. No corrupted native code executed.
+- Full job `37764` completed GNU and musl, both exit 0: **4480 passing tests /
+  422 suite results / 24 ignored tests** per target. Existing Clippy warnings
+  remain; this is not strict-warning acceptance.
+- Miri job `26686` completed exit 0: **224 passing tests / 27 suite results / 0
+  ignored**, pinned nightly 2026-08-16, rustc `67854e511`, default `MIRIFLAGS`.
+  Selected Miri does not execute generated code or heap/native campaigns.
+- Campaign job `49145` completed all four platform/workload lanes exit 0.
+  Scalar/admission: **4096 cases / 1641780 native invocations / 4758522 native
+  instructions** per platform. Heap: **96 cases / 6344 main slices / 725 yields /
+  1633 callbacks / 96 retirements / 964 host reads / 2809 userdata observations /
+  65297 native instructions** per platform. Helper counters: **22144 table reads /
+  7393 table writes / 1655 allocations / 21701 upvalue reads / 996 upvalue writes /
+  1179 declines**. Platforms reuse the same seeds/programs, not independent
+  unique-program coverage; nested/finalizer internal slices are not paired.
+- Untimed opt-level-3 candidate build `35831` completed at `cdb9001`, exit 0;
+  binary/source ID/build log/hash retained. This is not performance evidence.
+- Raw focused/mutation/full/Miri logs, exact campaign/smoke artifact directories,
+  source hashes and aggregates are under `target/jit-evidence/dominance/`.
+  Recursive source and frozen binary hashes verified after all jobs terminated.
+
+## Next Steps
+- Implement and verify combined-host enforcement without changing GC metric
+  meaning, including preparation/service, config changes and active leases.
+- Continue frontend/backend/fixed-owner accounting and the remaining opcode/
+  source-map, helper/GC/alias/liveness and broader safety review obligations.
+- Run frozen performance gates only after global preflight admits timing;
+  historical performance failures remain unresolved, with no threshold waiver.
+- Gather actual ARM64/hosted platform evidence when available. Do not mark the
+  full plan complete from this bounded verification-analysis improvement.
+
+## Relevant Files
+- `src/jit/dominance.rs` — charged, work-bounded analysis and pure fixtures.
+- `src/jit/preds.rs` — raw edge capacity for the derived analysis work ceiling.
+- `src/jit/tags.rs`, `src/jit/entry_flow.rs` — dominance integration.
+- `src/jit/backend.rs` — typed storage/work refusal before codegen/mapping.
+- `Makefile` — focused dominance targets and selected Miri namespace.
+- `JIT.md`, `PLAN_JIT.md` — current verified scope and remaining requirements.
+- `src/lua.rs`, `src/jit/mod.rs` — combined-host follow-up routing, unchanged.
+- `target/jit-evidence/dominance/` — local acceptance and untimed binary artifacts.
 
 ## 15. Primary references
 
