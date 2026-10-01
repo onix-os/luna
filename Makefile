@@ -74,6 +74,7 @@ $(info ------------------------------------------)
 .PHONY: jit-provider-box jit-provider-box-pure jit-provider-box-boundary jit-provider-box-native jit-provider-box-miri
 .PHONY: jit-provider-box-admission
 .PHONY: jit-segments jit-segments-pure jit-segments-native jit-segments-miri
+.PHONY: jit-segments-reclamation
 .PHONY: jit-clippy
 
 ci-check:
@@ -447,6 +448,9 @@ jit-segments-pure:
 
 jit-segments-native:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::segment_
+
+jit-segments-reclamation:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::segment_reclamation_os_worker -- --exact
 
 jit-segments-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::segments::tests -- --test-threads=1

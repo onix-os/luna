@@ -116,6 +116,15 @@ impl Segment {
         Ok(())
     }
 
+    #[cfg(test)]
+    pub fn base(&self) -> *const u8 {
+        match &self.pages {
+            Some(Pages::Writable(map)) => map.as_ptr(),
+            Some(Pages::Protected(map)) => map.as_ptr(),
+            None => std::ptr::null(),
+        }
+    }
+
     fn enable_bti(&self, protection: BranchProtection) -> io::Result<()> {
         let Some(Pages::Protected(map)) = &self.pages else {
             return Err(io::Error::other("native segment unavailable"));

@@ -7090,6 +7090,35 @@ Miri (`88791`) passes three tests with default flags. Code/record accounting,
 permission and cache/branch source review are ready for full platform gates;
 no current performance or ARM64 acceptance is implied.
 
+### Musl reclamation observer failure (2026-10-01)
+
+Full GNU at `26c6067` passed, but musl exited 2 in the isolated reclamation worker:
+the post-free /proc observer returned a fresh RW mapping at the old address.
+Reading /proc allocates a String and can itself reuse the just-freed mapping,
+even with other tests isolated. This failure remains recorded; it is not a
+passed musl gate or permission to remove the physical reclamation assertion.
+Replace only the post-free allocating observer with an allocation-free mincore
+syscall over the page-aligned former payload address, requiring failure with
+ENOMEM. Retain allocating permission observations while the mapping is live.
+Finish the original owned Miri job before changing its source revision, then
+commit this oracle repair separately and rerun current-source platform/Miri gates.
+The source/runtime mapping ownership is unchanged by this observer correction.
+
+### Repaired allocation-free reclamation oracle
+
+The repaired worker captures the actual mapping base/length while live, then
+requires mincore success for every mapped page before reclamation and -1/ENOMEM
+for every former page afterward. The post-free probe uses a stack byte and no
+allocating /proc read, preserving physical reclamation proof across GNU and musl.
+Focused both-platform job `7784` passes eight mapping plus eight provider-box
+tests per platform. A deliberate reclamation bypass (`50970`) makes the exact
+worker fixture fail on both platforms (Make exits 2), with no native instruction
+execution. The original Miri `4735` completed exit 0 at `26c6067` before edits;
+all its raw evidence and the failed original musl gate are kept under
+`target/jit-evidence/segments/draft-26c6067/`. Current-source gates must still be
+rerun after restored hash verification. The runtime mapping implementation did
+not change in this test-observer repair.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

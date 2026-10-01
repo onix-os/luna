@@ -4481,8 +4481,37 @@ mod memory_tests {
         assert!(segment_permissions(pointer).unwrap().starts_with("rw-"));
         memory.finalize(BranchProtection::None).unwrap();
         assert!(segment_permissions(pointer).unwrap().starts_with("r-x"));
+        let base = memory.allocations[0].base() as usize;
+        let bytes = memory.allocations[0].bytes;
+        let mut resident = 0u8;
+        assert_eq!(base % memory.page, 0);
+        for offset in (0..bytes).step_by(memory.page) {
+            assert_eq!(
+                unsafe {
+                    libc::mincore(
+                        (base + offset) as *mut libc::c_void,
+                        memory.page,
+                        &mut resident,
+                    )
+                },
+                0
+            );
+        }
         memory.release();
-        assert_eq!(segment_permissions(pointer), None);
+        for offset in (0..bytes).step_by(memory.page) {
+            let result = unsafe {
+                libc::mincore(
+                    (base + offset) as *mut libc::c_void,
+                    memory.page,
+                    &mut resident,
+                )
+            };
+            assert_eq!(result, -1);
+            assert_eq!(
+                io::Error::last_os_error().raw_os_error(),
+                Some(libc::ENOMEM)
+            );
+        }
         assert_eq!(
             (metadata.current(), memory.total.load(Ordering::Relaxed)),
             (0, 0)
