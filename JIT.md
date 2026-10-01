@@ -213,14 +213,24 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 ## Verification and remaining work
 
-The shared root mapping-counter implementation (`1fad6d4`)
+The exact ledger-owner accounting implementation (`8078b2f`)
 passes `nix develop -c make jit-verify clippy jit-clippy` on x86-64 GNU and
-with `TARGET=x86_64-unknown-linux-musl`: each reports 4785 passing tests across
+with `TARGET=x86_64-unknown-linux-musl`: each reports 4835 passing tests across
 434 suite results and 24 ignored tests. Selected pure-Rust/pure-IR Miri checks
-pass 264 tests across 37 selected suite results with default `MIRIFLAGS`; they do not execute
+pass 274 tests across 39 selected suite results with default `MIRIFLAGS`; they do not execute
 generated native code. Clippy retains the existing warning backlog, so these are
 not strict-warning acceptance. Raw revision-scoped evidence is stored locally in
-`target/jit-evidence/mapping-counter/`. Three pure counter fixtures cover nested
+`target/jit-evidence/ledger-owner/`. Six Global-owner fixtures verify exact
+alignment/borrowed layout, clone/drop, checked overflow, refusal, destructor
+unwinding and concurrent final-destructor visibility. Three bootstrap fixtures
+verify exact root/nested-header lifetimes, one-byte-short/underlying refusal and
+concurrent header/payload admission through one atomic ceiling. A Lua fixture
+proves the layout-derived three-header floor survives cache clear and prevents
+growth below that ceiling. Header-release bypass fails two fixtures; quota
+bypass fails two Lua checks and the exact/one-byte-short native preparation
+check. Relaxed final-drop mutation triggers a Miri data race; deallocation bypass
+triggers six Miri leak errors. Default Miri checks were not disabled.
+Three pure counter fixtures cover nested
 root identity, clone/update sharing, independent roots, lifetime and separation
 from host reservations. A native fixture proves quota retention and executable
 lease lifetime after runtime destruction, final reclamation and recompilation.

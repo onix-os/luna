@@ -652,6 +652,18 @@ each; selected Miri passes 264 tests. Root/child Ledger and runtime Rc owners
 remain outside the complete accounting policy. No Phase 3 completion or current
 performance claim follows.
 
+Exact ledger ownership (`8078b2f`) replaces private Arc headers with a concrete
+strong-only Global layout. Root/child header charges now contribute to
+`bootstrap_bytes`, accounted usage/peak and the combined host ceiling. Child
+headers and payloads share one atomic reservation total. A deallocation guard
+releases header charge after physical freeing, including value unwinding.
+Six owner, three bootstrap and one Lua-floor fixtures pass; release/quota bypass,
+relaxed-drop/data-race and physical-deallocation/leak mutations are detected.
+Full GNU/musl gates pass 4835 executions each; selected Miri passes 274 tests.
+The runtime Rc and remaining Cranelift working storage remain unaccounted;
+initial infallible Lua construction does not gain whole-state OOM recovery.
+Phase 3, performance controls and release acceptance remain incomplete.
+
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
 2. Explicitly classify every opcode through an exhaustive match. Unknown/malformed input is refused; unsupported valid work exits to the interpreter.
 3. Add private source-provenance registration and generation-safe code identities without breaking public prototype construction.
@@ -7393,6 +7405,105 @@ is refused and all payload charge rolls back. Restored broad focused `95695`
 passes host limits, exact/one-byte-short preparation, refusal/recovery, detached
 lease behavior, previous status/provider ownership and policy checks. These
 focused results are not yet full GNU/musl/selected-Miri acceptance.
+
+### Exact ledger-owner acceptance session (2026-10-01)
+
+## Goal
+- Continue full implementation on `feat/native-jit` by accounting actual root and
+  child owner layouts without guessing std Arc internals or weakening host limits.
+
+## Instructions
+- The user asks for honest progress after two days of work. Do not call this
+  almost finished or provide an unsupported ETA; prioritize the full acceptance
+  checklist instead of presenting partial safety milestones as completion.
+- Keep incremental unsigned/title-only commits, Nix/Make validation, patch edits,
+  and global no-concurrent-build/test timing rules.
+
+## Discoveries
+- A state retains three ledger owners after cache/prototype cleanup. Their exact
+  bootstrap floor is nonzero until those owners actually deallocate; dynamic
+  metadata/snapshot/mapping cleanup remains independently zero.
+- Header and payload reservation must share one raw atomic total. Separate
+  subtraction-based admission would risk concurrent overbooking. The payload
+  current/peak metrics remain distinct from accounted usage/peak and bootstrap.
+- A moved inline charge held by the typed final-drop guard can retain the parent
+  root until physical deallocation, including value unwinding. Root self-layout
+  is counted while the root exists; no self-retaining ownership cycle is needed.
+- Engram remains unavailable; decisions and this structured summary are saved in
+  the project plan, not the external memory folder.
+
+## Accomplished
+- `8078b2f` commits exact strong-only Global owners, header admission/rollback,
+  fallible private root/child factories and public `bootstrap_bytes`. Existing
+  infallible Lua construction preserves its allocation-failure contract, without
+  claiming whole-state OOM recovery. Runtime Rc remains a separate open owner.
+- Draft `94117` catches two obsolete zero-floor assertions. Draft `5352` catches
+  the old usize::MAX payload fixture, now corrected to fill the entire accounted
+  usize::MAX total before proving one more byte refuses. Failed drafts remain raw
+  evidence, not acceptance. Broad restored `95695` passes **98 tests / 22 suites /
+  0 ignored**. Final focused/Clippy `27310` exits 0, removes the new test-module
+  placement warning without suppression, and retains the 141 lib-test backlog.
+- Final isolated Miri `33466` passes **9 tests / 2 suites / 0 ignored**. Six owner
+  fixtures cover clone/drop/overflow, exact alignment/borrowed values, allocation
+  denial, panic cleanup and destructor visibility without prior joins. Three
+  bootstrap fixtures cover nested lifetimes, quota/underlying refusal/recovery,
+  and concurrent header/payload admission. The Lua floor test uses exact layout.
+- Relaxed-drop mutation `18343` exits 0 only because its wrapper requires Make
+  failure: Make exits 2 and Miri reports a data race. Physical-deallocation bypass
+  `68026` similarly catches six Miri leak errors (Make exit 2). Header-release
+  bypass `8025` catches two bootstrap failures (exit 2). Admission bypass `45842`
+  catches two Lua failures and one native exact/one-byte-short peak failure (both
+  Make exits 2). Every job is terminal before source restoration; original hashes
+  match. No default Miri safety/leak checks are disabled.
+- Full GNU/musl `96044` completes both exit 0: **4835 passing executions /
+  434 suites / 24 ignored** per platform. Counts include repeated mode/doc suites,
+  not unique tests. Selected Miri `60799` completes exit 0: **274 tests /
+  39 suites / 0 ignored**, nightly 2026-08-16 rustc `67854e511`, empty flags. No
+  anonymous maps, generated instructions, OS workers or native heap programs run
+  under Miri. Clippy is not strict-warning acceptance.
+- Four long campaigns `88977` finish exit 0. Per platform: **4096 scalar/admission
+  cases / 1641780 native invocations / 4758522 native instructions**; **96 heap
+  cases / 6344 main slices / 725 yields / 1633 callbacks / 96 retirements /
+  964 host reads / 2809 userdata observations / 65297 native instructions**.
+  Helpers: **22144 table reads / 7393 table writes / 1655 allocations /
+  21701 upvalue reads / 996 upvalue writes / 1179 declines**. Seeds/programs are
+  reused across platforms; userdata samples are not instruction coverage and
+  nested/finalizer internal slices are not independently paired.
+- Untimed opt3 `54224` completes exit 0; immutable candidate, source ID and binary
+  hash retained and verified. Exact long/full-smoke campaign directories, source
+  hashes, counters, environment and current acceptance logs are under
+  `target/jit-evidence/ledger-owner/`. All owned jobs are terminal.
+- Final global preflight sees unrelated molla Make/Cargo/GPU test jobs
+  (3788434/3788486/3861457). No arbitrary jobs are killed/excluded, no timings or
+  profiles run, and no current performance claim follows.
+
+## Next Steps
+- Account the remaining runtime Rc owner and complete compiler working-memory
+  bounds; exact ledger headers do not close the whole resource contract.
+- Complete opcode/source-map/helper/GC/alias/liveness/lifecycle safety proofs and
+  broader coverage-guided/unsafe stress beyond seeded campaigns.
+- Resolve unchanged native and compiled-Off performance controls after a clean
+  global preflight; previous failures are not waived or current results.
+- Collect executed ARM64/hosted evidence and strict-Clippy acceptance. The full
+  goal remains active and incomplete; this turn made verified implementation progress.
+
+## Relevant Files
+- `src/jit/global_owner.rs` — exact Global allocation, atomic owner and post-free charge guard.
+- `src/jit/resources.rs` — LedgerRef, bootstrap/header quota and three pure fixtures.
+- `src/jit/mod.rs` — host root and additive bootstrap stats, lifecycle expectations.
+- `src/lua.rs` — accounted metrics include actual headers; retained-floor fixture.
+- `src/jit/global_box.rs`, `src/jit/preds.rs` — owner-handle fixture migration.
+- `tests/jit_memory.rs` — exact combined peak, retained floor and recovery expectations.
+- `Makefile` — focused and selected/isolated-Miri ledger-owner targets.
+- `JIT.md`, `PLAN_JIT.md` — precise current accounting/acceptance/remaining scope.
+- `target/jit-evidence/ledger-owner/` — revision-scoped evidence and untimed candidate.
+
+## Key Learnings:
+
+1. A live Lua state retains ledger headers after cache reclamation; report that
+   exact floor instead of claiming all JIT-owned bytes become zero.
+2. Header charges must reserve the same atomic total as payloads and remain held
+   until after actual deallocation, not merely until payload destruction starts.
 
 ## 15. Primary references
 
