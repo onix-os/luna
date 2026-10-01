@@ -58,6 +58,7 @@ $(info ------------------------------------------)
 .PHONY: jit-transfer-source jit-transfer-source-backend
 .PHONY: jit-helper-flow jit-helper-flow-backend
 .PHONY: jit-exit-flow jit-exit-flow-backend
+.PHONY: jit-entry-flow jit-entry-flow-backend
 .PHONY: jit-clippy
 
 ci-check:
@@ -69,7 +70,8 @@ jit-miri:
 	@set -o pipefail; $(CARGO) miri setup --target '$(MIRI_TARGET)' 2>&1 | tee '$(MIRI_DIR)/setup.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::resources::tests -- --test-threads=1 --skip jit::resources::tests::installation_refusal_reclaims_generated_mappings 2>&1 | tee '$(MIRI_DIR)/jit::resources::tests.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::block_map_quota_refuses_before_host_setup_and_releases_storage -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/block-map-quota.log'
-	@set -e -o pipefail; for filter in jit::abi::tests jit::helpers::tests jit::registry::tests jit::ir::tests jit::flow::tests jit::work::tests jit::tags::tests jit::shape::tests jit::backend::comparison_tests jit::backend::loop_tests jit::backend::transfer_tests jit::backend::helper_flow_tests jit::access::tests jit::backend::access_tests jit::exit_flow::tests jit::exits::tests jit::backend::exit_tests jit::policy_tests finalizers::tests; do \
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::entry_path_quota_refuses_before_host_setup_and_releases_storage -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/entry-path-quota.log'
+	@set -e -o pipefail; for filter in jit::abi::tests jit::helpers::tests jit::registry::tests jit::ir::tests jit::flow::tests jit::work::tests jit::tags::tests jit::shape::tests jit::backend::comparison_tests jit::backend::loop_tests jit::backend::transfer_tests jit::backend::helper_flow_tests jit::access::tests jit::backend::access_tests jit::entry_flow::tests jit::exit_flow::tests jit::exits::tests jit::backend::exit_tests jit::policy_tests finalizers::tests; do \
 		$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' "$$filter" -- --test-threads=1 2>&1 | tee '$(MIRI_DIR)'/"$$filter".log; \
 	done
 
@@ -301,6 +303,7 @@ jit-exits:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::exit_tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::exits::tests
 	@$(MAKE) --no-print-directory jit-exit-flow
+	@$(MAKE) --no-print-directory jit-entry-flow
 
 jit-exit-flow:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::exit_flow::tests
@@ -308,6 +311,13 @@ jit-exit-flow:
 
 jit-exit-flow-backend:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::corrupted_exit_flow_
+
+jit-entry-flow:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::tests
+	@$(MAKE) --no-print-directory jit-entry-flow-backend
+
+jit-entry-flow-backend:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::corrupted_entry_flow_
 
 jit-generic-for:
 	@$(CARGO) test --locked -p luna --test vm_semantics $(TARGET_ARG) generic_for

@@ -11,7 +11,7 @@ use cranelift_codegen::ir::{
     condcodes::{FloatCC, IntCC},
     types, AbiParam, Block, Inst, InstBuilder, MemFlagsData, Value as IrValue,
 };
-use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
+use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{
     BranchProtection, JITBuilder, JITMemoryKind, JITMemoryProvider, JITModule, SystemMemoryProvider,
 };
@@ -204,6 +204,7 @@ pub(super) enum Failure {
     CorruptTransfer(super::tags::TransferCorruption),
     CorruptHelperFlow(super::helper_flow::Fault),
     CorruptExitFlow(super::exit_flow::Fault),
+    CorruptEntryFlow(super::entry_flow::Fault),
 }
 
 #[cfg(test)]
@@ -237,6 +238,7 @@ pub(super) fn compile_in(
     blocks
         .try_reserve_exact(snapshot.operations.len())
         .map_err(|_| JitError::ResourceLimit("frontend block map"))?;
+    let mut paths = super::entry_flow::Paths::new(snapshot)?;
     let mut entries = BudgetVec::new_in(metadata.clone());
     entries
         .try_reserve_exact(snapshot.operations.len())
@@ -307,7 +309,7 @@ pub(super) fn compile_in(
     let mut context = module.make_context();
     context.func.signature = signature;
     let mut fb_context = FunctionBuilderContext::new();
-    let (fallback, guard, exhausted, panicked, helper_refs);
+    let (fallback, guard, exhausted, panicked, helper_refs, root);
     {
         let mut builder = FunctionBuilder::new(&mut context.func, &mut fb_context);
         let entry = builder.create_block();
@@ -326,25 +328,13 @@ pub(super) fn compile_in(
             builder.append_block_param(block, types::I64);
             builder.append_block_param(block, types::I32);
         }
-        let mut switch = Switch::new();
-        let mut entries = Vec::new();
-        for (pc, block) in blocks.iter().enumerate() {
-            let trampoline = builder.create_block();
-            switch.set_entry(pc as u128, trampoline);
-            entries.push((trampoline, *block));
+        for _ in &blocks {
+            paths.record(super::entry_flow::Point {
+                trampoline: builder.create_block(),
+                body: builder.create_block(),
+            });
         }
-        let unknown = builder.create_block();
-        switch.emit(&mut builder, arguments[1], unknown);
-        for (trampoline, block) in entries {
-            builder.switch_to_block(trampoline);
-            let zero = builder.ins().iconst(types::I32, 0);
-            builder.ins().jump(block, &[zero.into()]);
-        }
-        builder.switch_to_block(unknown);
-        let zero = builder.ins().iconst(types::I32, 0);
-        builder
-            .ins()
-            .jump(fallback, &[arguments[1].into(), zero.into()]);
+        root = paths.emit_entry(&mut builder, &blocks, fallback);
         {
             helper_refs = std::array::from_fn::<_, { helpers::SYMBOLS.len() }, _>(|index| {
                 let (kind, id) = helper_ids[index];
@@ -361,7 +351,7 @@ pub(super) fn compile_in(
                 panicked,
                 host: arguments[4],
                 helpers: &helper_refs,
-                count: zero,
+                count: arguments[2],
                 pc: 0,
                 written: false,
                 stores: &mut stores,
@@ -379,7 +369,7 @@ pub(super) fn compile_in(
                     emitter.count,
                     arguments[2],
                 );
-                let body = emitter.builder.create_block();
+                let body = paths.body(pc);
                 emitter.builder.ins().brif(
                     limit,
                     exhausted,
@@ -540,6 +530,13 @@ pub(super) fn compile_in(
         super::exit_flow::corrupt(&mut context.func, &mut exit_handlers, fault);
     }
     super::exit_flow::verify(&context.func, &exit_handlers)?;
+    #[cfg(test)]
+    let mut root = root;
+    #[cfg(test)]
+    if let Failure::CorruptEntryFlow(fault) = failure {
+        paths.corrupt(&mut context.func, &blocks, &mut root, fallback, fault);
+    }
+    paths.verify(&context.func, snapshot, &blocks, root, fallback, exhausted)?;
     module
         .define_function(function, &mut context)
         .map_err(fail)?;
@@ -2572,6 +2569,202 @@ mod helper_flow_tests {
 #[cfg(test)]
 mod memory_tests {
     use super::*;
+
+    #[test]
+    fn high_and_invalid_entry_pcs_preserve_pc_and_slots_without_work() {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype =
+                crate::FunctionPrototype::compile(ctx, "high-pc", b"return 42").unwrap();
+            Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
+        });
+        let total = Arc::new(AtomicUsize::new(0));
+        let code = compile(&snapshot, total.clone(), 8 * 1024 * 1024).unwrap();
+        for pc in [
+            snapshot.operations.len(),
+            u32::MAX as usize,
+            u32::MAX as usize + 1,
+            usize::MAX,
+        ] {
+            for budget in [0, 1, 64, u32::MAX] {
+                let mut slots = vec![
+                    Slot {
+                        tag: abi::INTEGER,
+                        bits: 123
+                    };
+                    snapshot.registers
+                ];
+                let exit = code.invoke(&mut slots, pc, budget);
+                assert_eq!(exit.pc, pc as u64);
+                assert_eq!(exit.instructions, 0);
+                assert_eq!(exit.reason, ExitKind::Interpreter as u32);
+                assert!(slots
+                    .iter()
+                    .all(|slot| slot.tag == abi::INTEGER && slot.bits == 123));
+            }
+        }
+        drop(code);
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn entry_path_quota_refuses_before_host_setup_and_releases_storage() {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype =
+                crate::FunctionPrototype::compile(ctx, "entry-path-quota", b"return 1").unwrap();
+            Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
+        });
+        let ledger = snapshot.operations.allocator().0.clone();
+        let baseline = ledger.current();
+        let graph = super::super::flow::FlowGraph::new(&snapshot).unwrap();
+        let stores = super::super::tags::Stores::new(&graph, &snapshot).unwrap();
+        let limit = ledger.current() + snapshot.operations.len() * std::mem::size_of::<Block>();
+        drop(stores);
+        drop(graph);
+        ledger.set_limit(limit);
+        let total = Arc::new(AtomicUsize::new(0));
+        let result = compile_in(
+            &snapshot,
+            total.clone(),
+            8 * 1024 * 1024,
+            BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
+            super::super::work::Limits::from(&super::super::JitConfig::default()),
+            Failure::None,
+        );
+        assert!(
+            matches!(
+                result,
+                Err(JitError::ResourceLimit("entry path verification"))
+            ),
+            "{:?}",
+            result.as_ref().err()
+        );
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+        assert_eq!(ledger.current(), baseline);
+        assert_eq!(ledger.refusals(), 1);
+    }
+    fn refuse_corrupted_entry_flow(fault: super::super::entry_flow::Fault) {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype =
+                crate::FunctionPrototype::compile(ctx, "entry-flow-corruption", b"return 42")
+                    .unwrap();
+            Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
+        });
+        let total = Arc::new(AtomicUsize::new(0));
+        let result = compile_in(
+            &snapshot,
+            total.clone(),
+            8 * 1024 * 1024,
+            BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
+            super::super::work::Limits::from(&super::super::JitConfig::default()),
+            Failure::CorruptEntryFlow(fault),
+        );
+        assert!(
+            matches!(result, Err(JitError::Compilation(ref message))
+            if message == "invalid entry or budget data flow"),
+            "{:?}",
+            result.as_ref().err()
+        );
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+    }
+    macro_rules! entry_flow_corruption {
+        ($name:ident, $fault:ident) => {
+            #[test]
+            fn $name() {
+                refuse_corrupted_entry_flow(super::super::entry_flow::Fault::$fault);
+            }
+        };
+    }
+    entry_flow_corruption!(
+        corrupted_entry_flow_entry_length_is_refused_before_codegen_and_mapping,
+        EntryLength
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_entry_polarity_is_refused_before_codegen_and_mapping,
+        EntryPolarity
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_entry_source_is_refused_before_codegen_and_mapping,
+        EntrySource
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_dispatch_source_is_refused_before_codegen_and_mapping,
+        DispatchSource
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_dispatch_index_is_refused_before_codegen_and_mapping,
+        DispatchIndex
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_table_target_is_refused_before_codegen_and_mapping,
+        TableTarget
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_table_default_is_refused_before_codegen_and_mapping,
+        TableDefault
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_initial_count_is_refused_before_codegen_and_mapping,
+        InitialCount
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_trampoline_target_is_refused_before_codegen_and_mapping,
+        TrampolineTarget
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_unknown_pc_is_refused_before_codegen_and_mapping,
+        UnknownPc
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_unknown_count_is_refused_before_codegen_and_mapping,
+        UnknownCount
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_budget_pc_is_refused_before_codegen_and_mapping,
+        BudgetPc
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_budget_condition_is_refused_before_codegen_and_mapping,
+        BudgetCondition
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_budget_operands_is_refused_before_codegen_and_mapping,
+        BudgetOperands
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_budget_target_is_refused_before_codegen_and_mapping,
+        BudgetTarget
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_budget_count_is_refused_before_codegen_and_mapping,
+        BudgetCount
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_budget_body_is_refused_before_codegen_and_mapping,
+        BudgetBody
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_extra_body_entry_is_refused_before_codegen_and_mapping,
+        ExtraBodyEntry
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_header_store_is_refused_before_codegen_and_mapping,
+        HeaderStore
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_missing_is_refused_before_codegen_and_mapping,
+        Missing
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_growth_is_refused_before_codegen_and_mapping,
+        Growth
+    );
+    entry_flow_corruption!(
+        corrupted_entry_flow_root_is_refused_before_codegen_and_mapping,
+        Root
+    );
 
     fn refuse_corrupted_exit_flow(fault: super::super::exit_flow::Fault) {
         let mut lua = crate::Lua::empty();

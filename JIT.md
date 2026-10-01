@@ -112,6 +112,17 @@ belong to these handlers. Direct output-pointer accesses outside them and its
 escape through branch arguments are refused. This pass uses fixed-size stack
 storage and a bounded linear IR scan without new allocated records. It proves
 local handler output, not correct source/fuel on every predecessor or global paths.
+Entry dispatch uses an independently verified unsigned I64 PC range test before
+I32 reduction into a dense jump table. Its ordered trampolines enter each decoded
+PC's header with zero count; unknown PCs return their full original PC and zero
+work. Each header contains only its source-PC constant, unsigned count-versus-
+budget test and conditional exhausted/body edge. Exhaustion preserves source PC
+and count; each operation body has only its own header as predecessor. Exact-
+counted trampoline/body records are snapshot-quota-charged before host compiler
+setup and can refuse with `ResourceLimit("entry path verification")`. CFG and
+compiler jump-table storage remain outside the incomplete ledger. These checks
+do not establish all private-block paths or source transitions, alias/liveness,
+runtime materialization or compiler resource isolation.
 The retained, fallible PC-to-block map is charged to the snapshot ledger and
 can refuse with `ResourceLimit("frontend block map")` before compiler/host setup.
 Semantic checks are
