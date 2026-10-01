@@ -499,6 +499,15 @@ rollback tests for both kinds. Local loop proof and independent native/model
 campaigns do not complete move or whole-program path/source-map/alias/liveness
 proof, complete compiler accounting or Phase 3 acceptance.
 
+Scalar-transfer verification (`a702b37`) now binds scalar Move/LoadConstant,
+LoadBool/LoadNil and non-closing Jump writes/edges to decoded source. Canonical
+move reads and non-reference split, constant tag/full bits, nil-range ordering,
+Boolean skips, destination pairs, extra-store refusal, exact targets and one
+fuel increment have actual emitted-IR proof. Empty nil ranges still require an
+edge record. Exact-counted records are charged and constructor refusals roll
+back. Reference move/constant helper call/status/exit and whole-program source/
+path review remain open; this does not complete all Move semantics or Phase 3.
+
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
@@ -4903,6 +4912,132 @@ Commits. No benchmark/profile runs alongside builds or correctness jobs.
 - `Makefile` — loop-source gates and selected pure-loop Miri lane.
 - `JIT.md`, `PLAN_JIT.md` — public scope, current evidence and unfinished work.
 - `target/jit-evidence/loop-source/` — local raw acceptance artifacts.
+
+### Scalar transfer source verification decision
+
+Add exact-counted snapshot-ledger records for scalar Move/LoadConstant,
+LoadBool/LoadNil and Jump without closing upvalues. Check source values and
+destination tag/payload stores, nil-range ordering (including empty ranges),
+Boolean skip targets, decoded jump/fallthrough and one fuel increment. Scalar
+Move additionally checks its actual non-reference split and direct-store edge.
+Reference moves/constants remain canonical helper operations; those helper
+call/status/exit paths and whole-program source/path review are separate open
+obligations, not silently covered by a scalar-only record.
+
+### Scalar-transfer quota fixture correction
+
+The empty-nil quota fixture exposed a historical-peak assumption, not a runtime
+allocation leak: the owned CFG's temporary pending storage is already released
+before the scalar-record constructor runs. `Ledger::peak()` remains monotonic
+when the current limit is tightened below that historical peak. The regression
+therefore requires exact current-charge rollback, exactly one refusal and peak
+`max(previous_peak, constructor_allowance)`, rather than incorrectly requiring
+the historical peak to shrink. Write-reservation and edge-reservation failure
+variants retain exact charge checks; the empty range still has one edge record.
+
+### Scalar-transfer mutation sensitivity evidence
+
+Bypassing transfer verification in production and pure fixtures caused
+`make jit-transfer-source` to fail **5 of 8** pure tests and the separate
+`make jit-transfer-source-backend` to fail **8 of 9** actual backend corruption
+tests (both Make exits 2). The swapped reference/scalar split remains refused by
+common scalar-tag admission. The new pass uniquely rejects wrong payload/source/
+destination/extra stores, PC/ordinal, target and fuel mutations. Common exact
+cardinality and overflow checks continue protecting missing/growing records.
+Mutated pure IR is Cranelift-verified before source verification; no malformed
+native code is invoked. Both calls are restored before acceptance. Raw logs:
+`/tmp/luna-jit-transfer-mutation-{pure,backend}.log`; session `47417` is terminal.
+
+### Scalar-transfer feature and acceptance handles
+
+`a702b37` is the unsigned, title-only implementation commit. Restored focused
+gates passed **203 native boundary tests, 4 ignored**, all eight pure transfer
+tests, nine actual backend corruption cases, three constructor-quota variants
+and the tag/heap/resource lanes; inherited Clippy warnings remain. Full GNU/musl
+acceptance is owned session `38128`; selected Miri is `20265`; supervised
+GNU/musl campaigns are `38473`. Resume these exact handles; timeout does not
+mean termination. Source/Make hashes and mutation/focused logs are archived in
+`target/jit-evidence/transfer-source/`. No new performance/profile claims.
+
+### Session summary: accepted scalar-transfer source verification
+
+#### Goal
+
+Continue full `PLAN_JIT.md` implementation on `feat/native-jit`; add scalar
+move/load/jump source proof without narrowing the objective. The preceding
+numeric-loop turn was progress, not a blocker or unverified wait.
+
+#### Instructions
+
+Use repo-native Make/Nix gates, patch tools and incremental unsigned, title-only
+Conventional Commits. No benchmark/profile runs alongside correctness jobs.
+
+#### Discoveries
+
+- Empty nil ranges have no writes but still need exact source target/fuel proof.
+  Scalar constants preserve tag and all payload bits, including negative zero
+  and NaN payloads; reference constants remain canonical helper operations.
+- `Ledger::peak` is historical and monotonic. Releasing CFG temporary storage or
+  tightening limits does not shrink it; quota regressions must preserve the
+  old peak while checking exact current-charge rollback and one refusal.
+- A separately recorded, valid extra store can pass common tag admission.
+  The transfer pass checks actual finish-block stores against source write
+  obligations, rejecting the additional side effect before code generation.
+
+#### Accomplished
+
+- Committed `a702b37`: charged exact-counted transfer writes/edges, canonical
+  scalar Move source/split checks, scalar constant/Boolean/nil payloads and
+  destination ranges, decoded skips/jumps and one-step fuel; added eight pure
+  fixture tests, nine actual backend corruption tests and three quota stages.
+  The pure fixtures import helper IR signatures but do not invoke any helper
+  or generated machine code. No new unsafe blocks.
+- Temporarily bypassing both transfer checks yielded **5 pure failures / 8
+  backend failures**; common numeric/tag admission still refuses the swapped
+  reference/scalar split. Both verification calls were restored before focused
+  acceptance and the feature commit.
+- Restored focused gates pass **203 native boundary tests / 4 ignored**, plus
+  transfer/tag/heap/resource lanes. Clippy retains its inherited warning backlog.
+- Full GNU and musl `nix develop -c make jit-verify clippy jit-clippy` (musl adds
+  `TARGET=x86_64-unknown-linux-musl`) exited zero: **3569 passed / 421 suite
+  results / 24 ignored each**. Reference/Off/Auto/Force, async/derive and docs
+  remain included. This is not strict-warning acceptance.
+- Selected `nix develop .#miri -c make jit-miri` passed **129 tests / 19 suite
+  results**, pinned nightly 2026-08-16/rustc `67854e511`, default `MIRIFLAGS`.
+  This covers pure transfer emitter/IR and constructor rollback, not actual
+  native compiler-module construction or generated-code execution.
+- Supervised GNU/musl `make jit-fuzz FUZZ_TARGET=all FUZZ_CASES=1024
+  FUZZ_SEEDS=0,1,0xdeadbeef,0xffffffffffffffff` passed: **4096 generated
+  snapshots plus malformed mutations / 1641780 kernel invocations / 4758522
+  completed native instructions each**. Identical seeds/programs are reused
+  across platforms, not 8192 unique programs; heap/lifecycle acceptance remains
+  a separate obligation.
+- Sessions `38128`, `20265`, `38473`, restored focused `22165` and mutation
+  `47417` are terminal. Source/Make hashes revalidated unchanged after all
+  acceptance. Raw logs, campaign artifacts, Miri, source identity and summary
+  are under `target/jit-evidence/transfer-source/`.
+
+#### Next Steps
+
+- Complete actual helper call/status/exit verification, including reference
+  moves/constants, and whole-program source/transition/path/source-map review.
+  Maintain canonical full-prefix materialization pending alias/liveness proof.
+- Complete compiler/fixed-owner/combined-host accounting and approved isolation
+  policy, broader heap/lifecycle stress and actual ARM/hosted execution evidence.
+- Meet unchanged native table/upvalue/callback and shipping compiled-Off
+  performance gates. Earlier revision-scoped failures remain failures; no new
+  timing, profile or performance improvement is claimed by this proof step.
+- Full implementation goal remains active and incomplete. Narrow verification
+  gates do not establish full phase or release acceptance.
+
+#### Relevant Files
+
+- `src/jit/tags.rs` — charged transfer records, source/store/split/edge checks,
+  valid corruption hooks and constructor quota regressions.
+- `src/jit/backend.rs` — emitted-point capture, pure fixtures and backend faults.
+- `Makefile` — dedicated scalar-transfer gates and selected pure Miri lane.
+- `JIT.md`, `PLAN_JIT.md` — public scope, latest evidence and unfinished work.
+- `target/jit-evidence/transfer-source/` — local raw acceptance artifacts.
 
 ## 15. Primary references
 
