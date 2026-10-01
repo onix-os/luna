@@ -6176,6 +6176,85 @@ guards include unrelated projects; do not stop their jobs or silently ignore the
 - `JIT.md`, `PLAN_JIT.md` — accepted scope and remaining obligations.
 - `target/jit-evidence/preds/` — local raw evidence and untimed benchmark binaries.
 
+### Budgeted dominance analysis decision
+
+Replace the two remaining verification-only Cranelift CFG/dominator allocations
+with a Luna-owned immediate-dominator analysis. Reserve node, DFS stack and
+postorder vectors through the snapshot allocator before use. Traverse terminal
+successors iteratively, then compute immediate dominators in reverse postorder
+with bounded intersection/fixed-point work. Charge construction work against
+`64 * (DFG blocks + reserved raw predecessor edges + 1)` and refuse exhaustion
+before codegen; this is a derived admission ceiling, not runtime fuel or hard
+compiler CPU isolation. Preserve block self-dominance, reachability and immediate
+dominators against the pinned Cranelift reference, including irreducible cycles,
+duplicate destinations, sparse IDs and unreachable blocks. Retain only the node
+vector after construction and release temporary storage on every error. Backend
+internals, frontend builder allocations and fixed owners remain outside the
+ledger. Global timing preflight still observes unrelated `make run`; no new
+benchmark/profile or gain is claimed.
+
+### Unreachable dominance comparison discovery
+
+The first differential fixture found Cranelift returning true for two different
+unreachable blocks: its interval comparison uses default interval values, while
+its API states cross-block unreachable dominance is ill defined. Compare exact
+reachability/idoms for all blocks and exact dominance for reachable pairs; retain
+explicit self-dominance and reject other unreachable pairs in Luna's analysis.
+Production region validation checks reachability first, and scalar guard walking
+uses immediate dominators, so no reliance on undefined unreachable dominance is
+introduced or removed. This is a reference-fixture correction, not a claimed
+runtime misexecution or an upstream security defect.
+
+### Progress checkpoint after context recovery (2026-10-01)
+
+## Goal
+Implement this plan on `feat/native-jit`; the plan itself is already written.
+The overall implementation remains active and has no release acceptance.
+
+## Instructions
+Use Makefile tasks through the repo-native Nix environment, patch tools for
+edits, and incremental unsigned, title-only Conventional Commits. Preserve
+acceptance thresholds and report incomplete work without claiming success.
+
+## Discoveries
+- The new dominance analysis charges storage before the existing scalar
+  verification workspace. Two workspace-specific quota fixtures now refuse at
+  the earlier stage; their budgets need adjustment while preserving the exact
+  scalar-workspace error and rollback assertions.
+- The five pure dominance fixtures pass, including comparison against the
+  pinned Cranelift reference for defined reachability/dominance behavior.
+- No Engram tools are available in this environment. This checkpoint retains
+  session context in the plan instead; the memory registry has no Luna match.
+
+## Accomplished
+- Verified live branch, worktree and commits. Latest accepted source is
+  `e5af701`, followed by acceptance documentation `0d80b37`.
+- That accepted revision passed GNU and musl gates: 4430 tests each, plus 216
+  selected Miri tests and the supervised scalar and heap campaigns recorded
+  above. These counts do not validate the current uncommitted dominance work.
+- Budgeted dominance is integrated locally but uncommitted. The latest focused
+  run passed its five pure tests, then passed 35 scalar-tag tests and failed two
+  quota fixtures. The boundary target did not run after the failure.
+- All three owned dominance test jobs are terminal; no current performance
+  result or completed full-implementation claim is made.
+
+## Next Steps
+- Adjust the two quota fixtures to admit dominance storage, preserving their
+  original scalar-workspace-specific refusal and cleanup oracles.
+- Add backend dominance storage/work refusal evidence, selected Miri wiring,
+  and mutation-sensitive coverage; rerun focused gates before a source commit.
+- Run full GNU, musl, selected Miri and supervised campaigns on that revision.
+- Remaining release work includes performance gates, compiler/combined-host
+  accounting, broader safety review and actual ARM64/platform evidence.
+
+## Relevant Files
+- `src/jit/dominance.rs` — uncommitted budgeted dominance implementation/tests.
+- `src/jit/tags.rs` — integration and the two failing workspace quota fixtures.
+- `src/jit/entry_flow.rs`, `src/jit/preds.rs`, `src/jit/mod.rs` — integration.
+- `Makefile` — current pure dominance target; further acceptance wiring pending.
+- `/tmp/luna-jit-dominance-integrated.log` — terminal focused-run failure evidence.
+- `PLAN_JIT.md` — detailed plan, acceptance history and this progress checkpoint.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
