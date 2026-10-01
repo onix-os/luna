@@ -636,12 +636,21 @@ anonymous memmap2 handles. Page-rounded alignment padding is admitted before
 mapping; payload bounds, zero-size and overflow are checked. Protection preserves
 RW-to-RX/R, writable data, cache maintenance and feature-gated ARM64 BTI, without
 record growth. Real permission, partial-failure and allocation-free per-page
-reclamation probes pass on GNU/musl; bypass mutations are detected. Full current
+reclamation probes pass on GNU/musl; bypass mutations are detected. At that checkpoint,
 gates pass 4765 tests each and selected Miri passes 261 tests. Initial musl failure
 from an allocating /proc observer is retained, not hidden or counted as passing.
 Runtime/bootstrap and other compiler buffers, complete safety proofs, frozen
 performance controls and ARM64/hosted execution remain open; Phase 3/release
 acceptance is still incomplete.
+
+Shared root mapping usage (`1fad6d4`) removes the independent counter Arc by
+storing its atomic inline in the host Ledger. Allocation-free handles resolve
+children to the root; detached leases preserve that root/counter after runtime
+destruction. Three pure/Miri fixtures and one native lifecycle/quota/recovery
+fixture detect root-resolution bypass. Full GNU/musl gates pass 4785 executions
+each; selected Miri passes 264 tests. Root/child Ledger and runtime Rc owners
+remain outside the complete accounting policy. No Phase 3 completion or current
+performance claim follows.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
 2. Explicitly classify every opcode through an exhaustive match. Unknown/malformed input is refused; unsupported valid work exits to the interpreter.
@@ -7269,6 +7278,86 @@ allocations: runtime Rc and root/child Ledger Arcs still need a faithful complet
 accounting policy. No guessed standard-library control-block layout is charged.
 Verify root identity, clone/lifetime, quota independence and shared counter
 updates under Miri, plus live-module/retired-lease quota enforcement natively.
+
+### Root mapping-counter acceptance session (2026-10-01)
+
+## Goal
+- Continue full native-tier implementation by removing the independent runtime
+  mapped-page counter allocation without weakening quota or lease lifetime rules.
+
+## Instructions
+- Keep unsigned, title-only incremental Conventional Commits; use Nix/Make and
+  patch tools. Do not time workloads alongside any project's builds/tests.
+
+## Discoveries
+- Mapping usage can live inline in the existing host root Ledger. Resolving
+  child handles to the root preserves one quota across modules and detached
+  leases without allocating another counter/control block.
+- Mapped-page and combined-host counters must remain distinct: a counter update
+  is not a host reservation. Provider admission/rollback/release still performs
+  both operations at the existing boundaries.
+- Final preflight detects unrelated astrocraft Make/Cargo/rustdoc jobs
+  (3670786/3670927/3675647). Earlier molla jobs are no longer the current blocker.
+  No arbitrary jobs are killed/excluded; no timings or profiles ran.
+
+## Accomplished
+- `1fad6d4` separately commits the inline root atomic, allocation-free private
+  MappingCounter, runtime/backend/model/fuzz migration and Make-backed fixtures.
+- Three pure tests verify nested-child/root identity, clone/update sharing,
+  lifetime after allocator handles drop, independent roots and quota separation.
+- A native fixture destroys the runtime while a detached lease remains callable,
+  proves the retained shared page counter refuses another module, then verifies
+  final-drop zero accounting and same-budget successful recompilation.
+- Focused `47306` passes **49 tests / 11 suites / 0 ignored**. It exposed a new
+  production-unused test import; moved it into its test scope, without suppressions.
+  Isolated Miri `96264` passes **3 / 1 / 0**.
+- Root-resolution bypass `24160` is terminal and fails one pure and one native
+  fixture (Make exit 2 each). Restored source hash matches. Restored counter and
+  Clippy `83704`, isolated Miri `66419` both exit 0; existing 141 lib-test warnings
+  remain, so this is not strict-Clippy acceptance.
+- Full GNU/musl `97084` completes both exit 0: **4785 passing executions /
+  434 suite results / 24 ignored** per platform. These repeat mode/doc suites,
+  not unique tests. Selected Miri `85875` completes exit 0: **264 tests /
+  37 suites / 0 ignored**, default empty MIRIFLAGS, nightly 2026-08-16 rustc
+  `67854e511`. No mapping/generated-execution/OS worker fixtures run under Miri.
+- Campaigns `11609` complete all four GNU/musl lanes exit 0. Per platform:
+  **4096 scalar/admission cases / 1641780 native invocations / 4758522 native
+  instructions**; **96 heap cases / 6344 main slices / 725 yields / 1633 callbacks /
+  96 retirements / 964 host reads / 2809 userdata observations / 65297 native
+  instructions**. Helpers: **22144 table reads / 7393 table writes / 1655
+  allocations / 21701 upvalue reads / 996 upvalue writes / 1179 declines**.
+  Both platforms reuse seeds/programs; repeated userdata samples are not native
+  instruction coverage and nested/finalizer internal slices are not paired.
+- Untimed opt3 `16691` completes exit 0; source ID, immutable candidate and binary
+  hash verified. Source hashes match. Current logs, exact long/full-smoke campaign
+  directories, counters, environment and artifacts are retained under
+  `target/jit-evidence/mapping-counter/`. All owned jobs are terminal.
+
+## Next Steps
+- Account remaining runtime Rc and root/child Ledger control owners; the inline
+  atomic removes a separate owner but does not account the existing root layout.
+- Complete frontend/backend compiler working-memory bounds and safety/lifecycle
+  proofs, broader coverage-guided/unsafe stress, unchanged performance controls,
+  actual ARM64/hosted execution and strict-Clippy acceptance.
+- Performance remains unaccepted. Recheck global contention before timing the
+  new candidate; historical failed gates are neither waived nor current results.
+- Full objective remains active and incomplete; this turn made verified progress.
+
+## Relevant Files
+- `src/jit/resources.rs` — inline mapped atomic, root-resolving handle, three pure tests.
+- `src/jit/mod.rs` — shared runtime root and detached native-lease lifecycle fixture.
+- `src/jit/backend.rs` — counter type migration, unchanged dual-quota policy.
+- `src/jit/fuzz.rs`, `src/jit/model.rs`, `src/jit/work.rs` — oracle/campaign migration.
+- `Makefile` — focused/native/isolated and selected-Miri counter targets.
+- `JIT.md`, `PLAN_JIT.md` — precise scope, acceptance and remaining requirements.
+- `target/jit-evidence/mapping-counter/` — revision-scoped evidence and untimed candidate.
+
+## Key Learnings:
+
+1. Resolve page-counter handles to the host root, not a newly rebuilt child ledger;
+   detached code must keep the same mapped quota after runtime/cache destruction.
+2. Inline mapped usage eliminates a separate owner allocation without claiming
+   that existing bootstrap headers or complete compiler memory are accounted.
 
 ## 15. Primary references
 

@@ -212,14 +212,19 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 ## Verification and remaining work
 
-The owned mapping-record implementation and repaired reclamation probe (`4f737c2`)
+The shared root mapping-counter implementation (`1fad6d4`)
 passes `nix develop -c make jit-verify clippy jit-clippy` on x86-64 GNU and
-with `TARGET=x86_64-unknown-linux-musl`: each reports 4765 passing tests across
+with `TARGET=x86_64-unknown-linux-musl`: each reports 4785 passing tests across
 434 suite results and 24 ignored tests. Selected pure-Rust/pure-IR Miri checks
-pass 261 tests across 36 selected suite results with default `MIRIFLAGS`; they do not execute
+pass 264 tests across 37 selected suite results with default `MIRIFLAGS`; they do not execute
 generated native code. Clippy retains the existing warning backlog, so these are
 not strict-warning acceptance. Raw revision-scoped evidence is stored locally in
-`target/jit-evidence/segments/`. Two pure request tests cover page/alignment/payload
+`target/jit-evidence/mapping-counter/`. Three pure counter fixtures cover nested
+root identity, clone/update sharing, independent roots, lifetime and separation
+from host reservations. A native fixture proves quota retention and executable
+lease lifetime after runtime destruction, final reclamation and recompilation.
+Root-resolution bypass fails both pure and native fixtures. The counter removes
+one distinct allocation, not all bootstrap owners. Two pure request tests cover page/alignment/payload
 bounds and overflow; six provider fixtures cover real RW/RX/R permissions, fixed
 record storage across finalization, padding/zero-size admission, record refusal,
 partial protection failure and physical reclamation. The isolated reclamation
