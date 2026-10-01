@@ -73,6 +73,31 @@ and the result's adjacent destination tag/payload stores. Input-record ordering
 and a maximum of two records per consumer bound lookup work. Arithmetic loads,
 stores and bitcasts require the emitter's default native memory flags. These
 records use the same snapshot ledger and reject missing/extra obligations.
+Not/Test records bind canonical source reads to a bounded typed Lua-truth
+expression: only nil and false are false. Logical-not payload/tag stores and
+Test's decoded polarity, branch targets and one-step fuel increment are checked.
+Eq/Less/LessEq records bind both source operands to exact same-type and mixed
+numeric expressions, including signed comparisons, fractional ties, IEEE
+ordering and saturating conversions at the +/-2^63 boundaries. Actual split
+edges, the two phi inputs, final branch polarity/targets and one-step fuel
+increment are verified. Comparison record storage is exact-counted and charged
+to the snapshot ledger; missing obligations and growth are refused.
+NumericForPrep/NumericForLoop records bind source registers to typed subtraction,
+addition, signed-overflow suppression and directional integer/IEEE limit tests.
+The nonzero-step retry guard, integer/float split, phi triples, unconditional
+index store, taken-only visible-variable store and decoded jump/fallthrough fuel
+increments are checked. Unexpected stores in the verified loop arms and finish
+blocks are refused. Loop records are exact-counted and quota-charged; these
+local checks do not complete whole-program path, alias or liveness proof.
+Scalar Move/LoadConstant, LoadBool/LoadNil and non-closing Jump records verify
+source values, destination stores, nil-range ordering, Boolean skips, decoded
+targets and one fuel increment. Empty nil ranges still require a checked edge.
+Move's direct path requires its actual non-reference split. Unexpected stores
+in these scalar finish blocks are refused. Write/edge records are exact-counted
+and snapshot-quota-charged; reference move/constant helper call/status/exit
+verification remains a separate obligation.
+The retained, fallible PC-to-block map is charged to the snapshot ledger and
+can refuse with `ResourceLimit("frontend block map")` before compiler/host setup.
 Semantic checks are
 vacuous only on guarded paths proven unreachable without queried-tag assumptions;
 physical store coverage and record counts still apply. This does not prove full
@@ -115,14 +140,14 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 ## Verification and remaining work
 
-The numeric-input, float-conversion and arithmetic-source implementation (`93ae88d`)
+The numeric, arithmetic, boolean, comparison, loop and scalar-transfer implementation (`a702b37`)
 passes `nix develop -c make jit-verify clippy jit-clippy` on x86-64 GNU and
-with `TARGET=x86_64-unknown-linux-musl`: each reports 3189 passing tests across
+with `TARGET=x86_64-unknown-linux-musl`: each reports 3569 passing tests across
 421 suite results and 24 ignored tests. Selected pure-Rust/pure-IR Miri checks
-pass 96 tests across 14 namespaces with default `MIRIFLAGS`; they do not execute
+pass 129 tests across 19 selected suite results with default `MIRIFLAGS`; they do not execute
 generated native code. Clippy retains the existing warning backlog, so these are
 not strict-warning acceptance. Raw revision-scoped evidence is stored locally in
-`target/jit-evidence/arithmetic-source/`. Seeded scalar/admission campaigns additionally
+`target/jit-evidence/transfer-source/`. Seeded scalar/admission campaigns additionally
 pass 4096 generated cases per platform, each checking 1641780 native invocations
 against the independent slice model; both platforms reuse the same four seeds.
 These campaigns do not cover native heap helpers. Performance thresholds, ARM64 execution,
