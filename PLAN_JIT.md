@@ -3301,9 +3301,10 @@ for relevant validation, patch tools for edits, and do not weaken acceptance.
 - The requested plan exists; implementation is active on `feat/native-jit`,
   not release-accepted. Performance, complete hardening and ARM64 execution
   evidence remain open.
-- Recovered session `6674` is live. GNU `make jit-verify clippy` on `1873875`
-  has finished with 2844 passed tests/421 suite results and 24 ignored; Clippy
-  completes with existing warnings. Musl is still running at this checkpoint.
+- Recovered session `6674` is live. GNU and musl `make jit-verify clippy` on
+  `1873875` have each finished with 2844 passed tests/421 suite results and
+  24 ignored; Clippy completes with existing warnings. The same owned process
+  has moved on to release benchmark/metrics builds, not timing runs.
 
 #### Accomplished
 
@@ -3313,7 +3314,7 @@ for relevant validation, patch tools for edits, and do not weaken acceptance.
 
 #### Next Steps
 
-- Resume `6674`; confirm musl completion and copied final release artifacts.
+- Resume `6674`; confirm release build completion and copied final artifacts.
 - Gather isolated matching performance evidence without concurrent builds/tests.
 - Continue the open transition, accounting, hardening and platform requirements.
 
