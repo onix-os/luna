@@ -145,6 +145,15 @@ These scans reuse the region map without new worklists and reject unknown value
 unions rather than infer foreign ownership. Binding does not independently prove
 every opcode's expression, optimizer correctness, runtime helper/GC behavior,
 alias/liveness or full compiler accounting.
+Standalone predecessor queries use a Luna-owned sorted edge vector charged to the
+snapshot ledger before allocation. Terminal branch destinations are counted
+before reservation; repeated destinations from one instruction are deduplicated
+without releasing retained capacity charges. Predecessor order matches Cranelift's
+instruction order, including unreachable and non-layout block queries. Entry,
+helper, transfer, comparison, loop and scalar guard checks use this graph.
+Cranelift CFG/dominator allocations still needed for dominance, backend internals
+and fixed owner allocations remain outside the ledger. This is not complete
+compiler working-memory or RSS accounting.
 The retained, fallible PC-to-block map is charged to the snapshot ledger and
 can refuse with `ResourceLimit("frontend block map")` before compiler/host setup.
 Semantic checks are

@@ -49,6 +49,11 @@ mod helpers;
 pub(crate) mod ir;
 #[cfg(test)]
 mod model;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod preds;
 pub(crate) mod registry;
 pub(crate) mod resources;
 #[cfg(all(

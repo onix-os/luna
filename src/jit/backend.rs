@@ -174,6 +174,7 @@ impl Code {
 #[cfg(test)]
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum Failure {
+    RefusePredecessors,
     #[default]
     None,
     Allocate,
@@ -492,6 +493,11 @@ pub(super) fn compile_in(
         .block_params(context.func.layout.entry_block().unwrap())
         .try_into()
         .map_err(|_| JitError::Compilation("invalid native entry parameters".into()))?;
+    #[cfg(test)]
+    if failure == Failure::RefusePredecessors {
+        let ledger = &snapshot.operations.allocator().0;
+        ledger.set_limit(ledger.current());
+    }
     stores.verify(
         &context.func,
         parameters[0],
@@ -3175,6 +3181,42 @@ mod memory_tests {
         }
         drop(code);
         assert_eq!(total.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn predecessor_quota_refuses_before_codegen_and_releases_storage() {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype = crate::FunctionPrototype::compile(
+                ctx,
+                "predecessor-quota",
+                b"local x=1 local y=x+2 return y",
+            )
+            .unwrap();
+            Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
+        });
+        let ledger = snapshot.operations.allocator().0.clone();
+        let baseline = ledger.current();
+        let total = Arc::new(AtomicUsize::new(0));
+        let result = compile_in(
+            &snapshot,
+            total.clone(),
+            8 * 1024 * 1024,
+            BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
+            super::super::work::Limits::from(&super::super::JitConfig::default()),
+            Failure::RefusePredecessors,
+        );
+        assert!(
+            matches!(
+                result,
+                Err(JitError::ResourceLimit("frontend predecessor graph"))
+            ),
+            "{:?}",
+            result.as_ref().err()
+        );
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+        assert_eq!(ledger.current(), baseline);
+        assert_eq!(ledger.refusals(), 1);
     }
 
     #[test]

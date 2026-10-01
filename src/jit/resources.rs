@@ -20,6 +20,12 @@ pub(crate) struct Ledger {
 }
 
 impl Ledger {
+    #[cfg(test)]
+    pub(super) fn fail_after(&self, allocations: usize) {
+        self.allocations_before_failure
+            .store(allocations, Ordering::Relaxed);
+    }
+
     pub fn new(limit: usize) -> Arc<Self> {
         Arc::new(Self {
             current: AtomicUsize::new(0),

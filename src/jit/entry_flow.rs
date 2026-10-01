@@ -8,7 +8,7 @@ use cranelift_codegen::{
 };
 use cranelift_frontend::FunctionBuilder;
 
-use super::{ir::Snapshot, resources::BudgetAllocator, JitError};
+use super::{ir::Snapshot, preds::Predecessors, resources::BudgetAllocator, JitError};
 
 #[derive(Clone, Copy)]
 pub(super) struct Point {
@@ -175,7 +175,7 @@ impl Paths {
             return Err(invalid());
         }
         jump(function, unknown_exit, fallback, &[params[1], zero])?;
-        let cfg = ControlFlowGraph::with_function(function);
+        let cfg = Predecessors::new(function, self.points.allocator().clone())?;
         single_predecessor(&cfg, root.dispatch, branch)?;
         let mut unknown_predecessors = cfg.pred_iter(root.unknown);
         if cfg.pred_iter(root.unknown).count() != 2
@@ -489,7 +489,7 @@ fn jump(function: &Function, inst: Inst, block: Block, values: &[Value]) -> Resu
         _ => Err(invalid()),
     }
 }
-fn single_predecessor(cfg: &ControlFlowGraph, block: Block, inst: Inst) -> Result<(), JitError> {
+fn single_predecessor(cfg: &Predecessors, block: Block, inst: Inst) -> Result<(), JitError> {
     let mut predecessors = cfg.pred_iter(block);
     if !predecessors
         .next()

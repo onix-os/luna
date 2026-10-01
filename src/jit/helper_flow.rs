@@ -1,13 +1,10 @@
 use allocator_api2::vec::Vec;
-use cranelift_codegen::{
-    flowgraph::ControlFlowGraph,
-    ir::{
-        condcodes::IntCC, types, AbiParam, Block, BlockArg, FuncRef, Function, Inst,
-        InstructionData, Opcode, Type, Value, ValueDef,
-    },
+use cranelift_codegen::ir::{
+    condcodes::IntCC, types, AbiParam, Block, BlockArg, FuncRef, Function, Inst, InstructionData,
+    Opcode, Type, Value, ValueDef,
 };
 
-use super::{abi, ir::Snapshot, resources::BudgetAllocator, JitError};
+use super::{abi, ir::Snapshot, preds::Predecessors, resources::BudgetAllocator, JitError};
 use crate::opcode::{Operation, RCIndex};
 
 #[derive(Clone, Copy)]
@@ -377,10 +374,11 @@ impl Calls {
         if found != self.records.len() {
             return Err(invalid());
         }
-        let mut cfg = ControlFlowGraph::new();
-        if !self.records.is_empty() {
-            cfg.compute(function);
-        }
+        let cfg = if !self.records.is_empty() {
+            Predecessors::new(function, self.records.allocator().clone())?
+        } else {
+            Predecessors::empty(self.records.allocator().clone())
+        };
         let mut records = self.records.iter();
         for (pc, &op) in snapshot.operations.iter().enumerate() {
             let Some((kind, operands)) = expected(op, snapshot) else {
@@ -616,7 +614,7 @@ fn status_test(function: &Function, value: Value, status: Value, expected: u32) 
     };
     matches!(function.dfg.insts[inst], InstructionData::IntCompare { opcode: Opcode::Icmp, cond: IntCC::Equal, args } if same(function, args[0], status) && literal(function, args[1], types::I32) == Some(u64::from(expected)))
 }
-fn single_predecessor(cfg: &ControlFlowGraph, block: Block, inst: Inst) -> bool {
+fn single_predecessor(cfg: &Predecessors, block: Block, inst: Inst) -> bool {
     let mut predecessors = cfg.pred_iter(block);
     predecessors
         .next()
