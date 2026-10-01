@@ -508,6 +508,46 @@ edge record. Exact-counted records are charged and constructor refusals roll
 back. Reference move/constant helper call/status/exit and whole-program source/
 path review remain open; this does not complete all Move semantics or Phase 3.
 
+Helper call/status-flow verification (`e6f5d4c`) independently decodes all nine
+source helper kinds, including reference moves/constants. Actual direct imports,
+pointer identities, ABI, operands/PC, returned-status tests, success target/fuel
+and panic/decline target/PC/count are checked before code generation. Physical
+call coverage and extra-store refusal constrain helper call/status blocks.
+Exact-counted records use the snapshot ledger with constructor rollback coverage.
+Dedicated mutation, full GNU/musl, selected pure Miri and native/model campaigns
+pass. Runtime helper effects/borrows/GC, shared exit-handler stores, global source
+paths, complete accounting and Phase 3 acceptance remain open.
+
+Shared-exit verification (`d53e99d`) binds all four handlers to the entry ABI,
+typed PC/count inputs, exact three default-flag stores at ABI offsets, canonical
+reason and empty return. Physical return coverage and output-pointer use/branch-
+argument escape checks prevent unrecorded output paths. The pass uses fixed stack
+storage and a linear IR scan, without new allocated records. Pure/Miri fixtures,
+individual backend mutations and full GNU/musl/native-model acceptance pass.
+Correct source/fuel on all predecessors, global entry/budget/transition paths,
+runtime materialization, alias/liveness and complete accounting remain open.
+
+Entry/budget verification (`14863b6`) now checks explicit unsigned I64 PC range
+admission before I32 reduction/dense table dispatch, exact table order/default,
+zero-count trampolines and unknown-PC fallback. Each source-indexed header is
+only PC constant/unsigned fuel comparison/exhausted-or-body branch; the body has
+exactly that header predecessor. Exact-counted trampoline/body maps are charged
+before compiler setup. Native high-PC, pure/Miri, backend corruption and quota
+rollback tests plus full GNU/musl/model campaigns pass. Whole private-block/source
+transition paths, alias/liveness, runtime materialization and compiler accounting
+remain open; this does not complete Phase 3 or release acceptance.
+
+Source-region verification (`f00b009`) now classifies all physical blocks and
+edges using charged contiguous private creation ranges. Own-body dominance,
+forward private edges and legal decoded header transitions with one fuel step
+prevent foreign entry, uncharged private cycles and wrong source successors.
+Shared exits bind permitted kind/source PC/unchanged count. A charged byte
+workspace propagates scalar stores through every private predecessor and
+refuses retry after any predecessor path writes; effect-free guards still pass.
+Canonical helper status/effect contracts remain separate. Full source-record/
+instruction/source-map equivalence, runtime helper/GC/alias/liveness review,
+compiler accounting and Phase 3 acceptance remain open.
+
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
@@ -5108,6 +5148,518 @@ commit after validation.
 - `src/jit/helper_flow.rs`, `src/jit/backend.rs`, `src/jit/tags.rs`,
   `src/jit/mod.rs`, `Makefile` — uncommitted helper-flow work, unchanged here.
 - `/tmp/luna-jit-helper-flow-focused.log` — successful focused draft run.
+
+### Helper-flow mutation sensitivity
+
+Temporarily bypassed both production and pure-fixture helper verification calls.
+The pure lane failed all six negative tests (one positive passed), and the
+separate actual backend lane failed all fifteen corruption tests; both Make
+commands exited 2. These are authoritative mutation sensitivity results, not
+acceptance with the checks disabled. Both calls were restored immediately after
+the owned session `91618` became terminal. Raw logs:
+`/tmp/luna-jit-helper-flow-bypass-pure.log` and
+`/tmp/luna-jit-helper-flow-bypass-backend.log`.
+Retained import-array length now derives from `helpers::SYMBOLS.len()` rather
+than repeating nine. Next: restored focused gates and separate feature commit.
+
+### Helper-flow feature commit and acceptance jobs
+
+- Feature commit `e6f5d4c` is unsigned and title-only. It contains charged
+  exact-counted helper records, physical call coverage, source/ABI/status/edge
+  checks, seven pure tests, fifteen backend corruption tests, constructor rollback
+  coverage, Make/Miri lanes and the public contract.
+- Restored focused Make gates exited zero: seven pure tests, fifteen backend
+  corruption tests, 226 boundary tests (four ignored), tag/heap/resource lanes and
+  Clippy with the inherited warning backlog. No strict-warning acceptance.
+- Owned full GNU/musl session `15205`, selected Miri session `80558` and supervised
+  GNU/musl campaign session `16975` were launched against the feature commit.
+  They are live pending terminal results; do not restart based on observation
+  timeouts or report them as passed yet.
+- Source identity/hashes, restored and mutation logs are archived under
+  `target/jit-evidence/helper-flow/`. No performance timing/profile was launched.
+
+### Session summary: accepted helper call/status-flow verification
+
+#### Goal
+
+Continue full `PLAN_JIT.md` implementation on `feat/native-jit`, completing the
+helper-flow draft's mutation sensitivity, feature commit and acceptance without
+reducing the objective. The previous status-only turn did not establish new
+implementation acceptance; this turn completed the next available work.
+
+#### Instructions
+
+Use repo-native Make/Nix gates, patch tools and incremental unsigned title-only
+Conventional Commits. Do not run benchmarks/profiles alongside correctness jobs.
+
+#### Discoveries
+
+- Helper identity/operand checks must cover reference moves/constants as well
+  as table/upvalue operations. Physical call coverage independently rejects
+  unrecorded calls; helper status arms cannot contain additional stores.
+- Completion and panic conditions must consume the same actual status result.
+  Successful edges advance fuel once; declined/panic edges preserve source PC
+  and unchanged count. Shared exit-handler stores remain a distinct proof.
+- With both verifier calls bypassed, all six negative pure tests and all fifteen
+  actual backend corruption tests failed. The positive pure test passed. Both
+  verification calls were restored before any accepted gate or feature commit.
+
+#### Accomplished
+
+- Committed `e6f5d4c`: separate charged helper-flow verifier, source/import/ABI/
+  operand/status/edge checks, physical call coverage, extra-store refusal,
+  seven pure tests, fifteen individual backend corruption tests and allocation
+  rollback coverage. Retained import-array length derives from the symbol list.
+  No new unsafe blocks or ABI change.
+- Restored focused gates exited zero with 226 boundary tests and four ignored,
+  plus helper/tag/heap/resource lanes and Clippy's inherited warning backlog.
+- GNU/musl `nix develop -c make jit-verify clippy jit-clippy` (musl adds
+  `TARGET=x86_64-unknown-linux-musl`) both exited zero: 3684 passing tests,
+  421 suite results and 24 ignored each. This is not strict-warning acceptance.
+- `nix develop .#miri -c make jit-miri` exited zero: 137 tests across 20 selected
+  suite results, pinned nightly 2026-08-16/rustc `67854e511`, default MIRIFLAGS.
+  Helper-flow fixtures construct pure emitter/IR signatures, not a native module
+  or generated-code execution. Generated native code is not Miri acceptance.
+- GNU/musl supervised `make jit-fuzz FUZZ_TARGET=all FUZZ_CASES=1024
+  FUZZ_SEEDS=0,1,0xdeadbeef,0xffffffffffffffff` both exited zero: each checked
+  4096 generated snapshots plus malformed mutations, 1641780 native kernel
+  invocations and 4758522 completed native instructions against the independent
+  slice model. Both platforms reuse the same seeds/programs; not 8192 unique
+  programs. The campaigns do not cover native heap helpers.
+- Owned mutation session `91618`, restored focused `66534`, full gates `15205`,
+  Miri `80558` and campaigns `16975` are terminal. Revalidated unchanged source/
+  Make hashes after acceptance. Archived raw logs, Miri/campaign artifacts,
+  source identity/hashes and aggregate summary in `target/jit-evidence/helper-flow/`.
+- Updated Phase 3 and the public scope/evidence. No new performance timing,
+  profile, speedup or release acceptance is claimed.
+
+#### Next Steps
+
+- Verify actual shared exit-handler stores/returns and global source entry,
+  budget and transition paths; complete source-map, alias/liveness and runtime
+  helper lifecycle review. Keep canonical full-prefix materialization.
+- Complete compiler/fixed-owner/combined-host accounting and approved isolation,
+  broader heap/lifecycle stress and actual ARM/hosted evidence.
+- Meet unchanged native table/upvalue/callback and compiled-Off shipping gates.
+  Prior revision-scoped failures remain failures. The full goal stays active and
+  incomplete; these narrow proofs do not complete Phase 3 or release acceptance.
+
+#### Relevant Files
+
+- `src/jit/helper_flow.rs` — charged records and actual helper call/status proof.
+- `src/jit/backend.rs` — emitted instruction capture and corruption fixtures.
+- `src/jit/tags.rs`, `src/jit/mod.rs` — constructor rollback and module integration.
+- `Makefile` — dedicated helper gates and selected pure Miri lane.
+- `JIT.md`, `PLAN_JIT.md` — public scope, evidence and remaining obligations.
+- `target/jit-evidence/helper-flow/` — local raw acceptance artifacts.
+
+### Shared exit-handler verification decision
+
+Verify the actual four shared exit handlers before code generation, independently
+of compiler exit descriptors. Bind the entry ABI, distinct handler blocks, typed
+PC/count parameters, three exact default-flag stores to the caller's exit pointer
+at ABI offsets, canonical reason and empty return. Audit all physical returns and
+direct uses of the exit pointer so extra returns/output accesses cannot escape
+the handler check. Use fixed-size stack storage and a bounded linear IR scan,
+without new allocated records or unsafe code. This closes local handler shape/
+output obligations, not predecessor source/fuel correctness, global paths,
+runtime materialization or alias/liveness proof. Add pure/Miri and individual
+backend corruption tests; prove mutation sensitivity before acceptance.
+
+### Shared-exit fixture and output-use review
+
+- Cranelift branch arguments require their own `branch_destination`/BlockCall
+  walk; checking ordinary instruction arguments alone is insufficient to prove
+  that the caller's exit pointer never escapes as a branch argument. Added an
+  explicit branch-argument scan and pure/backend corruption fixtures.
+- Separate same-width PC/count provenance mutations from store-width mutations.
+  A wrong I64 PC and wrong I32 count must be refused even when Cranelift admits
+  the IR types. All fixture mutations run through Cranelift IR validation before
+  the independent pure verifier and never execute generated code.
+- Earlier draft compile failures were confined to test/API wiring and fixed:
+  fallible memory-flag insertion, instruction-data swap, owned BlockCall args and
+  nested module routing. Focused shared exits/boundary/heap/resources/Clippy
+  subsequently exited zero before the latest additional provenance fixtures.
+
+### Shared-exit mutation sensitivity
+
+Bypassing the production and pure-fixture exit checks yielded seventeen pure
+negative failures (one positive passed) and seventeen individual actual backend
+failures; both Make lanes exited 2. This includes same-width PC/count substitutions,
+wrong widths, output base/offset/flags, extra/missing/reordered stores, return
+replacement/extra return, output access/branch escape, duplicate handler and
+entry ABI extension corruption. Raw logs are
+`/tmp/luna-jit-exit-flow-bypass-pure.log` and
+`/tmp/luna-jit-exit-flow-bypass-backend.log`. Owned session `43085` is terminal;
+both checks were restored before the next focused acceptance run.
+
+### Shared-exit feature commit and owned acceptance handles
+
+Feature commit `d53e99d` is unsigned/title-only, containing the fixed-storage
+shared handler proof, eighteen pure tests, seventeen actual backend corruption
+tests, Make/Miri lanes and public scope. Restored focused exits/boundary/heap/
+resources/Clippy gates exited zero; boundary reports 261 passed/four ignored.
+Full GNU/musl session `77594`, selected Miri `55891` and supervised GNU/musl
+campaigns `58857` are live pending terminal acceptance. Resume these handles;
+observation timeout is not termination. Raw restored/mutation logs and source
+identity/hashes are in `target/jit-evidence/exit-flow/`. No timings/profiles were
+launched and no performance improvement is claimed.
+
+### Session summary: accepted shared exit-handler verification
+
+#### Goal
+
+Continue full `PLAN_JIT.md` implementation on `feat/native-jit`; verify actual
+shared native exit output after the accepted helper-flow work. The preceding
+goal turn was progress: source and acceptance evidence were committed. The full
+objective remains unchanged and incomplete.
+
+#### Instructions
+
+Use Make/Nix, patch tools and incremental unsigned title-only Conventional
+Commits. Do not time/profile benchmarks alongside correctness jobs.
+
+#### Discoveries
+
+- Exit descriptors and handler IR are separate proof obligations. Exact handler
+  shape must bind actual PC/count identities, their widths, output pointer,
+  offsets/flags, reason and return; correct field widths alone are insufficient.
+- Branch arguments live in BlockCall storage and need a separate destination
+  argument walk. Ordinary instruction-argument scanning alone misses that escape.
+- With production/pure exit verification bypassed, seventeen pure negative tests
+  and seventeen actual backend tests failed (one positive pure passed). Both
+  checks were restored before focused acceptance and the feature commit.
+
+#### Accomplished
+
+- Committed `d53e99d`: fixed-storage shared handler/entry ABI proof, physical
+  return/output-use coverage, eighteen pure tests and seventeen individual
+  backend corruption tests, dedicated Make gates and selected pure Miri lane.
+  No new unsafe blocks, ABI changes or dynamically allocated verifier records.
+- Restored focused exits/boundary/heap/resource/Clippy gates exited zero;
+  boundary passed 261 tests/four ignored. Clippy retains inherited warnings.
+- GNU/musl full `nix develop -c make jit-verify clippy jit-clippy` (musl adds
+  `TARGET=x86_64-unknown-linux-musl`) both exited zero: 3859 passing tests,
+  421 suite results and 24 ignored each. Reference/Off/Auto/Force and optional
+  async/derive/docs remain included. This is not strict-warning acceptance.
+- Selected `nix develop .#miri -c make jit-miri` exited zero: 155 tests across
+  21 suite results, default MIRIFLAGS, pinned nightly 2026-08-16/rustc `67854e511`.
+  The new eighteen pure exit IR tests passed; Miri does not execute generated
+  machine code or construct native compiler modules in these fixtures.
+- Supervised GNU/musl `make jit-fuzz FUZZ_TARGET=all FUZZ_CASES=1024
+  FUZZ_SEEDS=0,1,0xdeadbeef,0xffffffffffffffff` both exited zero. Each checked
+  4096 generated snapshots plus malformed mutations, 1641780 kernel invocations
+  and 4758522 completed native instructions against the independent slice model.
+  Same programs/seeds are reused across platforms, not 8192 unique cases; native
+  heap-helper lifecycle coverage is separate.
+- Owned sessions `76210`/`56841` (draft), `15612` (focused), `17284`/`43085`
+  (mutation), `45830` (restored), `77594` (full), `55891` (Miri) and `58857`
+  (campaigns) are terminal. Revalidated unchanged source/Make hashes and archived
+  logs, Miri/campaign artifacts, source identity and aggregate summary under
+  `target/jit-evidence/exit-flow/`.
+- Updated Phase 3 and public evidence/scope. No performance measurement/profile,
+  speedup, phase completion or release acceptance is claimed.
+
+#### Next Steps
+
+- Verify global source entry/budget/transition paths and predecessor PC/fuel;
+  complete source-map, runtime materialization, helper lifecycle, alias/liveness
+  review. Preserve canonical full-prefix materialization until proofs permit more.
+- Complete compiler/fixed-owner/combined-host accounting and approved isolation,
+  broader heap/lifecycle stress and actual ARM/hosted execution evidence.
+- Meet unchanged native table/upvalue/callback and compiled-Off shipping gates;
+  earlier revision-scoped failures remain failures. The full goal remains active.
+
+#### Relevant Files
+
+- `src/jit/exit_flow.rs` — actual shared handler and output-use proof/fixtures.
+- `src/jit/backend.rs` — handler retention, pre-codegen integration and mutations.
+- `src/jit/mod.rs`, `Makefile` — module, dedicated gates and pure Miri integration.
+- `JIT.md`, `PLAN_JIT.md` — public scope, current evidence and remaining work.
+- `target/jit-evidence/exit-flow/` — local raw revision-scoped acceptance artifacts.
+
+### Entry/budget path verification decision
+
+Replace the frontend convenience Switch with explicit canonical unsigned I64
+PC range admission, I32 reduction and dense jump table. This makes all valid PC
+routes and unknown-PC fallback independently checkable without trusting Switch's
+internal lowering. Retain one exact-counted, snapshot-quota-charged trampoline/
+body pair per source operation before compiler setup; keep the existing charged
+header map. Verify entry/dispatch/unknown/trampoline shapes, table order/default,
+zero initial count, source-indexed header PC, unsigned count-versus-budget test,
+exact exhausted edge and a single-predecessor operation body. No ABI or runtime
+fuel policy changes. Compiler CFG/table internals remain outside the incomplete
+ledger; full private-block/source-transition/alias/liveness proofs remain distinct.
+Use pure/Miri and actual backend corruption tests, including high-PC routing and
+budget/body bypass, and prove mutation sensitivity before full acceptance.
+
+### Entry/budget fixture and quota review
+
+- Explicit dense dispatch and per-source budget headers passed existing native
+  boundary/model coverage before adding fixtures. The only initial API compile
+  issue was a non-cloneable CFG predecessor iterator; re-querying it avoids an
+  allocated copy. Initial emitter count uses an existing entry parameter until
+  each header supplies its own count, avoiding instructions after a terminator.
+- Pure operation bodies use entry-defined placeholder exit arguments so wrong-
+  body/extra-entry mutations remain valid SSA and test the independent path pass,
+  not Cranelift dominance rejection. Actual backend faults are injected after
+  existing source/helper/exit checks and never execute the malformed code.
+- Focused gates pass 24 pure tests, 22 backend corruptions and 309 boundary tests
+  (four ignored), plus heap/resource/Clippy lanes. High/invalid PC native execution
+  preserves the full PC, unchanged slots and zero work, including >32-bit PCs.
+- Exact point-map constructor and actual backend refusal-before-host-setup tests
+  verify quota rollback. The latter is added as a separately selected Miri test;
+  successful native compilation/execution is not run under Miri.
+
+### Entry/budget mutation sensitivity
+
+With both production/pure path verification calls temporarily bypassed, all
+twenty-two negative pure tests failed (two positive/quota tests passed), and the
+separate actual backend lane failed all twenty-two corruption tests; both Make
+commands exited 2. Pure faults pass Cranelift's IR validation before the path
+check; actual backend faults never execute generated code and some also violate
+Cranelift dominance if allowed to reach codegen. Both calls were restored after
+owned mutation session `19295` became terminal. Logs:
+`/tmp/luna-jit-entry-flow-bypass-pure.log` and
+`/tmp/luna-jit-entry-flow-bypass-backend.log`. Next: restored focused gates,
+separate feature commit, full GNU/musl, selected Miri and supervised campaigns.
+
+### Entry/budget feature commit and live acceptance handles
+
+Unsigned title-only feature commit `14863b6` contains explicit dense PC dispatch,
+charged exact-counted point maps, independent entry/budget route checks, 24 pure
+tests, 22 backend corruption tests, native high-PC and pre-host quota regressions,
+Make/Miri gates and public scope. Restored focused exits/boundary/heap/resource/
+Clippy gates exited zero; boundary reports 309 passed/four ignored. Full GNU/musl
+session `96211`, selected Miri `49313` and supervised campaigns `61399` were
+launched against the feature commit and remain live pending terminal results.
+Resume their exact handles; observation timeouts are not termination. Source
+identity/hashes and restored/mutation logs are in `target/jit-evidence/entry-flow/`.
+No benchmark/profile was launched and no speedup is claimed by this change.
+
+### Session summary: accepted entry/budget path verification
+
+#### Goal
+
+Continue full `PLAN_JIT.md` implementation on `feat/native-jit`, proving entry PC
+routing and each source operation's budget header after shared-exit acceptance.
+The preceding goal turn was progress: shared-exit code/evidence were committed.
+The full objective remains unchanged and incomplete.
+
+#### Instructions
+
+Use Make/Nix, patch tools and incremental unsigned title-only Conventional
+Commits. No benchmarks/profiles alongside correctness workloads.
+
+#### Discoveries
+
+- Range-check the original unsigned I64 PC before reducing it to a dense I32
+  table index. Unknown/high PCs preserve the complete PC and zero work; they must
+  not wrap into a valid source entry or touch registers.
+- Independently verified table/trampoline/header shapes bind source indices,
+  zero initial count, unsigned count-versus-budget comparison and exhausted PC/
+  count. Body predecessor checks reject entry paths that bypass the header.
+- Pure wrong-body/additional-entry fixtures must avoid placeholder uses of
+  non-dominating header values, otherwise Cranelift rejects them before the
+  intended verifier. Pure faults now remain valid SSA. Some actual backend
+  injected faults additionally violate dominance; none execute generated code.
+- Bypassing both path checks failed all twenty-two negative pure tests and all
+  twenty-two individual backend tests; two positive/quota pure tests passed.
+  Both verifier calls were restored before acceptance and the feature commit.
+
+#### Accomplished
+
+- Committed `14863b6`: explicit dense dispatch replacing frontend Switch,
+  exact-counted snapshot-quota-charged point maps, entry/budget/predecessor proof,
+  24 pure tests, 22 backend corruptions, native high-PC and pre-host allocation
+  refusal regressions, Make/Miri gates and public scope. No new unsafe blocks
+  or ABI changes; compiler CFG/table storage remains outside the incomplete ledger.
+- Restored focused exits/boundary/heap/resource/Clippy lanes exited zero;
+  boundary passed 309/four ignored. No new module warnings; inherited Clippy
+  backlog remains and this is not strict-warning acceptance.
+- GNU/musl full `nix develop -c make jit-verify clippy jit-clippy` (musl adds
+  `TARGET=x86_64-unknown-linux-musl`) both exited zero: 4099 passing tests,
+  421 suite results and 24 ignored each, including reference/Off/Auto/Force,
+  optional async/derive and docs.
+- Selected `nix develop .#miri -c make jit-miri` exited zero: 180 tests across
+  23 suite results, default MIRIFLAGS, pinned nightly 2026-08-16/rustc `67854e511`.
+  New pure entry/budget IR and pre-host quota tests pass. Generated native code,
+  high-PC native execution and native compiler-module construction are not Miri
+  coverage; the new quota fixture refuses before that setup.
+- Supervised GNU/musl `make jit-fuzz FUZZ_TARGET=all FUZZ_CASES=1024
+  FUZZ_SEEDS=0,1,0xdeadbeef,0xffffffffffffffff` both exited zero. Each checked
+  4096 snapshots plus malformed mutations, 1641780 kernel invocations and
+  4758522 completed native instructions against the independent slice model.
+  Both platforms reuse the same programs/seeds, not 8192 unique cases; native
+  heap-helper lifecycle coverage remains separate.
+- Owned sessions `50827`/`62430` (initial), `34924` (fixtures), `29284` (focused),
+  `19295` (mutation), `10247` (restored), `96211` (full), `49313` (Miri) and
+  `61399` (campaigns) are terminal. Revalidated unchanged source/Make hashes and
+  archived logs, Miri/campaign artifacts, source identity and aggregate summary
+  under `target/jit-evidence/entry-flow/`.
+- Updated Phase 3 and public scope/evidence. No performance measurements,
+  profiles, speedups, phase completion or release acceptance are claimed.
+
+#### Next Steps
+
+- Complete whole private-block/source-transition/source-map proof and runtime
+  materialization/helper lifecycle/alias/liveness review; preserve full-prefix
+  canonical materialization until those proofs permit otherwise.
+- Complete compiler/fixed-owner/combined-host accounting and approved isolation,
+  broader heap/lifecycle stress and actual ARM/hosted execution evidence.
+- Meet unchanged native table/upvalue/callback and compiled-Off shipping gates.
+  Prior revision-scoped failures remain failures; the full goal stays active.
+
+#### Relevant Files
+
+- `src/jit/entry_flow.rs` — charged point maps, canonical entry emitter and proof.
+- `src/jit/backend.rs` — source header/body integration, native/quota mutations.
+- `src/jit/mod.rs`, `Makefile` — module, dedicated gates and pure/quota Miri lanes.
+- `JIT.md`, `PLAN_JIT.md` — public scope, current evidence and open obligations.
+- `target/jit-evidence/entry-flow/` — local revision-scoped raw acceptance artifacts.
+
+### Source-region and retry-path verification decision
+
+Extend charged per-source point records with exact contiguous private-block
+creation ranges. Independently classify every physical block and branch: fixed
+entry/exit/header/trampoline blocks, or an operation body/private region. Require
+body dominance, only forward private edges (acyclic within an operation), decoded
+source-successor edges with one fuel increment, and permitted shared exits with
+exact source PC/unchanged count. Use a fallibly snapshot-charged per-block byte
+workspace to propagate scalar-store effects across all private predecessors;
+reject retry/guard exits after any write on any predecessor path. Canonical
+helper decline/panic effects remain governed by the accepted helper status proof
+and runtime helper contract, not guessed call-side alias facts. CFG/dominator
+storage remains outside the incomplete ledger. Add valid pure/mutation/quota
+fixtures and full native/model acceptance; do not claim runtime, alias/liveness
+or complete compiler accounting from this structural proof.
+
+### Source-region effect and workspace review
+
+- The new verifier passes existing native boundary/model coverage. Region ranges
+  cover compiler-created private blocks; body dominance and forward instruction
+  order reject foreign entries and private cycles, while legal source loops must
+  re-enter decoded headers with incremented fuel.
+- Pure fixtures isolate region/effect obligations rather than claim whole-opcode
+  lowering equivalence. A write on only one side of a merge is propagated to the
+  join. The same guard exit is admitted with no predecessor writes and refused
+  when a predecessor writes, proving the test is not unconditional guard denial.
+- Successful workspace release and typed refusal are checked against the source
+  ledger baseline. Actual backend quota injection occurs after frontend setup
+  but before native mappings/code generation; it is not a Miri-safe native-module
+  test and is not placed in the selected Miri lane.
+- Focused region/boundary/heap/resource/Clippy gates exited zero: sixteen pure
+  tests, fourteen actual corruption/quota tests and 339 boundary tests (four
+  ignored). No new module warnings; inherited Clippy backlog remains.
+
+### Source-region mutation sensitivity
+
+Bypassing production/pure region verification failed all thirteen pure corruption
+tests plus the quota regression (two positive tests passed), and all thirteen
+individual backend corruptions plus quota refusal; both Make lanes exited 2.
+Pure mutated fixtures pass Cranelift IR validation before the intended checker;
+no corrupted generated code is executed. Both calls were restored after owned
+session `38398` became terminal. Raw logs:
+`/tmp/luna-jit-region-flow-bypass-pure.log` and
+`/tmp/luna-jit-region-flow-bypass-backend.log`. Next: restored focused acceptance,
+feature commit, full GNU/musl, selected pure Miri and supervised campaigns.
+
+### Source-region feature commit and owned acceptance handles
+
+Unsigned/title-only feature commit `f00b009` contains charged private-block ranges,
+physical region/dominance/DAG/source-edge/exit checks, scalar write propagation,
+sixteen pure tests and fourteen actual corruption/quota tests, Make/Miri lanes
+and public scope. Restored focused gates exited zero; boundary passed 339/four
+ignored. Full GNU/musl session `44262`, selected Miri `23944` and supervised
+campaigns `52187` are live pending terminal results. Resume exact handles rather
+than restarting on observation timeout. Raw mutation/restored logs and source
+identity/hashes are under `target/jit-evidence/region-flow/`. No timings/profiles
+were launched and no performance change is claimed.
+
+### Session summary: accepted source-region and retry-effect verification
+
+#### Goal
+
+Continue full `PLAN_JIT.md` implementation on `feat/native-jit`, adding physical
+source-region control-flow and actual scalar retry-effect proof after accepted
+entry/budget work. The preceding goal turn was progress: source and acceptance
+evidence were committed. The full objective remains unchanged and incomplete.
+
+#### Instructions
+
+Use Make/Nix, patch tools and incremental unsigned title-only Conventional
+Commits. No benchmark/profile workloads alongside correctness jobs.
+
+#### Discoveries
+
+- Private cycles must be rejected separately from budget headers: a loop wholly
+  within one operation can otherwise avoid fuel checks. Legal source loops must
+  re-enter decoded headers with exactly one completed-instruction increment.
+- Guard/retry effects are path properties. A store on either side of a private
+  merge forbids a later retry; the same effect-free guard is allowed with neither
+  path writing. The positive control prevents unconditional guard denial.
+- Helper decline/panic effects are not raw IR stores. Their existing status-flow
+  proof and canonical runtime effect/rollback contract remain necessary; this
+  pass does not invent call-side alias or heap-effect facts.
+- Pure fixtures isolate structural region/effect obligations and pass Cranelift
+  IR validation; they do not establish full opcode lowering equivalence. Backend
+  faults never execute generated code. Workspace refusal after frontend setup
+  is before native mappings, not before compiler-module construction.
+- Bypassing both region checks failed thirteen corruption plus quota tests in
+  each pure/backend lane; two pure positives passed. Both checks were restored
+  before focused acceptance and the feature commit.
+
+#### Accomplished
+
+- Committed `f00b009`: charged private creation ranges, physical region/dominance/
+  acyclic-edge/source-successor/exit proof, scalar-write propagation, sixteen
+  pure tests and fourteen backend corruption/quota tests, Make/Miri gates and
+  public scope. No new unsafe blocks or ABI changes. Compiler CFG/dominator
+  allocations remain outside the incomplete ledger.
+- Restored focused exits/boundary/heap/resource/Clippy gates exited zero;
+  boundary passed 339/four ignored. No new module warnings; inherited Clippy
+  backlog remains and this is not strict-warning acceptance.
+- GNU/musl full `nix develop -c make jit-verify clippy jit-clippy` (musl adds
+  `TARGET=x86_64-unknown-linux-musl`) both exited zero: 4249 passing tests,
+  421 suite results and 24 ignored each, including reference/Off/Auto/Force,
+  optional async/derive and docs.
+- Selected `nix develop .#miri -c make jit-miri` exited zero: 196 tests across
+  24 suite results, default MIRIFLAGS, pinned nightly 2026-08-16/rustc `67854e511`.
+  New sixteen pure region IR/effect/quota tests passed. Generated native code and
+  native compiler-module construction remain outside selected Miri coverage;
+  the late actual backend workspace refusal is not in that lane.
+- Supervised GNU/musl `make jit-fuzz FUZZ_TARGET=all FUZZ_CASES=1024
+  FUZZ_SEEDS=0,1,0xdeadbeef,0xffffffffffffffff` both exited zero. Each checked
+  4096 snapshots plus malformed mutations, 1641780 kernel invocations and
+  4758522 completed native instructions against the independent slice model.
+  Both reuse the same seeds/programs, not 8192 unique cases; native heap-helper
+  lifecycle coverage remains separate.
+- Owned sessions `95068`/`68832` (draft), `4089` (pure), `50629` (focused),
+  `38398` (mutation), `7737` (restored), `44262` (full), `23944` (Miri) and
+  `52187` (campaigns) are terminal. Observation timeout on full session was
+  correctly treated as live and resumed without restarting. Revalidated unchanged
+  source/Make hashes and archived logs, Miri/campaign artifacts, source identity
+  and summary under `target/jit-evidence/region-flow/`.
+- Updated Phase 3 and public scope/evidence. No timings/profiles, speedups,
+  complete compiler proof, phase completion or release acceptance are claimed.
+
+#### Next Steps
+
+- Complete source-record-to-physical-region/instruction/source-map binding and
+  runtime materialization/helper lifecycle/alias/liveness review. Structural
+  region closure and local semantic checks are not by themselves full equivalence.
+- Complete compiler/fixed-owner/combined-host accounting and approved isolation,
+  broader heap/lifecycle stress and actual ARM/hosted execution evidence.
+- Meet unchanged native table/upvalue/callback and compiled-Off shipping gates.
+  Prior revision-scoped failures remain failures; the full goal stays active.
+
+#### Relevant Files
+
+- `src/jit/entry_flow.rs` — charged region maps/workspace, physical path/effect proof.
+- `src/jit/backend.rs` — region capture, late corruption/quota tests and integration.
+- `Makefile` — dedicated region gates and pure Miri lane.
+- `JIT.md`, `PLAN_JIT.md` — public scope, current evidence and open obligations.
+- `target/jit-evidence/region-flow/` — local revision-scoped raw acceptance artifacts.
 
 ## 15. Primary references
 

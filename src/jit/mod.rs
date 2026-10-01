@@ -22,6 +22,16 @@ mod access;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod backend;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod entry_flow;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod exit_flow;
 mod exits;
 mod flow;
 #[cfg(all(
@@ -30,6 +40,11 @@ mod flow;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod fuzz;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod helper_flow;
 mod helpers;
 pub(crate) mod ir;
 #[cfg(test)]

@@ -94,8 +94,46 @@ source values, destination stores, nil-range ordering, Boolean skips, decoded
 targets and one fuel increment. Empty nil ranges still require a checked edge.
 Move's direct path requires its actual non-reference split. Unexpected stores
 in these scalar finish blocks are refused. Write/edge records are exact-counted
-and snapshot-quota-charged; reference move/constant helper call/status/exit
-verification remains a separate obligation.
+and snapshot-quota-charged.
+Helper records independently decode all nine source helper kinds, including
+reference moves/constants, and bind each physical direct call to its imported
+function, host/slot pointers, six-argument ABI, operand encodings and source PC.
+Completion/panic tests must use the actual returned status; success edges require
+the decoded next PC and one-step fuel, while panic/decline edges preserve the
+source PC and unchanged count. Missing/extra calls, unexpected stores in helper
+call/status blocks, and record growth are refused before code generation.
+Exact-counted helper records use the snapshot ledger and can refuse with
+`ResourceLimit("helper call verification")`. This local IR check does not prove
+runtime helper effects/borrows/GC or global source paths.
+The four shared exit handlers independently bind the entry ABI, distinct handler
+blocks and typed PC/count parameters to three exact default-flag stores at the
+Exit ABI offsets, canonical reason and empty return. All physical returns must
+belong to these handlers. Direct output-pointer accesses outside them and its
+escape through branch arguments are refused. This pass uses fixed-size stack
+storage and a bounded linear IR scan without new allocated records. It proves
+local handler output, not correct source/fuel on every predecessor or global paths.
+Entry dispatch uses an independently verified unsigned I64 PC range test before
+I32 reduction into a dense jump table. Its ordered trampolines enter each decoded
+PC's header with zero count; unknown PCs return their full original PC and zero
+work. Each header contains only its source-PC constant, unsigned count-versus-
+budget test and conditional exhausted/body edge. Exhaustion preserves source PC
+and count; each operation body has only its own header as predecessor. Exact-
+counted trampoline/body records are snapshot-quota-charged before host compiler
+setup and can refuse with `ResourceLimit("entry path verification")`. CFG and
+compiler jump-table storage remain outside the incomplete ledger. These checks
+do not independently establish opcode equivalence, alias/liveness, runtime
+materialization or compiler resource isolation.
+Source-region ranges additionally classify every physical block and branch.
+Private blocks must be dominated by their own operation body; private edges stay
+within that source region and move forward, preventing uncharged private cycles.
+Cross-source edges must be decoded successors with one fuel increment. Shared
+retry exits require an admitted kind, exact source PC and unchanged count.
+A snapshot-quota-charged byte workspace propagates scalar stores across every
+private predecessor and rejects retry/guard exits after any path writes; refusal
+is `ResourceLimit("source path verification")`. Helper declines/panics retain
+their independently verified status flow and canonical runtime effect contract.
+This structural path proof does not prove helper effects/borrows/GC, full
+instruction equivalence/source maps, alias/liveness or complete compiler accounting.
 The retained, fallible PC-to-block map is charged to the snapshot ledger and
 can refuse with `ResourceLimit("frontend block map")` before compiler/host setup.
 Semantic checks are
@@ -140,14 +178,14 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 ## Verification and remaining work
 
-The numeric, arithmetic, boolean, comparison, loop and scalar-transfer implementation (`a702b37`)
+The numeric/source, helper/exit-flow and entry/region implementation (`f00b009`)
 passes `nix develop -c make jit-verify clippy jit-clippy` on x86-64 GNU and
-with `TARGET=x86_64-unknown-linux-musl`: each reports 3569 passing tests across
+with `TARGET=x86_64-unknown-linux-musl`: each reports 4249 passing tests across
 421 suite results and 24 ignored tests. Selected pure-Rust/pure-IR Miri checks
-pass 129 tests across 19 selected suite results with default `MIRIFLAGS`; they do not execute
+pass 196 tests across 24 selected suite results with default `MIRIFLAGS`; they do not execute
 generated native code. Clippy retains the existing warning backlog, so these are
 not strict-warning acceptance. Raw revision-scoped evidence is stored locally in
-`target/jit-evidence/transfer-source/`. Seeded scalar/admission campaigns additionally
+`target/jit-evidence/region-flow/`. Seeded scalar/admission campaigns additionally
 pass 4096 generated cases per platform, each checking 1641780 native invocations
 against the independent slice model; both platforms reuse the same four seeds.
 These campaigns do not cover native heap helpers. Performance thresholds, ARM64 execution,
