@@ -201,6 +201,7 @@ pub(super) enum Failure {
     CorruptComparisonSource,
     CorruptComparisonPolarity,
     CorruptLoop(bool, super::tags::LoopCorruption),
+    CorruptTransfer(super::tags::TransferCorruption),
 }
 
 #[cfg(test)]
@@ -475,6 +476,10 @@ pub(super) fn compile_in(
     if let Failure::CorruptLoop(prep, fault) = failure {
         stores.corrupt_loop(&mut context.func, prep, fault, snapshot.registers);
     }
+    #[cfg(test)]
+    if let Failure::CorruptTransfer(fault) = failure {
+        stores.corrupt_transfer(&mut context.func, fault, snapshot.registers);
+    }
     let block_count = context.func.layout.blocks().count();
     let instructions = context
         .func
@@ -504,6 +509,7 @@ pub(super) fn compile_in(
         fallback,
         guard,
     )?;
+    stores.verify_transfers(&context.func, parameters[0], snapshot, &blocks, fallback)?;
     module
         .define_function(function, &mut context)
         .map_err(fail)?;
@@ -806,14 +812,16 @@ impl Emitter<'_, '_> {
                         .icmp_imm_s(IntCC::NotEqual, tag, abi::REFERENCE as i64);
                 let direct = self.builder.create_block();
                 let reference = self.builder.create_block();
-                self.builder.ins().brif(scalar, direct, &[], reference, &[]);
+                let split = self.builder.ins().brif(scalar, direct, &[], reference, &[]);
                 self.builder.switch_to_block(reference);
                 let available = self.builder.ins().icmp_imm_s(IntCC::NotEqual, self.host, 0);
                 self.require(available);
                 self.helper(abi::HELPER_MOVE, u32::from(dest.0), u32::from(source.0), 0);
                 self.builder.switch_to_block(direct);
-                self.store(dest.0, tag, bits);
-                self.advance(self.pc + 1);
+                let store = self.store(dest.0, tag, bits);
+                self.stores.transfer_write(self.pc, 0, store);
+                let next = self.advance_point(self.pc + 1);
+                self.stores.transfer_edge(self.pc, next, Some(split));
             }
             LoadConstant { dest, constant } => {
                 let slot = self.snapshot.constants[usize::from(constant.0)];
@@ -827,8 +835,10 @@ impl Emitter<'_, '_> {
                     return;
                 }
                 let bits = self.constant(slot.bits);
-                self.store_typed(dest.0, slot.tag, bits);
-                self.advance(self.pc + 1);
+                let store = self.store_typed(dest.0, slot.tag, bits);
+                self.stores.transfer_write(self.pc, 0, store);
+                let next = self.advance_point(self.pc + 1);
+                self.stores.transfer_edge(self.pc, next, None);
             }
             LoadBool {
                 dest,
@@ -836,25 +846,31 @@ impl Emitter<'_, '_> {
                 skip_next,
             } => {
                 let bits = self.constant(u64::from(value));
-                self.store_typed(dest.0, abi::BOOLEAN, bits);
-                self.advance(self.pc + 1 + usize::from(skip_next));
+                let store = self.store_typed(dest.0, abi::BOOLEAN, bits);
+                self.stores.transfer_write(self.pc, 0, store);
+                let next = self.advance_point(self.pc + 1 + usize::from(skip_next));
+                self.stores.transfer_edge(self.pc, next, None);
             }
             LoadNil { dest, count } => {
                 let zero = self.constant(0);
                 for index in 0..count {
-                    self.store_typed(dest.0 + index, abi::NIL, zero);
+                    let store = self.store_typed(dest.0 + index, abi::NIL, zero);
+                    self.stores
+                        .transfer_write(self.pc, usize::from(index), store);
                 }
-                self.advance(self.pc + 1);
+                let next = self.advance_point(self.pc + 1);
+                self.stores.transfer_edge(self.pc, next, None);
             }
             Jump {
                 offset,
                 close_upvalues,
             } if close_upvalues.is_none() => {
-                self.advance(
+                let next = self.advance_point(
                     (self.pc + 1)
                         .checked_add_signed(isize::from(offset))
                         .unwrap(),
                 );
+                self.stores.transfer_edge(self.pc, next, None);
             }
             Test { value, is_true } => {
                 let (tag, bits) = self.load(value.0);
@@ -1939,6 +1955,333 @@ mod loop_tests {
 }
 
 #[cfg(test)]
+mod transfer_tests {
+    use super::super::tags::TransferCorruption as Fault;
+    use super::*;
+    use crate::types::{ConstantIndex16 as C, Opt254, RegisterIndex as R, VarCount};
+
+    fn fixture(op: Operation, slot: Slot, fault: Option<Fault>) -> Result<(), JitError> {
+        let snapshot = Snapshot {
+            operations: super::super::resources::owned(&[
+                op,
+                Operation::Return {
+                    start: R(0),
+                    count: VarCount::constant(0),
+                },
+                Operation::Return {
+                    start: R(0),
+                    count: VarCount::constant(0),
+                },
+            ]),
+            constants: super::super::resources::owned(&[slot]),
+            registers: 256,
+            upvalues: 0,
+            prototypes: 0,
+        };
+        snapshot.verify().unwrap();
+        let graph = super::super::flow::FlowGraph::new(&snapshot).unwrap();
+        let baseline = snapshot.operations.allocator().0.current();
+        let mut stores = super::super::tags::Stores::new(&graph, &snapshot).unwrap();
+        let mut function = cranelift_codegen::ir::Function::new();
+        function.signature.params.push(AbiParam::new(types::I64));
+        let mut helper_signature = function.signature.clone();
+        helper_signature.params.clear();
+        for ty in [
+            types::I64,
+            types::I64,
+            types::I32,
+            types::I32,
+            types::I32,
+            types::I32,
+        ] {
+            helper_signature.params.push(AbiParam::new(ty));
+        }
+        helper_signature.returns.push(AbiParam::new(types::I32));
+        let signature = function.import_signature(helper_signature);
+        let helper = function.import_function(cranelift_codegen::ir::ExtFuncData {
+            name: cranelift_codegen::ir::ExternalName::testcase("transfer_helper"),
+            signature,
+            colocated: false,
+            patchable: false,
+        });
+        let helpers = [(abi::HELPER_MOVE, helper), (abi::HELPER_CONSTANT, helper)];
+        let mut context = FunctionBuilderContext::new();
+        let (slots, blocks, fallback, guard);
+        {
+            let mut builder = FunctionBuilder::new(&mut function, &mut context);
+            let entry = builder.create_block();
+            builder.append_block_params_for_function_params(entry);
+            builder.switch_to_block(entry);
+            slots = builder.block_params(entry)[0];
+            blocks = [
+                builder.create_block(),
+                builder.create_block(),
+                builder.create_block(),
+            ];
+            for block in blocks {
+                builder.append_block_param(block, types::I32);
+            }
+            fallback = builder.create_block();
+            guard = builder.create_block();
+            for block in [fallback, guard] {
+                builder.append_block_param(block, types::I64);
+                builder.append_block_param(block, types::I32);
+            }
+            let zero = builder.ins().iconst(types::I32, 0);
+            builder.ins().jump(blocks[0], &[zero.into()]);
+            builder.switch_to_block(blocks[0]);
+            let count = builder.block_params(blocks[0])[0];
+            let host = builder.ins().iconst(types::I64, 0);
+            let mut emitter = Emitter {
+                builder: &mut builder,
+                snapshot: &snapshot,
+                graph: &graph,
+                blocks: &blocks,
+                slots,
+                fallback,
+                guard,
+                panicked: guard,
+                host,
+                helpers: &helpers,
+                pc: 0,
+                count,
+                written: false,
+                stores: &mut stores,
+                omit_numeric_guards: false,
+            };
+            emitter.emit(op);
+            for block in [blocks[1], blocks[2], fallback, guard] {
+                builder.switch_to_block(block);
+                builder.ins().return_(&[]);
+            }
+            builder.seal_all_blocks();
+            let isa = cranelift_codegen::isa::lookup_by_name(std::env::consts::ARCH)
+                .unwrap()
+                .finish(cranelift_codegen::settings::Flags::new(
+                    cranelift_codegen::settings::builder(),
+                ))
+                .unwrap();
+            builder.finalize(isa.frontend_config());
+        }
+        if let Some(fault) = fault {
+            stores.corrupt_transfer(&mut function, fault, snapshot.registers);
+        }
+        cranelift_codegen::verify_function(
+            &function,
+            &cranelift_codegen::settings::Flags::new(cranelift_codegen::settings::builder()),
+        )
+        .unwrap();
+        let result = stores
+            .verify(&function, slots, None, snapshot.registers)
+            .and_then(|_| stores.verify_transfers(&function, slots, &snapshot, &blocks, fallback));
+        let ledger = snapshot.operations.allocator().0.clone();
+        drop(stores);
+        assert_eq!(ledger.current(), baseline);
+        result
+    }
+
+    fn run(op: Operation, fault: Option<Fault>) -> Result<(), JitError> {
+        fixture(
+            op,
+            Slot {
+                tag: abi::INTEGER,
+                bits: 42,
+            },
+            fault,
+        )
+    }
+    fn refused(result: Result<(), JitError>) {
+        assert!(
+            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow"),
+            "{result:?}"
+        );
+    }
+    fn boolean() -> Operation {
+        Operation::LoadBool {
+            dest: R(1),
+            value: true,
+            skip_next: false,
+        }
+    }
+
+    #[test]
+    fn scalar_move_handles_aliases_and_boundary_registers() {
+        for (dest, source) in [(0, 0), (0, 255), (255, 0), (255, 255)] {
+            run(
+                Operation::Move {
+                    dest: R(dest),
+                    source: R(source),
+                },
+                None,
+            )
+            .unwrap();
+        }
+    }
+    #[test]
+    fn constants_preserve_tags_and_full_payload_bits() {
+        for slot in [
+            Slot {
+                tag: abi::NIL,
+                bits: 0,
+            },
+            Slot {
+                tag: abi::BOOLEAN,
+                bits: 0,
+            },
+            Slot {
+                tag: abi::BOOLEAN,
+                bits: 1,
+            },
+            Slot {
+                tag: abi::INTEGER,
+                bits: u64::MAX,
+            },
+            Slot {
+                tag: abi::NUMBER,
+                bits: (-0.0f64).to_bits(),
+            },
+            Slot {
+                tag: abi::NUMBER,
+                bits: 0x7ff8_0000_0000_0123,
+            },
+            Slot {
+                tag: abi::REFERENCE,
+                bits: 0,
+            },
+        ] {
+            fixture(
+                Operation::LoadConstant {
+                    dest: R(255),
+                    constant: C(0),
+                },
+                slot,
+                None,
+            )
+            .unwrap();
+        }
+    }
+    #[test]
+    fn boolean_skips_nil_ranges_and_jump_targets_match_source() {
+        for value in [false, true] {
+            for skip_next in [false, true] {
+                run(
+                    Operation::LoadBool {
+                        dest: R(255),
+                        value,
+                        skip_next,
+                    },
+                    None,
+                )
+                .unwrap();
+            }
+        }
+        for (dest, count) in [(255, 0), (255, 1), (0, 2), (1, 255)] {
+            run(
+                Operation::LoadNil {
+                    dest: R(dest),
+                    count,
+                },
+                None,
+            )
+            .unwrap();
+        }
+        for offset in [-1, 0, 1] {
+            run(
+                Operation::Jump {
+                    offset,
+                    close_upvalues: Opt254::none(),
+                },
+                None,
+            )
+            .unwrap();
+        }
+    }
+    #[test]
+    fn move_source_payload_destination_and_split_corruption_is_refused() {
+        for fault in [
+            Fault::Source,
+            Fault::Payload,
+            Fault::Destination,
+            Fault::Split,
+        ] {
+            refused(run(
+                Operation::Move {
+                    dest: R(0),
+                    source: R(1),
+                },
+                Some(fault),
+            ));
+        }
+    }
+    #[test]
+    fn scalar_load_value_destination_and_extra_store_corruption_is_refused() {
+        for op in [
+            boolean(),
+            Operation::LoadConstant {
+                dest: R(0),
+                constant: C(0),
+            },
+            Operation::LoadNil {
+                dest: R(0),
+                count: 2,
+            },
+        ] {
+            for fault in [Fault::Payload, Fault::Destination, Fault::ExtraStore] {
+                refused(run(op, Some(fault)));
+            }
+        }
+    }
+    #[test]
+    fn nil_ordinal_and_range_corruption_is_refused() {
+        for fault in [Fault::Ordinal, Fault::Destination] {
+            refused(run(
+                Operation::LoadNil {
+                    dest: R(0),
+                    count: 2,
+                },
+                Some(fault),
+            ));
+        }
+    }
+    #[test]
+    fn target_and_fuel_corruption_including_empty_nil_is_refused() {
+        for op in [
+            boolean(),
+            Operation::LoadBool {
+                dest: R(0),
+                value: false,
+                skip_next: true,
+            },
+            Operation::LoadNil {
+                dest: R(0),
+                count: 0,
+            },
+            Operation::Jump {
+                offset: 1,
+                close_upvalues: Opt254::none(),
+            },
+        ] {
+            for fault in [Fault::Targets, Fault::Count] {
+                refused(run(op, Some(fault)));
+            }
+        }
+    }
+    #[test]
+    fn record_count_pc_ordinal_and_capacity_cannot_remove_transfer_obligations() {
+        for fault in [
+            Fault::MissingWrite,
+            Fault::MissingEdge,
+            Fault::ProgramCounter,
+            Fault::Ordinal,
+            Fault::GrowthWrite,
+            Fault::GrowthEdge,
+        ] {
+            refused(run(boolean(), Some(fault)));
+        }
+    }
+}
+
+#[cfg(test)]
 mod memory_tests {
     use super::*;
 
@@ -2023,6 +2366,78 @@ mod memory_tests {
         assert_eq!(ledger.current(), baseline);
         assert_eq!(ledger.refusals(), 1);
     }
+
+    fn refuse_corrupted_transfer(fault: super::super::tags::TransferCorruption) {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype = crate::FunctionPrototype::compile(
+                ctx,
+                "transfer-corruption",
+                b"local x=42 local y=7 x=y return x",
+            )
+            .unwrap();
+            Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
+        });
+        let total = Arc::new(AtomicUsize::new(0));
+        let result = compile_in(
+            &snapshot,
+            total.clone(),
+            8 * 1024 * 1024,
+            BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
+            super::super::work::Limits::from(&super::super::JitConfig::default()),
+            Failure::CorruptTransfer(fault),
+        );
+        assert!(
+            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")
+        );
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+    }
+
+    macro_rules! transfer_corruption {
+        ($name:ident, $fault:ident) => {
+            #[test]
+            fn $name() {
+                refuse_corrupted_transfer(super::super::tags::TransferCorruption::$fault);
+            }
+        };
+    }
+
+    transfer_corruption!(
+        corrupted_transfer_payload_is_refused_before_codegen_and_mapping,
+        Payload
+    );
+    transfer_corruption!(
+        corrupted_transfer_source_is_refused_before_codegen_and_mapping,
+        Source
+    );
+    transfer_corruption!(
+        corrupted_transfer_destination_is_refused_before_codegen_and_mapping,
+        Destination
+    );
+    transfer_corruption!(
+        corrupted_transfer_split_is_refused_before_codegen_and_mapping,
+        Split
+    );
+    transfer_corruption!(
+        corrupted_transfer_targets_is_refused_before_codegen_and_mapping,
+        Targets
+    );
+    transfer_corruption!(
+        corrupted_transfer_count_is_refused_before_codegen_and_mapping,
+        Count
+    );
+    transfer_corruption!(
+        corrupted_transfer_pc_is_refused_before_codegen_and_mapping,
+        ProgramCounter
+    );
+    transfer_corruption!(
+        corrupted_transfer_ordinal_is_refused_before_codegen_and_mapping,
+        Ordinal
+    );
+    transfer_corruption!(
+        corrupted_transfer_extra_is_refused_before_codegen_and_mapping,
+        ExtraStore
+    );
 
     fn refuse_corrupted_loop(prep: bool, fault: super::super::tags::LoopCorruption) {
         let mut lua = crate::Lua::empty();

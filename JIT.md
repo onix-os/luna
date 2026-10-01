@@ -89,6 +89,13 @@ index store, taken-only visible-variable store and decoded jump/fallthrough fuel
 increments are checked. Unexpected stores in the verified loop arms and finish
 blocks are refused. Loop records are exact-counted and quota-charged; these
 local checks do not complete whole-program path, alias or liveness proof.
+Scalar Move/LoadConstant, LoadBool/LoadNil and non-closing Jump records verify
+source values, destination stores, nil-range ordering, Boolean skips, decoded
+targets and one fuel increment. Empty nil ranges still require a checked edge.
+Move's direct path requires its actual non-reference split. Unexpected stores
+in these scalar finish blocks are refused. Write/edge records are exact-counted
+and snapshot-quota-charged; reference move/constant helper call/status/exit
+verification remains a separate obligation.
 The retained, fallible PC-to-block map is charged to the snapshot ledger and
 can refuse with `ResourceLimit("frontend block map")` before compiler/host setup.
 Semantic checks are

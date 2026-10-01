@@ -65,6 +65,20 @@ pub(super) struct ForPrep {
 }
 
 #[derive(Clone, Copy)]
+struct TransferWrite {
+    pc: usize,
+    ordinal: usize,
+    inst: Inst,
+}
+
+#[derive(Clone, Copy)]
+struct TransferEdge {
+    pc: usize,
+    inst: Inst,
+    split: Option<Inst>,
+}
+
+#[derive(Clone, Copy)]
 pub(super) struct LoopArm {
     pub tag: Value,
     pub bits: Value,
@@ -123,6 +137,24 @@ pub(super) enum LoopCorruption {
 }
 
 #[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum TransferCorruption {
+    Payload,
+    Source,
+    Destination,
+    Split,
+    Targets,
+    Count,
+    MissingWrite,
+    MissingEdge,
+    ProgramCounter,
+    Ordinal,
+    GrowthWrite,
+    GrowthEdge,
+    ExtraStore,
+}
+
+#[cfg(test)]
 #[derive(Clone, Copy)]
 pub(super) enum TruthCorruption {
     Payload,
@@ -142,6 +174,9 @@ pub(super) enum ArithmeticCorruption {
 }
 
 pub(super) struct Stores {
+    transfer_writes: Vec<TransferWrite, BudgetAllocator>,
+    transfer_edges: Vec<TransferEdge, BudgetAllocator>,
+    expected_transfers: Option<(usize, usize)>,
     preps: Vec<ForPrep, BudgetAllocator>,
     loops: Vec<ForLoop, BudgetAllocator>,
     expected_preps: Option<usize>,
@@ -178,7 +213,13 @@ impl Stores {
         let mut comparison_count = 0usize;
         let mut prep_count = 0usize;
         let mut loop_count = 0usize;
+        let mut transfer_writes = 0usize;
+        let mut transfer_edges = 0usize;
         for &op in &snapshot.operations {
+            if let Some(writes) = scalar_transfer_writes(op, snapshot) {
+                transfer_writes = transfer_writes.checked_add(writes).ok_or_else(refused)?;
+                transfer_edges = transfer_edges.checked_add(1).ok_or_else(refused)?;
+            }
             if matches!(op, Operation::NumericForPrep { .. }) {
                 prep_count = prep_count.checked_add(1).ok_or_else(refused)?;
             }
@@ -252,9 +293,20 @@ impl Stores {
             .map_err(|_| refused())?;
         let mut preps = Vec::new_in(allocator.clone());
         preps.try_reserve_exact(prep_count).map_err(|_| refused())?;
-        let mut loops = Vec::new_in(allocator);
+        let mut loops = Vec::new_in(allocator.clone());
         loops.try_reserve_exact(loop_count).map_err(|_| refused())?;
+        let mut writes = Vec::new_in(allocator.clone());
+        writes
+            .try_reserve_exact(transfer_writes)
+            .map_err(|_| refused())?;
+        let mut edges = Vec::new_in(allocator);
+        edges
+            .try_reserve_exact(transfer_edges)
+            .map_err(|_| refused())?;
         Ok(Self {
+            transfer_writes: writes,
+            transfer_edges: edges,
+            expected_transfers: Some((transfer_writes, transfer_edges)),
             preps,
             loops,
             expected_preps: Some(prep_count),
@@ -322,6 +374,23 @@ impl Stores {
         self.loops.push(record);
     }
 
+    pub fn transfer_write(&mut self, pc: usize, ordinal: usize, inst: Inst) {
+        if self.transfer_writes.len() == self.transfer_writes.capacity() {
+            self.overflowed = true;
+            return;
+        }
+        self.transfer_writes
+            .push(TransferWrite { pc, ordinal, inst });
+    }
+
+    pub fn transfer_edge(&mut self, pc: usize, inst: Inst, split: Option<Inst>) {
+        if self.transfer_edges.len() == self.transfer_edges.capacity() {
+            self.overflowed = true;
+            return;
+        }
+        self.transfer_edges.push(TransferEdge { pc, inst, split });
+    }
+
     pub fn arithmetic(
         &mut self,
         pc: usize,
@@ -369,6 +438,9 @@ impl Stores {
     ) -> Result<(), JitError> {
         if registers > 256
             || self.overflowed
+            || self.expected_transfers.is_some_and(|counts| {
+                counts != (self.transfer_writes.len(), self.transfer_edges.len())
+            })
             || self
                 .expected_preps
                 .is_some_and(|count| self.preps.len() != count)
@@ -506,6 +578,322 @@ impl Stores {
             {
                 return Err(invalid());
             }
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn corrupt_transfer(
+        &mut self,
+        function: &mut Function,
+        fault: TransferCorruption,
+        registers: usize,
+    ) {
+        use cranelift_codegen::{
+            cursor::{Cursor, FuncCursor},
+            ir::InstBuilder,
+        };
+        use TransferCorruption::*;
+        let edge = if matches!(fault, Source | Split) {
+            *self
+                .transfer_edges
+                .iter()
+                .find(|edge| edge.split.is_some())
+                .expect("missing scalar move")
+        } else {
+            self.transfer_edges[0]
+        };
+        match fault {
+            MissingWrite => {
+                self.transfer_writes.clear();
+                return;
+            }
+            MissingEdge => {
+                self.transfer_edges.clear();
+                return;
+            }
+            ProgramCounter => {
+                self.transfer_edges[0].pc += 1;
+                return;
+            }
+            Ordinal => {
+                self.transfer_writes[0].ordinal += 1;
+                return;
+            }
+            GrowthWrite => {
+                let record = self.transfer_writes[0];
+                self.transfer_write(record.pc, record.ordinal, record.inst);
+                return;
+            }
+            GrowthEdge => {
+                self.transfer_edge(edge.pc, edge.inst, edge.split);
+                return;
+            }
+            Targets | Count => {
+                let InstructionData::Jump { destination, .. } = function.dfg.insts[edge.inst]
+                else {
+                    unreachable!()
+                };
+                let arg = destination.args(&function.dfg.value_lists).last().unwrap();
+                if fault == Count {
+                    let BlockArg::Value(value) = arg else {
+                        unreachable!()
+                    };
+                    let inst = function.dfg.value_def(value).unwrap_inst();
+                    let InstructionData::Binary { opcode, .. } = &mut function.dfg.insts[inst]
+                    else {
+                        unreachable!()
+                    };
+                    *opcode = Opcode::Isub;
+                } else {
+                    let target = function
+                        .layout
+                        .blocks()
+                        .find(|block| {
+                            *block != destination.block(&function.dfg.value_lists)
+                                && function.dfg.block_params(*block).len() == 1
+                                && function
+                                    .dfg
+                                    .value_type(function.dfg.block_params(*block)[0])
+                                    == types::I32
+                        })
+                        .unwrap();
+                    let call = cranelift_codegen::ir::BlockCall::new(
+                        target,
+                        [arg],
+                        &mut function.dfg.value_lists,
+                    );
+                    let InstructionData::Jump { destination, .. } =
+                        &mut function.dfg.insts[edge.inst]
+                    else {
+                        unreachable!()
+                    };
+                    *destination = call;
+                }
+                return;
+            }
+            Split => {
+                let InstructionData::Brif { blocks, .. } =
+                    &mut function.dfg.insts[edge.split.unwrap()]
+                else {
+                    unreachable!()
+                };
+                blocks.swap(0, 1);
+                return;
+            }
+            _ => {}
+        }
+        let store = self
+            .transfer_writes
+            .iter()
+            .find(|record| record.pc == edge.pc)
+            .unwrap()
+            .inst;
+        let InstructionData::Store { args, offset, .. } = function.dfg.insts[store] else {
+            unreachable!()
+        };
+        let prior = function.layout.prev_inst(store).unwrap();
+        match fault {
+            Payload => {
+                let mut cursor = FuncCursor::new(function);
+                cursor.goto_inst(store);
+                let wrong = cursor.ins().iconst(types::I64, 123);
+                let InstructionData::Store { args, .. } = &mut cursor.func.dfg.insts[store] else {
+                    unreachable!()
+                };
+                args[0] = wrong;
+            }
+            Source => {
+                let InstructionData::Store { args: tag_args, .. } = function.dfg.insts[prior]
+                else {
+                    unreachable!()
+                };
+                for value in [tag_args[0], args[0]] {
+                    let inst = function.dfg.value_def(value).unwrap_inst();
+                    let InstructionData::Load { offset, .. } = &mut function.dfg.insts[inst] else {
+                        unreachable!()
+                    };
+                    *offset = ((i32::from(*offset) + 16) % (registers as i32 * 16)).into();
+                }
+            }
+            Destination => {
+                for inst in [prior, store] {
+                    let InstructionData::Store { offset, .. } = &mut function.dfg.insts[inst]
+                    else {
+                        unreachable!()
+                    };
+                    *offset = ((i32::from(*offset) + 16) % (registers as i32 * 16)).into();
+                }
+            }
+            ExtraStore => {
+                let InstructionData::Store { args: tag_args, .. } = function.dfg.insts[prior]
+                else {
+                    unreachable!()
+                };
+                let allowed = self
+                    .records
+                    .iter()
+                    .find(|record| record.inst == prior)
+                    .unwrap()
+                    .allowed;
+                let offset = (i32::from(offset) - 8 + 16) % (registers as i32 * 16);
+                let mut cursor = FuncCursor::new(function);
+                cursor.goto_inst(edge.inst);
+                let point = cursor
+                    .ins()
+                    .store(MemFlagsData::new(), tag_args[0], args[1], offset);
+                cursor
+                    .ins()
+                    .store(MemFlagsData::new(), args[0], args[1], offset + 8);
+                self.record(point, allowed);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn verify_transfers(
+        &self,
+        function: &Function,
+        slots: Value,
+        snapshot: &super::ir::Snapshot,
+        blocks: &[Block],
+        fallback: Block,
+    ) -> Result<(), JitError> {
+        if blocks.len() != snapshot.operations.len() {
+            return Err(invalid());
+        }
+        let mut cfg = ControlFlowGraph::new();
+        if self
+            .transfer_edges
+            .iter()
+            .any(|record| record.split.is_some())
+        {
+            cfg.compute(function);
+        }
+        let mut writes = 0usize;
+        let mut edges = self.transfer_edges.iter();
+        for (pc, &op) in snapshot.operations.iter().enumerate() {
+            let Some(count) = scalar_transfer_writes(op, snapshot) else {
+                continue;
+            };
+            let edge = edges.next().ok_or_else(invalid)?;
+            if edge.pc != pc {
+                return Err(invalid());
+            }
+            let block = function.layout.inst_block(edge.inst).ok_or_else(invalid)?;
+            if function.layout.last_inst(block) != Some(edge.inst) {
+                return Err(invalid());
+            }
+            let end = writes.checked_add(count).ok_or_else(invalid)?;
+            let records = self.transfer_writes.get(writes..end).ok_or_else(invalid)?;
+            for (ordinal, record) in records.iter().enumerate() {
+                if record.pc != pc
+                    || record.ordinal != ordinal
+                    || function.layout.inst_block(record.inst) != Some(block)
+                {
+                    return Err(invalid());
+                }
+                let destination = match op {
+                    Operation::Move { dest, .. }
+                    | Operation::LoadConstant { dest, .. }
+                    | Operation::LoadBool { dest, .. } => dest.0,
+                    Operation::LoadNil { dest, .. } => dest
+                        .0
+                        .checked_add(u8::try_from(ordinal).map_err(|_| invalid())?)
+                        .ok_or_else(invalid)?,
+                    _ => return Err(invalid()),
+                };
+                let (tag, bits) = payload_store(function, record.inst, slots, destination)?;
+                let valid = match op {
+                    Operation::Move { source, .. } => {
+                        let split = edge.split.ok_or_else(invalid)?;
+                        let InstructionData::Brif {
+                            arg, blocks: arms, ..
+                        } = function.dfg.insts[split]
+                        else {
+                            return Err(invalid());
+                        };
+                        let ValueDef::Result(test, 0) =
+                            function.dfg.value_def(function.dfg.resolve_aliases(arg))
+                        else {
+                            return Err(invalid());
+                        };
+                        let InstructionData::IntCompare {
+                            opcode: Opcode::Icmp,
+                            cond: IntCC::NotEqual,
+                            args,
+                        } = function.dfg.insts[test]
+                        else {
+                            return Err(invalid());
+                        };
+                        source_operand(
+                            function,
+                            slots,
+                            snapshot,
+                            RCIndex::Register(source),
+                            tag,
+                            bits,
+                        ) && same_value(function, args[0], tag)
+                            && literal(function, args[1]) == Some(abi::REFERENCE)
+                            && arms[0].block(&function.dfg.value_lists) == block
+                            && arms[1].block(&function.dfg.value_lists) != block
+                            && arms[0].args(&function.dfg.value_lists).next().is_none()
+                            && single_predecessor(&cfg, block, split)
+                    }
+                    Operation::LoadConstant { constant, .. } => snapshot
+                        .constants
+                        .get(usize::from(constant.0))
+                        .is_some_and(|slot| {
+                            slot.tag != abi::REFERENCE
+                                && literal(function, tag) == Some(slot.tag)
+                                && literal(function, bits) == Some(slot.bits)
+                        }),
+                    Operation::LoadBool { value, .. } => {
+                        literal(function, tag) == Some(abi::BOOLEAN)
+                            && literal(function, bits) == Some(u64::from(value))
+                    }
+                    Operation::LoadNil { .. } => {
+                        literal(function, tag) == Some(abi::NIL)
+                            && literal(function, bits) == Some(0)
+                    }
+                    _ => false,
+                };
+                if !valid {
+                    return Err(invalid());
+                }
+            }
+            if matches!(op, Operation::Move { .. }) != edge.split.is_some() {
+                return Err(invalid());
+            }
+            for inst in function.layout.block_insts(block) {
+                if function.dfg.insts[inst].opcode().can_store()
+                    && !records.iter().any(|record| {
+                        record.inst == inst || function.layout.prev_inst(record.inst) == Some(inst)
+                    })
+                {
+                    return Err(invalid());
+                }
+            }
+            let target = match op {
+                Operation::LoadBool { skip_next, .. } => pc + 1 + usize::from(skip_next),
+                Operation::Jump {
+                    offset,
+                    close_upvalues,
+                } if close_upvalues.is_none() => (pc + 1)
+                    .checked_add_signed(isize::from(offset))
+                    .ok_or_else(invalid)?,
+                _ => pc + 1,
+            };
+            let fuel = *function
+                .dfg
+                .block_params(blocks[pc])
+                .first()
+                .ok_or_else(invalid)?;
+            loop_advance(function, edge.inst, blocks, target, fuel, fallback)?;
+            writes = end;
+        }
+        if writes != self.transfer_writes.len() || edges.next().is_some() {
+            return Err(invalid());
         }
         Ok(())
     }
@@ -1917,6 +2305,20 @@ fn only_loop_stores(function: &Function, block: Block, allowed: &[Inst]) -> Resu
     Ok(())
 }
 
+fn scalar_transfer_writes(op: Operation, snapshot: &super::ir::Snapshot) -> Option<usize> {
+    match op {
+        Operation::Move { .. } | Operation::LoadBool { .. } => Some(1),
+        Operation::LoadConstant { constant, .. } => snapshot
+            .constants
+            .get(usize::from(constant.0))
+            .filter(|slot| slot.tag != abi::REFERENCE)
+            .map(|_| 1),
+        Operation::LoadNil { count, .. } => Some(usize::from(count)),
+        Operation::Jump { close_upvalues, .. } if close_upvalues.is_none() => Some(0),
+        _ => None,
+    }
+}
+
 struct Analysis<'a> {
     function: &'a Function,
     cfg: &'a ControlFlowGraph,
@@ -2319,6 +2721,9 @@ mod tests {
         let mut records = Vec::new_in(allocator);
         records.try_reserve_exact(8).unwrap();
         let mut stores = Stores {
+            transfer_writes: Vec::new_in(records.allocator().clone()),
+            transfer_edges: Vec::new_in(records.allocator().clone()),
+            expected_transfers: None,
             preps: Vec::new_in(records.allocator().clone()),
             loops: Vec::new_in(records.allocator().clone()),
             expected_preps: None,
@@ -3463,6 +3868,61 @@ mod tests {
             ));
             assert_eq!(ledger.current(), before);
             assert_eq!(ledger.peak(), before + allowance);
+            assert_eq!(ledger.refusals(), 1);
+        }
+    }
+
+    #[test]
+    fn transfer_write_and_edge_allocation_refusal_releases_partial_storage() {
+        use crate::types::{RegisterIndex as R, VarCount};
+        for stage in 0..3 {
+            let empty = stage == 2;
+            let snapshot = super::super::ir::Snapshot {
+                operations: super::super::resources::owned(&[
+                    if empty {
+                        Operation::LoadNil {
+                            dest: R(0),
+                            count: 0,
+                        }
+                    } else {
+                        Operation::LoadBool {
+                            dest: R(0),
+                            value: true,
+                            skip_next: false,
+                        }
+                    },
+                    Operation::Return {
+                        start: R(0),
+                        count: VarCount::constant(0),
+                    },
+                ]),
+                constants: super::super::resources::owned(&[]),
+                registers: 1,
+                upvalues: 0,
+                prototypes: 0,
+            };
+            snapshot.verify().unwrap();
+            let graph = FlowGraph::new(&snapshot).unwrap();
+            let ledger = snapshot.operations.allocator().0.clone();
+            let before = ledger.current();
+            let allowance = if empty {
+                0
+            } else {
+                2 * std::mem::size_of::<Store>()
+                    + if stage == 1 {
+                        std::mem::size_of::<TransferWrite>()
+                    } else {
+                        0
+                    }
+            };
+            let peak = ledger.peak();
+            ledger.set_limit(before + allowance);
+            assert!(matches!(
+                Stores::new(&graph, &snapshot),
+                Err(JitError::ResourceLimit("scalar tag verification"))
+            ));
+            assert_eq!(ledger.current(), before);
+            assert_eq!(ledger.peak(), peak.max(before + allowance));
             assert_eq!(ledger.refusals(), 1);
         }
     }
