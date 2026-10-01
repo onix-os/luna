@@ -557,6 +557,16 @@ sensitive to bypassing the check. Full GNU/musl gates, selected pure Miri and
 scalar/admission campaigns pass. This does not complete opcode/source-map,
 runtime helper/GC/alias/liveness, compiler accounting or Phase 3 acceptance.
 
+Budgeted physical predecessor graphs (`e5af701`) replace standalone predecessor
+CFG allocations in entry/helper/transfer/comparison/loop and scalar guard checks.
+The sorted edge vector reserves raw terminal-destination count before allocation,
+deduplicates by target/instruction and retains capacity charges. Five pure graph
+fixtures (including 64 cyclic/layout-order cases) match Cranelift; quota/global
+allocation/malformed-target rollback and native refusal before codegen pass.
+Budget-bypass mutations fail the accounting oracles. Full GNU/musl, selected Miri
+and unchanged scalar/heap campaigns pass. Dominance CFG/tree, backend internals,
+fixed owners and combined-host accounting remain open; Phase 3 is not complete.
+
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
@@ -6058,6 +6068,113 @@ mix timings/profiles with builds or tests.
 - `Makefile` — bounded default heap case count forwarded to recursive Make.
 - `JIT.md`, `PLAN_JIT.md` — exact acceptance scope and open obligations.
 - `target/jit-evidence/heap-expanded/` — local raw revision-scoped artifacts.
+
+### Budgeted physical predecessor graph decision
+
+Timing preflight found a live Molla cargo/test job; no benchmark/profile may run
+alongside it. The current opt-level-3 benchmark build completed without timing.
+Proceed with controllable compiler accounting: replace standalone Cranelift CFG
+allocations used only for predecessor queries with a Luna-owned, quota-charged
+sorted edge vector. Match terminal-branch predecessor semantics, instruction-order
+iteration and duplicate-destination deduplication; retain raw edge capacity charges.
+Use the graph in entry/helper/transfer/loop/comparison and scalar guard queries.
+Cranelift CFG/dominator structures needed by dominator computation remain outside
+the ledger, as do backend internals and fixed owners; this is not complete
+compiler/RSS accounting. Differential graph fixtures, quota/allocation rollback
+and native refusal-before-mapping tests must precede acceptance. No performance
+gain is claimed without an uncontended matched measurement.
+
+### Predecessor accounting and mutation review
+
+Five pure graph tests match Cranelift predecessor order/sets for duplicate
+branches/tables, sparse and unused blocks, unreachable islands and 64 deterministic
+cyclic/layout-order fixtures. They check exact retained-capacity charges, empty
+zero-quota construction, quota and underlying allocation refusal, malformed-target
+rollback and final zero usage. One actual backend test exhausts the snapshot
+ledger before graph construction and requires the predecessor-specific refusal,
+zero native mapping bytes and exact snapshot baseline restoration.
+
+Temporarily using a fresh unlimited ledger instead of the caller's allocator
+failed four pure tests (empty graph passed) and the native refusal test; both Make
+lanes exited 2. The native test distinguished later scalar-workspace refusal from
+the required earlier predecessor refusal. The shared allocator was restored after
+the exact owned mutation job completed. No corrupted native code was executed.
+Logs: `/tmp/luna-jit-preds-bypass-pure.log` and
+`/tmp/luna-jit-preds-bypass-backend.log`. Pure graph tests join selected Miri; the
+backend refusal fixture constructs a native module and is not in that Miri lane.
+
+The opt-level-3 benchmark binary built at clean revision `da18229` is frozen under
+`target/jit-evidence/preds/benchmark-baseline/` with its hash/build log. It has not
+been timed; global preflight still observes unrelated Molla builds/tests.
+
+### Budgeted predecessor graph acceptance session (2026-10-01)
+
+## Goal
+Continue full plan implementation on `feat/native-jit`: prepare matched current
+performance artifacts and reduce controllable compiler-accounting gaps. The
+previous goal turn made progress with expanded lifecycle coverage and acceptance.
+
+## Instructions
+Use Nix/Make and patch tools, keep unsigned title-only incremental commits, and
+preserve all final requirements and frozen performance thresholds. Global timing
+guards include unrelated projects; do not stop their jobs or silently ignore them.
+
+## Discoveries
+- Cranelift predecessor sets are keyed by the terminal branch instruction;
+  repeated destinations from that instruction count once, in instruction order.
+  A sorted budgeted vector reproduces those queries without uncharged standalone
+  CFG forests. Raw capacity remains charged after deduplication.
+- Dominator computation still needs Cranelift CFG/tree storage. Replacing query
+  graphs does not establish complete compiler memory, fixed-owner or RSS bounds.
+- Initial global preflight observed Molla tests. After owned acceptance jobs
+  completed, a fresh preflight observed an unrelated `make run` (PID 2718237).
+  Seven known sleeping provider orphans remained PPID 1 with zero CPU ticks.
+  No benchmark/profile was launched; no other process was stopped.
+
+## Accomplished
+- Source changes committed separately at `e5af701`. Six tests cover five pure
+  graph fixtures and native predecessor-specific refusal before codegen/mapping.
+  Temporary unlimited-ledger mutation failed four pure tests and the native
+  refusal test; shared allocation was restored before focused acceptance.
+- Full owned session `98103` completed GNU and musl with exit 0: **4430 passing
+  tests / 422 suite results / 24 ignored per platform**. Existing Clippy warnings
+  remain; no new predecessor-module warnings or strict acceptance is claimed.
+- Miri session `95612` completed with exit 0: **216 tests / 26 suite results /
+  0 ignored**, pinned nightly 2026-08-16 / rustc `67854e511`, default empty flags.
+  Five graph tests join the pure lane; generated code and native module refusal
+  are not executed under Miri.
+- Supervised session `86202` completed all four platform/workload lanes with
+  exit 0. Each platform passes **4096 scalar/admission cases / 1641780 kernel
+  invocations / 4758522 native instructions**, and **96 heap cases / 6344 main
+  slices / 725 yields / 1633 callbacks / 96 retirements / 964 host reads /
+  2809 userdata observations / 65297 native instructions**. Both platforms reuse
+  the same seeds/programs, not independently unique-program counts.
+- Baseline opt-level-3 benchmark build `96411` completed at clean `da18229`.
+  Candidate build `32524` completed at `e5af701`. Frozen binaries, source IDs,
+  hashes and build logs are in `target/jit-evidence/preds/benchmark-baseline/`
+  and `benchmark-candidate/`; neither was timed.
+- Revision-scoped focused/mutation/full/Miri/smoke/long-run artifacts, recursive
+  source hashes and fresh timing preflight are archived in
+  `target/jit-evidence/preds/`. Hashes match after all gates. All owned jobs,
+  including the abandoned broad source-location search, are terminal.
+- No performance improvement, ARM/hosted run or whole-plan acceptance is claimed.
+
+## Next Steps
+- Measure/profile the frozen matched artifacts only after fresh global pre/post
+  contention guards pass; preserve the current timing refusal as such, not a
+  performance result. Unmet runtime/shipping thresholds still require work.
+- Continue controllable dominance/compiler/fixed-owner and combined-host
+  accounting, runtime/helper/source-map/GC/alias/liveness review, broader guard
+  combinations and native platform evidence. The full goal remains active.
+
+## Relevant Files
+- `src/jit/preds.rs` — charged sorted terminal-edge graph and pure fixtures.
+- `src/jit/tags.rs`, `entry_flow.rs`, `helper_flow.rs` — budgeted query integration.
+- `src/jit/backend.rs` — predecessor quota hook and no-mapping refusal test.
+- `src/jit/resources.rs` — test-only underlying allocation-failure setter.
+- `Makefile` — predecessor targets and selected pure Miri wiring.
+- `JIT.md`, `PLAN_JIT.md` — accepted scope and remaining obligations.
+- `target/jit-evidence/preds/` — local raw evidence and untimed benchmark binaries.
 
 ## 15. Primary references
 
