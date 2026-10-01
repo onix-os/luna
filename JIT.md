@@ -351,7 +351,20 @@ Use `make jit-boundary`, `make jit-native`, `make jit-heap`, `make jit-policy`, 
 
 `make jit-verify` also runs `make jit-fuzz-smoke` on supported Linux hosts. This initial deterministic campaign creates 24 bounded scalar CFGs for each of four seeds and tests every entry (including unknown PCs), seven budgets, integer/float/mixed register inputs, guard exits and code reclamation against the Rust boundary model. Admission mutations check malformed operands, branches, register capacity and noncanonical descriptors; the backend revalidates before compiler setup or native allocation. Workers verify their inherited resource limits. Every worker has a separate process, 30-second CPU and 60-second wall deadline, 2 GiB address-space limit, disabled core dumps and 16 MiB output limit. Nonzero exit, signal, timeout or mismatch fails the gate; injected failure tests verify supervisor behavior. Seed-specific logs, campaign settings and replay commands live under `target/jit-evidence/fuzz/`.
 
-Run a larger bounded campaign with `make jit-fuzz FUZZ_TARGET=all FUZZ_CASES=1024 FUZZ_SEEDS=0,1,42,0xdeadbeef`; `FUZZ_TARGET` may also be `admission` or `scalar`. Cases are bounded to 1..10000 per seed and 1..64 seeds. Fixed per-worker resource ceilings remain in force, so an overlarge campaign can legitimately fail on its deadline. This seeded harness is not coverage-guided fuzzing, does not execute mutated IR in Luna's reference VM, and does not yet cover the full heap/callback/lifecycle mutation corpus or Miri/platform acceptance.
+Run a larger bounded campaign with `make jit-fuzz FUZZ_TARGET=all FUZZ_CASES=1024 FUZZ_SEEDS=0,1,42,0xdeadbeef`; `FUZZ_TARGET` may also be `admission`, `scalar` or `heap`. `all` retains its admission/scalar meaning for existing replay commands. Cases are bounded to 1..10000 per seed and 1..64 seeds. Fixed per-worker resource ceilings remain in force, so an overlarge campaign can legitimately fail on its deadline. This seeded harness is not coverage-guided fuzzing, does not execute mutated IR in Luna's reference VM, and does not establish the full heap/callback/lifecycle mutation corpus or Miri/platform acceptance.
+
+`make jit-fuzz-heap FUZZ_CASES=32` runs a separate, more expensive heap/lifecycle
+campaign; `jit-fuzz-smoke` includes eight cases per seed. Four parameterized source
+families exercise nested/cyclic aliases, open/closed upvalues, metamethod fallback,
+weak tables and catchable nil-key errors with close handlers. Fresh Off/Auto states
+compare each slice's fuel/mode, ordered Rust callback effects, selected global
+state, yielded values and final results. Every slice includes full host GC and
+replacement of a rooted table field; one host boundary retires/reprepares code.
+Each case requires native table/allocation/upvalue counters, suspension and
+mapping/snapshot/queue cleanup. Heap counters are reported separately from scalar
+kernel invocations. `make jit-heap-campaign-tests` exercises all four families for
+three fixed seeds. Neither this finite corpus nor selected state observations
+prove arbitrary heap equivalence, full collector safety or compiler accounting.
 
 `make jit-bench` checks results and native counters. The first measured scalar tier improved the float loop substantially but regressed heap/callback-heavy workloads; **performance acceptance has not passed**. Repeated shipping and matched size/disabled-cost artifacts are recorded in `PLAN_JIT.md`; those runs include failed 5% compiled-Off controls at both profiles. Three dispatch restructuring experiments worsened the controls and were removed. Coverage, cold compilation cost, profitable mixed workloads and broader platform evidence still need completion. The plan's frozen performance thresholds are not waived.
 

@@ -61,6 +61,8 @@ $(info ------------------------------------------)
 .PHONY: jit-entry-flow jit-entry-flow-backend
 .PHONY: jit-region-flow jit-region-flow-backend
 .PHONY: jit-source-binding jit-source-binding-backend
+.PHONY: jit-fuzz-heap
+.PHONY: jit-heap-campaign-tests
 .PHONY: jit-clippy
 
 ci-check:
@@ -365,6 +367,13 @@ jit-fuzz-smoke:
 	@case "$$(uname -sm)" in 'Linux x86_64'|'Linux aarch64') ;; *) echo 'Native fuzz requires supported Linux host'; exit 2;; esac
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::fuzz::supervisor_rejects_panics_signals_and_timeouts -- --exact --ignored --nocapture
 	@$(MAKE) --no-print-directory jit-fuzz FUZZ_CASES=24
+	@$(MAKE) --no-print-directory jit-fuzz-heap FUZZ_CASES=8
+
+jit-fuzz-heap:
+	@$(MAKE) --no-print-directory jit-fuzz FUZZ_TARGET=heap
+
+jit-heap-campaign-tests:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::fuzz::heap::
 
 jit-fuzz:
 	@case "$$(uname -sm)" in 'Linux x86_64'|'Linux aarch64') ;; *) echo 'Native fuzz requires supported Linux host'; exit 2;; esac
@@ -573,8 +582,9 @@ help:
 	@echo "  jit-boundary Test native exits against the Rust boundary model"
 	@echo "  jit-native   Run integrated native execution and lifecycle tests"
 	@echo "  jit-numeric  Check reference and exact native numeric comparisons"
-	@echo "  jit-fuzz-smoke Run supervised admission/scalar fuzz smoke"
+	@echo "  jit-fuzz-smoke Run supervised admission/scalar/heap smoke"
 	@echo "  jit-fuzz     Run bounded seeded campaigns (FUZZ_TARGET/CASES/SEEDS)"
+	@echo "  jit-fuzz-heap Run supervised heap/lifecycle campaigns"
 	@echo "  jit-heap     Run native heap/upvalue mutation and GC tests"
 	@echo "  jit-upvalues Test upvalue aliases, foreign stacks and GC"
 	@echo "  jit-abi      Test scalar and reference ABI conversions"

@@ -30,6 +30,8 @@ const LIMITS: [(libc::c_int, libc::rlim_t); 4] = [
     (libc::RLIMIT_FSIZE as _, 16 * 1024 * 1024),
 ];
 
+mod heap;
+
 struct Random(u64);
 
 impl Random {
@@ -361,12 +363,20 @@ fn worker() {
         .unwrap();
     assert!((1..=10000).contains(&cases));
     let target = std::env::var("LUNA_JIT_FUZZ_TARGET").unwrap_or_else(|_| "all".into());
-    assert!(matches!(target.as_str(), "all" | "admission" | "scalar"));
+    assert!(matches!(
+        target.as_str(),
+        "all" | "admission" | "scalar" | "heap"
+    ));
     let mut random = Random(seed);
     let mut invocations = 0;
     let mut instructions = 0;
+    let mut heap_counts = heap::Counts::default();
     for case in 0..cases {
         eprintln!("seed={seed} target={target} case={case}/{cases}");
+        if target == "heap" {
+            heap_counts.add(heap::run(&mut random, seed, case));
+            continue;
+        }
         let mut snapshot = random.snapshot();
         let snapshot_ledger = snapshot.operations.allocator().0.clone();
         if target != "admission" {
@@ -385,10 +395,15 @@ fn worker() {
             "seed={seed} case={case}: snapshot storage remained charged"
         );
     }
-    if target != "admission" {
+    if matches!(target.as_str(), "all" | "scalar") {
         assert!(instructions > 0);
     }
-    eprintln!("completed seed={seed} cases={cases} target={target} kernel_invocations={invocations} native_instructions={instructions}");
+    if target == "heap" {
+        let h = heap_counts;
+        eprintln!("heap completed seed={seed} cases={} slices={} yields={} callbacks={} retirements={} native_instructions={} table_reads={} table_writes={} allocations={} upvalue_reads={} upvalue_writes={} declines={}", h.cases, h.slices, h.yields, h.callbacks, h.retirements, h.instructions, h.reads, h.writes, h.allocations, h.upvalue_reads, h.upvalue_writes, h.declines);
+    } else {
+        eprintln!("completed seed={seed} cases={cases} target={target} kernel_invocations={invocations} native_instructions={instructions}");
+    }
 }
 
 fn directory() -> PathBuf {
@@ -516,7 +531,10 @@ fn supervisor() {
         .unwrap();
     assert!((1..=10000).contains(&cases));
     let target = std::env::var("LUNA_JIT_FUZZ_TARGET").unwrap_or_else(|_| "all".into());
-    assert!(matches!(target.as_str(), "all" | "admission" | "scalar"));
+    assert!(matches!(
+        target.as_str(),
+        "all" | "admission" | "scalar" | "heap"
+    ));
     fs::write(directory.join("campaign.txt"), format!("seeds={seeds:?}\ncases_per_seed={cases}\ntarget={target}\nwall_seconds_per_worker=60\ncpu_seconds_per_worker=30\naddress_space_bytes=2147483648\n" )).unwrap();
     let platform = format!(
         "{}-unknown-linux-{}",
