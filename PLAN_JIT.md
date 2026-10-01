@@ -460,6 +460,13 @@ or constant pairs, actual consumer dependency and exact expected record counts.
 Constant-only unreachable arms have separate bounded proof. Complete payload
 selection/operation equivalence, typed dataflow, aliasing and liveness remain open.
 
+Float conversion selector verification (`16356d8`) now proves each admitted tag's
+chosen F64 arm uses signed integer conversion or Number bitcast of the recorded
+payload. Explicit/source-counted obligations cannot disappear via reclassification.
+Equivalent inverted selectors are accepted; backend corruption tests refuse
+swapped arms and unsigned conversion before codegen/mapping. This does not yet
+tie every arithmetic/comparison operand or opcode to its decoded source operation.
+
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
@@ -4219,6 +4226,108 @@ environment; no performance measurements alongside tests/builds.
 - `JIT.md`, `PLAN_JIT.md` — accurate contract, phase status and acceptance evidence.
 - `target/jit-evidence/numeric-inputs/` — local raw revision-scoped artifacts;
   generated evidence is not committed as source.
+
+### Float-conversion admission decision
+
+Verify the actual recorded F64 selector for every admitted numeric tag. Bounded
+predicate evaluation must choose signed I64-to-F64 conversion for Integer and
+I64-to-F64 bitcast for Number, each using the recorded payload. Allow equivalent
+inverted selector/arm polarity, but refuse unknown conditions, wrong tags,
+unsigned conversion, wrong payloads or swapped arms. Reuse the existing charged
+records and bounded predicate machinery; add no unaccounted verification buffers.
+Inject selector and conversion corruption after frontend finalization, and require
+pre-codegen refusal without executing malformed kernels. This extends conversion
+semantics, not full arithmetic/comparison/source-operation equivalence or aliasing.
+
+Float records carry an explicit conversion obligation and a source-derived exact
+count. Do not infer the obligation only from the emitted result type: a corrupted
+selector type must not make its proof silently disappear. All admitted reachable
+F64 numeric selectors require the marker; marked consumers must retain F64 Select
+shape. The larger record layouts remain charged by their actual allocation size.
+
+### Float-conversion verification session
+
+#### Goal
+
+Extend numeric admission to actual float-conversion semantics and verify the
+committed increment without reducing the full native-JIT objective.
+
+#### Instructions
+
+Use Make/Nix for relevant tasks, patch tools for edits and incremental unsigned,
+title-only Conventional Commits. Preserve frozen performance gates and distinguish
+component evidence from full-plan acceptance. No sub-agents or performance runs.
+
+#### Discoveries
+
+- The previous goal turn was progress: full numeric-input platform/Miri gates and
+  seeded campaigns were completed and committed. This turn adds actual semantics.
+- Inferring a conversion obligation only from the emitted type permits that
+  obligation to disappear when the shape changes. Explicit markers and a
+  source-derived exact count reject missing/reclassified conversions.
+- Conditional semantic proof must check only admitted tags; impossible unused
+  arms are harmless pure conversions. Correctly inverted selector/arm pairs remain
+  valid. Unknown predicates, wrong-tag tests and over-budget proofs are refused.
+
+#### Accomplished
+
+- Committed `16356d8` (`feat(jit): verify float conversion selectors`), unsigned
+  and title-only. Production records explicitly mark float conversion; each
+  possible Integer/Number tag must select the correct F64 operation on the exact
+  payload. Existing charged records/workspaces suffice; their larger allocations
+  remain quota-accounted. No production kernel operations or ABI were changed.
+- Added five pure-IR tests covering polarity, constants, unknown/wrong-tag/deep
+  predicates, swapped arms, unsigned/foreign payloads, unreachable alternatives
+  and missing/reclassified obligations. Added two independent actual-backend
+  corruption regressions plus the `make jit-float-input` gate.
+- Disabling only the float proof produced four pure-test failures and both
+  backend corruption failures (each Make gate exited two). Restored the proof;
+  focused `fmt fmt-check jit-tags jit-ir jit-boundary jit-heap jit-resources
+  jit-clippy` exited zero: 250 passes / 20 suite results / 4 ignored. Repeated
+  namespace results are not distinct tests. Malformed kernels were never executed.
+- Full `nix develop -c make jit-verify clippy jit-clippy` and the same command with
+  `TARGET=x86_64-unknown-linux-musl` each exited zero: 3134 passed / 421 suite
+  results / 24 ignored. The inherited warning backlog remains, not strict lint
+  acceptance. Pinned stable toolchain is Rust/Cargo 1.97.1.
+- Selected `nix develop .#miri -c make jit-miri
+  MIRI_DIR=target/jit-evidence/float-inputs/miri` exited zero: 89 passing tests
+  across 14 namespaces, default `MIRIFLAGS`, pinned Miri `67854e511`. These selected
+  Rust/pure-IR cases do not execute generated native code.
+- Ran `nix develop -c make jit-fuzz FUZZ_TARGET=all FUZZ_CASES=1024
+  FUZZ_SEEDS=0,1,0xdeadbeef,0xffffffffffffffff` and the same command with the musl
+  target. Both exited zero. Each checks 4096 generated snapshots plus malformed
+  mutations, three input variations, every entry PC and seven budgets. Each
+  reports 1641780 kernel invocations / 4758522 completed native instructions and
+  released mapping/metadata/snapshot charges. Identical seeds are reused across
+  platforms; this is 4096 distinct generated cases, not 8192 unique programs.
+- Archived full/focused/mutation logs, both campaigns, environment and source
+  identity/hashes under `target/jit-evidence/float-inputs/`. Rechecked hashes after
+  all runs: code, Makefile and lockfile match the recorded committed revision.
+  Only PLAN documentation was dirty during full verification. Owned focused
+  sessions `40277`, `17010`, `78166`, mutation sessions `69984`, `49916`, full
+  session `41074`, Miri `14278` and campaign `76587` are terminal; no owned job remains.
+- Updated Phase 3 and the public contract/evidence. No benchmark/profile was
+  run; prior performance failures and broader platform/accounting gaps remain.
+
+#### Next Steps
+
+- Tie actual arithmetic SSA operand positions and opcodes to decoded source
+  operations; add wrong-opcode/wrong-register corruption refusals. Current
+  conversion semantics do not prove complete source-operation equivalence.
+- Complete remaining transition/error/source-map/alias/liveness proofs, compiler
+  and combined-host accounting, broader heap/lifecycle hardening and native ARM64
+  and hosted evidence when authorized/available.
+- Resolve table/upvalue/callback and compiled-disabled shipping performance
+  failures with matching controlled artifacts. Keep full-plan acceptance open.
+
+#### Relevant Files
+
+- `src/jit/tags.rs` — explicit float obligations, bounded selector/payload proof,
+  quota-charged records and five new pure-IR tests.
+- `src/jit/backend.rs` — float recording, finalized-IR corruption and regressions.
+- `Makefile` — `jit-float-input`, invoked by the existing numeric/tag gates.
+- `JIT.md`, `PLAN_JIT.md` — contract, phase status, verified scope and exclusions.
+- `target/jit-evidence/float-inputs/` — local raw verification and campaign artifacts.
 
 ## 15. Primary references
 
