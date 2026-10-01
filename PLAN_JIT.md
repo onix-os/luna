@@ -448,6 +448,14 @@ coverage (`390b4f0`) preserve interpretation and code lifetime. These are struct
 bounds, not compiler working-memory accounting, CPU isolation or full Phase 3
 acceptance.
 
+Actual scalar-tag SSA store verification (`e747b07`) now consumes constants,
+phi unions and dominating single-predecessor guard facts before code generation.
+It checks every scratch-tag store against its opcode's admitted scalar tags,
+refuses reference contamination and bypass/merge/duplicate-edge guard laundering,
+and charges Luna-owned records/worklists to the snapshot ledger. This relies on
+canonical ABI v3 input tags and trusted helper packing, not arbitrary native ABI
+buffers. Payload typing, input-consumer proofs, aliasing and liveness remain open.
+
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
@@ -700,7 +708,7 @@ Do not disable tests, lower safety guarantees, catch arbitrary crashes as succes
 | 6: heap/GC integration | IN PROGRESS | Native heap paths, barriers, GC/mutation/invalidation stress | Fresh helper guards preserve weak/readonly/intercept/invalid-key behavior. Every-slice GC, open/closed upvalues, pending-scalar panic inspection, debug local/upvalue join and finalizer-only native upvalue writes pass. Shared-cell tests additionally prove exact operation counts and write visibility across error guards, foreign stacks, GC and Rust reentry. Broader interleaved executors, mode mutations and exhaustive guard coverage remain open. |
 | 7: Auto policy | IN PROGRESS | Nonblocking stepping, owned compile work, limits/backoff, hot promotion | Bounded hot requests and explicit outside-arena service; configuration retirement, queue/attempt reductions, typed quota refusal and reset tests pass. LRU retry, charged recency, sparse compaction, refusal backoff and source collection preserve leases/live identities. Real hot queued-source GC tests (`5570951`) cancel dead requests without snapshot/compiler work, preserve a live peer's queue/identity and reclaim all accounted storage after its final drop. Injected blocked compiler and complete resource/diagnostic coverage remain open. |
 | 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Slice leases, ABI v3, operand synchronization and tiered scratch pass correctness. Latest frozen `7c2d9af` native table/upvalue/callback gates fail in both eleven-pair runs; metamethod passes narrowly. Matched GNU speed-profile compiled-Off/no-JIT controls at `f347245` pass all nine cases twice; shipping fails three/five cases, including upvalues 1.1790/1.1743. These controls were not refreshed for compiler-work commits, so complete disabled-JIT acceptance remains unmet. Both checkers gate on ratios of medians, not their separately printed median-paired fields. Reference-move specialization remains historically rejected. Separate cold/service/slice/cache-churn and suspension observations pass, not paired release acceptance. Perf counters remain permission-denied; hardening/resource/performance work stays open. |
-| 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Limited supervised admission/scalar campaigns test signals/timeouts/inherited limits; a five-seed 5120-kernel campaign verifies exits/slots/reclamation. Latest full GNU/musl x86-64 gates on `390b4f0` pass 2999 tests/421 suite results each, 24 ignored; allocation/protection refusal is tested. Pinned default-seed Rust-only Miri passes 67 tests/thirteen namespaces, including owned flow/block/exit/access/work admission and pure IR-emitter rejection, reference Move alias/scalar/panic checks and queued-source retirement. Generated machine code, active native lease invocation, coroutine/foreign-await scenarios and executable finalization are not Miri-covered. Broader heap/lifecycle fuzz, complete unsafe review and actual ARM64/hosted evidence remain open. |
+| 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Limited supervised admission/scalar campaigns test signals/timeouts/inherited limits; a five-seed 5120-kernel campaign verifies exits/slots/reclamation. Latest full GNU/musl x86-64 gates on `e747b07` pass 3054 tests/421 suite results each, 24 ignored; allocation/protection refusal is tested. Pinned default-seed Rust-only Miri passes 76 tests/fourteen namespaces, including owned flow/block/exit/access/work admission, scalar-tag SSA/guard/phi verification and pure IR-emitter rejection, reference Move alias/scalar/panic checks and queued-source retirement. Generated machine code, active native lease invocation, coroutine/foreign-await scenarios and executable finalization are not Miri-covered. Broader heap/lifecycle fuzz, complete unsafe review and actual ARM64/hosted evidence remain open. |
 | 10: release acceptance | IN PROGRESS | Complete gates, thresholds, docs/examples, actual CI | Prepared example and resource/security documentation exist. Active workflow wiring runs full GNU/musl x86-64 and GNU ARM64 gates, builds matched shipping artifacts and uploads evidence. Workflow lint/local musl integration pass; repeated local shipping/size/disabled-cost evidence is recorded. Actual hosted/ARM64 results, complete hardening and both native/disabled performance acceptance remain missing. |
 
 Status values: TODO, IN PROGRESS, COMPLETE, or BLOCKED with a concrete reason. Attach toolchain, platform, commands, counts, exclusions, and evidence paths when updating a row. COMPLETE requires the stated phase exit, not a percentage estimate.
@@ -3952,6 +3960,106 @@ Commits. Preserve the full scope, frozen thresholds and evidence exclusions.
 - `tests/jit_resources.rs` — public cap-lowering and live-source preservation.
 - `PLAN_JIT.md` — phase/evidence ledger and session checkpoint.
 - `target/jit-evidence/compiler-work/` — current source, environment and raw gates.
+
+### Dynamic scalar-tag validation decision
+
+Validate actual frontend tag stores before code generation, not only known tags
+passed to `store_typed`. Record each emitted tag store's opcode admission, require
+complete coverage of actual scratch-tag stores and infer its possible tags from
+SSA constants, tag-slot loads and phi inputs. Narrow loaded tags only through a
+single-predecessor guarded edge that dominates the store. Scalar writes must
+exclude references and fit the originating opcode's admitted result tags.
+Use fallible snapshot-ledger storage for Luna-owned verification records and
+worklists. Cranelift CFG/dominator allocations retain the documented compiler-
+working-memory exclusion; this pass is not full typed SSA, payload/liveness or
+alias verification. Keep native ABI/fuel/collector behavior unchanged. Test guard
+bypass/inversion, phi contamination and unrecorded stores before accepting it.
+
+### Session summary: actual scalar-tag SSA verification
+
+#### Goal
+
+Continue the full plan on `feat/native-jit`, closing dynamic scalar-store admission
+gaps without calling this checkpoint a finished JIT. The preceding goal turn made
+progress through committed resource/lease tests and full verification evidence.
+
+#### Instructions
+
+Use Make/Nix, patch edits, functional comments and incremental unsigned title-only
+Conventional Commits. Preserve the complete objective and frozen acceptance gates.
+Engram tools remain unavailable; persist this checkpoint here instead.
+
+#### Discoveries
+
+- Known-output checks alone do not constrain raw dynamic stores. Actual frontend
+  SSA definitions and dominating guarded edges must establish their tag sets.
+- Guard facts cannot be inferred merely from a branch mentioning the value:
+  bypass/merged predecessors and identical true/false destinations invalidate the
+  claimed edge fact. Both true and false guarded successors need coverage.
+- Cranelift 0.136.1's immediate-compare builder produces a constant plus
+  `InstructionData::IntCompare`, not the initially assumed immediate-data variant.
+- Iterative phi traversal with per-query visitation epochs handles seeded cycles
+  without recursion and refuses unseeded/reference-contaminated tag unions.
+- Compiler CFG/dominator allocations are still excluded from the ledger. Input
+  tags are trusted canonical ABI v3 tags; this is not arbitrary-buffer validation,
+  payload typing, input-use verification, alias analysis or complete typed SSA.
+
+#### Accomplished
+
+- Added `src/jit/tags.rs` and wired its actual-store verification before code
+  generation. Luna-owned records and both work arrays are fallible/charged;
+  record-bound violations return compiler errors without growing the buffer.
+- Added nine valid-IR unit tests covering guard success/inversion/bypass, duplicate
+  edges, unrelated/non-tag loads, phi types/references/cycles, unrecorded/partial/
+  aliased stores and initial/partial workspace refusal with reclamation.
+- Added a test-only corruption hook and backend regression requiring refusal
+  before code generation/mapping. Deliberately ignoring the validator's result
+  makes that regression fail; restored propagation passes. No corrupted generated
+  code was executed by this test or its mutation run.
+- Added a public peak-minus-one workspace-quota test proving typed refusal, no
+  native mappings/entries or eviction, interpreted result 42 and same-prototype
+  native recovery after raising the quota and resetting attempts.
+- Added `make jit-tags` and `make jit-clippy`; IR and selected Miri gates include
+  the pure tag tests. Fixed the new test-module placement warning; current logs
+  contain no `src/jit/tags.rs` lint warning. Inherited strict-lint backlog remains.
+- Committed implementation/tests/docs as `e747b07`, unsigned and title-only.
+- Final focused `make fmt fmt-check jit-tags jit-ir jit-boundary jit-heap
+  jit-resources` passed 202 tests/sixteen suite results, exit 0 (`85820`).
+- Stable Nix GNU/musl `make jit-verify clippy jit-clippy` each passed 3054 tests
+  across 421 suite results, 24 ignored. Owned sequential session `54108` exited 0.
+- Pinned `nix develop .#miri -c make jit-miri
+  MIRI_DIR=target/jit-evidence/scalar-tags/miri` passed 76 Rust-only tests/fourteen
+  namespaces, default MIRIFLAGS, nightly 2026-08-16/rustc `67854e511`; owned
+  session `20103` exited 0. No generated execution/corruption-hook Miri claim.
+- Archived raw tests, lint, mutation, source identity and documentation-only dirty
+  status under `target/jit-evidence/scalar-tags/`. Earlier owned sessions `69135`
+  (initial API mismatch), `3500`, `56782`, `21537`, `24864`, `82840` (expected
+  mutation failure), `83184` and `84095` are terminal; no owned job remains.
+- No native/compiled-disabled performance measurements were rerun. Existing
+  revision-scoped failures remain acceptance failures, not waived thresholds.
+
+#### Next Steps
+
+- Extend typed input/payload proof to actual arithmetic/float consumers and
+  compound guard predicates; output tag validity does not prove operand semantics.
+- Complete path-sensitive transitions, liveness, aliasing and source-map review;
+  retain canonical full-frame materialization until those proofs support changes.
+- Complete compiler/fixed-owner/combined-host accounting and approved isolation,
+  broader heap/lifecycle campaigns and unsafe review.
+- Resolve native table/upvalue/callback and shipping disabled-cost performance
+  failures with matching controlled artifacts; collect actual ARM64/hosted evidence
+  when available and authorized. Keep the full goal active/incomplete.
+
+#### Relevant Files
+
+- `src/jit/tags.rs` — actual memory-store coverage, scalar tag inference, guard
+  dominance, phi traversal, charged workspaces and nine pure-IR tests.
+- `src/jit/backend.rs` — store records, pre-codegen consumption and corruption
+  regression; production ABI and emitted kernel operations remain unchanged.
+- `src/jit/access.rs`, `src/jit/mod.rs` — scalar masks, population counts and wiring.
+- `tests/jit_resources.rs` — public verifier-quota refusal and native recovery.
+- `Makefile`, `JIT.md`, `PLAN_JIT.md` — scoped gates, contract and evidence.
+- `target/jit-evidence/scalar-tags/` — source identity, raw gates and mutation logs.
 
 ## 15. Primary references
 
