@@ -344,6 +344,9 @@ impl Lua {
         stats.metadata_allocation_refusals = manager.metadata.0.refusals();
         stats.snapshot_bytes = manager.snapshots.0.current();
         stats.snapshot_peak_bytes = manager.snapshots.0.peak();
+        stats.accounted_jit_bytes = manager.host.current();
+        stats.accounted_jit_peak_bytes = manager.host.peak();
+        stats.host_allocation_refusals = manager.host.refusals();
         stats
     }
 
@@ -359,6 +362,43 @@ impl Lua {
         if !self.jit.active() {
             return Ok(0);
         }
+        self.with_jit_memory_limit(Self::service_jit_inner)
+    }
+
+    #[cfg(feature = "jit")]
+    fn with_jit_memory_limit<T>(
+        &mut self,
+        operation: impl FnOnce(&mut Self) -> Result<T, crate::jit::JitError>,
+    ) -> Result<T, crate::jit::JitError> {
+        if self.memory_limit.is_none() {
+            return operation(self);
+        }
+        self.refresh_jit_memory_limit();
+        let host = self.jit.0.borrow().host.clone();
+        let refusals = host.refusals();
+        let result = operation(self);
+        self.refresh_jit_memory_limit();
+        match result {
+            Err(crate::jit::JitError::ResourceLimit(_)) if host.refusals() != refusals => {
+                Err(crate::jit::JitError::ResourceLimit("host memory"))
+            }
+            other => other,
+        }
+    }
+
+    #[cfg(feature = "jit")]
+    fn refresh_jit_memory_limit(&self) {
+        self.jit
+            .0
+            .borrow()
+            .host
+            .set_limit(self.memory_limit.map_or(usize::MAX, |limit| {
+                limit.saturating_sub(self.total_memory())
+            }));
+    }
+
+    #[cfg(feature = "jit")]
+    fn service_jit_inner(&mut self) -> Result<usize, crate::jit::JitError> {
         if !self.jit_capabilities().supported_target {
             return Err(crate::jit::JitError::Unavailable(
                 "native backend unavailable on this target",
@@ -411,6 +451,11 @@ impl Lua {
         if !self.jit.active() {
             return Ok(0);
         }
+        self.with_jit_memory_limit(Self::prepare_jit_inner)
+    }
+
+    #[cfg(feature = "jit")]
+    fn prepare_jit_inner(&mut self) -> Result<usize, crate::jit::JitError> {
         if !self.jit_capabilities().supported_target {
             return Err(crate::jit::JitError::Unavailable(
                 "native backend unavailable on this target",
@@ -513,6 +558,17 @@ impl Lua {
         self.gc_metrics().total_allocation()
     }
 
+    /// Collector-tracked bytes plus charged JIT storage and page-rounded mappings.
+    ///
+    /// Without the JIT feature this equals `total_memory`. Compiler-owned storage,
+    /// fixed owners and allocator overhead are excluded; this is not process RSS.
+    pub fn accounted_memory(&self) -> usize {
+        let bytes = self.total_memory();
+        #[cfg(feature = "jit")]
+        let bytes = bytes.saturating_add(self.jit.0.borrow().host.current());
+        bytes
+    }
+
     /// Finish the current collection cycle completely, calls `ottavino_gc_arena::Arena::collect_all()`.
     pub fn gc_collect(&mut self) {
         if self.arena.collection_phase() != CollectionPhase::Sweeping {
@@ -533,6 +589,9 @@ impl Lua {
 
     #[cfg(feature = "jit")]
     fn retire_collected_jit_sources(&mut self) {
+        if self.memory_limit.is_some() {
+            self.refresh_jit_memory_limit();
+        }
         let maintain = self.jit.0.borrow_mut().needs_compaction();
         self.arena.mutate(|mc, state| {
             state
@@ -609,6 +668,11 @@ impl Lua {
             self.gc_step(Some(Self::AUTOMATIC_GRANULARITY));
         }
 
+        #[cfg(feature = "jit")]
+        if self.memory_limit.is_some() {
+            self.refresh_jit_memory_limit();
+        }
+
         r
     }
 
@@ -647,6 +711,10 @@ impl Lua {
             if self.arena.collection_phase() == CollectionPhase::Sleeping {
                 self.retire_collected_jit_sources();
             }
+            #[cfg(feature = "jit")]
+            if self.memory_limit.is_some() {
+                self.refresh_jit_memory_limit();
+            }
             return;
         }
 
@@ -671,6 +739,10 @@ impl Lua {
             });
             // Immediately transition to `CollectionPhase::Sweeping`.
             self.arena.mark_all().unwrap().start_sweeping();
+        }
+        #[cfg(feature = "jit")]
+        if self.memory_limit.is_some() {
+            self.refresh_jit_memory_limit();
         }
     }
 
@@ -738,6 +810,9 @@ impl Lua {
         const FUEL_PER_GC: i32 = 4096;
 
         loop {
+            if self.enforce_memory_limit(executor) {
+                return Ok(());
+            }
             #[cfg(feature = "jit")]
             let _ = self.service_jit();
             let mut fuel = Fuel::with(FUEL_PER_GC);
@@ -756,6 +831,7 @@ impl Lua {
             }
 
             if finished {
+                self.enforce_memory_limit(executor);
                 break;
             }
 
@@ -769,23 +845,29 @@ impl Lua {
             // allocation inside one slice can overshoot before anyone looks — but it exists at all
             // only because the stackless VM hands control back here on a schedule the host sets.
             // A refusing allocator would be exact and is a much larger change.
-            if let Some(limit) = self.memory_limit() {
-                if self.total_memory() > limit {
-                    // Collect before giving up: a script that has merely produced a lot of garbage
-                    // should not be killed for it. Two cycles, because two-stage finalization
-                    // resurrects finalizable objects on the first pass and only finds them dead on
-                    // the second.
-                    self.gc_collect();
-                    self.gc_collect();
-                }
-                if self.total_memory() > limit {
-                    self.enter(|ctx| ctx.fetch(executor).stop(&ctx));
-                    return Ok(());
-                }
+            if self.enforce_memory_limit(executor) {
+                return Ok(());
             }
         }
 
         Ok(())
+    }
+
+    fn enforce_memory_limit(&mut self, executor: &StashedExecutor) -> bool {
+        let Some(limit) = self.memory_limit else {
+            return false;
+        };
+        if self.accounted_memory() > limit {
+            #[cfg(feature = "jit")]
+            self.clear_jit_cache();
+            self.gc_collect();
+            self.gc_collect();
+        }
+        if self.accounted_memory() > limit {
+            self.enter(|ctx| ctx.fetch(executor).stop(&ctx));
+            return true;
+        }
+        false
     }
 
     /// The ceiling `finish` enforces on this instance's memory, if any.
@@ -793,14 +875,17 @@ impl Lua {
         self.memory_limit
     }
 
-    /// Stop execution once this instance is using more than `limit` bytes.
+    /// Stop execution once `accounted_memory` exceeds `limit` bytes.
     ///
     /// Enforcement is *slice-granular*: the check happens between `Executor::step` calls in
-    /// [`Lua::finish`], so usage can overshoot within a single slice. Pass `None` to remove it.
+    /// [`Lua::finish`], so usage can overshoot within a single slice. JIT admission
+    /// uses the remaining headroom at host boundaries. Pass `None` to remove it.
     ///
     /// A host driving `Executor::step` itself should do the same check in its own loop.
     pub fn set_memory_limit(&mut self, limit: Option<usize>) {
         self.memory_limit = limit;
+        #[cfg(feature = "jit")]
+        self.refresh_jit_memory_limit();
     }
 
     /// Run any `__gc` handlers left waiting by the collector.
@@ -903,10 +988,17 @@ impl Lua {
         const FUEL_PER_GC: i32 = 4096;
 
         loop {
+            if self.enforce_memory_limit(executor) {
+                return Ok(());
+            }
             #[cfg(feature = "jit")]
             let _ = self.service_jit();
             let mut fuel = Fuel::with(FUEL_PER_GC);
             let finished = self.enter(|ctx| ctx.fetch(executor).step(ctx, &mut fuel))?;
+
+            if self.enforce_memory_limit(executor) {
+                return Ok(());
+            }
 
             // Taken and awaited with the arena released. Nothing else may hold a `'gc` value here.
             let parked = self.enter(|ctx| ctx.fetch(executor).take_pending_future(&ctx));
@@ -919,15 +1011,8 @@ impl Lua {
                 self.run_finalizers();
             }
 
-            if let Some(limit) = self.memory_limit() {
-                if self.total_memory() > limit {
-                    self.gc_collect();
-                    self.gc_collect();
-                }
-                if self.total_memory() > limit {
-                    self.enter(|ctx| ctx.fetch(executor).stop(&ctx));
-                    return Ok(());
-                }
+            if self.enforce_memory_limit(executor) {
+                return Ok(());
             }
 
             if finished {
@@ -1025,5 +1110,77 @@ impl<'gc> State<'gc> {
             mutation,
             state: self,
         }
+    }
+}
+
+#[cfg(test)]
+mod memory_tests {
+    use super::*;
+
+    #[test]
+    fn gc_metric_is_preserved_with_additive_accounted_usage() {
+        let lua = Lua::empty();
+        assert_eq!(lua.total_memory(), lua.gc_metrics().total_allocation());
+        #[cfg(not(feature = "jit"))]
+        assert_eq!(lua.accounted_memory(), lua.total_memory());
+        #[cfg(feature = "jit")]
+        assert_eq!(
+            lua.accounted_memory(),
+            lua.total_memory() + lua.jit_stats().accounted_jit_bytes
+        );
+    }
+
+    #[cfg(feature = "jit")]
+    #[test]
+    fn accounted_usage_combines_children_and_limit_removal_restores_admission() {
+        use allocator_api2::vec::Vec;
+        let mut lua = Lua::empty();
+        let (metadata, snapshots) = {
+            let manager = lua.jit.0.borrow();
+            (manager.metadata.clone(), manager.snapshots.clone())
+        };
+        let mut first = Vec::<u8, _>::new_in(metadata.clone());
+        let mut second = Vec::<u8, _>::new_in(snapshots);
+        first.try_reserve_exact(8).unwrap();
+        second.try_reserve_exact(12).unwrap();
+        let stats = lua.jit_stats();
+        assert_eq!(
+            (
+                stats.metadata_bytes,
+                stats.snapshot_bytes,
+                stats.accounted_jit_bytes
+            ),
+            (8, 12, 20)
+        );
+        assert_eq!(lua.accounted_memory(), lua.total_memory() + 20);
+        lua.set_memory_limit(Some(lua.accounted_memory()));
+        let mut extra = Vec::<u8, _>::new_in(metadata);
+        assert!(extra.try_reserve_exact(1).is_err());
+        assert_eq!(lua.jit_stats().host_allocation_refusals, 1);
+        lua.set_memory_limit(None);
+        extra.try_reserve_exact(1).unwrap();
+        assert_eq!(lua.jit_stats().accounted_jit_bytes, 21);
+        drop((first, second, extra));
+        assert_eq!(lua.accounted_memory(), lua.total_memory());
+    }
+
+    #[cfg(feature = "jit")]
+    #[test]
+    fn arena_growth_and_collection_refresh_host_headroom() {
+        use allocator_api2::vec::Vec;
+        let mut lua = Lua::empty();
+        lua.gc_stop();
+        lua.set_memory_limit(Some(lua.total_memory() + 8192));
+        let retained = lua.enter(|ctx| ctx.stash(crate::String::from_slice(&ctx, vec![42; 16384])));
+        assert!(lua.accounted_memory() > lua.memory_limit().unwrap());
+        let allocator = lua.jit.0.borrow().metadata.clone();
+        let mut values = Vec::<u8, _>::new_in(allocator);
+        assert!(values.try_reserve_exact(8).is_err());
+        assert_eq!(lua.jit_stats().accounted_jit_bytes, 0);
+        drop(retained);
+        lua.gc_collect();
+        lua.gc_collect();
+        values.try_reserve_exact(8).unwrap();
+        assert!(lua.accounted_memory() <= lua.memory_limit().unwrap());
     }
 }

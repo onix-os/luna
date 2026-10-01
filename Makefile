@@ -65,6 +65,8 @@ $(info ------------------------------------------)
 .PHONY: jit-heap-campaign-tests
 .PHONY: jit-predecessors jit-predecessors-backend
 .PHONY: jit-dominance jit-dominance-backend
+.PHONY: jit-host-memory jit-host-ledger jit-host-native jit-host-finish
+.PHONY: jit-host-finish-async jit-host-reference
 .PHONY: jit-clippy
 
 ci-check:
@@ -77,7 +79,7 @@ jit-miri:
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::resources::tests -- --test-threads=1 --skip jit::resources::tests::installation_refusal_reclaims_generated_mappings 2>&1 | tee '$(MIRI_DIR)/jit::resources::tests.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::block_map_quota_refuses_before_host_setup_and_releases_storage -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/block-map-quota.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::entry_path_quota_refuses_before_host_setup_and_releases_storage -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/entry-path-quota.log'
-	@set -e -o pipefail; for filter in jit::abi::tests jit::helpers::tests jit::registry::tests jit::ir::tests jit::flow::tests jit::work::tests jit::preds::tests jit::dominance::tests jit::tags::tests jit::shape::tests jit::backend::comparison_tests jit::backend::loop_tests jit::backend::transfer_tests jit::backend::helper_flow_tests jit::backend::ownership_tests jit::access::tests jit::backend::access_tests jit::entry_flow::tests jit::entry_flow::region_tests jit::exit_flow::tests jit::exits::tests jit::backend::exit_tests jit::policy_tests finalizers::tests; do \
+	@set -e -o pipefail; for filter in jit::abi::tests jit::helpers::tests jit::registry::tests jit::ir::tests jit::flow::tests jit::work::tests jit::preds::tests jit::dominance::tests jit::tags::tests jit::shape::tests jit::backend::comparison_tests jit::backend::loop_tests jit::backend::transfer_tests jit::backend::helper_flow_tests jit::backend::ownership_tests jit::access::tests jit::backend::access_tests jit::entry_flow::tests jit::entry_flow::region_tests jit::exit_flow::tests jit::exits::tests jit::backend::exit_tests jit::policy_tests finalizers::tests lua::memory_tests; do \
 		$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' "$$filter" -- --test-threads=1 2>&1 | tee '$(MIRI_DIR)'/"$$filter".log; \
 	done
 
@@ -410,6 +412,28 @@ jit-policy:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::eviction_tests
 	@$(CARGO) test -p luna --features jit --test jit_policy $(TARGET_ARG)
 
+jit-host-memory:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) lua::memory_tests
+	@$(MAKE) --no-print-directory jit-host-ledger jit-host-native jit-host-finish
+
+jit-host-ledger:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::resources::tests
+
+jit-host-native:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::host_
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::eviction_tests::host_
+
+jit-host-finish:
+	@$(CARGO) test --locked -p luna --features jit --test jit_memory $(TARGET_ARG)
+	@$(MAKE) --no-print-directory jit-host-finish-async jit-host-reference
+
+jit-host-finish-async:
+	@$(CARGO) test --locked -p luna --features jit,async --test jit_memory $(TARGET_ARG)
+	@$(CARGO) test --locked -p luna --features jit,async --test memory_accounting $(TARGET_ARG)
+
+jit-host-reference:
+	@$(CARGO) test --locked -p luna --test memory_accounting $(TARGET_ARG)
+
 jit-resources:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::resources
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::registry::tests
@@ -618,6 +642,7 @@ help:
 	@echo "  jit-metrics-run Measure an existing artifact (JIT_METRICS_BINARY=path)"
 	@echo "  jit-metrics-tests Test scheduling observations and argument validation"
 	@echo "  jit-registry Test weak source registration and queued cancellation"
+	@echo "  jit-host-memory Test shared host quotas and finish/await enforcement"
 	@echo "  jit-ir       Test owned operands, flow, effects, exits and quota"
 	@echo "  jit-access   Test register, scalar output and helper admission"
 	@echo "  jit-exits    Test exit snapshots and retry-after-store rejection"

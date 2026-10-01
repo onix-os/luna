@@ -197,6 +197,9 @@ pub struct JitStats {
     pub metadata_bytes: usize,
     pub metadata_peak_bytes: usize,
     pub metadata_allocation_refusals: usize,
+    pub accounted_jit_bytes: usize,
+    pub accounted_jit_peak_bytes: usize,
+    pub host_allocation_refusals: usize,
     pub metadata_compaction_attempts: u64,
     pub metadata_compactions: u64,
     pub metadata_compaction_refusals: u64,
@@ -233,6 +236,7 @@ pub(crate) struct Manager {
     code_compactor: Compactor,
     pub(crate) metadata: BudgetAllocator,
     pub(crate) snapshots: BudgetAllocator,
+    pub(crate) host: Arc<Ledger>,
     pub(crate) memory: Arc<AtomicUsize>,
     #[cfg(all(
         target_os = "linux",
@@ -255,8 +259,9 @@ pub(crate) struct Manager {
 impl Default for Manager {
     fn default() -> Self {
         let config = JitConfig::default();
-        let metadata = BudgetAllocator(Ledger::new(config.max_metadata_bytes));
-        let snapshots = BudgetAllocator(Ledger::new(config.max_snapshot_bytes));
+        let host = Ledger::new(usize::MAX);
+        let metadata = BudgetAllocator(Ledger::child(config.max_metadata_bytes, host.clone()));
+        let snapshots = BudgetAllocator(Ledger::child(config.max_snapshot_bytes, host.clone()));
         Self {
             config,
             stats: JitStats::default(),
@@ -283,6 +288,7 @@ impl Default for Manager {
             memory_failure: backend::Failure::None,
             metadata,
             snapshots,
+            host,
             memory: Arc::new(AtomicUsize::new(0)),
             #[cfg(all(
                 target_os = "linux",
@@ -922,6 +928,88 @@ mod policy_tests {
 ))]
 mod eviction_tests {
     use super::*;
+
+    #[test]
+    fn host_ceiling_shrink_retains_live_lease_charges_until_final_drop() {
+        let mut lua = crate::Lua::empty();
+        lua.set_jit_config(JitConfig {
+            mode: JitMode::Auto,
+            ..Default::default()
+        })
+        .unwrap();
+        let (closure, identity, runtime) = lua.enter(|ctx| {
+            let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+            let identity = ctx
+                .jit_registry()
+                .borrow()
+                .identity(ctx, closure.prototype())
+                .unwrap();
+            (ctx.stash(closure), identity, ctx.jit().clone())
+        });
+        lua.prepare_jit().unwrap();
+        let lease = runtime.lookup(identity).unwrap();
+        lua.set_memory_limit(Some(0));
+        lua.set_jit_config(JitConfig::default()).unwrap();
+        lua.clear_jit_cache();
+        drop(closure);
+        lua.gc_collect();
+        lua.gc_collect();
+        assert!(runtime.lookup(identity).is_none());
+        let stats = lua.jit_stats();
+        assert!(stats.code_bytes > 0 && stats.metadata_bytes > 0);
+        assert_eq!(stats.snapshot_bytes, 0);
+        assert_eq!(
+            stats.accounted_jit_bytes,
+            stats.code_bytes + stats.metadata_bytes
+        );
+        assert_eq!(
+            lua.accounted_memory(),
+            lua.total_memory() + stats.accounted_jit_bytes
+        );
+        assert_executable(&lease);
+        drop(lease);
+        assert_eq!(lua.jit_stats().accounted_jit_bytes, 0);
+        assert_eq!(lua.accounted_memory(), lua.total_memory());
+    }
+
+    #[test]
+    fn host_charges_reclaim_after_mapping_or_protection_failure() {
+        for failure in [backend::Failure::Allocate, backend::Failure::Protect] {
+            let mut lua = crate::Lua::empty();
+            lua.set_jit_config(JitConfig {
+                mode: JitMode::Auto,
+                ..Default::default()
+            })
+            .unwrap();
+            let closure =
+                lua.enter(|ctx| ctx.stash(crate::Closure::load(ctx, None, b"return 42").unwrap()));
+            lua.enter(|ctx| ctx.jit().0.borrow_mut().memory_failure = failure);
+            assert!(matches!(lua.prepare_jit(), Err(JitError::Unavailable(_))));
+            let stats = lua.jit_stats();
+            assert_eq!(
+                (
+                    stats.code_bytes,
+                    stats.snapshot_bytes,
+                    stats.host_allocation_refusals
+                ),
+                (0, 0, 0)
+            );
+            assert_eq!(stats.accounted_jit_bytes, stats.metadata_bytes);
+            lua.enter(|ctx| ctx.jit().0.borrow_mut().memory_failure = backend::Failure::None);
+            lua.clear_jit_cache();
+            assert_eq!(lua.prepare_jit().unwrap(), 1);
+            let executor = lua.enter(|ctx| {
+                ctx.stash(crate::Executor::start(ctx, ctx.fetch(&closure).into(), ()))
+            });
+            assert_eq!(lua.execute::<i64>(&executor).unwrap(), 42);
+            assert!(lua.jit_stats().native_entries > 0);
+            drop(executor);
+            drop(closure);
+            lua.gc_collect();
+            lua.gc_collect();
+            assert_eq!(lua.jit_stats().accounted_jit_bytes, 0);
+        }
+    }
 
     #[test]
     fn collected_source_retirement_preserves_code_until_active_lease_drops() {

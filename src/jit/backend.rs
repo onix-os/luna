@@ -41,9 +41,11 @@ struct Memory {
 
 impl Memory {
     fn release(&mut self) {
+        let ledger = self.allocations.allocator().0.clone();
         for (mut provider, bytes) in self.allocations.drain(..) {
             unsafe { provider.free_memory() };
             self.total.fetch_sub(bytes, Ordering::Relaxed);
+            ledger.release_external(bytes);
         }
         self.allocations = BudgetVec::new_in(self.allocations.allocator().clone());
     }
@@ -76,9 +78,21 @@ impl JITMemoryProvider for Memory {
                 self.quota_refused.store(true, Ordering::Relaxed);
                 io::Error::other("native memory quota exhausted")
             })?;
+        if self
+            .allocations
+            .allocator()
+            .0
+            .reserve_external(bytes)
+            .is_err()
+        {
+            self.total.fetch_sub(bytes, Ordering::Relaxed);
+            self.quota_refused.store(true, Ordering::Relaxed);
+            return Err(io::Error::other("host memory quota exhausted"));
+        }
         #[cfg(test)]
         if self.failure == Failure::Allocate {
             self.total.fetch_sub(bytes, Ordering::Relaxed);
+            self.allocations.allocator().0.release_external(bytes);
             self.unavailable.store(true, Ordering::Relaxed);
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
@@ -94,6 +108,7 @@ impl JITMemoryProvider for Memory {
             Err(error) => {
                 unsafe { provider.free_memory() };
                 self.total.fetch_sub(bytes, Ordering::Relaxed);
+                self.allocations.allocator().0.release_external(bytes);
                 self.unavailable.store(true, Ordering::Relaxed);
                 Err(error)
             }
@@ -4240,6 +4255,49 @@ mod memory_tests {
             limit: pages * page as usize,
             page: page as usize,
         }
+    }
+
+    #[test]
+    fn host_page_quota_preserves_prior_segment_and_releases_parent_charges() {
+        let host = super::super::resources::Ledger::new(usize::MAX);
+        let metadata = super::super::resources::Ledger::child(65536, host.clone());
+        let mut memory = memory(4);
+        memory.allocations = BudgetVec::new_in(BudgetAllocator(metadata.clone()));
+        memory.allocations.try_reserve_exact(2).unwrap();
+        let baseline = host.current();
+        host.set_limit(baseline + memory.page);
+        memory.allocate(1, 1, JITMemoryKind::Executable).unwrap();
+        assert_eq!(host.current(), baseline + memory.page);
+        assert_eq!(metadata.current(), baseline);
+        assert!(memory.allocate(1, 1, JITMemoryKind::Executable).is_err());
+        assert_eq!(memory.allocations.len(), 1);
+        assert_eq!(memory.total.load(Ordering::Relaxed), memory.page);
+        assert_eq!(host.current(), baseline + memory.page);
+        assert_eq!(host.refusals(), 1);
+        assert!(memory.quota_refused.load(Ordering::Relaxed));
+        assert!(!memory.metadata_refused.load(Ordering::Relaxed));
+        unsafe {
+            memory.free_memory();
+            memory.free_memory();
+        }
+        assert_eq!((host.current(), metadata.current()), (0, 0));
+        assert_eq!(memory.total.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn host_page_reservation_rolls_back_on_provider_denial() {
+        let host = super::super::resources::Ledger::new(usize::MAX);
+        let metadata = super::super::resources::Ledger::child(65536, host.clone());
+        let mut memory = memory(4);
+        memory.allocations = BudgetVec::new_in(BudgetAllocator(metadata.clone()));
+        memory.failure = Failure::Allocate;
+        assert!(memory.allocate(1, 1, JITMemoryKind::Executable).is_err());
+        assert_eq!(memory.total.load(Ordering::Relaxed), 0);
+        assert_eq!(host.current(), metadata.current());
+        assert!(host.peak() >= metadata.current() + memory.page);
+        assert_eq!(host.refusals(), 0);
+        drop(memory);
+        assert_eq!((host.current(), metadata.current()), (0, 0));
     }
 
     #[test]

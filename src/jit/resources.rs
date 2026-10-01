@@ -11,6 +11,7 @@ use allocator_api2::alloc::{AllocError, Allocator, Global};
 use ottavino_gc_arena::Collect;
 
 pub(crate) struct Ledger {
+    parent: Option<Arc<Ledger>>,
     current: AtomicUsize,
     peak: AtomicUsize,
     limit: AtomicUsize,
@@ -27,7 +28,16 @@ impl Ledger {
     }
 
     pub fn new(limit: usize) -> Arc<Self> {
+        Self::with_parent(limit, None)
+    }
+
+    pub fn child(limit: usize, parent: Arc<Ledger>) -> Arc<Self> {
+        Self::with_parent(limit, Some(parent))
+    }
+
+    fn with_parent(limit: usize, parent: Option<Arc<Ledger>>) -> Arc<Self> {
         Arc::new(Self {
+            parent,
             current: AtomicUsize::new(0),
             peak: AtomicUsize::new(0),
             limit: AtomicUsize::new(limit),
@@ -67,12 +77,35 @@ impl Ledger {
                 self.refused();
                 AllocError
             })?;
+        if let Some(parent) = &self.parent {
+            if parent.reserve(bytes).is_err() {
+                self.current.fetch_sub(bytes, Ordering::Relaxed);
+                self.refused();
+                return Err(AllocError);
+            }
+        }
         self.peak.fetch_max(old + bytes, Ordering::Relaxed);
         Ok(())
     }
 
     fn release(&self, bytes: usize) {
         self.current.fetch_sub(bytes, Ordering::Relaxed);
+        if let Some(parent) = &self.parent {
+            parent.release(bytes);
+        }
+    }
+
+    pub(super) fn reserve_external(&self, bytes: usize) -> Result<(), AllocError> {
+        match &self.parent {
+            Some(parent) => parent.reserve(bytes),
+            None => Ok(()),
+        }
+    }
+
+    pub(super) fn release_external(&self, bytes: usize) {
+        if let Some(parent) = &self.parent {
+            parent.release(bytes);
+        }
     }
 
     fn refused(&self) {
@@ -224,6 +257,114 @@ unsafe impl Allocator for BudgetAllocator {
 mod tests {
     use super::*;
     use allocator_api2::vec::Vec;
+
+    #[test]
+    fn children_share_parent_capacity_without_losing_individual_limits() {
+        let host = Ledger::new(16);
+        let left = Ledger::child(64, host.clone());
+        let right = Ledger::child(64, host.clone());
+        let mut first = Vec::<u8, _>::new_in(BudgetAllocator(left.clone()));
+        let mut second = Vec::<u8, _>::new_in(BudgetAllocator(right.clone()));
+        first.try_reserve_exact(9).unwrap();
+        assert!(second.try_reserve_exact(8).is_err());
+        assert_eq!((left.current(), right.current(), host.current()), (9, 0, 9));
+        assert_eq!((right.refusals(), host.refusals()), (1, 1));
+        second.try_reserve_exact(7).unwrap();
+        assert_eq!((host.current(), host.peak()), (16, 16));
+        let tiny = Ledger::child(2, host.clone());
+        assert!(Vec::<u8, _>::new_in(BudgetAllocator(tiny.clone()))
+            .try_reserve_exact(3)
+            .is_err());
+        assert_eq!(
+            (tiny.refusals(), host.refusals(), host.current()),
+            (1, 1, 16)
+        );
+        drop(first);
+        assert_eq!(host.current(), 7);
+        drop(second);
+        assert_eq!((left.current(), right.current(), host.current()), (0, 0, 0));
+    }
+
+    #[test]
+    fn parent_reservation_rolls_back_on_underlying_allocation_failure() {
+        let host = Ledger::new(64);
+        let child = Ledger::child(64, host.clone());
+        child.fail_after(0);
+        assert!(Vec::<u8, _>::new_in(BudgetAllocator(child.clone()))
+            .try_reserve_exact(8)
+            .is_err());
+        assert_eq!((child.current(), host.current()), (0, 0));
+        assert_eq!((child.peak(), host.peak()), (8, 8));
+        assert_eq!((child.refusals(), host.refusals()), (1, 0));
+    }
+
+    #[test]
+    fn parent_growth_charges_old_and_new_and_lowered_limit_denies_growth() {
+        let host = Ledger::new(32);
+        let child = Ledger::child(64, host.clone());
+        let mut values = Vec::<u8, _>::new_in(BudgetAllocator(child.clone()));
+        values.try_reserve_exact(16).unwrap();
+        values.resize(16, 42);
+        assert!(values.try_reserve_exact(1).is_err());
+        assert_eq!(
+            (child.current(), host.current(), values.as_slice()),
+            (16, 16, &[42; 16][..])
+        );
+        host.set_limit(15);
+        assert!(Vec::<u8, _>::new_in(BudgetAllocator(child.clone()))
+            .try_reserve_exact(1)
+            .is_err());
+        assert_eq!((child.current(), host.current()), (16, 16));
+        host.set_limit(33);
+        values.try_reserve_exact(1).unwrap();
+        assert_eq!((child.current(), host.current(), host.peak()), (17, 17, 33));
+        drop(values);
+        assert_eq!((child.current(), host.current()), (0, 0));
+    }
+
+    #[test]
+    fn external_pages_share_parent_but_not_child_metadata_quota() {
+        let host = Ledger::new(24);
+        let child = Ledger::child(4, host.clone());
+        let mut values = Vec::<u8, _>::new_in(BudgetAllocator(child.clone()));
+        values.try_reserve_exact(4).unwrap();
+        child.reserve_external(20).unwrap();
+        assert_eq!((child.current(), host.current()), (4, 24));
+        assert!(child.reserve_external(1).is_err());
+        assert_eq!(
+            (child.current(), host.current(), host.refusals()),
+            (4, 24, 1)
+        );
+        child.release_external(20);
+        assert_eq!(host.current(), 4);
+        drop(values);
+        assert_eq!(host.current(), 0);
+    }
+
+    #[test]
+    fn concurrent_children_cannot_overbook_parent_capacity() {
+        let host = Ledger::new(64);
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let mut threads = std::vec::Vec::new();
+        for _ in 0..2 {
+            let child = Ledger::child(128, host.clone());
+            let barrier = barrier.clone();
+            threads.push(std::thread::spawn(move || {
+                let mut values = Vec::<u8, _>::new_in(BudgetAllocator(child));
+                let admitted = values.try_reserve_exact(40).is_ok();
+                barrier.wait();
+                (admitted, values)
+            }));
+        }
+        let results: std::vec::Vec<_> = threads
+            .into_iter()
+            .map(|thread| thread.join().unwrap())
+            .collect();
+        assert_eq!(results.iter().filter(|(admitted, _)| *admitted).count(), 1);
+        assert_eq!((host.current(), host.peak(), host.refusals()), (40, 40, 1));
+        drop(results);
+        assert_eq!(host.current(), 0);
+    }
 
     #[test]
     fn compaction_moves_map_owners_and_charges_old_and_new_capacity() {
