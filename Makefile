@@ -371,7 +371,7 @@ jit-fuzz-smoke:
 
 jit-fuzz-heap: FUZZ_CASES = 24
 jit-fuzz-heap:
-	@$(MAKE) --no-print-directory jit-fuzz FUZZ_TARGET=heap
+	@$(MAKE) --no-print-directory jit-fuzz FUZZ_TARGET=heap FUZZ_CASES='$(FUZZ_CASES)'
 
 jit-heap-campaign-tests:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::fuzz::heap::
