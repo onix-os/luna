@@ -21,6 +21,7 @@ use super::{
     abi::{self, Entry, Exit, Slot},
     atomic_owner::AtomicShared,
     exits::Kind as ExitKind,
+    global_box::{self, Charge as ProviderCharge},
     helpers,
     ir::Snapshot,
     memory_status::MemoryStatus,
@@ -139,6 +140,7 @@ impl JITMemoryProvider for Memory {
 
 pub(super) struct Code {
     module: Option<JITModule>,
+    _provider_charge: ProviderCharge,
     entry: Entry,
     #[cfg(test)]
     byte_len: usize,
@@ -190,6 +192,7 @@ impl Code {
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum Failure {
     DetectHostSetup,
+    DetectProviderSetup,
     RefuseOwnerStorage,
     RefuseOwnerAllocation,
     RefusePredecessors,
@@ -284,6 +287,27 @@ pub(super) fn compile_in(
             "cannot determine native memory page size",
         ));
     }
+    let provider_charge;
+    let provider;
+    (provider, provider_charge) = global_box::try_new(
+        Memory {
+            allocations: BudgetVec::new_in(metadata.clone()),
+            total,
+            status: status.clone(),
+            #[cfg(test)]
+            failure,
+            limit,
+            page: page as usize,
+        },
+        metadata,
+    )
+    .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
+    #[cfg(test)]
+    if failure == Failure::DetectProviderSetup {
+        return Err(JitError::Compilation(
+            "injected provider setup probe".into(),
+        ));
+    }
     let mut jit = JITBuilder::with_flags(
         &[("opt_level", "speed"), ("enable_verifier", "true")],
         default_libcall_names(),
@@ -292,15 +316,7 @@ pub(super) fn compile_in(
     for (_, name, entry) in helpers::SYMBOLS {
         jit.symbol(name, entry as *const u8);
     }
-    jit.memory_provider(Box::new(Memory {
-        allocations: BudgetVec::new_in(metadata),
-        total,
-        status: status.clone(),
-        #[cfg(test)]
-        failure,
-        limit,
-        page: page as usize,
-    }));
+    jit.memory_provider(provider);
     let mut module = JITModule::new(jit);
     let ptr = module.target_config().pointer_type();
     let mut signature = module.make_signature();
@@ -602,6 +618,7 @@ pub(super) fn compile_in(
         unsafe { std::mem::transmute::<*const u8, Entry>(module.get_finalized_function(function)) };
     Ok(Code {
         module: Some(module),
+        _provider_charge: provider_charge,
         entry,
         #[cfg(test)]
         byte_len,
@@ -4487,6 +4504,153 @@ mod memory_tests {
             }
             assert!(matches!(
                 compile_module(Failure::DetectHostSetup),
+                Err(JitError::ResourceLimit("JIT metadata"))
+            ));
+            assert_eq!(
+                (
+                    metadata.current(),
+                    host.current(),
+                    total.load(Ordering::Relaxed)
+                ),
+                baseline
+            );
+            let mut slots = vec![
+                Slot {
+                    tag: abi::NIL,
+                    bits: 0
+                };
+                peer.registers
+            ];
+            let exit = peer.invoke(&mut slots, 0, 64);
+            assert!(exit.instructions > 0);
+            let Operation::Return { start, .. } = snapshot.operations[exit.pc as usize] else {
+                panic!("peer did not reach its interpreted return");
+            };
+            assert_eq!(
+                (
+                    slots[usize::from(start.0)].tag,
+                    slots[usize::from(start.0)].bits
+                ),
+                (abi::INTEGER, 42)
+            );
+            metadata.set_limit(65536);
+            host.set_limit(2 * 1024 * 1024);
+            metadata.fail_after(usize::MAX);
+            let recovered = compile_module(Failure::None).unwrap();
+            assert!(recovered.invoke(&mut slots, 0, 64).instructions > 0);
+            drop((peer, recovered));
+            assert_eq!(
+                (
+                    metadata.current(),
+                    host.current(),
+                    total.load(Ordering::Relaxed)
+                ),
+                (0, 0, 0)
+            );
+        }
+    }
+
+    #[test]
+    fn provider_box_refusal_precedes_host_setup_and_releases_entry_storage() {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype = crate::FunctionPrototype::compile(ctx, "status", b"return 42").unwrap();
+            Snapshot::new(&prototype, 4096, 4096).unwrap()
+        });
+        let snapshot_ledger = snapshot.operations.allocator().0.clone();
+        let snapshot_baseline = snapshot_ledger.current();
+        let entry_bytes = snapshot.operations.len();
+        let owner_bytes = AtomicShared::<MemoryStatus>::allocation_bytes()
+            + std::alloc::Layout::new::<Memory>().size();
+        for cause in 0..3 {
+            let host = super::super::resources::Ledger::new(if cause == 1 {
+                entry_bytes + owner_bytes - 1
+            } else {
+                65536
+            });
+            let metadata = super::super::resources::Ledger::child(
+                if cause == 0 {
+                    entry_bytes + owner_bytes - 1
+                } else {
+                    65536
+                },
+                host.clone(),
+            );
+            if cause == 2 {
+                metadata.fail_after(2);
+            }
+            let total = Arc::new(AtomicUsize::new(0));
+            assert!(matches!(
+                compile_in(
+                    &snapshot,
+                    total.clone(),
+                    65536,
+                    BudgetAllocator(metadata.clone()),
+                    super::super::work::Limits::from(&super::super::JitConfig::default()),
+                    Failure::DetectProviderSetup
+                ),
+                Err(JitError::ResourceLimit("JIT metadata"))
+            ));
+            assert_eq!(
+                (
+                    metadata.current(),
+                    host.current(),
+                    total.load(Ordering::Relaxed)
+                ),
+                (0, 0, 0)
+            );
+            assert_eq!(
+                metadata.peak(),
+                if cause == 2 {
+                    entry_bytes + owner_bytes
+                } else {
+                    entry_bytes + AtomicShared::<MemoryStatus>::allocation_bytes()
+                }
+            );
+            assert_eq!(metadata.refusals(), 1);
+            assert_eq!(snapshot_ledger.current(), snapshot_baseline);
+        }
+    }
+
+    #[test]
+    fn provider_box_refusal_preserves_live_module_and_same_snapshot_recovers() {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype =
+                crate::FunctionPrototype::compile(ctx, "status-peer", b"return 42").unwrap();
+            Snapshot::new(&prototype, 4096, 4096).unwrap()
+        });
+        for cause in 0..3 {
+            let host = super::super::resources::Ledger::new(2 * 1024 * 1024);
+            let metadata = super::super::resources::Ledger::child(65536, host.clone());
+            let total = Arc::new(AtomicUsize::new(0));
+            let compile_module = |failure| {
+                compile_in(
+                    &snapshot,
+                    total.clone(),
+                    1024 * 1024,
+                    BudgetAllocator(metadata.clone()),
+                    super::super::work::Limits::from(&super::super::JitConfig::default()),
+                    failure,
+                )
+            };
+            let peer = compile_module(Failure::None).unwrap();
+            let baseline = (
+                metadata.current(),
+                host.current(),
+                total.load(Ordering::Relaxed),
+            );
+            let admission = snapshot.operations.len()
+                + AtomicShared::<MemoryStatus>::allocation_bytes()
+                + std::alloc::Layout::new::<Memory>().size()
+                - 1;
+            match cause {
+                0 => metadata.set_limit(baseline.0 + admission),
+                1 => host.set_limit(baseline.1 + admission),
+                _ => metadata.fail_after(2),
+            }
+            assert!(matches!(
+                compile_module(Failure::DetectProviderSetup),
                 Err(JitError::ResourceLimit("JIT metadata"))
             ));
             assert_eq!(

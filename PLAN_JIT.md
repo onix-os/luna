@@ -6870,9 +6870,66 @@ gates. Do not run timings/profiles alongside any unrelated build/test/profile.
 - `JIT.md`, `PLAN_JIT.md` — current safety scope, gates and outstanding work.
 - `target/jit-evidence/memory-status/` — local acceptance and untimed build evidence.
 
+### Provider-box accounting decision (2026-10-01)
+
+The prior goal turn made verified implementation progress (`757ec71`, `93edfeb`).
+Next charge the exact concrete Memory provider box, not an estimated trait-object
+header. Pinned JITBuilder requires a standard global Box and cannot accept an
+allocator-api2 Box. Allocate the typed payload fallibly using BudgetAllocator
+(whose underlying allocator is Global), transfer its initialized pointer to the
+standard global Box, and retain a separate exact-layout charge until after that
+box is destroyed. Declare the charge before builder/module ownership on compiler
+failure paths; move it into Code on success, whose Drop frees its module before
+field destruction. Keep destructor-unwind ordering explicit and test it under
+Miri. No new allocation/owner dependency or unstable allocator API is needed.
+
+This separately retained charge is a private lifecycle contract: it must never
+drop before the transferred box, including panics. Test allocation refusal,
+alignment/ZST/borrow behavior, underlying Global compatibility, panic cleanup and
+both pre-host and live-peer refusal/recovery boundaries. Existing status sentinel
+must still distinguish its earlier refusal boundary. Runtime/bootstrap owners
+and Cranelift's internal buffers/provider records remain outstanding.
+
+### Provider-box boundary calibration
+
+Provider refusal fixtures must permit two metadata allocations (entries and
+status) before injecting underlying refusal into the third, provider payload
+allocation. The initial copied fixture permitted only one and therefore exercised
+the earlier status boundary. Corrected fixtures use fail_after(2), an exact
+provider pre-host sentinel, and peak checks distinguishing status admission from
+provider allocation. Draft focused/Miri logs remain separately identified.
+Corrected focused provider tests pass seven tests; isolated Miri passes six,
+including the actual sysconf pre-host path without suppressing Miri diagnostics.
+No complete provider/native-platform acceptance follows until broader gates run.
+
+### Provider-box mutation sensitivity
+
+An unlimited transfer allocator makes the exact admission, pre-host boundary and
+native live-peer/recovery fixtures each fail (job `6416`, three Make exits 2).
+The original transfer source hash matches after restoration. A separate charge
+release bypass makes all six pure transfer fixtures fail, including erased Send
+trait-object payload destruction and both scope/value panic cleanup. Native code
+is not corrupted. Restore only after the owned mutation job is terminal, then
+verify the newer baseline hash including the added erasure fixture and rerun
+focused/Miri checks. These tests cover the private transfer/charge lifecycle, not
+Cranelift internal buffers, provider inner records or all runtime fixed owners.
+
+### Restored provider-box focused acceptance
+
+Restored transfer source matches the baseline hash including trait-object erasure.
+Focused Make job `88379` passes 75 tests / 12 suite results / 0 ignored, including
+eight provider tests and existing status/owner/resource fixtures. Isolated pinned
+Miri `29479` passes seven tests / two suite results / 0 ignored with default flags.
+The provider payload is accepted only after entries/status storage, and the
+exact underlying-failure fixture reaches the provider reservation before refusing.
+Builder/module locals drop before the earlier-declared charge; successful Code
+owns that charge and frees its module before automatic field destruction. Full
+native platform gates, selected Miri and supervised campaigns remain required.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
+- [Rust Box memory layout](https://doc.rust-lang.org/std/boxed/index.html#memory-layout) — initialized Global allocations with the correct concrete layout can transfer to a standard Box; the provider charge is retained separately through its destruction.
 - [Rust reference-counted destruction](https://doc.rust-lang.org/nomicon/arc-mutex/arc-drop.html) — release/acquire lifetime synchronization; Luna uses an AcqRel decrement and its own exact-layout, strong-only allocation.
 - [Cranelift IR](https://github.com/bytecodealliance/wasmtime/blob/main/cranelift/docs/ir.md) — validate against the pinned version, not moving-main assumptions.
 - [Cranelift frontend / FunctionBuilder](https://docs.wasmtime.dev/api/cranelift/prelude/struct.FunctionBuilder.html) — SSA construction and stack-map facilities; their existence does not integrate Luna's collector automatically.

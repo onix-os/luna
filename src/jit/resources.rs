@@ -88,7 +88,7 @@ impl Ledger {
         Ok(())
     }
 
-    fn release(&self, bytes: usize) {
+    pub(super) fn release(&self, bytes: usize) {
         self.current.fetch_sub(bytes, Ordering::Relaxed);
         if let Some(parent) = &self.parent {
             parent.release(bytes);
