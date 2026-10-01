@@ -454,7 +454,11 @@ It checks every scratch-tag store against its opcode's admitted scalar tags,
 refuses reference contamination and bypass/merge/duplicate-edge guard laundering,
 and charges Luna-owned records/worklists to the snapshot ledger. This relies on
 canonical ABI v3 input tags and trusted helper packing, not arbitrary native ABI
-buffers. Payload typing, input-consumer proofs, aliasing and liveness remain open.
+buffers. Numeric input-consumer admission (`c5c2297`) additionally checks bounded
+compound guard facts, Integer/Numeric masks, adjacent same-slot tag/payload reads
+or constant pairs, actual consumer dependency and exact expected record counts.
+Constant-only unreachable arms have separate bounded proof. Complete payload
+selection/operation equivalence, typed dataflow, aliasing and liveness remain open.
 
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
@@ -4144,6 +4148,77 @@ the repository's Nix environment. Do not weaken outstanding acceptance gates.
 - `/tmp/luna-jit-input-restored.log` — completed focused test/lint output.
 - `/tmp/luna-jit-input-consumer-mutation.log`,
   `/tmp/luna-jit-input-pipeline-mutation.log` — expected negative mutation results.
+
+### Numeric input-proof full verification session
+
+#### Goal
+
+Verify the committed numeric-input admission increment against full existing
+platform gates and extend randomized scalar/admission evidence.
+
+#### Instructions
+
+Preserve full-plan scope, frozen performance thresholds and incremental unsigned
+title-only commits. Run relevant tasks through Make in the repository's Nix
+environment; no performance measurements alongside tests/builds.
+
+#### Discoveries
+
+- Previous goal turn was progress: implementation and documentation were
+  committed separately. This turn completes previously pending verification.
+- Compound input proof accepts all generated scalar paths in the larger seeded
+  corpus, including constant/mixed numeric arms. This is randomized regression
+  evidence, not a complete payload-selector/operation-equivalence proof.
+
+#### Accomplished
+
+- On source `c5c2297` (unchanged by documentation commit `c061e64`), ran
+  `nix develop -c make jit-verify clippy jit-clippy` and the same command with
+  `TARGET=x86_64-unknown-linux-musl`. Both terminal gates exited zero; each log
+  reports 3099 passed / 421 suite results / 24 ignored. This includes default
+  interpreter, Off/Auto/Force, all-features Force, docs and supervised smoke.
+- `nix develop .#miri -c make jit-miri
+  MIRI_DIR=target/jit-evidence/numeric-inputs/miri` exited zero: 84 passing tests
+  across 14 selected namespaces. Pinned Miri is `67854e511`, default `MIRIFLAGS`;
+  selected checks exclude generated code execution. Existing Clippy warnings
+  remain; neither lint command is a strict-warning acceptance claim.
+- Executed `nix develop -c make jit-fuzz FUZZ_TARGET=all FUZZ_CASES=256
+  FUZZ_SEEDS=0,1,0xdeadbeef,0xffffffffffffffff` on GNU and the same command with
+  `TARGET=x86_64-unknown-linux-musl`. Both exited zero. Each target checks 1024
+  generated snapshots plus malformed mutations, three input variations, every
+  entry PC and seven budgets (0, 1, 2, 3, 63, 64, maximum). Each reports 411852
+  kernel invocations and 1213197 completed native instructions, with mapping,
+  metadata and snapshot charges released. Identical seeds are reused on both
+  platforms; this is not 2048 distinct randomly generated programs.
+- Campaigns retain per-worker resource limits and failure supervision. These
+  limited test workers do not establish production compiler isolation or a
+  hostile-runtime guarantee. Native helper/heap/lifecycle fuzz coverage remains
+  outside this scalar/admission campaign.
+- Archived complete gates, focused and mutation logs, source identity/hashes,
+  environment and both campaign directories under
+  `target/jit-evidence/numeric-inputs/`. Owned full session `51708`, Miri `7486`,
+  GNU campaign `91056` and musl campaign `1389` are terminal; no owned job remains.
+- Updated Phase 3 and `JIT.md` to distinguish implemented input admission from
+  remaining payload/dataflow/alias proofs. No timing/profile was performed and
+  prior revision-scoped performance failures remain unchanged.
+
+#### Next Steps
+
+- Extend numeric proof to the emitted float-conversion selector and its actual
+  conversion/bitcast operands; add deliberate selector/payload corruption tests
+  that must refuse before code generation rather than relying on dependency alone.
+- Continue full typed/transition/error/source-map/alias/liveness review, compiler
+  and combined-host accounting, heap/lifecycle campaigns and platform evidence.
+- Fix table/upvalue/callback and compiled-disabled shipping performance failures
+  with matching controlled artifacts. Keep the goal active and incomplete.
+
+#### Relevant Files
+
+- `src/jit/tags.rs`, `src/jit/backend.rs` — verified numeric-input implementation.
+- `Makefile` — full, Miri, focused and supervised randomized gates.
+- `JIT.md`, `PLAN_JIT.md` — accurate contract, phase status and acceptance evidence.
+- `target/jit-evidence/numeric-inputs/` — local raw revision-scoped artifacts;
+  generated evidence is not committed as source.
 
 ## 15. Primary references
 

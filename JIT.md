@@ -103,6 +103,16 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 ## Verification and remaining work
 
+The guarded numeric-input implementation (`c5c2297`, unchanged in `c061e64`)
+passes `nix develop -c make jit-verify clippy jit-clippy` on x86-64 GNU and
+with `TARGET=x86_64-unknown-linux-musl`: each reports 3099 passing tests across
+421 suite results and 24 ignored tests. Selected pure-Rust/pure-IR Miri checks
+pass 84 tests across 14 namespaces with default `MIRIFLAGS`; they do not execute
+generated native code. Clippy retains the existing warning backlog, so these are
+not strict-warning acceptance. Raw revision-scoped evidence is stored locally in
+`target/jit-evidence/numeric-inputs/`. Performance thresholds, ARM64 execution,
+complete compiler accounting and the full plan's remaining proofs are not accepted.
+
 `nix develop -c make jit-metrics` builds a separate opt-level-3 scheduling probe.
 Use `ARGS='--mode all --samples 3 --fuel 64'`; `--case` selects a shared benchmark,
 `oslo_predicate`, `cold_config`, `cache_churn`, `coroutine_resume` or `foreign_await`.
