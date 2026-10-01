@@ -592,6 +592,18 @@ pass. Full GNU/musl gates pass 4580 tests each; selected Miri passes 232 tests.
 This enforces charged categories, not compiler-internal/fixed-owner allocations,
 per-GC-allocation limits or RSS. Phase 3/release acceptance remains incomplete.
 
+Fallible cached-code ownership (`c5ba20a`) charges the exact count/allocator/
+padding/`Code` allocation to metadata and the shared parent. A private strong-only
+owner preserves immutable leases, pointer identity and eviction count semantics;
+typed quota/underlying-allocation refusal before publication frees only the new
+module. Eight pure/Miri fixtures cover lifetime, aliasing, alignment, checked
+count, panic cleanup and reference-model agreement. The installation fixture
+preserves a native peer and restores the same refused source after reset.
+Budget/reclamation bypass mutations are detected. Full GNU/musl gates pass 4625
+tests each; selected Miri passes 240 tests. Runtime/bootstrap owners, status Arc
+flags, provider boxes and compiler buffers remain open; this does not complete
+fixed-owner/compiler accounting or Phase 3/release acceptance.
+
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
@@ -6539,6 +6551,139 @@ Do not run benchmark/profile timing alongside unrelated builds/tests/profiles.
 - `Makefile` — focused host targets and selected Miri Lua namespace.
 - `JIT.md`, `PLAN_JIT.md` — verified scope, evidence and remaining obligations.
 - `target/jit-evidence/host-memory/` — local evidence and untimed candidate binary.
+
+### Fallible cached-code owner decision
+
+Replace only the private cached-code `std::rc::Rc<Code>` allocation with a
+budget-allocated strong-only shared owner. Its exact typed allocation includes
+the count, allocator handle, padding and `Code` payload; no private standard
+library control-block layout is assumed. Use the existing allocator-api2
+`Box::try_new_in` for admission/underlying allocation and reconstruct that same
+box/allocator only on final-owner destruction. A checked strong count, pointer
+identity and normal immutable dereference cover the existing private cache/lease
+operations. No weak pointers or cross-thread sharing are introduced. Quota or
+underlying allocation refusal before cache publication must drop the compiled
+module and release mappings/metadata, preserving interpretation and recovery.
+
+This adds a small private unsafe ownership boundary requiring allocation/drop,
+alignment, panic, count-overflow, identity and alias-lifetime Miri proof before
+acceptance. Preserve eviction/retirement semantics and do not estimate std Rc/Arc
+headers. Runtime/bootstrap owners, compiler status Arc flags, provider boxes and
+compiler-owned buffers remain separate outstanding scope. No complete fixed-owner
+or compiler-memory claim follows from charging the cached-code owner.
+
+### Cached-owner panic cleanup discovery
+
+Pinned allocator-api2 0.2.21 `Box::drop` calls value destruction before explicit
+deallocation without a separate unwind guard. Reconstructing/dropping that box
+would therefore retain the allocation if the value destructor panics. The private
+owner instead pairs the original `into_raw_with_allocator` allocation with a
+typed deallocation guard, then calls `drop_in_place` on the inner value. The guard
+uses the same allocator and `Layout<Inner<T>>` on normal and unwinding paths.
+Dedicated child/parent charge and single-destruction fixtures cover this boundary.
+This is a Luna owner design adjustment, not an allocator-api2 memory-safety defect.
+
+### Cached-owner refusal and reclamation oracle sensitivity
+
+The focused gate passes eight pure ownership fixtures and the existing eviction,
+resource and host-limit checks. One new installation fixture covers both owner
+quota and underlying-allocation refusal after module creation: a live peer stays
+native, the refused source stays interpretable, resetting admission restores that
+same source, and final collection releases all charged storage.
+
+A temporary unlimited-owner allocator made five pure fixtures fail; the exact
+installation fixture also failed when run through its new dedicated Make target.
+The first installation invocation preceded target creation and failed only for a
+missing Make rule; that draft is retained separately and is not oracle evidence.
+A separate reclamation bypass made seven pure fixtures fail, including destructor
+unwind cleanup. Owned mutation jobs were terminal before restoration and the
+owner source hash matched its original. No generated instructions were corrupted.
+Full GNU/musl, selected Miri and supervised campaigns remain pending.
+
+### Isolated cached-owner Miri acceptance
+
+`nix develop .#miri -c make jit-owner-miri` passed all eight ownership fixtures on
+restored source, including over-alignment/live aliases, interior mutation,
+checked-count overflow, parent rollback and panicking-destructor reclamation.
+The count model matches std Rc over 1024 clone/retirement operations. This is
+isolated primitive evidence, not execution of generated code or full-plan
+acceptance; full selected Miri and both native platform gates remain pending.
+
+### Cached-code owner acceptance session (2026-10-01)
+
+## Goal
+Continue full implementation by making cached-code owner allocation fallible and
+charged through final lease retirement. The previous goal turn made verified
+progress; this goal remains active and incomplete.
+
+## Instructions
+Use repo-native Make/Nix tasks, patch tools and incremental unsigned title-only
+Conventional Commits. Preserve lease semantics and all frozen acceptance gates.
+No timing/profile alongside unrelated builds/tests/profiles; no new dependency or
+nightly requirement is introduced by this stable allocator-api2 owner.
+
+## Discoveries
+- Do not assume private std Rc/Arc control-block layouts. The custom private
+  owner uses its own exact typed allocation, with no weak/raw escape API and a
+  marker preserving single-thread sharing.
+- Pinned allocator-api2 box drop performs value destruction before explicit
+  deallocation. A separate typed deallocation guard is needed here for value
+  destructor unwind; its child/parent charges are released even on panic.
+- No complete fixed-owner/working-memory claim follows: runtime/bootstrap
+  owners, compiler status Arc flags, provider boxes and compiler-owned buffers
+  still need faithful accounting/bounded policy.
+- After owned jobs became terminal, fresh global preflight still observed
+  unrelated `make run` PID 2878331. No timings/profiles or gains are claimed.
+
+## Accomplished
+- Source committed separately at `c5ba20a`: private owner primitive, cache/lease
+  integration, exact installation refusal/recovery fixture and Make/Miri wiring.
+- Focused job `6383` passed eight pure owner tests, fourteen eviction tests and
+  the resource/host checks. Draft job `78804` found a test-only std Rc fixture;
+  the fixture was updated to use the real owner rather than weaken its oracle.
+- Budget bypass job `90985` detected five pure failures. Its initial installation
+  invocation had a missing Make rule and is explicitly not oracle evidence;
+  corrected exact job `82515` detected the real installation refusal failure.
+  Reclamation bypass job `39688` detected seven pure failures. All mutations were
+  restored after terminal status; source hash matched. Restored job `15453` passed.
+- Isolated Miri job `55586` passed all eight owner fixtures. Full selected Miri
+  job `44068` completed exit 0: **240 tests / 29 suite results / 0 ignored**, pinned
+  nightly 2026-08-16, rustc `67854e511`, default `MIRIFLAGS`. No generated code or
+  native heap campaign runs under these Miri checks.
+- Full job `94299` completed GNU and musl exit 0: **4625 passing tests / 434 suite
+  results / 24 ignored tests** each. Existing Clippy warnings remain; this is not
+  strict-warning acceptance.
+- Campaign job `11783` completed all four lanes exit 0. Per platform:
+  **4096 scalar/admission cases / 1641780 native invocations / 4758522 native
+  instructions**; **96 heap cases / 6344 main slices / 725 yields / 1633 callbacks /
+  96 retirements / 964 host reads / 2809 userdata observations / 65297 native
+  instructions**. Helper totals: **22144 table reads / 7393 table writes / 1655
+  allocations / 21701 upvalue reads / 996 upvalue writes / 1179 declines**.
+  Platforms reuse the same seeds/programs; nested/finalizer internal slices are
+  not independently paired. No generated instruction semantics were mutated.
+- Untimed opt-level-3 build `89759` completed at `c5ba20a` exit 0; binary/source ID/
+  log/hash retained. This is not performance evidence.
+- Raw focused/mutation/Miri/full logs, exact campaign/smoke directories, aggregate
+  counts and verified source/binary hashes are retained locally under
+  `target/jit-evidence/owner/`. All owned jobs are terminal.
+
+## Next Steps
+- Complete runtime/bootstrap and status/provider fixed-owner accounting, plus
+  frontend/backend compiler buffer limits or faithful bounded compiler policy.
+- Continue complete opcode/source-map and helper/GC/alias/liveness safety proofs.
+- Resolve frozen native and compiled-Off performance controls only after clean
+  global timing preflight; thresholds/statistics/coverage remain unchanged.
+- Gather actual ARM64/hosted evidence and address strict-Clippy backlog before
+  release acceptance. The full plan is not achieved by this owner milestone.
+
+## Relevant Files
+- `src/jit/owner.rs` — exact-layout strong-only owner and eight pure fixtures.
+- `src/jit/mod.rs` — cache/lease integration and peer/refusal/recovery fixture.
+- `src/jit/model.rs` — retained-lease fixture uses the real budgeted owner.
+- `src/jit/backend.rs` — test-only owner-storage/underlying refusal selectors.
+- `Makefile` — owner, exact installation and isolated/selected Miri targets.
+- `JIT.md`, `PLAN_JIT.md` — ownership safety scope and acceptance evidence.
+- `target/jit-evidence/owner/` — local raw evidence and untimed candidate binary.
 
 ## 15. Primary references
 
