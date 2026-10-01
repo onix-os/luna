@@ -1,14 +1,13 @@
 use allocator_api2::vec::Vec;
-use cranelift_codegen::{
-    flowgraph::ControlFlowGraph,
-    ir::{
-        condcodes::IntCC, types, Block, BlockArg, BlockCall, Function, Inst, InstBuilder,
-        InstructionData, JumpTableData, Opcode, Value, ValueDef,
-    },
+use cranelift_codegen::ir::{
+    condcodes::IntCC, types, Block, BlockArg, BlockCall, Function, Inst, InstBuilder,
+    InstructionData, JumpTableData, Opcode, Value, ValueDef,
 };
 use cranelift_frontend::FunctionBuilder;
 
-use super::{ir::Snapshot, preds::Predecessors, resources::BudgetAllocator, JitError};
+use super::{
+    dominance::Dominators, ir::Snapshot, preds::Predecessors, resources::BudgetAllocator, JitError,
+};
 
 #[derive(Clone, Copy)]
 pub(super) struct Point {
@@ -272,7 +271,6 @@ impl Paths {
         root: Root,
         handlers: &[Block; 4],
     ) -> Result<(), JitError> {
-        use cranelift_codegen::dominator_tree::DominatorTree;
         let rejected = || JitError::Compilation("invalid source region data flow".into());
         if self.overflowed
             || self.expected != self.points.len()
@@ -304,8 +302,8 @@ impl Paths {
             .try_reserve_exact(function.dfg.num_blocks())
             .map_err(|_| JitError::ResourceLimit("source path verification"))?;
         effects.resize(function.dfg.num_blocks(), 0u8);
-        let cfg = ControlFlowGraph::with_function(function);
-        let dom = DominatorTree::with_function(function, &cfg);
+        let cfg = Predecessors::new(function, self.points.allocator().clone())?;
+        let dom = Dominators::new(function, &cfg, self.points.allocator().clone())?;
         for block in function.layout.blocks() {
             let Some(pc) = self.owner(block) else {
                 if ![entry, root.dispatch, root.unknown].contains(&block)
@@ -323,7 +321,7 @@ impl Paths {
                 continue;
             };
             if !dom.is_reachable(block)
-                || !dom.dominates(self.points[pc].body, block, &function.layout)
+                || !dom.dominates(self.points[pc].body, block)
                 || effects[block.as_u32() as usize] & 1 != 0
             {
                 return Err(rejected());

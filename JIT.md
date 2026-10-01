@@ -119,8 +119,8 @@ work. Each header contains only its source-PC constant, unsigned count-versus-
 budget test and conditional exhausted/body edge. Exhaustion preserves source PC
 and count; each operation body has only its own header as predecessor. Exact-
 counted trampoline/body records are snapshot-quota-charged before host compiler
-setup and can refuse with `ResourceLimit("entry path verification")`. CFG and
-compiler jump-table storage remain outside the incomplete ledger. These checks
+setup and can refuse with `ResourceLimit("entry path verification")`. Compiler
+jump-table storage remains outside the incomplete ledger. These checks
 do not independently establish opcode equivalence, alias/liveness, runtime
 materialization or compiler resource isolation.
 Source-region ranges additionally classify every physical block and branch.
@@ -151,7 +151,12 @@ before reservation; repeated destinations from one instruction are deduplicated
 without releasing retained capacity charges. Predecessor order matches Cranelift's
 instruction order, including unreachable and non-layout block queries. Entry,
 helper, transfer, comparison, loop and scalar guard checks use this graph.
-Cranelift CFG/dominator allocations still needed for dominance, backend internals
+Verification dominance uses snapshot-charged node, iterative DFS stack and
+postorder vectors; only nodes remain after construction. Storage refusal reports
+`ResourceLimit("frontend dominance storage")`. Construction is limited to
+`64 * (DFG blocks + reserved raw predecessor edges + 1)` charged steps, refusing
+with `ResourceLimit("frontend dominance work")` before codegen. This bounds the
+analysis, not total compiler CPU time. Backend internals, frontend builder storage
 and fixed owner allocations remain outside the ledger. This is not complete
 compiler working-memory or RSS accounting.
 The retained, fallible PC-to-block map is charged to the snapshot ledger and
@@ -161,8 +166,7 @@ vacuous only on guarded paths proven unreachable without queried-tag assumptions
 physical store coverage and record counts still apply. This does not prove full
 payload selection, operation equivalence, liveness, aliasing or complete typed SSA.
 Luna-owned store/input records and worklists use the snapshot ledger and can report
-`ResourceLimit("scalar tag verification")`; compiler CFG/dominator storage remains
-outside the current ledger. Record-envelope violations are compiler errors and
+`ResourceLimit("scalar tag verification")`. Record-envelope violations are compiler errors and
 never silently grow verification storage.
 
 Completed full and incremental GC cycles retire dead source registrations and

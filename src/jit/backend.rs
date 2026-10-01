@@ -175,6 +175,8 @@ impl Code {
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum Failure {
     RefusePredecessors,
+    RefuseDominanceStorage,
+    RefuseDominanceWork,
     #[default]
     None,
     Allocate,
@@ -497,6 +499,20 @@ pub(super) fn compile_in(
     if failure == Failure::RefusePredecessors {
         let ledger = &snapshot.operations.allocator().0;
         ledger.set_limit(ledger.current());
+    }
+    #[cfg(test)]
+    if failure == Failure::RefuseDominanceStorage {
+        let allocator = snapshot.operations.allocator();
+        let baseline = allocator.0.current();
+        let graph = super::preds::Predecessors::new(&context.func, allocator.clone())?;
+        let limit = allocator.0.current();
+        drop(graph);
+        assert_eq!(allocator.0.current(), baseline);
+        allocator.0.set_limit(limit);
+    }
+    #[cfg(test)]
+    if failure == Failure::RefuseDominanceWork {
+        stores.refuse_dominance_work();
     }
     stores.verify(
         &context.func,
@@ -3217,6 +3233,52 @@ mod memory_tests {
         assert_eq!(total.load(Ordering::Relaxed), 0);
         assert_eq!(ledger.current(), baseline);
         assert_eq!(ledger.refusals(), 1);
+    }
+
+    fn dominance_refusal(failure: Failure, expected: &'static str, refusals: usize) {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype = crate::FunctionPrototype::compile(
+                ctx,
+                "dominance-quota",
+                b"local x=1 local y=x+2 return y",
+            )
+            .unwrap();
+            Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
+        });
+        let ledger = snapshot.operations.allocator().0.clone();
+        let baseline = ledger.current();
+        let total = Arc::new(AtomicUsize::new(0));
+        let result = compile_in(
+            &snapshot,
+            total.clone(),
+            8 * 1024 * 1024,
+            BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
+            super::super::work::Limits::from(&super::super::JitConfig::default()),
+            failure,
+        );
+        assert!(
+            matches!(result, Err(JitError::ResourceLimit(reason)) if reason == expected),
+            "{:?}",
+            result.as_ref().err()
+        );
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+        assert_eq!(ledger.current(), baseline);
+        assert_eq!(ledger.refusals(), refusals);
+    }
+
+    #[test]
+    fn dominance_storage_refuses_before_codegen_and_releases_storage() {
+        dominance_refusal(
+            Failure::RefuseDominanceStorage,
+            "frontend dominance storage",
+            1,
+        );
+    }
+
+    #[test]
+    fn dominance_work_refuses_before_codegen_and_releases_storage() {
+        dominance_refusal(Failure::RefuseDominanceWork, "frontend dominance work", 0);
     }
 
     #[test]

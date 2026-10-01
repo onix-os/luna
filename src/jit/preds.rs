@@ -18,6 +18,10 @@ pub(super) struct Predecessors {
 }
 
 impl Predecessors {
+    pub fn raw_capacity(&self) -> usize {
+        self.edges.capacity()
+    }
+
     pub fn empty(allocator: BudgetAllocator) -> Self {
         Self {
             edges: Vec::new_in(allocator),
