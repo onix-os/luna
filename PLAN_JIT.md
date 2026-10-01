@@ -661,6 +661,15 @@ runtime helper/GC/alias/liveness, compiler accounting or Phase 3 acceptance.
 
 **Status:** IN PROGRESS. **Depends on:** Phase 8; introduce fuzzing earlier as soon as Phase 3/4 provide targets. Seeded admission/scalar campaigns execute in supervised limited child processes with tested panic/signal/timeout propagation; allocation/protection denial and full GNU/musl x86-64 gates pass. The full heap/lifecycle corpus, coverage-guided campaigns, CPU-feature mismatch, remaining refusal/eviction cases, unsafe/Miri review and ARM64/hosted evidence remain open.
 
+Supervised heap/lifecycle coverage (`a951643`) adds four parameterized source
+families in fresh Off/Auto states. GNU/musl each pass 128 cases with per-slice
+fuel/mode/state agreement, full host GC, ordered callback effects, yields,
+close/error paths, weak tables, native helper counters and code retirement.
+The native full gate includes heap smoke; larger `heap` campaigns have independent
+counters and preserve old admission/scalar replay meaning. Selected pure Miri
+passes but does not execute the heap/native corpus. These finite templates do not
+complete the broader heap/lifecycle/coverage-guided or safety obligations.
+
 **Files:** `fuzz/`, fuzz/gate targets, JIT validation/runtime tests, workflow/environment configuration, security documentation.
 
 1. Fuzz validated IR construction and code generation separately from execution. Reject malformed IR before unsafe code entry.
@@ -5810,6 +5819,98 @@ inside the repo's Nix environments. Do not run timings alongside validation.
 - `target/jit-evidence/source-binding/` — local raw acceptance artifacts.
 - `src/jit/fuzz.rs` — existing supervised admission/scalar campaign; heap
   coverage is the next hardening work item, not implemented this session.
+
+### Supervised heap/lifecycle campaign decision
+
+Add an explicit `heap` fuzz target alongside the existing admission/scalar `all`
+target. Preserve `all`'s existing seed/program meaning rather than silently
+changing old reproduction commands or inflating scalar coverage. Add a dedicated
+heap smoke target to the full native gate. Generate bounded source programs in
+fresh Off/Auto states, comparing every slice's completion/mode/fuel, ordered Rust
+callback effects, yield values and final results. Collect between every slice,
+retire/reprepare code at a deterministic host boundary, and require actual native
+table/allocation/upvalue work. Parameterized families cover alias/root replacement,
+metamethod fallback, weak tables and catchable errors/close ordering. Reuse the
+existing limited subprocess supervisor; no malformed heap program is executed.
+Keep scalar counters separate from heap counters. This is seeded integration
+stress, not coverage-guided fuzzing or complete helper/collector safety proof.
+
+### Heap campaign oracle sensitivity
+
+Focused draft validation passed twelve family/seed executions, four-seed
+eight-case supervised heap runs, existing heap tests and Clippy. Temporarily
+disabling the native state failed the required re-preparation assertion;
+temporarily adding one to native Rust callback mutations failed ordered callback
+comparison at seed 0 / family 1 / slice 4. Both Make jobs exited 2 and both edits
+were restored only after their exact owned jobs became terminal. These tests
+demonstrate sensitivity to absent compilation and divergent callback effects,
+not a comprehensive mutation score. No runtime implementation defect is claimed.
+Logs: `/tmp/luna-jit-heap-fuzz-bypass-disabled.log` and
+`/tmp/luna-jit-heap-fuzz-bypass-callback.log`.
+
+### Supervised heap campaign acceptance session (2026-10-01)
+
+## Goal
+Continue full plan implementation on `feat/native-jit`, extending hardening from
+scalar/admission kernels to bounded integrated heap/lifecycle programs. The
+previous goal turn made progress by completing source-binding acceptance.
+
+## Instructions
+Use Nix/Make and patch tools, keep incremental unsigned title-only commits, and
+keep timings separate from builds/tests. Preserve frozen performance thresholds
+and the full plan's completion criteria.
+
+## Discoveries
+- Parameterized heap cases can compare exact fuel/mode at every host slice while
+  collecting both states between slices. Weak-table assertions, close-handler
+  callback ordering and yields all pass on GNU and musl.
+- The oracle refuses absent native re-preparation and divergent callback effects
+  under temporary mutations. These are harness-sensitivity tests, not discovered
+  runtime defects or a comprehensive mutation score.
+- Host replacement writes a rooted field each slice; the current scripts do not
+  consume that replacement field. This exercises barrier/root retention but does
+  not establish fresh native reads of the host-replaced object. Broader mutation
+  and userdata/reentrancy/finalizer cases remain required.
+
+## Accomplished
+- Source/test/docs changes committed separately at `a951643`; no runtime fast
+  path or performance threshold changed. Both temporary mutations were restored.
+- Full owned session `38951` completed GNU and musl with exit 0: **4400 passing
+  tests / 422 suite results / 24 ignored per platform**. Existing Clippy warnings
+  remain; no new heap-module warnings or strict-warning acceptance is claimed.
+- Owned campaign session `97512` completed all four platform/workload lanes.
+  Each platform's separate 32-case/four-seed heap campaign reports **128 cases /
+  6611 slices / 659 yields / 2720 callbacks / 128 retirements / 70475 native
+  instructions**. Counters include **20237 table reads / 8378 table writes /
+  2502 allocations / 23378 upvalue reads / 1342 upvalue writes / 1390 declines**.
+- Each platform's unchanged four-seed scalar/admission campaign also passes
+  **4096 cases / 1641780 invocations / 4758522 native instructions**. Both
+  platforms reuse the same seeds/programs; these are executions, not independent
+  unique-program counts. Heap families are templates with randomized parameters
+  and fuel/retirement schedules, not coverage-guided fuzzing.
+- Selected Miri session `92463` completed with exit 0: **211 tests / 25 suite
+  results / 0 ignored**, pinned nightly 2026-08-16 / rustc `67854e511`, empty
+  default `MIRIFLAGS`. It does not execute native code or the heap campaign.
+- Archived raw focused/mutation/full/Miri/campaign logs, exact smoke/long-run
+  directories, environment, source revision and recursive source hashes under
+  `target/jit-evidence/heap-campaign/`; hashes match after acceptance.
+- All owned jobs are terminal. No timings/profiles, performance improvement,
+  ARM/hosted execution or whole-plan completion is claimed.
+
+## Next Steps
+- Extend heap corpus to consumed host replacements, userdata, interleaved
+  executors, reentrancy, weak-mode changes, finalization/resurrection and further
+  helper guard/error combinations, with observable state/effect checks.
+- Continue complete instruction/source-map and runtime helper/GC/alias/liveness
+  review, compiler/combined-host accounting, platform evidence and unmet
+  performance gates. Do not mark the full goal complete from these finite runs.
+
+## Relevant Files
+- `src/jit/fuzz/heap.rs` — parameterized source families and differential oracle.
+- `src/jit/fuzz.rs` — explicit heap worker target and separate counters.
+- `Makefile` — heap campaigns, focused fixture target and full-gate smoke wiring.
+- `JIT.md`, `PLAN_JIT.md` — scope, acceptance evidence and remaining obligations.
+- `target/jit-evidence/heap-campaign/` — local revision-scoped raw artifacts.
 
 ## 15. Primary references
 

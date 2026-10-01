@@ -189,17 +189,21 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 ## Verification and remaining work
 
-The numeric/source, helper/exit-flow, entry/region and source-binding implementation (`93a5909`)
+The source-binding implementation with supervised heap campaigns (`a951643`)
 passes `nix develop -c make jit-verify clippy jit-clippy` on x86-64 GNU and
-with `TARGET=x86_64-unknown-linux-musl`: each reports 4394 passing tests across
-421 suite results and 24 ignored tests. Selected pure-Rust/pure-IR Miri checks
+with `TARGET=x86_64-unknown-linux-musl`: each reports 4400 passing tests across
+422 suite results and 24 ignored tests. Selected pure-Rust/pure-IR Miri checks
 pass 211 tests across 25 selected suite results with default `MIRIFLAGS`; they do not execute
 generated native code. Clippy retains the existing warning backlog, so these are
 not strict-warning acceptance. Raw revision-scoped evidence is stored locally in
-`target/jit-evidence/source-binding/`. Seeded scalar/admission campaigns additionally
+`target/jit-evidence/heap-campaign/`. Seeded scalar/admission campaigns additionally
 pass 4096 generated cases per platform, each checking 1641780 native invocations
 against the independent slice model; both platforms reuse the same four seeds.
-These campaigns do not cover native heap helpers. Performance thresholds, ARM64 execution,
+Separate heap campaigns pass 128 cases per platform, comparing 6611 slices,
+659 yields and 2720 callback effects, with 70475 completed native instructions
+and table/allocation/upvalue counters. The same seeds and parameterized families
+are reused on both platforms; this is not independent unique-program coverage.
+Miri does not execute these heap/native programs. Performance thresholds, ARM64 execution,
 complete compiler accounting and the full plan's remaining proofs are not accepted.
 
 `nix develop -c make jit-metrics` builds a separate opt-level-3 scheduling probe.
