@@ -15,6 +15,7 @@ enum Expr<'a> {
     Cast(Type, &'a Expr<'a>),
     Binary(Opcode, Type, &'a Expr<'a>, &'a Expr<'a>),
     Select(Type, &'a Expr<'a>, &'a Expr<'a>, &'a Expr<'a>),
+    Overflow(&'a Expr<'a>, &'a Expr<'a>),
 }
 
 fn matches(
@@ -31,11 +32,25 @@ fn matches(
     if let Expr::Value(expected) = expression {
         return value == function.dfg.resolve_aliases(*expected);
     }
-    let ValueDef::Result(inst, 0) = function.dfg.value_def(value) else {
+    let ValueDef::Result(inst, result_index) = function.dfg.value_def(value) else {
         return false;
     };
+    if result_index != usize::from(matches!(expression, Expr::Overflow(..))) {
+        return false;
+    }
     let ty = function.dfg.value_type(value);
     match (expression, function.dfg.insts[inst]) {
+        (
+            Expr::Overflow(left, right),
+            InstructionData::Binary {
+                opcode: Opcode::SaddOverflow,
+                args,
+            },
+        ) => {
+            ty == types::I8
+                && matches(function, args[0], left, remaining)
+                && matches(function, args[1], right, remaining)
+        }
         (
             Expr::Float(bits),
             InstructionData::UnaryIeee64 {
@@ -230,6 +245,106 @@ pub(super) fn comparison(
     };
     let result_shape = Expr::Binary(Opcode::Band, types::I8, selected, &ordered);
     matches(function, result, &result_shape, &mut 1024)
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum LoopExpression {
+    PrepSplit,
+    StepSplit,
+    Nonzero,
+    PrepInteger,
+    PrepFloat,
+    StepInteger,
+    StepFloat,
+    ConditionInteger,
+    ConditionFloat,
+}
+
+pub(super) fn numeric_loop(
+    function: &Function,
+    value: Value,
+    inputs: &[(Value, Value)],
+    part: LoopExpression,
+) -> bool {
+    use LoopExpression::*;
+    let prep = matches!(part, PrepSplit | Nonzero | PrepInteger | PrepFloat);
+    if inputs.len() != if prep { 2 } else { 3 } {
+        return false;
+    }
+    let index_tag = Expr::Value(inputs[0].0);
+    let index_bits = Expr::Value(inputs[0].1);
+    let step_tag = Expr::Value(inputs[inputs.len() - 1].0);
+    let step_bits = Expr::Value(inputs[inputs.len() - 1].1);
+    let integer_tag = Expr::Int(types::I64, abi::INTEGER);
+    let index_integer = Expr::Compare(IntCC::Equal, &index_tag, &integer_tag);
+    let step_integer = Expr::Compare(IntCC::Equal, &step_tag, &integer_tag);
+    let split = Expr::Binary(Opcode::Band, types::I8, &index_integer, &step_integer);
+    if matches!(part, PrepSplit | StepSplit) {
+        return matches(function, value, &split, &mut 1024);
+    }
+    let index_signed = Expr::Unary(Opcode::FcvtFromSint, types::F64, &index_bits);
+    let index_cast = Expr::Cast(types::F64, &index_bits);
+    let index_float = Expr::Select(types::F64, &index_integer, &index_signed, &index_cast);
+    let step_signed = Expr::Unary(Opcode::FcvtFromSint, types::F64, &step_bits);
+    let step_cast = Expr::Cast(types::F64, &step_bits);
+    let step_float = Expr::Select(types::F64, &step_integer, &step_signed, &step_cast);
+    let zero = Expr::Float(0.0f64.to_bits());
+    let nonzero = Expr::FloatCompare(FloatCC::NotEqual, &step_float, &zero);
+    let prep_int = Expr::Binary(Opcode::Isub, types::I64, &index_bits, &step_bits);
+    let prep_float = Expr::Binary(Opcode::Fsub, types::F64, &index_float, &step_float);
+    let prep_bits = Expr::Cast(types::I64, &prep_float);
+    if prep {
+        return matches(
+            function,
+            value,
+            match part {
+                Nonzero => &nonzero,
+                PrepInteger => &prep_int,
+                PrepFloat => &prep_bits,
+                _ => return false,
+            },
+            &mut 1024,
+        );
+    }
+    let index = Expr::Binary(Opcode::SaddOverflow, types::I64, &index_bits, &step_bits);
+    let overflow = Expr::Overflow(&index_bits, &step_bits);
+    let one = Expr::Int(types::I8, 1);
+    let not_overflow = Expr::Binary(Opcode::Bxor, types::I8, &overflow, &one);
+    let float_index = Expr::Binary(Opcode::Fadd, types::F64, &index_float, &step_float);
+    let float_bits = Expr::Cast(types::I64, &float_index);
+    let limit_tag = Expr::Value(inputs[1].0);
+    let limit_bits = Expr::Value(inputs[1].1);
+    let limit_integer = Expr::Compare(IntCC::Equal, &limit_tag, &integer_tag);
+    let int_zero = Expr::Int(types::I64, 0);
+    let negative = Expr::Compare(IntCC::SignedLessThan, &step_bits, &int_zero);
+    let ge = Expr::Compare(IntCC::SignedGreaterThanOrEqual, &index, &limit_bits);
+    let le = Expr::Compare(IntCC::SignedLessThanOrEqual, &index, &limit_bits);
+    let int_range = Expr::Select(types::I8, &negative, &ge, &le);
+    let converted_index = Expr::Unary(Opcode::FcvtFromSint, types::F64, &index);
+    let cast_limit = Expr::Cast(types::F64, &limit_bits);
+    let ge = Expr::FloatCompare(FloatCC::GreaterThanOrEqual, &converted_index, &cast_limit);
+    let le = Expr::FloatCompare(FloatCC::LessThanOrEqual, &converted_index, &cast_limit);
+    let float_range = Expr::Select(types::I8, &negative, &ge, &le);
+    let range = Expr::Select(types::I8, &limit_integer, &int_range, &float_range);
+    let condition = Expr::Binary(Opcode::Band, types::I8, &not_overflow, &range);
+    let limit_signed = Expr::Unary(Opcode::FcvtFromSint, types::F64, &limit_bits);
+    let limit_float = Expr::Select(types::F64, &limit_integer, &limit_signed, &cast_limit);
+    let float_negative = Expr::FloatCompare(FloatCC::LessThan, &step_float, &zero);
+    let ge = Expr::FloatCompare(FloatCC::GreaterThanOrEqual, &float_index, &limit_float);
+    let le = Expr::FloatCompare(FloatCC::LessThanOrEqual, &float_index, &limit_float);
+    let float_condition = Expr::Select(types::I8, &float_negative, &ge, &le);
+    matches(
+        function,
+        value,
+        match part {
+            StepInteger => &index,
+            StepFloat => &float_bits,
+            ConditionInteger => &condition,
+            ConditionFloat => &float_condition,
+            _ => return false,
+        },
+        &mut 1024,
+    )
 }
 
 #[cfg(test)]

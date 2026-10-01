@@ -82,6 +82,13 @@ ordering and saturating conversions at the +/-2^63 boundaries. Actual split
 edges, the two phi inputs, final branch polarity/targets and one-step fuel
 increment are verified. Comparison record storage is exact-counted and charged
 to the snapshot ledger; missing obligations and growth are refused.
+NumericForPrep/NumericForLoop records bind source registers to typed subtraction,
+addition, signed-overflow suppression and directional integer/IEEE limit tests.
+The nonzero-step retry guard, integer/float split, phi triples, unconditional
+index store, taken-only visible-variable store and decoded jump/fallthrough fuel
+increments are checked. Unexpected stores in the verified loop arms and finish
+blocks are refused. Loop records are exact-counted and quota-charged; these
+local checks do not complete whole-program path, alias or liveness proof.
 The retained, fallible PC-to-block map is charged to the snapshot ledger and
 can refuse with `ResourceLimit("frontend block map")` before compiler/host setup.
 Semantic checks are

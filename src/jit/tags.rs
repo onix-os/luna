@@ -54,6 +54,36 @@ pub(super) struct Comparison {
     pub branch: Inst,
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct ForPrep {
+    pub pc: usize,
+    pub inputs: [(Value, Value); 2],
+    pub nonzero: Inst,
+    pub split: Inst,
+    pub stores: [Inst; 2],
+    pub next: [Inst; 2],
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct LoopArm {
+    pub tag: Value,
+    pub bits: Value,
+    pub condition: Value,
+    pub next: Inst,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct ForLoop {
+    pub pc: usize,
+    pub inputs: [(Value, Value); 3],
+    pub split: Inst,
+    pub arms: [LoopArm; 2],
+    pub store: Inst,
+    pub branch: Inst,
+    pub visible_store: Inst,
+    pub next: [Inst; 2],
+}
+
 #[cfg(test)]
 #[derive(Clone, Copy)]
 pub(super) enum ComparisonCorruption {
@@ -66,6 +96,27 @@ pub(super) enum ComparisonCorruption {
     Count,
     Source,
     Polarity,
+    Missing,
+    ProgramCounter,
+    Growth,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum LoopCorruption {
+    IndexOpcode,
+    FloatOpcode,
+    Guard,
+    Split,
+    Overflow,
+    Direction,
+    Limit,
+    Phi,
+    Source,
+    Store,
+    VisibleStore,
+    Targets,
+    Count,
     Missing,
     ProgramCounter,
     Growth,
@@ -91,6 +142,10 @@ pub(super) enum ArithmeticCorruption {
 }
 
 pub(super) struct Stores {
+    preps: Vec<ForPrep, BudgetAllocator>,
+    loops: Vec<ForLoop, BudgetAllocator>,
+    expected_preps: Option<usize>,
+    expected_loops: Option<usize>,
     comparisons: Vec<Comparison, BudgetAllocator>,
     expected_comparisons: Option<usize>,
     truths: Vec<Truth, BudgetAllocator>,
@@ -121,7 +176,15 @@ impl Stores {
         let mut arithmetic_count = 0usize;
         let mut truth_count = 0usize;
         let mut comparison_count = 0usize;
+        let mut prep_count = 0usize;
+        let mut loop_count = 0usize;
         for &op in &snapshot.operations {
+            if matches!(op, Operation::NumericForPrep { .. }) {
+                prep_count = prep_count.checked_add(1).ok_or_else(refused)?;
+            }
+            if matches!(op, Operation::NumericForLoop { .. }) {
+                loop_count = loop_count.checked_add(1).ok_or_else(refused)?;
+            }
             if matches!(
                 op,
                 Operation::Eq { .. } | Operation::Less { .. } | Operation::LessEq { .. }
@@ -183,11 +246,19 @@ impl Stores {
         truths
             .try_reserve_exact(truth_count)
             .map_err(|_| refused())?;
-        let mut comparisons = Vec::new_in(allocator);
+        let mut comparisons = Vec::new_in(allocator.clone());
         comparisons
             .try_reserve_exact(comparison_count)
             .map_err(|_| refused())?;
+        let mut preps = Vec::new_in(allocator.clone());
+        preps.try_reserve_exact(prep_count).map_err(|_| refused())?;
+        let mut loops = Vec::new_in(allocator);
+        loops.try_reserve_exact(loop_count).map_err(|_| refused())?;
         Ok(Self {
+            preps,
+            loops,
+            expected_preps: Some(prep_count),
+            expected_loops: Some(loop_count),
             comparisons,
             expected_comparisons: Some(comparison_count),
             truths,
@@ -233,6 +304,22 @@ impl Stores {
             return;
         }
         self.comparisons.push(record);
+    }
+
+    pub fn for_prep(&mut self, record: ForPrep) {
+        if self.preps.len() == self.preps.capacity() {
+            self.overflowed = true;
+            return;
+        }
+        self.preps.push(record);
+    }
+
+    pub fn for_loop(&mut self, record: ForLoop) {
+        if self.loops.len() == self.loops.capacity() {
+            self.overflowed = true;
+            return;
+        }
+        self.loops.push(record);
     }
 
     pub fn arithmetic(
@@ -282,6 +369,12 @@ impl Stores {
     ) -> Result<(), JitError> {
         if registers > 256
             || self.overflowed
+            || self
+                .expected_preps
+                .is_some_and(|count| self.preps.len() != count)
+            || self
+                .expected_loops
+                .is_some_and(|count| self.loops.len() != count)
             || self
                 .expected_comparisons
                 .is_some_and(|count| self.comparisons.len() != count)
@@ -413,6 +506,512 @@ impl Stores {
             {
                 return Err(invalid());
             }
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn corrupt_loop(
+        &mut self,
+        function: &mut Function,
+        prep: bool,
+        fault: LoopCorruption,
+        registers: usize,
+    ) {
+        use cranelift_codegen::{
+            cursor::{Cursor, FuncCursor},
+            ir::InstBuilder,
+        };
+        use LoopCorruption::*;
+        match fault {
+            Missing => {
+                if prep {
+                    self.preps.clear();
+                } else {
+                    self.loops.clear();
+                }
+                return;
+            }
+            ProgramCounter => {
+                if prep {
+                    self.preps[0].pc += 1;
+                } else {
+                    self.loops[0].pc += 1;
+                }
+                return;
+            }
+            Growth => {
+                if prep {
+                    self.for_prep(self.preps[0]);
+                } else {
+                    self.for_loop(self.loops[0]);
+                }
+                return;
+            }
+            _ => {}
+        }
+        let (split, store, next, source) = if prep {
+            let record = self.preps[0];
+            (
+                record.split,
+                record.stores[0],
+                record.next[0],
+                record.inputs[0],
+            )
+        } else {
+            let record = self.loops[0];
+            (record.split, record.store, record.next[0], record.inputs[0])
+        };
+        match fault {
+            IndexOpcode => {
+                let value = if prep {
+                    let InstructionData::Store { args, .. } = function.dfg.insts[store] else {
+                        unreachable!()
+                    };
+                    args[0]
+                } else {
+                    self.loops[0].arms[0].bits
+                };
+                let inst = function.dfg.value_def(value).unwrap_inst();
+                let InstructionData::Binary { opcode, .. } = &mut function.dfg.insts[inst] else {
+                    unreachable!()
+                };
+                *opcode = if prep {
+                    Opcode::Iadd
+                } else {
+                    Opcode::UaddOverflow
+                };
+            }
+            FloatOpcode => {
+                let value = if prep {
+                    let InstructionData::Store { args, .. } =
+                        function.dfg.insts[self.preps[0].stores[1]]
+                    else {
+                        unreachable!()
+                    };
+                    args[0]
+                } else {
+                    self.loops[0].arms[1].bits
+                };
+                let cast = function.dfg.value_def(value).unwrap_inst();
+                let InstructionData::LoadNoOffset { arg, .. } = function.dfg.insts[cast] else {
+                    unreachable!()
+                };
+                let inst = function.dfg.value_def(arg).unwrap_inst();
+                let InstructionData::Binary { opcode, .. } = &mut function.dfg.insts[inst] else {
+                    unreachable!()
+                };
+                *opcode = if prep { Opcode::Fadd } else { Opcode::Fsub };
+            }
+            Guard | Overflow => {
+                let inst = if prep {
+                    self.preps[0].nonzero
+                } else {
+                    function
+                        .dfg
+                        .value_def(self.loops[0].arms[0].condition)
+                        .unwrap_inst()
+                };
+                let mut cursor = FuncCursor::new(function);
+                cursor.goto_inst(inst);
+                let yes = cursor.ins().iconst(types::I8, 1);
+                match &mut cursor.func.dfg.insts[inst] {
+                    InstructionData::Brif { arg, .. } => *arg = yes,
+                    InstructionData::Binary { args, .. } => args[0] = yes,
+                    _ => unreachable!(),
+                }
+            }
+            Split => {
+                let InstructionData::Brif { blocks, .. } = &mut function.dfg.insts[split] else {
+                    unreachable!()
+                };
+                blocks.swap(0, 1);
+            }
+            Direction | Limit => {
+                let record = self.loops[0];
+                let block = function.layout.inst_block(record.arms[0].next).unwrap();
+                let condition = if fault == Direction {
+                    IntCC::SignedLessThan
+                } else {
+                    IntCC::SignedGreaterThanOrEqual
+                };
+                let inst = function.layout.block_insts(block).find(|inst| matches!(function.dfg.insts[*inst], InstructionData::IntCompare { cond, .. } if cond == condition)).unwrap();
+                let InstructionData::IntCompare { cond, args, .. } = &mut function.dfg.insts[inst]
+                else {
+                    unreachable!()
+                };
+                if fault == Direction {
+                    *cond = IntCC::SignedGreaterThanOrEqual;
+                } else {
+                    args[1] = record.inputs[2].1;
+                }
+            }
+            Phi => {
+                let arm = self.loops[0].arms[0];
+                let mut cursor = FuncCursor::new(function);
+                cursor.goto_inst(arm.next);
+                let yes = cursor.ins().iconst(types::I8, 1);
+                let dfg = &mut cursor.func.dfg;
+                let InstructionData::Jump { destination, .. } = &mut dfg.insts[arm.next] else {
+                    unreachable!()
+                };
+                destination.clear(&mut dfg.value_lists);
+                for value in [arm.tag, arm.bits, yes] {
+                    destination.append_argument(value, &mut dfg.value_lists);
+                }
+            }
+            Source => {
+                for value in [source.0, source.1] {
+                    let inst = function.dfg.value_def(value).unwrap_inst();
+                    let InstructionData::Load { offset, .. } = &mut function.dfg.insts[inst] else {
+                        unreachable!()
+                    };
+                    *offset = ((i32::from(*offset) + 16) % (registers as i32 * 16)).into();
+                }
+            }
+            Store | VisibleStore => {
+                let payload = if fault == VisibleStore {
+                    self.loops[0].visible_store
+                } else {
+                    store
+                };
+                let prior = function.layout.prev_inst(payload).unwrap();
+                for inst in [prior, payload] {
+                    let InstructionData::Store { offset, .. } = &mut function.dfg.insts[inst]
+                    else {
+                        unreachable!()
+                    };
+                    *offset = ((i32::from(*offset) + 16) % (registers as i32 * 16)).into();
+                }
+            }
+            Targets => {
+                let InstructionData::Jump {
+                    destination: left, ..
+                } = function.dfg.insts[next]
+                else {
+                    unreachable!()
+                };
+                let other = if prep {
+                    self.preps[0].next[1]
+                } else {
+                    self.loops[0].next[1]
+                };
+                let InstructionData::Jump {
+                    destination: right, ..
+                } = function.dfg.insts[other]
+                else {
+                    unreachable!()
+                };
+                if prep {
+                    let target = function
+                        .layout
+                        .blocks()
+                        .find(|block| {
+                            *block != left.block(&function.dfg.value_lists)
+                                && function.dfg.block_params(*block).len() == 1
+                                && function
+                                    .dfg
+                                    .value_type(function.dfg.block_params(*block)[0])
+                                    == types::I32
+                        })
+                        .unwrap();
+                    let count = left.args(&function.dfg.value_lists).last().unwrap();
+                    let call = cranelift_codegen::ir::BlockCall::new(
+                        target,
+                        [count],
+                        &mut function.dfg.value_lists,
+                    );
+                    let InstructionData::Jump { destination, .. } = &mut function.dfg.insts[next]
+                    else {
+                        unreachable!()
+                    };
+                    *destination = call;
+                } else {
+                    let left_arg = left.args(&function.dfg.value_lists).last().unwrap();
+                    let right_arg = right.args(&function.dfg.value_lists).last().unwrap();
+                    let left_call = cranelift_codegen::ir::BlockCall::new(
+                        right.block(&function.dfg.value_lists),
+                        [left_arg],
+                        &mut function.dfg.value_lists,
+                    );
+                    let right_call = cranelift_codegen::ir::BlockCall::new(
+                        left.block(&function.dfg.value_lists),
+                        [right_arg],
+                        &mut function.dfg.value_lists,
+                    );
+                    let InstructionData::Jump { destination, .. } = &mut function.dfg.insts[next]
+                    else {
+                        unreachable!()
+                    };
+                    *destination = left_call;
+                    let InstructionData::Jump { destination, .. } = &mut function.dfg.insts[other]
+                    else {
+                        unreachable!()
+                    };
+                    *destination = right_call;
+                }
+            }
+            Count => {
+                let InstructionData::Jump { destination, .. } = function.dfg.insts[next] else {
+                    unreachable!()
+                };
+                let value = destination.args(&function.dfg.value_lists).last().unwrap();
+                let BlockArg::Value(value) = value else {
+                    unreachable!()
+                };
+                let inst = function.dfg.value_def(value).unwrap_inst();
+                let InstructionData::Binary { opcode, .. } = &mut function.dfg.insts[inst] else {
+                    unreachable!()
+                };
+                *opcode = Opcode::Isub;
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn verify_loops(
+        &self,
+        function: &Function,
+        slots: Value,
+        snapshot: &super::ir::Snapshot,
+        blocks: &[Block],
+        fallback: Block,
+        guard: Block,
+    ) -> Result<(), JitError> {
+        use super::shape::{numeric_loop, LoopExpression as Part};
+        if blocks.len() != snapshot.operations.len() {
+            return Err(invalid());
+        }
+        let mut cfg = ControlFlowGraph::new();
+        if !self.preps.is_empty() || !self.loops.is_empty() {
+            cfg.compute(function);
+        }
+        let mut preps = self.preps.iter();
+        let mut loops = self.loops.iter();
+        for (pc, &op) in snapshot.operations.iter().enumerate() {
+            let (base, jump, prep) = match op {
+                Operation::NumericForPrep { base, jump } => (base.0, jump, true),
+                Operation::NumericForLoop { base, jump } => (base.0, jump, false),
+                _ => continue,
+            };
+            let target = (pc + 1)
+                .checked_add_signed(isize::from(jump))
+                .ok_or_else(invalid)?;
+            let count = *function
+                .dfg
+                .block_params(blocks[pc])
+                .first()
+                .ok_or_else(invalid)?;
+            if prep {
+                let record = preps.next().ok_or_else(invalid)?;
+                if record.pc != pc {
+                    return Err(invalid());
+                }
+                for (input, index) in record.inputs.into_iter().zip([base, base + 2]) {
+                    if !source_operand(
+                        function,
+                        slots,
+                        snapshot,
+                        RCIndex::Register(crate::types::RegisterIndex(index)),
+                        input.0,
+                        input.1,
+                    ) {
+                        return Err(invalid());
+                    }
+                }
+                let InstructionData::Brif {
+                    arg,
+                    blocks: destinations,
+                    ..
+                } = function.dfg.insts[record.nonzero]
+                else {
+                    return Err(invalid());
+                };
+                let accepted = destinations[0].block(&function.dfg.value_lists);
+                let mut declined = destinations[1].args(&function.dfg.value_lists);
+                let Some(BlockArg::Value(exit_pc)) = declined.next() else {
+                    return Err(invalid());
+                };
+                let Some(BlockArg::Value(exit_count)) = declined.next() else {
+                    return Err(invalid());
+                };
+                if !numeric_loop(function, arg, &record.inputs, Part::Nonzero)
+                    || destinations[0]
+                        .args(&function.dfg.value_lists)
+                        .next()
+                        .is_some()
+                    || function.layout.inst_block(record.split) != Some(accepted)
+                    || !single_predecessor(&cfg, accepted, record.nonzero)
+                    || destinations[1].block(&function.dfg.value_lists) != guard
+                    || literal(function, exit_pc) != Some(pc as u64)
+                    || !same_value(function, exit_count, count)
+                    || declined.next().is_some()
+                {
+                    return Err(invalid());
+                }
+                let arms = loop_split(
+                    function,
+                    &cfg,
+                    record.split,
+                    &record.inputs,
+                    Part::PrepSplit,
+                )?;
+                for (index, part, tag) in [
+                    (0, Part::PrepInteger, abi::INTEGER),
+                    (1, Part::PrepFloat, abi::NUMBER),
+                ] {
+                    let (stored_tag, bits) =
+                        payload_store(function, record.stores[index], slots, base)?;
+                    if literal(function, stored_tag) != Some(tag)
+                        || !numeric_loop(function, bits, &record.inputs, part)
+                        || function.layout.inst_block(record.stores[index]) != Some(arms[index])
+                        || function.layout.last_inst(arms[index]) != Some(record.next[index])
+                    {
+                        return Err(invalid());
+                    }
+                    loop_advance(
+                        function,
+                        record.next[index],
+                        blocks,
+                        target,
+                        count,
+                        fallback,
+                    )?;
+                    only_loop_stores(function, arms[index], &record.stores[index..=index])?;
+                }
+            } else {
+                let record = loops.next().ok_or_else(invalid)?;
+                if record.pc != pc {
+                    return Err(invalid());
+                }
+                for (input, index) in record.inputs.into_iter().zip([base, base + 1, base + 2]) {
+                    if !source_operand(
+                        function,
+                        slots,
+                        snapshot,
+                        RCIndex::Register(crate::types::RegisterIndex(index)),
+                        input.0,
+                        input.1,
+                    ) {
+                        return Err(invalid());
+                    }
+                }
+                let arms = loop_split(
+                    function,
+                    &cfg,
+                    record.split,
+                    &record.inputs,
+                    Part::StepSplit,
+                )?;
+                let join = function
+                    .layout
+                    .inst_block(record.branch)
+                    .ok_or_else(invalid)?;
+                let params = function.dfg.block_params(join);
+                if params.len() != 3
+                    || params
+                        .iter()
+                        .map(|value| function.dfg.value_type(*value))
+                        .ne([types::I64, types::I64, types::I8])
+                    || function.layout.last_inst(join) != Some(record.branch)
+                {
+                    return Err(invalid());
+                }
+                let mut seen = [false; 2];
+                for predecessor in cfg.pred_iter(join) {
+                    let index = record
+                        .arms
+                        .iter()
+                        .position(|arm| arm.next == predecessor.inst)
+                        .ok_or_else(invalid)?;
+                    if seen[index] {
+                        return Err(invalid());
+                    }
+                    seen[index] = true;
+                }
+                if seen != [true, true] {
+                    return Err(invalid());
+                }
+                for (index, tag, bits_part, condition_part) in [
+                    (0, abi::INTEGER, Part::StepInteger, Part::ConditionInteger),
+                    (1, abi::NUMBER, Part::StepFloat, Part::ConditionFloat),
+                ] {
+                    let arm = record.arms[index];
+                    let InstructionData::Jump { destination, .. } = function.dfg.insts[arm.next]
+                    else {
+                        return Err(invalid());
+                    };
+                    let expected = [arm.tag, arm.bits, arm.condition];
+                    let mut actual = destination.args(&function.dfg.value_lists);
+                    let arguments_match = expected.into_iter().all(|expected| {
+                        matches!(actual.next(), Some(BlockArg::Value(value)) if same_value(function, value, expected))
+                    });
+                    if destination.block(&function.dfg.value_lists) != join
+                        || function.layout.last_inst(arms[index]) != Some(arm.next)
+                        || !arguments_match
+                        || actual.next().is_some()
+                        || literal(function, arm.tag) != Some(tag)
+                        || !numeric_loop(function, arm.bits, &record.inputs, bits_part)
+                        || !numeric_loop(function, arm.condition, &record.inputs, condition_part)
+                    {
+                        return Err(invalid());
+                    }
+                    only_loop_stores(function, arms[index], &[])?;
+                }
+                let (tag, bits) = payload_store(function, record.store, slots, base)?;
+                let InstructionData::Brif {
+                    arg,
+                    blocks: destinations,
+                    ..
+                } = function.dfg.insts[record.branch]
+                else {
+                    return Err(invalid());
+                };
+                if function.layout.inst_block(record.store) != Some(join)
+                    || !same_value(function, tag, params[0])
+                    || !same_value(function, bits, params[1])
+                    || !same_value(function, arg, params[2])
+                {
+                    return Err(invalid());
+                }
+                only_loop_stores(function, join, &[record.store])?;
+                for (index, next_pc) in [(0, target), (1, pc + 1)] {
+                    let block = destinations[index].block(&function.dfg.value_lists);
+                    if destinations[index]
+                        .args(&function.dfg.value_lists)
+                        .next()
+                        .is_some()
+                        || !single_predecessor(&cfg, block, record.branch)
+                        || function.layout.last_inst(block) != Some(record.next[index])
+                    {
+                        return Err(invalid());
+                    }
+                    loop_advance(
+                        function,
+                        record.next[index],
+                        blocks,
+                        next_pc,
+                        count,
+                        fallback,
+                    )?;
+                    if index == 0 {
+                        let (tag, bits) =
+                            payload_store(function, record.visible_store, slots, base + 3)?;
+                        if function.layout.inst_block(record.visible_store) != Some(block)
+                            || !same_value(function, tag, params[0])
+                            || !same_value(function, bits, params[1])
+                        {
+                            return Err(invalid());
+                        }
+                        only_loop_stores(function, block, &[record.visible_store])?;
+                    } else {
+                        only_loop_stores(function, block, &[])?;
+                    }
+                }
+            }
+        }
+        if preps.next().is_some() || loops.next().is_some() {
+            return Err(invalid());
         }
         Ok(())
     }
@@ -1200,6 +1799,124 @@ fn source_operand(
     }
 }
 
+fn same_value(function: &Function, left: Value, right: Value) -> bool {
+    function.dfg.resolve_aliases(left) == function.dfg.resolve_aliases(right)
+}
+
+fn single_predecessor(cfg: &ControlFlowGraph, block: Block, inst: Inst) -> bool {
+    let mut predecessors = cfg.pred_iter(block);
+    predecessors
+        .next()
+        .is_some_and(|predecessor| predecessor.inst == inst)
+        && predecessors.next().is_none()
+}
+
+fn loop_split(
+    function: &Function,
+    cfg: &ControlFlowGraph,
+    inst: Inst,
+    inputs: &[(Value, Value)],
+    part: super::shape::LoopExpression,
+) -> Result<[Block; 2], JitError> {
+    let InstructionData::Brif { arg, blocks, .. } = function.dfg.insts[inst] else {
+        return Err(invalid());
+    };
+    if !super::shape::numeric_loop(function, arg, inputs, part) {
+        return Err(invalid());
+    }
+    let targets = blocks.map(|arm| arm.block(&function.dfg.value_lists));
+    for (arm, target) in blocks.into_iter().zip(targets) {
+        if arm.args(&function.dfg.value_lists).next().is_some()
+            || !single_predecessor(cfg, target, inst)
+        {
+            return Err(invalid());
+        }
+    }
+    Ok(targets)
+}
+
+fn payload_store(
+    function: &Function,
+    inst: Inst,
+    slots: Value,
+    register: u8,
+) -> Result<(Value, Value), JitError> {
+    let prior = function.layout.prev_inst(inst).ok_or_else(invalid)?;
+    let mut values = [slots; 2];
+    for (index, point, offset) in [
+        (0, prior, i32::from(register) * 16),
+        (1, inst, i32::from(register) * 16 + 8),
+    ] {
+        let InstructionData::Store {
+            opcode: Opcode::Store,
+            args,
+            offset: actual,
+            flags,
+        } = function.dfg.insts[point]
+        else {
+            return Err(invalid());
+        };
+        if !same_value(function, args[1], slots)
+            || i32::from(actual) != offset
+            || function.dfg.value_type(args[0]) != types::I64
+            || function.dfg.mem_flags[flags] != MemFlagsData::new()
+        {
+            return Err(invalid());
+        }
+        values[index] = args[0];
+    }
+    Ok((values[0], values[1]))
+}
+
+fn loop_advance(
+    function: &Function,
+    inst: Inst,
+    blocks: &[Block],
+    target: usize,
+    count: Value,
+    fallback: Block,
+) -> Result<(), JitError> {
+    let InstructionData::Jump { destination, .. } = function.dfg.insts[inst] else {
+        return Err(invalid());
+    };
+    let mut args = destination.args(&function.dfg.value_lists);
+    if let Some(block) = blocks.get(target) {
+        if destination.block(&function.dfg.value_lists) != *block {
+            return Err(invalid());
+        }
+    } else {
+        let Some(BlockArg::Value(pc)) = args.next() else {
+            return Err(invalid());
+        };
+        if target != blocks.len()
+            || destination.block(&function.dfg.value_lists) != fallback
+            || literal(function, pc) != Some(target as u64)
+        {
+            return Err(invalid());
+        }
+    }
+    let Some(BlockArg::Value(value)) = args.next() else {
+        return Err(invalid());
+    };
+    if args.next().is_some() || !super::shape::increment(function, value, count) {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
+fn only_loop_stores(function: &Function, block: Block, allowed: &[Inst]) -> Result<(), JitError> {
+    for inst in function.layout.block_insts(block) {
+        if function.dfg.insts[inst].opcode().can_store()
+            && !allowed.iter().any(|payload| {
+                *payload == inst || function.layout.prev_inst(*payload) == Some(inst)
+            })
+        {
+            return Err(invalid());
+        }
+    }
+    Ok(())
+}
+
 struct Analysis<'a> {
     function: &'a Function,
     cfg: &'a ControlFlowGraph,
@@ -1602,6 +2319,10 @@ mod tests {
         let mut records = Vec::new_in(allocator);
         records.try_reserve_exact(8).unwrap();
         let mut stores = Stores {
+            preps: Vec::new_in(records.allocator().clone()),
+            loops: Vec::new_in(records.allocator().clone()),
+            expected_preps: None,
+            expected_loops: None,
             comparisons: {
                 let mut comparisons = Vec::new_in(records.allocator().clone());
                 comparisons.try_reserve_exact(8).unwrap();
@@ -2689,6 +3410,61 @@ mod tests {
         assert_eq!(ledger.current(), before);
         assert_eq!(ledger.peak(), before + allowance);
         assert_eq!(ledger.refusals(), 1);
+    }
+
+    #[test]
+    fn loop_record_allocation_refusal_releases_partial_storage() {
+        use crate::types::{RegisterIndex as R, VarCount};
+        for prep in [false, true] {
+            let snapshot = super::super::ir::Snapshot {
+                operations: super::super::resources::owned(&[
+                    if prep {
+                        Operation::NumericForPrep {
+                            base: R(0),
+                            jump: 1,
+                        }
+                    } else {
+                        Operation::NumericForLoop {
+                            base: R(0),
+                            jump: 1,
+                        }
+                    },
+                    Operation::Return {
+                        start: R(0),
+                        count: VarCount::constant(0),
+                    },
+                    Operation::Return {
+                        start: R(0),
+                        count: VarCount::constant(0),
+                    },
+                ]),
+                constants: super::super::resources::owned(&[]),
+                registers: 4,
+                upvalues: 0,
+                prototypes: 0,
+            };
+            snapshot.verify().unwrap();
+            let graph = FlowGraph::new(&snapshot).unwrap();
+            let ledger = snapshot.operations.allocator().0.clone();
+            let before = ledger.current();
+            let stores = graph
+                .nodes
+                .iter()
+                .filter(|node| node.lowering.native())
+                .map(|node| 2 * node.access.writes.count())
+                .sum::<usize>();
+            let inputs = if prep { 4 } else { 6 };
+            let allowance =
+                stores * std::mem::size_of::<Store>() + inputs * std::mem::size_of::<Input>();
+            ledger.set_limit(before + allowance);
+            assert!(matches!(
+                Stores::new(&graph, &snapshot),
+                Err(JitError::ResourceLimit("scalar tag verification"))
+            ));
+            assert_eq!(ledger.current(), before);
+            assert_eq!(ledger.peak(), before + allowance);
+            assert_eq!(ledger.refusals(), 1);
+        }
     }
 
     fn truth_fixture(

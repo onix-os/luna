@@ -200,6 +200,7 @@ pub(super) enum Failure {
     CorruptComparisonCount,
     CorruptComparisonSource,
     CorruptComparisonPolarity,
+    CorruptLoop(bool, super::tags::LoopCorruption),
 }
 
 #[cfg(test)]
@@ -303,6 +304,7 @@ pub(super) fn compile_in(
     let mut context = module.make_context();
     context.func.signature = signature;
     let mut fb_context = FunctionBuilderContext::new();
+    let (fallback, guard);
     {
         let mut builder = FunctionBuilder::new(&mut context.func, &mut fb_context);
         let entry = builder.create_block();
@@ -313,8 +315,8 @@ pub(super) fn compile_in(
         for block in &blocks {
             builder.append_block_param(*block, types::I32);
         }
-        let fallback = builder.create_block();
-        let guard = builder.create_block();
+        fallback = builder.create_block();
+        guard = builder.create_block();
         let exhausted = builder.create_block();
         let panicked = builder.create_block();
         for block in [fallback, guard, exhausted, panicked] {
@@ -469,6 +471,10 @@ pub(super) fn compile_in(
             stores.corrupt_comparison(&mut context.func, fault, snapshot.registers);
         }
     }
+    #[cfg(test)]
+    if let Failure::CorruptLoop(prep, fault) = failure {
+        stores.corrupt_loop(&mut context.func, prep, fault, snapshot.registers);
+    }
     let block_count = context.func.layout.blocks().count();
     let instructions = context
         .func
@@ -490,6 +496,14 @@ pub(super) fn compile_in(
     stores.verify_arithmetic(&context.func, parameters[0], snapshot)?;
     stores.verify_truths(&context.func, parameters[0], snapshot, &blocks)?;
     stores.verify_comparisons(&context.func, parameters[0], snapshot, &blocks)?;
+    stores.verify_loops(
+        &context.func,
+        parameters[0],
+        snapshot,
+        &blocks,
+        fallback,
+        guard,
+    )?;
     module
         .define_function(function, &mut context)
         .map_err(fail)?;
@@ -677,9 +691,13 @@ impl Emitter<'_, '_> {
     }
 
     fn require(&mut self, condition: IrValue) {
+        self.require_point(condition);
+    }
+
+    fn require_point(&mut self, condition: IrValue) -> Inst {
         let next = self.builder.create_block();
         let pc = self.exit_pc(ExitKind::Guard);
-        self.builder.ins().brif(
+        let point = self.builder.ins().brif(
             condition,
             next,
             &[],
@@ -687,6 +705,7 @@ impl Emitter<'_, '_> {
             &[pc.into(), self.count.into()],
         );
         self.builder.switch_to_block(next);
+        point
     }
 
     fn tag_is(&mut self, tag: IrValue, value: u64) -> IrValue {
@@ -731,15 +750,19 @@ impl Emitter<'_, '_> {
     }
 
     fn advance(&mut self, next: usize) {
+        self.advance_point(next);
+    }
+
+    fn advance_point(&mut self, next: usize) -> Inst {
         assert!(self.graph.permits_edge(self.pc, next));
         let count = self.builder.ins().iadd_imm_s(self.count, 1);
         if let Some(block) = self.blocks.get(next) {
-            self.builder.ins().jump(*block, &[count.into()]);
+            self.builder.ins().jump(*block, &[count.into()])
         } else {
             let pc = self.constant(next as u64);
             self.builder
                 .ins()
-                .jump(self.fallback, &[pc.into(), count.into()]);
+                .jump(self.fallback, &[pc.into(), count.into()])
         }
     }
 
@@ -1122,20 +1145,20 @@ impl Emitter<'_, '_> {
         let step = self.as_float(st, sb);
         let zero = self.builder.ins().f64const(0.0);
         let nonzero = self.builder.ins().fcmp(FloatCC::NotEqual, step, zero);
-        self.require(nonzero);
+        let nonzero = self.require_point(nonzero);
         let integer = self.builder.create_block();
         let float = self.builder.create_block();
         let ii = self.tag_is(it, abi::INTEGER);
         let si = self.tag_is(st, abi::INTEGER);
         let both = self.builder.ins().band(ii, si);
-        self.builder.ins().brif(both, integer, &[], float, &[]);
+        let split = self.builder.ins().brif(both, integer, &[], float, &[]);
         let target = (self.pc + 1).checked_add_signed(isize::from(jump)).unwrap();
         self.builder.switch_to_block(integer);
         let index = self.builder.ins().isub(ib, sb);
         self.numeric_input(index, it, ib);
         self.numeric_input(index, st, sb);
-        self.store_typed(base, abi::INTEGER, index);
-        self.advance(target);
+        let integer_store = self.store_typed(base, abi::INTEGER, index);
+        let integer_next = self.advance_point(target);
         self.builder.switch_to_block(float);
         let index = self.as_float(it, ib);
         let index = self.builder.ins().fsub(index, step);
@@ -1143,8 +1166,16 @@ impl Emitter<'_, '_> {
             .builder
             .ins()
             .bitcast(types::I64, MemFlagsData::new(), index);
-        self.store_typed(base, abi::NUMBER, bits);
-        self.advance(target);
+        let float_store = self.store_typed(base, abi::NUMBER, bits);
+        let float_next = self.advance_point(target);
+        self.stores.for_prep(super::tags::ForPrep {
+            pc: self.pc,
+            inputs: [(it, ib), (st, sb)],
+            nonzero,
+            split,
+            stores: [integer_store, float_store],
+            next: [integer_next, float_next],
+        });
     }
 
     fn for_loop(&mut self, base: u8, jump: i16) {
@@ -1159,7 +1190,7 @@ impl Emitter<'_, '_> {
         let integer = self.builder.create_block();
         let float = self.builder.create_block();
         let both = self.builder.ins().band(ii, si);
-        self.builder.ins().brif(both, integer, &[], float, &[]);
+        let split = self.builder.ins().brif(both, integer, &[], float, &[]);
         let join = self.builder.create_block();
         self.builder.append_block_param(join, types::I64);
         self.builder.append_block_param(join, types::I64);
@@ -1198,9 +1229,16 @@ impl Emitter<'_, '_> {
         let not_overflow = self.builder.ins().bxor_imm_u(overflow, 1);
         let condition = self.builder.ins().band(not_overflow, in_range);
         let tag = self.constant(abi::INTEGER);
-        self.builder
+        let integer_next = self
+            .builder
             .ins()
             .jump(join, &[tag.into(), index.into(), condition.into()]);
+        let integer_arm = super::tags::LoopArm {
+            tag,
+            bits: index,
+            condition,
+            next: integer_next,
+        };
         self.builder.switch_to_block(float);
         let index = self.as_float(it, ib);
         let step = self.as_float(st, sb);
@@ -1222,22 +1260,40 @@ impl Emitter<'_, '_> {
             .ins()
             .bitcast(types::I64, MemFlagsData::new(), index);
         let tag = self.constant(abi::NUMBER);
-        self.builder
+        let float_next = self
+            .builder
             .ins()
             .jump(join, &[tag.into(), bits.into(), condition.into()]);
+        let float_arm = super::tags::LoopArm {
+            tag,
+            bits,
+            condition,
+            next: float_next,
+        };
         self.builder.switch_to_block(join);
         let tag = self.builder.block_params(join)[0];
         let bits = self.builder.block_params(join)[1];
         let condition = self.builder.block_params(join)[2];
-        self.store(base, tag, bits);
+        let store = self.store(base, tag, bits);
         let taken = self.builder.create_block();
         let done = self.builder.create_block();
-        self.builder.ins().brif(condition, taken, &[], done, &[]);
+        let branch = self.builder.ins().brif(condition, taken, &[], done, &[]);
         self.builder.switch_to_block(taken);
-        self.store(base + 3, tag, bits);
-        self.advance((self.pc + 1).checked_add_signed(isize::from(jump)).unwrap());
+        let visible_store = self.store(base + 3, tag, bits);
+        let taken_next =
+            self.advance_point((self.pc + 1).checked_add_signed(isize::from(jump)).unwrap());
         self.builder.switch_to_block(done);
-        self.advance(self.pc + 1);
+        let done_next = self.advance_point(self.pc + 1);
+        self.stores.for_loop(super::tags::ForLoop {
+            pc: self.pc,
+            inputs: [(it, ib), (lt, lb), (st, sb)],
+            split,
+            arms: [integer_arm, float_arm],
+            store,
+            branch,
+            visible_store,
+            next: [taken_next, done_next],
+        });
     }
 }
 
@@ -1689,6 +1745,200 @@ mod comparison_tests {
 }
 
 #[cfg(test)]
+mod loop_tests {
+    use super::super::tags::LoopCorruption as Fault;
+    use super::*;
+    use crate::types::{RegisterIndex as R, VarCount};
+
+    fn fixture(prep: bool, base: u8, jump: i16, fault: Option<Fault>) -> Result<(), JitError> {
+        let op = if prep {
+            Operation::NumericForPrep {
+                base: R(base),
+                jump,
+            }
+        } else {
+            Operation::NumericForLoop {
+                base: R(base),
+                jump,
+            }
+        };
+        let snapshot = Snapshot {
+            operations: super::super::resources::owned(&[
+                op,
+                Operation::Return {
+                    start: R(0),
+                    count: VarCount::constant(0),
+                },
+                Operation::Return {
+                    start: R(0),
+                    count: VarCount::constant(0),
+                },
+            ]),
+            constants: super::super::resources::owned(&[]),
+            registers: 8,
+            upvalues: 0,
+            prototypes: 0,
+        };
+        snapshot.verify().unwrap();
+        let graph = super::super::flow::FlowGraph::new(&snapshot).unwrap();
+        let baseline = snapshot.operations.allocator().0.current();
+        let mut stores = super::super::tags::Stores::new(&graph, &snapshot).unwrap();
+        let mut function = cranelift_codegen::ir::Function::new();
+        function.signature.params.push(AbiParam::new(types::I64));
+        let mut context = FunctionBuilderContext::new();
+        let (slots, blocks, fallback, guard);
+        {
+            let mut builder = FunctionBuilder::new(&mut function, &mut context);
+            let entry = builder.create_block();
+            builder.append_block_params_for_function_params(entry);
+            builder.switch_to_block(entry);
+            slots = builder.block_params(entry)[0];
+            blocks = [
+                builder.create_block(),
+                builder.create_block(),
+                builder.create_block(),
+            ];
+            for block in blocks {
+                builder.append_block_param(block, types::I32);
+            }
+            fallback = builder.create_block();
+            guard = builder.create_block();
+            for block in [fallback, guard] {
+                builder.append_block_param(block, types::I64);
+                builder.append_block_param(block, types::I32);
+            }
+            let zero = builder.ins().iconst(types::I32, 0);
+            builder.ins().jump(blocks[0], &[zero.into()]);
+            builder.switch_to_block(blocks[0]);
+            let count = builder.block_params(blocks[0])[0];
+            let host = builder.ins().iconst(types::I64, 0);
+            let mut emitter = Emitter {
+                builder: &mut builder,
+                snapshot: &snapshot,
+                graph: &graph,
+                blocks: &blocks,
+                slots,
+                fallback,
+                guard,
+                panicked: guard,
+                host,
+                helpers: &[],
+                pc: 0,
+                count,
+                written: false,
+                stores: &mut stores,
+                omit_numeric_guards: false,
+            };
+            emitter.emit(op);
+            for block in [blocks[1], blocks[2], fallback, guard] {
+                builder.switch_to_block(block);
+                builder.ins().return_(&[]);
+            }
+            builder.seal_all_blocks();
+            let isa = cranelift_codegen::isa::lookup_by_name(std::env::consts::ARCH)
+                .unwrap()
+                .finish(cranelift_codegen::settings::Flags::new(
+                    cranelift_codegen::settings::builder(),
+                ))
+                .unwrap();
+            builder.finalize(isa.frontend_config());
+        }
+        if let Some(fault) = fault {
+            stores.corrupt_loop(&mut function, prep, fault, snapshot.registers);
+        }
+        cranelift_codegen::verify_function(
+            &function,
+            &cranelift_codegen::settings::Flags::new(cranelift_codegen::settings::builder()),
+        )
+        .unwrap();
+        let result = stores
+            .verify(&function, slots, None, snapshot.registers)
+            .and_then(|_| {
+                stores.verify_loops(&function, slots, &snapshot, &blocks, fallback, guard)
+            });
+        let ledger = snapshot.operations.allocator().0.clone();
+        drop(stores);
+        assert_eq!(ledger.current(), baseline);
+        result
+    }
+
+    fn refused(result: Result<(), JitError>) {
+        assert!(
+            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow"),
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn prep_and_step_match_both_bases_backward_self_and_forward_jumps() {
+        for prep in [false, true] {
+            for base in [0, 4] {
+                for jump in [-1, 0, 1] {
+                    fixture(prep, base, jump, None).unwrap();
+                }
+            }
+        }
+    }
+    #[test]
+    fn prep_source_arithmetic_nonzero_guard_split_and_store_corruption_is_refused() {
+        for fault in [
+            Fault::IndexOpcode,
+            Fault::FloatOpcode,
+            Fault::Guard,
+            Fault::Split,
+            Fault::Source,
+            Fault::Store,
+        ] {
+            refused(fixture(true, 0, 1, Some(fault)));
+        }
+    }
+    #[test]
+    fn step_overflow_direction_limit_and_arithmetic_corruption_is_refused() {
+        for fault in [
+            Fault::Overflow,
+            Fault::Direction,
+            Fault::Limit,
+            Fault::IndexOpcode,
+            Fault::FloatOpcode,
+        ] {
+            refused(fixture(false, 0, 1, Some(fault)));
+        }
+    }
+    #[test]
+    fn split_and_phi_corruption_is_refused() {
+        for fault in [Fault::Split, Fault::Phi] {
+            refused(fixture(false, 0, 1, Some(fault)));
+        }
+    }
+    #[test]
+    fn index_and_visible_variable_destination_corruption_is_refused() {
+        for fault in [Fault::Store, Fault::VisibleStore] {
+            refused(fixture(false, 0, 1, Some(fault)));
+        }
+    }
+    #[test]
+    fn source_branch_and_fuel_corruption_is_refused() {
+        for fault in [Fault::Source, Fault::Targets, Fault::Count] {
+            refused(fixture(false, 0, 1, Some(fault)));
+        }
+    }
+    #[test]
+    fn prep_target_and_fuel_corruption_is_refused() {
+        for fault in [Fault::Targets, Fault::Count] {
+            refused(fixture(true, 0, 1, Some(fault)));
+        }
+    }
+    #[test]
+    fn record_count_pc_and_capacity_cannot_remove_loop_obligations() {
+        for prep in [false, true] {
+            for fault in [Fault::Missing, Fault::ProgramCounter, Fault::Growth] {
+                refused(fixture(prep, 0, 1, Some(fault)));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
 mod memory_tests {
     use super::*;
 
@@ -1773,6 +2023,142 @@ mod memory_tests {
         assert_eq!(ledger.current(), baseline);
         assert_eq!(ledger.refusals(), 1);
     }
+
+    fn refuse_corrupted_loop(prep: bool, fault: super::super::tags::LoopCorruption) {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype = crate::FunctionPrototype::compile(
+                ctx,
+                "loop-corruption",
+                b"local total=0 for i=1,3 do total=total+i end return total",
+            )
+            .unwrap();
+            Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
+        });
+        let total = Arc::new(AtomicUsize::new(0));
+        let result = compile_in(
+            &snapshot,
+            total.clone(),
+            8 * 1024 * 1024,
+            BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
+            super::super::work::Limits::from(&super::super::JitConfig::default()),
+            Failure::CorruptLoop(prep, fault),
+        );
+        assert!(
+            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")
+        );
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+    }
+
+    macro_rules! loop_corruption {
+        ($name:ident, $prep:literal, $fault:ident) => {
+            #[test]
+            fn $name() {
+                refuse_corrupted_loop($prep, super::super::tags::LoopCorruption::$fault);
+            }
+        };
+    }
+
+    loop_corruption!(
+        corrupted_loop_prep_index_is_refused_before_codegen_and_mapping,
+        true,
+        IndexOpcode
+    );
+    loop_corruption!(
+        corrupted_loop_prep_float_is_refused_before_codegen_and_mapping,
+        true,
+        FloatOpcode
+    );
+    loop_corruption!(
+        corrupted_loop_prep_guard_is_refused_before_codegen_and_mapping,
+        true,
+        Guard
+    );
+    loop_corruption!(
+        corrupted_loop_prep_split_is_refused_before_codegen_and_mapping,
+        true,
+        Split
+    );
+    loop_corruption!(
+        corrupted_loop_prep_source_is_refused_before_codegen_and_mapping,
+        true,
+        Source
+    );
+    loop_corruption!(
+        corrupted_loop_prep_store_is_refused_before_codegen_and_mapping,
+        true,
+        Store
+    );
+    loop_corruption!(
+        corrupted_loop_prep_target_is_refused_before_codegen_and_mapping,
+        true,
+        Targets
+    );
+    loop_corruption!(
+        corrupted_loop_prep_count_is_refused_before_codegen_and_mapping,
+        true,
+        Count
+    );
+    loop_corruption!(
+        corrupted_loop_step_index_is_refused_before_codegen_and_mapping,
+        false,
+        IndexOpcode
+    );
+    loop_corruption!(
+        corrupted_loop_step_float_is_refused_before_codegen_and_mapping,
+        false,
+        FloatOpcode
+    );
+    loop_corruption!(
+        corrupted_loop_step_split_is_refused_before_codegen_and_mapping,
+        false,
+        Split
+    );
+    loop_corruption!(
+        corrupted_loop_step_overflow_is_refused_before_codegen_and_mapping,
+        false,
+        Overflow
+    );
+    loop_corruption!(
+        corrupted_loop_step_direction_is_refused_before_codegen_and_mapping,
+        false,
+        Direction
+    );
+    loop_corruption!(
+        corrupted_loop_step_limit_is_refused_before_codegen_and_mapping,
+        false,
+        Limit
+    );
+    loop_corruption!(
+        corrupted_loop_step_phi_is_refused_before_codegen_and_mapping,
+        false,
+        Phi
+    );
+    loop_corruption!(
+        corrupted_loop_step_source_is_refused_before_codegen_and_mapping,
+        false,
+        Source
+    );
+    loop_corruption!(
+        corrupted_loop_step_store_is_refused_before_codegen_and_mapping,
+        false,
+        Store
+    );
+    loop_corruption!(
+        corrupted_loop_step_visible_is_refused_before_codegen_and_mapping,
+        false,
+        VisibleStore
+    );
+    loop_corruption!(
+        corrupted_loop_step_targets_is_refused_before_codegen_and_mapping,
+        false,
+        Targets
+    );
+    loop_corruption!(
+        corrupted_loop_step_count_is_refused_before_codegen_and_mapping,
+        false,
+        Count
+    );
 
     fn refuse_corrupted_comparison(failure: Failure) {
         let mut lua = crate::Lua::empty();
