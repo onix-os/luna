@@ -14,6 +14,38 @@ fn eval(source: &str) -> Result<String, ExternError> {
 mod common;
 
 #[test]
+fn joined_upvalue_can_alias_the_executing_frames_local() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(
+            r#"
+        local alias=0
+        local f
+        f=function()
+            local x=0
+            local read=function() return x end
+            local joined=false
+            for i=1,10 do
+                local name,value=debug.getupvalue(f,i)
+                if name and value==0 then
+                    debug.upvaluejoin(f,i,read,1)
+                    joined=true
+                    break
+                end
+            end
+            assert(joined)
+            x=41
+            alias=alias+1
+            return x
+        end
+        return tostring(f())
+    "#
+        )?,
+        "42"
+    );
+    Ok(())
+}
+
+#[test]
 fn traceback_walks_the_whole_chain() -> Result<(), ExternError> {
     // Deliberately not tail calls: a tail call replaces its frame, so the chain would be gone —
     // which is correct Lua behaviour, not a traceback bug.

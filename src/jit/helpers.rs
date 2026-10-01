@@ -62,6 +62,14 @@ impl<'gc> Frame<'gc, '_, '_> {
         }
     }
 
+    fn upvalue(&self, slots: &[Slot], index: u32) -> Value<'gc> {
+        self.registers.get_upvalue_with(
+            &self.ctx,
+            self.closure.upvalues()[index as usize].get(),
+            |register, value| slots.get(register).map_or(value, |slot| slot.value(value)),
+        )
+    }
+
     fn table_read(
         &mut self,
         slots: &mut [Slot],
@@ -145,18 +153,14 @@ impl<'gc> Frame<'gc, '_, '_> {
                 self.table_write(table, key, value)
             }
             abi::HELPER_GET_UP_TABLE => {
-                let table = self
-                    .registers
-                    .get_upvalue(&self.ctx, self.closure.upvalues()[b as usize].get());
+                let table = self.upvalue(slots, b);
                 let key = self.operand(slots, c);
                 let completed = self.table_read(slots, a, table, key);
                 self.count.upvalue_reads += u64::from(completed);
                 completed
             }
             abi::HELPER_SET_UP_TABLE => {
-                let table = self
-                    .registers
-                    .get_upvalue(&self.ctx, self.closure.upvalues()[a as usize].get());
+                let table = self.upvalue(slots, a);
                 let key = self.operand(slots, b);
                 let value = self.operand(slots, c);
                 let completed = self.table_write(table, key, value);
@@ -164,19 +168,22 @@ impl<'gc> Frame<'gc, '_, '_> {
                 completed
             }
             abi::HELPER_GET_UPVALUE => {
-                let value = self
-                    .registers
-                    .get_upvalue(&self.ctx, self.closure.upvalues()[b as usize].get());
+                let value = self.upvalue(slots, b);
                 self.store(slots, a, value);
                 self.count.upvalue_reads += 1;
                 true
             }
             abi::HELPER_SET_UPVALUE => {
                 let value = self.register(slots, b);
-                self.registers.set_upvalue(
+                self.registers.set_upvalue_with(
                     &self.ctx,
                     self.closure.upvalues()[a as usize].get(),
                     value,
+                    |register| {
+                        if let Some(slot) = slots.get_mut(register) {
+                            *slot = Slot::from_value(value);
+                        }
+                    },
                 );
                 self.count.upvalue_writes += 1;
                 true
@@ -358,6 +365,186 @@ mod tests {
                     assert_eq!(frame.count.declined, 0);
                 });
             }
+        });
+        lua.gc_collect();
+    }
+
+    #[test]
+    fn current_frame_cells_read_pending_scalars_and_write_both_representations() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = Closure::load(ctx, None, b"return _ENV").unwrap();
+            let table = Value::Table(Table::new(&ctx));
+            let values = [
+                Value::Nil,
+                Value::Boolean(false),
+                Value::Boolean(true),
+                Value::Integer(i64::MIN),
+                Value::Integer(i64::MAX),
+                Value::Number(f64::from_bits(0x7ff8_1234_5678_9abc)),
+                Value::Number(-0.0),
+                table,
+                Value::String(crate::String::from_slice(&ctx, b"alias")),
+                Value::Function(closure.into()),
+            ];
+            let mut canonical = [table, Value::Nil];
+            let mut pc = 0;
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+                let cell = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
+                closure.set_upvalue(&ctx, 0, cell);
+                let mut slots = [
+                    Slot::from_value(Value::Integer(41)),
+                    Slot::from_value(Value::Nil),
+                ];
+                let mut frame = Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: Counts::default(),
+                    slot_count: 2,
+                    panic: None,
+                };
+                assert_eq!(
+                    invoke::<{ abi::HELPER_GET_UPVALUE }>(&mut frame, &mut slots, 1, 0, 0, 7),
+                    abi::HELPER_COMPLETED
+                );
+                assert_identical(frame.registers.stack_frame[1], Value::Integer(41));
+                assert_identical(frame.registers.stack_frame[0], table);
+                for value in values {
+                    frame.registers.stack_frame[1] = value;
+                    slots[1] = Slot::from_value(value);
+                    assert_eq!(
+                        invoke::<{ abi::HELPER_SET_UPVALUE }>(&mut frame, &mut slots, 0, 1, 0, 7),
+                        abi::HELPER_COMPLETED
+                    );
+                    assert_identical(frame.registers.stack_frame[0], value);
+                    let expected = Slot::from_value(value);
+                    assert_eq!((slots[0].tag, slots[0].bits), (expected.tag, expected.bits));
+                    assert_eq!(
+                        invoke::<{ abi::HELPER_GET_UPVALUE }>(&mut frame, &mut slots, 0, 0, 0, 7),
+                        abi::HELPER_COMPLETED
+                    );
+                    assert_identical(frame.registers.stack_frame[0], value);
+                    assert_eq!(*frame.registers.pc, 8);
+                }
+                assert_eq!(
+                    (frame.count.upvalue_reads, frame.count.upvalue_writes),
+                    (11, 10)
+                );
+                assert!(frame.panic.is_none());
+            });
+        });
+        lua.gc_collect();
+    }
+
+    #[test]
+    fn current_frame_table_aliases_decline_pending_scalars_before_effects() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = Closure::load(ctx, None, b"return _ENV").unwrap();
+            let old = Table::new(&ctx);
+            old.set_raw(&ctx, Value::Integer(1), Value::Integer(42))
+                .unwrap();
+            let new = Table::new(&ctx);
+            new.set_raw(&ctx, Value::Integer(1), Value::Integer(77))
+                .unwrap();
+            let mut canonical = [Value::Table(old), Value::Integer(99), Value::Integer(1)];
+            let mut pc = 0;
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+                let cell = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
+                closure.set_upvalue(&ctx, 0, cell);
+                let mut slots = [
+                    Slot::from_value(Value::Boolean(false)),
+                    Slot::from_value(Value::Integer(99)),
+                    Slot::from_value(Value::Integer(1)),
+                ];
+                let mut frame = Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: Counts::default(),
+                    slot_count: 3,
+                    panic: None,
+                };
+                assert_eq!(
+                    invoke::<{ abi::HELPER_GET_UP_TABLE }>(&mut frame, &mut slots, 1, 0, 2, 7),
+                    abi::HELPER_DECLINED
+                );
+                assert_eq!(
+                    invoke::<{ abi::HELPER_SET_UP_TABLE }>(&mut frame, &mut slots, 0, 2, 1, 7),
+                    abi::HELPER_DECLINED
+                );
+                assert_eq!(*frame.registers.pc, 7);
+                assert_identical(old.get_raw(&ctx, Value::Integer(1)), Value::Integer(42));
+                assert_identical(frame.registers.stack_frame[1], Value::Integer(99));
+                assert_eq!(
+                    (frame.count.upvalue_reads, frame.count.table_writes),
+                    (0, 0)
+                );
+                frame.registers.stack_frame[0] = Value::Table(new);
+                slots[0] = Slot::from_value(Value::Table(new));
+                assert_eq!(
+                    invoke::<{ abi::HELPER_GET_UP_TABLE }>(&mut frame, &mut slots, 1, 0, 2, 7),
+                    abi::HELPER_COMPLETED
+                );
+                assert_identical(frame.registers.stack_frame[1], Value::Integer(77));
+                slots[1] = Slot::from_value(Value::Integer(99));
+                assert_eq!(
+                    invoke::<{ abi::HELPER_SET_UP_TABLE }>(&mut frame, &mut slots, 0, 2, 1, 7),
+                    abi::HELPER_COMPLETED
+                );
+                assert_identical(new.get_raw(&ctx, Value::Integer(1)), Value::Integer(99));
+                assert_identical(old.get_raw(&ctx, Value::Integer(1)), Value::Integer(42));
+                assert_eq!(
+                    (
+                        frame.count.upvalue_reads,
+                        frame.count.table_reads,
+                        frame.count.table_writes
+                    ),
+                    (2, 1, 1)
+                );
+                assert!(frame.panic.is_none());
+            });
+        });
+        lua.gc_collect();
+    }
+
+    #[test]
+    fn current_frame_cells_outside_scratch_use_canonical_storage() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = Closure::load(ctx, None, b"return _ENV").unwrap();
+            let mut canonical = [Value::Nil; 8];
+            canonical[7] = Value::Integer(17);
+            let mut pc = 0;
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+                let cell = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(7));
+                closure.set_upvalue(&ctx, 0, cell);
+                let mut slots = [
+                    Slot::from_value(Value::Integer(41)),
+                    Slot::from_value(Value::Nil),
+                ];
+                let mut frame = Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: Counts::default(),
+                    slot_count: 2,
+                    panic: None,
+                };
+                assert_eq!(
+                    invoke::<{ abi::HELPER_GET_UPVALUE }>(&mut frame, &mut slots, 1, 0, 0, 7),
+                    abi::HELPER_COMPLETED
+                );
+                assert_identical(frame.registers.stack_frame[1], Value::Integer(17));
+                assert_eq!(
+                    invoke::<{ abi::HELPER_SET_UPVALUE }>(&mut frame, &mut slots, 0, 0, 0, 7),
+                    abi::HELPER_COMPLETED
+                );
+                assert_identical(frame.registers.stack_frame[7], Value::Integer(41));
+                assert_eq!((slots[1].tag, slots[1].bits), (abi::INTEGER, 17));
+                assert!(frame.panic.is_none());
+            });
         });
         lua.gc_collect();
     }

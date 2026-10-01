@@ -81,6 +81,8 @@ $(info ------------------------------------------)
 .PHONY: jit-frontend-arrays jit-frontend-arrays-miri
 .PHONY: jit-handoff jit-handoff-miri jit-image
 .PHONY: jit-image-retention
+.PHONY: jit-upvalue-current-frame
+.PHONY: jit-helpers-miri
 .PHONY: jit-clippy
 
 ci-check:
@@ -539,6 +541,13 @@ jit-heap:
 .PHONY: jit-upvalues
 jit-upvalues:
 	@$(CARGO) test -p luna --features jit --test jit_upvalues $(TARGET_ARG) $(ARGS)
+
+jit-upvalue-current-frame:
+	@$(CARGO) test --locked -p luna --test debug_lib $(TARGET_ARG) joined_upvalue_can_alias_the_executing_frames_local -- --exact
+	@$(CARGO) test --locked -p luna --features jit --test jit_upvalues $(TARGET_ARG) current_frame_aliases_read_scratch_write_through_and_decline_stale_tables -- --exact
+
+jit-helpers-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::helpers::tests -- --test-threads=1
 
 jit-policy:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::policy_tests
