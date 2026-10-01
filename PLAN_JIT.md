@@ -4577,6 +4577,78 @@ push or claim unexecuted ARM64/hosted results. No benchmark/profile was run.
 - `JIT.md`, `PLAN_JIT.md` — contract, phase status and verified scope/exclusions.
 - `target/jit-evidence/boolean-source/` — raw revision-scoped local evidence.
 
+### Comparison source-equivalence decision
+
+Add exact-counted snapshot-ledger records for Eq/Less/LessEq. Extend the bounded
+typed expression matcher to float constants/comparisons, selects and canonical
+bitcasts. Match same-type and mixed numeric formulas, including saturating integer
+conversion, fractional ties, +/-2^63 boundaries and ordered NaN rejection. Check
+source operand identities, actual same/mixed split edges, both phi incoming values,
+decoded final branch polarity/targets and one logical fuel increment. A CFG built
+once for this stage remains compiler-internal storage outside the incomplete
+ledger; matcher expressions use bounded stack storage, not new dynamic worklists.
+Comparison proof does not complete loop/move or whole-program path/alias review.
+
+### Comparison verification recovery checkpoint
+
+The comparison source-equivalence implementation is uncommitted on
+`feat/native-jit`; the last accepted checkpoint is `cfb7298`, following
+`075a9b5` (boolean source and branch verification). That checkpoint accepted
+GNU/musl correctness gates, selected Miri and supervised differential campaigns.
+The new comparison verifier and corruption fixtures still need review and
+fresh acceptance evidence. A prior tool result was truncated: inspect
+`/tmp/luna-jit-comparison-pure.log`,
+`/tmp/luna-jit-comparison-focused.log` and process ownership before restarting
+any test. No current comparison benchmark or performance acceptance is claimed.
+The implementation goal remains incomplete; the plan itself is already written.
+
+### Session summary: progress status and comparison draft
+
+#### Goal
+
+Report the plan and implementation status from the live branch; preserve the
+unfinished comparison verifier without claiming release acceptance.
+
+#### Instructions
+
+Use Make through the Nix environment, patch tools for edits, and incremental
+unsigned, title-only Conventional Commits. Do not bundle unfinished source
+changes into a status-documentation commit.
+
+#### Discoveries
+
+- The existing plan is complete as a planning artifact; implementation remains
+  incomplete. Previous acceptance evidence is revision-scoped, not a fresh
+  acceptance claim for the current comparison draft.
+- The phi-corruption fixture required passing `Value` directly to
+  `append_argument` and borrowing the data-flow graph once to split mutable
+  access to instructions and argument storage.
+
+#### Accomplished
+
+- Recovered the prior draft's terminal compiler errors without restarting a
+  live job. Fixed the test fixture's type-inference and borrow errors.
+- `nix develop -c make fmt fmt-check jit-boundary` exited zero: **153 passed,
+  4 ignored**, including comparison fixtures and actual corruption refusals.
+  Owned session `75598` is terminal; raw evidence is
+  `/tmp/luna-jit-comparison-status.log`. This is a focused gate, not full
+  GNU/musl, Miri, campaign or performance acceptance.
+
+#### Next Steps
+
+- Review comparison source verification, wire its dedicated Make/Miri lane,
+  demonstrate verifier-bypass failures, then commit the implementation.
+- Run fresh full GNU/musl, selected Miri and differential acceptance gates.
+- Complete remaining source/path/accounting/platform work and satisfy the
+  unchanged performance gates before claiming release readiness.
+
+#### Relevant Files
+
+- `PLAN_JIT.md` — plan, revision-scoped evidence and progress checkpoint.
+- `src/jit/tags.rs` — comparison verifier and corrected phi-corruption fixture.
+- `src/jit/shape.rs` — bounded comparison-expression matching (uncommitted).
+- `src/jit/backend.rs` — comparison records and fixtures (uncommitted).
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
