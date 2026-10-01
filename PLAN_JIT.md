@@ -537,6 +537,17 @@ rollback tests plus full GNU/musl/model campaigns pass. Whole private-block/sour
 transition paths, alias/liveness, runtime materialization and compiler accounting
 remain open; this does not complete Phase 3 or release acceptance.
 
+Source-region verification (`f00b009`) now classifies all physical blocks and
+edges using charged contiguous private creation ranges. Own-body dominance,
+forward private edges and legal decoded header transitions with one fuel step
+prevent foreign entry, uncharged private cycles and wrong source successors.
+Shared exits bind permitted kind/source PC/unchanged count. A charged byte
+workspace propagates scalar stores through every private predecessor and
+refuses retry after any predecessor path writes; effect-free guards still pass.
+Canonical helper status/effect contracts remain separate. Full source-record/
+instruction/source-map equivalence, runtime helper/GC/alias/liveness review,
+compiler accounting and Phase 3 acceptance remain open.
+
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
@@ -5506,6 +5517,149 @@ Commits. No benchmarks/profiles alongside correctness workloads.
 - `src/jit/mod.rs`, `Makefile` — module, dedicated gates and pure/quota Miri lanes.
 - `JIT.md`, `PLAN_JIT.md` — public scope, current evidence and open obligations.
 - `target/jit-evidence/entry-flow/` — local revision-scoped raw acceptance artifacts.
+
+### Source-region and retry-path verification decision
+
+Extend charged per-source point records with exact contiguous private-block
+creation ranges. Independently classify every physical block and branch: fixed
+entry/exit/header/trampoline blocks, or an operation body/private region. Require
+body dominance, only forward private edges (acyclic within an operation), decoded
+source-successor edges with one fuel increment, and permitted shared exits with
+exact source PC/unchanged count. Use a fallibly snapshot-charged per-block byte
+workspace to propagate scalar-store effects across all private predecessors;
+reject retry/guard exits after any write on any predecessor path. Canonical
+helper decline/panic effects remain governed by the accepted helper status proof
+and runtime helper contract, not guessed call-side alias facts. CFG/dominator
+storage remains outside the incomplete ledger. Add valid pure/mutation/quota
+fixtures and full native/model acceptance; do not claim runtime, alias/liveness
+or complete compiler accounting from this structural proof.
+
+### Source-region effect and workspace review
+
+- The new verifier passes existing native boundary/model coverage. Region ranges
+  cover compiler-created private blocks; body dominance and forward instruction
+  order reject foreign entries and private cycles, while legal source loops must
+  re-enter decoded headers with incremented fuel.
+- Pure fixtures isolate region/effect obligations rather than claim whole-opcode
+  lowering equivalence. A write on only one side of a merge is propagated to the
+  join. The same guard exit is admitted with no predecessor writes and refused
+  when a predecessor writes, proving the test is not unconditional guard denial.
+- Successful workspace release and typed refusal are checked against the source
+  ledger baseline. Actual backend quota injection occurs after frontend setup
+  but before native mappings/code generation; it is not a Miri-safe native-module
+  test and is not placed in the selected Miri lane.
+- Focused region/boundary/heap/resource/Clippy gates exited zero: sixteen pure
+  tests, fourteen actual corruption/quota tests and 339 boundary tests (four
+  ignored). No new module warnings; inherited Clippy backlog remains.
+
+### Source-region mutation sensitivity
+
+Bypassing production/pure region verification failed all thirteen pure corruption
+tests plus the quota regression (two positive tests passed), and all thirteen
+individual backend corruptions plus quota refusal; both Make lanes exited 2.
+Pure mutated fixtures pass Cranelift IR validation before the intended checker;
+no corrupted generated code is executed. Both calls were restored after owned
+session `38398` became terminal. Raw logs:
+`/tmp/luna-jit-region-flow-bypass-pure.log` and
+`/tmp/luna-jit-region-flow-bypass-backend.log`. Next: restored focused acceptance,
+feature commit, full GNU/musl, selected pure Miri and supervised campaigns.
+
+### Source-region feature commit and owned acceptance handles
+
+Unsigned/title-only feature commit `f00b009` contains charged private-block ranges,
+physical region/dominance/DAG/source-edge/exit checks, scalar write propagation,
+sixteen pure tests and fourteen actual corruption/quota tests, Make/Miri lanes
+and public scope. Restored focused gates exited zero; boundary passed 339/four
+ignored. Full GNU/musl session `44262`, selected Miri `23944` and supervised
+campaigns `52187` are live pending terminal results. Resume exact handles rather
+than restarting on observation timeout. Raw mutation/restored logs and source
+identity/hashes are under `target/jit-evidence/region-flow/`. No timings/profiles
+were launched and no performance change is claimed.
+
+### Session summary: accepted source-region and retry-effect verification
+
+#### Goal
+
+Continue full `PLAN_JIT.md` implementation on `feat/native-jit`, adding physical
+source-region control-flow and actual scalar retry-effect proof after accepted
+entry/budget work. The preceding goal turn was progress: source and acceptance
+evidence were committed. The full objective remains unchanged and incomplete.
+
+#### Instructions
+
+Use Make/Nix, patch tools and incremental unsigned title-only Conventional
+Commits. No benchmark/profile workloads alongside correctness jobs.
+
+#### Discoveries
+
+- Private cycles must be rejected separately from budget headers: a loop wholly
+  within one operation can otherwise avoid fuel checks. Legal source loops must
+  re-enter decoded headers with exactly one completed-instruction increment.
+- Guard/retry effects are path properties. A store on either side of a private
+  merge forbids a later retry; the same effect-free guard is allowed with neither
+  path writing. The positive control prevents unconditional guard denial.
+- Helper decline/panic effects are not raw IR stores. Their existing status-flow
+  proof and canonical runtime effect/rollback contract remain necessary; this
+  pass does not invent call-side alias or heap-effect facts.
+- Pure fixtures isolate structural region/effect obligations and pass Cranelift
+  IR validation; they do not establish full opcode lowering equivalence. Backend
+  faults never execute generated code. Workspace refusal after frontend setup
+  is before native mappings, not before compiler-module construction.
+- Bypassing both region checks failed thirteen corruption plus quota tests in
+  each pure/backend lane; two pure positives passed. Both checks were restored
+  before focused acceptance and the feature commit.
+
+#### Accomplished
+
+- Committed `f00b009`: charged private creation ranges, physical region/dominance/
+  acyclic-edge/source-successor/exit proof, scalar-write propagation, sixteen
+  pure tests and fourteen backend corruption/quota tests, Make/Miri gates and
+  public scope. No new unsafe blocks or ABI changes. Compiler CFG/dominator
+  allocations remain outside the incomplete ledger.
+- Restored focused exits/boundary/heap/resource/Clippy gates exited zero;
+  boundary passed 339/four ignored. No new module warnings; inherited Clippy
+  backlog remains and this is not strict-warning acceptance.
+- GNU/musl full `nix develop -c make jit-verify clippy jit-clippy` (musl adds
+  `TARGET=x86_64-unknown-linux-musl`) both exited zero: 4249 passing tests,
+  421 suite results and 24 ignored each, including reference/Off/Auto/Force,
+  optional async/derive and docs.
+- Selected `nix develop .#miri -c make jit-miri` exited zero: 196 tests across
+  24 suite results, default MIRIFLAGS, pinned nightly 2026-08-16/rustc `67854e511`.
+  New sixteen pure region IR/effect/quota tests passed. Generated native code and
+  native compiler-module construction remain outside selected Miri coverage;
+  the late actual backend workspace refusal is not in that lane.
+- Supervised GNU/musl `make jit-fuzz FUZZ_TARGET=all FUZZ_CASES=1024
+  FUZZ_SEEDS=0,1,0xdeadbeef,0xffffffffffffffff` both exited zero. Each checked
+  4096 snapshots plus malformed mutations, 1641780 kernel invocations and
+  4758522 completed native instructions against the independent slice model.
+  Both reuse the same seeds/programs, not 8192 unique cases; native heap-helper
+  lifecycle coverage remains separate.
+- Owned sessions `95068`/`68832` (draft), `4089` (pure), `50629` (focused),
+  `38398` (mutation), `7737` (restored), `44262` (full), `23944` (Miri) and
+  `52187` (campaigns) are terminal. Observation timeout on full session was
+  correctly treated as live and resumed without restarting. Revalidated unchanged
+  source/Make hashes and archived logs, Miri/campaign artifacts, source identity
+  and summary under `target/jit-evidence/region-flow/`.
+- Updated Phase 3 and public scope/evidence. No timings/profiles, speedups,
+  complete compiler proof, phase completion or release acceptance are claimed.
+
+#### Next Steps
+
+- Complete source-record-to-physical-region/instruction/source-map binding and
+  runtime materialization/helper lifecycle/alias/liveness review. Structural
+  region closure and local semantic checks are not by themselves full equivalence.
+- Complete compiler/fixed-owner/combined-host accounting and approved isolation,
+  broader heap/lifecycle stress and actual ARM/hosted execution evidence.
+- Meet unchanged native table/upvalue/callback and compiled-Off shipping gates.
+  Prior revision-scoped failures remain failures; the full goal stays active.
+
+#### Relevant Files
+
+- `src/jit/entry_flow.rs` — charged region maps/workspace, physical path/effect proof.
+- `src/jit/backend.rs` — region capture, late corruption/quota tests and integration.
+- `Makefile` — dedicated region gates and pure Miri lane.
+- `JIT.md`, `PLAN_JIT.md` — public scope, current evidence and open obligations.
+- `target/jit-evidence/region-flow/` — local revision-scoped raw acceptance artifacts.
 
 ## 15. Primary references
 
