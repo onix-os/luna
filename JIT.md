@@ -204,14 +204,14 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 ## Verification and remaining work
 
-The budgeted dominance implementation (`cdb9001`)
+The shared host-memory implementation (`a81ca75`)
 passes `nix develop -c make jit-verify clippy jit-clippy` on x86-64 GNU and
-with `TARGET=x86_64-unknown-linux-musl`: each reports 4480 passing tests across
-422 suite results and 24 ignored tests. Selected pure-Rust/pure-IR Miri checks
-pass 224 tests across 27 selected suite results with default `MIRIFLAGS`; they do not execute
+with `TARGET=x86_64-unknown-linux-musl`: each reports 4580 passing tests across
+434 suite results and 24 ignored tests. Selected pure-Rust/pure-IR Miri checks
+pass 232 tests across 28 selected suite results with default `MIRIFLAGS`; they do not execute
 generated native code. Clippy retains the existing warning backlog, so these are
 not strict-warning acceptance. Raw revision-scoped evidence is stored locally in
-`target/jit-evidence/dominance/`. Seeded scalar/admission campaigns additionally
+`target/jit-evidence/host-memory/`. Seeded scalar/admission campaigns additionally
 pass 4096 generated cases per platform, each checking 1641780 native invocations
 against the independent slice model; both platforms reuse the same four seeds.
 Separate six-family heap campaigns pass 96 cases per platform, comparing 6344

@@ -580,6 +580,18 @@ and unchanged supervised scalar/heap campaigns pass. This covers owned
 verification dominance, not backend/frontend-builder allocation, compiler CPU
 isolation, fixed owners, combined-host limits or Phase 3/release acceptance.
 
+Shared host admission (`a81ca75`) attaches metadata/snapshot quotas and
+page-rounded mappings to one state-owned parent ledger. Parent and individual
+admission precede allocation, including old/new growth; rollback and active-lease
+retention are tested. Additive `accounted_memory` preserves `total_memory` as GC
+only. Existing host limits use accounted usage and refreshed GC headroom for JIT
+admission. Sync/async finish reclaims idle code and checks final completion and
+foreign-await boundaries. Exact combined peak/one-byte-short refusal, same-source
+recovery, state isolation, atomic parent sharing and deliberate bypass mutations
+pass. Full GNU/musl gates pass 4580 tests each; selected Miri passes 232 tests.
+This enforces charged categories, not compiler-internal/fixed-owner allocations,
+per-GC-allocation limits or RSS. Phase 3/release acceptance remains incomplete.
+
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
@@ -6380,6 +6392,153 @@ timings alongside unrelated builds/tests/profiles or ignore arbitrary make jobs.
 - `JIT.md`, `PLAN_JIT.md` — current verified scope and remaining requirements.
 - `src/lua.rs`, `src/jit/mod.rs` — combined-host follow-up routing, unchanged.
 - `target/jit-evidence/dominance/` — local acceptance and untimed binary artifacts.
+
+### Shared host-admission ledger decision
+
+Keep `Lua::total_memory` collector-only. Add an additive `accounted_memory` metric
+for collector-tracked allocations plus charged JIT containers/snapshots and
+page-rounded native mappings. Attach the existing metadata and snapshot ledgers
+to one state-owned parent ledger; reserve both child and parent before allocation
+and roll back both on failure. Reserve mapped pages against that same parent
+without charging them as metadata. Mapping, protection and underlying allocation
+failure must reclaim only that compilation's reservations, including active
+lease retention until final release.
+
+Refresh the parent's headroom from `set_memory_limit - total_memory` at host/arena
+boundaries and compilation/preparation entry, without relabelling GC metrics or
+changing individual JIT quotas. Refused parent admission reports a typed host
+memory resource error through public preparation/service. Lowered limits may be
+below already-owned storage; deny growth rather than invalidate active leases.
+Use combined accounted usage for synchronous/asynchronous finish checks,
+including before suspension/final completion, and retire idle cached code before
+collecting twice and stopping an over-limit executor. Manual stepping remains
+host-controlled, and GC growth within a slice can still overshoot.
+
+This is combined enforcement for the allocations actually charged to the JIT
+ledgers, not process RSS or complete compiler isolation. Backend/frontend-builder
+internals, fixed owners and allocator overhead remain explicit follow-up scope;
+future charges must join the same parent rather than create independent ceilings.
+No performance threshold or full-plan acceptance is waived by this decision.
+
+### Host-admission fast-path review
+
+The first focused host-memory run passes exact combined peak/one-byte-short
+admission, same-state source recovery, native-then-foreign-await cancellation,
+lease retention, provider rollback and parent sharing/concurrency fixtures.
+Review found the initial public service wrapper would refresh/clone host ledger
+state even when JIT was Off. Keep the original Off return before that wrapper,
+and bypass host-limit normalization/refresh when no memory ceiling is configured.
+Arena/GC headroom refresh is likewise conditional on a configured ceiling. This
+preserves the disabled service's control path; it is not a measured performance
+claim or acceptance of the outstanding compiled-Off gates.
+
+### Finish completion/suspension memory-check fix
+
+The synchronous finish loop previously returned immediately on a completed VM
+slice, bypassing its memory check; asynchronous finish took and awaited a parked
+foreign future before checking memory. The shared enforcement helper now checks
+final completion and checks before polling foreign futures, preserving the
+collector-only public metric. A final-result string allocation regression passes
+with and without JIT. An integrated native loop followed by a retaining callback
+and foreign await stops the executor with zero foreign-future polls. Cache
+reclamation before stopping also preserves a live source's result through the
+interpreter. These are bounded lifecycle proofs, not a hard per-GC-allocation or
+wall-clock ceiling. Mutation sensitivity and full acceptance remain pending.
+
+### Shared-host and finish oracle sensitivity
+
+Removing child-parent attachment made all five new pure parent-ledger fixtures
+fail and both provider parent-accounting fixtures fail. Disabling finish
+enforcement made the cached-code reclamation and native/foreign-await fixtures
+fail; the latter observed one foreign-future poll instead of zero. The no-JIT
+final-result fixture likewise failed with `Result` instead of `Stopped`. Each
+owned mutation job ran to terminal before restoration. Both modified source
+hashes match the pre-mutation files. No generated instruction semantics were
+corrupted; mutated native execution remained bounded by the existing source/fuel
+rules. Logs are retained under `target/jit-evidence/host-memory/`. Full GNU,
+musl, selected Miri and supervised campaigns remain pending on restored source.
+
+### Shared host-memory acceptance session (2026-10-01)
+
+## Goal
+Continue the full implementation by enforcing a shared host ceiling over the
+charged JIT categories while preserving the collector metric. The overall goal
+remains active and incomplete; the previous goal turn made verified progress.
+
+## Instructions
+Use repo-native Make/Nix tasks, patch tools, and incremental unsigned title-only
+Conventional Commits. Preserve acceptance thresholds and active-lease validity.
+Do not run benchmark/profile timing alongside unrelated builds/tests/profiles.
+
+## Discoveries
+- Parent admission must cover transient old/new capacity and mapped pages as
+  well as retained containers; page charges must not consume metadata quota.
+- A lowered host ceiling can be below already-pinned code. Denying growth and
+  retaining charges preserves the lease until its final owner drops.
+- Sync final completion and async parked-future paths previously bypassed their
+  memory checks. Their regression fixtures now pass, including no-JIT final
+  result allocation and zero foreign-future polls after real native work.
+- Keep the existing Off service return before host-ledger handling. No-limit
+  service/preparation bypass headroom normalization; this is source-level
+  fast-path preservation, not current performance acceptance.
+- Fresh post-gate global preflight still finds unrelated `make run` PID 2878331.
+  No timings/profiles were run. Fixed owners and compiler internals remain outside
+  accounted usage; it is not a process RSS or hostile-compiler ceiling.
+
+## Accomplished
+- Source committed separately at `a81ca75`. Added shared parent admission,
+  mapping rollback/release, additive metrics, host compilation refusal,
+  GC-headroom refresh and sync/async finish enforcement.
+- Draft job `71815`, focused jobs `74448`/`81486` and restored job `3549` passed.
+  An earlier compile-only draft was corrected to access the private runtime
+  through `Context`, without widening `Lua` field visibility.
+- Parent-bypass job `71062` detected five pure and two provider fixture failures.
+  Finish-bypass job `26055` detected two native/async and one no-JIT final-result
+  fixture failures. Both jobs were terminal before restoration, and both source
+  hashes matched the pre-mutation originals.
+- Full job `34854` completed GNU and musl exit 0: **4580 passing tests / 434 suite
+  results / 24 ignored tests** each. Existing Clippy warnings remain; these are
+  not strict-warning gates.
+- Miri job `57149` completed exit 0: **232 passing tests / 28 suite results / 0
+  ignored**, pinned nightly 2026-08-16, rustc `67854e511`, default `MIRIFLAGS`.
+  This includes atomic parent sharing, allocation rollback and pure Lua/GC
+  headroom tests; it does not execute generated code or foreign-await/native
+  campaigns.
+- Campaign job `94001` completed all four lanes exit 0. Per platform:
+  **4096 scalar/admission cases / 1641780 native invocations / 4758522 native
+  instructions**; **96 heap cases / 6344 main slices / 725 yields / 1633 callbacks /
+  96 retirements / 964 host reads / 2809 userdata observations / 65297 native
+  instructions**. Helper totals: **22144 table reads / 7393 table writes / 1655
+  allocations / 21701 upvalue reads / 996 upvalue writes / 1179 declines**.
+  Both platforms reuse the same seeds/programs. These campaigns exercise the
+  shared ledger without imposing host limits; targeted fixtures supply host-limit
+  evidence. Nested/finalizer internal slices are not independently paired.
+- Untimed opt-level-3 candidate build `38883` completed at `a81ca75` exit 0;
+  binary, source ID, build log and hash retained. No performance result is claimed.
+- All owned jobs are terminal. Raw logs, exact campaign/smoke directories, Miri
+  environment, aggregate counts and source/binary hashes are retained under
+  `target/jit-evidence/host-memory/`; hashes verified after completion.
+
+## Next Steps
+- Complete fixed-owner and frontend/backend compiler allocation accounting or
+  an equally faithful bounded compiler policy; do not call charged-category
+  admission a complete compiler memory ceiling.
+- Continue complete opcode/source-map and helper/GC/alias/liveness safety proofs.
+- Resolve the frozen performance and compiled-Off controls when global preflight
+  admits clean timing. No thresholds, statistics or coverage requirements waived.
+- Gather actual ARM64/hosted evidence and clear strict-Clippy backlog before
+  claiming the plan's release gates. Do not mark the full goal complete yet.
+
+## Relevant Files
+- `src/jit/resources.rs` — parent/child quota reservation and atomic pure fixtures.
+- `src/jit/backend.rs` — mapped-page parent reservation, rollback and cleanup.
+- `src/jit/mod.rs` — shared state ledger, metrics and lease/provider denial tests.
+- `src/lua.rs` — accounted metric, admission/headroom refresh and finish checks.
+- `tests/jit_memory.rs` — native admission/refusal/recovery/await lifecycle checks.
+- `tests/memory_accounting.rs` — feature-independent metric/final-result checks.
+- `Makefile` — focused host targets and selected Miri Lua namespace.
+- `JIT.md`, `PLAN_JIT.md` — verified scope, evidence and remaining obligations.
+- `target/jit-evidence/host-memory/` — local evidence and untimed candidate binary.
 
 ## 15. Primary references
 
