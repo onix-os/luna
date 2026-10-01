@@ -213,19 +213,25 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 ## Verification and remaining work
 
-The exact ledger-owner accounting implementation (`8078b2f`)
+The complete state-bootstrap owner accounting implementation (`c385b10`)
 passes `nix develop -c make jit-verify clippy jit-clippy` on x86-64 GNU and
-with `TARGET=x86_64-unknown-linux-musl`: each reports 4835 passing tests across
+with `TARGET=x86_64-unknown-linux-musl`: each reports 4855 passing tests across
 434 suite results and 24 ignored tests. Selected pure-Rust/pure-IR Miri checks
-pass 274 tests across 39 selected suite results with default `MIRIFLAGS`; they do not execute
+pass 278 tests across 40 selected suite results with default `MIRIFLAGS`; they do not execute
 generated native code. Clippy retains the existing warning backlog, so these are
 not strict-warning acceptance. Raw revision-scoped evidence is stored locally in
-`target/jit-evidence/ledger-owner/`. Six Global-owner fixtures verify exact
+`target/jit-evidence/runtime-owner/`. Four runtime-owner fixtures verify exact
+charge retention/final release, quota and underlying refusal/input cleanup,
+exact-ceiling admission with borrow-unwind recovery, and compile-time non-Send/
+non-Sync traits. A detached native lease stays callable after runtime destruction
+while retaining its own root/mapping quota; only the freed runtime/snapshot-owner
+charges disappear. Runtime charge bypass fails three owner fixtures and the Lua
+floor check. Six Global-owner fixtures verify exact
 alignment/borrowed layout, clone/drop, checked overflow, refusal, destructor
 unwinding and concurrent final-destructor visibility. Three bootstrap fixtures
 verify exact root/nested-header lifetimes, one-byte-short/underlying refusal and
 concurrent header/payload admission through one atomic ceiling. A Lua fixture
-proves the layout-derived three-header floor survives cache clear and prevents
+proves the layout-derived ledger-plus-runtime floor survives cache clear and prevents
 growth below that ceiling. Header-release bypass fails two fixtures; quota
 bypass fails two Lua checks and the exact/one-byte-short native preparation
 check. Relaxed final-drop mutation triggers a Miri data race; deallocation bypass
@@ -249,8 +255,8 @@ and scope/value panic cleanup. Exact pre-host and live-module fixtures distingui
 provider admission from the earlier status allocation, preserve a native peer and
 recover the same snapshot. Transfer-admission and charge-release bypass mutations
 are detected. Concrete outer provider and actual mapping-record storage are now
-charged, but runtime/bootstrap owners and other compiler working storage remain
-outside this milestone.
+charged. State-bootstrap owners are also charged; other compiler working storage
+remains outside this milestone.
 Seven atomic-owner tests include concurrent
 clone/drop, final-destructor visibility without external synchronization, exact
 alignment/lifetime/accounting, panic cleanup, allocation refusal and checked

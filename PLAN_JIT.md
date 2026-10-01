@@ -664,6 +664,18 @@ The runtime Rc and remaining Cranelift working storage remain unaccounted;
 initial infallible Lua construction does not gain whole-state OOM recovery.
 Phase 3, performance controls and release acceptance remain incomplete.
 
+Runtime ownership (`c385b10`) closes the remaining state-bootstrap Rc allocation
+using the tested exact Global owner over RefCell<Manager>. Layout admission and
+post-deallocation charge release share the root header policy. The retained state
+floor is three ledger layouts plus the runtime layout. Four pure/Miri fixtures
+cover clones, quota/underlying refusal with input cleanup, exact admission and
+borrow-unwind recovery, and compile-time non-Send/non-Sync traits. Detached native
+leases retain mapping/root quota after runtime destruction while its own charge
+disappears. Charge bypass is detected. Full GNU/musl gates pass 4855 executions
+each; selected Miri passes 278 tests. Remaining compiler internal/retained buffers,
+allocator overhead/RSS, safety proofs, performance and ARM64/hosted evidence still
+prevent Phase 3/release acceptance.
+
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
 2. Explicitly classify every opcode through an exhaustive match. Unknown/malformed input is refused; unsupported valid work exits to the interpreter.
 3. Add private source-provenance registration and generation-safe code identities without breaking public prototype construction.
@@ -7521,6 +7533,91 @@ proof; existing infallible Lua constructors keep their allocation contract.
 The live-state floor becomes three ledger layouts plus the runtime layout, not
 zero after cache clear. This closes bootstrap owner accounting, not remaining
 Cranelift working buffers, allocator overhead or process RSS.
+
+### Runtime-owner acceptance session (2026-10-01)
+
+## Goal
+- Continue full implementation by closing the remaining state-bootstrap runtime
+  Rc footprint while preserving arena/executor and single-threaded ownership rules.
+
+## Instructions
+- Keep honest progress and incremental unsigned/title-only commits. Use Nix/Make
+  and patch edits; no timing alongside any project's build/test/benchmark jobs.
+
+## Discoveries
+- The existing Global owner can own RefCell<Manager>; requiring both Send and
+  Sync for transfer keeps the runtime non-Send/non-Sync without new unsafe code.
+- HeaderCharge can serve both ledger and runtime layout admission. The runtime
+  retains the root through post-deallocation charge release without a cycle,
+  since the root does not own the runtime.
+- A detached lease outlives runtime destruction: its mapping and metadata-owner
+  charges remain, while the freed runtime and snapshot-ledger charges disappear.
+- One model fixture directly constructed the old Rc tuple wrapper. Both initial
+  focused `99304` and initial Miri `75581` fail compilation (E0308); migrated it
+  to the fallible factory. Those drafts are not runtime/Miri acceptance.
+
+## Accomplished
+- `c385b10` commits exact runtime ownership, common header admission, private
+  fallible runtime construction, layout-derived retained floor and factory/model
+  migration. Existing infallible Lua constructors keep their OOM contract.
+- Four fixtures cover charge retention through clones/final cleanup, quota and
+  underlying refusal with manager input cleanup, exact-ceiling admission and
+  borrow-unwind recovery, plus compile-time negative Send/Sync checks. Native
+  detached-lease coverage now asserts the precise freed bootstrap categories.
+- Restored broad focused `61706` passes **82 tests / 16 suites / 0 ignored**;
+  isolated Miri `63358` passes **4 / 1 / 0**. Charge bypass `41897` catches three
+  owner failures and one Lua-floor failure (both Make exits 2), terminal before
+  restoration; original mod.rs hash matches. Final focused/Clippy `72108` and
+  isolated Miri `51612` both exit 0; no new Clippy warnings or suppression.
+- Full GNU/musl `20950` completes both exit 0: **4855 passing executions /
+  434 suites / 24 ignored** each. Counts repeat mode/doc suites, not unique tests.
+  Selected Miri `53184` completes exit 0: **278 tests / 40 suites / 0 ignored**,
+  default empty flags, nightly 2026-08-16 rustc `67854e511`. No generated execution,
+  anonymous maps, OS workers or native heap programs run under Miri. Existing
+  141 lib-test Clippy warnings remain; strict-warning acceptance is still open.
+- Four campaigns `25525` complete exit 0. Per platform: **4096 scalar/admission
+  cases / 1641780 native invocations / 4758522 native instructions**; **96 heap
+  cases / 6344 main slices / 725 yields / 1633 callbacks / 96 retirements /
+  964 host reads / 2809 userdata observations / 65297 native instructions**.
+  Helpers: **22144 table reads / 7393 table writes / 1655 allocations /
+  21701 upvalue reads / 996 upvalue writes / 1179 declines**. The platforms reuse
+  seeds/programs; repeated userdata samples are not instruction coverage, and
+  nested/finalizer internal slices are not independently paired.
+- Untimed opt3 `7288` completes exit 0. Current source hashes, binary hash/source
+  ID, exact long/full-smoke campaign directories, environments and gate logs are
+  retained under `target/jit-evidence/runtime-owner/`. All owned jobs are terminal.
+- Fresh global preflight sees unrelated molla benchmark Make/Cargo/runtime/active
+  worker (3969019/3969024/3969029/3969030) and make-run 4008051. No arbitrary jobs
+  are killed/excluded; no timings/profiles run, and no current speedup is claimed.
+- Engram remains unavailable; project decisions/session context are persisted in
+  this plan without modifying the external memory folder.
+
+## Next Steps
+- Complete remaining frontend/backend compiler working-memory bounds. State
+  bootstrap, cached/status/provider owners and mapping records are accounted,
+  not all Cranelift buffers, allocator overhead or process RSS.
+- Complete opcode/source-map/helper/GC/alias/liveness/lifecycle safety proofs,
+  broader coverage-guided/unsafe stress and unchanged performance controls.
+- Obtain executed ARM64/hosted evidence and strict-Clippy acceptance. Recheck
+  global contention before timing the current candidate; historical failed gates
+  remain failures, not waived or current results.
+- The full objective remains active and incomplete; this turn made verified progress.
+
+## Relevant Files
+- `src/jit/mod.rs` — exact runtime owner/factory, four fixtures and detached lease accounting.
+- `src/jit/resources.rs` — common root header-charge admission.
+- `src/jit/model.rs` — direct-wrapper fixture migrated to the fallible factory.
+- `src/lua.rs` — ledger-plus-runtime retained-floor expectation.
+- `Makefile` — focused/native/isolated and selected-Miri runtime-owner gates.
+- `JIT.md`, `PLAN_JIT.md` — current precise bootstrap/acceptance/remaining scope.
+- `target/jit-evidence/runtime-owner/` — revision-scoped evidence and untimed candidate.
+
+## Key Learnings:
+
+1. A root-retaining post-deallocation charge can account the runtime owner without
+   a cycle, because the host ledger does not own the runtime.
+2. Runtime RefCell ownership remains non-Send/non-Sync even when its backing
+   strong counter is atomic; trait checks preserve that embedding boundary.
 
 ## 15. Primary references
 
