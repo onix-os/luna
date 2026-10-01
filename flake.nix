@@ -77,6 +77,19 @@
         ];
       in
       {
+        devShells.fuzz = pkgs.mkShell {
+          packages = [
+            (pkgs.rust-bin.nightly."2026-08-16".default.override {
+              extensions = [ "rust-src" ];
+            })
+            pkgs.cargo-fuzz
+            pkgs.clang
+            pkgs.pkg-config
+          ];
+          CC = "clang";
+          CXX = "clang++";
+        };
+
         devShells.miri = pkgs.mkShell {
           packages = [
             (pkgs.rust-bin.nightly."2026-08-16".default.override {

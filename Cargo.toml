@@ -4,6 +4,7 @@ members = [
     "derive",
     "util",
 ]
+exclude = ["fuzz"]
 default-members = [
     ".",
     "derive",

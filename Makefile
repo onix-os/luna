@@ -18,6 +18,11 @@ ACTIONLINT ?= actionlint
 FUZZ_TARGET ?= all
 FUZZ_CASES ?= 256
 FUZZ_SEEDS ?= 0,1,0xdeadbeef,0xffffffffffffffff
+CG_TARGET ?= scalar
+CG_RUNS ?= 256
+CG_SECONDS ?= 60
+CG_DIR ?= target/jit-evidence/coverage-guided
+CG_INPUT ?=
 JIT_BENCH_OPT ?= 3
 JIT_BENCH_BINARY ?= $(TOP_DIR)/target/$(if $(TARGET),$(TARGET)/,)release/examples/jit_bench
 JIT_METRICS_BINARY ?= $(TOP_DIR)/target/$(if $(TARGET),$(TARGET)/,)release/examples/jit_metrics
@@ -83,6 +88,9 @@ $(info ------------------------------------------)
 .PHONY: jit-image-retention
 .PHONY: jit-upvalue-current-frame
 .PHONY: jit-helpers-miri
+.PHONY: jit-coverage-environment jit-coverage-lock jit-coverage-check jit-coverage-test
+.PHONY: jit-coverage-help jit-coverage-fmt jit-coverage-fmt-check jit-coverage-build jit-coverage-run
+.PHONY: jit-coverage-replay jit-coverage-wrapper-tests
 .PHONY: jit-clippy
 
 ci-check:
@@ -528,6 +536,63 @@ jit-predecessors:
 
 jit-predecessors-backend:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::predecessor_quota_refuses_before_codegen_and_releases_storage -- --exact
+
+jit-coverage-help:
+	@$(CARGO) fuzz build --help
+	@$(CARGO) fuzz run --help
+	@$(CARGO) fuzz tmin --help
+
+jit-coverage-environment:
+	@$(MAKE) --no-print-directory environment
+	@$(CARGO) fuzz --version
+	@clang --version
+	@printf 'CARGO_TARGET_DIR=%s\nRUSTFLAGS=%s\n' "$${CARGO_TARGET_DIR:-}" "$${RUSTFLAGS:-}"
+
+jit-coverage-lock:
+	@$(CARGO) generate-lockfile --manifest-path fuzz/Cargo.toml
+
+jit-coverage-fmt:
+	@$(CARGO) fmt --manifest-path fuzz/Cargo.toml
+
+jit-coverage-fmt-check:
+	@$(CARGO) fmt --manifest-path fuzz/Cargo.toml -- --check
+
+jit-coverage-check:
+	@$(CARGO) check --locked --manifest-path fuzz/Cargo.toml --all-targets
+
+jit-coverage-test:
+	@$(CARGO) test --locked --manifest-path fuzz/Cargo.toml --lib
+
+jit-coverage-build:
+	@case '$(CG_TARGET)' in scalar|heap) ;; *) echo 'Unknown coverage target' >&2; exit 2;; esac
+	@CARGO_NET_OFFLINE=true $(MAKE) --no-print-directory jit-coverage-check
+	@set -eu; lock=$$(sha256sum fuzz/Cargo.lock); trap 'test "$$lock" = "$$(sha256sum fuzz/Cargo.lock)" || { echo "Fuzz lockfile changed" >&2; exit 2; }' EXIT; CARGO_NET_OFFLINE=true $(CARGO) fuzz build --sanitizer address '$(CG_TARGET)'
+
+jit-coverage-run:
+	@case "$$(uname -sm)" in 'Linux x86_64'|'Linux aarch64') ;; *) echo 'Native coverage fuzz requires supported Linux'; exit 2;; esac
+	@case '$(CG_TARGET)' in scalar|heap) ;; *) echo 'Unknown coverage target' >&2; exit 2;; esac
+	@case '$(CG_RUNS):$(CG_SECONDS)' in *[!0-9:]*|:*|*:) echo 'Set numeric coverage limits' >&2; exit 2;; esac
+	@test '$(CG_RUNS)' -gt 0 && test '$(CG_RUNS)' -le 100000
+	@test '$(CG_SECONDS)' -gt 0 && test '$(CG_SECONDS)' -le 3600
+	@$(MAKE) --no-print-directory jit-coverage-build CG_TARGET='$(CG_TARGET)'
+	@mkdir -p '$(CG_DIR)/$(CG_TARGET)/corpus' '$(CG_DIR)/$(CG_TARGET)/artifacts'
+	@cp -n fuzz/seeds/$(CG_TARGET)/* '$(CG_DIR)/$(CG_TARGET)/corpus/'
+	@$(MAKE) --no-print-directory jit-coverage-environment > '$(CG_DIR)/$(CG_TARGET)/environment.log'
+	@set -euo pipefail; lock=$$(sha256sum fuzz/Cargo.lock); trap 'test "$$lock" = "$$(sha256sum fuzz/Cargo.lock)" || { echo "Fuzz lockfile changed" >&2; exit 2; }' EXIT; CARGO_NET_OFFLINE=true timeout --signal=TERM --kill-after=10s "$$(( $(CG_SECONDS) + 60 ))s" $(CARGO) fuzz run --sanitizer address '$(CG_TARGET)' '$(CG_DIR)/$(CG_TARGET)/corpus' -- -runs='$(CG_RUNS)' -max_total_time='$(CG_SECONDS)' -max_len=256 -timeout=20 -rss_limit_mb=2048 -artifact_prefix='$(CG_DIR)/$(CG_TARGET)/artifacts/' -print_final_stats=1 2>&1 | tee '$(CG_DIR)/$(CG_TARGET)/run.log'
+
+jit-coverage-replay:
+	@case '$(CG_TARGET)' in scalar|heap) ;; *) echo 'Unknown coverage target' >&2; exit 2;; esac
+	@test -n '$(CG_INPUT)' && test -f '$(CG_INPUT)'
+	@$(MAKE) --no-print-directory jit-coverage-build CG_TARGET='$(CG_TARGET)'
+	@mkdir -p '$(CG_DIR)/$(CG_TARGET)'
+	@set -euo pipefail; lock=$$(sha256sum fuzz/Cargo.lock); trap 'test "$$lock" = "$$(sha256sum fuzz/Cargo.lock)" || { echo "Fuzz lockfile changed" >&2; exit 2; }' EXIT; CARGO_NET_OFFLINE=true timeout --signal=TERM --kill-after=10s 80s $(CARGO) fuzz run --sanitizer address '$(CG_TARGET)' '$(CG_INPUT)' -- -runs=1 -timeout=20 -rss_limit_mb=2048 -print_final_stats=1 2>&1 | tee '$(CG_DIR)/$(CG_TARGET)/replay.log'
+
+jit-coverage-wrapper-tests:
+	@mkdir -p '$(CG_DIR)/wrappers'
+	@set -eu; for arg in CG_TARGET=unknown CG_RUNS=0 CG_RUNS=100001 CG_RUNS=-1 CG_RUNS=bad CG_RUNS= CG_SECONDS=0 CG_SECONDS=3601 CG_SECONDS=bad CG_SECONDS=; do log='$(CG_DIR)/wrappers/'"$${arg/=/-}".log; if $(MAKE) --no-print-directory jit-coverage-run CG_RUNS=1 CG_SECONDS=1 "$$arg" CARGO='echo CARGO_WAS_INVOKED' > "$$log" 2>&1; then echo "Accepted invalid limit: $$arg" >&2; exit 1; fi; if grep -q CARGO_WAS_INVOKED "$$log"; then echo "Launched Cargo for invalid limit: $$arg" >&2; exit 1; fi; done
+	@set -eu; for target in jit-coverage-build jit-coverage-replay; do log='$(CG_DIR)/wrappers/'"$$target".log; if $(MAKE) --no-print-directory "$$target" CG_TARGET=unknown CARGO='echo CARGO_WAS_INVOKED' > "$$log" 2>&1; then exit 1; fi; if grep -q CARGO_WAS_INVOKED "$$log"; then exit 1; fi; done
+	@set -eu; log='$(CG_DIR)/wrappers/replay-missing-input.log'; if $(MAKE) --no-print-directory jit-coverage-replay CG_INPUT= CARGO='echo CARGO_WAS_INVOKED' > "$$log" 2>&1; then exit 1; fi; if grep -q CARGO_WAS_INVOKED "$$log"; then exit 1; fi
+	@echo 'Coverage wrapper refusal checks passed (13 cases)'
 
 jit-fuzz:
 	@case "$$(uname -sm)" in 'Linux x86_64'|'Linux aarch64') ;; *) echo 'Native fuzz requires supported Linux host'; exit 2;; esac
