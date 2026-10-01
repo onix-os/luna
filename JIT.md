@@ -61,7 +61,13 @@ buffers. Numeric-consumer records additionally require Integer or Numeric tag
 admission, adjacent tag/payload loads from the same slot (or constant pairs), and
 an actual SSA dependency on the recorded payload. Compound Boolean guards use a
 bounded predicate evaluator; arbitrary non-Boolean operands supply no proof.
-Exact expected record counts reject missing obligations. Semantic checks are
+Exact expected record counts reject missing obligations. Explicitly marked F64
+conversion selectors require semantic checks: each possible
+numeric tag must select signed integer conversion or Number bitcast of the same
+recorded payload. Equivalent inverted selector/arm polarity is accepted; unknown
+conditions, swapped arms, unsigned conversion and foreign payloads are refused.
+Source-derived exact float-record counts prevent reclassifying away the proof.
+Semantic checks are
 vacuous only on guarded paths proven unreachable without queried-tag assumptions;
 physical store coverage and record counts still apply. This does not prove full
 payload selection, operation equivalence, liveness, aliasing or complete typed SSA.

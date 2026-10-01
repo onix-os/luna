@@ -24,12 +24,14 @@ struct Input {
     inst: Inst,
     tag: Value,
     bits: Value,
+    float: bool,
 }
 
 pub(super) struct Stores {
     records: Vec<Store, BudgetAllocator>,
     inputs: Vec<Input, BudgetAllocator>,
     expected_inputs: Option<usize>,
+    expected_float_inputs: Option<usize>,
     overflowed: bool,
 }
 
@@ -46,6 +48,7 @@ impl Stores {
         let allocator = snapshot.operations.allocator().clone();
         let mut capacity = 0usize;
         let mut input_capacity = 0usize;
+        let mut float_count = 0usize;
         for &op in &snapshot.operations {
             let count = match op {
                 Operation::Add { .. }
@@ -60,6 +63,16 @@ impl Stores {
                 _ => 0,
             };
             input_capacity = input_capacity.checked_add(count).ok_or_else(refused)?;
+            let floats = match op {
+                Operation::Add { .. }
+                | Operation::Sub { .. }
+                | Operation::Mul { .. }
+                | Operation::Div { .. }
+                | Operation::NumericForPrep { .. } => 2,
+                Operation::NumericForLoop { .. } => 3,
+                _ => 0,
+            };
+            float_count = float_count.checked_add(floats).ok_or_else(refused)?;
         }
         for node in &graph.nodes {
             if node.lowering.native() {
@@ -78,6 +91,7 @@ impl Stores {
             records,
             inputs,
             expected_inputs: Some(input_capacity),
+            expected_float_inputs: Some(float_count),
             overflowed: false,
         })
     }
@@ -91,11 +105,24 @@ impl Stores {
     }
 
     pub fn numeric_input(&mut self, inst: Inst, tag: Value, bits: Value) {
+        self.input(inst, tag, bits, false);
+    }
+
+    pub fn float_input(&mut self, inst: Inst, tag: Value, bits: Value) {
+        self.input(inst, tag, bits, true);
+    }
+
+    fn input(&mut self, inst: Inst, tag: Value, bits: Value, float: bool) {
         if self.inputs.len() == self.inputs.capacity() {
             self.overflowed = true;
             return;
         }
-        self.inputs.push(Input { inst, tag, bits });
+        self.inputs.push(Input {
+            inst,
+            tag,
+            bits,
+            float,
+        });
     }
 
     pub fn verify(
@@ -110,6 +137,9 @@ impl Stores {
             || self
                 .expected_inputs
                 .is_some_and(|count| self.inputs.len() != count)
+            || self.expected_float_inputs.is_some_and(|count| {
+                self.inputs.iter().filter(|input| input.float).count() != count
+            })
             || self
                 .records
                 .windows(2)
@@ -214,6 +244,7 @@ impl Stores {
                 || possible & !allowed != 0
                 || !analysis.pair(input.tag, input.bits)
                 || !analysis.depends(input.inst, input.bits)?
+                || !analysis.float_conversion(input, possible)
             {
                 return Err(invalid());
             }
@@ -236,6 +267,30 @@ impl Stores {
         };
         args[0] = tag;
     }
+
+    #[cfg(test)]
+    pub fn corrupt_float_first(&self, function: &mut Function, payload: bool) {
+        let input = self
+            .inputs
+            .iter()
+            .find(|input| input.float)
+            .expect("missing float selector");
+        let InstructionData::Ternary { args, .. } = function.dfg.insts[input.inst] else {
+            panic!("missing float select operands")
+        };
+        if payload {
+            let conversion = function.dfg.value_def(args[1]).unwrap_inst();
+            let InstructionData::Unary { opcode, .. } = &mut function.dfg.insts[conversion] else {
+                panic!("missing integer conversion")
+            };
+            *opcode = Opcode::FcvtFromUint;
+        } else {
+            let InstructionData::Ternary { args, .. } = &mut function.dfg.insts[input.inst] else {
+                unreachable!()
+            };
+            args.swap(1, 2);
+        }
+    }
 }
 
 struct Analysis<'a> {
@@ -250,6 +305,72 @@ struct Analysis<'a> {
 }
 
 impl Analysis<'_> {
+    fn float_conversion(&self, input: &Input, possible: u8) -> bool {
+        let floating = self.function.dfg.insts[input.inst].opcode() == Opcode::Select
+            && self
+                .function
+                .dfg
+                .value_type(self.function.dfg.first_result(input.inst))
+                == types::F64;
+        if !input.float {
+            return !floating;
+        }
+        if !floating {
+            return false;
+        }
+        let InstructionData::Ternary { args, .. } = self.function.dfg.insts[input.inst] else {
+            return false;
+        };
+        for tag in [abi::INTEGER, abi::NUMBER] {
+            if possible & (1 << tag) == 0 {
+                continue;
+            }
+            let mut remaining = 64;
+            let Some(Some(integer)) = self.predicate(
+                args[0],
+                Some(self.function.dfg.resolve_aliases(input.tag)),
+                tag,
+                &mut remaining,
+            ) else {
+                return false;
+            };
+            let value = self
+                .function
+                .dfg
+                .resolve_aliases(args[if integer { 1 } else { 2 }]);
+            if self.function.dfg.value_type(value) != types::F64 {
+                return false;
+            }
+            let ValueDef::Result(inst, 0) = self.function.dfg.value_def(value) else {
+                return false;
+            };
+            let operand = match (tag, self.function.dfg.insts[inst]) {
+                (
+                    abi::INTEGER,
+                    InstructionData::Unary {
+                        opcode: Opcode::FcvtFromSint,
+                        arg,
+                    },
+                ) => arg,
+                (
+                    abi::NUMBER,
+                    InstructionData::LoadNoOffset {
+                        opcode: Opcode::Bitcast,
+                        arg,
+                        ..
+                    },
+                ) => arg,
+                _ => return false,
+            };
+            if self.function.dfg.resolve_aliases(operand)
+                != self.function.dfg.resolve_aliases(input.bits)
+            {
+                return false;
+            }
+        }
+        true
+    }
+
     fn fresh(&mut self) -> Result<(), JitError> {
         self.epoch = self.epoch.checked_add(1).ok_or_else(refused)?;
         self.pending.clear();
@@ -568,6 +689,7 @@ mod tests {
         records.try_reserve_exact(8).unwrap();
         let mut stores = Stores {
             expected_inputs: None,
+            expected_float_inputs: None,
             inputs: {
                 let mut inputs = Vec::new_in(records.allocator().clone());
                 inputs.try_reserve_exact(32).unwrap();
@@ -883,7 +1005,12 @@ mod tests {
             let float = builder.ins().bitcast(types::F64, MemFlagsData::new(), bits);
             builder.ins().select(is_integer, integer, float)
         };
-        stores.numeric_input(builder.func.dfg.value_def(result).unwrap_inst(), tag, bits);
+        let inst = builder.func.dfg.value_def(result).unwrap_inst();
+        if integer {
+            stores.numeric_input(inst, tag, bits);
+        } else {
+            stores.float_input(inst, tag, bits);
+        }
     }
 
     #[test]
@@ -1090,6 +1217,185 @@ mod tests {
             builder.ins().return_(&[]);
         })
         .unwrap();
+    }
+
+    #[derive(Clone, Copy)]
+    enum FloatFault {
+        None,
+        Swapped,
+        WrongTag,
+        Unknown,
+        NumberCondition,
+        Unsigned,
+        IntegerPayload,
+        NumberPayload,
+        DeepPredicate,
+    }
+
+    fn float_fixture(
+        fault: FloatFault,
+        inverted: bool,
+        constant: Option<u64>,
+    ) -> Result<(), JitError> {
+        fixture(|builder, slots, choice, stores| {
+            let (tag, bits) = if let Some(tag) = constant {
+                (
+                    builder.ins().iconst(types::I64, tag as i64),
+                    builder.ins().iconst(types::I64, -41),
+                )
+            } else {
+                let tag = builder
+                    .ins()
+                    .load(types::I64, MemFlagsData::new(), slots, 0);
+                let bits = builder
+                    .ins()
+                    .load(types::I64, MemFlagsData::new(), slots, 8);
+                let integer = builder
+                    .ins()
+                    .icmp_imm_s(IntCC::Equal, tag, abi::INTEGER as i64);
+                let number = builder
+                    .ins()
+                    .icmp_imm_s(IntCC::Equal, tag, abi::NUMBER as i64);
+                let numeric = builder.ins().bor(integer, number);
+                let accepted = builder.create_block();
+                let declined = builder.create_block();
+                builder.ins().brif(numeric, accepted, &[], declined, &[]);
+                builder.switch_to_block(declined);
+                builder.ins().return_(&[]);
+                builder.switch_to_block(accepted);
+                (tag, bits)
+            };
+            let tested = if matches!(fault, FloatFault::WrongTag) {
+                builder
+                    .ins()
+                    .load(types::I64, MemFlagsData::new(), slots, 16)
+            } else {
+                tag
+            };
+            let mut condition = if matches!(fault, FloatFault::Unknown) {
+                builder.ins().icmp_imm_s(IntCC::NotEqual, choice, 0)
+            } else {
+                let wanted = if matches!(fault, FloatFault::NumberCondition) {
+                    abi::NUMBER
+                } else {
+                    abi::INTEGER
+                };
+                builder.ins().icmp_imm_s(
+                    if inverted {
+                        IntCC::NotEqual
+                    } else {
+                        IntCC::Equal
+                    },
+                    tested,
+                    wanted as i64,
+                )
+            };
+            if matches!(fault, FloatFault::DeepPredicate) {
+                for _ in 0..70 {
+                    condition = builder.ins().bxor_imm_u(condition, 0);
+                }
+            }
+            let integer_bits = if matches!(fault, FloatFault::IntegerPayload) {
+                choice
+            } else {
+                bits
+            };
+            let integer = if matches!(fault, FloatFault::Unsigned) {
+                builder.ins().fcvt_from_uint(types::F64, integer_bits)
+            } else {
+                builder.ins().fcvt_from_sint(types::F64, integer_bits)
+            };
+            let number_bits = if matches!(fault, FloatFault::NumberPayload) {
+                choice
+            } else {
+                bits
+            };
+            let number = builder
+                .ins()
+                .bitcast(types::F64, MemFlagsData::new(), number_bits);
+            let swap = inverted ^ matches!(fault, FloatFault::Swapped);
+            let (yes, no) = if swap {
+                (number, integer)
+            } else {
+                (integer, number)
+            };
+            let result = builder.ins().select(condition, yes, no);
+            stores.float_input(builder.func.dfg.value_def(result).unwrap_inst(), tag, bits);
+            builder.ins().return_(&[]);
+        })
+    }
+
+    #[test]
+    fn float_selectors_preserve_both_numeric_tags_and_equivalent_polarities() {
+        for constant in [None, Some(abi::INTEGER), Some(abi::NUMBER)] {
+            for inverted in [false, true] {
+                float_fixture(FloatFault::None, inverted, constant).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn float_selectors_reject_wrong_tags_unknown_conditions_and_swapped_arms() {
+        for fault in [
+            FloatFault::Swapped,
+            FloatFault::WrongTag,
+            FloatFault::Unknown,
+            FloatFault::NumberCondition,
+        ] {
+            for inverted in [false, true] {
+                rejected(float_fixture(fault, inverted, None));
+            }
+        }
+        for tag in [abi::INTEGER, abi::NUMBER] {
+            rejected(float_fixture(FloatFault::Swapped, false, Some(tag)));
+        }
+    }
+
+    #[test]
+    fn float_conversions_reject_unsigned_and_foreign_payloads() {
+        for fault in [
+            FloatFault::Unsigned,
+            FloatFault::IntegerPayload,
+            FloatFault::NumberPayload,
+        ] {
+            rejected(float_fixture(fault, false, None));
+        }
+        rejected(float_fixture(
+            FloatFault::Unsigned,
+            false,
+            Some(abi::INTEGER),
+        ));
+        rejected(float_fixture(
+            FloatFault::NumberPayload,
+            false,
+            Some(abi::NUMBER),
+        ));
+    }
+
+    #[test]
+    fn float_selector_proof_is_bounded_and_checks_only_possible_tags() {
+        rejected(float_fixture(FloatFault::DeepPredicate, false, None));
+        float_fixture(FloatFault::Unsigned, false, Some(abi::NUMBER)).unwrap();
+        float_fixture(FloatFault::NumberPayload, false, Some(abi::INTEGER)).unwrap();
+    }
+
+    #[test]
+    fn float_obligations_cannot_be_removed_or_reclassified_by_emitted_shape() {
+        for (floating, marked, count) in [
+            (true, false, None),
+            (false, true, None),
+            (true, true, Some(0)),
+            (false, false, Some(1)),
+        ] {
+            rejected(fixture(|builder, _, _, stores| {
+                let tag = builder.ins().iconst(types::I64, abi::INTEGER as i64);
+                let bits = builder.ins().iconst(types::I64, -41);
+                numeric_use(builder, stores, tag, bits, !floating);
+                stores.inputs.last_mut().unwrap().float = marked;
+                stores.expected_float_inputs = count;
+                builder.ins().return_(&[]);
+            }));
+        }
     }
 
     #[test]

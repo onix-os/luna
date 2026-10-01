@@ -180,6 +180,8 @@ pub(super) enum Failure {
     Protect,
     CorruptTag,
     OmitNumericGuards,
+    CorruptFloatSelector,
+    CorruptFloatPayload,
 }
 
 #[cfg(test)]
@@ -391,6 +393,13 @@ pub(super) fn compile_in(
     #[cfg(test)]
     if failure == Failure::CorruptTag {
         stores.corrupt_first(&mut context.func);
+    }
+    #[cfg(test)]
+    if matches!(
+        failure,
+        Failure::CorruptFloatSelector | Failure::CorruptFloatPayload
+    ) {
+        stores.corrupt_float_first(&mut context.func, failure == Failure::CorruptFloatPayload);
     }
     let blocks = context.func.layout.blocks().count();
     let instructions = context
@@ -634,7 +643,11 @@ impl Emitter<'_, '_> {
             .ins()
             .bitcast(types::F64, MemFlagsData::new(), bits);
         let result = self.builder.ins().select(integer, converted, float);
-        self.numeric_input(result, tag, bits);
+        self.stores.float_input(
+            self.builder.func.dfg.value_def(result).unwrap_inst(),
+            tag,
+            bits,
+        );
         result
     }
 
@@ -1430,6 +1443,42 @@ mod memory_tests {
             matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")
         );
         assert_eq!(total.load(Ordering::Relaxed), 0);
+    }
+
+    fn refuse_corrupted_float(failure: Failure) {
+        let mut lua = crate::Lua::empty();
+        let snapshot = lua.enter(|ctx| {
+            let prototype = crate::FunctionPrototype::compile(
+                ctx,
+                "float-corruption",
+                b"local x=41 return x/2",
+            )
+            .unwrap();
+            Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
+        });
+        let total = Arc::new(AtomicUsize::new(0));
+        let result = compile_in(
+            &snapshot,
+            total.clone(),
+            8 * 1024 * 1024,
+            BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
+            super::super::work::Limits::from(&super::super::JitConfig::default()),
+            failure,
+        );
+        assert!(
+            matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")
+        );
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn corrupted_float_selector_is_refused_before_codegen_and_mapping() {
+        refuse_corrupted_float(Failure::CorruptFloatSelector);
+    }
+
+    #[test]
+    fn corrupted_float_payload_is_refused_before_codegen_and_mapping() {
+        refuse_corrupted_float(Failure::CorruptFloatPayload);
     }
 
     #[test]
