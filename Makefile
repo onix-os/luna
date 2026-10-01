@@ -51,7 +51,7 @@ $(info ------------------------------------------)
 .PHONY: jit-bench-build jit-bench-run
 .PHONY: jit-metrics jit-metrics-build jit-metrics-run jit-metrics-tests
 .PHONY: jit-miri
-.PHONY: jit-helpers jit-abi jit-config jit-registry jit-suspension jit-ir jit-generic-for jit-exits
+.PHONY: jit-helpers jit-abi jit-config jit-registry jit-suspension jit-ir jit-generic-for jit-exits jit-access
 
 ci-check:
 	@$(ACTIONLINT) .github/workflows/tests.yml
@@ -61,7 +61,7 @@ jit-miri:
 	@set -o pipefail; { rustc -vV; $(CARGO) miri --version; printf 'MIRIFLAGS=%s\ntarget=%s\n' "$${MIRIFLAGS:-}" '$(MIRI_TARGET)'; } 2>&1 | tee '$(MIRI_DIR)/environment.log'
 	@set -o pipefail; $(CARGO) miri setup --target '$(MIRI_TARGET)' 2>&1 | tee '$(MIRI_DIR)/setup.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::resources::tests -- --test-threads=1 --skip jit::resources::tests::installation_refusal_reclaims_generated_mappings 2>&1 | tee '$(MIRI_DIR)/jit::resources::tests.log'
-	@set -e -o pipefail; for filter in jit::abi::tests jit::helpers::tests jit::registry::tests jit::ir::tests jit::flow::tests jit::exits::tests jit::backend::exit_tests jit::policy_tests finalizers::tests; do \
+	@set -e -o pipefail; for filter in jit::abi::tests jit::helpers::tests jit::registry::tests jit::ir::tests jit::flow::tests jit::access::tests jit::backend::access_tests jit::exits::tests jit::backend::exit_tests jit::policy_tests finalizers::tests; do \
 		$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' "$$filter" -- --test-threads=1 2>&1 | tee '$(MIRI_DIR)'/"$$filter".log; \
 	done
 
@@ -226,7 +226,12 @@ jit-registry:
 jit-ir:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::ir::tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::flow::tests
+	@$(MAKE) --no-print-directory jit-access
 	@$(MAKE) --no-print-directory jit-exits
+
+jit-access:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::access_tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::access::tests
 
 jit-exits:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::exit_tests
@@ -484,6 +489,7 @@ help:
 	@echo "  jit-metrics-tests Test scheduling observations and argument validation"
 	@echo "  jit-registry Test weak source registration and queued cancellation"
 	@echo "  jit-ir       Test owned operands, flow, effects, exits and quota"
+	@echo "  jit-access   Test register, scalar output and helper admission"
 	@echo "  jit-exits    Test exit snapshots and retry-after-store rejection"
 	@echo "  jit-suspension Test native coroutine and foreign-await resumption"
 	@echo "  jit-bench-paired Alternate checked Off/Auto samples"

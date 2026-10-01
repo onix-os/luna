@@ -176,6 +176,18 @@ and these checks add no native dispatch work. `make jit-exits` tests snapshot
 contracts and rejects four injected retry-after-store IR emission cases without
 executing native code; the selected Miri lane includes those Rust-only tests.
 
+Owned nodes carry fixed-register read/may-write bitmaps, known scalar output tags
+and exact helper kind/operand records. Compiler loads/stores must use declared
+registers, known scalar stores must match result tags, and reference tags cannot
+be emitted through raw scalar stores. Helper operands distinguish constants and
+upvalue slots from frame registers. Unsupported instructions remain interpreted;
+their conservative full-frame masks do not grant native lowering. Conditional
+loop outputs are may-writes, not definite definitions. `make jit-access` tests
+the descriptors and six pure-IR rejection cases, also selected by Miri. These
+records share the snapshot allocation quota; no runtime checks, new references
+or ABI change are added. This is not optimizing typed SSA or a full value-bit,
+path-sensitive, variable-frame/liveness proof.
+
 Host service/preparation sweeps compact sparse registration, tracking, code
 index and queue storage. Nonempty containers qualify at capacity 64 or greater
 and at most quarter occupancy. Replacement storage is reserved fallibly before

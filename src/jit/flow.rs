@@ -234,11 +234,21 @@ pub(super) struct Node {
     pub block_start: u32,
     pub block_end: u32,
     pub exit: super::exits::Snapshot,
+    pub access: super::access::Access,
 }
 
 impl Node {
-    fn valid_effects(self) -> bool {
-        self.native_effects.subset_of(self.effects)
+    fn valid_admission(self) -> bool {
+        let helper_matches = match self.lowering {
+            Lowering::Helper(kind) | Lowering::ScalarOrHelper(kind) => {
+                self.access.helper.is_some_and(|helper| helper.kind == kind)
+            }
+            Lowering::Direct | Lowering::GuardedScalar | Lowering::Interpreter => {
+                self.access.helper.is_none()
+            }
+        };
+        helper_matches
+            && self.native_effects.subset_of(self.effects)
             && (!self.lowering.native()
                 || !self
                     .native_effects
@@ -273,10 +283,11 @@ impl FlowGraph {
                 block_start: u32::MAX,
                 block_end: 0,
                 exit: super::exits::Snapshot::new(pc as u32, snapshot.registers as u16, lowering),
+                access: super::access::Access::new(op, snapshot),
             };
-            if !node.valid_effects() {
+            if !node.valid_admission() {
                 return Err(JitError::Compilation(format!(
-                    "invalid native effects at PC {pc}"
+                    "invalid native admission at PC {pc}"
                 )));
             }
             nodes.push(node);
@@ -627,7 +638,7 @@ mod tests {
         assert_eq!(graph.nodes[4].successors, Successors([None, None]));
         assert!(graph.nodes[1].lowering.native());
         for (pc, node) in graph.nodes.iter().enumerate() {
-            assert!(node.valid_effects());
+            assert!(node.valid_admission());
             for target in node.successors.0.into_iter().flatten() {
                 assert!(target < graph.nodes.len() as u32, "PC {pc}");
             }
@@ -883,10 +894,11 @@ mod tests {
             block_start: 0,
             block_end: 1,
             exit: super::super::exits::Snapshot::new(0, 4, Lowering::Direct),
+            access: super::super::access::Access::default(),
         };
-        assert!(!node.valid_effects());
+        assert!(!node.valid_admission());
         node.native_effects = Effects(Effects::ALLOCATE);
-        assert!(!node.valid_effects());
+        assert!(!node.valid_admission());
     }
 
     #[test]

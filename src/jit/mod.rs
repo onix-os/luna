@@ -16,6 +16,7 @@ use ottavino_gc_arena::Collect;
 use thiserror::Error;
 
 mod abi;
+mod access;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -1208,7 +1209,7 @@ mod eviction_tests {
         let snapshot = lua.enter(|ctx| {
             let prototype =
                 crate::FunctionPrototype::compile(ctx, "oversized", source.as_bytes()).unwrap();
-            ir::Snapshot::new(&prototype, 4096, 65536).unwrap()
+            ir::Snapshot::new(&prototype, 4096, JitConfig::default().max_snapshot_bytes).unwrap()
         });
         assert!(matches!(
             runtime.compile(3, snapshot),
