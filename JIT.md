@@ -94,8 +94,17 @@ source values, destination stores, nil-range ordering, Boolean skips, decoded
 targets and one fuel increment. Empty nil ranges still require a checked edge.
 Move's direct path requires its actual non-reference split. Unexpected stores
 in these scalar finish blocks are refused. Write/edge records are exact-counted
-and snapshot-quota-charged; reference move/constant helper call/status/exit
-verification remains a separate obligation.
+and snapshot-quota-charged.
+Helper records independently decode all nine source helper kinds, including
+reference moves/constants, and bind each physical direct call to its imported
+function, host/slot pointers, six-argument ABI, operand encodings and source PC.
+Completion/panic tests must use the actual returned status; success edges require
+the decoded next PC and one-step fuel, while panic/decline edges preserve the
+source PC and unchanged count. Missing/extra calls, unexpected stores in helper
+call/status blocks, and record growth are refused before code generation.
+Exact-counted helper records use the snapshot ledger and can refuse with
+`ResourceLimit("helper call verification")`. This local IR check does not prove
+runtime helper effects/borrows/GC, shared exit-handler stores or global source paths.
 The retained, fallible PC-to-block map is charged to the snapshot ledger and
 can refuse with `ResourceLimit("frontend block map")` before compiler/host setup.
 Semantic checks are

@@ -174,6 +174,7 @@ pub(super) enum ArithmeticCorruption {
 }
 
 pub(super) struct Stores {
+    pub helper_calls: super::helper_flow::Calls,
     transfer_writes: Vec<TransferWrite, BudgetAllocator>,
     transfer_edges: Vec<TransferEdge, BudgetAllocator>,
     expected_transfers: Option<(usize, usize)>,
@@ -304,6 +305,7 @@ impl Stores {
             .try_reserve_exact(transfer_edges)
             .map_err(|_| refused())?;
         Ok(Self {
+            helper_calls: super::helper_flow::Calls::new(snapshot)?,
             transfer_writes: writes,
             transfer_edges: edges,
             expected_transfers: Some((transfer_writes, transfer_edges)),
@@ -2721,6 +2723,7 @@ mod tests {
         let mut records = Vec::new_in(allocator);
         records.try_reserve_exact(8).unwrap();
         let mut stores = Stores {
+            helper_calls: super::super::helper_flow::Calls::empty(records.allocator().clone()),
             transfer_writes: Vec::new_in(records.allocator().clone()),
             transfer_edges: Vec::new_in(records.allocator().clone()),
             expected_transfers: None,
@@ -3925,6 +3928,41 @@ mod tests {
             assert_eq!(ledger.peak(), peak.max(before + allowance));
             assert_eq!(ledger.refusals(), 1);
         }
+    }
+
+    #[test]
+    fn helper_call_allocation_refusal_releases_partial_storage() {
+        use crate::types::{RegisterIndex as R, VarCount};
+        let snapshot = super::super::ir::Snapshot {
+            operations: super::super::resources::owned(&[
+                Operation::NewTable {
+                    dest: R(0),
+                    array_size: 1,
+                    map_size: 0,
+                },
+                Operation::Return {
+                    start: R(0),
+                    count: VarCount::constant(0),
+                },
+            ]),
+            constants: super::super::resources::owned(&[]),
+            registers: 1,
+            upvalues: 0,
+            prototypes: 0,
+        };
+        let graph = FlowGraph::new(&snapshot).unwrap();
+        let ledger = snapshot.operations.allocator().0.clone();
+        let before = ledger.current();
+        let allowance = 2 * std::mem::size_of::<Store>();
+        let peak = ledger.peak();
+        ledger.set_limit(before + allowance);
+        assert!(matches!(
+            Stores::new(&graph, &snapshot),
+            Err(JitError::ResourceLimit("helper call verification"))
+        ));
+        assert_eq!(ledger.current(), before);
+        assert_eq!(ledger.peak(), peak.max(before + allowance));
+        assert_eq!(ledger.refusals(), 1);
     }
 
     fn truth_fixture(
