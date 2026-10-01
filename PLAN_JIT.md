@@ -5661,6 +5661,96 @@ Commits. No benchmark/profile workloads alongside correctness jobs.
 - `JIT.md`, `PLAN_JIT.md` — public scope, current evidence and open obligations.
 - `target/jit-evidence/region-flow/` — local revision-scoped raw acceptance artifacts.
 
+### Semantic record ownership and payload coverage decision
+
+Bind every semantic instruction/value record to the independently verified
+physical source region. Add source PCs to generic scalar-store/numeric-input
+records, charged through their existing exact-counted vectors. Check recorded
+store masks/destinations against decoded source access, require exact adjacent
+tag/payload pairs, and audit every physical scratch payload store against such
+a pair. Existing common tag verification skips payload-offset stores; local
+semantic checks do not independently provide whole-function payload coverage.
+Bind arithmetic/truth/comparison/loop/transfer/helper record fields and their
+value definitions to the declared source PC. Reuse the charged region map and
+bounded record scans without new worklists or unsafe code. Constructor size/quota
+tests must retain rollback semantics. These bindings do not claim optimizer
+correctness, runtime helper/GC/alias/liveness or complete compiler accounting.
+
+### Semantic ownership and orphan-payload regression review
+
+- Production binding passes existing native boundary/model checks. Generic store
+  and input PCs enlarge their existing charged layouts; constructor/quota tests
+  derive sizes from these types and still preserve rollback/peak semantics.
+- Pure emitter/IR fixtures cover all supported record families, including all
+  nine helpers, scalar/reference constants, arithmetic, truth/comparisons and
+  numeric loops. They test binding, not whole entry/region/source lowering.
+- The orphan payload fixture explicitly passes the old common tag verifier after
+  inserting a valid I64 scratch payload store, then the new binding pass rejects
+  it. This closes a verification gap; no pre-existing Lua runtime misexecution
+  or exploitable public input is claimed from the synthetic fixture.
+- Focused binding/tag/boundary/heap/resource/Clippy gates exited zero: fifteen
+  pure tests, fourteen actual backend corruptions and 368 boundary/four ignored.
+  No new module warnings; inherited Clippy backlog remains.
+
+### Semantic binding mutation sensitivity
+
+Temporarily bypassing production/pure binding checks failed all fourteen pure
+negative tests (one comprehensive positive passed) and all fourteen individual
+actual backend tests; both Make lanes exited 2. This covers source-PC ownership
+for every record family, foreign value definitions, broadened store masks,
+decoded destination mismatch and orphan payload writes. Pure mutated fixtures
+pass Cranelift IR validation; no corrupted generated code is executed. Both
+calls were restored after owned session `75630` became terminal. Logs:
+`/tmp/luna-jit-source-binding-bypass-pure.log` and
+`/tmp/luna-jit-source-binding-bypass-backend.log`.
+
+### Resumed source-binding checkpoint (2026-10-01)
+
+## Goal
+Continue full implementation of this plan on `feat/native-jit`; the overall
+goal remains incomplete.
+
+## Instructions
+Use repo-native Make targets, unsigned title-only Conventional Commits, and
+incremental source/evidence commits. Do not mix timing runs with builds/tests.
+
+## Discoveries
+- Source ownership binding checks decoded stores and every recorded semantic
+  instruction/value against the verified physical source region.
+- The orphan-payload fixture passes the previous common store verifier but is
+  refused by binding; this is a verification gap, not demonstrated runtime
+  misexecution.
+- Bypassing binding makes all 14 negative pure and all 14 backend tests fail.
+  Both production and pure calls have been restored.
+
+## Accomplished
+- Recovered the exact restored focused job `19195`; it completed with
+  `GATE_EXIT=0` in `/tmp/luna-jit-source-binding-restored.log`.
+- Previous region-flow acceptance is committed at `f00b009`, with evidence
+  documentation at `5a53461`.
+- Source binding is committed separately at `93a5909` (unsigned, title only).
+  Its focused gate passed 15 pure binding tests, 14 backend refusal tests and
+  the 368-test native boundary suite (4 ignored). The requested formatting,
+  tag, heap/resource and Clippy targets completed with exit 0; inherited
+  Clippy warnings remain. Full GNU/musl/Miri/campaign acceptance for this
+  revision has not yet been run.
+- Source hashes and restored/bypass logs are archived under
+  `target/jit-evidence/source-binding/`.
+
+## Next Steps
+- Run full GNU/musl gates, selected Miri, and supervised differential campaigns;
+  archive logs and report actual results before updating acceptance counts.
+- Continue the broader compiler/runtime safety, accounting, platform, and
+  performance work. No current performance acceptance is claimed.
+
+## Relevant Files
+- `src/jit/tags.rs` — semantic ownership and physical payload coverage.
+- `src/jit/entry_flow.rs` — verified source-region ownership queries.
+- `src/jit/helper_flow.rs` — helper instruction ownership.
+- `src/jit/backend.rs` — production gate and pure/native refusal tests.
+- `Makefile` — focused binding and selected Miri targets.
+- `JIT.md` — verifier scope; latest acceptance still describes region-flow.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
