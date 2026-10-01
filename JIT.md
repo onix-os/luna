@@ -126,14 +126,14 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 ## Verification and remaining work
 
-The numeric, arithmetic and boolean-source implementation (`075a9b5`)
+The numeric, arithmetic, boolean and comparison-source implementation (`e178bc1`)
 passes `nix develop -c make jit-verify clippy jit-clippy` on x86-64 GNU and
-with `TARGET=x86_64-unknown-linux-musl`: each reports 3244 passing tests across
+with `TARGET=x86_64-unknown-linux-musl`: each reports 3334 passing tests across
 421 suite results and 24 ignored tests. Selected pure-Rust/pure-IR Miri checks
-pass 102 tests across 16 selected suite results with default `MIRIFLAGS`; they do not execute
+pass 111 tests across 17 selected suite results with default `MIRIFLAGS`; they do not execute
 generated native code. Clippy retains the existing warning backlog, so these are
 not strict-warning acceptance. Raw revision-scoped evidence is stored locally in
-`target/jit-evidence/boolean-source/`. Seeded scalar/admission campaigns additionally
+`target/jit-evidence/comparison-source/`. Seeded scalar/admission campaigns additionally
 pass 4096 generated cases per platform, each checking 1641780 native invocations
 against the independent slice model; both platforms reuse the same four seeds.
 These campaigns do not cover native heap helpers. Performance thresholds, ARM64 execution,

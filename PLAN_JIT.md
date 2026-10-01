@@ -480,6 +480,15 @@ ordered branch targets and one logical fuel increment. The retained PC-to-block
 map is now fallibly charged to the snapshot ledger and refuses before host setup.
 This does not complete comparison/loop or whole-program path/source-map proofs.
 
+Comparison-source verification (`e178bc1`) now binds Eq/Less/LessEq operands,
+same/mixed typed expressions, exact split/phi edges, decoded final branch
+polarity/targets and one logical fuel increment. The bounded matcher checks
+signed and IEEE conditions, saturating conversion, fractional ties, +/-2^63
+boundaries and NaN ordering. Exact-counted records are quota-charged. Dedicated
+corruption tests and independent native/model campaigns pass; loop/move,
+whole-program path/source-map, alias/liveness and complete accounting proofs
+remain open. Phase 3 is not complete.
+
 **Files:** `src/jit/ir.rs`, `frontend.rs`, `compiler.rs`, `cache.rs`, `memory.rs` if needed, `src/lua.rs`, `src/closure.rs`, `tests/jit_ir.rs`, `tests/jit_cache.rs`.
 
 1. Build CFG/region analysis from decoded operations. Validate indices, reachable entries, successors, scalar types, helper effects, and exit snapshots.
@@ -4648,6 +4657,117 @@ changes into a status-documentation commit.
 - `src/jit/tags.rs` — comparison verifier and corrected phi-corruption fixture.
 - `src/jit/shape.rs` — bounded comparison-expression matching (uncommitted).
 - `src/jit/backend.rs` — comparison records and fixtures (uncommitted).
+
+### Comparison review and dedicated acceptance lanes
+
+The comparison stage now has dedicated `make jit-comparison` and
+`make jit-comparison-backend` gates; the former is included in the existing
+numeric-input chain. The pure emitter/IR comparison fixtures are selected by
+`make jit-miri`; actual backend corruption fixtures remain excluded from Miri
+because they construct the native compiler module. A partial-allocation quota
+test checks exact rollback and refusal before comparison records are allocated.
+Explicit final-polarity mutations cover all three operations and both polarities.
+All comparison proofs still precede machine-code generation and mapping.
+
+### Comparison mutation sensitivity evidence
+
+Temporarily removing comparison verification from both `compile_in` and the
+pure fixture made `make jit-comparison` fail **7 of 8** pure tests and the
+separate `make jit-comparison-backend` fail **all 9** actual backend corruption
+tests (both Make exits 2). The unchanged valid-source fixture still passed.
+Faults cover same-type conditions, NaN/upper-bound gates, boundary constants,
+split/phi/final targets, source reads, fuel, record PC and final polarity.
+Common tag verification independently retains record-count and overflow checks;
+the grouped record-envelope test fails on the PC mutation when comparison
+verification is bypassed. Neither mutation test invokes malformed native code.
+Raw logs: `/tmp/luna-jit-comparison-mutation-pure.log` and
+`/tmp/luna-jit-comparison-mutation-backend.log`; owned session `90812` is terminal.
+Both verification calls have been restored before acceptance runs.
+
+### Comparison feature commit and owned acceptance jobs
+
+`e178bc1` commits numeric comparison source verification, quota and corruption
+tests, dedicated Make/Miri lanes and the public scope contract. It is unsigned
+and title-only. Restored focused gates passed, including **156 native boundary
+tests (4 ignored)**; existing Clippy warnings remain, not strict-lint acceptance.
+Full GNU/musl gates are owned session `87226`; selected Miri is `20966`;
+supervised GNU/musl seeded campaigns are `43820`. No timings or
+profiles run alongside these correctness jobs. Snapshot source hashes and
+mutation/focused logs are archived under `target/jit-evidence/comparison-source/`.
+
+### Session summary: accepted comparison source verification
+
+#### Goal
+
+Continue full `PLAN_JIT.md` implementation on `feat/native-jit`, with the
+comparison source proof accepted as an incremental step, not a scope reduction.
+
+#### Instructions
+
+Use repo-native Make/Nix gates, patch tools and separate unsigned, title-only
+Conventional Commits. Run no benchmark or profile alongside correctness jobs.
+
+#### Discoveries
+
+- Same/mixed comparison matching can use fixed bounded expression trees and
+  existing numeric-consumer records; the one computed compiler CFG remains
+  outside the incomplete resource ledger, not silently charged as Luna storage.
+- Pure emitter/IR fixtures run under default Miri without constructing a native
+  compiler module. Actual backend corruption fixtures prove refusal before
+  code generation/mapping, but are not selected for Miri.
+- Disabling both comparison-verification calls fails seven pure and all nine
+  actual backend corruption tests. Common verification separately protects
+  record cardinality and growth; the comparison pass protects source PC.
+
+#### Accomplished
+
+- Committed `e178bc1` with source-bound Eq/Less/LessEq semantics, split/phi/final
+  branches and fuel checks; added a partial-allocation rollback regression,
+  final-polarity mutations, dedicated Make targets and pure comparison Miri lane.
+- Restored focused gates passed **156 boundary tests, 4 ignored** plus tag,
+  comparison, heap, resource and Clippy lanes. Mutation calls were restored
+  before this commit and all subsequent acceptance runs.
+- Full `nix develop -c make jit-verify clippy jit-clippy`, then the same with
+  `TARGET=x86_64-unknown-linux-musl`, exited zero: **3334 passed / 421 suite
+  results / 24 ignored each**. These include the plan's reference/Off/Auto/Force,
+  async/derive and documentation lanes. Existing Clippy warnings remain;
+  strict-warning acceptance is not claimed.
+- `nix develop .#miri -c make jit-miri` exited zero with pinned nightly
+  2026-08-16, rustc `67854e511`, default `MIRIFLAGS`: **111 passed / 17 selected
+  suite results**. It does not execute generated machine code.
+- Supervised `make jit-fuzz FUZZ_TARGET=all FUZZ_CASES=1024
+  FUZZ_SEEDS=0,1,0xdeadbeef,0xffffffffffffffff` exited zero on GNU and musl:
+  **4096 generated snapshots plus malformed mutations / 1641780 kernel
+  invocations / 4758522 completed native instructions each**. Both platforms
+  reuse identical seeds/programs, not 8192 distinct generated programs. These
+  scalar/admission campaigns are not native heap/lifecycle acceptance.
+- Owned sessions `20341`, `87226`, `20966`, `43820` and mutation `90812` are
+  terminal. Source/Make hashes revalidated unchanged after all acceptance runs.
+  Raw logs, campaign artifacts, Miri logs, source identity and summary are under
+  `target/jit-evidence/comparison-source/`.
+
+#### Next Steps
+
+- Complete numeric-loop/move and source transition/exit/path-sensitive proof;
+  keep canonical full-prefix materialization until alias/liveness review allows
+  a change.
+- Complete compiler/fixed-owner/combined host-memory accounting and approved
+  isolation policy, broader heap/lifecycle stress and actual ARM/hosted evidence.
+- Meet frozen native table/upvalue/callback and shipping compiled-Off performance
+  controls. Prior revision-scoped failures remain failures; no current benchmark,
+  profile or performance improvement is claimed by this comparison-proof turn.
+- Keep the full implementation goal active and incomplete; no phase or final
+  checklist completion is inferred from these narrower checks.
+
+#### Relevant Files
+
+- `src/jit/tags.rs` — charged comparison records, source/CFG/phi/branch proof,
+  corruption hooks and comparison-allocation rollback regression.
+- `src/jit/shape.rs` — bounded typed comparison matcher and branch polarity.
+- `src/jit/backend.rs` — emitted-point capture, pure fixtures and backend faults.
+- `Makefile` — dedicated comparison gates and selected pure Miri lane.
+- `JIT.md`, `PLAN_JIT.md` — public scope, revision-specific evidence and open work.
+- `target/jit-evidence/comparison-source/` — local raw acceptance artifacts.
 
 ## 15. Primary references
 
