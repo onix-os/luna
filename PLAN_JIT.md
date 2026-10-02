@@ -992,6 +992,15 @@ pass both repetitions. Preserve every failure; do not pick the one green run.
 Next investigate disabled-loop overhead and native short-call/upvalue costs
 with targeted profiles before making another runtime experiment.
 
+`af26288` commits the measured exact-frame optimization. Symbol-retained matched
+profile build `97733` exits 0 under `profile-speed/`; these artifacts are for
+diagnostics, not replacements for the stripped acceptance binaries. Queue
+`59486` exits 3 after thirty ten-second checks without a profiling window and
+launches no Valgrind run. Its final preflight sees Molla Make `215791`, Cargo
+`215856` and GPU test `216926`. Previously rejected const-generic interpreter
+splits and same-function macro hoisting are documented below; do not repeat
+those experiments on source-level branch-count reasoning alone.
+
 #### Session summary — measured performance checkpoint
 
 ## Goal
@@ -1045,11 +1054,15 @@ with targeted profiles before making another runtime experiment.
   Exact-frame table speedup passes twice; upvalue/callback and inconsistent
   disabled-tier overhead still fail. Retain the small-frame optimization as an
   incremental measured improvement, not completion of the frozen gates.
+- Committed that optimization as `af26288`. Built symbol-retained matched
+  diagnostics successfully (`97733`); profiling queue `59486` ended without a
+  quiet window, so no current profile results exist. All owned jobs are terminal.
 
 ## Next Steps
 - Profile the current upvalue/callback and compiled-Off dispatch costs under
   another clean preflight. Preserve current immutable timing artifacts and all
-  failed gates; do not rebuild unchanged timing binaries or broaden audit work.
+  failed gates; use prepared `profile-speed/` binaries without rebuilding. Do not
+  repeat previously rejected VM-splitting experiments or broaden audit work.
 - Complete remaining error/close integration and actual platform
   acceptance. The resumed goal remains active and incomplete.
 
@@ -1288,7 +1301,7 @@ Do not disable tests, lower safety guarantees, catch arbitrary crashes as succes
 | 5: lifecycle integration | IN PROGRESS | Mixed-tier callbacks, async/coroutines, errors and close tests | Dedicated heap/upvalue tests cover reentry, close/error unwinding, panic materialization, debug mutation, shared captures and finalizer resurrection. Public coroutine/foreign-await scenarios (`7351b4b`) verify all three modes at fuel 1/64/65536, native table updates after resumption, GC while parked, six Pending polls/two Ready polls/six wakes, and no compilation inside slices. GNU/musl full-feature Force passes. Complete transition/error/mock coverage remains open. |
 | 6: heap/GC integration | IN PROGRESS | Native heap paths, barriers, GC/mutation/invalidation stress | Fresh helper guards preserve weak/readonly/intercept/invalid-key behavior. Every-slice GC, open/closed upvalues, pending-scalar panic inspection, debug local/upvalue join and finalizer-only native upvalue writes pass. Shared-cell tests additionally prove exact operation counts and write visibility across error guards, foreign stacks, GC and Rust reentry. Broader interleaved executors, mode mutations and exhaustive guard coverage remain open. |
 | 7: Auto policy | IN PROGRESS | Nonblocking stepping, owned compile work, limits/backoff, hot promotion | Bounded hot requests and explicit outside-arena service; configuration retirement, queue/attempt reductions, typed quota refusal and reset tests pass. LRU retry, charged recency, sparse compaction, refusal backoff and source collection preserve leases/live identities. Real hot queued-source GC tests (`5570951`) cancel dead requests without snapshot/compiler work, preserve a live peer's queue/identity and reclaim all accounted storage after its final drop. Injected blocked compiler and complete resource/diagnostic coverage remain open. |
-| 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Slice leases, ABI v3, operand synchronization and tiered scratch pass correctness. Latest frozen `7c2d9af` native table/upvalue/callback gates fail in both eleven-pair runs; metamethod passes narrowly. Matched GNU speed-profile compiled-Off/no-JIT controls at `f347245` pass all nine cases twice; shipping fails three/five cases, including upvalues 1.1790/1.1743. These controls were not refreshed for compiler-work commits, so complete disabled-JIT acceptance remains unmet. Both checkers gate on ratios of medians, not their separately printed median-paired fields. Reference-move specialization remains historically rejected. Separate cold/service/slice/cache-churn and suspension observations pass, not paired release acceptance. Perf counters remain permission-denied; hardening/resource/performance work stays open. |
+| 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Exact small frames (`af26288`) pass full GNU/musl correctness and the table speedup target twice (1.2805/1.2692). Current native upvalue (0.7067/0.7000) and callback (0.8186/0.8164) gates still fail. Matched speed compiled-Off controls fail float twice and integer once; shipping integer fails once, so its one all-green repeat is insufficient. Both checkers retain their frozen ratios-of-medians gates. Rejected reference-move and VM-splitting experiments remain removed. Prepared symbol-retained profiles await a quiet host. Full performance acceptance remains open. |
 | 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Limited supervised admission/scalar campaigns test signals/timeouts/inherited limits; a five-seed 5120-kernel campaign verifies exits/slots/reclamation. Latest full GNU/musl x86-64 gates on `e747b07` pass 3054 tests/421 suite results each, 24 ignored; allocation/protection refusal is tested. Pinned default-seed Rust-only Miri passes 76 tests/fourteen namespaces, including owned flow/block/exit/access/work admission, scalar-tag SSA/guard/phi verification and pure IR-emitter rejection, reference Move alias/scalar/panic checks and queued-source retirement. Generated machine code, active native lease invocation, coroutine/foreign-await scenarios and executable finalization are not Miri-covered. Broader heap/lifecycle fuzz, complete unsafe review and actual ARM64/hosted evidence remain open. |
 | 10: release acceptance | IN PROGRESS | Complete gates, thresholds, docs/examples, actual CI | Prepared example and resource/security documentation exist. Active workflow wiring runs full GNU/musl x86-64 and GNU ARM64 gates, builds matched shipping artifacts and uploads evidence. Workflow lint/local musl integration pass; repeated local shipping/size/disabled-cost evidence is recorded. Actual hosted/ARM64 results, complete hardening and both native/disabled performance acceptance remain missing. |
 
