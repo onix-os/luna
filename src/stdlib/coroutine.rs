@@ -70,11 +70,11 @@ pub fn load_coroutine<'gc>(ctx: Context<'gc>) {
         "close",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
             let thread: Thread = stack.consume(ctx)?;
-            match thread.reset(&ctx) {
-                Ok(()) => stack.replace(ctx, true),
-                Err(err) => stack.replace(ctx, (false, err.to_string())),
-            }
-            Ok(CallbackReturn::Return)
+            thread.prepare_close(ctx)?;
+            Ok(CallbackReturn::Resume {
+                thread,
+                then: Some(BoxSequence::new(&ctx, PCall)),
+            })
         }),
     );
 
@@ -82,8 +82,8 @@ pub fn load_coroutine<'gc>(ctx: Context<'gc>) {
         ctx,
         "isyieldable",
         Callback::from_fn(&ctx, |ctx, exec, mut stack| {
-            // Anything but the main thread can yield.
-            stack.replace(ctx, !exec.current_thread().is_main);
+            let current = exec.current_thread();
+            stack.replace(ctx, !current.is_main && !current.thread.is_closing());
             Ok(CallbackReturn::Return)
         }),
     );

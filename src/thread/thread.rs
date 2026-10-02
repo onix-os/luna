@@ -88,6 +88,8 @@ impl<'gc> Thread<'gc> {
                 open_upvalues: vec::Vec::new_in(MetricsAlloc::new(&ctx)),
                 to_be_closed: vec::Vec::new_in(MetricsAlloc::new(&ctx)),
                 running: false,
+                closing: false,
+                terminal_error: None,
                 max_call_depth: ctx.max_call_depth(),
             }),
         );
@@ -119,6 +121,7 @@ impl<'gc> Thread<'gc> {
         args: impl IntoMultiValue<'gc>,
     ) -> Result<(), BadThreadMode> {
         let mut state = self.check_mode(&ctx, ThreadMode::Stopped)?;
+        state.terminal_error = None;
         let stack = state.stack;
         let mut stack = stack.borrow_mut(&ctx);
         assert!(stack.is_empty());
@@ -134,6 +137,7 @@ impl<'gc> Thread<'gc> {
         function: Function<'gc>,
     ) -> Result<(), BadThreadMode> {
         let mut state = self.check_mode(mc, ThreadMode::Stopped)?;
+        state.terminal_error = None;
         state.frames.push(Frame::Start(function));
         Ok(())
     }
@@ -203,6 +207,40 @@ impl<'gc> Thread<'gc> {
                 expected: None,
             }),
         }
+    }
+
+    pub(crate) fn is_closing(self) -> bool {
+        self.0.borrow().closing
+    }
+
+    pub(crate) fn prepare_close(self, ctx: Context<'gc>) -> Result<(), BadThreadMode> {
+        let mode = self.mode();
+        if !matches!(
+            mode,
+            ThreadMode::Stopped | ThreadMode::Suspended | ThreadMode::Result
+        ) {
+            return Err(BadThreadMode {
+                found: mode,
+                expected: None,
+            });
+        }
+        let mut state = self.0.borrow_mut(&ctx);
+        let stack = state.stack;
+        let mut stack = stack.borrow_mut(&ctx);
+        let pending_error = match state.frames.last() {
+            Some(Frame::Error(error)) => Some(error.clone()),
+            _ => state.terminal_error.take(),
+        };
+        let values = state.take_to_be_closed(&stack, 0);
+        state.reset(&ctx, &mut stack);
+        state.closing = true;
+        state.frames.push(Frame::Sequence {
+            bottom: 0,
+            sequence: BoxSequence::new(&ctx, CloseSequence::new(values, pending_error)),
+            pending_error: None,
+        });
+        state.frames.push(Frame::Yielded);
+        Ok(())
     }
 
     /// For each open upvalue pointing to this thread, if the upvalue itself is live, then resurrect
@@ -358,6 +396,8 @@ pub struct ThreadState<'gc> {
     // borrow is exactly what `Thread::mode` takes to look, so the lock cannot distinguish a thread
     // being stepped from one merely being inspected. The flag can.
     pub(super) running: bool,
+    pub(super) closing: bool,
+    pub(super) terminal_error: Option<Error<'gc>>,
     // Read from the `Lua` state when the thread is created.
     pub(super) max_call_depth: usize,
 }
@@ -567,12 +607,16 @@ impl<'gc> ThreadState<'gc> {
         &mut self,
         stack: &'a mut StackVec<'gc>,
     ) -> Result<impl Iterator<Item = Value<'gc>> + 'a, Error<'gc>> {
+        let closing = std::mem::replace(&mut self.closing, false);
         match self.frames.pop() {
             Some(Frame::Result { bottom }) => Ok(stack.drain(bottom..)),
             Some(Frame::Error(err)) => {
                 assert!(stack.is_empty());
                 assert!(self.frames.is_empty());
                 assert!(self.open_upvalues.is_empty());
+                if !closing {
+                    self.terminal_error = Some(err.clone());
+                }
                 Err(err)
             }
             _ => panic!("no results available to take"),
@@ -631,6 +675,9 @@ impl<'gc> ThreadState<'gc> {
         assert!(self.open_upvalues.is_empty());
         stack.clear();
         self.frames.clear();
+        self.to_be_closed.clear();
+        self.closing = false;
+        self.terminal_error = None;
     }
 
     fn resurrect_live_upvalues(&self, fc: &Finalization<'gc>) {

@@ -169,6 +169,297 @@ fn unbounded_native_tail_calls_return_at_each_fuel_boundary() -> Result<(), Exte
     Ok(())
 }
 
+#[test]
+fn coroutine_close_runs_pending_handlers_in_both_tiers() -> Result<(), ExternError> {
+    let mut observed = Vec::new();
+    for native in [false, true] {
+        let mut lua = Lua::core();
+        lua.set_jit_config(JitConfig {
+            mode: if native { JitMode::Auto } else { JitMode::Off },
+            hot_threshold: u32::MAX,
+            ..Default::default()
+        })
+        .unwrap();
+        let executor = lua.try_enter(|ctx| {
+            let closure = Closure::load(
+                ctx,
+                Some("coroutine-close"),
+                br#"
+                local closed=0
+                local co=coroutine.create(function()
+                    local resource <close> = setmetatable({}, {
+                        __close=function() closed=closed+1 end
+                    })
+                    coroutine.yield()
+                end)
+                assert(coroutine.resume(co))
+                assert(coroutine.close(co))
+                return closed
+            "#
+                .as_slice(),
+            )?;
+            Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+        })?;
+        lua.prepare_jit().unwrap();
+        observed.push(lua.execute::<i64>(&executor)?);
+        assert_eq!(lua.jit_stats().native_instructions > 0, native);
+    }
+    assert_eq!(observed, [1, 1]);
+    Ok(())
+}
+
+fn cleanup_case(
+    script: &str,
+    native: bool,
+    fuel: i32,
+) -> Result<(Vec<(bool, ExecutorMode, i32)>, luna::JitStats), ExternError> {
+    let mut lua = Lua::core();
+    lua.set_jit_config(JitConfig {
+        mode: if native { JitMode::Auto } else { JitMode::Off },
+        hot_threshold: u32::MAX,
+        ..Default::default()
+    })
+    .unwrap();
+    let executor = lua.try_enter(|ctx| {
+        let closure = Closure::load(ctx, Some("cleanup-matrix"), script.as_bytes())?;
+        Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+    })?;
+    lua.prepare_jit().unwrap();
+    let mut slices = Vec::new();
+    for _ in 0..1000 {
+        let step = call_step(&mut lua, &executor, fuel);
+        slices.push(step);
+        lua.gc_collect();
+        if step.0 {
+            assert!(lua.try_enter(|ctx| ctx.fetch(&executor).take_result::<bool>(ctx)?)?);
+            return Ok((slices, lua.jit_stats()));
+        }
+    }
+    panic!("cleanup did not complete");
+}
+
+#[test]
+fn coroutine_cleanup_keeps_identity_order_errors_and_slice_boundaries() -> Result<(), ExternError> {
+    for (action, check, outer_error) in [
+        ("", "ok and err==nil", 0),
+        ("error(marker)", "not ok and err==marker", 1),
+        ("coroutine.yield(marker)", "not ok and err~=nil", 2),
+        (
+            "coroutine.yieldto(coroutine.create(function() error('must not run') end))",
+            "not ok and err~=nil",
+            2,
+        ),
+        (
+            "local child=coroutine.create(function() coroutine.yield(17) return 18 end) local ok,v=coroutine.resume(child) assert(ok and v==17) ok,v=coroutine.resume(child) assert(ok and v==18)",
+            "ok and err==nil",
+            0,
+        ),
+    ] {
+        let script = format!(
+            r#"
+            local target
+            local marker={{}}
+            local events={{}} local errors={{}} local total=0
+            local function resource(id)
+                return setmetatable({{}},{{__close=function(_,err)
+                    local running,main=coroutine.running()
+                    assert(running==target and not main)
+                    assert(not coroutine.isyieldable())
+                    events[#events+1]=id
+                    errors[#errors+1]=err==nil and 0 or err==marker and 1 or 2
+                    for i=1,100 do total=total+i end
+                    if id==2 then {action} end
+                end}})
+            end
+            target=coroutine.create(function()
+                local a <close> = resource(1)
+                local function inner()
+                    local b <close> = resource(2)
+                    coroutine.yield(42)
+                    error('resumed after close')
+                end
+                inner()
+            end)
+            local resumed,value=coroutine.resume(target)
+            assert(resumed and value==42 and #events==0)
+            local ok,err=coroutine.close(target)
+            assert({check})
+            assert(coroutine.status(target)=='dead')
+            assert(events[1]==2 and events[2]==1 and #events==2)
+            assert(errors[1]==0 and errors[2]=={outer_error})
+            assert(total==10100)
+            assert(coroutine.close(target))
+            assert(#events==2)
+            return true
+            "#
+        );
+        for fuel in [1, 64, 65536] {
+            let (expected, off) = cleanup_case(&script, false, fuel)?;
+            let (actual, native) = cleanup_case(&script, true, fuel)?;
+            assert_eq!(actual, expected, "action={action} fuel={fuel}");
+            assert_eq!(off.native_instructions, 0);
+            assert!(native.native_upvalue_writes >= 200);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn coroutine_close_handles_dead_unstarted_running_and_waiting_threads() -> Result<(), ExternError> {
+    let script = r#"
+        local marker={}
+        local dead=coroutine.create(function() error(marker) end)
+        local ok,err=coroutine.resume(dead)
+        assert(not ok and err==marker)
+        ok,err=coroutine.close(dead)
+        assert(not ok and err==marker)
+        assert(coroutine.close(dead))
+        local fresh=coroutine.create(function() error('must not run') end)
+        assert(coroutine.close(fresh) and coroutine.status(fresh)=='dead')
+        local parent
+        parent=coroutine.create(function()
+            assert(not pcall(coroutine.close,coroutine.running()))
+            local child=coroutine.create(function()
+                assert(not pcall(coroutine.close,parent))
+                return true
+            end)
+            assert(coroutine.resume(child))
+        end)
+        assert(coroutine.resume(parent))
+        assert(coroutine.close(parent))
+        return true
+    "#;
+    for fuel in [1, 64, 65536] {
+        let (expected, _) = cleanup_case(script, false, fuel)?;
+        let (actual, _) = cleanup_case(script, true, fuel)?;
+        assert_eq!(actual, expected);
+    }
+    Ok(())
+}
+
+#[test]
+fn raw_reset_clears_close_markers_before_reusing_the_executor() -> Result<(), ExternError> {
+    for native in [false, true] {
+        let mut lua = Lua::core();
+        lua.set_jit_config(JitConfig {
+            mode: if native { JitMode::Auto } else { JitMode::Off },
+            ..Default::default()
+        })
+        .unwrap();
+        let executor = lua.try_enter(|ctx| {
+            let closure = Closure::load(
+                ctx,
+                None,
+                br#"
+                local a,b,c,d,e=1,2,3,4,5
+                local resource <close> = setmetatable({}, {
+                    __close=function() error('raw reset must not run Lua') end
+                })
+                coroutine.yield(a+b+c+d+e)
+            "#
+                .as_slice(),
+            )?;
+            Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+        })?;
+        lua.prepare_jit().unwrap();
+        assert_eq!(lua.execute::<i64>(&executor)?, 15);
+        lua.try_enter(|ctx| {
+            let next = Closure::load(ctx, None, b"return 42".as_slice())?;
+            ctx.fetch(&executor).restart(ctx, next.into(), ());
+            Ok(())
+        })?;
+        lua.prepare_jit().unwrap();
+        lua.gc_collect();
+        assert_eq!(lua.execute::<i64>(&executor)?, 42);
+    }
+    Ok(())
+}
+
+#[cfg(feature = "async")]
+#[test]
+fn coroutine_cleanup_rejects_foreign_wait_without_polling_it() -> Result<(), ExternError> {
+    use std::{
+        future::Future,
+        pin::Pin,
+        task::{Context, Poll},
+    };
+    struct Wait(Rc<Cell<usize>>, Rc<Cell<usize>>);
+    impl Future for Wait {
+        type Output = i64;
+        fn poll(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<i64> {
+            self.0.set(self.0.get() + 1);
+            Poll::Ready(42)
+        }
+    }
+    impl Drop for Wait {
+        fn drop(&mut self) {
+            self.1.set(self.1.get() + 1);
+        }
+    }
+    for native in [false, true] {
+        let mut lua = Lua::core();
+        lua.set_jit_config(JitConfig {
+            mode: if native { JitMode::Auto } else { JitMode::Off },
+            ..Default::default()
+        })
+        .unwrap();
+        let polls = Rc::new(Cell::new(0));
+        let drops = Rc::new(Cell::new(0));
+        lua.enter(|ctx| {
+            let polls = polls.clone();
+            let drops = drops.clone();
+            ctx.set_global(
+                "wait",
+                Callback::from_fn(&ctx, move |ctx, _, _| {
+                    let wait = Wait(polls.clone(), drops.clone());
+                    Ok(CallbackReturn::Sequence(luna::async_sequence(
+                        &ctx,
+                        move |_, mut seq| async move {
+                            seq.await_future(wait).await;
+                            Ok(luna::SequenceReturn::Return)
+                        },
+                    )))
+                }),
+            );
+        });
+        let executor = lua.try_enter(|ctx| {
+            let closure = Closure::load(ctx, None, br#"
+                local closed=0
+                local co=coroutine.create(function()
+                    local a <close> = setmetatable({}, {__close=function() closed=closed+1 end})
+                    local b <close> = setmetatable({}, {__close=function() closed=closed+1 wait() end})
+                    coroutine.yield()
+                end)
+                assert(coroutine.resume(co))
+                local ok,err=coroutine.close(co)
+                assert(not ok and err~=nil)
+                assert(coroutine.status(co)=='dead')
+                return closed==2
+            "#.as_slice())?;
+            Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+        })?;
+        lua.prepare_jit().unwrap();
+        let mut finished = false;
+        for _ in 0..1000 {
+            let step = call_step(&mut lua, &executor, 1);
+            assert!(lua
+                .enter(|ctx| ctx.fetch(&executor).take_pending_future(&ctx))
+                .is_none());
+            lua.gc_collect();
+            if step.0 {
+                finished = true;
+                break;
+            }
+        }
+        assert!(finished);
+        assert!(lua.try_enter(|ctx| ctx.fetch(&executor).take_result::<bool>(ctx)?)?);
+        assert_eq!(polls.get(), 0);
+        assert_eq!(drops.get(), 1);
+        assert_eq!(lua.jit_stats().native_upvalue_writes >= 2, native);
+    }
+    Ok(())
+}
+
 fn mixed_call_state(
     caller_native: bool,
     callee_native: bool,

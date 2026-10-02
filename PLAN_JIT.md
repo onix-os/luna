@@ -13,11 +13,10 @@
 
 The requested plan document is written. Full implementation and release
 acceptance are not finished. The committed native tier executes Luna bytecode
-through Cranelift without replacing Luna's runtime. The full GNU and musl gates
-at `ba55424` passed with 4951 test executions each across repeated modes/suites,
-not 4951 unique tests. Later focused tail-call checks pass, but a new
-`coroutine.close` regression fails in both Off/native modes: pending cleanup
-handlers are skipped. That defect is not covered by the earlier green gates.
+through Cranelift without replacing Luna's runtime. The latest full GNU and
+musl gates each pass 5000 test executions across repeated modes/suites, not
+5000 unique tests. The coroutine-close cleanup defect exposed after the prior
+green gates is repaired, with focused lifecycle and full-suite evidence below.
 The small-frame runtime change remains uncommitted pending performance results.
 
 The separate coverage-guided package is committed as `59ad32c`. Its locked
@@ -743,7 +742,7 @@ prevent Phase 3/release acceptance.
 
 ### Phase 5 — Preserve callbacks, coroutines, async, and unwinding
 
-**Status:** IN PROGRESS. **Depends on:** Phase 4. Dedicated native heap tests cover reentrant callbacks, coroutine suspension, foreign futures, and close-handler error unwinding. Shared public-host coroutine/await scenarios verify native heap work around suspension, GC while parked, real Pending/wake behavior and tier coverage at fuel 1/64/65536. Selective preparation independently verifies all four caller/callee tier combinations for normal and tail calls. Deep/infinite tail-call bounds now have focused GNU/musl evidence. A new reproducer proves `coroutine.close` skips pending handlers in both Off and native modes; that lifecycle defect and broader error/close acceptance remain open.
+**Status:** IN PROGRESS. **Depends on:** Phase 4. Dedicated native heap tests cover reentrant callbacks, coroutine suspension, foreign futures, and close-handler error unwinding. Shared public-host coroutine/await scenarios verify native heap work around suspension, GC while parked, real Pending/wake behavior and tier coverage at fuel 1/64/65536. Selective preparation independently verifies all four caller/callee tier combinations for normal and tail calls. Deep/infinite tail-call bounds and executor-driven coroutine cleanup now pass GNU/musl gates. Broader error/close acceptance, including uncaught-coroutine error-unwind timing, remains open.
 
 **Files:** runtime wrappers, thread executor/frame integration, `tests/jit_transitions.rs`, existing callback/reentrancy/async/close/error tests.
 
@@ -820,16 +819,45 @@ This is a shared interpreter/runtime defect, not a JIT-only regression.
 scheduling pending `__close` handlers. The marker list is not cleared either.
 The required behavior is explicit in the [Lua 5.4 coroutine.close contract](https://www.lua.org/manual/5.4/manual.html#pdf-coroutine.close).
 
-Keep the failing regression in the worktree until the lifecycle repair is
-implemented; do not weaken it, ignore it or claim the old full gates cover this
-case. Its patch and terminal failure log are independently preserved under
+The original failing regression was retained unchanged through the lifecycle
+repair; the old full gates did not cover this case. Its patch and terminal failure log are independently preserved under
 `target/jit-evidence/coroutine-close-gap/`. Closing must use executor-driven,
 fuel-bounded cleanup, preserve the target coroutine's identity and error object,
 continue remaining handlers after a handler error, and reject invalid running
 states/yields. Do not substitute an unbounded nested executor loop inside the
 close callback or run target handlers on the caller's thread.
 
-#### Session summary — tail-call acceptance and cleanup defect
+Repair design: preserve raw Rust `Thread::reset` as a no-user-code operation,
+clearing stale close markers there. The Lua close binding prepares the target's
+existing `CloseSequence`, then resumes that same thread under `PCall`; ordinary
+executor slices drive every handler. A closing flag rejects Yield/Waiting and
+makes `coroutine.isyieldable()` false during cleanup. Retain a terminal error
+until explicit close/restart so a dead coroutine can return its original error.
+The official [Lua reset implementation](https://www.lua.org/source/5.4/lstate.c.html)
+also removes old call frames before invoking close handlers. No nested executor
+or new public callback-return variant is needed. This design does not by itself
+prove all coroutine error-unwind timing matches PUC Lua; that remains separate
+acceptance work.
+
+Repair candidate now passes the original reproducer and focused GNU/musl
+`make jit-suspension` (`35235`): nine tests without async and eleven with async
+on each platform. Five cleanup actions (normal, handler error, yield, yieldto,
+nested coroutine resume) run in Off/prepared at fuel 1/64/65536 with every-slice
+GC, exact slice/fuel agreement, reverse-order cleanup, target identity and
+handler-native upvalue-write evidence. Dead/unstarted/running/waiting states,
+original error identity, repeat close and raw reset/restart have regressions.
+Foreign-await cleanup proves zero future polls, one drop, no parked future and
+execution of the remaining handler. Full GNU/musl batch `42787` exits 0:
+5000 passing executions, 434 suite results and 24 ignored tests per platform,
+including both existing supervised smoke lanes. Logs are
+`target/jit-evidence/coroutine-close-gap/full-{gnu,musl}.log`.
+
+Runtime lifecycle changes make the old original/table-only/small-frame timing
+artifacts historical: rebuild matched binaries on the repaired lifecycle before
+using them for current acceptance. The old source hash list did not include all
+three changed lifecycle files; matching that subset cannot establish freshness.
+
+#### Session summary — executor-driven coroutine cleanup
 
 ## Goal
 - Continue the full native JIT implementation while performance timing is
@@ -843,8 +871,9 @@ close callback or run target handlers on the caller's thread.
 - Selective prototype loading around `prepare_jit` fixes the tier assignment
   without adding a test-only runtime API. Suspension boundaries isolate actual
   caller/callee native work from return-transition work in the other frame.
-- Both tiers omit pending handlers when `coroutine.close` resets a suspended
-  thread. The new regression observes zero cleanups instead of one in each tier.
+- Both tiers previously omitted pending handlers when closing a suspended
+  coroutine. Preparing a CloseSequence on that same thread preserves identity
+  while ordinary executor slices drive cleanup. A closing flag rejects suspension.
 - Engram tools remain unavailable; this project-local summary records recovery
   context without writing external memory files.
 
@@ -853,18 +882,18 @@ close callback or run target handlers on the caller's thread.
 - `9ed8a0f` commits three tail-call regressions. GNU/musl focused batch `40229`
   passes five tests without async and six with async per platform. Measured
   shallow/deep arena peaks are 3198 bytes; sampled callback-stack span is zero.
-- The earlier full GNU/musl gates passed before these new tests. New cleanup
-  regression `60252` fails as recorded above and remains uncommitted alongside
-  the unchanged small-frame runtime candidate. All owned jobs are terminal.
-  This turn made integration progress and exposed a missing lifecycle behavior.
+- Original cleanup regression `60252` failed in both tiers; focused repair batch
+  `35235` and full GNU/musl batch `42787` now pass. The latter reports 5000/434/24
+  per platform. Raw reset clears markers, dead errors retain identity until
+  close/restart, and failed cleanup does not poll foreign futures.
+- All owned jobs are terminal. The small-frame runtime candidate is unchanged
+  and uncommitted; its old timing artifacts must be rebuilt on this lifecycle.
 
 ## Next Steps
-- Repair executor-driven coroutine cleanup and validate error propagation,
-  remaining handlers, target-thread identity and bounded execution before
-  accepting the new regression. Preserve raw host reset semantics separately.
-- Measure the original/table-only/small-frame artifacts with unchanged checked
-  native and compiled-Off gates once external build/test activity ends. Latest
-  live check still sees molla Cargo `1965955` and test `1966307`; no timing ran.
+- Rebuild matched original/table-only/small-frame artifacts and measure unchanged
+  native and compiled-Off gates when no build/test activity remains. The latest
+  check sees only the already-built Astrocraft application, not the earlier
+  external molla jobs. Recheck immediately before timing; no timing ran yet.
 - Complete remaining error/close integration and actual platform
   acceptance. The resumed goal remains active and incomplete.
 

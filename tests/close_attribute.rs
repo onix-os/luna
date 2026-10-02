@@ -27,6 +27,50 @@ const PRELUDE: &str = r#"
 "#;
 
 #[test]
+fn closes_suspended_coroutine_in_reverse_order() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"{PRELUDE}
+            local co=coroutine.create(function()
+                local outer <close> = res("outer")
+                do
+                    local inner <close> = res("inner")
+                    coroutine.yield()
+                end
+            end)
+            assert(coroutine.resume(co))
+            assert(result()=="")
+            assert(coroutine.close(co))
+            assert(coroutine.status(co)=="dead")
+            assert(coroutine.close(co))
+            return result()
+        "#
+        ))?,
+        "inner,outer"
+    );
+    Ok(())
+}
+
+#[test]
+fn closing_a_dead_coroutine_returns_its_original_error_once() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(
+            r#"
+            local marker={}
+            local co=coroutine.create(function() error(marker) end)
+            local ok,err=coroutine.resume(co)
+            assert(not ok and err==marker)
+            ok,err=coroutine.close(co)
+            assert(not ok and err==marker)
+            return tostring(coroutine.close(co))
+        "#
+        )?,
+        "true"
+    );
+    Ok(())
+}
+
+#[test]
 fn closes_on_normal_block_exit() -> Result<(), ExternError> {
     assert_eq!(
         eval(&format!(

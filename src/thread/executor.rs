@@ -286,6 +286,16 @@ impl<'gc> Executor<'gc> {
                     to_thread: Option<Thread<'gc>>,
                     bottom: usize,
                 ) {
+                    if top_state.closing {
+                        stack.truncate(bottom);
+                        top_state.frames.push(Frame::Error(
+                            crate::RuntimeError::new(anyhow::anyhow!(
+                                "cannot yield while closing a coroutine"
+                            ))
+                            .into(),
+                        ));
+                        return;
+                    }
                     if let Some(to_thread) = to_thread {
                         if let Err(err) = to_thread.resume(ctx, Variadic(stack.drain(bottom..))) {
                             top_state.frames.push(Frame::Error(err.into()));
@@ -534,17 +544,23 @@ impl<'gc> Executor<'gc> {
                                 );
                             }
                             Ok(SequencePoll::Waiting(future)) => {
-                                // Park the future and put the sequence back unchanged: when the
-                                // host has awaited it, this sequence is polled again exactly as if
-                                // it had returned `Pending`. Ending the slice here is what gets the
-                                // future out to somewhere the arena is not borrowed.
-                                top_state.frames.push(Frame::Sequence {
-                                    bottom,
-                                    sequence,
-                                    pending_error: None,
-                                });
-                                state.pending = Some(future);
-                                break false;
+                                if top_state.closing {
+                                    top_stack.truncate(bottom);
+                                    top_state.frames.push(Frame::Error(
+                                        crate::RuntimeError::new(anyhow::anyhow!(
+                                            "cannot await while closing a coroutine"
+                                        ))
+                                        .into(),
+                                    ));
+                                } else {
+                                    top_state.frames.push(Frame::Sequence {
+                                        bottom,
+                                        sequence,
+                                        pending_error: None,
+                                    });
+                                    state.pending = Some(future);
+                                    break false;
+                                }
                             }
                             Err(error) => {
                                 top_stack.truncate(bottom);
