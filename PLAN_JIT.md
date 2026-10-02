@@ -8051,14 +8051,29 @@ to this candidate. Only fresh build/configuration/hash/section outputs are curre
   GNU `50349` and musl `58822` each exit 0: 54 tests/eight suites/zero ignored.
 - Stripped benchmark `77707`, symbol-bearing assembly `17699` and matched
   speed/shipping build pair `60238` all exit 0. Fourteen invocation bodies are
-  extracted; the two-slot body is retained separately. All owned jobs terminal.
+  extracted; the two-slot body is retained separately. All build/test jobs are
+  terminal; the benchmark-wait session described below is still live.
 - Immutable original/table-only/exact-frame benchmark artifacts and current
   matched speed/shipping executables exist. Source hashes, base revision and
   candidate patch are under `target/jit-evidence/exact-small-frames/`.
 - No benchmark timing or runtime profile has been run during global contention.
+- Initial gate `9226` and revised gate `15961` exit 3 before timing. An initial
+  all-Make filter also classified a running desktop application as build/test
+  activity: the atlasis run recipe/tree shows a direct `astrocraft` child after
+  compilation, not a test runner. Only observed application-only parents are
+  excluded; active Cargo/rustc/test/benchmark/profile jobs remain blockers.
+- Owned old wait `18088` was explicitly terminated after that classification
+  correction and returns 143. It was not restarted on an observation timeout.
+  Replacement `39727` is a live bounded quiet-window/gate queue. Exact evidence
+  directory: `gate-20261002T015357Z`; last observation sees unrelated molla
+  `make -j1 test-all`/Cargo workspace tests plus rustc/linker children. No unrelated
+  job is killed or excluded, and no timing claim is made.
 
 ## Next Steps
-- Poll the live unrelated GPU pipeline before timing. Once global build/test
+- Re-poll owned session `39727`; observation timeout is not terminal and must not
+  cause a duplicate gate launch. Its wait deadline is 1800 seconds, with four
+  quiet preflights before running and pre/post checks for each timing batch.
+  Once global build/test
   activity is absent, compare the three benchmark artifacts sequentially with
   unchanged eleven-sample checked gates and reversed-order repeats; execute
   matched speed/shipping compiled-Off controls. Keep/reject the candidate from
