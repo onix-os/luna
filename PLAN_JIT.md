@@ -9,13 +9,16 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Progress snapshot — 2026-10-01
+### Progress snapshot — 2026-10-02
 
-The plan exists; implementation is underway, not release-ready. The committed
-native tier executes Luna bytecode through Cranelift without replacing Luna's
-runtime. Current-frame upvalue alias repair is committed as `710dd33`, with
-acceptance recorded in `040d46d`. Its GNU and musl gates each report 4941 passing
-test executions across repeated modes/suites, not 4941 unique tests.
+The requested plan document is written. Full implementation and release
+acceptance are not finished. The committed native tier executes Luna bytecode
+through Cranelift without replacing Luna's runtime. The full GNU and musl gates
+at `ba55424` passed with 4951 test executions each across repeated modes/suites,
+not 4951 unique tests. Later focused tail-call checks pass, but a new
+`coroutine.close` regression fails in both Off/native modes: pending cleanup
+handlers are skipped. That defect is not covered by the earlier green gates.
+The small-frame runtime change remains uncommitted pending performance results.
 
 The separate coverage-guided package is committed as `59ad32c`. Its locked
 all-target check and three integrated test functions pass. After correcting the
@@ -740,7 +743,7 @@ prevent Phase 3/release acceptance.
 
 ### Phase 5 — Preserve callbacks, coroutines, async, and unwinding
 
-**Status:** IN PROGRESS. **Depends on:** Phase 4. Dedicated native heap tests cover reentrant callbacks, coroutine suspension, foreign futures, and close-handler error unwinding. Shared public-host coroutine/await scenarios verify native heap work around suspension, GC while parked, real Pending/wake behavior and tier coverage at fuel 1/64/65536. The complete transition matrix remains open.
+**Status:** IN PROGRESS. **Depends on:** Phase 4. Dedicated native heap tests cover reentrant callbacks, coroutine suspension, foreign futures, and close-handler error unwinding. Shared public-host coroutine/await scenarios verify native heap work around suspension, GC while parked, real Pending/wake behavior and tier coverage at fuel 1/64/65536. Selective preparation independently verifies all four caller/callee tier combinations for normal and tail calls. Deep/infinite tail-call bounds now have focused GNU/musl evidence. A new reproducer proves `coroutine.close` skips pending handlers in both Off and native modes; that lifecycle defect and broader error/close acceptance remain open.
 
 **Files:** runtime wrappers, thread executor/frame integration, `tests/jit_transitions.rs`, existing callback/reentrancy/async/close/error tests.
 
@@ -754,6 +757,124 @@ prevent Phase 3/release acceptance.
 **Verify:** `make jit-test-all JIT_MODE=force`; transition tests assert native execution on at least one side of each required boundary and canonical completion after it. Infinite/deep tail-call tests retain bounded step behavior and no proportional native-stack growth.
 
 **Exit:** compiled execution is integrated with the embedding lifecycle, not just standalone numeric programs.
+
+#### Selective caller/callee acceptance — 2026-10-02
+
+`tests/jit_suspension.rs` loads only the intended native prototypes before
+`prepare_jit`, then loads the interpreted prototypes without servicing the
+compiler. A maximal hot threshold, unchanged installed-region count and empty
+queue keep those choices fixed. Rust yielding callbacks bracket each side's
+work so per-segment native-instruction and table-write deltas independently
+prove the caller and callee tiers; aggregate native work alone is insufficient.
+
+The matrix covers four tier pairs, normal/tail calls and fuel 1/64/65536: 24
+scenarios per feature configuration, each paired with a separate Off state.
+Every slice compares fuel, executor mode and completion. GC runs after every
+slice, including suspended boundaries, and exact result vectors preserve both
+interior and trailing nils. This is execution correctness, not benchmark timing.
+
+GNU `make fmt jit-suspension` exits 0 (`75980`): two tests without async and
+three with async. Evidence: `target/jit-evidence/mixed-call-tiers/gnu.log`.
+Musl `make jit-suspension TARGET=x86_64-unknown-linux-musl` also exits 0
+(`6955`), with the same two/three passing tests; `musl.log` is beside the GNU
+log. Full GNU followed by musl `make jit-verify` also exits 0 (`16737`): each
+reports 4951 passing executions, 434 suite results and 24 ignored tests across
+repeated configurations/docs. Both existing supervised smoke lanes pass.
+`full-gnu.log` and `full-musl.log` are in the same evidence directory. The
+small-frame runtime candidate and all its recorded source hashes are unchanged.
+No clean performance timing or ARM64 acceptance is claimed.
+
+#### Tail-call bounds — 2026-10-02
+
+`tests/jit_suspension.rs` compares Off/prepared execution at depths 128 and
+16384 with a Lua call-frame limit of eight and fuel 1/64/65536. Every slice
+compares completion, mode and remaining fuel; GC runs after every slice.
+Native instruction deltas prove execution, and exact result vectors retain
+interior/trailing nils. Deep arena peaks must stay within 4096 bytes of the
+corresponding shallow run. A callback samples its local stack address every
+128 recursive calls; the observed span must stay within 32768 bytes. This is
+sampled callback-boundary stack evidence, not a measurement of every transient
+machine-stack peak. The recursion depth, not a benchmark statistic, is varied.
+
+A non-tail control must raise the existing `stack overflow` error at the same
+frame limit in both tiers. A deliberately nonterminating tail call runs for
+32 host slices at each fuel setting, comparing tiers and bounding logical
+work to fuel plus 63 per slice. No runtime or performance thresholds change.
+Final focused GNU/musl batch `40229` exits 0: each platform passes five tests
+without async and six with async. Every recorded shallow/deep, Off/native and
+fuel combination reports a 3198-byte arena peak and zero sampled stack-address
+span. Evidence is under `target/jit-evidence/tail-call-bounds/{gnu,musl}.log`.
+These are focused acceptance results; the earlier 4951-execution full gates
+predate these three new tests.
+
+#### Confirmed coroutine-close gap — 2026-10-02
+
+The new regression `coroutine_close_runs_pending_handlers_in_both_tiers`
+expects one cleanup after suspending and explicitly closing a coroutine. GNU
+`make fmt jit-suspension` (`60252`) exits 2: observed `[0, 0]` for Off/prepared,
+expected `[1, 1]`. The prepared run independently executes native instructions.
+This is a shared interpreter/runtime defect, not a JIT-only regression.
+
+`src/stdlib/coroutine.rs` implements close through `Thread::reset`, while
+`src/thread/thread.rs` resets open upvalues, value stack and frames without
+scheduling pending `__close` handlers. The marker list is not cleared either.
+The required behavior is explicit in the [Lua 5.4 coroutine.close contract](https://www.lua.org/manual/5.4/manual.html#pdf-coroutine.close).
+
+Keep the failing regression in the worktree until the lifecycle repair is
+implemented; do not weaken it, ignore it or claim the old full gates cover this
+case. Its patch and terminal failure log are independently preserved under
+`target/jit-evidence/coroutine-close-gap/`. Closing must use executor-driven,
+fuel-bounded cleanup, preserve the target coroutine's identity and error object,
+continue remaining handlers after a handler error, and reject invalid running
+states/yields. Do not substitute an unbounded nested executor loop inside the
+close callback or run target handlers on the caller's thread.
+
+#### Session summary — tail-call acceptance and cleanup defect
+
+## Goal
+- Continue the full native JIT implementation while performance timing is
+  obstructed by other repositories' build/test jobs.
+
+## Instructions
+- Prioritize JIT performance and normal Lua integration, not additional
+  cybersecurity infrastructure. Keep logical, unsigned incremental commits.
+
+## Discoveries
+- Selective prototype loading around `prepare_jit` fixes the tier assignment
+  without adding a test-only runtime API. Suspension boundaries isolate actual
+  caller/callee native work from return-transition work in the other frame.
+- Both tiers omit pending handlers when `coroutine.close` resets a suspended
+  thread. The new regression observes zero cleanups instead of one in each tier.
+- Engram tools remain unavailable; this project-local summary records recovery
+  context without writing external memory files.
+
+## Accomplished
+- `ba55424` commits the 24-scenario matrix and initial GNU/musl evidence.
+- `9ed8a0f` commits three tail-call regressions. GNU/musl focused batch `40229`
+  passes five tests without async and six with async per platform. Measured
+  shallow/deep arena peaks are 3198 bytes; sampled callback-stack span is zero.
+- The earlier full GNU/musl gates passed before these new tests. New cleanup
+  regression `60252` fails as recorded above and remains uncommitted alongside
+  the unchanged small-frame runtime candidate. All owned jobs are terminal.
+  This turn made integration progress and exposed a missing lifecycle behavior.
+
+## Next Steps
+- Repair executor-driven coroutine cleanup and validate error propagation,
+  remaining handlers, target-thread identity and bounded execution before
+  accepting the new regression. Preserve raw host reset semantics separately.
+- Measure the original/table-only/small-frame artifacts with unchanged checked
+  native and compiled-Off gates once external build/test activity ends. Latest
+  live check still sees molla Cargo `1965955` and test `1966307`; no timing ran.
+- Complete remaining error/close integration and actual platform
+  acceptance. The resumed goal remains active and incomplete.
+
+## Relevant Files
+- `tests/jit_suspension.rs` — selective tier and suspension integration matrix.
+- `target/jit-evidence/mixed-call-tiers/` — focused/full GNU and musl results.
+- `target/jit-evidence/tail-call-bounds/` — accepted focused tail-call results.
+- `target/jit-evidence/coroutine-close-gap/` — failing cleanup log and patch.
+- `src/stdlib/coroutine.rs`, `src/thread/` — cleanup lifecycle repair locations.
+- `src/jit/mod.rs` — unchanged, uncommitted small-frame performance candidate.
 
 ### Phase 6 — Add heap fast paths with collector and mutation proofs
 
@@ -8047,24 +8168,60 @@ to this candidate. Only fresh build/configuration/hash/section outputs are curre
 
 ## Accomplished
 - `7ac7292` commits existing scratch-boundary coverage extended to sizes 1..7.
+- Restored this checkpoint after context compaction and verified the live branch,
+  latest acceptance commit `b8491cc`, and every recorded source hash. The only
+  source worktree change remains the experimental runtime specialization.
 - The experimental runtime specialization is uncommitted in `src/jit/mod.rs`.
   GNU `50349` and musl `58822` each exit 0: 54 tests/eight suites/zero ignored.
 - Stripped benchmark `77707`, symbol-bearing assembly `17699` and matched
   speed/shipping build pair `60238` all exit 0. Fourteen invocation bodies are
-  extracted; the two-slot body is retained separately. All owned jobs terminal.
+  extracted; the two-slot body is retained separately.
+- Full candidate gate `4377` exits 0: GNU and musl each **4946 passing
+  executions/434 suite results/24 ignored**, including repeated modes and docs,
+  not 4946 unique tests. Both existing supervised smoke lanes pass. Current
+  runtime/source hashes still match `source.sha256`; no new Miri claim is made.
+  All owned build/test/wait jobs are now terminal.
 - Immutable original/table-only/exact-frame benchmark artifacts and current
   matched speed/shipping executables exist. Source hashes, base revision and
   candidate patch are under `target/jit-evidence/exact-small-frames/`.
 - No benchmark timing or runtime profile has been run during global contention.
+- Initial gate `9226` and revised gate `15961` exit 3 before timing. An initial
+  all-Make filter also classified a running desktop application as build/test
+  activity: the atlasis run recipe/tree shows a direct `astrocraft` child after
+  compilation, not a test runner. Only observed application-only parents are
+  excluded; active Cargo/rustc/test/benchmark/profile jobs remain blockers.
+- Owned old wait `18088` was explicitly terminated after that classification
+  correction and returns 143. It was not restarted on an observation timeout.
+  Replacement `39727` exits 3 after its 1800-second wait deadline without
+  launching timing. Exact evidence directory: `gate-20261002T015357Z`. Latest
+  preflight still sees unrelated molla `make -j1 test-all`/Cargo workspace tests
+  and a running FEM test. No unrelated job is killed or excluded, and no timing
+  claim is made. The user has been asked asynchronously whether they can reserve
+  a quiet benchmark window or prefer continued waiting; no answer yet.
+- Resumed quiet-window queue `84613` exits 3 after 600 seconds and 60 live
+  process checks, with no benchmark launched. Evidence is retained separately
+  in `gate-20261002T025607Z`. Molla Make `1528448` and Cargo `1528512` remain
+  alive at the terminal check, running workspace tests; the final observed
+  child is `barrier_engine`. All recorded candidate source hashes still match.
+  This is a verified wait, not a speedup result or implementation milestone.
+- The same external contention has prevented acceptance across three goal
+  turns. Focused/full correctness and artifact preparation are already complete
+  for this candidate; further speculative runtime changes cannot establish
+  whether to keep it. The implementation is blocked on a clean timing window,
+  not complete. No unrelated job has been terminated.
 
 ## Next Steps
-- Poll the live unrelated GPU pipeline before timing. Once global build/test
+- Both `4377` and `39727` are authoritatively terminal; do not re-poll or duplicate
+  a live job. Revalidate external processes before a new timing attempt, retain
+  a separate evidence directory, require quiet preflights and pre/post checks.
+  Once global build/test
   activity is absent, compare the three benchmark artifacts sequentially with
   unchanged eleven-sample checked gates and reversed-order repeats; execute
   matched speed/shipping compiled-Off controls. Keep/reject the candidate from
   those results, not from 54 passing focused tests.
 - Full original performance and integration/platform requirements remain open.
-  The implementation goal stays active and incomplete.
+  Resume the incomplete implementation goal when external build/test activity
+  ends or the user reserves a quiet window; do not restart the terminal queue.
 
 ## Relevant Files
 - `src/jit/mod.rs` — uncommitted exact small-frame runtime candidate.
