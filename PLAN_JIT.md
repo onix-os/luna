@@ -9,13 +9,14 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Progress snapshot — 2026-10-01
+### Progress snapshot — 2026-10-02
 
-The plan exists; implementation is underway, not release-ready. The committed
-native tier executes Luna bytecode through Cranelift without replacing Luna's
-runtime. Current-frame upvalue alias repair is committed as `710dd33`, with
-acceptance recorded in `040d46d`. Its GNU and musl gates each report 4941 passing
-test executions across repeated modes/suites, not 4941 unique tests.
+The requested plan document is written. Full implementation and release
+acceptance are not finished. The committed native tier executes Luna bytecode
+through Cranelift without replacing Luna's runtime. The latest experimental
+small-frame candidate passes the full GNU and musl correctness gates: each
+reports 4946 passing test executions across repeated modes/suites, not 4946
+unique tests. Its runtime change remains uncommitted pending performance results.
 
 The separate coverage-guided package is committed as `59ad32c`. Its locked
 all-target check and three integrated test functions pass. After correcting the
@@ -8047,6 +8048,9 @@ to this candidate. Only fresh build/configuration/hash/section outputs are curre
 
 ## Accomplished
 - `7ac7292` commits existing scratch-boundary coverage extended to sizes 1..7.
+- Restored this checkpoint after context compaction and verified the live branch,
+  latest acceptance commit `b8491cc`, and every recorded source hash. The only
+  source worktree change remains the experimental runtime specialization.
 - The experimental runtime specialization is uncommitted in `src/jit/mod.rs`.
   GNU `50349` and musl `58822` each exit 0: 54 tests/eight suites/zero ignored.
 - Stripped benchmark `77707`, symbol-bearing assembly `17699` and matched
