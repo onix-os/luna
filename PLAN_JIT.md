@@ -9,13 +9,13 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Progress snapshot — 2026-10-02
+### Progress snapshot — 2026-10-03
 
 The requested plan document is written. Full implementation and release
 acceptance are not finished. The committed native tier executes Luna bytecode
 through Cranelift without replacing Luna's runtime. The latest full GNU and
-musl gates each pass 5048 test executions across repeated modes/suites, not
-5048 unique tests. Coroutine cleanup and deferred-error defects exposed after
+musl gates each pass 5053 test executions across repeated modes/suites, not
+5053 unique tests. Coroutine cleanup and deferred-error defects exposed after
 the prior green gates are repaired, with focused and full-suite evidence below.
 The exact-small-frame runtime change has repeated native benchmark evidence:
 the table target now passes, while upvalue/callback and disabled-tier costs
@@ -31,6 +31,42 @@ Current performance gates still fail for upvalues/callbacks and inconsistent
 compiled-disabled overhead. Remaining compiler-memory and
 safety review, actual ARM64 execution and hosted-CI evidence remain outstanding.
 Do not infer a completion percentage or delivery date from commit/test counts.
+
+### User checkpoint — commit now, benchmark later (2026-10-03)
+
+#### Goal
+Commit the correctness-tested native call/return transition patch and defer
+benchmark execution as the user requested. Full implementation acceptance is
+not established by this checkpoint.
+
+#### Instructions
+The user explicitly authorizes committing without waiting for timings. Do not
+hold this commit for a quiet machine or run benchmarks now. Preserve the frozen
+performance targets for later; deferred does not mean passed.
+
+#### Discoveries
+Current runtime/example/build-input hashes match the candidate that passed full
+GNU and musl gates: 5053 passing executions / 434 suite results / 24 ignored per
+platform. The working JIT is confirmed within that tested x86-64 Linux scope.
+Actual ARM64/hosted-CI execution and remaining non-benchmark acceptance items
+are not proven complete; do not describe the entire plan as done except timing.
+
+#### Accomplished
+Commit the transition decoder, VM dispatch and operand-domain regression with
+their existing correctness evidence. The user accepts deferring the performance
+decision; no speedup is claimed for this patch.
+
+#### Next Steps
+Run the prepared baseline/candidate and feature-cost comparisons later. Continue
+or reconcile the remaining non-performance implementation/verification items
+against current source before claiming full-plan completion.
+
+#### Relevant Files
+- `src/opcode.rs` — typed call/tail-call/return transition decoder.
+- `src/thread/vm.rs` — native-exit dispatch through existing frame routines.
+- `src/jit/abi.rs` — transition operand-domain regression.
+- `target/jit-evidence/native-call-transitions/` — checked source manifest,
+  full-suite logs and prepared benchmark artifacts.
 
 ### User priority clarification — 2026-10-02
 

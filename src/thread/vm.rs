@@ -121,6 +121,26 @@ pub(super) fn run_vm<'gc>(
             if instructions_run >= max_instructions {
                 break;
             }
+            if let Some(transition) = current_prototype.opcodes[*registers.pc].call_transition() {
+                *registers.pc += 1;
+                interpreted = true;
+                match transition {
+                    crate::opcode::CallTransition::Call {
+                        func,
+                        args,
+                        returns,
+                    } => {
+                        lua_frame.call_function(ctx, func, args, returns)?;
+                    }
+                    crate::opcode::CallTransition::TailCall { func, args } => {
+                        lua_frame.tail_call_function(ctx, func, args)?;
+                    }
+                    crate::opcode::CallTransition::Return { start, count } => {
+                        lua_frame.return_upper(&ctx, start, count)?;
+                    }
+                }
+                break;
+            }
         } else if let Some(id) = native_id {
             ctx.jit().observe(id);
         }
