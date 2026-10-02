@@ -47,22 +47,31 @@ impl<'gc> CloseSequence<'gc> {
         ctx: Context<'gc>,
         mut stack: Stack<'gc, '_>,
     ) -> Result<SequencePoll<'gc>, Error<'gc>> {
-        while let Some(value) = self.remaining.pop() {
+        if let Some(value) = self.remaining.pop() {
             if matches!(value, Value::Nil | Value::Boolean(false)) {
-                continue;
+                return Ok(SequencePoll::Pending);
             }
 
             let Some(handler) = meta_ops::get_metamethod(ctx, value, MetaMethod::Close) else {
-                // Reaching here means the value lost its metamethod after being marked, since
-                // marking checks for one.
-                return Err(crate::IntoValue::into_value(
-                    format!(
-                        "variable of type {} has no '__close' metamethod",
-                        value.type_name()
-                    ),
-                    ctx,
-                )
-                .into());
+                self.pending_error = Some(
+                    crate::IntoValue::into_value(
+                        format!(
+                            "variable of type {} has no '__close' metamethod",
+                            value.type_name()
+                        ),
+                        ctx,
+                    )
+                    .into(),
+                );
+                return Ok(SequencePoll::Pending);
+            };
+
+            let function = match meta_ops::call(ctx, handler) {
+                Ok(function) => function,
+                Err(error) => {
+                    self.pending_error = Some(error.into());
+                    return Ok(SequencePoll::Pending);
+                }
             };
 
             let error_value = self
@@ -74,7 +83,7 @@ impl<'gc> CloseSequence<'gc> {
             stack.replace(ctx, (value, error_value));
             return Ok(SequencePoll::Call {
                 bottom: 0,
-                function: meta_ops::call(ctx, handler)?,
+                function,
             });
         }
 

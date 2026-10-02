@@ -14,8 +14,8 @@
 The requested plan document is written. Full implementation and release
 acceptance are not finished. The committed native tier executes Luna bytecode
 through Cranelift without replacing Luna's runtime. The latest full GNU and
-musl gates each pass 5000 test executions across repeated modes/suites, not
-5000 unique tests. The coroutine-close cleanup defect exposed after the prior
+musl gates each pass 5011 test executions across repeated modes/suites, not
+5011 unique tests. The coroutine-close cleanup defect exposed after the prior
 green gates is repaired, with focused lifecycle and full-suite evidence below.
 The small-frame runtime change remains uncommitted pending performance results.
 
@@ -877,7 +877,38 @@ last built the original variant). Cost directories are fresh, with no copied
 historical run logs. Final `preflight.log` sees unrelated molla Make `2155976`,
 Cargo `2156037`, rustc and linker workers. No new benchmark/cost timing ran.
 
-#### Session summary — executor-driven coroutine cleanup
+#### Close-handler dispatch failures — 2026-10-02
+
+New matrix `cleanup_continues_after_missing_or_noncallable_handlers` confirms
+another cleanup defect: `11118` exits 2 with `remaining handler skipped`.
+`CloseSequence::step` returned an error directly on missing `__close` or failed
+call conversion, dropping its remaining resources before they were processed.
+The repair stores that error and returns Pending; the same rooted sequence
+continues with the next resource. Each poll examines at most one resource,
+including nil/false and failed-dispatch cases, so that path consumes executor
+fuel rather than scanning an arbitrary batch in one poll.
+
+The test covers nil/number/table replacements during both protected error
+unwinding and explicit coroutine close, in Off/prepared at fuel 1/64/65536.
+It compares slices/fuel, forces GC after every slice, checks error replacement
+and reverse order, and proves native work in the surviving handlers. Evidence:
+`target/jit-evidence/close-handler-dispatch/`. Focused GNU/musl batch `59371`
+exits 0: ten passing tests without async and twelve with async per platform.
+A feature-independent close-attribute regression covers all three invalid
+replacements too. Full GNU/musl batch `26435` exits 0: each platform reports
+5011 passing executions, 434 suite results and 24 ignored tests, including the
+existing supervised smoke lanes. Logs are `full-gnu.log` and `full-musl.log` in
+the same evidence directory. The runtime change makes
+the `fe0042a` benchmark artifacts historical, so defer further artifact rebuilds
+until the current lifecycle changes have settled or a clean timing window exists.
+
+Uncaught coroutine error timing remains a distinct architectural gap: existing
+close sequences own batches already removed from canonical close markers. Merely
+parking an uncaught error and discarding frames later would lose those batches.
+A future deferred-unwind repair must preserve in-progress cleanup ownership and
+Rust Sequence error-handling boundaries, not just add a terminal-error flag.
+
+#### Session summary — close-dispatch continuation
 
 ## Goal
 - Continue the full native JIT implementation while performance timing is
@@ -894,6 +925,9 @@ Cargo `2156037`, rustc and linker workers. No new benchmark/cost timing ran.
 - Both tiers previously omitted pending handlers when closing a suspended
   coroutine. Preparing a CloseSequence on that same thread preserves identity
   while ordinary executor slices drive cleanup. A closing flag rejects suspension.
+- A dispatch failure before entering a handler also used to drop remaining
+  resources. Retaining that error in the same rooted sequence preserves the
+  remaining handlers and keeps failed-dispatch processing fuel-bounded.
 - Engram tools remain unavailable; this project-local summary records recovery
   context without writing external memory files.
 
@@ -906,16 +940,18 @@ Cargo `2156037`, rustc and linker workers. No new benchmark/cost timing ran.
   `35235` and full GNU/musl batch `42787` now pass. The latter reports 5000/434/24
   per platform. Raw reset clears markers, dead errors retain identity until
   close/restart, and failed cleanup does not poll foreign futures.
+- Dispatch regression `11118` failed before repair. Focused batch `59371`
+  passes 10/12 tests per platform; full batch `26435` passes 5011/434/24 on GNU
+  and musl. The matrix covers 18 Off/native scenario pairs per feature lane.
 - All owned jobs are terminal. The small-frame runtime candidate is unchanged
-  and uncommitted; matched native and speed/shipping cost artifacts have now
-  been rebuilt on this lifecycle. All tracked runtime/example hashes match the
-  restored candidate, not just the earlier partial hash list.
+  and uncommitted. Benchmark artifacts last built at `fe0042a` predate the
+  dispatch fix and are historical, not current acceptance artifacts.
 
 ## Next Steps
-- Measure the rebuilt original/table-only/small-frame artifacts and unchanged
-  native/compiled-Off gates when external activity ends. A new molla test-all
-  batch (`2155976`/`2156037`) is authoritatively live with compiler/linker workers;
-  recheck before timing. Do not kill external jobs or claim a speedup yet.
+- Refresh matched benchmark artifacts after current lifecycle changes settle,
+  then run unchanged native/compiled-Off gates when external activity ends.
+  Molla test-all (`2155976`/`2156037`) remains live, now running FEM test
+  `2399369`; do not kill it, time alongside it, or claim a speedup yet.
 - Complete remaining error/close integration and actual platform
   acceptance. The resumed goal remains active and incomplete.
 
@@ -925,6 +961,8 @@ Cargo `2156037`, rustc and linker workers. No new benchmark/cost timing ran.
 - `target/jit-evidence/tail-call-bounds/` — accepted focused tail-call results.
 - `target/jit-evidence/coroutine-close-gap/` — failing cleanup log and patch.
 - `target/jit-evidence/post-close-performance/` — fresh matched binaries/hashes.
+- `src/thread/close.rs` — retained dispatch errors and one-resource-per-poll processing.
+- `target/jit-evidence/close-handler-dispatch/` — failing/passing focused and full gates.
 - `src/stdlib/coroutine.rs`, `src/thread/` — cleanup lifecycle repair locations.
 - `src/jit/mod.rs` — unchanged, uncommitted small-frame performance candidate.
 

@@ -71,6 +71,31 @@ fn closing_a_dead_coroutine_returns_its_original_error_once() -> Result<(), Exte
 }
 
 #[test]
+fn failed_close_dispatch_does_not_skip_outer_resources() -> Result<(), ExternError> {
+    for replacement in ["nil", "42", "{}"] {
+        assert_eq!(
+            eval(&format!(
+                r#"{PRELUDE}
+                local mt={{__close=function() error('old handler ran') end}}
+                local ok,err=pcall(function()
+                    local outer <close> = res('outer')
+                    local bad <close> = setmetatable({{}},mt)
+                    local inner <close> = res('inner')
+                    mt.__close={replacement}
+                end)
+                assert(not ok and err~=nil)
+                assert(#log==2 and log[1]=='inner')
+                assert(log[2]:sub(1,6)=='outer!')
+                return 'ok'
+                "#
+            ))?,
+            "ok"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn closes_on_normal_block_exit() -> Result<(), ExternError> {
     assert_eq!(
         eval(&format!(

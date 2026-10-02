@@ -338,6 +338,63 @@ fn coroutine_close_handles_dead_unstarted_running_and_waiting_threads() -> Resul
 }
 
 #[test]
+fn cleanup_continues_after_missing_or_noncallable_handlers() -> Result<(), ExternError> {
+    for replacement in ["nil", "42", "{}"] {
+        for suspended in [false, true] {
+            let finish = if suspended {
+                "coroutine.yield()"
+            } else {
+                "error(marker)"
+            };
+            let invoke = if suspended {
+                "local co=coroutine.create(body) assert(coroutine.resume(co)) local ok,err=coroutine.close(co)"
+            } else {
+                "local ok,err=pcall(body)"
+            };
+            let first_error = if suspended { "nil" } else { "marker" };
+            let script = format!(
+                r#"
+                local marker={{}}
+                local events={{}} local errors={{}} local total=0
+                local mt={{__close=function() error('replaced handler ran') end}}
+                local function resource(id)
+                    return setmetatable({{}},{{__close=function(_,err)
+                        events[#events+1]=id
+                        errors[id]=err
+                        for i=1,100 do total=total+i end
+                        if id==3 then mt.__close={replacement} end
+                    end}})
+                end
+                local function body()
+                    local a <close> = resource(1)
+                    local b <close> = setmetatable({{}},mt)
+                    local c <close> = resource(3)
+                    {finish}
+                end
+                {invoke}
+                assert(not ok and err~=nil)
+                assert(#events==2 and events[1]==3 and events[2]==1,'remaining handler skipped')
+                assert(errors[3]=={first_error})
+                assert(errors[1]~=nil and errors[1]~=marker)
+                assert(total==10100)
+                return true
+                "#
+            );
+            for fuel in [1, 64, 65536] {
+                let (expected, _) = cleanup_case(&script, false, fuel)?;
+                let (actual, stats) = cleanup_case(&script, true, fuel)?;
+                assert_eq!(
+                    actual, expected,
+                    "replacement={replacement} suspended={suspended} fuel={fuel}"
+                );
+                assert!(stats.native_upvalue_writes >= 200);
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn raw_reset_clears_close_markers_before_reusing_the_executor() -> Result<(), ExternError> {
     for native in [false, true] {
         let mut lua = Lua::core();
