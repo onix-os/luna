@@ -17,16 +17,25 @@ runtime. Current-frame upvalue alias repair is committed as `710dd33`, with
 acceptance recorded in `040d46d`. Its GNU and musl gates each report 4941 passing
 test executions across repeated modes/suites, not 4941 unique tests.
 
-Current uncommitted work is the separate coverage-guided fuzz package. Its
-locked all-target check and three integrated test functions pass; the actual
-instrumented build failed because cargo-fuzz 0.13.1 rejects `--locked` on its
-build command. No coverage-guided campaign has passed yet. Repair the wrapper
-and validate lock preservation before accepting this work.
+The separate coverage-guided package is committed as `59ad32c`. Its locked
+all-target check and three integrated test functions pass. After correcting the
+unsupported cargo-fuzz `--locked` argument, actual AddressSanitizer/libFuzzer
+campaigns pass: scalar 64 executions/60 new corpus inputs and heap 128
+executions/114 new corpus inputs. Both dependency locks remain unchanged.
 
 Historical performance gates still fail for upvalues/callbacks and table
 acceleration. Fresh performance acceptance, remaining compiler-memory and
 safety review, actual ARM64 execution and hosted-CI evidence remain outstanding.
 Do not infer a completion percentage or delivery date from commit/test counts.
+
+### User priority clarification — 2026-10-02
+
+The user explicitly rejected turning this JIT/performance task into a
+cybersecurity project. Stop expanding security-audit work and additional fuzz
+infrastructure. Prioritize the unresolved upvalue/callback/table performance
+targets. Preserve ordinary runtime correctness and already-agreed execution
+controls during optimization; do not lower acceptance thresholds. Security
+certification is not the requested product, and none is claimed.
 
 Build a native JIT for Luna's existing runtime. Keep its language, Rust bindings, values, collector, stackless executor, and scheduling model. Frequently executed code should become native code without moving into another interpreter.
 
@@ -7975,6 +7984,76 @@ timeout limits and retained corpus/crash artifacts. Instrumented Rust/compiler
 coverage is not instrumentation of generated machine code, and finite generated
 grammars do not establish arbitrary-source or complete security coverage.
 Primary tool guidance: [Rust Fuzz Book](https://rust-fuzz.github.io/book/cargo-fuzz/tutorial.html).
+
+### Decision — pinned cargo-fuzz lock preservation
+
+Local `make jit-coverage-help` confirms cargo-fuzz 0.13.1 exposes no `--locked`
+build/run option. Use an offline, locked all-target Cargo check before the
+instrumented build and compare `fuzz/Cargo.lock` hashes on shell exit, including
+failure. Instrumented cargo-fuzz itself does not run Cargo with `--locked`;
+the wrapper instead rejects lockfile mutation and disallows network resolution.
+Build outside the campaign wall deadline, then bound the run with libFuzzer's
+run/time/input/RSS limits and an outer timeout. These controls are not compiler
+resource isolation or sanitizer instrumentation of generated native code.
+
+### Decision — remove redundant plain-table store probe
+
+The native table-write helper probed the old key before checking whether the
+table had any metatable. For plain tables this read cannot affect the decision
+to call `__newindex`, and `set_raw` still performs the actual write. Check
+metatable presence first; retain the existing missing-key/interception guard
+and metamethod test inside the metatable-present branch. A focused 16-combination
+fixture checks guard decisions and effects. This is a performance candidate,
+not a measured speedup; the unchanged baseline benchmark binary is retained.
+
+### Session summary — coverage checkpoint and performance return
+
+## Goal
+- Resume the full native-JIT implementation, prioritizing the user's requested
+  acceleration rather than expanding cybersecurity work.
+
+## Instructions
+- The user explicitly rejects a cybersecurity project. Stop extra audit/fuzz
+  infrastructure; optimize the frozen workloads while preserving Lua behavior.
+- Keep Make/Nix, patch tools and incremental unsigned/title-only commits.
+
+## Discoveries
+- Cargo-fuzz 0.13.1 rejects `--locked`; offline locked prechecks and unchanged
+  exit hashes enforce the documented wrapper lock policy instead.
+- Plain-table native stores unnecessarily read the old key even though no
+  `__newindex` could run. Metatable-first guarding removes that duplicate read.
+
+## Accomplished
+- `59ad32c` commits the separate bounded coverage-feedback package and Make
+  wrappers. Focused package check/three tests pass; GNU root check/format/tree
+  pass without libfuzzer leaking into the normal dependency graph.
+- Scalar `36576` exits 0: 64 runs, 60 new units, final cov 27005/ft 78208,
+  peak RSS 430 MiB. Heap `18784` exits 0: 128 runs, 114 new units, final
+  cov 27230/ft 78318, peak RSS 431 MiB. These instrumented-runtime/compiler
+  counters are not coverage of generated native code or unique Lua opcodes.
+- Wrapper refusal tests `74589` pass 13 cases before any Cargo launch; both
+  dependency lock hashes remain unchanged. All those jobs are terminal.
+- `8f68045` commits the plain-table guard optimization and a 16-combination
+  effect/decline fixture. Restored focused `21118` exits 0: eight pure helper
+  tests and sixteen integrated heap tests. Draft `97296` failed a fixture
+  Context argument type; it is not acceptance evidence.
+- Built and retained the pre-change and candidate opt-level-3 benchmark
+  executables and source hashes. Candidate `38078` exits 0; all owned jobs are
+  terminal. No timing or measured speedup is claimed.
+
+## Next Steps
+- Run the unchanged paired eleven-sample
+  performance gate against baseline/candidate when global test/build activity
+  is absent. Latest preflight sees unrelated molla GPU-test Make/Cargo processes
+  843866/843871; do not kill them or claim contaminated acceptance timings.
+- Resolve upvalue/callback costs and all original performance controls. Current
+  tests do not prove speedup or full-plan completion; the goal stays active.
+
+## Relevant Files
+- `src/jit/helpers.rs` — metatable-first plain-table store guard and fixture.
+- `fuzz/`, `Makefile`, `flake.nix` — committed bounded campaign checkpoint.
+- `target/jit-evidence/coverage-package/` — terminal campaign and control logs.
+- `target/jit-evidence/performance-return/` — baseline binary/hashes and builds.
 
 ### Session summary — restored checkpoint and progress report
 
