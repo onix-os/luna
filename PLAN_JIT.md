@@ -8078,6 +8078,17 @@ to this candidate. Only fresh build/configuration/hash/section outputs are curre
   and a running FEM test. No unrelated job is killed or excluded, and no timing
   claim is made. The user has been asked asynchronously whether they can reserve
   a quiet benchmark window or prefer continued waiting; no answer yet.
+- Resumed quiet-window queue `84613` exits 3 after 600 seconds and 60 live
+  process checks, with no benchmark launched. Evidence is retained separately
+  in `gate-20261002T025607Z`. Molla Make `1528448` and Cargo `1528512` remain
+  alive at the terminal check, running workspace tests; the final observed
+  child is `barrier_engine`. All recorded candidate source hashes still match.
+  This is a verified wait, not a speedup result or implementation milestone.
+- The same external contention has prevented acceptance across three goal
+  turns. Focused/full correctness and artifact preparation are already complete
+  for this candidate; further speculative runtime changes cannot establish
+  whether to keep it. The implementation is blocked on a clean timing window,
+  not complete. No unrelated job has been terminated.
 
 ## Next Steps
 - Both `4377` and `39727` are authoritatively terminal; do not re-poll or duplicate
@@ -8089,7 +8100,8 @@ to this candidate. Only fresh build/configuration/hash/section outputs are curre
   matched speed/shipping compiled-Off controls. Keep/reject the candidate from
   those results, not from 54 passing focused tests.
 - Full original performance and integration/platform requirements remain open.
-  The implementation goal stays active and incomplete.
+  Resume the incomplete implementation goal when external build/test activity
+  ends or the user reserves a quiet window; do not restart the terminal queue.
 
 ## Relevant Files
 - `src/jit/mod.rs` — uncommitted exact small-frame runtime candidate.
