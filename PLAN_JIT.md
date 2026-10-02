@@ -857,6 +857,26 @@ artifacts historical: rebuild matched binaries on the repaired lifecycle before
 using them for current acceptance. The old source hash list did not include all
 three changed lifecycle files; matching that subset cannot establish freshness.
 
+Matched replacement artifacts are now built on `fe0042a` under
+`target/jit-evidence/post-close-performance/`. Exact candidate `12957`, matched
+speed/shipping costs `65059`, table-only `6645` and original-guard `26093` all
+exit 0. Original/table-only mean only those performance changes are removed;
+all three variants include the coroutine lifecycle repair. Each variant records
+hashes for all tracked runtime/example sources and build inputs, plus its binary.
+
+| Native benchmark variant | SHA-256 |
+| --- | --- |
+| Original guard, coarse frames | `dd3fdce8dce30b369556d8b695fa0b17a1e048d3d22674432f0566fbb9400573` |
+| Metatable-first guard, coarse frames | `77b278fd6c190dd6bb9d63a607cea7e54cb948e1801c9fe3012053686f23fe64` |
+| Metatable-first guard, exact small frames | `8ca1c89b0d2db5397ab6ade352fb05deb58de7bc8d60bbb35c3603dbc72df922` |
+
+Temporary baseline source edits were restored through patch tools; every
+`exact-source.sha256` entry matches and only `src/jit/mod.rs` remains modified.
+Use the copied `*-jit-bench` artifacts, not the shared release output (which
+last built the original variant). Cost directories are fresh, with no copied
+historical run logs. Final `preflight.log` sees unrelated molla Make `2155976`,
+Cargo `2156037`, rustc and linker workers. No new benchmark/cost timing ran.
+
 #### Session summary — executor-driven coroutine cleanup
 
 ## Goal
@@ -887,13 +907,15 @@ three changed lifecycle files; matching that subset cannot establish freshness.
   per platform. Raw reset clears markers, dead errors retain identity until
   close/restart, and failed cleanup does not poll foreign futures.
 - All owned jobs are terminal. The small-frame runtime candidate is unchanged
-  and uncommitted; its old timing artifacts must be rebuilt on this lifecycle.
+  and uncommitted; matched native and speed/shipping cost artifacts have now
+  been rebuilt on this lifecycle. All tracked runtime/example hashes match the
+  restored candidate, not just the earlier partial hash list.
 
 ## Next Steps
-- Rebuild matched original/table-only/small-frame artifacts and measure unchanged
-  native and compiled-Off gates when no build/test activity remains. The latest
-  check sees only the already-built Astrocraft application, not the earlier
-  external molla jobs. Recheck immediately before timing; no timing ran yet.
+- Measure the rebuilt original/table-only/small-frame artifacts and unchanged
+  native/compiled-Off gates when external activity ends. A new molla test-all
+  batch (`2155976`/`2156037`) is authoritatively live with compiler/linker workers;
+  recheck before timing. Do not kill external jobs or claim a speedup yet.
 - Complete remaining error/close integration and actual platform
   acceptance. The resumed goal remains active and incomplete.
 
@@ -902,6 +924,7 @@ three changed lifecycle files; matching that subset cannot establish freshness.
 - `target/jit-evidence/mixed-call-tiers/` — focused/full GNU and musl results.
 - `target/jit-evidence/tail-call-bounds/` — accepted focused tail-call results.
 - `target/jit-evidence/coroutine-close-gap/` — failing cleanup log and patch.
+- `target/jit-evidence/post-close-performance/` — fresh matched binaries/hashes.
 - `src/stdlib/coroutine.rs`, `src/thread/` — cleanup lifecycle repair locations.
 - `src/jit/mod.rs` — unchanged, uncommitted small-frame performance candidate.
 
