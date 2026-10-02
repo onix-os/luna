@@ -765,15 +765,12 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
     /// returns a view of the Lua frame's registers
     pub(super) fn registers<'b>(&'b mut self) -> LuaRegisters<'gc, 'b> {
         match self.state.frames.last_mut() {
-            Some(Frame::Lua {
-                bottom, base, pc, ..
-            }) => {
+            Some(Frame::Lua { base, pc, .. }) => {
                 let (upper_stack, stack_frame) = self.stack[..].split_at_mut(*base);
                 LuaRegisters {
                     pc,
                     stack_frame,
                     upper_stack,
-                    bottom: *bottom,
                     base: *base,
                     open_upvalues: &mut self.state.open_upvalues,
                     to_be_closed: &mut self.state.to_be_closed,
@@ -1129,7 +1126,6 @@ pub(crate) struct LuaRegisters<'gc, 'a> {
     pub pc: &'a mut usize,
     pub stack_frame: &'a mut [Value<'gc>],
     upper_stack: &'a mut [Value<'gc>],
-    bottom: usize,
     base: usize,
     open_upvalues: &'a mut vec::Vec<UpValue<'gc>, MetricsAlloc<'gc>>,
     to_be_closed: &'a mut vec::Vec<usize, MetricsAlloc<'gc>>,
@@ -1151,7 +1147,6 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
             pc,
             stack_frame,
             upper_stack: &mut [],
-            bottom: 0,
             base: 0,
             open_upvalues: &mut open_upvalues,
             to_be_closed: &mut to_be_closed,
@@ -1180,15 +1175,34 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
         }
     }
 
+    #[cfg(all(test, feature = "jit"))]
+    pub(crate) fn open_test_upvalue(
+        &mut self,
+        mc: &Mutation<'gc>,
+        reg: RegisterIndex,
+    ) -> UpValue<'gc> {
+        self.open_upvalue(mc, reg)
+    }
+
     pub(crate) fn get_upvalue(&self, mc: &Mutation<'gc>, upvalue: UpValue<'gc>) -> Value<'gc> {
+        self.get_upvalue_with(mc, upvalue, |_, value| value)
+    }
+
+    pub(crate) fn get_upvalue_with(
+        &self,
+        mc: &Mutation<'gc>,
+        upvalue: UpValue<'gc>,
+        read: impl FnOnce(usize, Value<'gc>) -> Value<'gc>,
+    ) -> Value<'gc> {
         match upvalue.get() {
             UpValueState::Open(open_upvalue) => {
                 if open_upvalue.stack.as_ptr() == Gc::as_ptr(self.stack) {
-                    assert!(
-                        open_upvalue.stack_index < self.bottom,
-                        "upvalues must be above the current Lua frame"
-                    );
-                    self.upper_stack[open_upvalue.stack_index]
+                    if open_upvalue.stack_index < self.base {
+                        self.upper_stack[open_upvalue.stack_index]
+                    } else {
+                        let index = open_upvalue.stack_index - self.base;
+                        read(index, self.stack_frame[index])
+                    }
                 } else {
                     open_upvalue.get(mc)
                 }
@@ -1203,14 +1217,26 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
         upvalue: UpValue<'gc>,
         value: Value<'gc>,
     ) {
+        self.set_upvalue_with(mc, upvalue, value, |_| {});
+    }
+
+    pub(crate) fn set_upvalue_with(
+        &mut self,
+        mc: &Mutation<'gc>,
+        upvalue: UpValue<'gc>,
+        value: Value<'gc>,
+        write: impl FnOnce(usize),
+    ) {
         match upvalue.get() {
             UpValueState::Open(open_upvalue) => {
                 if open_upvalue.stack.as_ptr() == Gc::as_ptr(self.stack) {
-                    assert!(
-                        open_upvalue.stack_index < self.bottom,
-                        "upvalues must be above the current Lua frame"
-                    );
-                    self.upper_stack[open_upvalue.stack_index] = value;
+                    if open_upvalue.stack_index < self.base {
+                        self.upper_stack[open_upvalue.stack_index] = value;
+                    } else {
+                        let index = open_upvalue.stack_index - self.base;
+                        self.stack_frame[index] = value;
+                        write(index);
+                    }
                 } else {
                     open_upvalue.set(mc, value);
                 }

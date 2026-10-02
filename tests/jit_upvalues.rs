@@ -33,6 +33,100 @@ fn source(lua: &mut Lua, script: &[u8]) -> Result<StashedExecutor, ExternError> 
 }
 
 #[test]
+fn current_frame_aliases_read_scratch_write_through_and_decline_stale_tables(
+) -> Result<(), ExternError> {
+    let cases = [
+        ("0", "x=41 alias=alias+1 return x", 42, 1, false),
+        ("0", "alias={answer=42} return x.answer", 42, 1, false),
+        ("{answer=42}", "x=false return alias.answer", -1, 0, false),
+        (
+            "{answer=0}",
+            "x=false alias.answer=42 return 0",
+            -1,
+            0,
+            false,
+        ),
+        ("0", "x=41 alias=alias+1 return read", 42, 1, false),
+        ("0", "x=41 alias=alias+1 return read()", 42, 1, false),
+        (
+            "0",
+            "x=41 alias=alias+1 coroutine.yield(x) x=alias+1 alias=x+1 return x",
+            44,
+            2,
+            true,
+        ),
+    ];
+    for (initial, body, expected, writes, yielding) in cases {
+        let call = if yielding {
+            "local co=coroutine.create(f) local ok,result=coroutine.resume(co) assert(ok and result==42) ok,result=coroutine.resume(co)"
+        } else {
+            "local ok,result=pcall(f)"
+        };
+        let script = format!(
+            r#"
+            local alias=0
+            local f
+            f=function()
+                local x={initial}
+                local read=function() return x end
+                local joined=false
+                for i=1,10 do
+                    local name,value=debug.getupvalue(f,i)
+                    if name and value==0 then
+                        debug.upvaluejoin(f,i,read,1)
+                        joined=true
+                        break
+                    end
+                end
+                assert(joined)
+                {body}
+            end
+            {call}
+            if ok and type(result)=='function' then return result() end
+            return ok and result or -1
+        "#
+        );
+        let mut reference = state(false);
+        let mut native = state(true);
+        let left = source(&mut reference, script.as_bytes())?;
+        let right = source(&mut native, script.as_bytes())?;
+        let mut finished = false;
+        for _ in 0..1000 {
+            let step = |lua: &mut Lua, executor: &StashedExecutor| {
+                lua.enter(|ctx| {
+                    let executor = ctx.fetch(executor);
+                    let mut fuel = Fuel::empty();
+                    (
+                        executor.step(ctx, &mut fuel).unwrap(),
+                        executor.mode(),
+                        fuel.remaining(),
+                    )
+                })
+            };
+            let wanted = step(&mut reference, &left);
+            assert_eq!(step(&mut native, &right), wanted, "{body}");
+            reference.gc_collect();
+            native.gc_collect();
+            if wanted.0 {
+                finished = true;
+                break;
+            }
+        }
+        assert!(finished, "{body}");
+        assert_eq!(reference.execute::<i64>(&left)?, expected, "{body}");
+        assert_eq!(native.execute::<i64>(&right)?, expected, "{body}");
+        let stats = native.jit_stats();
+        assert!(stats.native_instructions > 0);
+        if writes > 0 {
+            assert_eq!(stats.native_upvalue_writes, writes, "{body}");
+        } else {
+            assert!(stats.helper_declines > 0, "{body}");
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn closed_and_open_cells_materialize_between_slices_and_gc() -> Result<(), ExternError> {
     let scripts: &[&[u8]] = &[
         b"local n=0 local function add(x) n=n+x return n end local result for i=1,100 do result=add(i) end return result+n",

@@ -1,0 +1,29 @@
+[package]
+name = "luna-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+luna = { path = "..", features = ["jit"] }
+
+[[bin]]
+name = "scalar"
+path = "fuzz_targets/scalar.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "heap"
+path = "fuzz_targets/heap.rs"
+test = false
+doc = false
+bench = false

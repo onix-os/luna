@@ -45,6 +45,15 @@ Generated code handles scalar move/load, truth testing, integer/float add/subtra
 
 Native code also calls scoped, barrier-aware helpers for reference move/constant load, table allocation/read/write, and open/closed upvalue access. Fresh raw-value, metatable, readonly, and interception checks admit operations that need no user callback; all operations requiring metamethod dispatch decline before effects. Weak table accesses use the same weak-upgrade/store APIs as the interpreter. Dedicated counters and tests prove successful native heap operations, not just scalar prefixes.
 
+Upvalue joins can target the executing frame's own locals. Same-stack access
+uses the register split at `base`, not an assumption that all cells precede the
+frame. Native helpers read the current scratch value for such aliases and write
+both canonical storage and scratch; aliases outside the scratch prefix use
+canonical storage. Closed and foreign-stack cells retain their existing paths.
+Fixed bytecode write masks are not complete dynamic helper clobber sets;
+upvalue writes can affect any current-frame slot. Generated calls are memory
+fences in the pinned backend, and subsequent instructions reload guarded slots.
+
 Calls, returns, actual metamethod/user callback invocation, close tracking/unwinding, coroutines, and async transitions still run through explicit interpreter exits. Native execution does not recursively call Lua on the native stack or keep a generated frame across suspension. Hook-enabled slices remain interpreted. Heap coverage and lifecycle acceptance remain incomplete until the full plan's stress/performance/platform gates are satisfied.
 
 Every generated operation checks the remaining reference slice allowance before executing; a native invocation completes at most 64 logical bytecode instructions. A guard failure leaves the PC before the unperformed instruction. Completed scalar writes are materialized into the same canonical Lua registers, and the interpreter immediately makes progress without repeating completed work. Fuel retains the interpreter's existing approximate transition charges, including minimal progress with exhausted or interrupted input.
@@ -213,6 +222,20 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 12. Mapping handoff uses a metadata-charged AtomicShared mutex slot. Taking empties the slot once; subsequent adapter allocation/finalization refuses, and adapter free/drop cannot release the detached image. All executable/read-only/writable segments and their quota reservations move together without copying addresses or code. Cached Code owns Memory directly; final lease destruction drops mappings before quota release. Poisoned mutex recovery retains the initialized owner rather than leaking it. The pinned JITModule has no Drop implementation or external unwind registration that must survive finalization; Luna does not permit unwinding through generated frames.
 
 ## Verification and remaining work
+
+Current-frame alias repair (`710dd33`) passes full GNU/musl
+`nix develop -c make jit-verify clippy jit-clippy`: each reports 4941 passing
+executions across 434 suites, with 24 ignored tests. Existing 141 lib-test
+Clippy warnings remain. Focused helper Miri passes seven tests with default
+checks; this is not a fresh full-selected-Miri or generated-code lane.
+The native regression compares seven scenarios, per-step fuel/mode and full GC,
+including scalar/reference writes, stale-table declines, returned closed cells,
+tail calls and coroutine yield/resume. Native counters prove the alias writes.
+Read bypass fails two pure tests and produces 1 instead of 42; write bypass
+fails one pure test and reproduces 41 instead of 42. Both fixes are required.
+Long GNU/musl scalar and heap campaigns pass; artifacts and restored-source
+hashes are under `target/jit-evidence/current-frame-upvalues/`.
+This closes a reproduced alias bug, not the full safety/performance review.
 
 Finalized-image detachment (`f875233`) passes full GNU/musl
 `nix develop -c make jit-verify clippy jit-clippy`: each reports 4915 passing

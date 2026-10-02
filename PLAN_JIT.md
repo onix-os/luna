@@ -9,6 +9,34 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Progress snapshot — 2026-10-01
+
+The plan exists; implementation is underway, not release-ready. The committed
+native tier executes Luna bytecode through Cranelift without replacing Luna's
+runtime. Current-frame upvalue alias repair is committed as `710dd33`, with
+acceptance recorded in `040d46d`. Its GNU and musl gates each report 4941 passing
+test executions across repeated modes/suites, not 4941 unique tests.
+
+The separate coverage-guided package is committed as `59ad32c`. Its locked
+all-target check and three integrated test functions pass. After correcting the
+unsupported cargo-fuzz `--locked` argument, actual AddressSanitizer/libFuzzer
+campaigns pass: scalar 64 executions/60 new corpus inputs and heap 128
+executions/114 new corpus inputs. Both dependency locks remain unchanged.
+
+Historical performance gates still fail for upvalues/callbacks and table
+acceleration. Fresh performance acceptance, remaining compiler-memory and
+safety review, actual ARM64 execution and hosted-CI evidence remain outstanding.
+Do not infer a completion percentage or delivery date from commit/test counts.
+
+### User priority clarification — 2026-10-02
+
+The user explicitly rejected turning this JIT/performance task into a
+cybersecurity project. Stop expanding security-audit work and additional fuzz
+infrastructure. Prioritize the unresolved upvalue/callback/table performance
+targets. Preserve ordinary runtime correctness and already-agreed execution
+controls during optimization; do not lower acceptance thresholds. Security
+certification is not the requested product, and none is claimed.
+
 Build a native JIT for Luna's existing runtime. Keep its language, Rust bindings, values, collector, stackless executor, and scheduling model. Frequently executed code should become native code without moving into another interpreter.
 
 This is **not** a plan to embed the LuaJIT product, expose LuaJIT's FFI, or become compatible with LuaJIT native modules. LuaJIT has its own runtime and targets Lua 5.1 with extensions. Choosing that ecosystem instead requires a separately approved runtime migration, not an implementation shortcut inside this plan.
@@ -7800,6 +7828,333 @@ space on `/home/bresilla/data`; no files were deleted by this task.
 1. Finalized mappings can outlive Cranelift's compiler tables without moving code
    or relying on private layouts when the provider's complete owner is retained.
 2. A passing Miri namespace followed by ENOSPC is a failed lane, not acceptance.
+
+### Discovery and fix design — current-frame upvalue aliases
+
+Corrected feature-free regression `36879` fails with the LuaRegisters assertion
+that same-stack upvalues must precede the current frame. `debug.upvaluejoin`
+can legitimately rebind an executing closure's cell to its own local captured
+by another closure. [Lua 5.4's contract](https://www.lua.org/manual/5.4/manual.html#pdf-debug.upvaluejoin)
+specifies cell sharing without restricting activation ownership. The initial
+fixture `74798` incorrectly searched unavailable upvalue names and failed its
+own joined assertion; it is not evidence of the register bug. Luna returns
+numeric index strings rather than upvalue names, so select the unique initial
+cell value instead. No unrelated debug-library/name behavior is changed.
+
+Fix the common register accessor using the existing disjoint split at `base`:
+same-stack indices below base use upper_stack; others use stack_frame. Preserve
+closed/foreign-stack access/barriers. Add private generic read/write overlays
+for current-frame indices: interpreter uses identity/no-op callbacks; native
+helpers read their latest scratch scalar/tag and update that scratch slot after
+writing the canonical alias. This avoids full-frame flushes or repeated upvalue
+state reads. Out-of-scratch aliases use canonical storage. Rebinding is checked
+fresh at each helper, never cached across user calls/GC. First repair this
+reproduced correctness issue (STOP condition 11), then resume other work.
+
+### Reproduced native alias materialization mismatch
+
+After repairing the common accessor, the corrected integrated fixture `26652`
+shows native result **41** versus reference **42** for `x=41; alias=alias+1;
+return x` following a current-frame join, with paired fuel/mode and GC checks.
+The native helper reads/writes canonical registers while scalar scratch remains
+pending, then exit materialization overwrites the alias update. The overlay fix
+is required for both reads and writes, not just removal of the interpreter
+assertion. Draft native fixture `83601` failed compilation due to an incorrect
+stats field; it is not mismatch evidence. No optimization work continues until
+this reproduced mismatch is repaired and regression-tested.
+
+### Bug fix — synchronize current-frame upvalue cells
+
+`710dd33` repairs common same-stack addressing and all four upvalue helpers'
+current-frame scratch overlay. The seven-scenario integrated regression now
+passes scalar/reference updates, stale-table reads/writes, returned closed cells,
+tail calls and coroutine yield/resume, with per-step fuel/mode comparison, GC
+after each paired step and native-operation counters. Three pure helper fixtures
+check exact scalar/reference/NaN/signed-zero packing, aliasing/self writes,
+decline-before-effects and out-of-scratch canonical access. Isolated Miri `59212`
+passes all seven helper tests with default checks.
+
+Read bypass `75953` fails two pure fixtures and changes the native result to 1
+instead of 42. Write bypass `77243` fails one pure fixture and restores the
+native result 41 instead of 42. Both Make lanes exit 2 in each mutation; the
+write handle disappeared after completion, so terminal failure logs and absence
+of owned processes were checked before restoration. Original helper hash matches.
+Final restored `89541` and Miri `59212` exit 0. Initial pure fixture drafts
+`97023`/`84707` failed compilation on raw-table key/value types; those are not
+Miri/native acceptance. Full GNU/musl and long campaigns remain running at this
+checkpoint; do not attribute old full-lane results to the new source revision.
+
+### Alias-analysis boundary after the cell fix
+
+WRITE_UPVALUE can now target an arbitrary current-frame register through a
+fresh runtime cell binding. Access.writes remains a fixed bytecode-destination
+mask, not a complete dynamic helper clobber set. The present emitter reloads
+guarded slot values after calls with default memory flags. Pinned Cranelift
+alias_analysis.rs treats Call/CallIndirect as memory fences through
+`has_memory_fence_semantics` and `classify`, so values
+cannot be forwarded across the alias update. Any future register-cache/SSA
+optimization must invalidate or materialize/reload current-frame values across
+such helpers; do not interpret an empty fixed writes mask as a pure helper.
+This runtime alias case is now tested, not a full liveness/alias proof.
+
+### Session summary — current-frame alias repair acceptance
+
+## Goal
+- Continue the full native-JIT implementation on `feat/native-jit`.
+
+## Instructions
+- Use repo-native Nix/Make, patch tools and incremental unsigned/title-only
+  Conventional Commits. Keep unchanged performance thresholds and full scope.
+
+## Discoveries
+- Current-frame upvalue joins were not covered: the interpreter asserted that
+  same-stack cells precede the frame. After repairing that, native scratch
+  materialization still overwrote an alias update (native 41/reference 42).
+- Lua's upvaluejoin contract shares cells; Luna's unavailable upvalue names
+  required a value-based selector in the fixture, not a debug-library rewrite.
+- Generic current-frame overlays avoid full-register flushes and additional
+  upvalue state reads. Current helpers can dynamically clobber any frame slot;
+  fixed destination masks are not a whole alias/liveness proof. Pinned Cranelift
+  Call/CallIndirect fence semantics preserve fresh post-call guarded slot loads.
+
+## Accomplished
+- `710dd33` commits common frame-split access, native read/write synchronization,
+  the baseline regression, three pure helper fixtures and seven native scenarios.
+- Reference `36879` failed the original assertion. Native `26652` reproduced
+  41/42 after the common fix. Draft name/stats/raw-table type errors are retained
+  as drafts, not behavior acceptance.
+- Read bypass `75953`: two pure failures plus native 1/42, both Make exits 2.
+  Write bypass `77243`: one pure failure plus native 41/42, both Make exits 2;
+  missing terminal handle was revalidated via logs/process absence before restore.
+  Original helper hash matches. No mutated source was committed or accepted.
+- Restored `89541` exits 0: **16 tests/four suites/zero ignored** and advisory
+  Clippy. Restored Miri `59212` exits 0: **seven tests/one suite/zero ignored**,
+  pinned nightly 2026-08-16 rustc `67854e511`, empty/default flags. This is a
+  focused helper lane, not a new full-selected-Miri or native execution claim.
+- Full `70127` exits 0: GNU/musl each **4941 passing executions/434 suites/
+  24 ignored**; repeated mode/doc results, not unique tests. Existing lib-test
+  Clippy backlog remains 141, not strict-warning acceptance.
+- Long campaigns `41796` exit 0. Per platform: **4096 scalar/admission cases/
+  1641780 native invocations/4758522 native instructions**; **96 heap cases/
+  6344 main slices/725 yields/1633 callbacks/96 retirements/964 host reads/
+  2809 userdata observations/65297 native instructions**. Helpers: **22144 table
+  reads/7393 writes/1655 allocations/21701 upvalue reads/996 writes/1179 declines**.
+  Seeds/programs are reused across platforms; these finite families do not
+  include the new alias case, which has separate unit/integrated coverage.
+- All owned jobs terminal. Revision/source hashes, logs and copied campaign
+  directories are under `target/jit-evidence/current-frame-upvalues/`.
+  Global preflight sees unrelated molla GPU-test Make/Cargo workers; no timing
+  or profiles run and no unrelated processes are killed/excluded. Engram remains
+  unavailable; project/session context is saved here without external-memory edits.
+
+## Next Steps
+- Continue transient compiler working-memory policy, remaining opcode/source/
+  alias/liveness/GC/lifecycle review and broader coverage-guided/unsafe stress.
+- Complete unchanged performance, ARM64/hosted and release acceptance. Current
+  passing correctness evidence does not waive previous performance failures.
+- Full goal stays active and incomplete. Do not treat this repaired alias class
+  or historical full Miri at `f875233` as full current-source safety acceptance.
+
+## Relevant Files
+- `src/thread/thread.rs` — common split-relative access and current-frame overlays.
+- `src/jit/helpers.rs` — scratch-aware upvalue helpers and pure alias fixtures.
+- `tests/debug_lib.rs`, `tests/jit_upvalues.rs` — baseline/native regressions.
+- `Makefile` — current-frame and focused helper-Miri gates.
+- `JIT.md`, `PLAN_JIT.md` — repaired behavior, scoped evidence and remaining work.
+
+## Key Learnings:
+
+1. Upvalue rebinding can make a cell alias the executing frame's own register.
+2. Reading canonical values is insufficient when native scratch is pending;
+   alias writes must update both representations before exit materialization.
+
+### Decision — separate coverage-guided public-API fuzz package
+
+Add the Phase 9 `fuzz/` package with two libFuzzer targets. Byte-controlled,
+bounded scalar and heap/current-frame-alias programs use the public source
+loader, separate fresh Off/Auto states, paired per-step fuel/mode checks, GC,
+exact primitive types and finite numeric bits, NaN-category agreement, and
+native counters. NaN payloads are not compared. Inputs select structures and
+operands directly rather than hashing into a random seed. Preserve the existing
+fixed-seed campaigns and their replay meaning. No private native-compilation
+backdoor or production feature is added. The package is excluded from normal
+workspace builds; its dependency lock and fixed corpus seeds are tracked.
+Use a pinned nightly fuzz Nix shell, Make wrappers, explicit run/input/RSS/
+timeout limits and retained corpus/crash artifacts. Instrumented Rust/compiler
+coverage is not instrumentation of generated machine code, and finite generated
+grammars do not establish arbitrary-source or complete security coverage.
+Primary tool guidance: [Rust Fuzz Book](https://rust-fuzz.github.io/book/cargo-fuzz/tutorial.html).
+
+### Decision — pinned cargo-fuzz lock preservation
+
+Local `make jit-coverage-help` confirms cargo-fuzz 0.13.1 exposes no `--locked`
+build/run option. Use an offline, locked all-target Cargo check before the
+instrumented build and compare `fuzz/Cargo.lock` hashes on shell exit, including
+failure. Instrumented cargo-fuzz itself does not run Cargo with `--locked`;
+the wrapper instead rejects lockfile mutation and disallows network resolution.
+Build outside the campaign wall deadline, then bound the run with libFuzzer's
+run/time/input/RSS limits and an outer timeout. These controls are not compiler
+resource isolation or sanitizer instrumentation of generated native code.
+
+### Decision — remove redundant plain-table store probe
+
+The native table-write helper probed the old key before checking whether the
+table had any metatable. For plain tables this read cannot affect the decision
+to call `__newindex`, and `set_raw` still performs the actual write. Check
+metatable presence first; retain the existing missing-key/interception guard
+and metamethod test inside the metatable-present branch. A focused 16-combination
+fixture checks guard decisions and effects. This is a performance candidate,
+not a measured speedup; the unchanged baseline benchmark binary is retained.
+
+### Performance candidate — exact small-frame marshaling
+
+Historical upvalue instruction profiles identify substantial self cost in
+`Runtime::invoke<8>`; they are not current timing acceptance. The current wrapper
+uses dynamic-length conversion loops even for short admitted frames. Test exact
+one-through-eight-slot specializations so LLVM can compile fixed-length input
+and output conversions. Larger frames retain the existing capacity tiers and
+initialized-prefix contract. Keep `invoke` out of `run_vm`, preserve the complete
+scalar/reference ABI, helper effects, counters, leases, fuel and panic transport.
+Extend the existing capacity-boundary regression to the small sizes. Retain
+immutable baseline/table-only/candidate binaries for later sequential comparison.
+Do not accept the specialization on source-level reasoning or tests alone;
+measure all frozen native and compiled-Off controls before deciding to keep it.
+
+The candidate's symbol-bearing assembly (`exact-small-frames/invoke-two.asm`)
+shows distinct input conversions and output dispatch sites for the two slots,
+rather than a dynamic conversion loop. This verifies specialization happened,
+not a speedup. The copied stripped benchmark grows from table-only 6528736 to
+6542080 bytes; feature-cost size/control gates still require executed checks.
+Build directories can contain old run reports: copied `cost.log` and
+`native-proof.log` are quarantined under `historical-unrelated/`, not attributed
+to this candidate. Only fresh build/configuration/hash/section outputs are current.
+
+### Session summary — small-frame performance candidate
+
+## Goal
+- Resume the full JIT goal with workload acceleration as the immediate priority.
+
+## Instructions
+- No additional cybersecurity project or fuzz infrastructure. Use existing
+  correctness gates and keep frozen performance controls and incremental commits.
+
+## Discoveries
+- Historical instruction profiles show substantial invocation dispatch cost.
+  Exact small-frame assembly has per-slot conversion/dispatch sites; this is
+  structural evidence, not measured current performance.
+- Existing build directories retain old run reports. Quarantine those copied
+  reports rather than attributing them to newly built executables.
+
+## Accomplished
+- `7ac7292` commits existing scratch-boundary coverage extended to sizes 1..7.
+- The experimental runtime specialization is uncommitted in `src/jit/mod.rs`.
+  GNU `50349` and musl `58822` each exit 0: 54 tests/eight suites/zero ignored.
+- Stripped benchmark `77707`, symbol-bearing assembly `17699` and matched
+  speed/shipping build pair `60238` all exit 0. Fourteen invocation bodies are
+  extracted; the two-slot body is retained separately. All owned jobs terminal.
+- Immutable original/table-only/exact-frame benchmark artifacts and current
+  matched speed/shipping executables exist. Source hashes, base revision and
+  candidate patch are under `target/jit-evidence/exact-small-frames/`.
+- No benchmark timing or runtime profile has been run during global contention.
+
+## Next Steps
+- Poll the live unrelated GPU pipeline before timing. Once global build/test
+  activity is absent, compare the three benchmark artifacts sequentially with
+  unchanged eleven-sample checked gates and reversed-order repeats; execute
+  matched speed/shipping compiled-Off controls. Keep/reject the candidate from
+  those results, not from 54 passing focused tests.
+- Full original performance and integration/platform requirements remain open.
+  The implementation goal stays active and incomplete.
+
+## Relevant Files
+- `src/jit/mod.rs` — uncommitted exact small-frame runtime candidate.
+- `tests/jit_native.rs` — committed small-capacity boundary regression.
+- `target/jit-evidence/exact-small-frames/` — candidate builds, hashes and tests.
+- `target/jit-evidence/performance-return/` — original/table-only benchmark pair.
+
+### Session summary — coverage checkpoint and performance return
+
+## Goal
+- Resume the full native-JIT implementation, prioritizing the user's requested
+  acceleration rather than expanding cybersecurity work.
+
+## Instructions
+- The user explicitly rejects a cybersecurity project. Stop extra audit/fuzz
+  infrastructure; optimize the frozen workloads while preserving Lua behavior.
+- Keep Make/Nix, patch tools and incremental unsigned/title-only commits.
+
+## Discoveries
+- Cargo-fuzz 0.13.1 rejects `--locked`; offline locked prechecks and unchanged
+  exit hashes enforce the documented wrapper lock policy instead.
+- Plain-table native stores unnecessarily read the old key even though no
+  `__newindex` could run. Metatable-first guarding removes that duplicate read.
+
+## Accomplished
+- `59ad32c` commits the separate bounded coverage-feedback package and Make
+  wrappers. Focused package check/three tests pass; GNU root check/format/tree
+  pass without libfuzzer leaking into the normal dependency graph.
+- Scalar `36576` exits 0: 64 runs, 60 new units, final cov 27005/ft 78208,
+  peak RSS 430 MiB. Heap `18784` exits 0: 128 runs, 114 new units, final
+  cov 27230/ft 78318, peak RSS 431 MiB. These instrumented-runtime/compiler
+  counters are not coverage of generated native code or unique Lua opcodes.
+- Wrapper refusal tests `74589` pass 13 cases before any Cargo launch; both
+  dependency lock hashes remain unchanged. All those jobs are terminal.
+- `8f68045` commits the plain-table guard optimization and a 16-combination
+  effect/decline fixture. Restored focused `21118` exits 0: eight pure helper
+  tests and sixteen integrated heap tests. Draft `97296` failed a fixture
+  Context argument type; it is not acceptance evidence.
+- Built and retained the pre-change and candidate opt-level-3 benchmark
+  executables and source hashes. Candidate `38078` exits 0; all owned jobs are
+  terminal. No timing or measured speedup is claimed.
+
+## Next Steps
+- Run the unchanged paired eleven-sample
+  performance gate against baseline/candidate when global test/build activity
+  is absent. Latest preflight sees unrelated molla GPU-test Make/Cargo processes
+  843866/843871; do not kill them or claim contaminated acceptance timings.
+- Resolve upvalue/callback costs and all original performance controls. Current
+  tests do not prove speedup or full-plan completion; the goal stays active.
+
+## Relevant Files
+- `src/jit/helpers.rs` — metatable-first plain-table store guard and fixture.
+- `fuzz/`, `Makefile`, `flake.nix` — committed bounded campaign checkpoint.
+- `target/jit-evidence/coverage-package/` — terminal campaign and control logs.
+- `target/jit-evidence/performance-return/` — baseline binary/hashes and builds.
+
+### Session summary — restored checkpoint and progress report
+
+## Goal
+- Continue the active full implementation goal on `feat/native-jit`; answer the
+  user's overdue progress request with checked repository evidence.
+
+## Instructions
+- Keep incremental unsigned/title-only Conventional Commits and use Make and
+  patch tools. Report incomplete acceptance honestly rather than lowering gates.
+
+## Discoveries
+- Live HEAD is `040d46d`; the coverage package and wrappers are uncommitted.
+- The pinned cargo-fuzz command rejects the wrapper's `--locked` argument;
+  this is a tool invocation failure, not an instrumented fuzz acceptance result.
+- Engram tools are unavailable and the memory registry has no Luna/PLAN_JIT
+  match. This checkpoint persists project context without external memory edits.
+
+## Accomplished
+- Recovered the existing alias acceptance and coverage-package focused logs.
+- Added a short front-page status separating committed functionality, draft
+  fuzz work, failed performance gates and remaining platform/safety acceptance.
+- Corrected the fuzz oracle description: NaN category, not NaN payload equality.
+
+## Next Steps
+- Inspect cargo-fuzz help through Make, repair the wrapper and enforce lock
+  preservation, then build and run bounded instrumented scalar/heap campaigns.
+- Complete the remaining original performance, safety and platform gates.
+  The goal remains active; no completion or release readiness is claimed.
+
+## Relevant Files
+- `PLAN_JIT.md` — live progress snapshot and restored working checkpoint.
+- `fuzz/`, `Makefile`, `flake.nix` — uncommitted coverage-package work.
+- `target/jit-evidence/coverage-package/` — focused pass and failed build logs.
+- `target/jit-evidence/current-frame-upvalues/` — committed alias acceptance.
 
 ## 15. Primary references
 
