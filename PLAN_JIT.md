@@ -8006,6 +8006,72 @@ and metamethod test inside the metatable-present branch. A focused 16-combinatio
 fixture checks guard decisions and effects. This is a performance candidate,
 not a measured speedup; the unchanged baseline benchmark binary is retained.
 
+### Performance candidate — exact small-frame marshaling
+
+Historical upvalue instruction profiles identify substantial self cost in
+`Runtime::invoke<8>`; they are not current timing acceptance. The current wrapper
+uses dynamic-length conversion loops even for short admitted frames. Test exact
+one-through-eight-slot specializations so LLVM can compile fixed-length input
+and output conversions. Larger frames retain the existing capacity tiers and
+initialized-prefix contract. Keep `invoke` out of `run_vm`, preserve the complete
+scalar/reference ABI, helper effects, counters, leases, fuel and panic transport.
+Extend the existing capacity-boundary regression to the small sizes. Retain
+immutable baseline/table-only/candidate binaries for later sequential comparison.
+Do not accept the specialization on source-level reasoning or tests alone;
+measure all frozen native and compiled-Off controls before deciding to keep it.
+
+The candidate's symbol-bearing assembly (`exact-small-frames/invoke-two.asm`)
+shows distinct input conversions and output dispatch sites for the two slots,
+rather than a dynamic conversion loop. This verifies specialization happened,
+not a speedup. The copied stripped benchmark grows from table-only 6528736 to
+6542080 bytes; feature-cost size/control gates still require executed checks.
+Build directories can contain old run reports: copied `cost.log` and
+`native-proof.log` are quarantined under `historical-unrelated/`, not attributed
+to this candidate. Only fresh build/configuration/hash/section outputs are current.
+
+### Session summary — small-frame performance candidate
+
+## Goal
+- Resume the full JIT goal with workload acceleration as the immediate priority.
+
+## Instructions
+- No additional cybersecurity project or fuzz infrastructure. Use existing
+  correctness gates and keep frozen performance controls and incremental commits.
+
+## Discoveries
+- Historical instruction profiles show substantial invocation dispatch cost.
+  Exact small-frame assembly has per-slot conversion/dispatch sites; this is
+  structural evidence, not measured current performance.
+- Existing build directories retain old run reports. Quarantine those copied
+  reports rather than attributing them to newly built executables.
+
+## Accomplished
+- `7ac7292` commits existing scratch-boundary coverage extended to sizes 1..7.
+- The experimental runtime specialization is uncommitted in `src/jit/mod.rs`.
+  GNU `50349` and musl `58822` each exit 0: 54 tests/eight suites/zero ignored.
+- Stripped benchmark `77707`, symbol-bearing assembly `17699` and matched
+  speed/shipping build pair `60238` all exit 0. Fourteen invocation bodies are
+  extracted; the two-slot body is retained separately. All owned jobs terminal.
+- Immutable original/table-only/exact-frame benchmark artifacts and current
+  matched speed/shipping executables exist. Source hashes, base revision and
+  candidate patch are under `target/jit-evidence/exact-small-frames/`.
+- No benchmark timing or runtime profile has been run during global contention.
+
+## Next Steps
+- Poll the live unrelated GPU pipeline before timing. Once global build/test
+  activity is absent, compare the three benchmark artifacts sequentially with
+  unchanged eleven-sample checked gates and reversed-order repeats; execute
+  matched speed/shipping compiled-Off controls. Keep/reject the candidate from
+  those results, not from 54 passing focused tests.
+- Full original performance and integration/platform requirements remain open.
+  The implementation goal stays active and incomplete.
+
+## Relevant Files
+- `src/jit/mod.rs` — uncommitted exact small-frame runtime candidate.
+- `tests/jit_native.rs` — committed small-capacity boundary regression.
+- `target/jit-evidence/exact-small-frames/` — candidate builds, hashes and tests.
+- `target/jit-evidence/performance-return/` — original/table-only benchmark pair.
+
 ### Session summary — coverage checkpoint and performance return
 
 ## Goal
