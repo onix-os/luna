@@ -13,12 +13,13 @@
 
 The requested plan document is written. Full implementation and release
 acceptance are not finished. The committed native tier executes Luna bytecode
-through Cranelift without replacing Luna's runtime. The full GNU and musl gates
-at `ba55424` passed with 4951 test executions each across repeated modes/suites,
-not 4951 unique tests. Later focused tail-call checks pass, but a new
-`coroutine.close` regression fails in both Off/native modes: pending cleanup
-handlers are skipped. That defect is not covered by the earlier green gates.
-The small-frame runtime change remains uncommitted pending performance results.
+through Cranelift without replacing Luna's runtime. The latest full GNU and
+musl gates each pass 5048 test executions across repeated modes/suites, not
+5048 unique tests. Coroutine cleanup and deferred-error defects exposed after
+the prior green gates are repaired, with focused and full-suite evidence below.
+The exact-small-frame runtime change has repeated native benchmark evidence:
+the table target now passes, while upvalue/callback and disabled-tier costs
+remain unresolved. This is an incremental optimization, not release acceptance.
 
 The separate coverage-guided package is committed as `59ad32c`. Its locked
 all-target check and three integrated test functions pass. After correcting the
@@ -26,8 +27,8 @@ unsupported cargo-fuzz `--locked` argument, actual AddressSanitizer/libFuzzer
 campaigns pass: scalar 64 executions/60 new corpus inputs and heap 128
 executions/114 new corpus inputs. Both dependency locks remain unchanged.
 
-Historical performance gates still fail for upvalues/callbacks and table
-acceleration. Fresh performance acceptance, remaining compiler-memory and
+Current performance gates still fail for upvalues/callbacks and inconsistent
+compiled-disabled overhead. Remaining compiler-memory and
 safety review, actual ARM64 execution and hosted-CI evidence remain outstanding.
 Do not infer a completion percentage or delivery date from commit/test counts.
 
@@ -743,7 +744,7 @@ prevent Phase 3/release acceptance.
 
 ### Phase 5 — Preserve callbacks, coroutines, async, and unwinding
 
-**Status:** IN PROGRESS. **Depends on:** Phase 4. Dedicated native heap tests cover reentrant callbacks, coroutine suspension, foreign futures, and close-handler error unwinding. Shared public-host coroutine/await scenarios verify native heap work around suspension, GC while parked, real Pending/wake behavior and tier coverage at fuel 1/64/65536. Selective preparation independently verifies all four caller/callee tier combinations for normal and tail calls. Deep/infinite tail-call bounds now have focused GNU/musl evidence. A new reproducer proves `coroutine.close` skips pending handlers in both Off and native modes; that lifecycle defect and broader error/close acceptance remain open.
+**Status:** IN PROGRESS. **Depends on:** Phase 4. Dedicated native heap tests cover reentrant callbacks, coroutine suspension, foreign futures, and close-handler error unwinding. Shared public-host coroutine/await scenarios verify native heap work around suspension, GC while parked, real Pending/wake behavior and tier coverage at fuel 1/64/65536. Selective preparation independently verifies all four caller/callee tier combinations for normal and tail calls. Deep/infinite tail-call bounds and executor-driven coroutine cleanup now pass GNU/musl gates. Broader error/close acceptance, including uncaught-coroutine error-unwind timing, remains open.
 
 **Files:** runtime wrappers, thread executor/frame integration, `tests/jit_transitions.rs`, existing callback/reentrancy/async/close/error tests.
 
@@ -820,20 +821,218 @@ This is a shared interpreter/runtime defect, not a JIT-only regression.
 scheduling pending `__close` handlers. The marker list is not cleared either.
 The required behavior is explicit in the [Lua 5.4 coroutine.close contract](https://www.lua.org/manual/5.4/manual.html#pdf-coroutine.close).
 
-Keep the failing regression in the worktree until the lifecycle repair is
-implemented; do not weaken it, ignore it or claim the old full gates cover this
-case. Its patch and terminal failure log are independently preserved under
+The original failing regression was retained unchanged through the lifecycle
+repair; the old full gates did not cover this case. Its patch and terminal failure log are independently preserved under
 `target/jit-evidence/coroutine-close-gap/`. Closing must use executor-driven,
 fuel-bounded cleanup, preserve the target coroutine's identity and error object,
 continue remaining handlers after a handler error, and reject invalid running
 states/yields. Do not substitute an unbounded nested executor loop inside the
 close callback or run target handlers on the caller's thread.
 
-#### Session summary — tail-call acceptance and cleanup defect
+Repair design: preserve raw Rust `Thread::reset` as a no-user-code operation,
+clearing stale close markers there. The Lua close binding prepares the target's
+existing `CloseSequence`, then resumes that same thread under `PCall`; ordinary
+executor slices drive every handler. A closing flag rejects Yield/Waiting and
+makes `coroutine.isyieldable()` false during cleanup. Retain a terminal error
+until explicit close/restart so a dead coroutine can return its original error.
+The official [Lua reset implementation](https://www.lua.org/source/5.4/lstate.c.html)
+also removes old call frames before invoking close handlers. No nested executor
+or new public callback-return variant is needed. This design does not by itself
+prove all coroutine error-unwind timing matches PUC Lua; that remains separate
+acceptance work.
+
+Repair candidate now passes the original reproducer and focused GNU/musl
+`make jit-suspension` (`35235`): nine tests without async and eleven with async
+on each platform. Five cleanup actions (normal, handler error, yield, yieldto,
+nested coroutine resume) run in Off/prepared at fuel 1/64/65536 with every-slice
+GC, exact slice/fuel agreement, reverse-order cleanup, target identity and
+handler-native upvalue-write evidence. Dead/unstarted/running/waiting states,
+original error identity, repeat close and raw reset/restart have regressions.
+Foreign-await cleanup proves zero future polls, one drop, no parked future and
+execution of the remaining handler. Full GNU/musl batch `42787` exits 0:
+5000 passing executions, 434 suite results and 24 ignored tests per platform,
+including both existing supervised smoke lanes. Logs are
+`target/jit-evidence/coroutine-close-gap/full-{gnu,musl}.log`.
+
+Runtime lifecycle changes make the old original/table-only/small-frame timing
+artifacts historical: rebuild matched binaries on the repaired lifecycle before
+using them for current acceptance. The old source hash list did not include all
+three changed lifecycle files; matching that subset cannot establish freshness.
+
+Matched replacement artifacts are now built on `fe0042a` under
+`target/jit-evidence/post-close-performance/`. Exact candidate `12957`, matched
+speed/shipping costs `65059`, table-only `6645` and original-guard `26093` all
+exit 0. Original/table-only mean only those performance changes are removed;
+all three variants include the coroutine lifecycle repair. Each variant records
+hashes for all tracked runtime/example sources and build inputs, plus its binary.
+
+| Native benchmark variant | SHA-256 |
+| --- | --- |
+| Original guard, coarse frames | `dd3fdce8dce30b369556d8b695fa0b17a1e048d3d22674432f0566fbb9400573` |
+| Metatable-first guard, coarse frames | `77b278fd6c190dd6bb9d63a607cea7e54cb948e1801c9fe3012053686f23fe64` |
+| Metatable-first guard, exact small frames | `8ca1c89b0d2db5397ab6ade352fb05deb58de7bc8d60bbb35c3603dbc72df922` |
+
+Temporary baseline source edits were restored through patch tools; every
+`exact-source.sha256` entry matches and only `src/jit/mod.rs` remains modified.
+Use the copied `*-jit-bench` artifacts, not the shared release output (which
+last built the original variant). Cost directories are fresh, with no copied
+historical run logs. Final `preflight.log` sees unrelated molla Make `2155976`,
+Cargo `2156037`, rustc and linker workers. No new benchmark/cost timing ran.
+
+#### Close-handler dispatch failures — 2026-10-02
+
+New matrix `cleanup_continues_after_missing_or_noncallable_handlers` confirms
+another cleanup defect: `11118` exits 2 with `remaining handler skipped`.
+`CloseSequence::step` returned an error directly on missing `__close` or failed
+call conversion, dropping its remaining resources before they were processed.
+The repair stores that error and returns Pending; the same rooted sequence
+continues with the next resource. Each poll examines at most one resource,
+including nil/false and failed-dispatch cases, so that path consumes executor
+fuel rather than scanning an arbitrary batch in one poll.
+
+The test covers nil/number/table replacements during both protected error
+unwinding and explicit coroutine close, in Off/prepared at fuel 1/64/65536.
+It compares slices/fuel, forces GC after every slice, checks error replacement
+and reverse order, and proves native work in the surviving handlers. Evidence:
+`target/jit-evidence/close-handler-dispatch/`. Focused GNU/musl batch `59371`
+exits 0: ten passing tests without async and twelve with async per platform.
+A feature-independent close-attribute regression covers all three invalid
+replacements too. Full GNU/musl batch `26435` exits 0: each platform reports
+5011 passing executions, 434 suite results and 24 ignored tests, including the
+existing supervised smoke lanes. Logs are `full-gnu.log` and `full-musl.log` in
+the same evidence directory. The runtime change makes
+the `fe0042a` benchmark artifacts historical, so defer further artifact rebuilds
+until the current lifecycle changes have settled or a clean timing window exists.
+
+Uncaught coroutine error timing remains a distinct architectural gap: existing
+close sequences own batches already removed from canonical close markers. Merely
+parking an uncaught error and discarding frames later would lose those batches.
+A future deferred-unwind repair must preserve in-progress cleanup ownership and
+Rust Sequence error-handling boundaries, not just add a terminal-error flag.
+
+Deferred-unwind implementation decision: represent internal cleanup frames
+separately from user `BoxSequence` frames, using a concrete metrics-allocated
+CloseSequence box. This preserves access to remaining cleanup batches without
+changing the public Sequence trait. An uncaught child-coroutine error may park
+its live frames/stack until close; user Sequence frames remain error-handling
+boundaries. Explicit close merges canonical markers with retained cleanup
+batches in stack order. `coroutine.wrap` must resume that cleanup before
+propagating the final error. Raw host reset/restart still discards execution
+without invoking Lua. Focused and full GNU/musl correctness gates pass below.
+
+Implementation evidence: original regression `18020` fails with `cleanup ran
+before close`. Initial fix `24240`, expanded GNU matrix `43285` and GNU/musl
+focused batch `81145` pass. The latter runs fourteen tests without async and
+sixteen with async per platform. New tests preserve nested in-progress cleanup
+batches and handler locals across GC, mutate a retained upvalue before close,
+verify protected errors unwind before their catch returns, verify raw host
+restart/start-suspended discards deferred frames, and check wrap cleanup error
+replacement. Final focused batch `71366` exits 0 on GNU and musl: fifteen tests
+without async and seventeen with async per platform, including interleaved
+inspection of pending error/return/yield results. Full batch `71556` exits 0:
+GNU and musl `make jit-verify` each report 5048 passing test executions across
+434 suite results, with 24 ignored and zero failed tests. This includes the
+feature-independent close regressions and existing supervised smoke lanes;
+it does not establish performance or ARM64 acceptance. Evidence is under
+`target/jit-evidence/deferred-coroutine-errors/`.
+
+#### Refreshed performance artifacts after deferred cleanup
+
+`3a17a1f` commits the deferred-error repair separately from the small-frame
+performance candidate. Build-only jobs `38594` (exact), `86488` (matched
+speed/shipping feature costs), `23550` (table-only) and `69911` (original table
+guard) all exit 0. Immutable binary copies, full tracked runtime/example/build
+input hashes and source patches are in
+`target/jit-evidence/post-deferred-performance/`. The original-guard variant uses
+the current lifecycle fixes, not an old repository checkout. Temporary source
+changes were restored and the exact-source manifest verifies successfully.
+
+Binary SHA-256:
+- Exact: `5e8474d092ee34b276b6b0d252153bf7545915b15e474ae3284783c03417de26`.
+- Table-only: `cb3c28d5d0125f6868a7221bcce7d672db7b5ea02e49ea8fb78f9bdf6ac98e24`.
+- Original guard: `c80af5f52505019a8c95d198e1f86533084a479f6ca3584b01d4b45edc150a6c`.
+
+Timing attempt `90539` is invalid: an awk line-break syntax error failed open
+in its preflight. It was interrupted with exit 130; all timings and erroneous
+`clean-pre-post` labels are quarantined under `invalid-preflight/` and cannot
+support acceptance. The replacement runner checks every preflight exit status
+and uses pipefail. Corrected queue `73111` exits 3 after sixty ten-second
+preflight checks without a quiet host; it launches no benchmark. Final preflight
+still observes Molla Make `167318`, Cargo `168491` and pose-precision test
+`168829`. No fresh speedup is claimed at this checkpoint.
+
+#### Current measured small-frame decision
+
+**Diagnostic scheduling correction:** the quiet-host restriction applies to
+wall-clock benchmarks and hardware-time profiles, not process-local Callgrind
+instruction counts. The earlier blanket profiling wait was unnecessarily
+restrictive. Use the existing single-worker instruction-count lane during
+unrelated builds, record that activity, and repeat counts before drawing
+conclusions. Its simulated cache/branch events and elapsed times are not native
+hardware or speed acceptance. Keep clean-host requirements for frozen timing
+gates unchanged. See the [Callgrind manual](https://valgrind.org/docs/manual/cl-manual.html).
+
+Corrected batch `29418` found a quiet window and exits 0 after all ten runs.
+Every native and feature-cost run has a successful empty pre/postflight; the
+batch exit only means comparisons completed, not that their gates all passed.
+The native runs execute original/table/exact followed by exact/table/original,
+each with the frozen eleven-sample check. Ratios below are the specified ratio
+of medians (Off time / native time), not median paired ratios.
+
+| Workload | Original guard, runs 1/2 | Table-only, runs 1/2 | Exact frames, runs 1/2 | Minimum |
+| --- | --- | --- | --- | --- |
+| Integer | 2.5205 / 2.4432 | 2.7703 / 2.8298 | 2.9232 / 2.9305 | 2.0 |
+| Float | 4.6531 / 4.7232 | 5.1063 / 5.0090 | 5.2776 / 4.9260 | 2.0 |
+| Table | 1.1295 / 1.1187 | 1.2400 / 1.1631 | 1.2805 / 1.2692 | 1.25 |
+| Upvalue | 0.6506 / 0.6754 | 0.6873 / 0.6691 | 0.7067 / 0.7000 | 1.25 |
+| Rust callbacks | 0.7266 / 0.7394 | 0.7981 / 0.7951 | 0.8186 / 0.8164 | 0.8333 |
+
+Exact frames also pass metamethod, allocation/GC and cold-start floors in both
+runs; the Oslo predicate remains unscored. All six native commands exit 2
+because unresolved workloads fail. Keep exact-frame specialization as an
+incremental improvement: table acceleration passes twice and upvalue/callback
+ratios improve, but this does not satisfy full performance acceptance. Full
+GNU/musl correctness gates `71556` already cover these exact source inputs.
+
+Matched compiled-Off controls remain incomplete: speed runs fail float overhead
+at 11.97%/9.56%; integer overhead is 3.56%/9.33%. Shipping integer overhead is
+8.27%/4.59%, so only shipping repeat 2 passes all nine controls. Other controls
+pass both repetitions. Preserve every failure; do not pick the one green run.
+Next investigate disabled-loop overhead and native short-call/upvalue costs
+with targeted profiles before making another runtime experiment.
+
+`af26288` commits the measured exact-frame optimization. Symbol-retained matched
+profile build `97733` exits 0 under `profile-speed/`; these artifacts are for
+diagnostics, not replacements for the stripped acceptance binaries. Queue
+`59486` exits 3 after thirty ten-second checks without a profiling window and
+launches no Valgrind run. Its final preflight sees Molla Make `215791`, Cargo
+`215856` and GPU test `216926`. Previously rejected const-generic interpreter
+splits and same-function macro hoisting are documented below; do not repeat
+those experiments on source-level branch-count reasoning alone.
+
+#### Session summary — measured performance checkpoint
+
+Current instruction-profile batch `74173` exits 0: two rounds each of upvalue
+Auto, callback Auto and float Off, using the identical symbol-retained matched
+binaries. External Molla builds were recorded; these are not wall-clock gates.
+Callgrind collection covers `run_vm` during both warmups and measured iterations.
+Float counts repeat exactly: no-feature 46,802,700 versus compiled-Off
+48,590,955 instructions; conditional branches are 4,416,215 versus 4,841,410.
+Callback counts repeat exactly: interpreter 28,530,885 versus Auto 35,041,491.
+Upvalue interpreter counts repeat at 78,261,497; Auto is 115,571,724/115,571,696
+(28-instruction variation). Simulated cache/branch miss counts are not identical
+and are not hardware measurements. Both Auto workers verify results and native
+execution; their printed elapsed times are deliberately not acceptance evidence.
+
+Exclusive upvalue costs are `run_vm` 39,249,171 instructions (33.96%), native
+eight-slot invocation 15,248,529 (13.19%) and two-slot invocation 7,893,396
+(6.83%). Callback costs are `run_vm` 9,926,959 (28.33%) and seven-slot invocation
+6,955,595 (19.85%). These localize dispatch/materialization as optimization
+targets; they do not establish that any proposed rewrite improves elapsed time.
 
 ## Goal
-- Continue the full native JIT implementation while performance timing is
-  obstructed by other repositories' build/test jobs.
+- Continue full native JIT implementation using instruction diagnostics now;
+  reserve quiet-host restrictions for elapsed-time acceptance measurements.
 
 ## Instructions
 - Prioritize JIT performance and normal Lua integration, not additional
@@ -843,38 +1042,87 @@ close callback or run target handlers on the caller's thread.
 - Selective prototype loading around `prepare_jit` fixes the tier assignment
   without adding a test-only runtime API. Suspension boundaries isolate actual
   caller/callee native work from return-transition work in the other frame.
-- Both tiers omit pending handlers when `coroutine.close` resets a suspended
-  thread. The new regression observes zero cleanups instead of one in each tier.
+- Both tiers previously omitted pending handlers when closing a suspended
+  coroutine. Preparing a CloseSequence on that same thread preserves identity
+  while ordinary executor slices drive cleanup. A closing flag rejects suspension.
+- A dispatch failure before entering a handler also used to drop remaining
+  resources. Retaining that error in the same rooted sequence preserves the
+  remaining handlers and keeps failed-dispatch processing fuel-bounded.
 - Engram tools remain unavailable; this project-local summary records recovery
   context without writing external memory files.
+- Process-local instruction counts can be collected during unrelated builds;
+  waiting for a quiet host before Callgrind diagnostics was unnecessary.
 
 ## Accomplished
 - `ba55424` commits the 24-scenario matrix and initial GNU/musl evidence.
 - `9ed8a0f` commits three tail-call regressions. GNU/musl focused batch `40229`
   passes five tests without async and six with async per platform. Measured
   shallow/deep arena peaks are 3198 bytes; sampled callback-stack span is zero.
-- The earlier full GNU/musl gates passed before these new tests. New cleanup
-  regression `60252` fails as recorded above and remains uncommitted alongside
-  the unchanged small-frame runtime candidate. All owned jobs are terminal.
-  This turn made integration progress and exposed a missing lifecycle behavior.
+- Original cleanup regression `60252` failed in both tiers; focused repair batch
+  `35235` and full GNU/musl batch `42787` now pass. The latter reports 5000/434/24
+  per platform. Raw reset clears markers, dead errors retain identity until
+  close/restart, and failed cleanup does not poll foreign futures.
+- Dispatch regression `11118` failed before repair. Focused batch `59371`
+  passes 10/12 tests per platform; full batch `26435` passes 5011/434/24 on GNU
+  and musl. The matrix covers 18 Off/native scenario pairs per feature lane.
+- The earlier benchmark artifacts built at `fe0042a` predate the dispatch fix
+  and are historical, not current acceptance artifacts.
+- Recovered checkpoint at HEAD `a83e931`. The uncommitted deferred-error repair
+  preserves failed coroutine frames until explicit close; wrap closes before
+  propagating errors. Final focused GNU/musl batch `71366` exits 0 with 15/17
+  passing tests per platform. Full batch `71556` subsequently exits 0 on both
+  platforms with 5048/434/24 passing executions/suite results/ignored tests.
+  The lifecycle repair is committed separately as `3a17a1f`.
+- Refreshed all three native benchmark variants and speed/shipping feature-cost
+  controls on that revision. All builds ended successfully and temporary source
+  edits are restored. Corrected timing queue `73111` exits 3 without a timing
+  window; invalid runner evidence is quarantined, not used for acceptance.
+  All owned build/test/timing-queue jobs are terminal.
+- Follow-up `29418` obtained a quiet window and completed all ten comparisons.
+  Exact-frame table speedup passes twice; upvalue/callback and inconsistent
+  disabled-tier overhead still fail. Retain the small-frame optimization as an
+  incremental measured improvement, not completion of the frozen gates.
+- Committed that optimization as `af26288`. Built symbol-retained matched
+  diagnostics successfully (`97733`); profiling queue `59486` ended without a
+  quiet window, so no current profile results exist. All owned jobs are terminal.
+- Follow-up profiling queue `23557` also exits 3 after thirty ten-second checks;
+  no Valgrind process was launched. This turn is a verified wait, not additional
+  implementation progress. The existing GPU-test blocker persists.
+- A third consecutive profiling-blocker audit revalidates live Molla Make
+  `215791`, Cargo `232814` and kinematic GPU test `233148`. Both prepared profile
+  binary hashes still match. No owned job remains running and no new runtime
+  defect justifies unrelated work. The goal is blocked on a quiet profiling
+  window, not complete; no unrelated process was stopped.
+- On the user's retry, corrected that overly broad diagnostic restriction.
+  Batch `74173` completes all six profiles while unrelated builds continue.
+  Repeated instruction counts identify dispatch/invocation work as the next
+  target. All owned profiling jobs are terminal; full acceptance remains open.
 
 ## Next Steps
-- Repair executor-driven coroutine cleanup and validate error propagation,
-  remaining handlers, target-thread identity and bounded execution before
-  accepting the new regression. Preserve raw host reset semantics separately.
-- Measure the original/table-only/small-frame artifacts with unchanged checked
-  native and compiled-Off gates once external build/test activity ends. Latest
-  live check still sees molla Cargo `1965955` and test `1966307`; no timing ran.
+- Use the completed profiles to reduce repeated native-boundary dispatch and
+  materialization work for short calls. Preserve GC/fuel/error semantics and
+  native coverage; validate each candidate with differential tests and counts,
+  then unchanged timing gates on a quiet host. Do not repeat rejected whole-VM
+  splitting experiments without a different, evidence-supported mechanism.
 - Complete remaining error/close integration and actual platform
-  acceptance. The resumed goal remains active and incomplete.
+  acceptance after the performance work. The prior profiling blocker no longer
+  prevents diagnostic progress; the full implementation remains incomplete.
 
 ## Relevant Files
 - `tests/jit_suspension.rs` — selective tier and suspension integration matrix.
 - `target/jit-evidence/mixed-call-tiers/` — focused/full GNU and musl results.
 - `target/jit-evidence/tail-call-bounds/` — accepted focused tail-call results.
 - `target/jit-evidence/coroutine-close-gap/` — failing cleanup log and patch.
+- `target/jit-evidence/post-close-performance/` — fresh matched binaries/hashes.
+- `src/thread/close.rs` — retained dispatch errors and one-resource-per-poll processing.
+- `target/jit-evidence/close-handler-dispatch/` — failing/passing focused and full gates.
 - `src/stdlib/coroutine.rs`, `src/thread/` — cleanup lifecycle repair locations.
-- `src/jit/mod.rs` — unchanged, uncommitted small-frame performance candidate.
+- `target/jit-evidence/deferred-coroutine-errors/` — deferred cleanup focused logs.
+- `target/jit-evidence/post-deferred-performance/` — current matched binaries,
+  source manifests, cost controls and isolated invalid timing attempt.
+- `src/jit/mod.rs` — committed exact-small-frame optimization (`af26288`).
+- `target/jit-evidence/post-deferred-performance/profile-speed/round-{1,2}/` —
+  completed process-local profiles and annotations, not timing acceptance.
 
 ### Phase 6 — Add heap fast paths with collector and mutation proofs
 
@@ -1097,7 +1345,7 @@ Do not disable tests, lower safety guarantees, catch arbitrary crashes as succes
 | 5: lifecycle integration | IN PROGRESS | Mixed-tier callbacks, async/coroutines, errors and close tests | Dedicated heap/upvalue tests cover reentry, close/error unwinding, panic materialization, debug mutation, shared captures and finalizer resurrection. Public coroutine/foreign-await scenarios (`7351b4b`) verify all three modes at fuel 1/64/65536, native table updates after resumption, GC while parked, six Pending polls/two Ready polls/six wakes, and no compilation inside slices. GNU/musl full-feature Force passes. Complete transition/error/mock coverage remains open. |
 | 6: heap/GC integration | IN PROGRESS | Native heap paths, barriers, GC/mutation/invalidation stress | Fresh helper guards preserve weak/readonly/intercept/invalid-key behavior. Every-slice GC, open/closed upvalues, pending-scalar panic inspection, debug local/upvalue join and finalizer-only native upvalue writes pass. Shared-cell tests additionally prove exact operation counts and write visibility across error guards, foreign stacks, GC and Rust reentry. Broader interleaved executors, mode mutations and exhaustive guard coverage remain open. |
 | 7: Auto policy | IN PROGRESS | Nonblocking stepping, owned compile work, limits/backoff, hot promotion | Bounded hot requests and explicit outside-arena service; configuration retirement, queue/attempt reductions, typed quota refusal and reset tests pass. LRU retry, charged recency, sparse compaction, refusal backoff and source collection preserve leases/live identities. Real hot queued-source GC tests (`5570951`) cancel dead requests without snapshot/compiler work, preserve a live peer's queue/identity and reclaim all accounted storage after its final drop. Injected blocked compiler and complete resource/diagnostic coverage remain open. |
-| 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Slice leases, ABI v3, operand synchronization and tiered scratch pass correctness. Latest frozen `7c2d9af` native table/upvalue/callback gates fail in both eleven-pair runs; metamethod passes narrowly. Matched GNU speed-profile compiled-Off/no-JIT controls at `f347245` pass all nine cases twice; shipping fails three/five cases, including upvalues 1.1790/1.1743. These controls were not refreshed for compiler-work commits, so complete disabled-JIT acceptance remains unmet. Both checkers gate on ratios of medians, not their separately printed median-paired fields. Reference-move specialization remains historically rejected. Separate cold/service/slice/cache-churn and suspension observations pass, not paired release acceptance. Perf counters remain permission-denied; hardening/resource/performance work stays open. |
+| 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Exact small frames (`af26288`) pass full GNU/musl correctness and the table speedup target twice (1.2805/1.2692). Current native upvalue (0.7067/0.7000) and callback (0.8186/0.8164) gates still fail. Matched speed compiled-Off controls fail float twice and integer once; shipping integer fails once, so its one all-green repeat is insufficient. Both checkers retain their frozen ratios-of-medians gates. Rejected reference-move and VM-splitting experiments remain removed. Prepared symbol-retained profiles await a quiet host. Full performance acceptance remains open. |
 | 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Limited supervised admission/scalar campaigns test signals/timeouts/inherited limits; a five-seed 5120-kernel campaign verifies exits/slots/reclamation. Latest full GNU/musl x86-64 gates on `e747b07` pass 3054 tests/421 suite results each, 24 ignored; allocation/protection refusal is tested. Pinned default-seed Rust-only Miri passes 76 tests/fourteen namespaces, including owned flow/block/exit/access/work admission, scalar-tag SSA/guard/phi verification and pure IR-emitter rejection, reference Move alias/scalar/panic checks and queued-source retirement. Generated machine code, active native lease invocation, coroutine/foreign-await scenarios and executable finalization are not Miri-covered. Broader heap/lifecycle fuzz, complete unsafe review and actual ARM64/hosted evidence remain open. |
 | 10: release acceptance | IN PROGRESS | Complete gates, thresholds, docs/examples, actual CI | Prepared example and resource/security documentation exist. Active workflow wiring runs full GNU/musl x86-64 and GNU ARM64 gates, builds matched shipping artifacts and uploads evidence. Workflow lint/local musl integration pass; repeated local shipping/size/disabled-cost evidence is recorded. Actual hosted/ARM64 results, complete hardening and both native/disabled performance acceptance remain missing. |
 

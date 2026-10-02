@@ -27,6 +27,117 @@ const PRELUDE: &str = r#"
 "#;
 
 #[test]
+fn closes_suspended_coroutine_in_reverse_order() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"{PRELUDE}
+            local co=coroutine.create(function()
+                local outer <close> = res("outer")
+                do
+                    local inner <close> = res("inner")
+                    coroutine.yield()
+                end
+            end)
+            assert(coroutine.resume(co))
+            assert(result()=="")
+            assert(coroutine.close(co))
+            assert(coroutine.status(co)=="dead")
+            assert(coroutine.close(co))
+            return result()
+        "#
+        ))?,
+        "inner,outer"
+    );
+    Ok(())
+}
+
+#[test]
+fn closing_a_dead_coroutine_returns_its_original_error_once() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(
+            r#"
+            local marker={}
+            local co=coroutine.create(function() error(marker) end)
+            local ok,err=coroutine.resume(co)
+            assert(not ok and err==marker)
+            ok,err=coroutine.close(co)
+            assert(not ok and err==marker)
+            return tostring(coroutine.close(co))
+        "#
+        )?,
+        "true"
+    );
+    Ok(())
+}
+
+#[test]
+fn failed_close_dispatch_does_not_skip_outer_resources() -> Result<(), ExternError> {
+    for replacement in ["nil", "42", "{}"] {
+        assert_eq!(
+            eval(&format!(
+                r#"{PRELUDE}
+                local mt={{__close=function() error('old handler ran') end}}
+                local ok,err=pcall(function()
+                    local outer <close> = res('outer')
+                    local bad <close> = setmetatable({{}},mt)
+                    local inner <close> = res('inner')
+                    mt.__close={replacement}
+                end)
+                assert(not ok and err~=nil)
+                assert(#log==2 and log[1]=='inner')
+                assert(log[2]:sub(1,6)=='outer!')
+                return 'ok'
+                "#
+            ))?,
+            "ok"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn uncaught_coroutine_error_keeps_resources_until_close() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"{PRELUDE}
+        local co=coroutine.create(function()
+            local outer <close> = res('outer')
+            local inner <close> = res('inner')
+            error('original')
+        end)
+        local ok,err=coroutine.resume(co)
+        assert(not ok and result()=='')
+        ok,err=coroutine.close(co)
+        assert(not ok and err~=nil)
+        return result()
+    "#
+        ))?,
+        "inner!original,outer!original"
+    );
+    Ok(())
+}
+
+#[test]
+fn wrap_closes_after_error_before_propagating_it() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"{PRELUDE}
+        local wrapped=coroutine.wrap(function()
+            local outer <close> = res('outer')
+            local inner <close> = res('inner')
+            error('original')
+        end)
+        local ok,err=pcall(wrapped)
+        assert(not ok and err~=nil)
+        return result()
+    "#
+        ))?,
+        "inner!original,outer!original"
+    );
+    Ok(())
+}
+
+#[test]
 fn closes_on_normal_block_exit() -> Result<(), ExternError> {
     assert_eq!(
         eval(&format!(
