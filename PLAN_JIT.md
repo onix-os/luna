@@ -8051,8 +8051,12 @@ to this candidate. Only fresh build/configuration/hash/section outputs are curre
   GNU `50349` and musl `58822` each exit 0: 54 tests/eight suites/zero ignored.
 - Stripped benchmark `77707`, symbol-bearing assembly `17699` and matched
   speed/shipping build pair `60238` all exit 0. Fourteen invocation bodies are
-  extracted; the two-slot body is retained separately. All build/test jobs are
-  terminal; the benchmark-wait session described below is still live.
+  extracted; the two-slot body is retained separately.
+- Full candidate gate `4377` exits 0: GNU and musl each **4946 passing
+  executions/434 suite results/24 ignored**, including repeated modes and docs,
+  not 4946 unique tests. Both existing supervised smoke lanes pass. Current
+  runtime/source hashes still match `source.sha256`; no new Miri claim is made.
+  All owned build/test/wait jobs are now terminal.
 - Immutable original/table-only/exact-frame benchmark artifacts and current
   matched speed/shipping executables exist. Source hashes, base revision and
   candidate patch are under `target/jit-evidence/exact-small-frames/`.
@@ -8064,15 +8068,17 @@ to this candidate. Only fresh build/configuration/hash/section outputs are curre
   excluded; active Cargo/rustc/test/benchmark/profile jobs remain blockers.
 - Owned old wait `18088` was explicitly terminated after that classification
   correction and returns 143. It was not restarted on an observation timeout.
-  Replacement `39727` is a live bounded quiet-window/gate queue. Exact evidence
-  directory: `gate-20261002T015357Z`; last observation sees unrelated molla
-  `make -j1 test-all`/Cargo workspace tests plus rustc/linker children. No unrelated
-  job is killed or excluded, and no timing claim is made.
+  Replacement `39727` exits 3 after its 1800-second wait deadline without
+  launching timing. Exact evidence directory: `gate-20261002T015357Z`. Latest
+  preflight still sees unrelated molla `make -j1 test-all`/Cargo workspace tests
+  and a running FEM test. No unrelated job is killed or excluded, and no timing
+  claim is made. The user has been asked asynchronously whether they can reserve
+  a quiet benchmark window or prefer continued waiting; no answer yet.
 
 ## Next Steps
-- Re-poll owned session `39727`; observation timeout is not terminal and must not
-  cause a duplicate gate launch. Its wait deadline is 1800 seconds, with four
-  quiet preflights before running and pre/post checks for each timing batch.
+- Both `4377` and `39727` are authoritatively terminal; do not re-poll or duplicate
+  a live job. Revalidate external processes before a new timing attempt, retain
+  a separate evidence directory, require quiet preflights and pre/post checks.
   Once global build/test
   activity is absent, compare the three benchmark artifacts sequentially with
   unchanged eleven-sample checked gates and reversed-order repeats; execute
