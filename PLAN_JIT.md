@@ -963,6 +963,15 @@ still observes Molla Make `167318`, Cargo `168491` and pose-precision test
 
 #### Current measured small-frame decision
 
+**Diagnostic scheduling correction:** the quiet-host restriction applies to
+wall-clock benchmarks and hardware-time profiles, not process-local Callgrind
+instruction counts. The earlier blanket profiling wait was unnecessarily
+restrictive. Use the existing single-worker instruction-count lane during
+unrelated builds, record that activity, and repeat counts before drawing
+conclusions. Its simulated cache/branch events and elapsed times are not native
+hardware or speed acceptance. Keep clean-host requirements for frozen timing
+gates unchanged. See the [Callgrind manual](https://valgrind.org/docs/manual/cl-manual.html).
+
 Corrected batch `29418` found a quiet window and exits 0 after all ten runs.
 Every native and feature-cost run has a successful empty pre/postflight; the
 batch exit only means comparisons completed, not that their gates all passed.
@@ -1003,9 +1012,27 @@ those experiments on source-level branch-count reasoning alone.
 
 #### Session summary — measured performance checkpoint
 
+Current instruction-profile batch `74173` exits 0: two rounds each of upvalue
+Auto, callback Auto and float Off, using the identical symbol-retained matched
+binaries. External Molla builds were recorded; these are not wall-clock gates.
+Callgrind collection covers `run_vm` during both warmups and measured iterations.
+Float counts repeat exactly: no-feature 46,802,700 versus compiled-Off
+48,590,955 instructions; conditional branches are 4,416,215 versus 4,841,410.
+Callback counts repeat exactly: interpreter 28,530,885 versus Auto 35,041,491.
+Upvalue interpreter counts repeat at 78,261,497; Auto is 115,571,724/115,571,696
+(28-instruction variation). Simulated cache/branch miss counts are not identical
+and are not hardware measurements. Both Auto workers verify results and native
+execution; their printed elapsed times are deliberately not acceptance evidence.
+
+Exclusive upvalue costs are `run_vm` 39,249,171 instructions (33.96%), native
+eight-slot invocation 15,248,529 (13.19%) and two-slot invocation 7,893,396
+(6.83%). Callback costs are `run_vm` 9,926,959 (28.33%) and seven-slot invocation
+6,955,595 (19.85%). These localize dispatch/materialization as optimization
+targets; they do not establish that any proposed rewrite improves elapsed time.
+
 ## Goal
-- Continue the full native JIT implementation while performance timing is
-  obstructed by other repositories' build/test jobs.
+- Continue full native JIT implementation using instruction diagnostics now;
+  reserve quiet-host restrictions for elapsed-time acceptance measurements.
 
 ## Instructions
 - Prioritize JIT performance and normal Lua integration, not additional
@@ -1023,6 +1050,8 @@ those experiments on source-level branch-count reasoning alone.
   remaining handlers and keeps failed-dispatch processing fuel-bounded.
 - Engram tools remain unavailable; this project-local summary records recovery
   context without writing external memory files.
+- Process-local instruction counts can be collected during unrelated builds;
+  waiting for a quiet host before Callgrind diagnostics was unnecessary.
 
 ## Accomplished
 - `ba55424` commits the 24-scenario matrix and initial GNU/musl evidence.
@@ -1036,9 +1065,8 @@ those experiments on source-level branch-count reasoning alone.
 - Dispatch regression `11118` failed before repair. Focused batch `59371`
   passes 10/12 tests per platform; full batch `26435` passes 5011/434/24 on GNU
   and musl. The matrix covers 18 Off/native scenario pairs per feature lane.
-- All owned jobs are terminal. The small-frame runtime candidate is unchanged
-  and uncommitted. Benchmark artifacts last built at `fe0042a` predate the
-  dispatch fix and are historical, not current acceptance artifacts.
+- The earlier benchmark artifacts built at `fe0042a` predate the dispatch fix
+  and are historical, not current acceptance artifacts.
 - Recovered checkpoint at HEAD `a83e931`. The uncommitted deferred-error repair
   preserves failed coroutine frames until explicit close; wrap closes before
   propagating errors. Final focused GNU/musl batch `71366` exits 0 with 15/17
@@ -1065,17 +1093,20 @@ those experiments on source-level branch-count reasoning alone.
   binary hashes still match. No owned job remains running and no new runtime
   defect justifies unrelated work. The goal is blocked on a quiet profiling
   window, not complete; no unrelated process was stopped.
+- On the user's retry, corrected that overly broad diagnostic restriction.
+  Batch `74173` completes all six profiles while unrelated builds continue.
+  Repeated instruction counts identify dispatch/invocation work as the next
+  target. All owned profiling jobs are terminal; full acceptance remains open.
 
 ## Next Steps
-- Profile the current upvalue/callback and compiled-Off dispatch costs under
-  another clean preflight. Preserve current immutable timing artifacts and all
-  failed gates; use prepared `profile-speed/` binaries without rebuilding. Do not
-  repeat previously rejected VM-splitting experiments or broaden audit work.
-  Both `59486` and `23557` are terminal; poll live external state rather than
-  treating either queue as still running.
+- Use the completed profiles to reduce repeated native-boundary dispatch and
+  materialization work for short calls. Preserve GC/fuel/error semantics and
+  native coverage; validate each candidate with differential tests and counts,
+  then unchanged timing gates on a quiet host. Do not repeat rejected whole-VM
+  splitting experiments without a different, evidence-supported mechanism.
 - Complete remaining error/close integration and actual platform
-  acceptance after the performance work. Resume the blocked, incomplete goal
-  when external build/test activity ends or a quiet window is reserved.
+  acceptance after the performance work. The prior profiling blocker no longer
+  prevents diagnostic progress; the full implementation remains incomplete.
 
 ## Relevant Files
 - `tests/jit_suspension.rs` — selective tier and suspension integration matrix.
@@ -1089,7 +1120,9 @@ those experiments on source-level branch-count reasoning alone.
 - `target/jit-evidence/deferred-coroutine-errors/` — deferred cleanup focused logs.
 - `target/jit-evidence/post-deferred-performance/` — current matched binaries,
   source manifests, cost controls and isolated invalid timing attempt.
-- `src/jit/mod.rs` — unchanged, uncommitted small-frame performance candidate.
+- `src/jit/mod.rs` — committed exact-small-frame optimization (`af26288`).
+- `target/jit-evidence/post-deferred-performance/profile-speed/round-{1,2}/` —
+  completed process-local profiles and annotations, not timing acceptance.
 
 ### Phase 6 — Add heap fast paths with collector and mutation proofs
 
