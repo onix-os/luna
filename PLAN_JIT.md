@@ -783,6 +783,29 @@ repeated configurations/docs. Both existing supervised smoke lanes pass.
 small-frame runtime candidate and all its recorded source hashes are unchanged.
 No clean performance timing or ARM64 acceptance is claimed.
 
+#### Tail-call bounds — 2026-10-02
+
+`tests/jit_suspension.rs` compares Off/prepared execution at depths 128 and
+16384 with a Lua call-frame limit of eight and fuel 1/64/65536. Every slice
+compares completion, mode and remaining fuel; GC runs after every slice.
+Native instruction deltas prove execution, and exact result vectors retain
+interior/trailing nils. Deep arena peaks must stay within 4096 bytes of the
+corresponding shallow run. A callback samples its local stack address every
+128 recursive calls; the observed span must stay within 32768 bytes. This is
+sampled callback-boundary stack evidence, not a measurement of every transient
+machine-stack peak. The recursion depth, not a benchmark statistic, is varied.
+
+A non-tail control must raise the existing `stack overflow` error at the same
+frame limit in both tiers. A deliberately nonterminating tail call runs for
+32 host slices at each fuel setting, comparing tiers and bounding logical
+work to fuel plus 63 per slice. No runtime or performance thresholds change.
+Final focused GNU/musl batch `40229` exits 0: each platform passes five tests
+without async and six with async. Every recorded shallow/deep, Off/native and
+fuel combination reports a 3198-byte arena peak and zero sampled stack-address
+span. Evidence is under `target/jit-evidence/tail-call-bounds/{gnu,musl}.log`.
+These are focused acceptance results; the earlier 4951-execution full gates
+predate these three new tests.
+
 #### Session summary — selective call integration
 
 ## Goal

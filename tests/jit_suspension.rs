@@ -11,6 +11,163 @@ use luna::{
     Callback, CallbackReturn, Closure, Executor, ExecutorMode, ExternError, Fuel, Function,
     JitConfig, JitMode, Lua, StashedExecutor, Variadic,
 };
+use std::{cell::Cell, rc::Rc};
+
+type StackSamples = Rc<Cell<(usize, usize, usize)>>;
+
+fn tail_state(
+    native: bool,
+    depth: i64,
+    tail: bool,
+) -> Result<(Lua, StashedExecutor, StackSamples), ExternError> {
+    let mut lua = Lua::empty();
+    lua.set_jit_config(JitConfig {
+        mode: if native { JitMode::Auto } else { JitMode::Off },
+        hot_threshold: u32::MAX,
+        ..Default::default()
+    })
+    .unwrap();
+    let samples = Rc::new(Cell::new((usize::MAX, 0, 0)));
+    let script = format!(
+        r#"
+        local n,total=...
+        if n%128==0 then probe() end
+        if n==0 then return total,nil,42,nil end
+        {}
+        "#,
+        if tail {
+            "return recurse(n-1,total+n)"
+        } else {
+            "local result=recurse(n-1,total+n) return result"
+        }
+    );
+    let executor = lua.try_enter(|ctx| {
+        ctx.set_max_call_depth(8);
+        let samples = samples.clone();
+        ctx.set_global(
+            "probe",
+            Callback::from_fn(&ctx, move |_, _, mut stack| {
+                let marker = std::hint::black_box(0u8);
+                let address = std::hint::black_box(&marker) as *const u8 as usize;
+                let (low, high, count) = samples.get();
+                samples.set((low.min(address), high.max(address), count + 1));
+                stack.clear();
+                Ok(CallbackReturn::Return)
+            }),
+        );
+        let closure = Closure::load(ctx, Some("tail-depth"), script.as_bytes())?;
+        ctx.set_global("recurse", closure);
+        Ok(ctx.stash(Executor::start(ctx, closure.into(), (depth, 0i64))))
+    })?;
+    assert_eq!(lua.prepare_jit().unwrap(), usize::from(native));
+    Ok((lua, executor, samples))
+}
+
+#[test]
+fn deep_native_tail_calls_keep_frames_memory_and_host_stack_bounded() -> Result<(), ExternError> {
+    for fuel in [1, 64, 65536] {
+        let mut shallow_peaks = [0; 2];
+        for depth in [128, 16384] {
+            let (mut reference, left, left_stack) = tail_state(false, depth, true)?;
+            let (mut candidate, right, right_stack) = tail_state(true, depth, true)?;
+            let mut peaks = [reference.total_memory(), candidate.total_memory()];
+            let mut finished = false;
+            for _ in 0..100_000 {
+                let before = candidate.jit_stats();
+                let expected = call_step(&mut reference, &left, fuel);
+                let actual = call_step(&mut candidate, &right, fuel);
+                assert_eq!(actual, expected, "depth={depth} fuel={fuel}");
+                let after = candidate.jit_stats();
+                let work = after.native_instructions - before.native_instructions
+                    + after.interpreted_instructions
+                    - before.interpreted_instructions;
+                assert!(work <= fuel as u64 + 63);
+                peaks[0] = peaks[0].max(reference.total_memory());
+                peaks[1] = peaks[1].max(candidate.total_memory());
+                reference.gc_collect();
+                candidate.gc_collect();
+                if actual.0 {
+                    finished = true;
+                    break;
+                }
+            }
+            assert!(finished, "depth={depth} fuel={fuel}");
+            let expected = vec![Some(depth * (depth + 1) / 2), None, Some(42), None];
+            assert_eq!(call_result(&mut reference, &left)?, expected);
+            assert_eq!(call_result(&mut candidate, &right)?, expected);
+            assert!(candidate.jit_stats().native_instructions > depth as u64);
+            assert_eq!(candidate.jit_stats().installed_regions, 1);
+            assert_eq!(candidate.jit_stats().queued_requests, 0);
+            assert_eq!(reference.jit_stats().native_instructions, 0);
+            for (tier, samples) in [left_stack, right_stack].into_iter().enumerate() {
+                let (low, high, count) = samples.get();
+                assert_eq!(count, depth as usize / 128 + 1);
+                assert!(high - low <= 32768, "host stack span {}", high - low);
+                eprintln!(
+                    "tail depth={depth} fuel={fuel} native={} samples={count} callback_stack_span={} arena_peak={}",
+                    tier == 1,
+                    high - low,
+                    peaks[tier]
+                );
+            }
+            if depth == 128 {
+                shallow_peaks = peaks;
+            } else {
+                for (peak, shallow) in peaks.into_iter().zip(shallow_peaks) {
+                    assert!(
+                        peak <= shallow + 4096,
+                        "arena peak {peak}, shallow {shallow}"
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn native_non_tail_calls_still_obey_the_frame_limit() -> Result<(), ExternError> {
+    for native in [false, true] {
+        let (mut lua, executor, _) = tail_state(native, 128, false)?;
+        let mut finished = false;
+        for _ in 0..100 {
+            if call_step(&mut lua, &executor, 1).0 {
+                finished = true;
+                break;
+            }
+            lua.gc_collect();
+        }
+        assert!(finished);
+        let error = call_result(&mut lua, &executor).unwrap_err();
+        assert_eq!(error.root_cause().to_string(), "stack overflow");
+        assert_eq!(lua.jit_stats().native_instructions > 0, native);
+    }
+    Ok(())
+}
+
+#[test]
+fn unbounded_native_tail_calls_return_at_each_fuel_boundary() -> Result<(), ExternError> {
+    for fuel in [1, 64, 65536] {
+        let (mut reference, left, _) = tail_state(false, -1, true)?;
+        let (mut candidate, right, _) = tail_state(true, -1, true)?;
+        for _ in 0..32 {
+            let before = candidate.jit_stats();
+            let expected = call_step(&mut reference, &left, fuel);
+            let actual = call_step(&mut candidate, &right, fuel);
+            assert_eq!(actual, expected);
+            assert!(!actual.0);
+            let after = candidate.jit_stats();
+            assert!(after.native_instructions > before.native_instructions);
+            let work = after.native_instructions - before.native_instructions
+                + after.interpreted_instructions
+                - before.interpreted_instructions;
+            assert!(work <= fuel as u64 + 63);
+            reference.gc_collect();
+            candidate.gc_collect();
+        }
+    }
+    Ok(())
+}
 
 fn mixed_call_state(
     caller_native: bool,
