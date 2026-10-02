@@ -1012,6 +1012,40 @@ those experiments on source-level branch-count reasoning alone.
 
 #### Session summary — measured performance checkpoint
 
+**Dispatch outlining experiment:** current profiles attribute substantial work
+to `run_vm`. Test keeping `Runtime::run` out of line, in addition to its already
+outlined scratch invocation, to reduce native-entry dispatch code embedded in
+the interpreter. This changes no ABI or runtime semantics. Compare total
+collected instructions, not just moved self-cost, then frozen timing gates;
+reject the annotation if it provides no convincing benefit. This is not another
+duplicated/const-generic interpreter-loop experiment.
+
+Rejected dispatch outlining: focused `47923` passes 14 native/16 heap tests and
+builds matched diagnostics; profile batch `23882` completes both rounds. Total
+upvalue Auto instructions increase from 115,571,724 to 116,367,476/116,367,593;
+callback Auto increases from 35,041,491 to 35,264,895. Float Off decreases only
+from 48,590,955 to 48,494,065. No convincing reduction on the target workloads:
+remove the annotation rather than retain a speculative hardware-time benefit.
+Artifacts remain under `target/jit-evidence/outlined-native-dispatch/`.
+
+Next isolated experiment: `Slot::write_back` should leave reference-tagged
+canonical slots untouched and materialize scalars without loading the old
+destination. Helpers already update canonical reference values; a reference tag
+contains no pointer to copy. Preserve `Slot::value` for operand decoding and
+its bit-exact scalar behavior. Verify all tags/references and profile whole-call
+instruction counts before retaining this candidate.
+
+Scalar-only writeback was rechecked on the exact-small-frame baseline: focused
+`20439` passes four ABI/eight helper/fourteen native/sixteen heap tests and
+builds diagnostics; `48785` completes six profiles. Upvalue instructions fall
+only to 115,073,568 (about 0.43%), callback to 34,917,311 (about 0.35%), while
+float Off is unchanged. Simulated upvalue conditional misses increase sharply;
+they are not hardware-time evidence. The older register-materialization section
+also records a rejected timing experiment with this mechanism. Remove the
+candidate rather than claim these tiny instruction reductions fix the large
+performance gap. Both runtime files are restored; artifacts remain under
+`target/jit-evidence/scalar-only-writeback/`.
+
 Current instruction-profile batch `74173` exits 0: two rounds each of upvalue
 Auto, callback Auto and float Off, using the identical symbol-retained matched
 binaries. External Molla builds were recorded; these are not wall-clock gates.
@@ -1097,6 +1131,10 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
   Batch `74173` completes all six profiles while unrelated builds continue.
   Repeated instruction counts identify dispatch/invocation work as the next
   target. All owned profiling jobs are terminal; full acceptance remains open.
+- Tested dispatch outlining and scalar-only writeback with focused correctness
+  and two instruction-profile rounds each. Neither justifies retention; removed
+  both runtime experiments. Current source remains the accepted exact-frame
+  implementation. No wall-clock improvement or new full-suite pass is claimed.
 
 ## Next Steps
 - Use the completed profiles to reduce repeated native-boundary dispatch and
@@ -1104,6 +1142,10 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
   native coverage; validate each candidate with differential tests and counts,
   then unchanged timing gates on a quiet host. Do not repeat rejected whole-VM
   splitting experiments without a different, evidence-supported mechanism.
+- Investigate the repeated call/return interpreter transitions in the upvalue
+  workload before another local marshaling rewrite. Its native helpers run only
+  a few instructions per entry; the measured gap is much larger than either
+  rejected micro-optimization. Preserve the stackless/fuel/mixed-tier contract.
 - Complete remaining error/close integration and actual platform
   acceptance after the performance work. The prior profiling blocker no longer
   prevents diagnostic progress; the full implementation remains incomplete.
