@@ -1057,14 +1057,25 @@ those experiments on source-level branch-count reasoning alone.
 - Committed that optimization as `af26288`. Built symbol-retained matched
   diagnostics successfully (`97733`); profiling queue `59486` ended without a
   quiet window, so no current profile results exist. All owned jobs are terminal.
+- Follow-up profiling queue `23557` also exits 3 after thirty ten-second checks;
+  no Valgrind process was launched. This turn is a verified wait, not additional
+  implementation progress. The existing GPU-test blocker persists.
+- A third consecutive profiling-blocker audit revalidates live Molla Make
+  `215791`, Cargo `232814` and kinematic GPU test `233148`. Both prepared profile
+  binary hashes still match. No owned job remains running and no new runtime
+  defect justifies unrelated work. The goal is blocked on a quiet profiling
+  window, not complete; no unrelated process was stopped.
 
 ## Next Steps
 - Profile the current upvalue/callback and compiled-Off dispatch costs under
   another clean preflight. Preserve current immutable timing artifacts and all
   failed gates; use prepared `profile-speed/` binaries without rebuilding. Do not
   repeat previously rejected VM-splitting experiments or broaden audit work.
+  Both `59486` and `23557` are terminal; poll live external state rather than
+  treating either queue as still running.
 - Complete remaining error/close integration and actual platform
-  acceptance. The resumed goal remains active and incomplete.
+  acceptance after the performance work. Resume the blocked, incomplete goal
+  when external build/test activity ends or a quiet window is reserved.
 
 ## Relevant Files
 - `tests/jit_suspension.rs` — selective tier and suspension integration matrix.
