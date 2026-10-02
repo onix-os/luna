@@ -17,7 +17,9 @@ through Cranelift without replacing Luna's runtime. The latest full GNU and
 musl gates each pass 5048 test executions across repeated modes/suites, not
 5048 unique tests. Coroutine cleanup and deferred-error defects exposed after
 the prior green gates are repaired, with focused and full-suite evidence below.
-The small-frame runtime change remains uncommitted pending performance results.
+The exact-small-frame runtime change has repeated native benchmark evidence:
+the table target now passes, while upvalue/callback and disabled-tier costs
+remain unresolved. This is an incremental optimization, not release acceptance.
 
 The separate coverage-guided package is committed as `59ad32c`. Its locked
 all-target check and three integrated test functions pass. After correcting the
@@ -25,8 +27,8 @@ unsupported cargo-fuzz `--locked` argument, actual AddressSanitizer/libFuzzer
 campaigns pass: scalar 64 executions/60 new corpus inputs and heap 128
 executions/114 new corpus inputs. Both dependency locks remain unchanged.
 
-Historical performance gates still fail for upvalues/callbacks and table
-acceleration. Fresh performance acceptance, remaining compiler-memory and
+Current performance gates still fail for upvalues/callbacks and inconsistent
+compiled-disabled overhead. Remaining compiler-memory and
 safety review, actual ARM64 execution and hosted-CI evidence remain outstanding.
 Do not infer a completion percentage or delivery date from commit/test counts.
 
@@ -959,7 +961,38 @@ preflight checks without a quiet host; it launches no benchmark. Final preflight
 still observes Molla Make `167318`, Cargo `168491` and pose-precision test
 `168829`. No fresh speedup is claimed at this checkpoint.
 
-#### Session summary — deferred coroutine cleanup checkpoint
+#### Current measured small-frame decision
+
+Corrected batch `29418` found a quiet window and exits 0 after all ten runs.
+Every native and feature-cost run has a successful empty pre/postflight; the
+batch exit only means comparisons completed, not that their gates all passed.
+The native runs execute original/table/exact followed by exact/table/original,
+each with the frozen eleven-sample check. Ratios below are the specified ratio
+of medians (Off time / native time), not median paired ratios.
+
+| Workload | Original guard, runs 1/2 | Table-only, runs 1/2 | Exact frames, runs 1/2 | Minimum |
+| --- | --- | --- | --- | --- |
+| Integer | 2.5205 / 2.4432 | 2.7703 / 2.8298 | 2.9232 / 2.9305 | 2.0 |
+| Float | 4.6531 / 4.7232 | 5.1063 / 5.0090 | 5.2776 / 4.9260 | 2.0 |
+| Table | 1.1295 / 1.1187 | 1.2400 / 1.1631 | 1.2805 / 1.2692 | 1.25 |
+| Upvalue | 0.6506 / 0.6754 | 0.6873 / 0.6691 | 0.7067 / 0.7000 | 1.25 |
+| Rust callbacks | 0.7266 / 0.7394 | 0.7981 / 0.7951 | 0.8186 / 0.8164 | 0.8333 |
+
+Exact frames also pass metamethod, allocation/GC and cold-start floors in both
+runs; the Oslo predicate remains unscored. All six native commands exit 2
+because unresolved workloads fail. Keep exact-frame specialization as an
+incremental improvement: table acceleration passes twice and upvalue/callback
+ratios improve, but this does not satisfy full performance acceptance. Full
+GNU/musl correctness gates `71556` already cover these exact source inputs.
+
+Matched compiled-Off controls remain incomplete: speed runs fail float overhead
+at 11.97%/9.56%; integer overhead is 3.56%/9.33%. Shipping integer overhead is
+8.27%/4.59%, so only shipping repeat 2 passes all nine controls. Other controls
+pass both repetitions. Preserve every failure; do not pick the one green run.
+Next investigate disabled-loop overhead and native short-call/upvalue costs
+with targeted profiles before making another runtime experiment.
+
+#### Session summary — measured performance checkpoint
 
 ## Goal
 - Continue the full native JIT implementation while performance timing is
@@ -1008,13 +1041,15 @@ still observes Molla Make `167318`, Cargo `168491` and pose-precision test
   edits are restored. Corrected timing queue `73111` exits 3 without a timing
   window; invalid runner evidence is quarantined, not used for acceptance.
   All owned build/test/timing-queue jobs are terminal.
+- Follow-up `29418` obtained a quiet window and completed all ten comparisons.
+  Exact-frame table speedup passes twice; upvalue/callback and inconsistent
+  disabled-tier overhead still fail. Retain the small-frame optimization as an
+  incremental measured improvement, not completion of the frozen gates.
 
 ## Next Steps
-- Revalidate live external activity before running the prepared native and
-  compiled-Off comparisons. Queue `73111` is terminal; do not re-poll it or
-  rebuild the unchanged artifacts. Latest live blocker is Molla Make `167318`,
-  Cargo `168491` and test `168829`; do not stop unrelated jobs. Do not expand
-  unrelated audits or lifecycle work merely to fill the timing wait.
+- Profile the current upvalue/callback and compiled-Off dispatch costs under
+  another clean preflight. Preserve current immutable timing artifacts and all
+  failed gates; do not rebuild unchanged timing binaries or broaden audit work.
 - Complete remaining error/close integration and actual platform
   acceptance. The resumed goal remains active and incomplete.
 

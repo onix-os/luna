@@ -777,12 +777,20 @@ impl Runtime {
                 return 0;
             }
             match code.registers {
-                0..=8 => self.invoke::<8>(code, ctx, closure, registers, budget),
-                9..=16 => self.invoke::<16>(code, ctx, closure, registers, budget),
-                17..=32 => self.invoke::<32>(code, ctx, closure, registers, budget),
-                33..=64 => self.invoke::<64>(code, ctx, closure, registers, budget),
-                65..=128 => self.invoke::<128>(code, ctx, closure, registers, budget),
-                129..=256 => self.invoke::<256>(code, ctx, closure, registers, budget),
+                0 => self.invoke::<8, false>(code, ctx, closure, registers, budget),
+                1 => self.invoke::<1, true>(code, ctx, closure, registers, budget),
+                2 => self.invoke::<2, true>(code, ctx, closure, registers, budget),
+                3 => self.invoke::<3, true>(code, ctx, closure, registers, budget),
+                4 => self.invoke::<4, true>(code, ctx, closure, registers, budget),
+                5 => self.invoke::<5, true>(code, ctx, closure, registers, budget),
+                6 => self.invoke::<6, true>(code, ctx, closure, registers, budget),
+                7 => self.invoke::<7, true>(code, ctx, closure, registers, budget),
+                8 => self.invoke::<8, true>(code, ctx, closure, registers, budget),
+                9..=16 => self.invoke::<16, false>(code, ctx, closure, registers, budget),
+                17..=32 => self.invoke::<32, false>(code, ctx, closure, registers, budget),
+                33..=64 => self.invoke::<64, false>(code, ctx, closure, registers, budget),
+                65..=128 => self.invoke::<128, false>(code, ctx, closure, registers, budget),
+                129..=256 => self.invoke::<256, false>(code, ctx, closure, registers, budget),
                 _ => 0,
             }
         }
@@ -801,7 +809,7 @@ impl Runtime {
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
     #[inline(never)]
-    fn invoke<'gc, const CAPACITY: usize>(
+    fn invoke<'gc, const CAPACITY: usize, const EXACT: bool>(
         &self,
         code: &backend::Code,
         ctx: crate::Context<'gc>,
@@ -809,23 +817,24 @@ impl Runtime {
         registers: &mut crate::thread::LuaRegisters<'gc, '_>,
         budget: u32,
     ) -> u32 {
+        let register_count = if EXACT { CAPACITY } else { code.registers };
         let mut scratch = [std::mem::MaybeUninit::<abi::Slot>::uninit(); CAPACITY];
-        for (slot, value) in scratch[..code.registers]
+        for (slot, value) in scratch[..register_count]
             .iter_mut()
-            .zip(registers.stack_frame.iter().copied())
+            .zip(registers.stack_frame[..register_count].iter().copied())
         {
             slot.write(abi::Slot::from_value(value));
         }
         // Borrow the initialized prefix of scalar scratch storage.
         let slots = unsafe {
-            std::slice::from_raw_parts_mut(scratch.as_mut_ptr().cast::<abi::Slot>(), code.registers)
+            std::slice::from_raw_parts_mut(scratch.as_mut_ptr().cast::<abi::Slot>(), register_count)
         };
         let mut frame = helpers::Frame {
             ctx,
             closure,
             registers,
             count: helpers::Counts::default(),
-            slot_count: code.registers,
+            slot_count: register_count,
             panic: None,
         };
         let mut host = abi::Host {
@@ -835,7 +844,7 @@ impl Runtime {
         for (slot, dest) in slots
             .iter()
             .copied()
-            .zip(frame.registers.stack_frame.iter_mut())
+            .zip(frame.registers.stack_frame[..register_count].iter_mut())
         {
             slot.write_back(dest);
         }
