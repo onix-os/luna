@@ -254,11 +254,17 @@ fn fixed_helper_symbols_preserve_environment_and_reference_operands() -> Result<
 #[test]
 fn scratch_tiers_preserve_reference_results_at_every_capacity_boundary() -> Result<(), ExternError>
 {
-    for registers in [8u16, 9, 16, 17, 32, 33, 64, 65, 128, 129, 255, 256] {
+    for registers in [
+        1u16, 2, 3, 4, 5, 6, 7, 8, 9, 16, 17, 32, 33, 64, 65, 128, 129, 255, 256,
+    ] {
         let names: Vec<_> = (0..registers - 1)
             .map(|index| format!("r{index}"))
             .collect();
-        let script = format!("local {} return 'anchored'", names.join(","));
+        let script = if names.is_empty() {
+            "return 'anchored'".to_owned()
+        } else {
+            format!("local {} return 'anchored'", names.join(","))
+        };
         for enabled in [false, true] {
             let mut lua = if enabled {
                 native_empty()
@@ -276,7 +282,7 @@ fn scratch_tiers_preserve_reference_results_at_every_capacity_boundary() -> Resu
             assert_eq!(lua.execute::<String>(&executor)?, "anchored");
             lua.gc_collect();
             if enabled {
-                assert!(lua.jit_stats().native_instructions >= 2);
+                assert!(lua.jit_stats().native_instructions >= if registers == 1 { 1 } else { 2 });
                 assert!(lua.jit_stats().helper_instructions >= 1);
             }
         }
