@@ -1,6 +1,9 @@
-use std::hash::{Hash, Hasher};
+use std::{
+    hash::{Hash, Hasher},
+    pin::Pin,
+};
 
-use allocator_api2::vec;
+use allocator_api2::{boxed, vec};
 use ottavino_gc_arena::{allocator_api::MetricsAlloc, lock::RefLock, Collect, Gc, Mutation};
 use thiserror::Error;
 
@@ -8,7 +11,8 @@ use crate::{
     compiler::{FunctionRef, LineNumber},
     thread::BadThreadMode,
     BoxSequence, CallbackReturn, Closure, Context, Error, FromMultiValue, Fuel, Function,
-    IntoMultiValue, PendingFuture, SequencePoll, Stack, String, Thread, ThreadMode, Variadic,
+    IntoMultiValue, PendingFuture, Sequence, SequencePoll, Stack, String, Thread, ThreadMode,
+    Variadic,
 };
 
 use super::{
@@ -16,6 +20,73 @@ use super::{
     thread::{Frame, LuaFrame, StackVec, ThreadState},
     vm::run_vm,
 };
+
+enum ActiveSequence<'gc> {
+    User(BoxSequence<'gc>),
+    Close(boxed::Box<CloseSequence<'gc>, MetricsAlloc<'gc>>),
+}
+
+impl<'gc> ActiveSequence<'gc> {
+    fn unpack(frame: Frame<'gc>) -> (usize, Self, Option<Error<'gc>>) {
+        match frame {
+            Frame::Sequence {
+                bottom,
+                sequence,
+                pending_error,
+            } => (bottom, Self::User(sequence), pending_error),
+            Frame::Close {
+                bottom,
+                sequence,
+                pending_error,
+            } => (bottom, Self::Close(sequence), pending_error),
+            _ => unreachable!(),
+        }
+    }
+
+    fn frame(self, bottom: usize, pending_error: Option<Error<'gc>>) -> Frame<'gc> {
+        match self {
+            Self::User(sequence) => Frame::Sequence {
+                bottom,
+                sequence,
+                pending_error,
+            },
+            Self::Close(sequence) => Frame::Close {
+                bottom,
+                sequence,
+                pending_error,
+            },
+        }
+    }
+
+    fn poll(
+        &mut self,
+        ctx: Context<'gc>,
+        exec: Execution<'gc, '_>,
+        stack: Stack<'gc, '_>,
+    ) -> Result<SequencePoll<'gc>, Error<'gc>> {
+        match self {
+            Self::User(sequence) => sequence.poll(ctx, exec, stack),
+            Self::Close(sequence) => Pin::new(&mut **sequence).poll(ctx, exec, stack),
+        }
+    }
+
+    fn error(
+        &mut self,
+        ctx: Context<'gc>,
+        exec: Execution<'gc, '_>,
+        error: Error<'gc>,
+        stack: Stack<'gc, '_>,
+    ) -> Result<SequencePoll<'gc>, Error<'gc>> {
+        match self {
+            Self::User(sequence) => sequence.error(ctx, exec, error, stack),
+            Self::Close(sequence) => Pin::new(&mut **sequence).error(ctx, exec, error, stack),
+        }
+    }
+
+    fn has_pending_close(&self) -> bool {
+        matches!(self, Self::Close(sequence) if sequence.has_remaining())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutorMode {
@@ -431,11 +502,8 @@ impl<'gc> Executor<'gc> {
                             }
                         }
                     }
-                    Some(Frame::Sequence {
-                        bottom,
-                        mut sequence,
-                        pending_error,
-                    }) => {
+                    Some(frame @ (Frame::Sequence { .. } | Frame::Close { .. })) => {
+                        let (bottom, mut sequence, pending_error) = ActiveSequence::unpack(frame);
                         fuel.consume(Self::FUEL_PER_SEQ_STEP);
 
                         let inner = top_thread.into_inner();
@@ -464,11 +532,7 @@ impl<'gc> Executor<'gc> {
 
                         match poll {
                             Ok(SequencePoll::Pending) => {
-                                top_state.frames.push(Frame::Sequence {
-                                    bottom,
-                                    sequence,
-                                    pending_error: None,
-                                });
+                                top_state.frames.push(sequence.frame(bottom, None));
                             }
                             Ok(SequencePoll::Return) => {
                                 top_state.return_to(&mut top_stack, bottom);
@@ -477,11 +541,7 @@ impl<'gc> Executor<'gc> {
                                 function,
                                 bottom: rel_bottom,
                             }) => {
-                                top_state.frames.push(Frame::Sequence {
-                                    bottom,
-                                    sequence,
-                                    pending_error: None,
-                                });
+                                top_state.frames.push(sequence.frame(bottom, None));
                                 top_state.push_call(&mut top_stack, bottom + rel_bottom, function);
                             }
                             Ok(SequencePoll::TailCall(function)) => {
@@ -491,11 +551,7 @@ impl<'gc> Executor<'gc> {
                                 to_thread,
                                 bottom: rel_bottom,
                             }) => {
-                                top_state.frames.push(Frame::Sequence {
-                                    bottom,
-                                    sequence,
-                                    pending_error: None,
-                                });
+                                top_state.frames.push(sequence.frame(bottom, None));
                                 do_yield(
                                     ctx,
                                     &mut state.thread_stack,
@@ -519,11 +575,7 @@ impl<'gc> Executor<'gc> {
                                 thread,
                                 bottom: rel_bottom,
                             }) => {
-                                top_state.frames.push(Frame::Sequence {
-                                    bottom,
-                                    sequence,
-                                    pending_error: None,
-                                });
+                                top_state.frames.push(sequence.frame(bottom, None));
                                 do_resume(
                                     ctx,
                                     &mut state.thread_stack,
@@ -553,17 +605,16 @@ impl<'gc> Executor<'gc> {
                                         .into(),
                                     ));
                                 } else {
-                                    top_state.frames.push(Frame::Sequence {
-                                        bottom,
-                                        sequence,
-                                        pending_error: None,
-                                    });
+                                    top_state.frames.push(sequence.frame(bottom, None));
                                     state.pending = Some(future);
                                     break false;
                                 }
                             }
                             Err(error) => {
                                 top_stack.truncate(bottom);
+                                if sequence.has_pending_close() {
+                                    top_state.frames.push(sequence.frame(bottom, None));
+                                }
                                 top_state.frames.push(Frame::Error(error));
                             }
                         }
@@ -603,46 +654,68 @@ impl<'gc> Executor<'gc> {
                     }
                     Some(Frame::Error(err)) => {
                         let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
-                        match top_state
-                            .frames
-                            .pop()
-                            .expect("normal thread must have frame above error")
+                        if state.thread_stack.len() > 1
+                            && !top_state.closing
+                            && !top_state
+                                .frames
+                                .iter()
+                                .any(|frame| matches!(frame, Frame::Sequence { .. }))
                         {
-                            Frame::Lua { bottom, .. } => {
-                                let stack = top_state.stack;
-                                let mut stack = stack.borrow_mut(&ctx);
-                                top_state.close_upvalues(&ctx, &stack, bottom);
-                                // An error unwinding past a `<close>` variable still has to run its
-                                // handler — that is the case cleanup exists for. The handler gets
-                                // the in-flight error, and the sequence re-raises it afterwards.
-                                let to_close = top_state.take_to_be_closed(&stack, bottom);
-                                stack.truncate(bottom);
-                                if to_close.is_empty() {
-                                    top_state.frames.push(Frame::Error(err));
-                                } else {
-                                    top_state.frames.push(Frame::Sequence {
-                                        bottom,
-                                        sequence: BoxSequence::new(
-                                            &ctx,
-                                            CloseSequence::new(to_close, Some(err)),
-                                        ),
-                                        pending_error: None,
-                                    });
+                            top_state.terminal_error = Some(err);
+                            top_state.deferred_error = true;
+                            top_state.error_taken = false;
+                        } else {
+                            match top_state
+                                .frames
+                                .pop()
+                                .expect("normal thread must have frame above error")
+                            {
+                                Frame::Lua { bottom, .. } => {
+                                    let stack = top_state.stack;
+                                    let mut stack = stack.borrow_mut(&ctx);
+                                    top_state.close_upvalues(&ctx, &stack, bottom);
+                                    // An error unwinding past a `<close>` variable still has to run its
+                                    // handler — that is the case cleanup exists for. The handler gets
+                                    // the in-flight error, and the sequence re-raises it afterwards.
+                                    let to_close = top_state.take_to_be_closed(&stack, bottom);
+                                    stack.truncate(bottom);
+                                    if to_close.is_empty() {
+                                        top_state.frames.push(Frame::Error(err));
+                                    } else {
+                                        top_state.frames.push(Frame::close(
+                                            ctx,
+                                            bottom,
+                                            to_close,
+                                            Some(err),
+                                        ));
+                                    }
                                 }
-                            }
-                            Frame::Sequence {
-                                bottom,
-                                sequence,
-                                pending_error,
-                            } => {
-                                assert!(pending_error.is_none());
-                                top_state.frames.push(Frame::Sequence {
+                                Frame::Sequence {
                                     bottom,
                                     sequence,
-                                    pending_error: Some(err),
-                                });
+                                    pending_error,
+                                } => {
+                                    assert!(pending_error.is_none());
+                                    top_state.frames.push(Frame::Sequence {
+                                        bottom,
+                                        sequence,
+                                        pending_error: Some(err),
+                                    });
+                                }
+                                Frame::Close {
+                                    bottom,
+                                    sequence,
+                                    pending_error,
+                                } => {
+                                    assert!(pending_error.is_none());
+                                    top_state.frames.push(Frame::Close {
+                                        bottom,
+                                        sequence,
+                                        pending_error: Some(err),
+                                    });
+                                }
+                                frame => panic!("tried to wind through improper frame {frame:?}"),
                             }
-                            frame => panic!("tried to wind through improper frame {frame:?}"),
                         }
                     }
                     _ => panic!("tried to step invalid frame type"),

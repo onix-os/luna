@@ -14,9 +14,9 @@
 The requested plan document is written. Full implementation and release
 acceptance are not finished. The committed native tier executes Luna bytecode
 through Cranelift without replacing Luna's runtime. The latest full GNU and
-musl gates each pass 5011 test executions across repeated modes/suites, not
-5011 unique tests. The coroutine-close cleanup defect exposed after the prior
-green gates is repaired, with focused lifecycle and full-suite evidence below.
+musl gates each pass 5048 test executions across repeated modes/suites, not
+5048 unique tests. Coroutine cleanup and deferred-error defects exposed after
+the prior green gates are repaired, with focused and full-suite evidence below.
 The small-frame runtime change remains uncommitted pending performance results.
 
 The separate coverage-guided package is committed as `59ad32c`. Its locked
@@ -908,7 +908,33 @@ parking an uncaught error and discarding frames later would lose those batches.
 A future deferred-unwind repair must preserve in-progress cleanup ownership and
 Rust Sequence error-handling boundaries, not just add a terminal-error flag.
 
-#### Session summary — close-dispatch continuation
+Deferred-unwind implementation decision: represent internal cleanup frames
+separately from user `BoxSequence` frames, using a concrete metrics-allocated
+CloseSequence box. This preserves access to remaining cleanup batches without
+changing the public Sequence trait. An uncaught child-coroutine error may park
+its live frames/stack until close; user Sequence frames remain error-handling
+boundaries. Explicit close merges canonical markers with retained cleanup
+batches in stack order. `coroutine.wrap` must resume that cleanup before
+propagating the final error. Raw host reset/restart still discards execution
+without invoking Lua. Focused and full GNU/musl correctness gates pass below.
+
+Implementation evidence: original regression `18020` fails with `cleanup ran
+before close`. Initial fix `24240`, expanded GNU matrix `43285` and GNU/musl
+focused batch `81145` pass. The latter runs fourteen tests without async and
+sixteen with async per platform. New tests preserve nested in-progress cleanup
+batches and handler locals across GC, mutate a retained upvalue before close,
+verify protected errors unwind before their catch returns, verify raw host
+restart/start-suspended discards deferred frames, and check wrap cleanup error
+replacement. Final focused batch `71366` exits 0 on GNU and musl: fifteen tests
+without async and seventeen with async per platform, including interleaved
+inspection of pending error/return/yield results. Full batch `71556` exits 0:
+GNU and musl `make jit-verify` each report 5048 passing test executions across
+434 suite results, with 24 ignored and zero failed tests. This includes the
+feature-independent close regressions and existing supervised smoke lanes;
+it does not establish performance or ARM64 acceptance. Evidence is under
+`target/jit-evidence/deferred-coroutine-errors/`.
+
+#### Session summary — deferred coroutine cleanup checkpoint
 
 ## Goal
 - Continue the full native JIT implementation while performance timing is
@@ -946,12 +972,20 @@ Rust Sequence error-handling boundaries, not just add a terminal-error flag.
 - All owned jobs are terminal. The small-frame runtime candidate is unchanged
   and uncommitted. Benchmark artifacts last built at `fe0042a` predate the
   dispatch fix and are historical, not current acceptance artifacts.
+- Recovered checkpoint at HEAD `a83e931`. The uncommitted deferred-error repair
+  preserves failed coroutine frames until explicit close; wrap closes before
+  propagating errors. Final focused GNU/musl batch `71366` exits 0 with 15/17
+  passing tests per platform. Full batch `71556` subsequently exits 0 on both
+  platforms with 5048/434/24 passing executions/suite results/ignored tests.
+  The lifecycle repair is ready for its separate commit; all owned jobs ended.
 
 ## Next Steps
+- Commit the accepted deferred-error runtime/tests/documentation separately
+  from the performance draft.
 - Refresh matched benchmark artifacts after current lifecycle changes settle,
   then run unchanged native/compiled-Off gates when external activity ends.
-  Molla test-all (`2155976`/`2156037`) remains live, now running FEM test
-  `2399369`; do not kill it, time alongside it, or claim a speedup yet.
+  Current preflight observes Molla GPU Make `17573`, Cargo `131132` and live
+  pose-precision test `131492`; recheck before timing, and do not stop them.
 - Complete remaining error/close integration and actual platform
   acceptance. The resumed goal remains active and incomplete.
 
@@ -964,6 +998,7 @@ Rust Sequence error-handling boundaries, not just add a terminal-error flag.
 - `src/thread/close.rs` — retained dispatch errors and one-resource-per-poll processing.
 - `target/jit-evidence/close-handler-dispatch/` — failing/passing focused and full gates.
 - `src/stdlib/coroutine.rs`, `src/thread/` — cleanup lifecycle repair locations.
+- `target/jit-evidence/deferred-coroutine-errors/` — deferred cleanup focused logs.
 - `src/jit/mod.rs` — unchanged, uncommitted small-frame performance candidate.
 
 ### Phase 6 — Add heap fast paths with collector and mutation proofs

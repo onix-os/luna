@@ -1,6 +1,53 @@
-use crate::{meta_ops, BoxSequence, Callback, CallbackReturn, Context, Table, Thread, ThreadMode};
+use std::pin::Pin;
+
+use ottavino_gc_arena::Collect;
+
+use crate::{
+    meta_ops, BoxSequence, Callback, CallbackReturn, Context, Error, Execution, Sequence,
+    SequencePoll, Stack, Table, Thread, ThreadMode,
+};
 
 use super::base::PCall;
+
+#[derive(Collect)]
+#[collect(no_drop)]
+struct WrapResult<'gc> {
+    thread: Thread<'gc>,
+    pending_error: Option<Error<'gc>>,
+}
+
+impl<'gc> Sequence<'gc> for WrapResult<'gc> {
+    fn poll(
+        mut self: Pin<&mut Self>,
+        _: Context<'gc>,
+        _: Execution<'gc, '_>,
+        _: Stack<'gc, '_>,
+    ) -> Result<SequencePoll<'gc>, Error<'gc>> {
+        match self.pending_error.take() {
+            Some(error) => Err(error),
+            None => Ok(SequencePoll::Return),
+        }
+    }
+
+    fn error(
+        mut self: Pin<&mut Self>,
+        ctx: Context<'gc>,
+        _: Execution<'gc, '_>,
+        error: Error<'gc>,
+        mut stack: Stack<'gc, '_>,
+    ) -> Result<SequencePoll<'gc>, Error<'gc>> {
+        if self.pending_error.is_some() || !self.thread.has_terminal_error() {
+            return Err(error);
+        }
+        self.pending_error = Some(error);
+        self.thread.prepare_close(ctx)?;
+        stack.clear();
+        Ok(SequencePoll::Resume {
+            thread: self.thread,
+            bottom: 0,
+        })
+    }
+}
 
 pub fn load_coroutine<'gc>(ctx: Context<'gc>) {
     let coroutine = Table::new(&ctx);
@@ -39,9 +86,6 @@ pub fn load_coroutine<'gc>(ctx: Context<'gc>) {
         }),
     );
 
-    // `wrap` is `create` plus a function that resumes it. The difference from `resume` is entirely
-    // in the error handling: no `PCall` sequence, so an error inside the coroutine propagates to
-    // the caller instead of being reported as `false, err`.
     coroutine.set_field(
         ctx,
         "wrap",
@@ -53,10 +97,16 @@ pub fn load_coroutine<'gc>(ctx: Context<'gc>) {
             stack.clear();
             stack.replace(
                 ctx,
-                Callback::from_fn_with(&ctx, thread, |thread, _, _, _| {
+                Callback::from_fn_with(&ctx, thread, |thread, ctx, _, _| {
                     Ok(CallbackReturn::Resume {
                         thread: *thread,
-                        then: None,
+                        then: Some(BoxSequence::new(
+                            &ctx,
+                            WrapResult {
+                                thread: *thread,
+                                pending_error: None,
+                            },
+                        )),
                     })
                 }),
             );
@@ -101,6 +151,7 @@ pub fn load_coroutine<'gc>(ctx: Context<'gc>) {
                     // Active, but it resumed another coroutine and is waiting on it. PUC-Rio calls
                     // that "normal", and scheduler code ported from it depends on the distinction.
                     ThreadMode::Waiting | ThreadMode::Normal => "normal",
+                    ThreadMode::Result if thread.result_is_terminal() => "dead",
                     ThreadMode::Result | ThreadMode::Suspended => "suspended",
                 },
             );

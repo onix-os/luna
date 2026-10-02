@@ -18,7 +18,7 @@ use crate::{
 };
 
 /// Runs `__close` for a batch of to-be-closed values, then resumes whatever was happening.
-#[derive(Collect)]
+#[derive(Debug, Collect)]
 #[collect(no_drop)]
 pub struct CloseSequence<'gc> {
     /// Still to close, in declaration order; popped from the end so the last declared runs first.
@@ -38,6 +38,14 @@ impl<'gc> CloseSequence<'gc> {
         }
     }
 
+    pub(super) fn has_remaining(&self) -> bool {
+        !self.remaining.is_empty()
+    }
+
+    pub(super) fn take_remaining(&mut self) -> Vec<Value<'gc>> {
+        std::mem::take(&mut self.remaining)
+    }
+
     /// Find the next value with a `__close` metamethod and ask for it to be called.
     ///
     /// `false` and `nil` are skipped rather than rejected, as Lua allows a to-be-closed variable to
@@ -53,24 +61,20 @@ impl<'gc> CloseSequence<'gc> {
             }
 
             let Some(handler) = meta_ops::get_metamethod(ctx, value, MetaMethod::Close) else {
-                self.pending_error = Some(
-                    crate::IntoValue::into_value(
-                        format!(
-                            "variable of type {} has no '__close' metamethod",
-                            value.type_name()
-                        ),
-                        ctx,
-                    )
-                    .into(),
-                );
-                return Ok(SequencePoll::Pending);
+                return Err(crate::IntoValue::into_value(
+                    format!(
+                        "variable of type {} has no '__close' metamethod",
+                        value.type_name()
+                    ),
+                    ctx,
+                )
+                .into());
             };
 
             let function = match meta_ops::call(ctx, handler) {
                 Ok(function) => function,
                 Err(error) => {
-                    self.pending_error = Some(error.into());
-                    return Ok(SequencePoll::Pending);
+                    return Err(error.into());
                 }
             };
 

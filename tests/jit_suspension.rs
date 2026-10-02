@@ -395,6 +395,264 @@ fn cleanup_continues_after_missing_or_noncallable_handlers() -> Result<(), Exter
 }
 
 #[test]
+fn failed_coroutines_defer_cleanup_and_wrapped_coroutines_close_automatically(
+) -> Result<(), ExternError> {
+    for failure in ["body", "handler", "dispatch", "replace"] {
+        for wrapped in [false, true] {
+            let trigger = if matches!(failure, "body" | "replace") {
+                "error(marker)"
+            } else {
+                "return 42"
+            };
+            let inner = match failure {
+                "handler" => "error(marker)",
+                "dispatch" => "mt.__close=nil",
+                "replace" => "error(replacement)",
+                _ => "",
+            };
+            let expected_before = if matches!(failure, "body" | "replace") {
+                0
+            } else {
+                1
+            };
+            let final_error = if failure == "replace" {
+                "assert(err==replacement)"
+            } else {
+                ""
+            };
+            let invoke = if wrapped {
+                "local call=coroutine.wrap(body) local ok,err=pcall(call) assert(not ok and err~=nil)"
+                    .to_owned()
+            } else {
+                format!(
+                    "local co=coroutine.create(body) local ok,err=coroutine.resume(co) assert(not ok and err~=nil) assert(#events=={expected_before},'cleanup ran before close') assert(coroutine.status(co)=='dead') ok,err=coroutine.close(co) assert(not ok and err~=nil) assert(coroutine.close(co))"
+                )
+            };
+            let expected_middle = if failure == "dispatch" { "1" } else { "2" };
+            let expected_count = if failure == "dispatch" { 2 } else { 3 };
+            let script = format!(
+                r#"
+                local marker={{}} local replacement={{}} local events={{}} local total=0
+                local mt={{__close=function(_,err)
+                    events[#events+1]=2
+                    for i=1,100 do total=total+i end
+                end}}
+                local function resource(id)
+                    return setmetatable({{}},{{__close=function(_,err)
+                        events[#events+1]=id
+                        for i=1,100 do total=total+i end
+                        if id==3 then {inner} end
+                    end}})
+                end
+                local function body()
+                    local a <close> = resource(1)
+                    local b <close> = setmetatable({{}},mt)
+                    local c <close> = resource(3)
+                    {trigger}
+                end
+                {invoke}
+                {final_error}
+                assert(#events=={expected_count} and events[1]==3 and events[2]=={expected_middle})
+                assert(events[#events]==1)
+                assert(total==5050*{expected_count})
+                return true
+                "#
+            );
+            for fuel in [1, 64, 65536] {
+                let (expected, _) = cleanup_case(&script, false, fuel)?;
+                let (actual, stats) = cleanup_case(&script, true, fuel)?;
+                assert_eq!(
+                    actual, expected,
+                    "failure={failure} wrapped={wrapped} fuel={fuel}"
+                );
+                assert!(stats.native_upvalue_writes >= 200);
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn deferred_cleanup_merges_nested_batches_with_live_handler_locals() -> Result<(), ExternError> {
+    let script = r#"
+        local marker={} local log='' local total=0 local access
+        local function resource(name,check)
+            return setmetatable({}, {__close=function(_,err)
+                assert(err==marker)
+                if check then check() end
+                log=log..name
+                for i=1,100 do total=total+i end
+            end})
+        end
+        local co=coroutine.create(function()
+            local a <close> = resource('a')
+            local b <close> = resource('b')
+            local c <close> = setmetatable({}, {__close=function()
+                log=log..'C'
+                local x <close> = resource('x')
+                local function inner()
+                    local d <close> = resource('d')
+                    local e <close> = setmetatable({}, {__close=function()
+                        log=log..'E'
+                        local shared={value=9}
+                        access=function(value)
+                            if value then shared.value=value end
+                            return shared.value
+                        end
+                        local f <close> = resource('f',function() assert(shared.value==17) end)
+                        error(marker)
+                    end})
+                end
+                inner()
+            end})
+        end)
+        local ok,err=coroutine.resume(co)
+        assert(not ok and err==marker and log=='CE')
+        assert(access()==9 and access(17)==17)
+        ok,err=coroutine.close(co)
+        assert(not ok and err==marker)
+        assert(log=='CEfdxba' and total==25250)
+        assert(access()==17)
+        return true
+    "#;
+    for fuel in [1, 64, 65536] {
+        let (expected, _) = cleanup_case(script, false, fuel)?;
+        let (actual, stats) = cleanup_case(script, true, fuel)?;
+        assert_eq!(actual, expected);
+        assert!(stats.native_upvalue_writes >= 500);
+    }
+    Ok(())
+}
+
+#[test]
+fn protected_coroutine_errors_still_unwind_before_the_catch_returns() -> Result<(), ExternError> {
+    let script = r#"
+        local marker={} local log=''
+        local function resource(name)
+            return setmetatable({}, {__close=function(_,err)
+                assert(err==marker) log=log..name
+            end})
+        end
+        local co=coroutine.create(function()
+            local a <close> = resource('a')
+            local ok,err=pcall(function()
+                local b <close> = resource('b')
+                error(marker)
+            end)
+            assert(not ok and err==marker and log=='b')
+            error(marker)
+        end)
+        local ok,err=coroutine.resume(co)
+        assert(not ok and err==marker and log=='b')
+        ok,err=coroutine.close(co)
+        assert(not ok and err==marker and log=='ba')
+        return true
+    "#;
+    for fuel in [1, 64, 65536] {
+        let (expected, _) = cleanup_case(script, false, fuel)?;
+        let (actual, stats) = cleanup_case(script, true, fuel)?;
+        assert_eq!(actual, expected);
+        assert!(stats.native_upvalue_writes >= 2);
+    }
+    Ok(())
+}
+
+#[test]
+fn host_restart_discards_deferred_frames_without_running_lua() -> Result<(), ExternError> {
+    for native in [false, true] {
+        for suspended in [false, true] {
+            let mut lua = Lua::core();
+            lua.set_jit_config(JitConfig {
+                mode: if native { JitMode::Auto } else { JitMode::Off },
+                ..Default::default()
+            })
+            .unwrap();
+            let executor=lua.try_enter(|ctx| {
+                let closure=Closure::load(ctx,None,br#"
+                    closed=0
+                    local co=coroutine.create(function()
+                        local resource <close> = setmetatable({}, {__close=function() closed=closed+1 end})
+                        error('parked')
+                    end)
+                    assert(not coroutine.resume(co))
+                    assert(closed==0)
+                    return co
+                "#.as_slice())?;
+                Ok(ctx.stash(Executor::start(ctx,closure.into(),())))
+            })?;
+            lua.prepare_jit().unwrap();
+            lua.finish(&executor).unwrap();
+            let thread = lua.try_enter(|ctx| {
+                Ok(ctx.stash(ctx.fetch(&executor).take_result::<luna::Thread>(ctx)??))
+            })?;
+            lua.gc_collect();
+            let restarted = lua.try_enter(|ctx| {
+                let thread = ctx.fetch(&thread);
+                let closure = Closure::load(ctx, None, b"return 42".as_slice())?;
+                if suspended {
+                    thread.start_suspended(&ctx, closure.into())?;
+                    thread.resume(ctx, ())?;
+                } else {
+                    thread.start(ctx, closure.into(), ())?;
+                }
+                Ok(ctx.stash(Executor::run(&ctx, thread)?))
+            })?;
+            lua.prepare_jit().unwrap();
+            lua.gc_collect();
+            assert_eq!(lua.execute::<i64>(&restarted)?, 42);
+            assert_eq!(lua.enter(|ctx| ctx.get_global::<i64>("closed").unwrap()), 0);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn coroutine_status_distinguishes_pending_terminal_and_yielded_results() -> Result<(), ExternError>
+{
+    for (body, expected) in [
+        ("error({})", "dead"),
+        ("return 42", "dead"),
+        ("coroutine.yield(42)", "suspended"),
+    ] {
+        for native in [false, true] {
+            let mut lua = Lua::core();
+            lua.set_jit_config(JitConfig {
+                mode: if native { JitMode::Auto } else { JitMode::Off },
+                hot_threshold: u32::MAX,
+                ..Default::default()
+            })
+            .unwrap();
+            let (executor, inspector)=lua.try_enter(|ctx| {
+                let source=format!("target=coroutine.create(function() {body} end) return coroutine.resume(target)");
+                let main=Closure::load(ctx,None,source.as_bytes())?;
+                let inspect=Closure::load(ctx,None,b"return coroutine.status(target)".as_slice())?;
+                Ok((ctx.stash(Executor::start(ctx,main.into(),())),ctx.stash(Executor::start(ctx,inspect.into(),()))))
+            })?;
+            lua.prepare_jit().unwrap();
+            let mut observed = false;
+            for _ in 0..128 {
+                let step = call_step(&mut lua, &executor, 1);
+                lua.gc_collect();
+                let result = lua.enter(|ctx| {
+                    ctx.get_global::<luna::Thread>("target")
+                        .is_ok_and(|thread| thread.mode() == luna::ThreadMode::Result)
+                });
+                if result {
+                    assert_eq!(lua.execute::<String>(&inspector)?, expected);
+                    observed = true;
+                    break;
+                }
+                assert!(!step.0, "result boundary was not exposed");
+            }
+            assert!(observed);
+            lua.execute::<()>(&executor)?;
+            assert_eq!(lua.jit_stats().native_instructions > 0, native);
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn raw_reset_clears_close_markers_before_reusing_the_executor() -> Result<(), ExternError> {
     for native in [false, true] {
         let mut lua = Lua::core();

@@ -96,6 +96,48 @@ fn failed_close_dispatch_does_not_skip_outer_resources() -> Result<(), ExternErr
 }
 
 #[test]
+fn uncaught_coroutine_error_keeps_resources_until_close() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"{PRELUDE}
+        local co=coroutine.create(function()
+            local outer <close> = res('outer')
+            local inner <close> = res('inner')
+            error('original')
+        end)
+        local ok,err=coroutine.resume(co)
+        assert(not ok and result()=='')
+        ok,err=coroutine.close(co)
+        assert(not ok and err~=nil)
+        return result()
+    "#
+        ))?,
+        "inner!original,outer!original"
+    );
+    Ok(())
+}
+
+#[test]
+fn wrap_closes_after_error_before_propagating_it() -> Result<(), ExternError> {
+    assert_eq!(
+        eval(&format!(
+            r#"{PRELUDE}
+        local wrapped=coroutine.wrap(function()
+            local outer <close> = res('outer')
+            local inner <close> = res('inner')
+            error('original')
+        end)
+        local ok,err=pcall(wrapped)
+        assert(not ok and err~=nil)
+        return result()
+    "#
+        ))?,
+        "inner!original,outer!original"
+    );
+    Ok(())
+}
+
+#[test]
 fn closes_on_normal_block_exit() -> Result<(), ExternError> {
     assert_eq!(
         eval(&format!(
