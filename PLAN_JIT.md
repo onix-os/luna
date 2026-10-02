@@ -1041,6 +1041,19 @@ Timing queue `78932` exits 3 after thirty checks without launching a benchmark.
 The post-full-gate preflight still sees Molla GPU tests. All these jobs are
 terminal; the source candidate remains uncommitted pending measured benefit.
 
+Follow-up timing queue `78064` also exits 3 after thirty checks without a quiet
+host. Candidate binary hash verification succeeds; no timings or code changes
+were produced in this verified-wait turn. Preserve the prepared artifacts and
+do not repeat correctness gates for unchanged source.
+
+Third consecutive timing-blocker audit rechecks the live batch: Molla Make
+`1437715`, Cargo `1710554` and GPU test `1710901` remain active. The candidate
+source manifest still verifies, and all owned gates/queues are terminal. This
+is a wall-clock acceptance blocker, not the earlier mistaken restriction on
+instruction diagnostics. Mark the goal blocked pending an actual quiet timing
+window; preserve the uncommitted candidate and do not replace acceptance with
+more duplicate tests, instruction-count claims or speculative patch stacking.
+
 **Dispatch outlining experiment:** current profiles attribute substantial work
 to `run_vm`. Test keeping `Runtime::run` out of line, in addition to its already
 outlined scratch invocation, to reduce native-entry dispatch code embedded in
@@ -1178,6 +1191,9 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 - Then address the larger remaining short-call/upvalue cost without weakening
   stackless execution, fuel, mixed-tier semantics or native coverage. Do not
   repeat rejected whole-VM splitting/materialization experiments blindly.
+- Resume timing after unrelated builds/tests finish or the user arranges a
+  quiet window. `78932` and `78064` are terminal, not background jobs. No other
+  project's process was paused or terminated; full completion remains unproven.
 - Complete remaining error/close integration and actual platform
   acceptance after the performance work. The prior profiling blocker no longer
   prevents diagnostic progress; the full implementation remains incomplete.
