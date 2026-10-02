@@ -934,6 +934,31 @@ feature-independent close regressions and existing supervised smoke lanes;
 it does not establish performance or ARM64 acceptance. Evidence is under
 `target/jit-evidence/deferred-coroutine-errors/`.
 
+#### Refreshed performance artifacts after deferred cleanup
+
+`3a17a1f` commits the deferred-error repair separately from the small-frame
+performance candidate. Build-only jobs `38594` (exact), `86488` (matched
+speed/shipping feature costs), `23550` (table-only) and `69911` (original table
+guard) all exit 0. Immutable binary copies, full tracked runtime/example/build
+input hashes and source patches are in
+`target/jit-evidence/post-deferred-performance/`. The original-guard variant uses
+the current lifecycle fixes, not an old repository checkout. Temporary source
+changes were restored and the exact-source manifest verifies successfully.
+
+Binary SHA-256:
+- Exact: `5e8474d092ee34b276b6b0d252153bf7545915b15e474ae3284783c03417de26`.
+- Table-only: `cb3c28d5d0125f6868a7221bcce7d672db7b5ea02e49ea8fb78f9bdf6ac98e24`.
+- Original guard: `c80af5f52505019a8c95d198e1f86533084a479f6ca3584b01d4b45edc150a6c`.
+
+Timing attempt `90539` is invalid: an awk line-break syntax error failed open
+in its preflight. It was interrupted with exit 130; all timings and erroneous
+`clean-pre-post` labels are quarantined under `invalid-preflight/` and cannot
+support acceptance. The replacement runner checks every preflight exit status
+and uses pipefail. Corrected queue `73111` exits 3 after sixty ten-second
+preflight checks without a quiet host; it launches no benchmark. Final preflight
+still observes Molla Make `167318`, Cargo `168491` and pose-precision test
+`168829`. No fresh speedup is claimed at this checkpoint.
+
 #### Session summary — deferred coroutine cleanup checkpoint
 
 ## Goal
@@ -977,15 +1002,19 @@ it does not establish performance or ARM64 acceptance. Evidence is under
   propagating errors. Final focused GNU/musl batch `71366` exits 0 with 15/17
   passing tests per platform. Full batch `71556` subsequently exits 0 on both
   platforms with 5048/434/24 passing executions/suite results/ignored tests.
-  The lifecycle repair is ready for its separate commit; all owned jobs ended.
+  The lifecycle repair is committed separately as `3a17a1f`.
+- Refreshed all three native benchmark variants and speed/shipping feature-cost
+  controls on that revision. All builds ended successfully and temporary source
+  edits are restored. Corrected timing queue `73111` exits 3 without a timing
+  window; invalid runner evidence is quarantined, not used for acceptance.
+  All owned build/test/timing-queue jobs are terminal.
 
 ## Next Steps
-- Commit the accepted deferred-error runtime/tests/documentation separately
-  from the performance draft.
-- Refresh matched benchmark artifacts after current lifecycle changes settle,
-  then run unchanged native/compiled-Off gates when external activity ends.
-  Current preflight observes Molla GPU Make `17573`, Cargo `131132` and live
-  pose-precision test `131492`; recheck before timing, and do not stop them.
+- Revalidate live external activity before running the prepared native and
+  compiled-Off comparisons. Queue `73111` is terminal; do not re-poll it or
+  rebuild the unchanged artifacts. Latest live blocker is Molla Make `167318`,
+  Cargo `168491` and test `168829`; do not stop unrelated jobs. Do not expand
+  unrelated audits or lifecycle work merely to fill the timing wait.
 - Complete remaining error/close integration and actual platform
   acceptance. The resumed goal remains active and incomplete.
 
@@ -999,6 +1028,8 @@ it does not establish performance or ARM64 acceptance. Evidence is under
 - `target/jit-evidence/close-handler-dispatch/` — failing/passing focused and full gates.
 - `src/stdlib/coroutine.rs`, `src/thread/` — cleanup lifecycle repair locations.
 - `target/jit-evidence/deferred-coroutine-errors/` — deferred cleanup focused logs.
+- `target/jit-evidence/post-deferred-performance/` — current matched binaries,
+  source manifests, cost controls and isolated invalid timing attempt.
 - `src/jit/mod.rs` — unchanged, uncommitted small-frame performance candidate.
 
 ### Phase 6 — Add heap fast paths with collector and mutation proofs
