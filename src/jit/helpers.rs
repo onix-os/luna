@@ -103,11 +103,10 @@ impl<'gc> Frame<'gc, '_, '_> {
         {
             return false;
         }
-        if (table.get_raw(&self.ctx, key).is_nil() || table.intercepts_all_writes())
-            && table
-                .metatable()
-                .is_some_and(|mt| !mt.get_value(self.ctx, MetaMethod::NewIndex).is_nil())
-        {
+        if table.metatable().is_some_and(|mt| {
+            (table.get_raw(&self.ctx, key).is_nil() || table.intercepts_all_writes())
+                && !mt.get_value(self.ctx, MetaMethod::NewIndex).is_nil()
+        }) {
             return false;
         }
         if table.set_raw(&self.ctx, key, value).is_err() {
@@ -692,6 +691,79 @@ mod tests {
             });
         });
         lua.gc_collect();
+    }
+
+    #[test]
+    fn table_store_guards_preserve_metatable_and_interception_combinations() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = Closure::load(ctx, None, b"return 42").unwrap();
+            for metatable in [false, true] {
+                for newindex in [false, true] {
+                    for intercept in [false, true] {
+                        for existing in [false, true] {
+                            let table = Table::new(&ctx);
+                            if existing {
+                                table.set(ctx, 1, 7).unwrap();
+                            }
+                            if metatable {
+                                let mt = Table::new(&ctx);
+                                if newindex {
+                                    mt.set(ctx, MetaMethod::NewIndex, true).unwrap();
+                                }
+                                table.set_metatable(ctx, Some(mt));
+                            }
+                            table.set_intercept_all_writes(&ctx, intercept);
+                            let declined = metatable && newindex && (!existing || intercept);
+                            let mut values =
+                                [Value::Table(table), Value::Integer(1), Value::Integer(42)];
+                            let mut pc = 0;
+                            LuaRegisters::with_test_frame(
+                                ctx,
+                                &mut pc,
+                                &mut values,
+                                |mut registers| {
+                                    let mut slots: [Slot; 3] = std::array::from_fn(|index| {
+                                        Slot::from_value(registers.stack_frame[index])
+                                    });
+                                    let mut frame = Frame {
+                                        ctx,
+                                        closure,
+                                        registers: &mut registers,
+                                        count: Counts::default(),
+                                        slot_count: slots.len(),
+                                        panic: None,
+                                    };
+                                    assert_eq!(
+                                        invoke::<{ abi::HELPER_SET_TABLE }>(
+                                            &mut frame, &mut slots, 0, 1, 2, 17
+                                        ),
+                                        if declined {
+                                            abi::HELPER_DECLINED
+                                        } else {
+                                            abi::HELPER_COMPLETED
+                                        }
+                                    );
+                                    assert_eq!(*frame.registers.pc, if declined { 17 } else { 18 });
+                                    assert_eq!(frame.count.table_writes, u64::from(!declined));
+                                    assert!(frame.panic.is_none());
+                                },
+                            );
+                            assert_identical(
+                                table.get_raw(&ctx, Value::Integer(1)),
+                                if !declined {
+                                    Value::Integer(42)
+                                } else if existing {
+                                    Value::Integer(7)
+                                } else {
+                                    Value::Nil
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+        });
     }
 
     #[test]
