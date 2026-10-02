@@ -14,8 +14,9 @@
 The requested plan document is written. Full implementation and release
 acceptance are not finished. The committed native tier executes Luna bytecode
 through Cranelift without replacing Luna's runtime. The latest experimental
-small-frame candidate passes the full GNU and musl correctness gates: each
-reports 4946 passing test executions across repeated modes/suites, not 4946
+small-frame candidate passes the full GNU and musl correctness gates, including
+the selective caller/callee matrix: each reports 4951 passing test executions
+across repeated modes/suites, not 4951
 unique tests. Its runtime change remains uncommitted pending performance results.
 
 The separate coverage-guided package is committed as `59ad32c`. Its locked
@@ -775,8 +776,46 @@ GNU `make fmt jit-suspension` exits 0 (`75980`): two tests without async and
 three with async. Evidence: `target/jit-evidence/mixed-call-tiers/gnu.log`.
 Musl `make jit-suspension TARGET=x86_64-unknown-linux-musl` also exits 0
 (`6955`), with the same two/three passing tests; `musl.log` is beside the GNU
-log. The small-frame runtime candidate and all its recorded source hashes are
-unchanged. These focused checks do not replace full-suite or performance gates.
+log. Full GNU followed by musl `make jit-verify` also exits 0 (`16737`): each
+reports 4951 passing executions, 434 suite results and 24 ignored tests across
+repeated configurations/docs. Both existing supervised smoke lanes pass.
+`full-gnu.log` and `full-musl.log` are in the same evidence directory. The
+small-frame runtime candidate and all its recorded source hashes are unchanged.
+No clean performance timing or ARM64 acceptance is claimed.
+
+#### Session summary — selective call integration
+
+## Goal
+- Continue the full native JIT implementation while performance timing is
+  obstructed by other repositories' build/test jobs.
+
+## Instructions
+- Prioritize JIT performance and normal Lua integration, not additional
+  cybersecurity infrastructure. Keep logical, unsigned incremental commits.
+
+## Discoveries
+- Selective prototype loading around `prepare_jit` fixes the tier assignment
+  without adding a test-only runtime API. Suspension boundaries isolate actual
+  caller/callee native work from return-transition work in the other frame.
+- Engram tools remain unavailable; this project-local summary records recovery
+  context without writing external memory files.
+
+## Accomplished
+- `ba55424` commits the 24-scenario matrix and initial GNU/musl evidence.
+- Both full GNU/musl gates pass at the unchanged runtime candidate; all owned
+  test jobs are terminal. This turn made integration progress, not just a wait.
+
+## Next Steps
+- Measure the original/table-only/small-frame artifacts with unchanged checked
+  native and compiled-Off gates once external build/test activity ends. Latest
+  live check still sees molla Cargo `1965955` and test `1966307`; no timing ran.
+- Complete remaining error/close/deep-recursion integration and actual platform
+  acceptance. The resumed goal remains active and incomplete.
+
+## Relevant Files
+- `tests/jit_suspension.rs` — selective tier and suspension integration matrix.
+- `target/jit-evidence/mixed-call-tiers/` — focused/full GNU and musl results.
+- `src/jit/mod.rs` — unchanged, uncommitted small-frame performance candidate.
 
 ### Phase 6 — Add heap fast paths with collector and mutation proofs
 
