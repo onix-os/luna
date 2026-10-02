@@ -1012,6 +1012,35 @@ those experiments on source-level branch-count reasoning alone.
 
 #### Session summary — measured performance checkpoint
 
+**Native-exit transition experiment:** decode Call/TailCall/Return directly
+from the typed opcode after a native attempt and before the large general
+decoder. Dispatch through the same LuaFrame routines, advance PC exactly once,
+retain existing transition fuel/metrics and end the VM slice as before. Native
+execution stays disabled with hooks, and all other operations use the original
+decoder. No byte-layout assumptions, new frame model or native-stack recursion
+are introduced. Verify complete operand domains, mixed-tier/tail/coroutine
+behavior, then total profile counts and frozen timing gates before retention.
+
+Focused batch `20870` passes five ABI, fourteen native, fifteen synchronous /
+seventeen async suspension and sixteen heap tests. Profile batch `21285` passes
+both rounds: upvalue Auto uses 110,445,830/110,445,741 instructions versus the
+115,571,724 baseline; float Off uses 48,290,860 versus 48,590,955. Callback totals
+vary, 37,148,786/33,698,786 versus baseline 35,041,491. Annotation localizes the
+extra 3,450,000 instructions in the first callback run to table lookup/key/string
+comparison; source uses a process-randomized table hash seed. Retain both runs,
+do not discard the unfavorable sample or attribute the difference to scheduling.
+The transition candidate requires real repeated timing before acceptance.
+
+Full batch `26498` exits 0: GNU and musl `make jit-verify` each pass 5053 test
+executions across 434 suite results, with zero failures and 24 ignored. Source
+manifest verification after both gates succeeds. Build-only batch `25146`
+produces the immutable candidate benchmark plus matched stripped speed/shipping
+controls. Candidate SHA-256 is
+`391f3b29c21a940f264488c90159fa79ce4411544c676f8ab33e7fe44a960997`.
+Timing queue `78932` exits 3 after thirty checks without launching a benchmark.
+The post-full-gate preflight still sees Molla GPU tests. All these jobs are
+terminal; the source candidate remains uncommitted pending measured benefit.
+
 **Dispatch outlining experiment:** current profiles attribute substantial work
 to `run_vm`. Test keeping `Runtime::run` out of line, in addition to its already
 outlined scratch invocation, to reduce native-entry dispatch code embedded in
@@ -1135,17 +1164,20 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
   and two instruction-profile rounds each. Neither justifies retention; removed
   both runtime experiments. Current source remains the accepted exact-frame
   implementation. No wall-clock improvement or new full-suite pass is claimed.
+- Subsequently implemented the separate native-exit transition candidate in
+  `src/opcode.rs` and `src/thread/vm.rs`, with exhaustive operand-domain tests in
+  `src/jit/abi.rs`. Focused/profile/full GNU/musl gates pass as recorded above.
+  It remains uncommitted; speed acceptance has not run. All owned jobs ended.
 
 ## Next Steps
-- Use the completed profiles to reduce repeated native-boundary dispatch and
-  materialization work for short calls. Preserve GC/fuel/error semantics and
-  native coverage; validate each candidate with differential tests and counts,
-  then unchanged timing gates on a quiet host. Do not repeat rejected whole-VM
-  splitting experiments without a different, evidence-supported mechanism.
-- Investigate the repeated call/return interpreter transitions in the upvalue
-  workload before another local marshaling rewrite. Its native helpers run only
-  a few instructions per entry; the measured gap is much larger than either
-  rejected micro-optimization. Preserve the stackless/fuel/mixed-tier contract.
+- Measure the prepared transition candidate against the immutable exact-frame
+  baseline in baseline/candidate/candidate/baseline order, then both feature-cost
+  profiles with repeats. Use existing binaries and clean pre/postflights; do not
+  rerun terminal jobs `78932`/`26498` or rebuild unchanged sources. Retain or
+  remove the runtime patch based on the frozen gates and controlled comparisons.
+- Then address the larger remaining short-call/upvalue cost without weakening
+  stackless execution, fuel, mixed-tier semantics or native coverage. Do not
+  repeat rejected whole-VM splitting/materialization experiments blindly.
 - Complete remaining error/close integration and actual platform
   acceptance after the performance work. The prior profiling blocker no longer
   prevents diagnostic progress; the full implementation remains incomplete.
@@ -1163,6 +1195,10 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 - `target/jit-evidence/post-deferred-performance/` — current matched binaries,
   source manifests, cost controls and isolated invalid timing attempt.
 - `src/jit/mod.rs` — committed exact-small-frame optimization (`af26288`).
+- `src/opcode.rs`, `src/thread/vm.rs`, `src/jit/abi.rs` — uncommitted transition
+  decoder/dispatch and exhaustive operand-domain tests.
+- `target/jit-evidence/native-call-transitions/` — candidate, profiles, focused
+  and full GNU/musl results, matched timing artifacts and source manifests.
 - `target/jit-evidence/post-deferred-performance/profile-speed/round-{1,2}/` —
   completed process-local profiles and annotations, not timing acceptance.
 
