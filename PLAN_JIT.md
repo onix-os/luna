@@ -741,7 +741,7 @@ prevent Phase 3/release acceptance.
 
 ### Phase 5 — Preserve callbacks, coroutines, async, and unwinding
 
-**Status:** IN PROGRESS. **Depends on:** Phase 4. Dedicated native heap tests cover reentrant callbacks, coroutine suspension, foreign futures, and close-handler error unwinding. Shared public-host coroutine/await scenarios verify native heap work around suspension, GC while parked, real Pending/wake behavior and tier coverage at fuel 1/64/65536. The complete transition matrix remains open.
+**Status:** IN PROGRESS. **Depends on:** Phase 4. Dedicated native heap tests cover reentrant callbacks, coroutine suspension, foreign futures, and close-handler error unwinding. Shared public-host coroutine/await scenarios verify native heap work around suspension, GC while parked, real Pending/wake behavior and tier coverage at fuel 1/64/65536. Selective preparation now independently verifies all four caller/callee tier combinations for normal and tail calls; broader error/close/deep-recursion transition acceptance remains open.
 
 **Files:** runtime wrappers, thread executor/frame integration, `tests/jit_transitions.rs`, existing callback/reentrancy/async/close/error tests.
 
@@ -755,6 +755,28 @@ prevent Phase 3/release acceptance.
 **Verify:** `make jit-test-all JIT_MODE=force`; transition tests assert native execution on at least one side of each required boundary and canonical completion after it. Infinite/deep tail-call tests retain bounded step behavior and no proportional native-stack growth.
 
 **Exit:** compiled execution is integrated with the embedding lifecycle, not just standalone numeric programs.
+
+#### Selective caller/callee acceptance — 2026-10-02
+
+`tests/jit_suspension.rs` loads only the intended native prototypes before
+`prepare_jit`, then loads the interpreted prototypes without servicing the
+compiler. A maximal hot threshold, unchanged installed-region count and empty
+queue keep those choices fixed. Rust yielding callbacks bracket each side's
+work so per-segment native-instruction and table-write deltas independently
+prove the caller and callee tiers; aggregate native work alone is insufficient.
+
+The matrix covers four tier pairs, normal/tail calls and fuel 1/64/65536: 24
+scenarios per feature configuration, each paired with a separate Off state.
+Every slice compares fuel, executor mode and completion. GC runs after every
+slice, including suspended boundaries, and exact result vectors preserve both
+interior and trailing nils. This is execution correctness, not benchmark timing.
+
+GNU `make fmt jit-suspension` exits 0 (`75980`): two tests without async and
+three with async. Evidence: `target/jit-evidence/mixed-call-tiers/gnu.log`.
+Musl `make jit-suspension TARGET=x86_64-unknown-linux-musl` also exits 0
+(`6955`), with the same two/three passing tests; `musl.log` is beside the GNU
+log. The small-frame runtime candidate and all its recorded source hashes are
+unchanged. These focused checks do not replace full-suite or performance gates.
 
 ### Phase 6 — Add heap fast paths with collector and mutation proofs
 
