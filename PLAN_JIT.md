@@ -11,6 +11,126 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Unsupported-target execution — 2026-10-03
+
+The preceding goal turn made verified progress: atomic temporary-file repair
+`ab3e710` and evidence/docs `182f011` are pushed; full local GNU/musl gates pass.
+The next non-benchmark acceptance gap is actual execution with `jit` enabled on
+a target without a native backend. Use static `i686-unknown-linux-musl` binaries
+on the Linux x86-64 host, not a forced cfg or a supported-target mock. A separate
+Nix `fallback` shell supplies the 32-bit standard library and LLD without
+changing the normal native-development environment. This is interpreter fallback
+coverage, not a new advertised native platform. Toolchain execution remains to
+be verified; benchmarks remain deferred.
+
+Rust lists this target with a full standard library:
+https://doc.rust-lang.org/rustc/platform-support.html
+
+The first actual 32-bit build fails in `src/stdlib/math.rs:390`: the two-component
+random seed is hard-coded to 32 bytes, but pinned rand 0.8.5 uses a 16-byte
+`SmallRng::Seed` on 32-bit platforms. Use the associated seed type, preserving
+the existing bytes on 64-bit platforms and both components on 32-bit platforms.
+This is a real baseline portability defect, not a Cranelift failure. Initial
+failure evidence is in `target/jit-evidence/fallback/initial.log`; rerun pending.
+
+After the seed-type repair, actual i686 executables pass all five existing
+configuration tests. The Nix/LLD setup executes successfully on this host.
+Added unsupported-only integration checks for exact Off/Auto slice equivalence
+at five budgets with collection, table/metamethod/upvalue work, Rust callbacks,
+coroutines and caught errors; explicit preparation/service must report
+`Unavailable`, while convenience execution and mode changes remain usable.
+Assertions require zero queue/compilation/native-code activity, not silent
+success from native tests compiled out. A separate hosted fallback job runs the
+same Make gate; local full gate and CI validation are pending. No native target
+claim is widened. A random-seed replay regression covers both seed components.
+
+The first full fallback gate stops in the existing
+`repeated_concat_errors_instead_of_exhausting_memory` test: i686 aborts on a
+1-GiB allocation before the string-size ceiling is reached. The dedicated
+fallback tests passed in both feature configurations before this failure.
+Replace the infallible fast-concatenation scratch allocation with checked
+reservation returning the existing `ConcatOverflow` error. Preserve the length
+ceiling and the original test; do not serialize, skip or shrink the workload.
+Rerun the concrete failing path before claiming this repair sufficient.
+
+Checked scratch reservation alone still aborts (`portability.log`). The fast
+path then copies the entire scratch buffer again through string interning.
+An owned-buffer interning path now reuses the existing lookup/weak-table/barrier
+logic and transfers a newly concatenated buffer without that second full-size
+allocation. Existing interned values still deduplicate. The targeted rerun is
+pending; the debugger could not obtain a musl32 abort backtrace, so it is not
+claimed as proof of the allocation site.
+
+The owned-buffer path passes the unchanged repeated-concatenation regression
+on i686 both with and without `jit`; all 48 focused numeric/concatenation test
+executions pass. Small strings retain their inline representation. A unit
+test checks large-buffer pointer transfer, borrowed/owned deduplication and
+small-string layout. The next full-gate failure is a test-only 64-bit assumption:
+`Value <= 2 * pointer_size` cannot hold on 32-bit with an i64 payload and tag.
+Check against a tagged `(usize, i64)` payload instead, retaining the same bound
+on 64-bit and all single-pointer object-handle assertions. No runtime value
+representation is changed to satisfy this test.
+
+RNG repair `f9e8022` and owned-concatenation repair `166c7ae` are separately
+committed and pushed. The next i686 gate reveals a real `string.pack("s4", ...)`
+panic: shifting a 32-bit usize by 32. Compare length-prefix capacity in u64.
+Unpacking also truncated i64 lengths to usize, so use checked conversion. A
+regression covers both byte orders, all 16 prefix widths, and a 2^32+1 length
+with only one payload byte. The previous native full-gate batch began before
+this additional patch and cannot alone certify the final source revision.
+
+The prefix repair then passes all pack and string-semantics fixtures; the
+unchanged upstream `tests/strings.lua` exposes another 32-bit narrowing bug in
+`string.sub` at Lua integer extrema. Normalize/clamp indices before converting
+to host usize, preserve out-of-range search positions, and reject unrepresentable
+nonempty repetition counts rather than truncating them. Empty repetition returns
+immediately. Focused regressions cover these full-i64 boundaries without huge
+allocations. They do not lower the string-size limit or alter the upstream test.
+
+The full baseline i686 suite now passes, including unchanged `strings.lua`.
+The JIT-feature library suite exposes one queue-test assumption: unsupported
+targets deliberately do not enqueue hot sources. Keep the whole GC/identity/
+retained-peer test running; require zero queue/compile requests on unsupported
+targets and retain the existing exact nonzero assertions on supported targets.
+This changes only test expectations for the documented capability branch.
+
+#### Goal
+Execute the unsupported-target fallback branch and repair defects exposed by it.
+
+#### Instructions
+Keep the complete JIT objective active; defer benchmarks, use Make/Nix, preserve
+the original tests, and commit distinct fixes without signatures.
+
+#### Discoveries
+Actual 32-bit execution exposed baseline RNG/string-width defects and an
+avoidable full-size string copy. Capability mocks on 64-bit hosts missed them.
+The owned-buffer path keeps small strings inline and preserves interning.
+Unsupported Auto execution must not enqueue compilation requests.
+
+#### Accomplished
+The final i686 gate (`35652`, `gate-final.log`) exits 0: 1839 passing executions,
+295 repeated suites, two ignored, zero failures. Dedicated fallback tests each
+execute five times across feature/mode lanes; the unchanged large-concatenation
+test passes four times. `file` confirms static ELF32 i386 executables. The
+fallback lane includes baseline, JIT Off/Auto and all-feature Force suites.
+RNG and owned-string fixes are pushed as `f9e8022` and `166c7ae`. Width/clamping
+fixes, capability-aware test expectations and the new CI lane are ready to commit.
+
+#### Next Steps
+Collect final-source GNU/musl full gates. The earlier GNU run passed but crossed
+source edits, so use `gnu-final.log`, not that transitional log, for final-source
+acceptance. Collect the new hosted fallback lane after push; local validation
+is not a hosted result. Benchmarks and full-plan acceptance remain open.
+
+#### Relevant Files
+- `flake.nix`, `Makefile`, `.github/workflows/tests.yml` — real i686 execution lane.
+- `tests/jit_fallback.rs` — exact unsupported-target execution and service contract.
+- `src/stdlib/math.rs`, `tests/numeric_semantics.rs` — target-sized random seed.
+- `src/string.rs`, `src/meta_ops.rs` — owned concatenation buffer and interning.
+- `src/stdlib/string/mod.rs`, `tests/string_pack.rs` — full Lua integer range.
+- `src/jit/registry.rs`, `tests/sizes.rs` — capability/width-aware assertions.
+- `target/jit-evidence/fallback/` — failures, repaired executions and platform logs.
+
 Latest repair: `ab3e710` is pushed. Hosted run `37137046824` exposed colliding
 `os.tmpname` paths in concurrent I/O tests. Atomic temporary-file reservation
 now repairs that defect, with a failing-before-fix regression and full local

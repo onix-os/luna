@@ -528,6 +528,18 @@ The size gate first runs the JIT artifact in Auto and asserts native work/result
 
 The active workflow is `.github/workflows/tests.yml`, promoted from the former non-active `workflows/tests.yml` template. It retains baseline checks and adds full native GNU/musl x86-64 and GNU ARM64 jobs on matching hosted runners, with pinned action commits, Rust 1.97.1, target-specific caches and uploaded logs/campaign artifacts on failure as well as success. `make ci-check` validates the workflow with actionlint supplied by the Nix shell. Local workflow validation is not an executed hosted run; ARM64 and hosted-CI results remain required before release acceptance.
 
+`nix develop .#fallback -c make jit-fallback TARGET=i686-unknown-linux-musl`
+builds and executes static 32-bit binaries on a Linux x86-64 host with 32-bit
+execution support. The separate fallback shell supplies the target library and
+LLD; it does not change the normal development shell. The matching hosted job
+uses Rust 1.97.1 and LLD. This is an unsupported-native-target interpreter lane,
+not a newly supported native platform. It runs the baseline and JIT-feature
+workspace suites, optional features and dedicated Off/Auto differential tests
+with callbacks, coroutines, GC and exact fuel traces. Explicit Auto preparation
+and service report `Unavailable`; convenience execution remains interpreted,
+with no queued requests, compiled regions or native instructions. A failure to
+execute the target fails the gate rather than silently skipping it.
+
 Remaining stages include complete boundary/IR/cache accounting, broader helper/heap optimization and explicit mixed-tier lifecycle stress, refined promotion policy, expanded heap/lifecycle and coverage-guided fuzzing, executed ARM64 verification, and actual hosted CI results.
 
 `make jit-profile` retains Rust symbols and attempts an opt-level-3 perf capture of the checked upvalue workload; it requires host perf permission and does not alter kernel settings. `make jit-rust-assembly` extracts symbol-retained Rust dispatch/helper/invocation assembly without perf permission. These are diagnostic lanes, not acceptance timing builds or native JIT disassembly. On the current host perf recording is denied (`perf_event_paranoid=4`); Rust assembly verified that outlining removed the native scratch probe page from `run_vm`.

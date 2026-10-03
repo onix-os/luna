@@ -77,6 +77,17 @@
         ];
       in
       {
+        devShells.fallback = pkgs.mkShell {
+          packages = [
+            (pkgs.rust-bin.stable.latest.default.override {
+              targets = [ "i686-unknown-linux-musl" ];
+              extensions = [ "rustfmt" "clippy" ];
+            })
+            pkgs.lld
+          ];
+          CARGO_TARGET_I686_UNKNOWN_LINUX_MUSL_LINKER = "${pkgs.lld}/bin/ld.lld";
+        };
+
         devShells.fuzz = pkgs.mkShell {
           packages = [
             (pkgs.rust-bin.nightly."2026-08-16".default.override {
