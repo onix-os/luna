@@ -11,6 +11,73 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Configuration and gate requirement audit — 2026-10-03
+
+#### Goal
+Check the six original Phase 1 requirements against current implementation and
+execution evidence, rather than treating historical status labels as proof.
+
+#### Instructions
+No benchmark runs or expanded audit infrastructure. Keep tests, documentation
+corrections and acceptance claims scoped to what was actually inspected.
+
+#### Discoveries
+Configuration validation runs before registry/cache changes. The old public test
+covered only six of ten positive fields and compared configuration, not live
+state. General Force wrappers reject compiler errors but currently allow resource/
+capability refusals without explicit per-refusal reporting. They cannot compile
+source loaded and consumed in the same arena entry. Native-specific fixtures
+remain responsible for actual native-counter assertions.
+
+The native ABI has Interpreter/Guard/Budget/Panic exits, while public statistics
+count native entries/instructions and Guard exits but do not expose separate
+Interpreter/Budget/Panic exit totals. Hook and helper-decline counters describe
+different boundaries. Do not call these existing counters a complete native-exit
+reason distribution or equate them to executor dispatch counts.
+
+#### Accomplished
+Expanded invalid-configuration tests to all ten fields, checking exact statistics
+and config equality after refusal. A native fixture holds installed peer code and
+one queued prototype through all refusals, then compiles the unchanged request
+and proves both functions execute natively. Added public Lua non-Send/non-Sync
+compile-time assertions and included `Default` in constructor coverage.
+
+Batch `52318` exits 0: GNU/musl each pass 35 executions across six repeated suites
+(`jit-config`, `jit-policy`, `jit-runtime-owner-pure`); real i686 passes six
+configuration tests. GNU repeats all seven config tests successfully with
+`LUNA_TEST_JIT_MODE=force`, proving the production constructors ignore that test
+switch. `make fmt-check` passes. `make jit-tree` contains no Cranelift, memmap2 or
+icache runtime dependency without JIT; both Make test wrappers reject an invalid
+mode before invoking Cargo. No runtime implementation changed in this milestone.
+
+| Phase 1 item | Current evidence / remaining obligation |
+| --- | --- |
+| 1: optional dependencies | Cargo target/feature gates and fresh Make dependency tree verify default isolation; pinned compiler versions remain unchanged. |
+| 2: additive configuration/defaults | Feature-gated API exports and Lua fields; four Off constructors and public non-Send/non-Sync assertions pass. |
+| 3: configuration/capabilities | All positive fields are transactional in Off and with native code/queued work; independent states, supported-target identity, real i686 capability and existing enable/disable policy tests pass. |
+| 4: Make gates | Existing full GNU/musl gate at `d29bb12` covers checks, modes, async/derive and warning-denied docs; invalid mode rejection passes separately. |
+| 5: honest constructor routing | Ordinary root integration tests use `tests/common`; targeted JIT fixtures choose explicit modes. Raw register-boundary/manual-prototype tests and memory-accounting tests deliberately select their reference/native states; util serialization tests do not execute Lua code. Same-entry execution and Force resource-refusal reporting remain explicit limitations, not forced-native proof. |
+| 6: diagnostics | Existing counter meanings and mutation sites were inspected; separate native Interpreter/Budget/Panic exit totals and clear Force refusal diagnostics remain to be implemented/verified. |
+
+Corrected two stale `JIT.md` ownership assertions: cached Code owns detached
+mappings, not a live JITModule; current-frame upvalue aliases use pending scratch
+and synchronized writes rather than being excluded. Source and existing tests
+already implement those contracts; this was a documentation correction.
+
+#### Next Steps
+Complete native-exit reason reporting and explicit test-harness refusal reporting
+with targeted assertions, then reconcile Phase 1 without claiming full compiler
+accounting or deferred performance acceptance. Collect remaining jobs from hosted
+run `37150232969`; musl, baseline, i686 and Miri seed 1 currently pass, with GNU,
+ARM64 and Miri seed 0 still live. All local jobs are terminal.
+
+#### Relevant Files
+- `tests/jit_config.rs` — all-field atomicity, live-state preservation and traits.
+- `tests/common/mod.rs`, `Makefile` — inspected mode-routing and gate behavior.
+- `src/jit/mod.rs`, `src/lua.rs` — inspected validation and statistics paths.
+- `JIT.md` — corrected detached-code and current-frame alias ownership contract.
+- `target/jit-evidence/configuration-review/` — target, mode and dependency logs.
+
 ### Relocation admission before native allocation — 2026-10-03
 
 #### Goal
@@ -1626,7 +1693,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 1 — Add configuration, capabilities, and honest test lanes
 
-**Status:** IN PROGRESS. **Depends on:** Phase 0. Optional configuration, capabilities, counters, Make gates, constructor wrappers, preparation/service APIs, and feature documentation exist. Platform/refusal and complete accounting acceptance remain open.
+**Status:** IN PROGRESS. **Depends on:** Phase 0. The configuration/gate audit above verifies dependency isolation, additive APIs, defaults/traits, all-field transactional validation and existing mode gates. Complete native-exit reason reporting and explicit Force resource-refusal diagnostics remain open; full compiler accounting belongs to the later resource phases and is not inferred from these tests.
 
 **Files:** manifests/lockfile, `Makefile`, `src/lib.rs`, `src/lua.rs`, `src/jit/mod.rs`, tests/common helpers, integration test constructors, `examples/jit.rs`.
 

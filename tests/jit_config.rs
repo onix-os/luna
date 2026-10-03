@@ -73,55 +73,128 @@ fn completed_gc_cycles_retire_dead_sources_while_jit_is_off() {
 
 #[test]
 fn constructors_default_to_interpretation() {
-    for lua in [Lua::empty(), Lua::core(), Lua::full()] {
+    for lua in [Lua::empty(), Lua::core(), Lua::full(), Lua::default()] {
         assert_eq!(lua.jit_config().mode, JitMode::Off);
         assert_eq!(lua.jit_stats().native_entries, 0);
     }
+}
+
+fn invalid_configurations(
+    base: &JitConfig,
+) -> impl Iterator<Item = (&'static str, JitConfig)> + '_ {
+    type Invalidate = fn(&mut JitConfig);
+    let fields: [(&str, Invalidate); 10] = [
+        ("hot_threshold", |c| c.hot_threshold = 0),
+        ("max_prototype_instructions", |c| {
+            c.max_prototype_instructions = 0
+        }),
+        ("max_ir_instructions", |c| c.max_ir_instructions = 0),
+        ("max_ir_blocks", |c| c.max_ir_blocks = 0),
+        ("max_relocations", |c| c.max_relocations = 0),
+        ("max_queue_entries", |c| c.max_queue_entries = 0),
+        ("max_code_bytes", |c| c.max_code_bytes = 0),
+        ("max_snapshot_bytes", |c| c.max_snapshot_bytes = 0),
+        ("max_metadata_bytes", |c| c.max_metadata_bytes = 0),
+        ("max_compile_attempts", |c| c.max_compile_attempts = 0),
+    ];
+    fields.into_iter().map(|(name, invalidate)| {
+        let mut invalid = base.clone();
+        invalid.mode = match base.mode {
+            JitMode::Off => JitMode::Auto,
+            JitMode::Auto => JitMode::Off,
+        };
+        invalidate(&mut invalid);
+        (name, invalid)
+    })
 }
 
 #[test]
 fn configuration_is_validated_transactionally() {
     let mut lua = Lua::core();
     let before = lua.jit_config();
-    let mut invalid = before.clone();
-    invalid.mode = JitMode::Auto;
-    invalid.max_queue_entries = 0;
-    assert!(matches!(
-        lua.set_jit_config(invalid),
-        Err(JitError::InvalidConfiguration(_))
-    ));
-    assert_eq!(lua.jit_config(), before);
-    let mut invalid = before.clone();
-    invalid.max_metadata_bytes = 0;
-    assert!(matches!(
-        lua.set_jit_config(invalid),
-        Err(JitError::InvalidConfiguration(_))
-    ));
-    assert_eq!(lua.jit_config(), before);
-    let mut invalid = before.clone();
-    invalid.hot_threshold = 0;
-    assert!(lua.set_jit_config(invalid).is_err());
-    assert_eq!(lua.jit_config(), before);
-    let mut invalid = before.clone();
-    invalid.max_relocations = 0;
-    assert!(matches!(
-        lua.set_jit_config(invalid),
-        Err(JitError::InvalidConfiguration(_))
-    ));
-    assert_eq!(lua.jit_config(), before);
-    for instructions in [true, false] {
-        let mut invalid = before.clone();
-        if instructions {
-            invalid.max_ir_instructions = 0;
-        } else {
-            invalid.max_ir_blocks = 0;
-        }
-        assert!(matches!(
-            lua.set_jit_config(invalid),
-            Err(JitError::InvalidConfiguration(_))
-        ));
-        assert_eq!(lua.jit_config(), before);
+    let stats = lua.jit_stats();
+    for (name, invalid) in invalid_configurations(&before) {
+        assert!(
+            matches!(
+                lua.set_jit_config(invalid),
+                Err(JitError::InvalidConfiguration(_))
+            ),
+            "{name}"
+        );
+        assert_eq!(lua.jit_config(), before, "{name}");
+        assert_eq!(lua.jit_stats(), stats, "{name}");
     }
+}
+
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[test]
+fn invalid_configuration_preserves_native_peer_and_queued_work() {
+    let mut lua = Lua::empty();
+    lua.set_jit_config(JitConfig {
+        mode: JitMode::Auto,
+        hot_threshold: 1,
+        ..JitConfig::default()
+    })
+    .unwrap();
+    let peer = lua.enter(|ctx| {
+        let closure = Closure::load(ctx, None, b"return 42").unwrap();
+        ctx.stash(closure)
+    });
+    assert_eq!(lua.prepare_jit().unwrap(), 1);
+    let pending = lua.enter(|ctx| {
+        let closure =
+            Closure::load(ctx, None, b"local s=0 for i=1,100 do s=s+i end return s").unwrap();
+        let executor = Executor::start(ctx, closure.into(), ());
+        assert!(!executor.step(ctx, &mut luna::Fuel::empty()).unwrap());
+        ctx.stash(executor)
+    });
+    let config = lua.jit_config();
+    let stats = lua.jit_stats();
+    assert_eq!(stats.installed_regions, 1);
+    assert_eq!(stats.queued_requests, 1);
+    assert!(stats.code_bytes > 0);
+    for (name, invalid) in invalid_configurations(&config) {
+        assert!(
+            matches!(
+                lua.set_jit_config(invalid),
+                Err(JitError::InvalidConfiguration(_))
+            ),
+            "{name}"
+        );
+        assert_eq!(lua.jit_config(), config, "{name}");
+        assert_eq!(lua.jit_stats(), stats, "{name}");
+    }
+    assert_eq!(lua.service_jit().unwrap(), 1);
+    let executor = lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&peer).into(), ())));
+    let before = lua.jit_stats();
+    assert_eq!(lua.execute::<i64>(&executor).unwrap(), 42);
+    assert!(lua.jit_stats().native_instructions > before.native_instructions);
+    let before = lua.jit_stats();
+    assert_eq!(lua.execute::<i64>(&pending).unwrap(), 5050);
+    assert!(lua.jit_stats().native_instructions > before.native_instructions);
+    assert_eq!(
+        lua.jit_stats().compilation_failures,
+        stats.compilation_failures
+    );
+}
+
+#[test]
+fn lua_remains_non_send_and_non_sync() {
+    trait AmbiguousSend<A> {
+        fn check() {}
+    }
+    impl<T: ?Sized> AmbiguousSend<()> for T {}
+    impl<T: ?Sized + Send> AmbiguousSend<u8> for T {}
+    trait AmbiguousSync<A> {
+        fn check() {}
+    }
+    impl<T: ?Sized> AmbiguousSync<()> for T {}
+    impl<T: ?Sized + Sync> AmbiguousSync<u8> for T {}
+    let _ = <Lua as AmbiguousSend<_>>::check;
+    let _ = <Lua as AmbiguousSync<_>>::check;
 }
 
 #[test]
