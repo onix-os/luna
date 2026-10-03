@@ -7,6 +7,10 @@ use luna::{io, Closure, Executor, ExternError};
 
 fn run_lua_code(name: &str, code: &[u8]) -> Result<(), ExternError> {
     let mut lua = common::full();
+    #[cfg(feature = "jit")]
+    if std::path::Path::new(name).file_name() == Some(std::ffi::OsStr::new("math.lua")) {
+        lua.allow_jit_resource_refusal("IR blocks");
+    }
 
     let exec = lua.try_enter(|ctx| {
         let closure = Closure::load(ctx, Some(name), code)?;
@@ -14,6 +18,16 @@ fn run_lua_code(name: &str, code: &[u8]) -> Result<(), ExternError> {
     })?;
 
     lua.execute::<()>(&exec)?;
+
+    #[cfg(feature = "jit")]
+    if std::env::var("LUNA_TEST_JIT_MODE").as_deref() == Ok("force")
+        && lua.jit_capabilities().supported_target
+        && std::path::Path::new(name).file_name() == Some(std::ffi::OsStr::new("math.lua"))
+    {
+        let report = lua.preparation_report();
+        assert!(report.resource_refusals > 0);
+        assert_eq!(report.last_resource_refusal, Some("IR blocks"));
+    }
 
     Ok(())
 }

@@ -11,6 +11,70 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Strict Force preparation and explicit exclusions — 2026-10-03
+
+#### Goal
+Make the corpus Force lane fail on unexpected preparation errors and expose
+legitimate exclusions without confusing installation with native execution.
+
+#### Instructions
+Do not change production defaults, resource ceilings or deferred benchmark
+thresholds. Mode tests use child environments, not concurrent process-global
+environment mutation. Commit this harness milestone separately.
+
+#### Discoveries
+The strict GNU Force corpus (`43283`, exit 2) exposes an existing silent refusal
+in `tests/scripts/math.lua`: `IR blocks`. It is now an exact, fixture-local
+allowance with a positive refusal assertion, not a global ignored error class.
+The Lua corpus still executes its semantic assertions. No resource limit changed.
+
+Same-entry execution can finish interpreted, then install that source afterward:
+unreachable arena objects are not reclaimed until collection. The worker fixture
+initially assumed zero installations and failed; it now asserts zero native
+instructions while permitting the actual post-execution installation. Empty
+source states separately assert an empty successful preparation batch.
+
+#### Accomplished
+The shared wrapper now fails unexpected ResourceLimit, Unavailable, compiler and
+configuration errors. Only an explicitly named resource reason is permitted.
+Its report records preparation calls, actual installed-region deltas (including
+partial batch progress), empty batches, resource refusals and unsupported skips.
+Explicit exclusions emit `JIT_FORCE_EXCLUDED`, visible with `--nocapture`.
+Unsupported targets never masquerade as successful native preparations.
+
+Added isolated worker checks for Off, Auto, prepared native execution, empty and
+same-entry work, unexpected refusal, exact allowance and wrong-reason refusal.
+Expected child failures are checked by both exit status and refusal diagnostic;
+success requires a verification marker, correct Lua result and native counters.
+`jit-test-modes` also runs the actual script corpus in Force mode.
+Final worker/corpus batch `59063` exits 0 on GNU, musl and real i686: each target
+passes two harness functions (including eight child cases) and the complete
+script-corpus test, three reported tests across two suites, no failures/ignored.
+The earlier worker expansion had a nested-result unwrap typo and an incorrect
+zero-installation assumption for same-entry execution; both were corrected as
+fixture errors, not runtime changes. The strict whole-corpus failure at math
+remains the evidence that silent refusal was previously accepted.
+
+The previous native-counter full batch `95585` is complete: GNU/musl each pass
+5248 executions across 458 repeated suites, 24 ignored and zero failed at
+`48df12e`, with successful native examples. It finished before this shared
+harness was edited. Its production runtime is unchanged by the current work.
+The earlier relocation revision `d29bb12` now has all seven hosted jobs green
+in run `37150232969`; hosted counter revision `37152214033` remains pending.
+
+#### Next Steps
+Poll full GNU/musl batch `48511` and diagnostic-output batch `71110`, then
+reconcile Phase 1 evidence. Compiler memory, broad review
+and deferred numerical performance acceptance remain outside this milestone.
+
+#### Relevant Files
+- `tests/common/mod.rs` — strict preparation, exact allowances and reports.
+- `tests/jit_test_modes.rs` — isolated mode/refusal/same-entry workers.
+- `tests/scripts.rs` — explicit existing math IR-block exclusion.
+- `Makefile`, `JIT.md` — runnable mode gate and reporting contract.
+- `target/jit-evidence/force-reporting/` — strict corpus failure and worker gates.
+- `target/jit-evidence/exit-statistics/full-*.log` — completed counter verification.
+
 ### Native exit-reason statistics — 2026-10-03
 
 #### Goal

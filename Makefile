@@ -422,6 +422,11 @@ jit-abi:
 jit-config:
 	@$(CARGO) test -p luna --features jit --test jit_config $(TARGET_ARG) $(ARGS)
 
+.PHONY: jit-test-modes
+jit-test-modes:
+	@$(CARGO) test --locked -p luna --features jit --test jit_test_modes $(TARGET_ARG) $(ARGS)
+	@LUNA_TEST_JIT_MODE=force $(CARGO) test --locked -p luna --features jit --test scripts $(TARGET_ARG) $(ARGS)
+
 .PHONY: jit-stats
 jit-stats:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::stats_tests
@@ -912,6 +917,7 @@ help:
 	@echo "  jit-abi      Test scalar and reference ABI conversions"
 	@echo "  jit-config   Test configuration and disabled-state collection"
 	@echo "  jit-stats    Verify native exit reasons and execution counters"
+	@echo "  jit-test-modes Test Force preparation and explicit exclusions"
 	@echo "  jit-registers Test register-255 and stack-256 boundaries"
 	@echo "  jit-policy   Test quota refusal and configuration retirement"
 	@echo "  jit-resources Test owned-container budgets and reclamation"

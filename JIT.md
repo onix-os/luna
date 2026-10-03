@@ -557,6 +557,25 @@ code or replace native open/foreign-upvalue and GC-slice tests.
 
 Use `make jit-boundary`, `make jit-native`, `make jit-heap`, `make jit-policy`, `make jit-registers`, and `make jit-verify` in the Nix development environment. Test-only Force wrappers prepare after host arena entries; sources loaded and executed wholly within one entry cannot be prepared between those operations and are not falsely counted as forced-native coverage. Dedicated native tests explicitly prepare and assert nonzero native instruction counts.
 
+Force preparation now fails tests on unexpected errors, including resource or
+executable-memory refusals. A fixture intentionally testing a quota refusal must
+call the test-only `allow_jit_resource_refusal` with its exact reason; a different
+refusal still fails. `preparation_report` exposes calls, actual installations
+(including work installed before a later refusal), empty successful batches,
+allowed/unexpected resource refusals and unsupported-target skips. Explicit
+exclusions emit `JIT_FORCE_EXCLUDED` diagnostics, visible with `--nocapture`.
+Unsupported targets remain interpreter-only, not successful native preparations.
+`make jit-test-modes` checks the wrapper in separate processes so mode selection
+cannot race with other tests' environment. Empty batches and same-entry execution
+are tested as zero native work, not acceleration evidence.
+The existing `tests/scripts/math.lua` corpus exceeds the default IR-block
+admission cap. Its fixture explicitly permits only `IR blocks` and asserts that
+this refusal occurred in supported-target Force mode; other scripts have no
+blanket exemption. The original script still runs and checks its Lua semantics.
+No quota was raised and this pre-existing fallback is not claimed as whole-script
+native coverage. A source executed within one arena entry may be prepared only
+after that execution finishes; installation totals alone do not prove native use.
+
 `make jit-resources` checks failed and successful growth, retained capacity, lower-limit ownership, injected underlying/partial-snapshot failure, queue refusal without stranded flags, generated-mapping reclamation after installation refusal, separate registration/snapshot budgets, retroactive registration retirement and final-source collection. Requested container layouts are reserved before `Global` allocation and released only after deallocation; default allocator growth keeps the old block charged while allocating/copying its replacement. The allocator is static/GC-free; the weak registry still uses the collector's traced hashbrown implementation and fresh generation/identity verification.
 
 `make jit-boundary` additionally checks entry-metadata refusal before compiler setup, mapping-record refusal before allocation, preservation of already allocated segments, and code/metadata pinning across clear/Off/code-quota/metadata-quota reductions. Allocation records are reserved before segment allocation; record quota is distinguished from page quota by a typed provider flag, not error-string matching. Allocation/protection failures never publish a function pointer, and the failed module's mappings and metadata are reclaimed without touching another live module.
