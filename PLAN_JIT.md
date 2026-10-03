@@ -11,6 +11,66 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Native code-memory ownership reconciliation — 2026-10-03
+
+#### Goal
+Verify the existing allocation/protection/publication/reclamation contract and
+record acceptance evidence without adding new audit or fuzz infrastructure.
+
+#### Instructions
+Benchmarks remain deferred. Use existing Make gates and preserve revision-scoped
+evidence; do not turn focused memory review into full compiler-memory acceptance.
+
+#### Discoveries
+`Segment::new` uses anonymous mutable mappings; pinned memmap2 0.9.11 requests
+READ|WRITE, without EXEC. Finalization clears the instruction cache, consumes
+the mutable mapping and requests READ|EXEC for code or READ for constants;
+writable data remains READ|WRITE. ARM64 BTI adds its flag to READ|EXEC, not WRITE.
+`Memory::finalize` also flushes instruction pipelines before returning success.
+The native entry is obtained only after `finalize_definitions` succeeds.
+
+Successful compilation detaches the image into `Code::_memory` before dropping
+the compiler module/provider. A detached provider cannot allocate, finalize or
+free that image. `Prepared` retains a shared code owner; pressure eviction only
+selects sole cache-owned images. Clearing registrations retires cache ownership,
+not active leases. Final release drops each mapping before releasing its charges.
+
+#### Accomplished
+Inspected source and pinned dependency implementations for the actual protection
+flags and publication order. Existing tests inspect `/proc/self/maps`, exercise
+partial protection failure, reject allocation/protection before publication,
+execute a surviving peer, recover after denial, and retain executable leases
+across retirement. The existing isolated reclamation test checks every aligned
+mapping page with `mincore` before release and ENOMEM afterward, not merely
+zero counters. Focused GNU/musl batch `96577` exits 0 on `3494c64`: each passes
+239 executions across 14 repeated suites, zero failures and one intentionally
+ignored artifact-dump test (run separately by `jit-disassembly`). Commands are
+`make jit-segments jit-segments-reclamation jit-image jit-policy`, through the
+Nix shell, repeated with the musl target. No runtime source or test infrastructure
+changed for this review. All owned local jobs are terminal.
+
+The backend/segment/lease source and dependency pins are unchanged from
+`2e21d80`, whose full hosted GNU/musl/ARM64 and both Miri lanes passed. This
+connects the source argument with revision-scoped platform evidence, not a claim
+about every kernel policy or that the newest whole-repository CI has finished.
+The code-memory protection/failure criterion in Section 10 is now checked.
+
+#### Next Steps
+Collect current hosted results: pacing revision `3494c64`, run `37148460303`,
+passes verify; its remaining six jobs are live. Default-collection revision
+`009bf3b`, run `37147866586`, passes verify and i686 fallback; the remaining jobs
+are live. Continue GC roots/barriers/lifetimes and API/documentation acceptance
+reconciliation. Earlier Cranelift transient allocations remain outside the
+controlled ledgers; this review does not establish a total compiler RSS bound
+or complete the separate broad review/fuzz/performance requirements.
+
+#### Relevant Files
+- `src/jit/segments.rs` — RW allocation, RX/RO finalization and ARM64 BTI flags.
+- `src/jit/backend.rs` — provider, publication, image ownership and OS tests.
+- `src/jit/mod.rs` — active leases, retirement and pressure eviction.
+- `Cargo.lock` — memmap2 0.9.11 / Cranelift 0.136.1 versions inspected locally.
+- `target/jit-evidence/code-memory-review/` — existing focused gate logs.
+
 ### Shared GC pacing state — 2026-10-03
 
 #### Goal
@@ -2356,7 +2416,7 @@ missing acceptance evidence rather than missing implementation.
 - [x] Queue/cache/native-memory limits, compiler failure/backoff, and active-entry eviction are tested.
 - [x] Debug hooks and debug mutation retain correct behavior. Exact hook/traceback and valid/invalid mutation fixtures pass focused GNU/musl and full GNU at `2e21d80`; full-range debug indices also pass on real i686. This preserves Luna's supported debug behavior, not unsupported PUC-Lua APIs.
 - [x] Binary/prototype provenance policy is enforced and documented.
-- [ ] Executable memory is never deliberately mapped writable and executable simultaneously; allocation/protection failure falls back or reports capability failure safely.
+- [x] Executable memory is never deliberately mapped writable and executable simultaneously; allocation/protection failure falls back or reports capability failure safely. The code-memory checkpoint above records pinned mapping flags, finalization-before-publication, OS permission/reclamation checks and peer-preserving denial/recovery tests; focused GNU/musl gates pass at `3494c64` with unchanged backend source from the fully hosted-verified `2e21d80`.
 - [ ] `make jit-fuzz-smoke` passes; longer campaign evidence and unsafe-boundary review are recorded.
 - [x] Native platform tests actually execute on each advertised release target.
 - [x] Unsupported or denied-JIT environments preserve interpreter functionality. Real i686 fallback passes locally and in hosted job `111260042537` at `a893bd7`; supported-target mapping/protection-denial regressions also pass in the full native gates. This is executed target/fault coverage, not a claim about every possible OS policy.
