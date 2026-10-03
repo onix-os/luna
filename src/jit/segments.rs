@@ -26,11 +26,7 @@ impl Request {
             .and_then(|size| size.checked_add(align.saturating_sub(page)))
             .filter(|size| *size <= isize::MAX as usize)
             .ok_or_else(|| io::Error::other("native allocation size overflow"))?;
-        Ok(Self {
-            bytes,
-            align,
-            size: size.max(1),
-        })
+        Ok(Self { bytes, align, size })
     }
 
     fn offset(&self, base: usize) -> usize {
@@ -54,6 +50,7 @@ pub(super) struct Segment {
     pages: Option<Pages>,
     kind: Kind,
     pub bytes: usize,
+    pub requested_bytes: usize,
     finalized: bool,
 }
 
@@ -63,7 +60,7 @@ impl Segment {
         let base = map.as_mut_ptr();
         let offset = request.offset(base as usize);
         if !offset
-            .checked_add(request.size)
+            .checked_add(request.size.max(1))
             .is_some_and(|end| end <= map.len())
         {
             return Err(io::Error::other("native alignment outside mapping"));
@@ -79,6 +76,7 @@ impl Segment {
                 pages: Some(Pages::Writable(map)),
                 kind,
                 bytes: request.bytes,
+                requested_bytes: request.size,
                 finalized: false,
             },
             pointer,

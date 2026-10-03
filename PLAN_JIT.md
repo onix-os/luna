@@ -11,6 +11,38 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Requested versus mapped native bytes
+
+Section 4.6 requires requested and allocated native bytes separately. Additive
+`JitStats::code_requested_bytes` records raw provider payload requests before
+page/alignment padding; existing `code_bytes` remains page-rounded mapping
+usage and remains the charged quantity. Requested bytes include linker veneers,
+GOT storage and read-only/writable segments, not just machine instructions.
+Zero-byte requests remain zero in this diagnostic but still map a live page.
+
+An inline atomic in the existing root ledger follows all mapping owners,
+including retired code leased beyond runtime destruction. Segment records retain
+their original request sizes. Successful mapping increments requested usage;
+physical reclamation precedes its decrement, and that decrement precedes
+releasing mapped quota for reuse. Failed allocation adds no request charge;
+partial/protection failures release their successful segments normally. This
+adds no separate allocation, quota or double-counted host charge. It does not
+account for opaque Cranelift working storage.
+
+Development uses isolated checkout `/tmp/luna-jit-requested-fda2254` and a separate
+Cargo target directory so the ongoing full `fda2254` gate keeps fixed production
+source. Focused GNU/musl validation (`85869`) passes 576 executions / 14 repeated
+suites / four ignored / zero failures per target. Both examples execute 200007
+native instructions and report 47760 requested bytes versus 61440 mapped bytes.
+The host-memory, resource, mapping-counter and full JIT boundary selections pass.
+Real i686 (`84824`) passes 33 executions / four suites / zero ignored, and the
+example reports zero requested/mapped/native counters. Default/all-feature
+checks, advisory Clippy and warning-denied docs pass (`52003`). No new local
+Miri run is claimed. The initial public fixture tried to rerun a stopped executor;
+that failed log is retained, and the corrected test starts fresh executors from
+the same retained closure and verifies cache reinstallation. Evidence is under
+`target/jit-evidence/requested-bytes/`; no current full-gate acceptance is implied.
+
 Automatic-policy reconciliation now covers all six original requirements, with
 new cold-source, pending-destruction and exact-threshold regressions. The first
 full `9dfbb34` gate failed on stale integration refusal-reason assertions;

@@ -25,14 +25,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         assert!(prepared > 0);
         assert!(stats.native_instructions > 0);
         assert!(stats.code_bytes > 0);
+        assert!(stats.code_requested_bytes > 0);
+        assert!(stats.code_requested_bytes <= stats.code_bytes);
     } else {
         assert_eq!(prepared, 0);
         assert_eq!(stats.native_instructions, 0);
         assert_eq!(stats.code_bytes, 0);
+        assert_eq!(stats.code_requested_bytes, 0);
     }
     println!(
-        "result={result} prepared={prepared} native_instructions={} native_memory_bytes={}",
-        stats.native_instructions, stats.code_bytes
+        "result={result} prepared={prepared} native_instructions={} native_memory_bytes={} native_requested_bytes={}",
+        stats.native_instructions, stats.code_bytes, stats.code_requested_bytes
     );
     Ok(())
 }

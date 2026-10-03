@@ -39,7 +39,9 @@ impl Memory {
         let ledger = self.allocations.allocator().0.clone();
         for segment in self.allocations.drain(..) {
             let bytes = segment.bytes;
+            let requested = segment.requested_bytes;
             drop(segment);
+            self.total.release_requested(requested);
             self.total.fetch_sub(bytes, Ordering::Relaxed);
             ledger.release_external(bytes);
         }
@@ -106,6 +108,7 @@ impl JITMemoryProvider for Memory {
         }
         match Segment::new(request, kind) {
             Ok((segment, pointer)) => {
+                self.total.add_requested(segment.requested_bytes);
                 self.allocations.push(segment);
                 Ok(pointer)
             }
@@ -4521,6 +4524,61 @@ mod memory_tests {
     }
 
     #[test]
+    fn requested_bytes_exclude_padding_and_survive_finalization_until_reclamation() {
+        let mut memory = memory(16);
+        let total = memory.total.clone();
+        let mut requested = 0;
+        for (size, align, kind) in [
+            (0, 1, JITMemoryKind::Executable),
+            (17, 4 * memory.page as u64, JITMemoryKind::ReadOnly),
+            (memory.page + 1, 8, JITMemoryKind::Writable),
+        ] {
+            memory.allocate(size, align, kind).unwrap();
+            requested += size;
+            assert_eq!(total.requested(), requested);
+            assert!(total.load(Ordering::Relaxed) > requested);
+        }
+        let mapped = total.load(Ordering::Relaxed);
+        memory.finalize(BranchProtection::None).unwrap();
+        memory.finalize(BranchProtection::None).unwrap();
+        assert_eq!(total.requested(), requested);
+        assert_eq!(total.load(Ordering::Relaxed), mapped);
+        memory.release();
+        assert_eq!((total.requested(), total.load(Ordering::Relaxed)), (0, 0));
+        memory.release();
+        assert_eq!(total.requested(), 0);
+    }
+
+    #[test]
+    fn failed_mapping_and_protection_reclaim_requested_bytes_without_losing_peer() {
+        for failure in [Failure::Allocate, Failure::Protect] {
+            let mut peer = memory(4);
+            peer.allocate(31, 1, JITMemoryKind::Writable).unwrap();
+            let total = peer.total.clone();
+            let baseline = total.load(Ordering::Relaxed);
+            let mut candidate = memory(4);
+            candidate.total = total.clone();
+            candidate.failure = failure;
+            let result = candidate.allocate(97, 1, JITMemoryKind::Executable);
+            if failure == Failure::Allocate {
+                assert!(result.is_err());
+                assert_eq!(total.requested(), 31);
+            } else {
+                result.unwrap();
+                assert_eq!(total.requested(), 128);
+                assert!(candidate.finalize(BranchProtection::None).is_err());
+            }
+            drop(candidate);
+            assert_eq!(
+                (total.requested(), total.load(Ordering::Relaxed)),
+                (31, baseline)
+            );
+            drop(peer);
+            assert_eq!((total.requested(), total.load(Ordering::Relaxed)), (0, 0));
+        }
+    }
+
+    #[test]
     fn segment_permissions_and_repeated_finalization_keep_record_storage_fixed() {
         let mut memory = memory(16);
         let metadata = memory.allocations.allocator().0.clone();
@@ -4807,6 +4865,7 @@ mod memory_tests {
             assert!(!memory.status.metadata_refused.load(Ordering::Relaxed));
             assert!(!memory.status.unavailable.load(Ordering::Relaxed));
             assert_eq!(memory.allocations.len(), usize::from(case == 1));
+            assert_eq!(total.requested(), usize::from(case == 1));
             assert_eq!(
                 (metadata.current(), total.load(Ordering::Relaxed)),
                 baseline

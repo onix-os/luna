@@ -229,6 +229,8 @@ pub struct JitStats {
     pub registered_prototypes: usize,
     pub installed_regions: u64,
     pub code_bytes: usize,
+    /// Live provider-requested payload bytes, excluding page and alignment padding.
+    pub code_requested_bytes: usize,
     pub snapshot_bytes: usize,
     pub snapshot_peak_bytes: usize,
     pub metadata_bytes: usize,
@@ -1342,6 +1344,8 @@ mod eviction_tests {
             )
         };
         assert!(bytes > 0);
+        let requested = counter.requested();
+        assert!(requested > 0 && requested <= bytes);
         runtime.0.borrow_mut().clear_registrations();
         drop(runtime);
         assert_eq!(
@@ -1349,6 +1353,7 @@ mod eviction_tests {
             bootstrap - RuntimeOwner::allocation_bytes() - LedgerRef::allocation_bytes()
         );
         assert_eq!(counter.load(Ordering::Relaxed), bytes);
+        assert_eq!(counter.requested(), requested);
         assert_executable(&lease);
         assert!(matches!(
             backend::compile_in(
@@ -1362,9 +1367,11 @@ mod eviction_tests {
             Err(JitError::ResourceLimit("native mappings"))
         ));
         assert_eq!(counter.load(Ordering::Relaxed), bytes);
+        assert_eq!(counter.requested(), requested);
         assert_executable(&lease);
         drop(lease);
         assert_eq!((counter.load(Ordering::Relaxed), host.current()), (0, 0));
+        assert_eq!(counter.requested(), 0);
         let recovered = backend::compile_in(
             &snapshot(),
             counter.clone(),

@@ -97,6 +97,7 @@ pub(crate) struct Ledger {
     accounted_peak: AtomicUsize,
     enforce_bootstrap: bool,
     mapped: AtomicUsize,
+    requested: AtomicUsize,
     current: AtomicUsize,
     peak: AtomicUsize,
     limit: AtomicUsize,
@@ -167,6 +168,7 @@ impl Ledger {
                 accounted_peak: AtomicUsize::new(root_bytes),
                 enforce_bootstrap: enforce,
                 mapped: AtomicUsize::new(0),
+                requested: AtomicUsize::new(0),
                 current: AtomicUsize::new(root_bytes),
                 peak: AtomicUsize::new(0),
                 limit: AtomicUsize::new(limit),
@@ -281,6 +283,32 @@ impl MappingCounter {
             ledger = parent.clone();
         }
         Self(ledger)
+    }
+
+    pub fn requested(&self) -> usize {
+        self.0.requested.load(Ordering::Relaxed)
+    }
+
+    #[cfg(any(
+        test,
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )
+    ))]
+    pub fn add_requested(&self, bytes: usize) {
+        self.0.requested.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    #[cfg(any(
+        test,
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )
+    ))]
+    pub fn release_requested(&self, bytes: usize) {
+        self.0.requested.fetch_sub(bytes, Ordering::Relaxed);
     }
 }
 
@@ -398,9 +426,14 @@ mod mapping_tests {
         assert!(LedgerRef::ptr_eq(&first.0, &host));
         assert!(LedgerRef::ptr_eq(&first.0, &second.0));
         assert_eq!(first.fetch_add(4096, Ordering::Relaxed), 0);
+        first.add_requested(123);
+        second.add_requested(45);
+        assert_eq!(third.requested(), 168);
         assert_eq!(third.load(Ordering::Relaxed), 4096);
+        third.release_requested(168);
         assert_eq!(second.fetch_sub(4096, Ordering::Relaxed), 4096);
         assert_eq!(first.load(Ordering::Relaxed), 0);
+        assert_eq!(first.requested(), 0);
         for ledger in [&host, &child, &leaf] {
             assert_eq!(
                 (ledger.current(), ledger.peak(), ledger.refusals()),
@@ -416,9 +449,13 @@ mod mapping_tests {
         let counter = MappingCounter::new(child.clone());
         let peer = counter.clone();
         counter.store(4096, Ordering::Relaxed);
+        counter.add_requested(321);
         drop((host, child, counter));
         assert_eq!(LedgerRef::strong_count(&peer.0), 1);
+        assert_eq!(peer.requested(), 321);
+        peer.release_requested(321);
         assert_eq!(peer.fetch_sub(4096, Ordering::Relaxed), 4096);
+        assert_eq!(peer.requested(), 0);
         drop(peer);
     }
 
@@ -432,6 +469,8 @@ mod mapping_tests {
         let layout = Layout::from_size_align(64, 8).unwrap();
         let allocation = allocator.allocate(layout).unwrap();
         counter.store(4096, Ordering::Relaxed);
+        counter.add_requested(97);
+        assert_eq!((counter.requested(), other.requested()), (97, 0));
         assert_eq!((first.current(), other.load(Ordering::Relaxed)), (64, 0));
         assert!(!first.fits(65));
         unsafe { allocator.deallocate(allocation.cast(), layout) };
@@ -439,7 +478,9 @@ mod mapping_tests {
             (first.current(), counter.load(Ordering::Relaxed)),
             (0, 4096)
         );
+        counter.release_requested(97);
         counter.store(0, Ordering::Relaxed);
+        assert_eq!((counter.requested(), other.requested()), (0, 0));
     }
 }
 
