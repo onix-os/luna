@@ -108,6 +108,10 @@ fn off_and_auto_dispatch_switches_preserve_slice_fuel_and_counters() -> Result<(
         };
         assert_eq!(step(&mut reference, &left), step(&mut candidate, &right));
         let after = candidate.jit_stats();
+        assert_eq!(
+            after.total_dispatches,
+            reference.jit_stats().total_dispatches
+        );
         if mode == JitMode::Off {
             assert_eq!(after.native_entries, before.native_entries);
             assert_eq!(after.native_instructions, before.native_instructions);
@@ -232,6 +236,11 @@ fn native_guard_bailout_does_not_repeat_effects_or_charge_extra_fuel() -> Result
         let a = step(&mut interpreted, &left);
         let b = step(&mut compiled, &right);
         assert_eq!(a, b, "slice {index}");
+        assert_eq!(
+            compiled.jit_stats().total_dispatches,
+            interpreted.jit_stats().total_dispatches,
+            "dispatches at slice {index}"
+        );
         compiled.gc_collect();
         if a.0 {
             break;

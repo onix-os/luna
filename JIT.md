@@ -2,23 +2,24 @@
 
 This branch implements the first native execution tier described in [PLAN_JIT.md](PLAN_JIT.md). It is **not the finished plan** and is not the LuaJIT runtime or its FFI. Constructors still default to interpreted execution. Do not use these results to claim production readiness or hostile-code isolation.
 
-As checked on 2026-10-03, all seven hosted jobs pass at `48df12e`
-([run 37152214033](https://github.com/onix-os/luna/actions/runs/37152214033)):
+As checked on 2026-10-03, all seven hosted jobs pass at `a8bc5c7`
+([run 37154853416](https://github.com/onix-os/luna/actions/runs/37154853416)):
 native Linux x86-64 GNU/musl and ARM64 GNU, two Rust-only Miri seeds, baseline
 verification and real i686 interpreter fallback. Local full GNU/musl gates at
-that revision each pass 5248 executions across 458 repeated suites, with 24
+that revision each pass 5263 executions across 470 repeated suites, with 24
 ignored and zero failures. This includes the GC request/pacing repairs,
 relocation admission before mapping and complete native-exit counters.
 These are repeated test executions, not unique tests or performance measurements.
 
-Later test-harness changes make Force refusals explicit, with exact IR-block
+The test harness makes Force refusals explicit, with exact IR-block
 exclusions for the existing math and string corpora. Full local GNU/musl
 `make jit-verify jit-example` passes at `a8bc5c7`: each target reports 5263
 executions across 470 repeated suites, 24 ignored and zero failures. Both examples
 assert native execution and return 5000050000 with 200007 native instructions.
-Dynamic numeric-exit tests also pass in jit/jit+async on GNU/musl. These changes
-do not modify the production runtime; hosted verification at this revision is
-still pending, distinct from the older all-seven-green run above.
+Dynamic numeric-exit tests also pass in jit/jit+async on GNU/musl.
+The subsequent total-dispatch counter passes focused GNU/musl and real i686
+tests, including errors and transitions. Full and hosted gates at `a8bc5c7`
+predate that runtime change and do not certify it.
 Benchmarks remain deferred, not accepted; earlier upvalue/callback/compiled-but-
 disabled cost failures remain unresolved. This is not full-plan acceptance.
 
@@ -250,7 +251,8 @@ At `a0f9ac5`, full GNU/musl gates each pass 5152 test executions across 446
 repeated suites, with 24 ignored and zero failures. The focused lifetime/resource
 gates pass 77 executions per target. These are correctness/resource results,
 not the deferred performance acceptance.
-- `native_entries` counts real machine-code invocations, including immediate guard exits. `native_instructions` counts completed logical bytecodes, not CPU instructions. `interpreted_instructions` counts the reference VM's reported instructions, which exclude some transition opcodes. `interpreted_slices` counts completed slices that fetched an interpreted opcode. `hook_exits` counts slices kept interpreted with hooks enabled.
+- `total_dispatches` counts completed native bytecodes plus interpreted opcode dispatches, including call/return transitions and failing interpreted operations. Native guard attempts, declined helpers and a panicking native instruction are not counted as completed native work; subsequent interpreter dispatch is counted once. Interpreter dispatches are retained on error or Rust unwinding, using a slice-local accumulator published at scope exit. This is not CPU instructions, fuel or callback-body work, and it saturates independently. Cache clearing/disabling retains it.
+- `native_entries` counts real machine-code invocations, including immediate guard exits. `native_instructions` counts completed logical bytecodes, not CPU instructions. `interpreted_instructions` counts the reference VM's reported instructions, which exclude some transition opcodes and slices returning errors. `interpreted_slices` counts completed slices that fetched an interpreted opcode. These existing counters and fuel accounting retain their previous meanings. `hook_exits` counts slices kept interpreted with hooks enabled.
 - Native invocations return exactly one of four reasons: `native_interpreter_exits` (handoff for an interpreted operation or helper decline), `guard_exits` (failed scalar guard), `native_budget_exits` (slice allowance exhausted), or `native_panic_exits` (caught helper panic). These totals partition `native_entries` until counters saturate; each saturates independently at `u64::MAX`. Zero-instruction exits still count. Panic exits are recorded after state materialization and before resuming Rust unwinding. Hook-only interpreted slices do not count as native exits. Cache clearing and disabling JIT retain these cumulative counters. `make jit-stats` checks reason accounting, native execution and unsupported-target zeros; the metrics example includes the new reason totals without requiring a timing run to test them.
 - `code_lookups` counts eligible slice-local cache probes; `code_leases` counts successful owned leases, even when an entry is interpreted. A single VM slice reuses its lease across native/reference fragments, but repacks canonical registers for every invocation. Hotness observation remains per interpreted dispatch when no code is installed.
 - `helper_calls` counts scoped helper attempts, `helper_instructions` counts completed helper-backed bytecodes, and `helper_declines` counts effect-free fallback requests. Table/upvalue/allocation counters count successful accesses; table-through-upvalue operations include a successful upvalue read. These are real native helper paths, not the interpreter's opcode loop.

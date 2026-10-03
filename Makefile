@@ -430,6 +430,7 @@ jit-test-modes:
 .PHONY: jit-stats
 jit-stats:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::stats_tests
+	@$(CARGO) test --locked -p luna --features jit --test jit_dispatches $(TARGET_ARG)
 	@$(CARGO) test --locked -p luna --features jit --test jit_fallback $(TARGET_ARG)
 	@$(MAKE) --no-print-directory jit-native jit-heap
 

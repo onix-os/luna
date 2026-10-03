@@ -201,6 +201,8 @@ impl JitCapabilities {
 /// Monotonic execution counters and current JIT resource usage.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct JitStats {
+    /// Completed native bytecodes plus interpreted opcode dispatches, including errors and transitions.
+    pub total_dispatches: u64,
     pub interpreted_slices: u64,
     pub interpreted_instructions: u64,
     pub native_entries: u64,
@@ -253,6 +255,9 @@ impl JitStats {
         )
     ))]
     fn record_native_exit(&mut self, exit: &abi::Exit) {
+        self.total_dispatches = self
+            .total_dispatches
+            .saturating_add(u64::from(exit.instructions));
         self.native_entries = self.native_entries.saturating_add(1);
         self.native_instructions = self
             .native_instructions
@@ -290,6 +295,7 @@ mod stats_tests {
             });
         }
         assert_eq!(stats.native_entries, 4);
+        assert_eq!(stats.total_dispatches, 0);
         assert_eq!(stats.native_instructions, 0);
         assert_eq!(
             (
@@ -312,6 +318,7 @@ mod stats_tests {
         ] {
             for initial in [0, u64::MAX - 1, u64::MAX] {
                 let mut stats = JitStats {
+                    total_dispatches: initial,
                     native_entries: initial,
                     native_instructions: initial,
                     guard_exits: initial,
@@ -327,6 +334,7 @@ mod stats_tests {
                     reason: reason as u32,
                 });
                 assert_eq!(stats.native_entries, initial.saturating_add(1));
+                assert_eq!(stats.total_dispatches, initial.saturating_add(3));
                 assert_eq!(stats.native_instructions, initial.saturating_add(3));
                 for (kind, count) in [
                     (exits::Kind::Interpreter, stats.native_interpreter_exits),
@@ -340,6 +348,57 @@ mod stats_tests {
                 assert_eq!(stats.hook_exits, before.hook_exits);
                 assert_eq!(stats.helper_declines, before.helper_declines);
             }
+        }
+    }
+
+    #[test]
+    fn interpreter_dispatches_survive_errors_and_unwinding() {
+        let runtime = Runtime::new();
+        {
+            let mut slice = runtime.interpreter_stats();
+            slice.dispatches = 3;
+            slice.reported_instructions = Some(2);
+        }
+        {
+            let mut slice = runtime.interpreter_stats();
+            slice.dispatches = 4;
+        }
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut slice = runtime.interpreter_stats();
+            slice.dispatches = 5;
+            panic!("dispatch unwind sentinel");
+        }));
+        assert!(result.is_err());
+        let stats = runtime.0.borrow().stats;
+        assert_eq!(stats.total_dispatches, 12);
+        assert_eq!(stats.interpreted_slices, 1);
+        assert_eq!(stats.interpreted_instructions, 2);
+        assert_eq!(stats.native_entries, 0);
+    }
+
+    #[test]
+    fn interpreter_dispatches_saturate_without_counting_empty_slices() {
+        let runtime = Runtime::new();
+        for initial in [0, u64::MAX - 1, u64::MAX] {
+            runtime.0.borrow_mut().stats = JitStats {
+                total_dispatches: initial,
+                ..Default::default()
+            };
+            {
+                let mut slice = runtime.interpreter_stats();
+                slice.reported_instructions = Some(0);
+            }
+            assert_eq!(runtime.0.borrow().stats.total_dispatches, initial);
+            assert_eq!(runtime.0.borrow().stats.interpreted_slices, 0);
+            {
+                let mut slice = runtime.interpreter_stats();
+                slice.dispatches = 3;
+                slice.reported_instructions = Some(2);
+            }
+            let stats = runtime.0.borrow().stats;
+            assert_eq!(stats.total_dispatches, initial.saturating_add(3));
+            assert_eq!(stats.interpreted_slices, 1);
+            assert_eq!(stats.interpreted_instructions, 2);
         }
     }
 }
@@ -692,6 +751,30 @@ pub(crate) struct Prepared {
     code: owner::Shared<backend::Code>,
 }
 
+pub(crate) struct InterpreterStats<'a> {
+    runtime: &'a Runtime,
+    pub dispatches: u32,
+    pub reported_instructions: Option<u32>,
+}
+
+impl Drop for InterpreterStats<'_> {
+    fn drop(&mut self) {
+        let mut manager = self.runtime.0.borrow_mut();
+        let stats = &mut manager.stats;
+        stats.total_dispatches = stats
+            .total_dispatches
+            .saturating_add(u64::from(self.dispatches));
+        if let Some(instructions) = self.reported_instructions {
+            stats.interpreted_slices = stats
+                .interpreted_slices
+                .saturating_add(u64::from(self.dispatches != 0));
+            stats.interpreted_instructions = stats
+                .interpreted_instructions
+                .saturating_add(u64::from(instructions));
+        }
+    }
+}
+
 impl Runtime {
     pub(crate) fn new() -> Self {
         Self::try_new(Manager::default())
@@ -706,16 +789,12 @@ impl Runtime {
         RuntimeOwner::try_new(RefCell::new(manager), charge).map(Self)
     }
 
-    pub(crate) fn record_interpreter(&self, instructions: u32, executed: bool) {
-        let mut manager = self.0.borrow_mut();
-        manager.stats.interpreted_slices = manager
-            .stats
-            .interpreted_slices
-            .saturating_add(u64::from(executed));
-        manager.stats.interpreted_instructions = manager
-            .stats
-            .interpreted_instructions
-            .saturating_add(u64::from(instructions));
+    pub(crate) fn interpreter_stats(&self) -> InterpreterStats<'_> {
+        InterpreterStats {
+            runtime: self,
+            dispatches: 0,
+            reported_instructions: None,
+        }
     }
 
     pub(crate) fn active(&self) -> bool {

@@ -11,6 +11,31 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Total dispatch accounting — 2026-10-03
+
+Implemented Phase 1 item 6's `JitStats.total_dispatches`: completed native
+bytecodes plus interpreted opcode dispatches, including transitions and failing
+operations. A slice-local guard publishes interpreted counts on return/error/
+Rust unwinding; no per-opcode runtime borrow, logging or allocation is added.
+Guard attempts/declined helpers are not counted twice, and panicking native
+instructions are not claimed completed. Existing instruction/slice counters and
+fuel semantics remain unchanged. The public counter saturates independently,
+survives cache clearing/disabling, and appears in the metrics example.
+
+`make jit-stats` (`49131`) passes 38 executions / five suites each on GNU/musl
+and eight / five on real i686; all have zero failures/ignored. Five straight-line
+programs at five budgets check exact counts through return, table errors and
+call/tail-call errors. Mixed-tier loop/call/tail-call/caught-error traces agree
+with Off at four budgets; existing guard and mode-switch fixtures compare counts
+per slice. Unit tests cover saturation, empty slices and unwind retention;
+existing helper-panic tests still pass. Check/doc/metrics-example gates (`33369`)
+pass; metrics tests run no timing workload. Final formatting, default/all-feature
+checks, advisory Clippy and warning-denied rustdoc (`99112`) also pass; the
+existing warning backlog remains, with none in the new dispatch fixture.
+Logs: `target/jit-evidence/dispatches/`.
+Full verification of this new runtime change remains pending. Compiler-memory,
+broader review and deferred performance obligations remain open.
+
 ### Full strict-harness gate and milestone reconciliation — 2026-10-03
 
 At clean revision `a8bc5c7`, sequential GNU/musl
@@ -26,8 +51,8 @@ original requirements and the evidence table below. Phase 3 prerequisite
 acceptance and product/release acceptance remain separate and open. Phase 1
 still needs total dispatch accounting: summing the existing instruction counters
 would omit transitions and error paths. No benchmarks were run or waived.
-Hosted run `37154853416` at this revision is still pending; the latest verified
-all-seven-green run remains `37152214033` at runtime revision `48df12e`.
+Hosted run `37154853416` at this revision subsequently completed all seven jobs
+successfully, including native ARM64, both Rust-only Miri seeds and real i686.
 
 ### Dynamic numeric exits and native-slice reconciliation — 2026-10-03
 
@@ -1904,7 +1929,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 1 — Add configuration, capabilities, and honest test lanes
 
-**Status:** IN PROGRESS. **Depends on:** Phase 0. Configuration, dependency isolation, defaults/traits, transactional validation and native exit reasons are verified. Full strict-harness GNU/musl gates pass at `a8bc5c7`, including the exact math/string IR-block exclusions. Item 6's total dispatch accounting remains open: existing instruction counts omit some transitions and error paths. Later compiler accounting and deferred performance are not inferred from these checks.
+**Status:** IN PROGRESS; implementation present, final revalidation pending. **Depends on:** Phase 0. Configuration, dependency isolation, defaults/traits, transactional validation and native exit reasons are verified. Full strict-harness GNU/musl gates and all seven hosted jobs pass at `a8bc5c7`, including the exact math/string IR-block exclusions. Item 6's total dispatch counter now includes transitions/errors and passes focused GNU/musl/i686 gates; full verification of this later runtime change is pending. Later compiler accounting and deferred performance are not inferred from these checks.
 
 **Files:** manifests/lockfile, `Makefile`, `src/lib.rs`, `src/lua.rs`, `src/jit/mod.rs`, tests/common helpers, integration test constructors, `examples/jit.rs`.
 
