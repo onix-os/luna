@@ -45,6 +45,45 @@ pass on both targets. The public memory-limit tests still enforce their exact
 measured peak and one-byte-short refusal, including async execution. This is
 earlier lifetime release, not a complete Cranelift ledger or a measured speedup.
 
+#### Goal
+Reduce controllable compiler working-storage lifetimes without weakening limits.
+
+#### Instructions
+Continue non-benchmark work and keep incremental unsigned commits. Do not add
+compiler workers or expand audit/fuzz infrastructure; keep the full goal open.
+
+#### Discoveries
+Rust's last borrow ending does not drop heap-owning locals. The verification
+records and source snapshot outlived their final use, overlapping later native
+allocation/cache installation. Pinned Cranelift owns the code/relocation copy
+after definition, so its Context can be destroyed before finalization.
+
+#### Accomplished
+Pushed `a0f9ac5`. Both new regressions fail on the original lifetimes and pass
+after the repair. Focused GNU/musl gates each pass 77 tests across 17 suites.
+Full GNU and musl verification each pass 5152 executions across 446 repeated
+suites, 24 ignored and zero failures. Batch `35850` exits 0, including advisory
+clippy; its inherited 141 library-test warnings remain, with no new lifetime
+fixture warnings. Source/build inputs still match `a0f9ac5`; only docs changed.
+All owned local build/test jobs are terminal. Hosted run
+`37143852327` passes verify and i686 fallback; native/Miri jobs remain live.
+The previous portability run `37142633733` now passes all three native jobs as
+well as fallback/verify, with its Miri jobs still live at the last check.
+
+#### Next Steps
+Collect the existing hosted native/Miri jobs without dispatching duplicates. Continue
+the original acceptance checklist. A concrete next gap is exact debug-hook
+event/traceback equivalence across mixed tiers: the existing native hook test
+only checks positive hook/native counters, while generic hook tests use broad
+count expectations. Preserve benchmarks as deferred, not accepted.
+
+#### Relevant Files
+- `src/jit/backend.rs` — lowering/proof/codegen owner release boundaries.
+- `src/jit/mod.rs` — release snapshots after the last retry, before installation.
+- `src/jit/backend/lifetime_tests.rs` — failing-before-fix resource/native checks.
+- `Makefile`, `JIT.md` — focused gate and explicit accounting limitations.
+- `target/jit-evidence/compiler-lifetimes/` — red/focused/full verification logs.
+
 ### Unsupported-target execution — 2026-10-03
 
 The preceding goal turn made verified progress: atomic temporary-file repair
@@ -1974,8 +2013,8 @@ runtime edits must revalidate affected criteria. An unchecked item may reflect
 missing acceptance evidence rather than missing implementation.
 
 - [ ] Existing API and Lua 5.4 regression behavior remain compatible.
-- [x] `make verify` succeeds without JIT enabled by default. Revalidated in full GNU/musl gates at `a893bd7` after the portability repairs.
-- [x] `make jit-verify` succeeds in Off, Auto, and Force, including optional async/derive and doctests. GNU/musl each pass 5142 executions / 446 suites / 24 ignored at `a893bd7`.
+- [x] `make verify` succeeds without JIT enabled by default. Revalidated in full GNU/musl gates at `a0f9ac5` after the compiler-lifetime changes.
+- [x] `make jit-verify` succeeds in Off, Auto, and Force, including optional async/derive and doctests. GNU/musl each pass 5152 executions / 446 suites / 24 ignored at `a0f9ac5`.
 - [ ] Eligible integrated workloads actually execute native instructions; counters and coverage substantiate this.
 - [ ] No proportional native-stack growth from Lua recursion/tail calls or suspension.
 - [ ] Small-fuel/interrupt/GC-request tests preserve reference scheduling behavior.
