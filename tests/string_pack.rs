@@ -14,6 +14,47 @@ fn eval(source: &str) -> Result<bool, ExternError> {
 mod common;
 
 #[test]
+fn string_positions_and_repetition_keep_the_full_lua_integer_range() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local low, high = math.mininteger, math.maxinteger
+        assert(string.sub("abc", low, high) == "abc")
+        assert(string.sub("abc", high) == "")
+        assert(string.sub("abc", low, low) == "")
+        assert(string.byte("abc", low, low) == nil)
+        assert(string.find("abc", "a", low, true) == 1)
+        assert(string.find("abc", "a", 0x100000001, true) == nil)
+        assert(string.match("abc", "a", low) == "a")
+        assert(string.match("abc", "a", 0x100000001) == nil)
+        assert(not pcall(string.rep, "x", 0x100000000))
+        assert(not pcall(string.rep, "", 0x100000000, ","))
+        return string.rep("", high) == ""
+        "#
+    )?);
+    Ok(())
+}
+
+#[test]
+fn length_prefixes_round_trip_without_pointer_width_assumptions() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        for _, endian in ipairs({"<", ">"}) do
+            for size=1,16 do
+                local format = endian .. "s" .. size
+                local bytes = string.pack(format, "abc")
+                local value, next = string.unpack(format, bytes)
+                assert(value == "abc" and next == size + 4)
+            end
+            local too_large = string.pack(endian .. "I8", 0x100000001) .. "x"
+            assert(not pcall(string.unpack, endian .. "s8", too_large))
+        end
+        return true
+        "#
+    )?);
+    Ok(())
+}
+
+#[test]
 fn integers_round_trip() -> Result<(), ExternError> {
     assert!(eval(
         r#"
