@@ -176,6 +176,8 @@ pub(super) struct Code {
     entry: Entry,
     #[cfg(test)]
     byte_len: usize,
+    #[cfg(test)]
+    relocations: usize,
     pub registers: usize,
     pub entries: BudgetVec<bool, BudgetAllocator>,
 }
@@ -639,6 +641,10 @@ pub(super) fn compile_in(
     module
         .define_function(function, &mut context)
         .map_err(fail)?;
+    let relocations = context.compiled_code().unwrap().buffer.relocs().len();
+    if relocations > work.relocations {
+        return Err(JitError::ResourceLimit("native relocations"));
+    }
     #[cfg(test)]
     let byte_len = context.compiled_code().unwrap().code_buffer().len();
     module.finalize_definitions().map_err(fail)?;
@@ -655,10 +661,15 @@ pub(super) fn compile_in(
         entry,
         #[cfg(test)]
         byte_len,
+        #[cfg(test)]
+        relocations,
         registers: snapshot.registers,
         entries,
     })
 }
+
+#[cfg(test)]
+mod relocation_tests;
 
 struct Emitter<'a, 'b> {
     builder: &'a mut FunctionBuilder<'b>,

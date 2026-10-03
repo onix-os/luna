@@ -11,6 +11,194 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Unsupported-target execution — 2026-10-03
+
+The preceding goal turn made verified progress: atomic temporary-file repair
+`ab3e710` and evidence/docs `182f011` are pushed; full local GNU/musl gates pass.
+The next non-benchmark acceptance gap is actual execution with `jit` enabled on
+a target without a native backend. Use static `i686-unknown-linux-musl` binaries
+on the Linux x86-64 host, not a forced cfg or a supported-target mock. A separate
+Nix `fallback` shell supplies the 32-bit standard library and LLD without
+changing the normal native-development environment. This is interpreter fallback
+coverage, not a new advertised native platform. Toolchain execution remains to
+be verified; benchmarks remain deferred.
+
+Rust lists this target with a full standard library:
+https://doc.rust-lang.org/rustc/platform-support.html
+
+The first actual 32-bit build fails in `src/stdlib/math.rs:390`: the two-component
+random seed is hard-coded to 32 bytes, but pinned rand 0.8.5 uses a 16-byte
+`SmallRng::Seed` on 32-bit platforms. Use the associated seed type, preserving
+the existing bytes on 64-bit platforms and both components on 32-bit platforms.
+This is a real baseline portability defect, not a Cranelift failure. Initial
+failure evidence is in `target/jit-evidence/fallback/initial.log`; rerun pending.
+
+After the seed-type repair, actual i686 executables pass all five existing
+configuration tests. The Nix/LLD setup executes successfully on this host.
+Added unsupported-only integration checks for exact Off/Auto slice equivalence
+at five budgets with collection, table/metamethod/upvalue work, Rust callbacks,
+coroutines and caught errors; explicit preparation/service must report
+`Unavailable`, while convenience execution and mode changes remain usable.
+Assertions require zero queue/compilation/native-code activity, not silent
+success from native tests compiled out. A separate hosted fallback job runs the
+same Make gate; local full gate and CI validation are pending. No native target
+claim is widened. A random-seed replay regression covers both seed components.
+
+The first full fallback gate stops in the existing
+`repeated_concat_errors_instead_of_exhausting_memory` test: i686 aborts on a
+1-GiB allocation before the string-size ceiling is reached. The dedicated
+fallback tests passed in both feature configurations before this failure.
+Replace the infallible fast-concatenation scratch allocation with checked
+reservation returning the existing `ConcatOverflow` error. Preserve the length
+ceiling and the original test; do not serialize, skip or shrink the workload.
+Rerun the concrete failing path before claiming this repair sufficient.
+
+Checked scratch reservation alone still aborts (`portability.log`). The fast
+path then copies the entire scratch buffer again through string interning.
+An owned-buffer interning path now reuses the existing lookup/weak-table/barrier
+logic and transfers a newly concatenated buffer without that second full-size
+allocation. Existing interned values still deduplicate. The targeted rerun is
+pending; the debugger could not obtain a musl32 abort backtrace, so it is not
+claimed as proof of the allocation site.
+
+The owned-buffer path passes the unchanged repeated-concatenation regression
+on i686 both with and without `jit`; all 48 focused numeric/concatenation test
+executions pass. Small strings retain their inline representation. A unit
+test checks large-buffer pointer transfer, borrowed/owned deduplication and
+small-string layout. The next full-gate failure is a test-only 64-bit assumption:
+`Value <= 2 * pointer_size` cannot hold on 32-bit with an i64 payload and tag.
+Check against a tagged `(usize, i64)` payload instead, retaining the same bound
+on 64-bit and all single-pointer object-handle assertions. No runtime value
+representation is changed to satisfy this test.
+
+RNG repair `f9e8022` and owned-concatenation repair `166c7ae` are separately
+committed and pushed. The next i686 gate reveals a real `string.pack("s4", ...)`
+panic: shifting a 32-bit usize by 32. Compare length-prefix capacity in u64.
+Unpacking also truncated i64 lengths to usize, so use checked conversion. A
+regression covers both byte orders, all 16 prefix widths, and a 2^32+1 length
+with only one payload byte. The previous native full-gate batch began before
+this additional patch and cannot alone certify the final source revision.
+
+The prefix repair then passes all pack and string-semantics fixtures; the
+unchanged upstream `tests/strings.lua` exposes another 32-bit narrowing bug in
+`string.sub` at Lua integer extrema. Normalize/clamp indices before converting
+to host usize, preserve out-of-range search positions, and reject unrepresentable
+nonempty repetition counts rather than truncating them. Empty repetition returns
+immediately. Focused regressions cover these full-i64 boundaries without huge
+allocations. They do not lower the string-size limit or alter the upstream test.
+
+The full baseline i686 suite now passes, including unchanged `strings.lua`.
+The JIT-feature library suite exposes one queue-test assumption: unsupported
+targets deliberately do not enqueue hot sources. Keep the whole GC/identity/
+retained-peer test running; require zero queue/compile requests on unsupported
+targets and retain the existing exact nonzero assertions on supported targets.
+This changes only test expectations for the documented capability branch.
+
+#### Goal
+Execute the unsupported-target fallback branch and repair defects exposed by it.
+
+#### Instructions
+Keep the complete JIT objective active; defer benchmarks, use Make/Nix, preserve
+the original tests, and commit distinct fixes without signatures.
+
+#### Discoveries
+Actual 32-bit execution exposed baseline RNG/string-width defects and an
+avoidable full-size string copy. Capability mocks on 64-bit hosts missed them.
+The owned-buffer path keeps small strings inline and preserves interning.
+Unsupported Auto execution must not enqueue compilation requests.
+
+#### Accomplished
+The final i686 gate (`35652`, `gate-final.log`) exits 0: 1839 passing executions,
+295 repeated suites, two ignored, zero failures. Dedicated fallback tests each
+execute five times across feature/mode lanes; the unchanged large-concatenation
+test passes four times. `file` confirms static ELF32 i386 executables. The
+fallback lane includes baseline, JIT Off/Auto and all-feature Force suites.
+RNG and owned-string fixes are pushed as `f9e8022` and `166c7ae`. Width/clamping
+fixes are pushed as `71a945e`; capability-aware tests and the new CI lane are
+pushed as `a893bd7`. Hosted run `37142633733` now passes its actual i686 fallback
+job `111260042537`; the downloaded log confirms the same 1839 passing executions,
+295 suites and two ignored. Verify also passes; native and Miri jobs remain live.
+The previous temporary-file repair run `37140446824` completes successfully in
+all six jobs. Its green status does not validate the later portability repairs.
+
+#### Next Steps
+Final-source GNU and musl `make jit-verify` gates now each pass 5142 executions
+across 446 repeated suites, with 24 ignored and zero failures. Final GNU batch
+`30920` and musl-containing batch `97720` exit 0. Use `gnu-final.log`, not the
+earlier GNU log that crossed edits. Source/build inputs still match `a893bd7`.
+The final GNU focused portability gate passes 152 executions across 11 suites.
+Final workflow validation and advisory clippy exit 0; the inherited 141
+library-test warnings remain. All owned local test/build jobs are terminal.
+
+Collect remaining native/Miri jobs in hosted run `37142633733` rather than
+dispatching replacements; its fallback and verify jobs already pass. Continue
+the original non-benchmark checklist review, including controllable compiler
+memory and integrated boundary evidence. Benchmarks and full-plan acceptance
+remain open; this closes a real platform gap, not the whole objective.
+
+#### Relevant Files
+- `flake.nix`, `Makefile`, `.github/workflows/tests.yml` — real i686 execution lane.
+- `tests/jit_fallback.rs` — exact unsupported-target execution and service contract.
+- `src/stdlib/math.rs`, `tests/numeric_semantics.rs` — target-sized random seed.
+- `src/string.rs`, `src/meta_ops.rs` — owned concatenation buffer and interning.
+- `src/stdlib/string/mod.rs`, `tests/string_pack.rs` — full Lua integer range.
+- `src/jit/registry.rs`, `tests/sizes.rs` — capability/width-aware assertions.
+- `target/jit-evidence/fallback/` — failures, repaired executions and platform logs.
+
+Latest repair: `ab3e710` is pushed. Hosted run `37137046824` exposed colliding
+`os.tmpname` paths in concurrent I/O tests. Atomic temporary-file reservation
+now repairs that defect, with a failing-before-fix regression and full local
+GNU/musl gates passing. Benchmarks remain deferred. Engram tools are unavailable;
+this checkpoint preserves the resumed task locally.
+
+### Temporary-file repair — 2026-10-03
+
+#### Goal
+Repair the actual concurrent I/O failure without weakening test concurrency.
+
+#### Instructions
+Continue useful correctness work, defer benchmarks, and commit logical changes.
+
+#### Discoveries
+Elapsed clock readings do not uniquely identify files. Atomic create-new must
+reserve the name; collisions need retries. Lua's POSIX `os.tmpname` leaves an
+empty file that its caller must remove. This is independent of native codegen.
+
+#### Accomplished
+The reserved-file regression fails before the fix (`tempfiles/red.log`). A
+shared helper now uses PID/checked atomic sequence names, create-new reservation,
+owner-only Unix permissions and bounded collision retries. `os.tmpname` closes
+the reserved file; `io.tmpfile` shares the helper and unlinks its open file.
+Focused baseline tests pass: 11 OS, seven stdlib-gap and three helper tests.
+The concurrent regression creates 256 reserved paths from eight Lua states.
+Helper tests preserve colliding files and check retry limits/error propagation.
+GNU and musl focused gates each pass 75 executions across nine suites, including
+the original concurrent I/O tests in Off, Auto and Force modes. No test is
+serialized or disabled. Repair committed and pushed as `ab3e710`.
+Full GNU and musl `make jit-verify` gates each pass 5118 executions across 440
+suites, with 24 ignored and zero failures. Batch `88883` exits 0. These are
+repeated feature/mode executions, not unique tests. Runtime, tests, Makefile and
+Cargo inputs still match `ab3e710`; only documentation changed after testing.
+Advisory clippy exits 0, with the existing 141 library-test warnings and no
+warnings in the changed temporary-file implementation or OS tests. Hosted run
+`37140446824` is live; its verify job passes, other jobs are not yet accepted.
+No owned local test/build process remains running.
+
+#### Next Steps
+Collect hosted evidence for `ab3e710`, then continue non-benchmark acceptance
+work. The unsupported-target fallback branch has a capability assertion but
+is not executed by existing Linux x86-64/ARM64 native CI; an actual unsupported
+target execution lane remains a useful next step. Current Nix supplies only
+the host and x86-64 musl targets, so that lane needs explicit toolchain setup.
+Do not mark the full plan complete. Benchmarks remain deferred.
+
+#### Relevant Files
+- `src/stdlib/tempfile.rs` — atomic reservation and deterministic collision tests.
+- `src/stdlib/os.rs`, `src/stdlib/io.rs` — shared temporary-file allocation.
+- `tests/os_lib.rs`, `Makefile` — reserved-file/concurrent and focused mode gates.
+- `COMPATIBILITY.md` — temporary-file ownership/removal contract.
+- `target/jit-evidence/tempfiles/` — failing-before-fix and repaired gate logs.
+
 The requested plan document is written. Full implementation and release
 acceptance are not finished. The committed native tier executes Luna bytecode
 through Cranelift without replacing Luna's runtime. Hosted native GNU, musl and
@@ -32,6 +220,8 @@ compiled-disabled overhead. Remaining compiler-memory and safety review remain
 outstanding. Hosted run `37134741669` at `52b2dec` passes all six jobs, including
 both Miri seeds and all native/platform evidence uploads. This closes the
 recorded hosted-CI/platform gap, not the remaining implementation or performance gates.
+The newer relocation-admission milestone passes local full GNU/musl gates with
+5073 executions each; its ARM64/hosted evidence is not supplied by the older run.
 Do not infer a completion percentage or delivery date from commit/test counts.
 
 ### User checkpoint — commit now, benchmark later (2026-10-03)
@@ -200,6 +390,205 @@ user-deferred. Hosted success alone does not prove full-plan completion.
 - `tests/test-jit-miri.sh` — portable filenames and recipe failure propagation.
 - `JIT.md` — current execution, ownership and platform scope.
 - `target/jit-evidence/hosted-ci/` — downloaded run metadata and logs.
+
+### Relocation admission — 2026-10-03
+
+#### Goal
+Close the phase-7 relocation-count admission gap without changing execution or
+restarting benchmarks.
+
+#### Instructions
+Use the pinned backend and existing installation path, Make/Nix verification,
+and incremental unsigned commits. Do not expand audit/fuzz infrastructure.
+
+#### Discoveries
+Cranelift 0.136.1 `define_function_with_control_plane` compiles the function,
+copies its relocation records and allocates its writable code buffer.
+`finalize_definitions` subsequently applies relocations and changes protections.
+The existing mapping quota bounds bytes, but does not explicitly limit the
+number of relocation records processed during finalization.
+
+#### Accomplished
+Implemented positive `JitConfig::max_relocations` (default 65536) and check the
+actual compiled relocation count after definition, before finalization. Refuse
+with `ResourceLimit("native relocations")`; retain ordinary cleanup, backoff and
+interpreter fallback. Lowering the cap retires code/requests like the IR caps.
+This bounds accepted finalization work, not earlier compiler allocations or CPU
+time. No new linker, worker, process isolation or RSS claim is introduced.
+Initial GNU `make fmt jit-relocations` passes eight tests across three suites.
+The backend fixture admits the exact measured count, rejects one less before
+injected protection failure, restores snapshot/metadata/mapping usage, preserves
+a callable peer and recovers on the same snapshot. Public fixtures prove typed
+refusal, interpreter fallback, no eviction, attempt backoff, explicit-reset
+native recovery, and lowering-cap code/queue retirement. Configuration validation
+rejects zero transactionally. This is focused evidence, not a new full gate.
+Final batch `59360` exits 0: focused musl passes the same eight tests, then full
+GNU and musl `make jit-verify` each pass 5073 executions / 434 suite results /
+24 ignored / zero failures. These counts repeat tests across modes and feature
+sets. The source manifest matches after both gates. `make jit-clippy` (`70440`)
+exits 0 with the existing 141 lib-test warnings; no strict-warning acceptance is
+claimed. The new relocation code/tests introduce no reported lint diagnostics.
+All owned local jobs are terminal and no benchmarks ran. The previous green
+hosted run at `52b2dec` predates this new configuration/admission change.
+Hosted ARM64 job `111247442351` in run `37138361134` now passes at `38ba46d`:
+5074 executions / 435 suite results / 24 ignored, including disassembly. Its
+log contains the exact relocation boundary and both public relocation cases in
+all five relevant test lanes, plus the native example and successful artifact
+upload. Other jobs in that run are still pending; this is not a full workflow
+success claim.
+
+#### Next Steps
+Commit/push the verified milestone and collect its ARM64/hosted results. Keep
+compiler working-memory and deferred performance acceptance open; a relocation
+count is not an RSS or compiler-CPU ceiling. Continue genuine runtime work,
+without treating this admission limit as completion of the full plan.
+
+#### Relevant Files
+- `src/jit/mod.rs`, `src/jit/work.rs` — configuration and compiler limits.
+- `src/jit/backend.rs` — actual relocation admission before finalization.
+- `src/jit/backend/relocation_tests.rs` — exact boundary and cleanup/peer tests.
+- `tests/jit_config.rs`, `tests/jit_resources.rs` — public configuration/resource behavior.
+- `target/jit-evidence/relocations/` — focused/full logs, lint output and source manifest.
+
+### Error-boundary evidence reconciliation — 2026-10-03
+
+#### Goal
+Verify phase-5 source positions and typed Rust errors after proven native work.
+
+#### Instructions
+Continue runtime correctness work without benchmarks or new audit/fuzz infrastructure.
+
+#### Discoveries
+The ordinary error-position corpus runs through the mode-aware harness but does
+not assert native execution. Existing native invalid-key tests preserve typed
+errors, but do not cover the complete uncaught/pcall/xpcall position matrix.
+The new relocation revision's hosted run `37138361134` is still live; do not
+restart it or infer its result from the earlier green revision.
+
+#### Accomplished
+Added two integrated regressions with 72 paired Off/Prepared scenarios per
+feature configuration: seven faults, three catch paths and three fuel budgets
+(63 position cases), plus three typed-callback catch/rethrow paths at the same
+budgets (nine identity cases). Every native case proves at least 101 native
+table writes before the error; each slice compares fuel/mode/completion, with
+collection between slices. Faults cover nil indexing, invalid arithmetic/key,
+integer zero division, normal/tail non-callable transitions and explicit Lua
+errors. Uncaught, pcall and xpcall paths retain line 4; typed Rust payloads retain
+their original Arc identity through catches and rethrows.
+
+Final batch `78535` exits 0: `make jit-errors` passes both tests with `jit` and
+`jit,async` on GNU and musl (four passing test executions per platform).
+Initial Clippy identified one needless wrapper in the new test; it was removed.
+Final advisory Clippy exits 0 without new-test diagnostics; the existing 141
+lib-test warnings remain. Runtime/manifests are unchanged from `38ba46d`; no
+runtime fix or speedup is claimed. All owned local jobs are terminal.
+
+Reconciled five final acceptance items against the full `38ba46d` GNU/musl logs
+and current source: baseline gate, all-mode/all-feature JIT gate, compilation
+outside manual steps, queue/cache/mapping/backoff/lease tests, and binary/manual
+prototype provenance. In particular, the binary/manual fixture executes the
+reference results while asserting zero preparation/native entries, and private
+registration combines weak identity checks with monotonically assigned IDs.
+The stalled-compiler test and service call sites prove the manual-step contract.
+Unchecked entries still require evidence or acceptance, not necessarily code.
+
+#### Next Steps
+Commit the verified error-boundary coverage, then collect the current relocation
+run's hosted results and the new test revision's native evidence after pushing.
+Continue reconciling the remaining contract without restarting benchmarks or
+marking unreviewed behavior complete. Keep full-plan acceptance open.
+
+#### Relevant Files
+- `tests/error_positions.rs`, `tests/error.rs` — reference position/error behavior.
+- `tests/jit_errors.rs` — explicit native error-boundary matrix.
+- `Makefile` — focused error-boundary gate.
+- `target/jit-evidence/error-boundaries/` — GNU/musl and advisory-Clippy logs.
+
+### Callback interruption reconciliation — 2026-10-03
+
+#### Goal
+Verify phase-5 callback fuel interruption and mutation across native resumption.
+
+#### Instructions
+Keep benchmarks deferred and preserve reference scheduling. Use existing test
+targets rather than adding another execution or audit framework.
+
+#### Discoveries
+`tests/fuel.rs` checks callback interruption without asserting preceding native
+work. The native fuel matrix interrupts before entering a slice, not inside a
+Rust callback. Neither alone proves the combined boundary required by phase 5.
+
+#### Accomplished
+Added a paired Off/Prepared case with 100 native table writes, a callback
+that replaces a global table/metatable and interrupts fuel, and a later
+metamethod/store that must not run until the host refills fuel. Compare every
+slice, observed table state and callback order, collecting between steps.
+Five input budgets (-1, 0, 1, 64 and 65536) preserve exact slice completion,
+mode, remaining fuel and interrupt flags. At interruption the metamethod has
+not run and the following store is untouched; host refill clears the flag,
+then the metamethod runs exactly once and native execution performs the final
+store. Final results and ordered callback events match Off. No runtime defect
+was exposed, and runtime code remains unchanged from `38ba46d`.
+
+The initial draft had a wrong borrow for `Table::set_metatable`; corrected to
+its existing by-value Context API before execution. Corrected focused GNU
+passes, then batch `66376` exits 0: all 15 `jit-native` tests pass on GNU and
+musl, and advisory Clippy reports no new-test diagnostics (existing 141 lib-test
+warnings remain). All owned local jobs are terminal. No benchmarks ran.
+
+#### Next Steps
+Commit/push this regression and inspect the existing live hosted runs rather
+than dispatching duplicates. Continue checking remaining concrete acceptance
+gaps; an executed unsupported-target fallback lane is still worth checking.
+Keep performance deferred and full-plan acceptance open.
+
+#### Relevant Files
+- `tests/fuel.rs` — reference callback interruption.
+- `tests/jit_native.rs` — native callback interruption/mutation regression.
+- `target/jit-evidence/callback-interruption/` — draft/final focused and lint logs.
+
+### Hosted I/O collision discovery — 2026-10-03
+
+#### Goal
+Repair the concrete temporary-file collision exposed by native CI before
+claiming repeatable baseline/full-gate acceptance.
+
+#### Instructions
+Do not serialize or disable the failing tests. Keep benchmarks deferred and
+limit the stdlib change to the observed collision and its regression coverage.
+
+#### Discoveries
+Run `37137046824` at documentation-only revision `9f5018d` failed its GNU native
+gate: `io_lines_with_no_name_reads_the_default_input` could not open
+`/tmp/lua_5017a`, while `io_redirects_its_default_streams` read `a\nb\nc\ncted`
+instead of `redirected`. Both use `os.tmpname()`. Its implementation uses only
+`process_start().elapsed().as_nanos()` and does not reserve a file; concurrent
+calls can collide and then overwrite/remove one another's output. The original
+comment incorrectly says this matches PUC-Rio. Lua 5.4's POSIX implementation
+uses `mkstemp` and closes the created file, leaving removal to the caller:
+https://www.lua.org/manual/5.4/manual.html#pdf-os.tmpname
+https://www.lua.org/source/5.4/loslib.c.html
+
+#### Accomplished
+Committed/pushed the separately verified callback-interruption regression as
+`a8b5729`; current hosted run `37139626097` is live. Located this independent
+baseline defect from completed CI logs and inspected the concrete implementation.
+No temp-file fix has been applied yet. Earlier passing logs remain historical
+evidence, but do not resolve this newly demonstrated intermittent failure.
+
+#### Next Steps
+Add a regression for reserved, distinct temporary files; replace elapsed-only
+naming with atomic file creation and collision retry, preserving catchable
+creation failure. Inspect `io.tmpfile`'s related elapsed-time naming before
+deciding whether to share the reservation helper. Verify the original I/O tests
+under concurrent execution and all JIT modes; do not treat a test-only rerun as
+a repair. This takes priority over the proposed unsupported-target lane.
+
+#### Relevant Files
+- `src/stdlib/os.rs` — elapsed-only `os.tmpname` implementation.
+- `src/stdlib/io.rs` — `io.tmpfile` already uses create-new, but no collision retry.
+- `tests/stdlib_gaps.rs`, `tests/os_lib.rs` — I/O regression locations.
+- `target/jit-evidence/hosted-ci/run-37137046824-failed.log` — failing CI evidence.
 
 ### User priority clarification — 2026-10-02
 
@@ -1542,22 +1931,30 @@ The size-oriented existing `opt-level = "s"` can influence interpreter layout. M
 
 All applicable criteria must be checked with evidence; no partial phase substitutes for completion.
 
+Checked items below have revision-scoped evidence at `38ba46d`: full GNU/musl
+`make jit-verify` (5073 executions each, including its `verify` prerequisites),
+hosted ARM64 gate (5074 including disassembly), source inspection and the
+focused resource/scheduling/provenance regressions.
+They do not mark unchecked review/performance requirements complete, and later
+runtime edits must revalidate affected criteria. An unchecked item may reflect
+missing acceptance evidence rather than missing implementation.
+
 - [ ] Existing API and Lua 5.4 regression behavior remain compatible.
-- [ ] `make verify` succeeds without JIT enabled by default.
-- [ ] `make jit-verify` succeeds in Off, Auto, and Force, including optional async/derive and doctests.
+- [x] `make verify` succeeds without JIT enabled by default. Revalidated in full GNU/musl gates at `a893bd7` after the portability repairs.
+- [x] `make jit-verify` succeeds in Off, Auto, and Force, including optional async/derive and doctests. GNU/musl each pass 5142 executions / 446 suites / 24 ignored at `a893bd7`.
 - [ ] Eligible integrated workloads actually execute native instructions; counters and coverage substantiate this.
 - [ ] No proportional native-stack growth from Lua recursion/tail calls or suspension.
 - [ ] Small-fuel/interrupt/GC-request tests preserve reference scheduling behavior.
 - [ ] Callbacks, reentrancy, coroutines, async futures, close handlers, and errors pass mixed-tier tests.
 - [ ] GC roots, barriers, weak references, finalizers, and code lifetimes pass integrated stress tests and review.
-- [ ] No synchronous compilation occurs inside `Executor::step`.
-- [ ] Queue/cache/native-memory limits, compiler failure/backoff, and active-entry eviction are tested.
+- [x] No synchronous compilation occurs inside `Executor::step`.
+- [x] Queue/cache/native-memory limits, compiler failure/backoff, and active-entry eviction are tested.
 - [ ] Debug hooks and debug mutation retain correct behavior.
-- [ ] Binary/prototype provenance policy is enforced and documented.
+- [x] Binary/prototype provenance policy is enforced and documented.
 - [ ] Executable memory is never deliberately mapped writable and executable simultaneously; allocation/protection failure falls back or reports capability failure safely.
 - [ ] `make jit-fuzz-smoke` passes; longer campaign evidence and unsafe-boundary review are recorded.
-- [ ] Native platform tests actually execute on each advertised release target.
-- [ ] Unsupported or denied-JIT environments preserve interpreter functionality.
+- [x] Native platform tests actually execute on each advertised release target.
+- [x] Unsupported or denied-JIT environments preserve interpreter functionality. Real i686 fallback passes locally and in hosted job `111260042537` at `a893bd7`; supported-target mapping/protection-denial regressions also pass in the full native gates. This is executed target/fault coverage, not a claim about every possible OS policy.
 - [ ] `make jit-bench` meets preapproved numerical workload thresholds with controls enabled.
 - [ ] `make jit-size` records interpreter/JIT feature costs and compiled-but-disabled overhead.
 - [ ] Docs, examples, resource/security caveats, and actual CI wiring match behavior.

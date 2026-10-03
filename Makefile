@@ -55,7 +55,7 @@ $(info ------------------------------------------)
 .PHONY: jit-disassembly
 .PHONY: jit-bench-build jit-bench-run
 .PHONY: jit-metrics jit-metrics-build jit-metrics-run jit-metrics-tests
-.PHONY: jit-miri jit-miri-wrapper-tests
+.PHONY: jit-miri jit-miri-wrapper-tests jit-relocations jit-errors
 .PHONY: jit-helpers jit-abi jit-config jit-registry jit-suspension jit-ir jit-generic-for jit-exits jit-access
 .PHONY: jit-tags
 .PHONY: jit-input jit-float-input jit-arithmetic jit-truth jit-comparison jit-comparison-backend
@@ -383,11 +383,38 @@ jit-suspension:
 	@$(CARGO) test --locked -p luna --features jit --test jit_suspension $(TARGET_ARG)
 	@$(CARGO) test --locked -p luna --features jit,async --test jit_suspension $(TARGET_ARG)
 
+.PHONY: stdlib-tempfiles
+stdlib-tempfiles:
+	@$(CARGO) test --locked -p luna --test os_lib --test stdlib_gaps $(TARGET_ARG) $(ARGS)
+	@$(CARGO) test --locked -p luna --lib $(TARGET_ARG) stdlib::tempfile::tests
+	@for mode in off auto force; do \
+		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test os_lib --test stdlib_gaps $(TARGET_ARG) $(ARGS) || exit $$?; \
+	done
+
+jit-errors:
+	@$(CARGO) test --locked -p luna --features jit --test jit_errors $(TARGET_ARG)
+	@$(CARGO) test --locked -p luna --features jit,async --test jit_errors $(TARGET_ARG)
+
 jit-abi:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests
 
 jit-config:
 	@$(CARGO) test -p luna --features jit --test jit_config $(TARGET_ARG) $(ARGS)
+
+.PHONY: stdlib-portability jit-fallback
+stdlib-portability:
+	@$(CARGO) test --locked -p luna --lib $(TARGET_ARG) string::tests
+	@$(CARGO) test --locked -p luna --test hardening --test numeric_semantics --test string_pack --test string_semantics --test strings $(TARGET_ARG) $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --test hardening --test numeric_semantics --test string_pack --test string_semantics --test strings $(TARGET_ARG) $(ARGS)
+
+jit-fallback:
+	@test "$(TARGET)" = i686-unknown-linux-musl || { echo 'Use TARGET=i686-unknown-linux-musl for the unsupported-target gate' >&2; exit 2; }
+	@$(CARGO) test --locked -p luna --features jit --test jit_fallback $(TARGET_ARG)
+	@$(CARGO) test --locked -p luna --all-features --test jit_fallback $(TARGET_ARG)
+	@$(MAKE) test TARGET=$(TARGET)
+	@$(MAKE) jit-test JIT_MODE=off TARGET=$(TARGET)
+	@$(MAKE) jit-test JIT_MODE=auto TARGET=$(TARGET)
+	@$(MAKE) jit-test-all JIT_MODE=force TARGET=$(TARGET)
 
 jit-native:
 	@$(CARGO) test -p luna --features jit --test jit_native $(TARGET_ARG) $(ARGS)
@@ -645,6 +672,11 @@ jit-host-finish-async:
 jit-host-reference:
 	@$(CARGO) test --locked -p luna --test memory_accounting $(TARGET_ARG)
 
+jit-relocations:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::relocation_tests
+	@$(CARGO) test --locked -p luna --features jit --test jit_resources $(TARGET_ARG) relocation
+	@$(MAKE) --no-print-directory jit-config
+
 jit-resources:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::resources
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::registry::tests
@@ -831,8 +863,11 @@ help:
 	@echo "  jit-backend  Execute the native helper-call and worker-transfer probes"
 	@echo "  jit-helpers  Test scoped Rust helper frames and panic transport"
 	@echo "  jit-miri     Check Rust-only JIT components (nix develop .#miri)"
+	@echo "  jit-relocations Test finalization relocation limits and fallback"
+	@echo "  jit-errors   Test native error positions and typed callback errors"
 	@echo "  jit-boundary Test native exits against the Rust boundary model"
 	@echo "  jit-native   Run integrated native execution and lifecycle tests"
+	@echo "  jit-fallback Execute unsupported-target fallback (TARGET=i686-unknown-linux-musl)"
 	@echo "  jit-numeric  Check reference and exact native numeric comparisons"
 	@echo "  jit-fuzz-smoke Run supervised admission/scalar/heap smoke"
 	@echo "  jit-fuzz     Run bounded seeded campaigns (FUZZ_TARGET/CASES/SEEDS)"

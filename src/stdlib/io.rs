@@ -770,20 +770,8 @@ pub fn load_io<'gc>(ctx: Context<'gc>) {
         ctx,
         "tmpfile",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
-            // Created and immediately unlinked, so it disappears when the handle is dropped. That
-            // is what PUC-Rio's `tmpfile` promises and it needs no cleanup path of our own.
-            let path = std::env::temp_dir().join(format!(
-                "luna_{:x}_{:x}",
-                std::process::id(),
-                crate::stdlib::os::process_start().elapsed().as_nanos()
-            ));
-            match std::fs::File::options()
-                .read(true)
-                .write(true)
-                .create_new(true)
-                .open(&path)
-            {
-                Ok(f) => {
+            match super::tempfile::create() {
+                Ok((path, f)) => {
                     let _ = std::fs::remove_file(&path);
                     stack.replace(ctx, new_handle(ctx, Handle::File(BufReader::new(f))));
                 }

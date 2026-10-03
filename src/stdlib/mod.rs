@@ -7,6 +7,7 @@ mod os;
 mod package;
 mod string;
 mod table;
+mod tempfile;
 mod utf8;
 
 pub(crate) use self::string::format::format_number;

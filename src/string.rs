@@ -23,6 +23,8 @@ use crate::compiler::string_utils::{debug_utf8_lossy, display_utf8_lossy};
 /// process dies before any arithmetic overflows. `string.rep` and concatenation share this.
 pub const MAX_STRING_LENGTH: usize = 0x4000_0000;
 
+const MAX_INLINE_LENGTH: usize = 256;
+
 /// UTF-8.
 #[derive(Copy, Clone, Collect)]
 #[collect(no_drop)]
@@ -118,7 +120,22 @@ impl<'gc> String<'gc> {
                 })*
             };
         }
-        try_sizes!(0, 2, 4, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256);
+        try_sizes!(
+            0,
+            2,
+            4,
+            8,
+            12,
+            16,
+            24,
+            32,
+            48,
+            64,
+            96,
+            128,
+            192,
+            MAX_INLINE_LENGTH
+        );
 
         Self::from_buffer(mc, s.into())
     }
@@ -266,15 +283,24 @@ impl<'gc> InternedDynStrings<'gc> {
     }
 
     fn intern(self, mc: &Mutation<'gc>, s: &[u8]) -> String<'gc> {
+        self.intern_with(mc, s, String::from_slice)
+    }
+
+    fn intern_with<S: AsRef<[u8]>>(
+        self,
+        mc: &Mutation<'gc>,
+        s: S,
+        create: impl FnOnce(&Mutation<'gc>, S) -> String<'gc>,
+    ) -> String<'gc> {
         // SAFETY: If a new string is added, we call the write barrier.
         let mut dyn_strings = unsafe { self.0 .0.unlock_unchecked() }.borrow_mut();
 
         // SAFETY: The RawTable outlives the iterator
         unsafe {
-            for bucket in dyn_strings.iter_hash(str_hash(s)) {
+            for bucket in dyn_strings.iter_hash(str_hash(s.as_ref())) {
                 let (key, _) = *bucket.as_ref();
                 if let Some(st) = key.upgrade(mc).map(String::from_inner) {
-                    if st == s {
+                    if st == s.as_ref() {
                         return st;
                     }
                 } else {
@@ -287,7 +313,7 @@ impl<'gc> InternedDynStrings<'gc> {
         // SAFETY: We are going to modify the dyn_strings table, so call the write barrier.
         Gc::write(mc, self.0);
 
-        let s = String::from_slice(mc, s);
+        let s = create(mc, s);
         dyn_strings.insert(
             s.stored_hash(),
             (Gc::downgrade(s.into_inner()), s.stored_hash()),
@@ -368,6 +394,14 @@ impl<'gc> InternedStringSet<'gc> {
         self.dyn_strings.intern(mc, s)
     }
 
+    pub(crate) fn intern_buffer(self, mc: &Mutation<'gc>, s: Box<[u8]>) -> String<'gc> {
+        if s.len() <= MAX_INLINE_LENGTH {
+            self.intern(mc, &s)
+        } else {
+            self.dyn_strings.intern_with(mc, s, String::from_buffer)
+        }
+    }
+
     pub fn intern_static(self, mc: &Mutation<'gc>, s: &'static [u8]) -> String<'gc> {
         self.static_strings.intern(mc, s)
     }
@@ -378,6 +412,27 @@ mod tests {
     use ottavino_gc_arena::arena::rootless_mutate;
 
     use super::*;
+
+    #[test]
+    fn owned_interning_transfers_large_buffers_and_preserves_deduplication() {
+        rootless_mutate(|mc| {
+            let strings = InternedStringSet::new(mc);
+            let bytes = vec![b'x'; MAX_INLINE_LENGTH + 1].into_boxed_slice();
+            let address = bytes.as_ptr();
+            let owned = strings.intern_buffer(mc, bytes);
+            assert_eq!(owned.as_bytes().as_ptr(), address);
+            let borrowed = strings.intern(mc, owned.as_bytes());
+            let duplicate = strings.intern_buffer(mc, owned.as_bytes().into());
+            assert!(Gc::ptr_eq(owned.0, borrowed.0));
+            assert!(Gc::ptr_eq(owned.0, duplicate.0));
+            for bytes in [&b""[..], &b"short"[..]] {
+                let owned = strings.intern_buffer(mc, bytes.into());
+                let borrowed = strings.intern(mc, bytes);
+                assert!(Gc::ptr_eq(owned.0, borrowed.0));
+                assert!(matches!(owned.0.buffer, Buffer::Inline(_)));
+            }
+        });
+    }
 
     #[test]
     fn test_string_header() {

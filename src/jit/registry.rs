@@ -21,6 +21,7 @@ mod tests {
     fn completed_collection_cancels_dead_requests_and_preserves_live_queued_work() {
         for retain_peer in [false, true] {
             let mut lua = crate::Lua::empty();
+            let native = usize::from(lua.jit_capabilities().supported_target);
             lua.set_gc_pacing(false);
             lua.set_jit_config(crate::JitConfig {
                 mode: crate::JitMode::Auto,
@@ -50,7 +51,10 @@ mod tests {
             let (dead, dead_id) = start(&mut lua);
             let peer = retain_peer.then(|| start(&mut lua));
             let before = lua.jit_stats();
-            assert_eq!(before.queued_requests, 1 + usize::from(retain_peer));
+            assert_eq!(
+                before.queued_requests,
+                native * (1 + usize::from(retain_peer))
+            );
             assert_eq!(before.compilation_requests, before.queued_requests as u64);
             assert!(before.interpreted_instructions > 0);
             assert!(before.metadata_bytes > 0);
@@ -59,7 +63,7 @@ mod tests {
             lua.gc_collect();
             let after = lua.jit_stats();
             assert_eq!(after.registered_prototypes, usize::from(retain_peer));
-            assert_eq!(after.queued_requests, usize::from(retain_peer));
+            assert_eq!(after.queued_requests, native * usize::from(retain_peer));
             assert_eq!(after.compilation_requests, before.compilation_requests);
             assert_eq!(
                 after.interpreted_instructions,
@@ -95,7 +99,7 @@ mod tests {
                     20100
                 );
                 let stats = lua.jit_stats();
-                assert_eq!(stats.queued_requests, 1);
+                assert_eq!(stats.queued_requests, native);
                 assert_eq!(stats.compilation_requests, before.compilation_requests);
             }
             drop(peer);

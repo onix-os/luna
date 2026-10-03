@@ -6,6 +6,7 @@ use super::{ir::Snapshot, JitConfig, JitError};
 pub(super) struct Limits {
     pub instructions: usize,
     pub blocks: usize,
+    pub relocations: usize,
 }
 
 impl From<&JitConfig> for Limits {
@@ -13,6 +14,7 @@ impl From<&JitConfig> for Limits {
         Self {
             instructions: config.max_ir_instructions,
             blocks: config.max_ir_blocks,
+            relocations: config.max_relocations,
         }
     }
 }
@@ -168,7 +170,8 @@ mod tests {
                 &source,
                 Limits {
                     instructions: bound.instructions,
-                    blocks: bound.blocks
+                    blocks: bound.blocks,
+                    ..Limits::from(&JitConfig::default())
                 }
             )
             .unwrap(),
@@ -179,7 +182,8 @@ mod tests {
                 &source,
                 Limits {
                     instructions: bound.instructions - 1,
-                    blocks: bound.blocks
+                    blocks: bound.blocks,
+                    ..Limits::from(&JitConfig::default())
                 }
             ),
             Err(JitError::ResourceLimit("IR instructions"))
@@ -189,7 +193,8 @@ mod tests {
                 &source,
                 Limits {
                     instructions: bound.instructions,
-                    blocks: bound.blocks - 1
+                    blocks: bound.blocks - 1,
+                    ..Limits::from(&JitConfig::default())
                 }
             ),
             Err(JitError::ResourceLimit("IR blocks"))
@@ -242,7 +247,8 @@ mod tests {
                 &source,
                 Limits {
                     instructions: 1,
-                    blocks: 1
+                    blocks: 1,
+                    ..Limits::from(&JitConfig::default())
                 }
             ),
             Err(JitError::Compilation(_))

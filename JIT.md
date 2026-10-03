@@ -13,6 +13,14 @@ Benchmarks are deferred by the
 maintainer, not accepted, and earlier upvalue/callback/disabled-cost failures
 remain unresolved.
 
+The portability milestone `a893bd7` passes final local GNU/musl verification:
+5142 test executions each across 446 repeated suites, with 24 ignored and zero
+failures. Real i686 interpreter fallback passes 1839 executions locally and in
+the [hosted fallback job](https://github.com/onix-os/luna/actions/runs/37142633733/job/111260042537).
+That job exercises the unsupported-target branch rather than native compilation.
+The remaining native/Miri jobs for this revision are still pending at this
+checkpoint; the older green runs do not certify these later source changes.
+
 ## Enable and prepare
 
 Enable the optional `jit` Cargo feature and set `JitConfig.mode` to `JitMode::Auto`. See `examples/jit.rs`; run it with `nix develop -c make jit-example`.
@@ -196,6 +204,7 @@ The disabled `service_jit()` fast path remains unchanged.
 
 - `max_prototype_instructions` and `max_snapshot_bytes` bound snapshot admission before copying bytecode. Native scratch uses exact 1–8-slot specializations, then the smallest fitting 16/32/64/128/256-slot tier, bounded to 256 scalar slots. Zero-register entries use an empty initialized prefix. Scratch-bearing routines are non-inlined, so compiled-but-Off VM entries do not reserve their 4 KB maximum.
 - `max_ir_instructions` (1048576) and `max_ir_blocks` (65536) independently cap a conservative frontend expansion envelope before graph allocation or Cranelift setup. Actual frontend instruction/block counts must fit the admitted envelope before code generation. The estimate can reject a prototype below the source-opcode ceiling; these limits do not bound optimizer CPU time, compiler working memory or RSS. Lowering either limit retires cached code and pending requests; existing leases retain their normal lifetime policy.
+- `max_relocations` (65536) caps the actual compiled function's relocation records before finalization applies them or changes memory protections. Excess records return `ResourceLimit("native relocations")`, release the candidate's writable mappings/metadata, and leave interpretation and other installed modules usable. This check follows code generation and the backend's relocation-vector allocation; it is not a bound on those earlier allocations or compilation time. Lowering the cap retires installed code and queued work without invalidating active leases. Raising it alone does not reset failed attempts; clear the cache to retry.
 - `max_queue_entries` bounds pending identity requests. Saturating hotness and `max_compile_attempts` limit repeated failures; clearing the cache resets attempts.
 - `max_code_bytes` bounds actual page-rounded JIT mappings, including the compiler's code/readonly/writable segments. Retired but pinned mappings remain charged until the last lease drops. Allocation failure frees partial mappings and leaves interpretation usable.
 - `max_metadata_bytes` independently bounds requested allocation layouts for weak registrations, tracking/code-index maps, pending identities, preparation ID buffers, native-entry flags and mapping records. Containers use a shared fallible allocator; retained capacity and temporary old/new growth are charged. Registration refusal leaves ordinary source loading/interpreting usable; metadata allocation refusal is typed `ResourceLimit("JIT metadata")`. Lowering this ceiling retires registrations, code and requests; existing closures continue interpreted, and new source loads can register after limits are raised. Active leases keep their entry flags/mapping records and remain charged until their final owner drops, even above a newly reduced quota. Ordinary cache clearing retains live source registrations.
@@ -527,7 +536,20 @@ The size gate first runs the JIT artifact in Auto and asserts native work/result
 
 The active workflow is `.github/workflows/tests.yml`, promoted from the former non-active `workflows/tests.yml` template. It retains baseline checks and adds full native GNU/musl x86-64 and GNU ARM64 jobs on matching hosted runners, with pinned action commits, Rust 1.97.1, target-specific caches and uploaded logs/campaign artifacts on failure as well as success. `make ci-check` validates the workflow with actionlint supplied by the Nix shell. Local workflow validation is not an executed hosted run; ARM64 and hosted-CI results remain required before release acceptance.
 
-Remaining stages include complete boundary/IR/cache accounting, broader helper/heap optimization and explicit mixed-tier lifecycle stress, refined promotion policy, expanded heap/lifecycle and coverage-guided fuzzing, executed ARM64 verification, and actual hosted CI results.
+`nix develop .#fallback -c make jit-fallback TARGET=i686-unknown-linux-musl`
+builds and executes static 32-bit binaries on a Linux x86-64 host with 32-bit
+execution support. The separate fallback shell supplies the target library and
+LLD; it does not change the normal development shell. The matching hosted job
+uses Rust 1.97.1 and LLD. This is an unsupported-native-target interpreter lane,
+not a newly supported native platform. It runs the baseline and JIT-feature
+workspace suites, optional features and dedicated Off/Auto differential tests
+with callbacks, coroutines, GC and exact fuel traces. Explicit Auto preparation
+and service report `Unavailable`; convenience execution remains interpreted,
+with no queued requests, compiled regions or native instructions. A failure to
+execute the target fails the gate rather than silently skipping it.
+
+The unchecked acceptance criteria in `PLAN_JIT.md` track remaining work. Historical
+checkpoints and individual platform passes do not establish full-plan completion.
 
 `make jit-profile` retains Rust symbols and attempts an opt-level-3 perf capture of the checked upvalue workload; it requires host perf permission and does not alter kernel settings. `make jit-rust-assembly` extracts symbol-retained Rust dispatch/helper/invocation assembly without perf permission. These are diagnostic lanes, not acceptance timing builds or native JIT disassembly. On the current host perf recording is denied (`perf_event_paranoid=4`); Rust assembly verified that outlining removed the native scratch probe page from `run_vm`.
 

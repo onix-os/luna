@@ -251,3 +251,27 @@ fn randomseed_returns_its_components() -> Result<(), ExternError> {
     )?);
     Ok(())
 }
+
+#[test]
+fn two_component_randomseed_replays_and_uses_both_components() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local high, low = 0x11223344556677, 0x778899aabbccdd
+        local a, b = math.randomseed(high, low)
+        assert(a == high and b == low)
+        local sequence = {}
+        for i=1,16 do sequence[i] = math.random(0) end
+        math.randomseed(high, low)
+        for i=1,16 do assert(math.random(0) == sequence[i]) end
+        local function differs(h, l)
+            math.randomseed(h, l)
+            for i=1,16 do
+                if math.random(0) ~= sequence[i] then return true end
+            end
+            return false
+        end
+        return differs(high + 1, low) and differs(high, low + 1)
+        "#
+    )?);
+    Ok(())
+}

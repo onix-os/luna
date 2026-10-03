@@ -14,6 +14,59 @@ fn eval(source: &str) -> Result<bool, ExternError> {
 mod common;
 
 #[test]
+fn tmpname_reserves_distinct_empty_files() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local a, b = os.tmpname(), os.tmpname()
+        local fa, fb = io.open(a, "r"), io.open(b, "r")
+        local valid = a ~= b and fa ~= nil and fb ~= nil
+        if fa then valid = valid and fa:read("a") == ""; fa:close() end
+        if fb then valid = valid and fb:read("a") == ""; fb:close() end
+        os.remove(a)
+        os.remove(b)
+        return valid
+        "#
+    )?);
+    Ok(())
+}
+
+#[test]
+fn tmpname_is_distinct_across_concurrent_states() {
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+    let workers: Vec<_> = (0..8)
+        .map(|_| {
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                let mut lua = common::full();
+                let mut paths = Vec::new();
+                barrier.wait();
+                for _ in 0..32 {
+                    let executor = lua
+                        .try_enter(|ctx| {
+                            let closure = Closure::load(ctx, None, &b"return os.tmpname()"[..])?;
+                            Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+                        })
+                        .unwrap();
+                    paths.push(lua.execute::<String>(&executor).unwrap());
+                }
+                paths
+            })
+        })
+        .collect();
+    let paths: Vec<_> = workers
+        .into_iter()
+        .flat_map(|worker| worker.join().unwrap())
+        .collect();
+    let unique = paths.iter().collect::<std::collections::HashSet<_>>().len();
+    let reserved = paths.iter().all(|path| std::fs::metadata(path).is_ok());
+    for path in &paths {
+        std::fs::remove_file(path).unwrap();
+    }
+    assert_eq!(unique, 256);
+    assert!(reserved);
+}
+
+#[test]
 fn time_round_trips_through_a_table() -> Result<(), ExternError> {
     assert!(eval(
         r#"
