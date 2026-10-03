@@ -252,6 +252,8 @@ pub enum JitError {
 }
 
 pub(crate) struct Manager {
+    #[cfg(test)]
+    before_compile: Option<Box<dyn FnOnce()>>,
     pub(crate) config: JitConfig,
     pub(crate) stats: JitStats,
     pub(crate) next_id: u64,
@@ -293,6 +295,8 @@ impl Default for Manager {
         let metadata = BudgetAllocator(Ledger::child(config.max_metadata_bytes, host.clone()));
         let snapshots = BudgetAllocator(Ledger::child(config.max_snapshot_bytes, host.clone()));
         Self {
+            #[cfg(test)]
+            before_compile: None,
             config,
             stats: JitStats::default(),
             next_id: 0,
@@ -616,6 +620,13 @@ impl Runtime {
     }
 
     pub(crate) fn compile(&self, id: u64, snapshot: ir::Snapshot) -> Result<(), JitError> {
+        #[cfg(test)]
+        {
+            let hook = self.0.borrow_mut().before_compile.take();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
         #[cfg(all(
             target_os = "linux",
             any(target_arch = "x86_64", target_arch = "aarch64")
@@ -994,6 +1005,13 @@ mod runtime_owner_tests {
         let _ = <Runtime as AmbiguousSync<_>>::check;
     }
 }
+
+#[cfg(all(
+    test,
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod scheduling_tests;
 
 #[cfg(test)]
 mod policy_tests {

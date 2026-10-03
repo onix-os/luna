@@ -98,6 +98,65 @@ const _: () = assert!(std::mem::offset_of!(Exit, reason) == 12);
 mod tests {
     use super::*;
 
+    #[test]
+    fn call_transitions_preserve_register_and_count_domains() {
+        use crate::{
+            opcode::{CallTransition, OpCode, Operation},
+            types::{RegisterIndex, VarCount},
+        };
+        for register in 0..=u8::MAX {
+            for count in 0..=u8::MAX {
+                let func = RegisterIndex(register);
+                let args = VarCount::try_constant(count).unwrap_or(VarCount::variable());
+                let returns =
+                    VarCount::try_constant(u8::MAX - count).unwrap_or(VarCount::variable());
+                let cases = [
+                    (
+                        Operation::Call {
+                            func,
+                            args,
+                            returns,
+                        },
+                        CallTransition::Call {
+                            func,
+                            args,
+                            returns,
+                        },
+                    ),
+                    (
+                        Operation::TailCall { func, args },
+                        CallTransition::TailCall { func, args },
+                    ),
+                    (
+                        Operation::Return {
+                            start: func,
+                            count: args,
+                        },
+                        CallTransition::Return {
+                            start: func,
+                            count: args,
+                        },
+                    ),
+                ];
+                for (operation, expected) in cases {
+                    assert_eq!(OpCode::encode(operation).call_transition(), Some(expected));
+                }
+                assert!(OpCode::encode(Operation::VarArgs {
+                    dest: func,
+                    count: args
+                })
+                .call_transition()
+                .is_none());
+                assert!(OpCode::encode(Operation::Move {
+                    dest: func,
+                    source: RegisterIndex(count)
+                })
+                .call_transition()
+                .is_none());
+            }
+        }
+    }
+
     fn assert_identical<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
         match (actual, expected) {
             (Value::Nil, Value::Nil) => {}

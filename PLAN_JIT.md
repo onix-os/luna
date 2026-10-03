@@ -9,13 +9,13 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Progress snapshot — 2026-10-02
+### Progress snapshot — 2026-10-03
 
 The requested plan document is written. Full implementation and release
 acceptance are not finished. The committed native tier executes Luna bytecode
-through Cranelift without replacing Luna's runtime. The latest full GNU and
-musl gates each pass 5048 test executions across repeated modes/suites, not
-5048 unique tests. Coroutine cleanup and deferred-error defects exposed after
+through Cranelift without replacing Luna's runtime. Hosted native GNU, musl and
+ARM64 jobs at `52b2dec` each pass 5059 test executions across 435 repeated
+mode/doc/disassembly suites, not 5059 unique tests. Coroutine cleanup and deferred-error defects exposed after
 the prior green gates are repaired, with focused and full-suite evidence below.
 The exact-small-frame runtime change has repeated native benchmark evidence:
 the table target now passes, while upvalue/callback and disabled-tier costs
@@ -28,9 +28,178 @@ campaigns pass: scalar 64 executions/60 new corpus inputs and heap 128
 executions/114 new corpus inputs. Both dependency locks remain unchanged.
 
 Current performance gates still fail for upvalues/callbacks and inconsistent
-compiled-disabled overhead. Remaining compiler-memory and
-safety review, actual ARM64 execution and hosted-CI evidence remain outstanding.
+compiled-disabled overhead. Remaining compiler-memory and safety review remain
+outstanding. Hosted run `37134741669` at `52b2dec` passes all six jobs, including
+both Miri seeds and all native/platform evidence uploads. This closes the
+recorded hosted-CI/platform gap, not the remaining implementation or performance gates.
 Do not infer a completion percentage or delivery date from commit/test counts.
+
+### User checkpoint — commit now, benchmark later (2026-10-03)
+
+#### Goal
+Commit the correctness-tested native call/return transition patch and defer
+benchmark execution as the user requested. Full implementation acceptance is
+not established by this checkpoint.
+
+#### Instructions
+The user explicitly authorizes committing without waiting for timings. Do not
+hold this commit for a quiet machine or run benchmarks now. Preserve the frozen
+performance targets for later; deferred does not mean passed.
+
+#### Discoveries
+Current runtime/example/build-input hashes match the candidate that passed full
+GNU and musl gates: 5053 passing executions / 434 suite results / 24 ignored per
+platform. The working JIT is confirmed within that tested x86-64 Linux scope.
+Actual ARM64/hosted-CI execution and remaining non-benchmark acceptance items
+are not proven complete; do not describe the entire plan as done except timing.
+
+#### Accomplished
+Commit the transition decoder, VM dispatch and operand-domain regression with
+their existing correctness evidence. The user accepts deferring the performance
+decision; no speedup is claimed for this patch.
+
+#### Next Steps
+Run the prepared baseline/candidate and feature-cost comparisons later. Continue
+or reconcile the remaining non-performance implementation/verification items
+against current source before claiming full-plan completion.
+
+#### Relevant Files
+- `src/opcode.rs` — typed call/tail-call/return transition decoder.
+- `src/thread/vm.rs` — native-exit dispatch through existing frame routines.
+- `src/jit/abi.rs` — transition operand-domain regression.
+- `target/jit-evidence/native-call-transitions/` — checked source manifest,
+  full-suite logs and prepared benchmark artifacts.
+
+### Compilation-scheduling verification — 2026-10-03
+
+The user requests continued non-benchmark work; deferred timings must not block
+implementation or correctness verification. Current source already uses explicit
+`service_jit` outside arena mutation, not a production background compiler.
+The missing phase-7 proof is deliberately stalled compilation while independent
+manual executors continue; no new worker API is required by the chosen service
+design. Add a per-state, test-only pre-compilation hook, block one independently
+owned Lua state on a channel, and drive three other executors with tiny/normal/
+large fuel and collection between slices. Compare each slice/mode/fuel/result
+against Off, saturate the two-entry queue, forbid compiler entry during manual
+stepping, then service queued work and prove actual native execution. Release
+and join the blocked compiler even on test failure. Channel deadlines are test
+liveness bounds, not performance thresholds. This is scheduling coverage, not
+new cybersecurity infrastructure or a claim of concurrent access to one Lua.
+
+Initial focused GNU batch `52533` and GNU/musl policy/resource batch `89962`
+exit 0: 63 test executions per platform across the combined lanes. The new
+blocked-compiler test executes on both targets. This is focused acceptance;
+the previously recorded 5053-execution full gates predate this test-only change.
+Final batch `58688` exits 0 after the readability cleanup: GNU and musl each
+pass 63 tests across seven suites with zero failures. All owned jobs are terminal.
+
+#### Goal
+Continue non-benchmark work by closing the concrete stalled-compiler scheduling
+coverage gap and correcting stale status entries.
+
+#### Instructions
+Benchmarks remain deferred by user request. Keep implementation/correctness
+work moving, use Make/Nix, and commit logical milestones without signatures.
+
+#### Discoveries
+The public compiler service is synchronous and holds `&mut Lua`; simultaneous
+compilation and stepping of that same state are not a supported API. Independent
+states and manual executors must remain independent. Instruction profiling does
+not require idle hardware, unlike the deferred elapsed-time comparisons.
+
+#### Accomplished
+Added a test-only per-state compiler-entry hook and stalled-worker regression
+with three interleaved executors, two-entry queue saturation, GC, exact fuel/mode/
+result comparisons at three budgets, and eventual native execution. No production
+worker/API was added and no new performance claim is made.
+
+#### Next Steps
+Scheduling milestone committed as `da5f1eb`. Reconcile other outdated checklist
+entries against concrete evidence;
+continue genuine implementation/coverage gaps without restarting benchmarks.
+
+#### Relevant Files
+- `src/jit/mod.rs` — test-only compiler-entry hook and scheduling-test module.
+- `src/jit/scheduling_tests.rs` — blocked compiler and manual-executor regression.
+- `Makefile` — includes scheduling coverage in `jit-policy`.
+- `target/jit-evidence/compiler-scheduling/` — focused GNU/musl evidence.
+
+### Hosted CI checkpoint — 2026-10-03
+
+#### Goal
+Continue non-benchmark verification and repair the existing CI evidence upload.
+
+#### Instructions
+Benchmarks remain deferred. Use Make/Nix and incremental unsigned commits.
+
+#### Discoveries
+Hosted run `37078917137` at `4863789` reports successful native GNU, musl and
+ARM64 jobs and a successful default verification job. Its Miri upload rejects
+colon-containing filenames such as `finalizers::tests.log`; seed 0 fails and
+seed 1 is cancelled. Seed 0's component gate passes 293 executions across 42
+suites; its failure is upload-only. The seed-1 check annotation explicitly says
+the job exceeded 20 minutes. It is not a completed passing Miri run.
+
+The ARM64 job log records 5054 passing executions across 435 suite results,
+24 ignored and zero failures, including the extra disassembly test after the
+5053-execution full gate. The example returns `5000050000`, with `200007`
+native logical instructions. Shipping artifact builds and native evidence
+upload also succeed. This proves execution on the hosted ARM64 runner at
+`4863789`, not performance acceptance or CI coverage of the newer scheduling
+regression. Historical entries saying ARM64 evidence is missing are superseded
+by this checkpoint. Run: https://github.com/onix-os/luna/actions/runs/37078917137
+
+#### Accomplished
+Scheduling verification is committed as `da5f1eb`, with 63 focused
+passing executions each on GNU and musl. Downloaded hosted job status and
+failure logs; no benchmarks were run. Miri evidence basenames now use hyphens
+instead of namespace colons, without changing test filters or exclusions.
+`make jit-miri-wrapper-tests` executes the real recipe with a mock Cargo:
+all 44 filenames are portable, original resource/finalizer/memory filters are
+preserved, and setup/resource/loop failures propagate. This tests the recipe,
+not Rust components under Miri. Added the wrapper check to hosted verification.
+Raised the existing Miri job deadline from 20 to 45 minutes to allow the current
+suite to finish; this remains bounded and does not turn the cancelled seed green.
+Final `nix develop -c make jit-miri-wrapper-tests ci-check fmt-check` exits 0:
+44 portable log names, three propagated failure cases, workflow lint and Rust
+formatting pass. These local recipe checks do not substitute for Miri execution.
+Pushed both scheduling and CI-repair commits through `52b2dec` under the user's
+existing publish request. `git ls-remote` confirms the remote branch matches
+`52b2decc811bd99227020d8b145a8c6386174d3c`. Hosted run `37134741669` now
+finishes successfully with all six jobs green. GNU, musl and ARM64 each report
+5059 passing executions / 435 suite results / 24 ignored / zero failures,
+including the extra disassembly test. All three logs contain five successful
+executions of the new scheduling regression and the native example result
+`5000050000` with `200007` native logical instructions. Shipping artifact
+builds and native evidence uploads succeed; these are builds, not benchmarks.
+
+Miri seeds 0 and 1 each pass 293 tests across 42 selected suites, with zero
+failures or ignored tests, and upload all 44 portable log files successfully.
+Seed 1 completes in 33 minutes 48 seconds, within the repaired 45-minute bound;
+seed 0 completes in 17 minutes 39 seconds. Generated machine code is not executed
+under Miri. Default verification also passes the new evidence-recipe regression.
+The run and every owned job are terminal; no duplicate was dispatched.
+Run: https://github.com/onix-os/luna/actions/runs/37134741669
+
+Runtime inspection confirms the previous profile attributes substantial
+short-call cost to VM dispatch, frame transitions and per-invocation marshalling.
+No new runtime optimization or timing claim follows from this inspection.
+Reconciled current public documentation with exact-small-frame dispatch,
+accounted fixed owners, detached compiler ownership and actual ARM64 evidence.
+Historical acceptance paragraphs below remain revision-scoped.
+
+#### Next Steps
+Continue genuine non-benchmark implementation gaps, including transient compiler
+working-memory policy and the remaining runtime checklist reconciliation, without
+expanding audit/fuzz infrastructure. Frozen performance acceptance remains
+user-deferred. Hosted success alone does not prove full-plan completion.
+
+#### Relevant Files
+- `Makefile` — Miri commands and evidence filenames.
+- `.github/workflows/tests.yml` — hosted native and Miri jobs.
+- `tests/test-jit-miri.sh` — portable filenames and recipe failure propagation.
+- `JIT.md` — current execution, ownership and platform scope.
+- `target/jit-evidence/hosted-ci/` — downloaded run metadata and logs.
 
 ### User priority clarification — 2026-10-02
 
@@ -744,7 +913,7 @@ prevent Phase 3/release acceptance.
 
 ### Phase 5 — Preserve callbacks, coroutines, async, and unwinding
 
-**Status:** IN PROGRESS. **Depends on:** Phase 4. Dedicated native heap tests cover reentrant callbacks, coroutine suspension, foreign futures, and close-handler error unwinding. Shared public-host coroutine/await scenarios verify native heap work around suspension, GC while parked, real Pending/wake behavior and tier coverage at fuel 1/64/65536. Selective preparation independently verifies all four caller/callee tier combinations for normal and tail calls. Deep/infinite tail-call bounds and executor-driven coroutine cleanup now pass GNU/musl gates. Broader error/close acceptance, including uncaught-coroutine error-unwind timing, remains open.
+**Status:** IN PROGRESS. **Depends on:** Phase 4. Dedicated native heap tests cover reentrant callbacks, coroutine suspension, foreign futures, and close-handler error unwinding. Shared public-host coroutine/await scenarios verify native heap work around suspension, GC while parked, real Pending/wake behavior and tier coverage at fuel 1/64/65536. Selective preparation independently verifies all four caller/callee tier combinations for normal and tail calls. Deep/infinite tail-call bounds, executor-driven cleanup and deferred uncaught-coroutine error cleanup pass GNU/musl gates (`9ed8a0f`, `fe0042a`, `3a17a1f`). The remaining phase checklist still needs complete evidence reconciliation; the already repaired coroutine timing defect is not an open implementation item.
 
 **Files:** runtime wrappers, thread executor/frame integration, `tests/jit_transitions.rs`, existing callback/reentrancy/async/close/error tests.
 
@@ -1012,6 +1181,82 @@ those experiments on source-level branch-count reasoning alone.
 
 #### Session summary — measured performance checkpoint
 
+**Native-exit transition experiment:** decode Call/TailCall/Return directly
+from the typed opcode after a native attempt and before the large general
+decoder. Dispatch through the same LuaFrame routines, advance PC exactly once,
+retain existing transition fuel/metrics and end the VM slice as before. Native
+execution stays disabled with hooks, and all other operations use the original
+decoder. No byte-layout assumptions, new frame model or native-stack recursion
+are introduced. Verify complete operand domains, mixed-tier/tail/coroutine
+behavior, then total profile counts and frozen timing gates before retention.
+
+Focused batch `20870` passes five ABI, fourteen native, fifteen synchronous /
+seventeen async suspension and sixteen heap tests. Profile batch `21285` passes
+both rounds: upvalue Auto uses 110,445,830/110,445,741 instructions versus the
+115,571,724 baseline; float Off uses 48,290,860 versus 48,590,955. Callback totals
+vary, 37,148,786/33,698,786 versus baseline 35,041,491. Annotation localizes the
+extra 3,450,000 instructions in the first callback run to table lookup/key/string
+comparison; source uses a process-randomized table hash seed. Retain both runs,
+do not discard the unfavorable sample or attribute the difference to scheduling.
+The transition candidate requires real repeated timing before acceptance.
+
+Full batch `26498` exits 0: GNU and musl `make jit-verify` each pass 5053 test
+executions across 434 suite results, with zero failures and 24 ignored. Source
+manifest verification after both gates succeeds. Build-only batch `25146`
+produces the immutable candidate benchmark plus matched stripped speed/shipping
+controls. Candidate SHA-256 is
+`391f3b29c21a940f264488c90159fa79ce4411544c676f8ab33e7fe44a960997`.
+Timing queue `78932` exits 3 after thirty checks without launching a benchmark.
+The post-full-gate preflight still sees Molla GPU tests. All these jobs are
+terminal; the source candidate remains uncommitted pending measured benefit.
+
+Follow-up timing queue `78064` also exits 3 after thirty checks without a quiet
+host. Candidate binary hash verification succeeds; no timings or code changes
+were produced in this verified-wait turn. Preserve the prepared artifacts and
+do not repeat correctness gates for unchanged source.
+
+Third consecutive timing-blocker audit rechecks the live batch: Molla Make
+`1437715`, Cargo `1710554` and GPU test `1710901` remain active. The candidate
+source manifest still verifies, and all owned gates/queues are terminal. This
+is a wall-clock acceptance blocker, not the earlier mistaken restriction on
+instruction diagnostics. Mark the goal blocked pending an actual quiet timing
+window; preserve the uncommitted candidate and do not replace acceptance with
+more duplicate tests, instruction-count claims or speculative patch stacking.
+
+**Dispatch outlining experiment:** current profiles attribute substantial work
+to `run_vm`. Test keeping `Runtime::run` out of line, in addition to its already
+outlined scratch invocation, to reduce native-entry dispatch code embedded in
+the interpreter. This changes no ABI or runtime semantics. Compare total
+collected instructions, not just moved self-cost, then frozen timing gates;
+reject the annotation if it provides no convincing benefit. This is not another
+duplicated/const-generic interpreter-loop experiment.
+
+Rejected dispatch outlining: focused `47923` passes 14 native/16 heap tests and
+builds matched diagnostics; profile batch `23882` completes both rounds. Total
+upvalue Auto instructions increase from 115,571,724 to 116,367,476/116,367,593;
+callback Auto increases from 35,041,491 to 35,264,895. Float Off decreases only
+from 48,590,955 to 48,494,065. No convincing reduction on the target workloads:
+remove the annotation rather than retain a speculative hardware-time benefit.
+Artifacts remain under `target/jit-evidence/outlined-native-dispatch/`.
+
+Next isolated experiment: `Slot::write_back` should leave reference-tagged
+canonical slots untouched and materialize scalars without loading the old
+destination. Helpers already update canonical reference values; a reference tag
+contains no pointer to copy. Preserve `Slot::value` for operand decoding and
+its bit-exact scalar behavior. Verify all tags/references and profile whole-call
+instruction counts before retaining this candidate.
+
+Scalar-only writeback was rechecked on the exact-small-frame baseline: focused
+`20439` passes four ABI/eight helper/fourteen native/sixteen heap tests and
+builds diagnostics; `48785` completes six profiles. Upvalue instructions fall
+only to 115,073,568 (about 0.43%), callback to 34,917,311 (about 0.35%), while
+float Off is unchanged. Simulated upvalue conditional misses increase sharply;
+they are not hardware-time evidence. The older register-materialization section
+also records a rejected timing experiment with this mechanism. Remove the
+candidate rather than claim these tiny instruction reductions fix the large
+performance gap. Both runtime files are restored; artifacts remain under
+`target/jit-evidence/scalar-only-writeback/`.
+
 Current instruction-profile batch `74173` exits 0: two rounds each of upvalue
 Auto, callback Auto and float Off, using the identical symbol-retained matched
 binaries. External Molla builds were recorded; these are not wall-clock gates.
@@ -1097,13 +1342,27 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
   Batch `74173` completes all six profiles while unrelated builds continue.
   Repeated instruction counts identify dispatch/invocation work as the next
   target. All owned profiling jobs are terminal; full acceptance remains open.
+- Tested dispatch outlining and scalar-only writeback with focused correctness
+  and two instruction-profile rounds each. Neither justifies retention; removed
+  both runtime experiments. Current source remains the accepted exact-frame
+  implementation. No wall-clock improvement or new full-suite pass is claimed.
+- Subsequently implemented the separate native-exit transition candidate in
+  `src/opcode.rs` and `src/thread/vm.rs`, with exhaustive operand-domain tests in
+  `src/jit/abi.rs`. Focused/profile/full GNU/musl gates pass as recorded above.
+  It remains uncommitted; speed acceptance has not run. All owned jobs ended.
 
 ## Next Steps
-- Use the completed profiles to reduce repeated native-boundary dispatch and
-  materialization work for short calls. Preserve GC/fuel/error semantics and
-  native coverage; validate each candidate with differential tests and counts,
-  then unchanged timing gates on a quiet host. Do not repeat rejected whole-VM
-  splitting experiments without a different, evidence-supported mechanism.
+- Measure the prepared transition candidate against the immutable exact-frame
+  baseline in baseline/candidate/candidate/baseline order, then both feature-cost
+  profiles with repeats. Use existing binaries and clean pre/postflights; do not
+  rerun terminal jobs `78932`/`26498` or rebuild unchanged sources. Retain or
+  remove the runtime patch based on the frozen gates and controlled comparisons.
+- Then address the larger remaining short-call/upvalue cost without weakening
+  stackless execution, fuel, mixed-tier semantics or native coverage. Do not
+  repeat rejected whole-VM splitting/materialization experiments blindly.
+- Resume timing after unrelated builds/tests finish or the user arranges a
+  quiet window. `78932` and `78064` are terminal, not background jobs. No other
+  project's process was paused or terminated; full completion remains unproven.
 - Complete remaining error/close integration and actual platform
   acceptance after the performance work. The prior profiling blocker no longer
   prevents diagnostic progress; the full implementation remains incomplete.
@@ -1121,6 +1380,10 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 - `target/jit-evidence/post-deferred-performance/` — current matched binaries,
   source manifests, cost controls and isolated invalid timing attempt.
 - `src/jit/mod.rs` — committed exact-small-frame optimization (`af26288`).
+- `src/opcode.rs`, `src/thread/vm.rs`, `src/jit/abi.rs` — uncommitted transition
+  decoder/dispatch and exhaustive operand-domain tests.
+- `target/jit-evidence/native-call-transitions/` — candidate, profiles, focused
+  and full GNU/musl results, matched timing artifacts and source manifests.
 - `target/jit-evidence/post-deferred-performance/profile-speed/round-{1,2}/` —
   completed process-local profiles and annotations, not timing acceptance.
 
@@ -1143,7 +1406,7 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 
 ### Phase 7 — Add hotness policy and nonblocking automatic compilation
 
-**Status:** IN PROGRESS. **Depends on:** Phases 3 and 6. Hotness/bounded queue/explicit outside-arena service, bounded failed attempts, configuration retirement, typed refusal and bounded LRU retry with diagnostics are implemented. Completed GC cancels dead queued sources without compilation and preserves live queued executors/identities. Scheduling failure injection, broader backoff/compaction policy and complete resource ledgers remain open.
+**Status:** IN PROGRESS. **Depends on:** Phases 3 and 6. Hotness/bounded queue/explicit outside-arena service, bounded failed attempts, configuration retirement, typed refusal and bounded LRU retry with diagnostics are implemented. Completed GC cancels dead queued sources without compilation and preserves live queued executors/identities. A deliberately stalled compiler now has GNU/musl evidence: independent manual executors retain exact fuel/modes/results while their compilation queue stays bounded, then execute natively after service. Remaining backoff/compaction and resource checklist coverage still needs reconciliation.
 
 **Files:** compiler/cache policy, Lua host service APIs, `tests/jit_policy.rs`, `tests/jit_resources.rs`, benchmark harness.
 
@@ -1178,7 +1441,7 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 
 ### Phase 9 — Harden and establish supported-platform evidence
 
-**Status:** IN PROGRESS. **Depends on:** Phase 8; introduce fuzzing earlier as soon as Phase 3/4 provide targets. Seeded admission/scalar campaigns execute in supervised limited child processes with tested panic/signal/timeout propagation; allocation/protection denial and full GNU/musl x86-64 gates pass. The full heap/lifecycle corpus, coverage-guided campaigns, CPU-feature mismatch, remaining refusal/eviction cases, unsafe/Miri review and ARM64/hosted evidence remain open.
+**Status:** IN PROGRESS. **Depends on:** Phase 8. Hosted run `37134741669` at `52b2dec` passes native GNU, musl and ARM64 gates, both selected Rust-only Miri seeds and all evidence uploads. Earlier finite heap/scalar campaigns do not complete the broader review obligations. Do not expand audit/fuzz infrastructure against the user's stated priority.
 
 Supervised heap/lifecycle coverage (`a951643`) adds four parameterized source
 families in fresh Off/Auto states. GNU/musl each pass 128 cases with per-slice
@@ -1215,7 +1478,7 @@ slice evidence; full safety/guard/lifecycle obligations remain open.
 
 ### Phase 10 — Publish a complete, accurately documented feature
 
-**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 9 and approved workload acceptance. Active native workflow wiring and a prepared example exist; executed hosted/ARM64 results, complete hardening, frozen performance controls and shipping/size reporting remain open.
+**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 9 and approved workload acceptance. All six hosted jobs pass at `52b2dec`, including native GNU/musl/ARM64 gates, shipping builds, the prepared example and both Miri seeds. Complete review, frozen performance controls and current shipping/size acceptance remain open.
 
 **Files:** docs/examples, benchmark/size tooling, actual CI integration, this document.
 
@@ -1344,10 +1607,10 @@ Do not disable tests, lower safety guarantees, catch arbitrary crashes as succes
 | 4: native slices | IN PROGRESS | Actual native counters, numeric/fuel correctness | Explicit example returned 5000050000 with 200007 native logical instructions; fourteen native tests pass. Scalar operations, numeric loops, guarded comparison, and interpreter fallback integrated. Helper-backed heap operations execute natively; broader numeric/error coverage remains open. |
 | 5: lifecycle integration | IN PROGRESS | Mixed-tier callbacks, async/coroutines, errors and close tests | Dedicated heap/upvalue tests cover reentry, close/error unwinding, panic materialization, debug mutation, shared captures and finalizer resurrection. Public coroutine/foreign-await scenarios (`7351b4b`) verify all three modes at fuel 1/64/65536, native table updates after resumption, GC while parked, six Pending polls/two Ready polls/six wakes, and no compilation inside slices. GNU/musl full-feature Force passes. Complete transition/error/mock coverage remains open. |
 | 6: heap/GC integration | IN PROGRESS | Native heap paths, barriers, GC/mutation/invalidation stress | Fresh helper guards preserve weak/readonly/intercept/invalid-key behavior. Every-slice GC, open/closed upvalues, pending-scalar panic inspection, debug local/upvalue join and finalizer-only native upvalue writes pass. Shared-cell tests additionally prove exact operation counts and write visibility across error guards, foreign stacks, GC and Rust reentry. Broader interleaved executors, mode mutations and exhaustive guard coverage remain open. |
-| 7: Auto policy | IN PROGRESS | Nonblocking stepping, owned compile work, limits/backoff, hot promotion | Bounded hot requests and explicit outside-arena service; configuration retirement, queue/attempt reductions, typed quota refusal and reset tests pass. LRU retry, charged recency, sparse compaction, refusal backoff and source collection preserve leases/live identities. Real hot queued-source GC tests (`5570951`) cancel dead requests without snapshot/compiler work, preserve a live peer's queue/identity and reclaim all accounted storage after its final drop. Injected blocked compiler and complete resource/diagnostic coverage remain open. |
-| 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Exact small frames (`af26288`) pass full GNU/musl correctness and the table speedup target twice (1.2805/1.2692). Current native upvalue (0.7067/0.7000) and callback (0.8186/0.8164) gates still fail. Matched speed compiled-Off controls fail float twice and integer once; shipping integer fails once, so its one all-green repeat is insufficient. Both checkers retain their frozen ratios-of-medians gates. Rejected reference-move and VM-splitting experiments remain removed. Prepared symbol-retained profiles await a quiet host. Full performance acceptance remains open. |
-| 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Limited supervised admission/scalar campaigns test signals/timeouts/inherited limits; a five-seed 5120-kernel campaign verifies exits/slots/reclamation. Latest full GNU/musl x86-64 gates on `e747b07` pass 3054 tests/421 suite results each, 24 ignored; allocation/protection refusal is tested. Pinned default-seed Rust-only Miri passes 76 tests/fourteen namespaces, including owned flow/block/exit/access/work admission, scalar-tag SSA/guard/phi verification and pure IR-emitter rejection, reference Move alias/scalar/panic checks and queued-source retirement. Generated machine code, active native lease invocation, coroutine/foreign-await scenarios and executable finalization are not Miri-covered. Broader heap/lifecycle fuzz, complete unsafe review and actual ARM64/hosted evidence remain open. |
-| 10: release acceptance | IN PROGRESS | Complete gates, thresholds, docs/examples, actual CI | Prepared example and resource/security documentation exist. Active workflow wiring runs full GNU/musl x86-64 and GNU ARM64 gates, builds matched shipping artifacts and uploads evidence. Workflow lint/local musl integration pass; repeated local shipping/size/disabled-cost evidence is recorded. Actual hosted/ARM64 results, complete hardening and both native/disabled performance acceptance remain missing. |
+| 7: Auto policy | IN PROGRESS | Nonblocking stepping, owned compile work, limits/backoff, hot promotion | Bounded hot requests and explicit outside-arena service; configuration retirement, queue/attempt reductions, typed quota refusal and reset tests pass. LRU retry, charged recency, sparse compaction, refusal backoff and source collection preserve leases/live identities. Real hot queued-source GC tests (`5570951`) cancel dead requests without snapshot/compiler work, preserve a live peer's queue/identity and reclaim all accounted storage after its final drop. Stalled-compiler isolation now passes GNU/musl: three executors, queue saturation, every-slice GC, exact Off/Auto fuel/modes/results and eventual native execution. Complete resource/diagnostic checklist reconciliation remains open. |
+| 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Exact small frames (`af26288`) pass full GNU/musl correctness and the table speedup target twice (1.2805/1.2692). Last measured native upvalue (0.7067/0.7000) and callback (0.8186/0.8164) gates still fail. Matched speed compiled-Off controls fail float twice and integer once; shipping integer fails once, so its one all-green repeat is insufficient. Repeated instruction profiles are collected and transition dispatch (`4863789`) is committed with correctness evidence. Its speed comparisons are deferred by the user, not passed. Frozen performance acceptance remains open; diagnostics do not require an idle host. |
+| 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Hosted run `37134741669` at `52b2dec` passes all three native platforms (5059 executions/435 suite results/24 ignored each, including disassembly). Both Miri seeds pass 293 tests/42 suites and upload all 44 logs. The scheduling regression executes successfully on every native platform. Generated code is not Miri-covered. Finite campaigns do not complete broader review obligations; no new audit/fuzz expansion is authorized. |
+| 10: release acceptance | IN PROGRESS | Complete gates, thresholds, docs/examples, actual CI | All six hosted jobs, matched shipping builds and artifact uploads pass at `52b2dec`. Current runtime code has native GNU/musl/ARM64 evidence. Remaining implementation/review reconciliation and native/disabled performance acceptance are unfinished; benchmarks are user-deferred, not passed. |
 
 Status values: TODO, IN PROGRESS, COMPLETE, or BLOCKED with a concrete reason. Attach toolchain, platform, commands, counts, exclusions, and evidence paths when updating a row. COMPLETE requires the stated phase exit, not a percentage estimate.
 
