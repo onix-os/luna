@@ -11,6 +11,57 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Exact debug transitions — 2026-10-03
+
+The preceding goal turn made verified progress: compiler-lifetime repair
+`a0f9ac5` and evidence `32f6a84` are pushed, with full GNU/musl gates passing.
+The next non-benchmark gap is exact debug-hook events and mixed-tier tracebacks.
+Add paired Off/prepared runs at five fuel budgets with collection after every
+slice, ordered event logs and explicit interrupt checkpoints. Require 100
+native table writes before hooks, none from hooked main-body writes, and 100
+more after disabling hooks. Cover line/count/combined masks, hook replacement,
+normal/tail calls and xpcall traceback frames. Preparation must remain outside
+manual slices. This extends correctness coverage, not audit/fuzz infrastructure.
+
+#### Goal
+Verify exact debug behavior across native/interpreter transitions.
+
+#### Instructions
+Continue non-benchmark correctness work and incremental unsigned commits. Keep
+performance acceptance deferred and do not expand audit/fuzz infrastructure.
+
+#### Discoveries
+Hook-body execution may legitimately be native while recursive hooks are
+suppressed. Main-body table-write checkpoints distinguish this from incorrectly
+running hooked code natively. Traceback strings contain stable source frames,
+so the paired runner compares their complete contents rather than substrings.
+
+#### Accomplished
+Added three regressions covering 55 paired scenarios per feature configuration:
+30 hook-mask/replacement cases, ten normal/tail traceback cases, and 15 caught
+hook-error cases. All compare complete event and slice traces against Off, with
+collection after every slice and explicit native prefix/suffix evidence.
+`nix develop -c make fmt jit-debug`, the musl `jit-debug` target, and advisory
+`jit-clippy` complete successfully in batch `98945`. Both targets pass all three
+tests with `jit` and `jit,async`: 12 passing test executions, 220 paired scenarios,
+zero failures. Existing lint warnings remain; none identify `jit_debug.rs`.
+No runtime defect was found and no production source changed. This is focused
+verification, not a newly run full suite or performance acceptance.
+
+The preceding compiler-lifetime hosted run `37143852327` now passes native GNU
+and ARM64 as well as verify and i686 fallback. Musl's native gate has passed,
+but its artifact build and both Miri jobs remain live at the latest check.
+
+#### Next Steps
+Collect hosted results for the pushed regression revision and reconcile the
+remaining original acceptance checklist. Compiler-memory limitations and
+deferred performance acceptance are not resolved by these debug regressions.
+
+#### Relevant Files
+- `tests/jit_debug.rs` — exact differential hooks, errors and traceback fixtures.
+- `Makefile`, `JIT.md` — focused `jit-debug` gate and its documented scope.
+- `target/jit-evidence/debug-transitions/` — GNU/musl and advisory lint logs.
+
 ### Compiler workspace lifetimes — 2026-10-03
 
 The preceding goal turn made verified progress (`f9e8022` through `7afcd24`):

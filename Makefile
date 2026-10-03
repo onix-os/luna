@@ -395,6 +395,11 @@ jit-errors:
 	@$(CARGO) test --locked -p luna --features jit --test jit_errors $(TARGET_ARG)
 	@$(CARGO) test --locked -p luna --features jit,async --test jit_errors $(TARGET_ARG)
 
+.PHONY: jit-debug
+jit-debug:
+	@$(CARGO) test --locked -p luna --features jit --test jit_debug $(TARGET_ARG) $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit,async --test jit_debug $(TARGET_ARG) $(ARGS)
+
 jit-abi:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests
 
@@ -869,6 +874,7 @@ help:
 	@echo "  jit-miri     Check Rust-only JIT components (nix develop .#miri)"
 	@echo "  jit-relocations Test finalization relocation limits and fallback"
 	@echo "  jit-errors   Test native error positions and typed callback errors"
+	@echo "  jit-debug    Compare exact hook events and mixed-tier tracebacks"
 	@echo "  jit-boundary Test native exits against the Rust boundary model"
 	@echo "  jit-native   Run integrated native execution and lifecycle tests"
 	@echo "  jit-fallback Execute unsupported-target fallback (TARGET=i686-unknown-linux-musl)"

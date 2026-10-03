@@ -496,6 +496,14 @@ type changes, error guards, debug rebinding and Rust callback reentry. These
 are behavior checks for the current helper-backed tier, not performance
 acceptance or a direct scalar-upvalue cache.
 
+`make jit-debug` compares prepared native execution against Off for exact
+line/count/combined hook events, hook replacement, caught hook errors and
+normal/tail-call tracebacks. It checks identical slice modes, fuel and interrupt
+boundaries at five budgets, collecting after every slice. Native table-write
+checkpoints prove execution before and after hooks while hooked main-body
+writes remain interpreted. The target runs with and without optional async
+support; these are correctness checks, not performance measurements.
+
 `make jit-helpers` directly tests all nine scoped Rust helper entries with
 closed upvalues and canonical reference identity. It checks effect-free decline
 and PC rollback, panic materialization of exactly the declared scratch prefix,
