@@ -23,6 +23,10 @@ and GNU all-features gates cover them. All seven hosted jobs also pass at
 `1f905f9` ([run 37159200148](https://github.com/onix-os/luna/actions/runs/37159200148)).
 The later oversized-image refusal fix has separate focused evidence;
 these full runs do not validate that newer runtime change.
+Full local GNU/musl verification subsequently passes at `fda2254`, including
+the oversized-image fix and corrected integration expectations: 5333 executions
+/ 482 suites / 24 ignored / zero failures each. The later requested-byte
+diagnostic and test-only Rust mock have focused checks, not that full-gate result.
 Benchmarks remain deferred, not accepted; earlier upvalue/callback/compiled-but-
 disabled cost failures remain unresolved. This is not full-plan acceptance.
 
@@ -695,6 +699,13 @@ execute the target fails the gate rather than silently skipping it.
 
 The unchecked acceptance criteria in `PLAN_JIT.md` track remaining work. Historical
 checkpoints and individual platform passes do not establish full-plan completion.
+
+`make jit-mock` runs a test-only Rust slice model integrated with interpreter
+dispatch. Before/one-scalar-after exits preserve exact executor traces, errors,
+side-effect order and GC-visible state across selected callback/vararg/coroutine/
+close cases. Unsupported operations execute canonically after a mock decline.
+The mock reports no native work and also runs on i686 without a native backend;
+it is not a substitute for generated-code tests and is absent from library builds.
 
 `make jit-profile` retains Rust symbols and attempts an opt-level-3 perf capture of the checked upvalue workload; it requires host perf permission and does not alter kernel settings. `make jit-rust-assembly` extracts symbol-retained Rust dispatch/helper/invocation assembly without perf permission. These are diagnostic lanes, not acceptance timing builds or native JIT disassembly. On the current host perf recording is denied (`perf_event_paranoid=4`); Rust assembly verified that outlining removed the native scratch probe page from `run_vm`.
 

@@ -72,6 +72,8 @@ pub(crate) mod ir;
 ))]
 mod memory_status;
 #[cfg(test)]
+mod mock;
+#[cfg(test)]
 mod model;
 #[cfg(all(
     target_os = "linux",
@@ -420,6 +422,8 @@ pub enum JitError {
 
 pub(crate) struct Manager {
     #[cfg(test)]
+    mock: Option<mock::Mock>,
+    #[cfg(test)]
     before_compile: Option<Box<dyn FnOnce()>>,
     pub(crate) config: JitConfig,
     pub(crate) stats: JitStats,
@@ -462,6 +466,8 @@ impl Default for Manager {
         let metadata = BudgetAllocator(Ledger::child(config.max_metadata_bytes, host.clone()));
         let snapshots = BudgetAllocator(Ledger::child(config.max_snapshot_bytes, host.clone()));
         Self {
+            #[cfg(test)]
+            mock: None,
             #[cfg(test)]
             before_compile: None,
             config,

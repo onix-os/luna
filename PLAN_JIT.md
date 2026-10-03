@@ -11,6 +11,13 @@
 
 ### Progress snapshot — 2026-10-04
 
+The clean full GNU/musl gate at `fda2254` (`8753`) exits 0: each target reports
+5333 passing executions / 482 repeated suites / 24 ignored / zero failures.
+Both examples return 5000050000 with 200007 native instructions. Logs are
+`target/jit-evidence/policy-reconciliation/full-{gnu,musl}.log`. The requested-byte
+runtime change `0787fa8` and the subsequent test-only Rust mock have separate
+focused evidence below; this full run predates them and does not certify them.
+
 #### Requested versus mapped native bytes
 
 Section 4.6 requires requested and allocated native bytes separately. Additive
@@ -2122,7 +2129,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 2 — Define and test the runtime boundary before optimizing
 
-**Status:** IN PROGRESS. **Depends on:** Phase 1. Defined-layout scalar ABI and independent Rust slice model cover all emitted scalar entries/budgets. Complete transition mock/error/helper coverage remains open; the model was added after the first native experiment, so the original mock-before-emission ordering was not fully satisfied.
+**Status:** REFERENCE MOCK IMPLEMENTED; full revalidation and the original ordering deviation remain. **Depends on:** Phase 1. Defined-layout scalar ABI and independent Rust slice model now have a test-only interpreter-integrated before/one-scalar-after mock, including real i686 execution without a native backend. It preserves exact executor traces and canonical fallback across the cases below without native counters. The model was added after the first native experiment, so the original mock-before-emission ordering was not satisfied; current tests cannot retroactively change that history. This does not close Phase 3 compiler accounting or broader release acceptance.
 
 **Files:** `src/jit/abi.rs`, `runtime.rs`, `src/thread/executor.rs`, `thread.rs`, `vm.rs`, `tests/jit_boundary.rs`, `tests/jit_fuel.rs`.
 
@@ -2135,6 +2142,47 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 **Verify:** `make jit-test JIT_MODE=off` and `make jit-test-all JIT_MODE=force`; boundary tests demonstrate equivalent results, PCs, errors, side-effect order, and bounded progress. The mock is labeled as a mock and does not increment real native-entry counters.
 
 **Exit:** reference exits are correct; native compilation is not required for this phase.
+
+#### Rust-only integrated mock — 2026-10-04
+
+`make jit-mock` exercises `src/jit/mock.rs` through a `cfg(test)` VM seam.
+It is absent from normal library builds and has no public mode/environment API.
+Mock states remain JIT Off and never prepare or invoke native code. Before mode
+returns zero work at each attempt; After mode executes at most one scalar
+instruction through the independent Rust model and materializes slots/PC.
+Unsupported instructions decline to canonical interpreter execution. A zero-work
+exit must preserve PC and scalar bits and is followed by interpreter dispatch,
+not another mock attempt. Successful model work is counted as interpreted work.
+
+The corpus checks varargs, pending multireturns and trailing nils; reentrant Rust
+callbacks reading open cells after writes; coroutine yield/resume and close;
+error-table identity through protected calls/close handlers; and an uncaught
+arithmetic error at its expected source line. Known values/events are asserted.
+Each case compares reference/mock completion, executor mode, fuel, interruption,
+result/error, ordered side effects and total dispatches, with collection between
+slices. Every dispatch has exactly one mock attempt; bounded attempt/slice caps
+fail nonprogress. Native entries/instructions, requests, installations and both
+native byte counters must stay zero.
+
+Four cases, five fuel budgets (-1/0/1/64/65536) and two mock modes give 40 paired
+scenarios per configuration. GNU/musl `make jit-mock jit-boundary` (`86932`) each
+pass 484 executions / two suites / four ignored tests; the focused mock also
+passes on real i686, where no native backend is compiled. Initial compilation
+used the wrong integer width for a local dispatch counter; its failed log is
+retained. Evidence: `target/jit-evidence/mock-boundary/`.
+
+All-feature focused GNU/musl checks also pass (`91928`), with formatting and
+advisory Clippy retaining the existing 141 lib-test warnings. After strengthening
+interior/trailing nil assertions, the final GNU/musl all-feature and i686 mock
+matrix (`24794`) passes one selected test each, with all 40 paired scenarios
+inside each test. No new local Miri run or generated-code acceptance is claimed.
+
+This is a finite boundary/fallback model, not a model implementation of every
+heap helper or machine-code ABI. Complex operations use the real interpreter;
+the independent native/helper tests remain necessary. Existing lifecycle,
+typed-error, canonical-helper and mapping-owner checkpoints supply the related
+runtime evidence. The original model-before-emission ordering remains a recorded
+deviation, and full current-tree gates remain separate acceptance evidence.
 
 ### Phase 3 — Build validated owned IR and bounded code ownership
 
@@ -2956,7 +3004,7 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 
 ### Phase 7 — Add hotness policy and nonblocking automatic compilation
 
-**Status:** POLICY CHECKLIST RECONCILED; current full revalidation and resource prerequisites remain open. **Depends on:** Phases 3 and 6. The six-item table below records saturating hotness, bounded failed attempts/queues, outside-arena service, configuration retirement, stale-source cancellation, typed refusal and bounded LRU retry. The oversized-image fix preserves peers when eviction cannot help. Remaining Cranelift working-memory accounting is not closed by this policy evidence.
+**Status:** POLICY IMPLEMENTATION MILESTONE VERIFIED at `fda2254`; resource prerequisites remain open. **Depends on:** Phases 3 and 6. The six-item table below records saturating hotness, bounded failed attempts/queues, outside-arena service, configuration retirement, stale-source cancellation, typed refusal and bounded LRU retry. Full GNU/musl revalidation passes after correcting exact integration refusal expectations. The oversized-image fix preserves peers when eviction cannot help. Remaining Cranelift working-memory accounting is not closed by this policy evidence; later requested-byte/mock changes have separate focused checks.
 
 **Files:** compiler/cache policy, Lua host service APIs, `tests/jit_policy.rs`, `tests/jit_resources.rs`, benchmark harness.
 
