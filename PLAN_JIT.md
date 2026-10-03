@@ -11,6 +11,64 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Default collection request repair — 2026-10-03
+
+#### Goal
+Make default/nil collection requests preserve the explicit collection boundary.
+
+#### Instructions
+Keep the original goal open and benchmarks deferred. Validate through Make,
+without changing source inputs during an already-running full verification.
+
+#### Discoveries
+The expanded `gc_control` suite reproduces both missing default return values
+and missing next-statement finalizer/weak-reference visibility before repair.
+The native fixture stops automatic GC and never forces collection between
+slices: only the script's requests can make the objects collectible. Extra
+host collections would conceal the request-boundary defect.
+
+#### Accomplished
+The prior debug-index full batch `45064` is terminal, exit 0. At `2e21d80`, GNU
+and musl each pass 5189 executions / 452 repeated suites / 24 ignored, and real
+i686 fallback passes 1847 executions / 299 repeated suites / two ignored, all
+with zero failures. Only then were the GC regression source inputs changed.
+Added default/nil/explicit baseline assertions and a stopped-GC paired runner
+checking exact slice/fuel/interrupt/event traces, finalizer visibility and
+native table writes before and after collection. Baseline red logs show both
+expected failures. The first native fixture omitted the manual host's required
+`run_finalizers` call and failed even for explicit collection; its red log is
+not evidence for the default-request bug. Corrected the fixture to drain pending
+handlers outside the arena. The stopped-collector diagnostic then exposed a
+fixture assumption: a finalized object is resurrected for its handler and can
+remain in a weak table until a later cycle. Separate the ordinary weak value
+from the finalizable value; still require weak clearing and the handler before
+the next statement, without forcing any extra collection.
+Default and
+nil options now normalize to the explicit `collect` byte-string dispatch without
+allocation. All three forms share the same request, interrupt and return-value
+path. Initial focused batches `21316` and `99004` stopped at the fixture issues;
+corrected batch `67137` exits 0. GNU/musl each pass 86 test executions across
+14 repeated suites, zero ignored/failures. Real i686 passes 84, with the two
+native-only suites correctly empty. Fifteen paired native/interpreter scenarios
+run with and without async on each native target (60 paired scenarios total).
+Formatting and advisory clippy complete; inherited warnings remain, with none
+identifying the changed GC fixture/control/dispatch files. All owned local
+test processes are terminal. This is focused validation, not a new full gate.
+
+#### Next Steps
+Commit and push the repair, then collect the automatic push CI's immutable commit
+checkout for full platform verification. Do not dispatch duplicate workflows or
+start another local full batch that would require freezing unrelated progress.
+Hosted results must still be collected before full acceptance is claimed.
+The preceding debug-index run `37146171083` passes verify, i686 fallback, native
+GNU/ARM64 and Miri seed 0; native musl and Miri seed 1 remain live at last check.
+
+#### Relevant Files
+- `src/stdlib/base.rs` — collectgarbage request dispatch.
+- `tests/gc_control.rs`, `tests/jit_gc_requests.rs` — behavior and boundary tests.
+- `Makefile` — baseline/Off/Auto/Force and async-aware GC request gate.
+- `target/jit-evidence/gc-requests/` — failing and repaired gate evidence.
+
 ### Acceptance reconciliation and GC request gap — 2026-10-03
 
 #### Goal

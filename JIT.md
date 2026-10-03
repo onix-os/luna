@@ -521,6 +521,14 @@ nil/error results across the full Lua integer range; large frame levels do not
 wrap on 32-bit hosts. The native debug gate also proves that rejected mutations
 leave captured values intact and native execution resumes afterward.
 
+`make jit-gc-requests` checks default, nil and explicit collection requests in
+baseline, Off, Auto and prepared execution, including async-enabled builds.
+The native fixture disables automatic collection, drains pending finalizers at
+host boundaries and compares exact slice/fuel/interrupt/event traces. Ordinary
+weak values and finalizable values are separate: finalizer resurrection may
+retain the latter for another collection cycle. Native write counts prove work
+before and after requests; no extra host collection hides a missing interrupt.
+
 `make jit-helpers` directly tests all nine scoped Rust helper entries with
 closed upvalues and canonical reference identity. It checks effect-free decline
 and PC rollback, panic materialization of exactly the declared scratch prefix,
