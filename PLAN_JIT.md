@@ -61,9 +61,15 @@ The previous native-counter full batch `95585` is complete: GNU/musl each pass
 harness was edited. Its production runtime is unchanged by the current work.
 The earlier relocation revision `d29bb12` now has all seven hosted jobs green
 in run `37150232969`; hosted counter revision `37152214033` remains pending.
+Harness implementation and target checks are committed/pushed as `20aa89d`.
+Diagnostic batch `71110` failed only because `--nocapture` was passed to Cargo
+without its argument separator. Corrected batch `68825` exits 0 using
+`ARGS='-- --nocapture'`; `diagnostics-fixed-gnu.log` records the exact IR-block
+exclusion immediately after the math script name. Full batch `48511` is still
+live; no full strict-harness pass is claimed yet.
 
 #### Next Steps
-Poll full GNU/musl batch `48511` and diagnostic-output batch `71110`, then
+Poll full GNU/musl batch `48511`, then
 reconcile Phase 1 evidence. Compiler memory, broad review
 and deferred numerical performance acceptance remain outside this milestone.
 
@@ -1808,7 +1814,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 1 — Add configuration, capabilities, and honest test lanes
 
-**Status:** IN PROGRESS. **Depends on:** Phase 0. The configuration/gate audit above verifies dependency isolation, additive APIs, defaults/traits, all-field transactional validation and existing mode gates. Complete native-exit reason reporting and explicit Force resource-refusal diagnostics remain open; full compiler accounting belongs to the later resource phases and is not inferred from these tests.
+**Status:** IN PROGRESS. **Depends on:** Phase 0. The configuration/gate audit verifies dependency isolation, additive APIs, defaults/traits and all-field transactional validation. All native exit reasons are now counted, with full local GNU/musl verification at `48df12e`. Strict Force errors, explicit math IR-block admission exclusion and per-state preparation reports pass focused GNU/musl/i686 tests at `20aa89d`; full strict-harness gates remain running. Complete phase reconciliation is pending those results; later compiler accounting and deferred performance are not inferred from these checks.
 
 **Files:** manifests/lockfile, `Makefile`, `src/lib.rs`, `src/lua.rs`, `src/jit/mod.rs`, tests/common helpers, integration test constructors, `examples/jit.rs`.
 
