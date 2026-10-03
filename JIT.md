@@ -76,6 +76,11 @@ is not exhausted. Alignment padding and all provider segment kinds count.
 Metadata/snapshot/capability/compiler errors do not trigger eviction.
 A service call still handles at most one prototype, but can make two backend
 compilation attempts. This is bounded retry, not compiler preemption.
+`make jit-policy` checks exact hotness promotion/saturation, exhausted-attempt
+blacklisting, queue cancellation, pending-state destruction and short-lived
+source generations that never compile. A blocked compiler in an independently
+owned state must not stop manually stepped executors in another state; this
+does not make synchronous `service_jit` nonblocking for its own caller.
 `cache_evictions` counts pressure retirements; `cache_eviction_refusals` counts
 mapping-pressure retries refused because no unleased victim exists.
 `compilation_failures` counts each failed backend attempt, including failures

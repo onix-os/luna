@@ -1214,6 +1214,37 @@ mod policy_tests {
     }
 
     #[test]
+    fn hotness_threshold_saturates_without_duplicate_or_exhausted_requests() {
+        let mut manager = Manager::default();
+        manager.configure(JitConfig {
+            mode: JitMode::Auto,
+            hot_threshold: 2,
+            max_compile_attempts: 1,
+            ..Default::default()
+        });
+        manager.tracked.insert(1, Tracking::default());
+        manager.enqueue(1, false);
+        assert_eq!(manager.tracked[&1].hotness, 1);
+        assert!(manager.queue.is_empty());
+        manager.enqueue(1, false);
+        assert_eq!(manager.queue.as_slice(), &[1]);
+        manager.tracked.get_mut(&1).unwrap().hotness = u32::MAX;
+        for _ in 0..3 {
+            manager.enqueue(1, false);
+        }
+        assert_eq!(manager.tracked[&1].hotness, u32::MAX);
+        assert_eq!(manager.queue.as_slice(), &[1]);
+        assert_eq!(manager.stats.compilation_requests, 1);
+        assert_eq!(manager.next_request(), Some(1));
+        for force in [false, true] {
+            manager.enqueue(1, force);
+            assert!(manager.queue.is_empty());
+        }
+        assert_eq!(manager.tracked[&1].attempts, 1);
+        assert_eq!(manager.stats.compilation_requests, 1);
+    }
+
+    #[test]
     fn compaction_diagnostics_saturate_without_counting_deferred_passes() {
         let mut manager = Manager::default();
         manager.stats.metadata_compaction_attempts = u64::MAX;

@@ -11,6 +11,14 @@
 
 ### Progress snapshot — 2026-10-04
 
+Automatic-policy reconciliation now covers all six original requirements, with
+new cold-source, pending-destruction and exact-threshold regressions. The first
+full `9dfbb34` gate failed on stale integration refusal-reason assertions;
+those expectations are corrected, not waived. Focused GNU/musl and pure i686
+policy checks pass. Full revalidation of the corrected tree remains pending;
+complete compiler working-memory accounting and performance acceptance remain
+open. See the Phase 7 reconciliation for exact scope and commands.
+
 Lifecycle regression commit `deed84a` adds direct Rust continuation coverage,
 normal close-transfer coverage and nested-executor upvalue writes without
 changing production runtime `1f905f9`. The Phase 5 reconciliation below records
@@ -2916,7 +2924,7 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 
 ### Phase 7 — Add hotness policy and nonblocking automatic compilation
 
-**Status:** IN PROGRESS. **Depends on:** Phases 3 and 6. Hotness/bounded queue/explicit outside-arena service, bounded failed attempts, configuration retirement, typed refusal and bounded LRU retry with diagnostics are implemented. Completed GC cancels dead queued sources without compilation and preserves live queued executors/identities. A deliberately stalled compiler now has GNU/musl evidence: independent manual executors retain exact fuel/modes/results while their compilation queue stays bounded, then execute natively after service. Remaining backoff/compaction and resource checklist coverage still needs reconciliation.
+**Status:** POLICY CHECKLIST RECONCILED; current full revalidation and resource prerequisites remain open. **Depends on:** Phases 3 and 6. The six-item table below records saturating hotness, bounded failed attempts/queues, outside-arena service, configuration retirement, stale-source cancellation, typed refusal and bounded LRU retry. The oversized-image fix preserves peers when eviction cannot help. Remaining Cranelift working-memory accounting is not closed by this policy evidence.
 
 **Files:** compiler/cache policy, Lua host service APIs, `tests/jit_policy.rs`, `tests/jit_resources.rs`, benchmark harness.
 
@@ -2930,6 +2938,40 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 **Verify:** `make jit-test JIT_MODE=auto`, `make jit-test-all JIT_MODE=force`, `make jit-verify`. A deliberately blocked compiler never blocks manual stepping; another executor continues making progress. Auto-policy tests eventually execute native code on admitted hot workloads and stay within configured queue/cache limits.
 
 **Exit:** Auto is an integrated execution policy with measured scheduling behavior.
+
+#### Automatic policy reconciliation — 2026-10-04
+
+| Original requirement | Evidence and scope |
+| --- | --- |
+| Hotness, promotion, failure backoff, specialization limits | `Manager::enqueue` saturates per-prototype hotness, queues at the threshold once, and stops at the lifetime attempt cap. The new exact-threshold/saturation fixture covers normal and forced requests after exhaustion. `failed_compilation_is_bounded_until_explicit_admission_reset` verifies public refusal counts, no retry after exhaustion and explicit recovery. There is one generic cached image per generation, not an unbounded specialization family. Backoff is a finite attempt blacklist, not a timed exponential scheduler. |
+| Compile outside stepping/arena and install between slices | `Executor::step` only observes/queues; `Lua::service_jit_inner` snapshots in arena mutation, releases it, then calls `Runtime::compile`. One service call handles one prototype, with at most one eviction retry. `manual_steps_only_queue_compilation` and the blocked-compiler fixture verify this boundary and later native execution. |
+| Slow compilation, saturation, destruction, cancellation and stale work | The existing blocked-compiler fixture stalls a compiler on an independently owned state while three local executors preserve reference fuel/modes/results, with a two-entry queue. New destruction coverage drops a state with queued work, forbids compiler entry and checks that only the externally held root-ledger layout remains. Registry tests cancel dead queued generations while preserving live ones; configuration tests cancel/trim requests on the owner thread. |
+| Bounded installation, relocation count and code size | Snapshot/IR limits bound entry records; final relocation count is checked before module definition. Relocation staging/copy and mapping records are quota-admitted. Provider size includes pages/alignment and all segments. Oversized images do not evict peers; ordinary occupancy pressure retains one-victim/one-retry bounds. `jit-relocations`, resource, owner and provider tests cover refusal, cleanup and retry. These are work/admission limits, not a compiler wall-clock bound or complete compiler-memory ledger. |
+| Host refusal reporting without new Lua errors | Public preparation/service return typed errors. Convenience `finish`/`finish_async` treat compilation as optional and preserve interpretation. Policy/native/resource fixtures check returned results after refusal; Force harness workers reject unexpected reasons and report only exact declared exclusions. |
+| Cold scripts and independent states | New public policy test executes 256 separately loaded short-lived sources with collection after each: requests, installations, failures and native instructions remain zero, and accounting returns to the bootstrap floor. Configuration, host-memory and blocked-compiler tests keep counters, queues and limits state-local. |
+
+There is no production background compiler worker: synchronous host service
+holds exclusive access to a non-Send/non-Sync Lua state. A production result
+therefore cannot arrive after concurrent state destruction or configuration
+mutation. Queued identities are weakly resolved before snapshots; installation
+also checks registration and Auto mode. These are current ownership guarantees,
+not evidence that a future worker's cancellation protocol has been implemented.
+
+The full `9dfbb34` run (`59993`) failed in baseline all-features `jit_native`:
+its one-byte code-limit assertion still expected `native mappings` rather than
+the new `native image size`. Musl did not start. The same obsolete expectation
+was corrected in two public policy cases and Force-mode worker diagnostics /
+exact allowlist. No broad refusal allowance was added. Runtime source is
+unchanged from `9dfbb34`; the subsequent changes are regression tests only.
+
+Focused GNU/musl `make jit-policy jit-native jit-test-modes` passes 45 executions
+/ eight suites / zero ignored per target (`5051`), including the strict Force
+script/string corpus. Final `make jit-policy` (`70613`) includes the new
+lifecycle/threshold checks: GNU/musl each pass 28 executions / four suites;
+i686 passes five pure policy tests with native-only suites compiled out.
+All have zero failures/ignored. Logs are in
+`target/jit-evidence/policy-reconciliation/`; full revalidation follows the final
+test commit. No benchmark timing or new test infrastructure is involved.
 
 ### Phase 8 — Optimize without weakening semantics
 

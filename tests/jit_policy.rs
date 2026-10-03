@@ -85,6 +85,35 @@ fn state() -> Lua {
 }
 
 #[test]
+fn short_lived_sources_do_not_accumulate_hotness_across_generations() {
+    let mut lua = Lua::empty();
+    lua.set_jit_config(JitConfig {
+        mode: JitMode::Auto,
+        ..Default::default()
+    })
+    .unwrap();
+    for _ in 0..256 {
+        let executor = lua.enter(|ctx| {
+            let closure = Closure::load(ctx, None, b"return 42").unwrap();
+            ctx.stash(Executor::start(ctx, closure.into(), ()))
+        });
+        assert_eq!(lua.execute::<i64>(&executor).unwrap(), 42);
+        drop(executor);
+        lua.gc_collect();
+        lua.gc_collect();
+        assert_eq!(lua.service_jit().unwrap(), 0);
+        let stats = lua.jit_stats();
+        assert_eq!(stats.compilation_requests, 0);
+        assert_eq!(stats.compilation_failures, 0);
+        assert_eq!(stats.installed_regions, 0);
+        assert_eq!(stats.native_instructions, 0);
+        assert_eq!(stats.queued_requests, 0);
+        assert_eq!(stats.registered_prototypes, 0);
+        assert_eq!(stats.accounted_jit_bytes, stats.bootstrap_bytes);
+    }
+}
+
+#[test]
 fn disabling_retires_code_without_destroying_suspended_lua_state() -> Result<(), ExternError> {
     let mut lua = state();
     let executor = lua.try_enter(|ctx| {
@@ -128,7 +157,7 @@ fn lowering_native_quota_retires_code_and_refuses_recompilation_safely() -> Resu
     assert_eq!(lua.jit_stats().code_bytes, 0);
     assert!(matches!(
         lua.prepare_jit(),
-        Err(JitError::ResourceLimit("native mappings"))
+        Err(JitError::ResourceLimit("native image size"))
     ));
     assert_eq!(lua.jit_stats().snapshot_bytes, 0);
     assert_eq!(lua.execute::<i64>(&executor)?, 100);
@@ -151,7 +180,7 @@ fn failed_compilation_is_bounded_until_explicit_admission_reset() -> Result<(), 
     for attempt in 1..=2 {
         assert!(matches!(
             lua.prepare_jit(),
-            Err(JitError::ResourceLimit("native mappings"))
+            Err(JitError::ResourceLimit("native image size"))
         ));
         assert_eq!(lua.jit_stats().compilation_requests, attempt);
         assert_eq!(lua.jit_stats().compilation_failures, attempt);

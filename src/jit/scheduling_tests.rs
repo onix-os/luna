@@ -90,6 +90,40 @@ fn state(mode: JitMode) -> (Lua, [(StashedClosure, StashedExecutor); 3]) {
 }
 
 #[test]
+fn dropping_state_with_queued_work_reclaims_storage_without_compiling() {
+    let host = {
+        let mut lua = Lua::empty();
+        lua.set_jit_config(JitConfig {
+            mode: JitMode::Auto,
+            hot_threshold: 1,
+            ..Default::default()
+        })
+        .unwrap();
+        let executor = lua.enter(|ctx| {
+            ctx.jit().0.borrow_mut().before_compile =
+                Some(Box::new(|| panic!("state destruction entered compiler")));
+            let closure = Closure::load(ctx, None, b"while true do end").unwrap();
+            ctx.stash(Executor::start(ctx, closure.into(), ()))
+        });
+        lua.enter(|ctx| {
+            assert!(!ctx.fetch(&executor).step(ctx, &mut Fuel::empty()).unwrap());
+        });
+        let stats = lua.jit_stats();
+        assert_eq!(stats.queued_requests, 1);
+        assert_eq!(stats.compilation_requests, 1);
+        assert_eq!(stats.installed_regions, 0);
+        assert_eq!((stats.code_bytes, stats.snapshot_bytes), (0, 0));
+        assert!(stats.metadata_bytes > 0);
+        lua.enter(|ctx| ctx.jit().0.borrow().host.clone())
+    };
+    assert_eq!(host.current(), 0);
+    assert_eq!(
+        host.accounted(),
+        super::resources::LedgerRef::allocation_bytes()
+    );
+}
+
+#[test]
 fn blocked_compiler_does_not_stall_manual_executors_or_share_queue_state() {
     let blocked = BlockedCompiler::start();
     for budget in [1, 64, 65536] {
