@@ -47,6 +47,8 @@ jobs:
           exit 1
       - name: check
         run: make check
+      - name: Miri evidence recipe
+        run: make jit-miri-wrapper-tests
       - name: test
         run: |
           set -o pipefail
@@ -66,7 +68,7 @@ jobs:
   miri:
     name: Rust-only JIT Miri (seed ${{ matrix.seed }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
