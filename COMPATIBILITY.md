@@ -243,7 +243,7 @@ IMO this module is best in its current state, but I cannot stop one from downloa
 | 🔵    | `rename(oldname, newname)`      |                                                                                                                                                                                            |       |
 | ❗     | `setlocale(locale[, category])` | This is _explictly_ not going to be implemented according to the README, along with its C weirdness brethren, I just have problems with the rest of this module. _Personnel_ problems \\s. |       |
 | 🔵    | `time([table])`                 |                                                                                                                                                                                            |       |
-| 🔵    | `tmpname()`                     |                                                                                                                                                                                            |       |
+| 🔵    | `tmpname()`                     | Reserves an empty temporary file; the caller must remove it, even when unused.                                                                                                                |       |
 
 ## Metamethods
 

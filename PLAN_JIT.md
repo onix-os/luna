@@ -11,11 +11,11 @@
 
 ### Progress snapshot — 2026-10-03
 
-Recovered working checkpoint: `a8b5729` is pushed. Hosted run `37137046824`
-exposed colliding `os.tmpname` paths in concurrent I/O tests. The immediate
-next milestone is atomic temporary-file reservation and a failing-before-fix
-regression, keeping concurrency enabled. Benchmarks remain deferred. Engram
-tools are unavailable; this checkpoint preserves the resumed task locally.
+Latest repair: `ab3e710` is pushed. Hosted run `37137046824` exposed colliding
+`os.tmpname` paths in concurrent I/O tests. Atomic temporary-file reservation
+now repairs that defect, with a failing-before-fix regression and full local
+GNU/musl gates passing. Benchmarks remain deferred. Engram tools are unavailable;
+this checkpoint preserves the resumed task locally.
 
 ### Temporary-file repair — 2026-10-03
 
@@ -40,16 +40,29 @@ The concurrent regression creates 256 reserved paths from eight Lua states.
 Helper tests preserve colliding files and check retry limits/error propagation.
 GNU and musl focused gates each pass 75 executions across nine suites, including
 the original concurrent I/O tests in Off, Auto and Force modes. No test is
-serialized or disabled. Full `make jit-verify` gates are running separately.
+serialized or disabled. Repair committed and pushed as `ab3e710`.
+Full GNU and musl `make jit-verify` gates each pass 5118 executions across 440
+suites, with 24 ignored and zero failures. Batch `88883` exits 0. These are
+repeated feature/mode executions, not unique tests. Runtime, tests, Makefile and
+Cargo inputs still match `ab3e710`; only documentation changed after testing.
+Advisory clippy exits 0, with the existing 141 library-test warnings and no
+warnings in the changed temporary-file implementation or OS tests. Hosted run
+`37140446824` is live; its verify job passes, other jobs are not yet accepted.
+No owned local test/build process remains running.
 
 #### Next Steps
-Collect the full GNU/musl native verification gates. Prior green gates and live
-hosted jobs do not validate this new patch. Benchmarks remain deferred.
+Collect hosted evidence for `ab3e710`, then continue non-benchmark acceptance
+work. The unsupported-target fallback branch has a capability assertion but
+is not executed by existing Linux x86-64/ARM64 native CI; an actual unsupported
+target execution lane remains a useful next step. Current Nix supplies only
+the host and x86-64 musl targets, so that lane needs explicit toolchain setup.
+Do not mark the full plan complete. Benchmarks remain deferred.
 
 #### Relevant Files
 - `src/stdlib/tempfile.rs` — atomic reservation and deterministic collision tests.
 - `src/stdlib/os.rs`, `src/stdlib/io.rs` — shared temporary-file allocation.
 - `tests/os_lib.rs`, `Makefile` — reserved-file/concurrent and focused mode gates.
+- `COMPATIBILITY.md` — temporary-file ownership/removal contract.
 - `target/jit-evidence/tempfiles/` — failing-before-fix and repaired gate logs.
 
 The requested plan document is written. Full implementation and release
@@ -1793,8 +1806,8 @@ runtime edits must revalidate affected criteria. An unchecked item may reflect
 missing acceptance evidence rather than missing implementation.
 
 - [ ] Existing API and Lua 5.4 regression behavior remain compatible.
-- [ ] `make verify` succeeds without JIT enabled by default. Earlier green evidence is insufficient until the demonstrated temporary-name collision is repaired.
-- [ ] `make jit-verify` succeeds in Off, Auto, and Force, including optional async/derive and doctests. Revalidate after the temporary-name repair; the prior full GNU/musl passes are not erased.
+- [x] `make verify` succeeds without JIT enabled by default. Revalidated in full GNU/musl gates at `ab3e710` after the temporary-name repair.
+- [x] `make jit-verify` succeeds in Off, Auto, and Force, including optional async/derive and doctests. GNU/musl each pass 5118 executions / 440 suites / 24 ignored at `ab3e710`.
 - [ ] Eligible integrated workloads actually execute native instructions; counters and coverage substantiate this.
 - [ ] No proportional native-stack growth from Lua recursion/tail calls or suspension.
 - [ ] Small-fuel/interrupt/GC-request tests preserve reference scheduling behavior.
