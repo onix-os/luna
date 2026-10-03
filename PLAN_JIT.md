@@ -11,6 +11,24 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Full strict-harness gate and milestone reconciliation — 2026-10-03
+
+At clean revision `a8bc5c7`, sequential GNU/musl
+`nix develop -c make jit-verify jit-example TARGET=...` (`3243`) exits 0.
+Each target reports 5263 executions / 470 repeated suites / 24 ignored / zero
+failures. Both asserting examples return 5000050000 with 200007 native
+instructions. Logs are `target/jit-evidence/numeric-exits/full-{gnu,musl}.log`.
+This closes the strict-harness rerun after both exact corpus exclusions; the
+earlier failed runs remain historical failures, not acceptance evidence.
+
+Phase 4's integrated-slice implementation milestone is verified against its six
+original requirements and the evidence table below. Phase 3 prerequisite
+acceptance and product/release acceptance remain separate and open. Phase 1
+still needs total dispatch accounting: summing the existing instruction counters
+would omit transitions and error paths. No benchmarks were run or waived.
+Hosted run `37154853416` at this revision is still pending; the latest verified
+all-seven-green run remains `37152214033` at runtime revision `48df12e`.
+
 ### Dynamic numeric exits and native-slice reconciliation — 2026-10-03
 
 #### Goal
@@ -1886,7 +1904,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 1 — Add configuration, capabilities, and honest test lanes
 
-**Status:** IN PROGRESS. **Depends on:** Phase 0. The configuration/gate audit verifies dependency isolation, additive APIs, defaults/traits and all-field transactional validation. All native exit reasons are now counted, with full local GNU/musl verification at `48df12e`. Strict Force errors, explicit math IR-block admission exclusion and per-state preparation reports pass focused GNU/musl/i686 tests at `20aa89d`; full strict-harness gates remain running. Complete phase reconciliation is pending those results; later compiler accounting and deferred performance are not inferred from these checks.
+**Status:** IN PROGRESS. **Depends on:** Phase 0. Configuration, dependency isolation, defaults/traits, transactional validation and native exit reasons are verified. Full strict-harness GNU/musl gates pass at `a8bc5c7`, including the exact math/string IR-block exclusions. Item 6's total dispatch accounting remains open: existing instruction counts omit some transitions and error paths. Later compiler accounting and deferred performance are not inferred from these checks.
 
 **Files:** manifests/lockfile, `Makefile`, `src/lib.rs`, `src/lua.rs`, `src/jit/mod.rs`, tests/common helpers, integration test constructors, `examples/jit.rs`.
 
@@ -2189,7 +2207,7 @@ prevent Phase 3/release acceptance.
 
 ### Phase 4 — Execute the first real native Lua slices
 
-**Status:** IN PROGRESS. **Depends on:** Phase 3. Integrated scalar/loop native execution and exact fuel/guard tests pass. A finalized scalar/table-kernel disassembly lane now exists; helper and transition coverage remains partial, and full numeric/exit stress remains open.
+**Status:** IMPLEMENTATION MILESTONE VERIFIED; prerequisite acceptance remains open. **Depends on:** Phase 3. The six-item evidence table in the dynamic-numeric checkpoint and full strict-harness GNU/musl gates at `a8bc5c7` verify integrated native slices, numeric fallback, exact fuel/guard exits, actual native work and finalized disassembly. The table diagnostic proves null-host refusal, not table execution; integrated heap fixtures supply that evidence. This closes the prototype milestone, not Phase 3 resource/review obligations or product/performance acceptance.
 
 **Files:** `src/jit/codegen.rs`, `runtime.rs`, executor dispatch, `examples/jit.rs`, `tests/jit_execution.rs`, `tests/jit_fuel.rs`.
 

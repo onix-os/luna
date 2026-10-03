@@ -11,12 +11,14 @@ ignored and zero failures. This includes the GC request/pacing repairs,
 relocation admission before mapping and complete native-exit counters.
 These are repeated test executions, not unique tests or performance measurements.
 
-Later test-harness changes make Force refusals explicit. Focused GNU/musl/i686
-gates pass with exact IR-block exclusions for the existing math and string
-corpora. Full strict-harness verification must be rerun after those exclusions;
-the failed run is recorded rather than treated as a pass. Dynamic numeric-exit
-tests also pass in jit/jit+async on GNU/musl. These later changes do not modify
-the production runtime, but older green runs do not certify new test coverage.
+Later test-harness changes make Force refusals explicit, with exact IR-block
+exclusions for the existing math and string corpora. Full local GNU/musl
+`make jit-verify jit-example` passes at `a8bc5c7`: each target reports 5263
+executions across 470 repeated suites, 24 ignored and zero failures. Both examples
+assert native execution and return 5000050000 with 200007 native instructions.
+Dynamic numeric-exit tests also pass in jit/jit+async on GNU/musl. These changes
+do not modify the production runtime; hosted verification at this revision is
+still pending, distinct from the older all-seven-green run above.
 Benchmarks remain deferred, not accepted; earlier upvalue/callback/compiled-but-
 disabled cost failures remain unresolved. This is not full-plan acceptance.
 
