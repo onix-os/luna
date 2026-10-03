@@ -895,7 +895,10 @@ pub fn concat_many<'gc>(
             break 'fast;
         };
 
-        let mut bytes = Vec::with_capacity(len);
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(len)
+            .map_err(|_| MetaOperatorError::ConcatOverflow)?;
         for value in values {
             match value {
                 Value::Integer(i) => write!(&mut bytes, "{}", i).unwrap(),
@@ -906,7 +909,10 @@ pub fn concat_many<'gc>(
                 _ => unreachable!(),
             }
         }
-        return Ok(ConcatMetaResult::Value(Value::String(ctx.intern(&bytes))));
+        let string = ctx
+            .interned_strings()
+            .intern_buffer(&ctx, bytes.into_boxed_slice());
+        return Ok(ConcatMetaResult::Value(Value::String(string)));
     }
 
     // Evaluate concatenation metamethods from right to left.
