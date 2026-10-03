@@ -216,6 +216,145 @@ fn manual_steps_only_queue_compilation() -> Result<(), ExternError> {
 }
 
 #[test]
+fn callback_interrupt_stops_after_native_work_and_resumes_with_fresh_mutations(
+) -> Result<(), ExternError> {
+    use std::{cell::RefCell, rc::Rc};
+
+    use luna::{Callback, CallbackReturn, ExecutorMode, Table};
+
+    struct Case {
+        lua: Lua,
+        executor: StashedExecutor,
+        events: Rc<RefCell<Vec<u8>>>,
+    }
+
+    fn case(native: bool) -> Result<Case, ExternError> {
+        let mut lua = Lua::empty();
+        lua.set_jit_config(JitConfig {
+            mode: if native { JitMode::Auto } else { JitMode::Off },
+            hot_threshold: u32::MAX,
+            ..Default::default()
+        })
+        .unwrap();
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let callback_events = events.clone();
+        lua.enter(|ctx| {
+            let target = Table::new(&ctx);
+            target.set(ctx, "value", 0).unwrap();
+            target.set(ctx, "after", 0).unwrap();
+            ctx.set_global("target", target);
+            ctx.set_global(
+                "interrupt",
+                Callback::from_fn(&ctx, move |ctx, mut exec, mut stack| {
+                    let previous: Table = stack.consume(ctx)?;
+                    assert_eq!(previous.get::<_, i64>(ctx, "value")?, 100);
+                    callback_events.borrow_mut().push(1);
+                    let replacement = Table::new(&ctx);
+                    replacement.set(ctx, "value", 1000)?;
+                    replacement.set(ctx, "after", 0)?;
+                    let meta = Table::new(&ctx);
+                    let events = callback_events.clone();
+                    meta.set(
+                        ctx,
+                        "__index",
+                        Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+                            let (_, key): (Table, String) = stack.consume(ctx)?;
+                            assert_eq!(key, "missing");
+                            events.borrow_mut().push(2);
+                            stack.replace(ctx, 7);
+                            Ok(CallbackReturn::Return)
+                        }),
+                    )?;
+                    replacement.set_metatable(ctx, Some(meta));
+                    ctx.set_global("target", replacement);
+                    exec.fuel().interrupt();
+                    stack.replace(ctx, ());
+                    Ok(CallbackReturn::Return)
+                }),
+            );
+        });
+        let executor = source(
+            &mut lua,
+            b"for i=1,100 do target.value=i end interrupt(target) local answer=target.value+target.missing target.after=answer return answer",
+        )?;
+        if native {
+            assert_eq!(lua.prepare_jit().unwrap(), 1);
+        }
+        Ok(Case {
+            lua,
+            executor,
+            events,
+        })
+    }
+
+    fn step(case: &mut Case, fuel: &mut Fuel) -> (bool, ExecutorMode, i32, bool) {
+        case.lua.enter(|ctx| {
+            let executor = ctx.fetch(&case.executor);
+            (
+                executor.step(ctx, fuel).unwrap(),
+                executor.mode(),
+                fuel.remaining(),
+                fuel.is_interrupted(),
+            )
+        })
+    }
+
+    fn values(case: &mut Case) -> (i64, i64) {
+        case.lua.enter(|ctx| {
+            let target: Table = ctx.get_global("target").unwrap();
+            (
+                target.get(ctx, "value").unwrap(),
+                target.get(ctx, "after").unwrap(),
+            )
+        })
+    }
+
+    for budget in [-1, 0, 1, 64, 65536] {
+        let mut reference = case(false)?;
+        let mut candidate = case(true)?;
+        let mut fuel = [Fuel::with(budget), Fuel::with(budget)];
+        let mut interrupted = false;
+        let mut finished = false;
+        for _ in 0..1000 {
+            let expected = step(&mut reference, &mut fuel[0]);
+            let actual = step(&mut candidate, &mut fuel[1]);
+            assert_eq!(actual, expected, "fuel={budget}");
+            assert_eq!(values(&mut candidate), values(&mut reference));
+            assert_eq!(*candidate.events.borrow(), *reference.events.borrow());
+            if actual.3 {
+                assert!(!interrupted);
+                interrupted = true;
+                assert!(!actual.0);
+                assert_eq!(actual.1, ExecutorMode::Normal);
+                assert_eq!(values(&mut candidate), (1000, 0));
+                assert_eq!(candidate.events.borrow().as_slice(), &[1]);
+                assert_eq!(candidate.lua.jit_stats().native_table_writes, 100);
+            }
+            reference.lua.gc_collect();
+            candidate.lua.gc_collect();
+            if actual.0 {
+                finished = true;
+                break;
+            }
+            for fuel in &mut fuel {
+                fuel.refill(budget, budget);
+                assert!(!fuel.is_interrupted());
+            }
+        }
+        assert!(finished && interrupted);
+        for case in [&mut reference, &mut candidate] {
+            assert_eq!(case.events.borrow().as_slice(), &[1, 2]);
+            assert_eq!(values(case), (1000, 1007));
+            assert_eq!(case.lua.execute::<i64>(&case.executor)?, 1007);
+        }
+        assert_eq!(reference.lua.jit_stats().native_entries, 0);
+        assert_eq!(candidate.lua.jit_stats().native_table_writes, 101);
+        assert!(candidate.lua.jit_stats().helper_declines > 0);
+    }
+    Ok(())
+}
+
+#[test]
 fn one_vm_slice_reuses_its_lease_across_interpreted_fragments() -> Result<(), ExternError> {
     let mut lua = native_empty();
     let executor = source(

@@ -242,6 +242,12 @@ exits 0 with the existing 141 lib-test warnings; no strict-warning acceptance is
 claimed. The new relocation code/tests introduce no reported lint diagnostics.
 All owned local jobs are terminal and no benchmarks ran. The previous green
 hosted run at `52b2dec` predates this new configuration/admission change.
+Hosted ARM64 job `111247442351` in run `37138361134` now passes at `38ba46d`:
+5074 executions / 435 suite results / 24 ignored, including disassembly. Its
+log contains the exact relocation boundary and both public relocation cases in
+all five relevant test lanes, plus the native example and successful artifact
+upload. Other jobs in that run are still pending; this is not a full workflow
+success claim.
 
 #### Next Steps
 Commit/push the verified milestone and collect its ARM64/hosted results. Keep
@@ -309,6 +315,49 @@ marking unreviewed behavior complete. Keep full-plan acceptance open.
 - `tests/jit_errors.rs` — explicit native error-boundary matrix.
 - `Makefile` — focused error-boundary gate.
 - `target/jit-evidence/error-boundaries/` — GNU/musl and advisory-Clippy logs.
+
+### Callback interruption reconciliation — 2026-10-03
+
+#### Goal
+Verify phase-5 callback fuel interruption and mutation across native resumption.
+
+#### Instructions
+Keep benchmarks deferred and preserve reference scheduling. Use existing test
+targets rather than adding another execution or audit framework.
+
+#### Discoveries
+`tests/fuel.rs` checks callback interruption without asserting preceding native
+work. The native fuel matrix interrupts before entering a slice, not inside a
+Rust callback. Neither alone proves the combined boundary required by phase 5.
+
+#### Accomplished
+Added a paired Off/Prepared case with 100 native table writes, a callback
+that replaces a global table/metatable and interrupts fuel, and a later
+metamethod/store that must not run until the host refills fuel. Compare every
+slice, observed table state and callback order, collecting between steps.
+Five input budgets (-1, 0, 1, 64 and 65536) preserve exact slice completion,
+mode, remaining fuel and interrupt flags. At interruption the metamethod has
+not run and the following store is untouched; host refill clears the flag,
+then the metamethod runs exactly once and native execution performs the final
+store. Final results and ordered callback events match Off. No runtime defect
+was exposed, and runtime code remains unchanged from `38ba46d`.
+
+The initial draft had a wrong borrow for `Table::set_metatable`; corrected to
+its existing by-value Context API before execution. Corrected focused GNU
+passes, then batch `66376` exits 0: all 15 `jit-native` tests pass on GNU and
+musl, and advisory Clippy reports no new-test diagnostics (existing 141 lib-test
+warnings remain). All owned local jobs are terminal. No benchmarks ran.
+
+#### Next Steps
+Commit/push this regression and inspect the existing live hosted runs rather
+than dispatching duplicates. Continue checking remaining concrete acceptance
+gaps; an executed unsupported-target fallback lane is still worth checking.
+Keep performance deferred and full-plan acceptance open.
+
+#### Relevant Files
+- `tests/fuel.rs` — reference callback interruption.
+- `tests/jit_native.rs` — native callback interruption/mutation regression.
+- `target/jit-evidence/callback-interruption/` — draft/final focused and lint logs.
 
 ### User priority clarification — 2026-10-02
 
@@ -1653,7 +1702,8 @@ All applicable criteria must be checked with evidence; no partial phase substitu
 
 Checked items below have revision-scoped evidence at `38ba46d`: full GNU/musl
 `make jit-verify` (5073 executions each, including its `verify` prerequisites),
-source inspection and the focused resource/scheduling/provenance regressions.
+hosted ARM64 gate (5074 including disassembly), source inspection and the
+focused resource/scheduling/provenance regressions.
 They do not mark unchecked review/performance requirements complete, and later
 runtime edits must revalidate affected criteria. An unchecked item may reflect
 missing acceptance evidence rather than missing implementation.
@@ -1672,7 +1722,7 @@ missing acceptance evidence rather than missing implementation.
 - [x] Binary/prototype provenance policy is enforced and documented.
 - [ ] Executable memory is never deliberately mapped writable and executable simultaneously; allocation/protection failure falls back or reports capability failure safely.
 - [ ] `make jit-fuzz-smoke` passes; longer campaign evidence and unsafe-boundary review are recorded.
-- [ ] Native platform tests actually execute on each advertised release target.
+- [x] Native platform tests actually execute on each advertised release target.
 - [ ] Unsupported or denied-JIT environments preserve interpreter functionality.
 - [ ] `make jit-bench` meets preapproved numerical workload thresholds with controls enabled.
 - [ ] `make jit-size` records interpreter/JIT feature costs and compiled-but-disabled overhead.
