@@ -20,6 +20,15 @@ fn tail_state(
     depth: i64,
     tail: bool,
 ) -> Result<(Lua, StashedExecutor, StackSamples), ExternError> {
+    recursion_state(native, depth, tail, 8)
+}
+
+fn recursion_state(
+    native: bool,
+    depth: i64,
+    tail: bool,
+    max_depth: usize,
+) -> Result<(Lua, StashedExecutor, StackSamples), ExternError> {
     let mut lua = Lua::empty();
     lua.set_jit_config(JitConfig {
         mode: if native { JitMode::Auto } else { JitMode::Off },
@@ -42,7 +51,7 @@ fn tail_state(
         }
     );
     let executor = lua.try_enter(|ctx| {
-        ctx.set_max_call_depth(8);
+        ctx.set_max_call_depth(max_depth);
         let samples = samples.clone();
         ctx.set_global(
             "probe",
@@ -119,6 +128,54 @@ fn deep_native_tail_calls_keep_frames_memory_and_host_stack_bounded() -> Result<
                         "arena peak {peak}, shallow {shallow}"
                     );
                 }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn deep_non_tail_recursion_keeps_host_stack_bounded_and_slices_equivalent(
+) -> Result<(), ExternError> {
+    for fuel in [1, 64, 65536] {
+        for depth in [128, 4096] {
+            let (mut reference, left, left_stack) = recursion_state(false, depth, false, 8192)?;
+            let (mut candidate, right, right_stack) = recursion_state(true, depth, false, 8192)?;
+            let mut finished = false;
+            for _ in 0..100_000 {
+                let before = candidate.jit_stats();
+                let expected = call_step(&mut reference, &left, fuel);
+                let actual = call_step(&mut candidate, &right, fuel);
+                assert_eq!(actual, expected, "depth={depth} fuel={fuel}");
+                let after = candidate.jit_stats();
+                let work = after.native_instructions - before.native_instructions
+                    + after.interpreted_instructions
+                    - before.interpreted_instructions;
+                assert!(work <= fuel as u64 + 63);
+                reference.gc_collect();
+                candidate.gc_collect();
+                if actual.0 {
+                    finished = true;
+                    break;
+                }
+            }
+            assert!(finished, "depth={depth} fuel={fuel}");
+            let expected = vec![Some(depth * (depth + 1) / 2)];
+            assert_eq!(call_result(&mut reference, &left)?, expected);
+            assert_eq!(call_result(&mut candidate, &right)?, expected);
+            assert!(candidate.jit_stats().native_instructions > depth as u64);
+            assert_eq!(candidate.jit_stats().installed_regions, 1);
+            assert_eq!(candidate.jit_stats().queued_requests, 0);
+            assert_eq!(reference.jit_stats().native_instructions, 0);
+            for (tier, samples) in [left_stack, right_stack].into_iter().enumerate() {
+                let (low, high, count) = samples.get();
+                assert_eq!(count, depth as usize / 128 + 1);
+                assert!(high - low <= 32768, "host stack span {}", high - low);
+                eprintln!(
+                    "non-tail depth={depth} fuel={fuel} native={} samples={count} callback_stack_span={}",
+                    tier == 1,
+                    high - low
+                );
             }
         }
     }

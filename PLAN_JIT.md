@@ -11,6 +11,58 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Deep non-tail recursion — 2026-10-03
+
+#### Goal
+Close the successful deep non-tail recursion coverage gap without benchmarks.
+
+#### Instructions
+Keep the original acceptance scope and incremental unsigned commits; do not
+treat the deferred performance gates as accepted.
+
+#### Discoveries
+The existing recursion fixture enforces an eight-frame limit: it proves error
+handling, not successful deep non-tail execution. A configurable limit allows
+128- and 4096-level calls while retaining the original overflow regression.
+Lua frames grow on the managed stack; native host-stack growth must not track
+that depth. `run_vm` returns from `ctx.jit().run` before handling call/return
+transitions. `LuaFrame::call_function` pushes managed frames, tail calls replace
+them, and the executor loop invokes the next slice. Callback/yield/async dispatch
+occurs outside that native invocation, not with generated frames suspended.
+
+#### Accomplished
+Added a paired deep-recursion regression at fuel 1, 64 and 65536. It compares
+each result/mode/fuel slice, collects after every slice, checks exact final sums,
+requires actual native execution and samples callback host-stack addresses every
+128 recursive levels. All samples must fit a 32 KiB span independently of depth.
+The original tail-depth, overflow, coroutine and async regressions remain.
+GNU and musl `jit-suspension` each pass 16 tests with `jit` and 18 with
+`jit,async`, zero failures/ignored. The observed rerun (`91016`, exit 0) records
+zero callback stack-address span for every new case: two samples at depth 128,
+33 at depth 4096, both tiers and all three fuel budgets. The six new paired
+scenarios run in all four feature/target configurations. Formatting and advisory
+clippy pass; the existing `cleanup_case` type-complexity warning is unchanged.
+No production runtime code changed. These are focused gates, not a new full
+verification run. All owned local processes are terminal.
+
+The preceding compiler-lifetime hosted run `37143852327` now passes all three
+native jobs, verify, i686 fallback and Miri seed 0; seed 1 remains live. The
+debug-regression run `37145545728` at `13690de` is also confirmed live. Neither
+run was restarted or duplicated manually.
+
+#### Next Steps
+Collect hosted results after committing and pushing this regression milestone.
+Continue the remaining original acceptance requirements, including debug
+mutation evidence reconciliation and the deferred performance gates.
+The source argument covers Lua control transitions, not arbitrarily recursive
+Rust callbacks; host callback reentry can still consume host stack.
+
+#### Relevant Files
+- `tests/jit_suspension.rs` — bounded host-stack/deep managed-frame comparison.
+- `Makefile` — forward `ARGS` to the suspension gate for observable evidence.
+- `src/thread/{vm,thread,executor}.rs` — inspected transition dispatch, unchanged.
+- `target/jit-evidence/recursion-stack/` — focused gate and stack-sample logs.
+
 ### Exact debug transitions — 2026-10-03
 
 The preceding goal turn made verified progress: compiler-lifetime repair
@@ -2067,7 +2119,7 @@ missing acceptance evidence rather than missing implementation.
 - [x] `make verify` succeeds without JIT enabled by default. Revalidated in full GNU/musl gates at `a0f9ac5` after the compiler-lifetime changes.
 - [x] `make jit-verify` succeeds in Off, Auto, and Force, including optional async/derive and doctests. GNU/musl each pass 5152 executions / 446 suites / 24 ignored at `a0f9ac5`.
 - [ ] Eligible integrated workloads actually execute native instructions; counters and coverage substantiate this.
-- [ ] No proportional native-stack growth from Lua recursion/tail calls or suspension.
+- [x] No proportional native-stack growth from Lua recursion/tail calls or suspension. The deep-recursion checkpoint above records GNU/musl stack samples at normal depths 128/4096 and tail depths 128/16384, exact slice/GC comparisons and passing coroutine/async resumption. Source review confirms generated frames return before managed-frame transitions or suspension; this does not bound arbitrary recursive Rust callback reentry.
 - [ ] Small-fuel/interrupt/GC-request tests preserve reference scheduling behavior.
 - [ ] Callbacks, reentrancy, coroutines, async futures, close handlers, and errors pass mixed-tier tests.
 - [ ] GC roots, barriers, weak references, finalizers, and code lifetimes pass integrated stress tests and review.

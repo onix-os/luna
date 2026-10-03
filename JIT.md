@@ -416,6 +416,17 @@ contain more than one 64-operation VM invocation. `make jit-suspension` checks
 both feature configurations and all modes at fuel 1, 64 and 65536. These tests and
 observations do not complete the full mixed-tier transition/error matrix.
 
+The same gate compares successful non-tail recursion at depths 128 and 4096
+against the interpreter, plus tail recursion at depths 128 and 16384. It checks
+exact slice modes/fuel/results with collection between slices and requires
+native execution. Callback stack-address samples every 128 levels must stay
+within a 32 KiB span. Non-tail Lua frames intentionally consume managed memory;
+only tail recursion checks depth-independent arena usage. Separate tests retain
+the configured frame-limit error and unbounded-tail-loop fuel checks. Run with
+`ARGS='-- --nocapture'` to retain the observed stack spans. These checks concern
+Lua recursion; recursively reentering executors from Rust callbacks can still
+grow the host stack.
+
 The separate `cache_churn` case supports fuel 1..=64. It calibrates a scalar
 module in a separate native state, reports that calibration cost, then bounds
 the measured state to two modules, eight retained sources, one queued request

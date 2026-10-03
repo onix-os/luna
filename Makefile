@@ -380,8 +380,8 @@ jit-generic-for:
 	done
 
 jit-suspension:
-	@$(CARGO) test --locked -p luna --features jit --test jit_suspension $(TARGET_ARG)
-	@$(CARGO) test --locked -p luna --features jit,async --test jit_suspension $(TARGET_ARG)
+	@$(CARGO) test --locked -p luna --features jit --test jit_suspension $(TARGET_ARG) $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit,async --test jit_suspension $(TARGET_ARG) $(ARGS)
 
 .PHONY: stdlib-tempfiles
 stdlib-tempfiles:
