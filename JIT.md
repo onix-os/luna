@@ -14,15 +14,17 @@ Later fixes `009bf3b` and `3494c64` repair default/nil `collectgarbage()` reques
 and shared host/Lua GC pacing. Focused GNU/musl/i686 regressions pass; subsequent
 GNU/musl GC/lifetime and code-memory checks pass as recorded in `PLAN_JIT.md`.
 The [full run at `3494c64`](https://github.com/onix-os/luna/actions/runs/37148460303)
-currently passes baseline, i686, native GNU and ARM64, with musl/Miri still pending. Older
-green runs do not certify later runtime changes. Benchmarks remain deferred,
+now passes all seven jobs. Older green runs do not certify later runtime changes. Benchmarks remain deferred,
 not accepted; earlier upvalue/callback/compiled-but-disabled cost failures remain
 unresolved. This is not full-plan acceptance.
 
-The subsequent relocation-admission change compiles into an owned compiler
+The subsequent relocation-admission change (`d29bb12`) compiles into an owned compiler
 buffer, checks the relocation count, then installs through Cranelift's byte
-definition API. Its verification is tracked separately in `PLAN_JIT.md`; the
-earlier hosted results do not cover this installation-path change.
+definition API. Focused and full GNU/musl gates pass (5223 executions across
+458 repeated suites, 24 ignored, zero failed per target). The
+[hosted native/Miri verification](https://github.com/onix-os/luna/actions/runs/37150232969)
+remains pending. The earlier hosted results do not cover this installation-path
+change; detailed evidence is recorded in `PLAN_JIT.md`.
 
 ## Enable and prepare
 

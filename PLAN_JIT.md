@@ -50,12 +50,18 @@ across 18 repeated suites, zero failures, one ignored artifact test (explicitly
 executed by the subsequent disassembly target). Gates cover relocations, compiler
 lifetimes, images, resources, host admission, segments, native execution, numeric
 semantics and finalized disassembly. Formatting and `git diff --check` pass.
+Committed and pushed as `d29bb12`. Full GNU/musl `make jit-verify jit-example`
+batch `12839` exits 0: each target passes 5223 executions across 458 repeated
+suites, 24 ignored and zero failed. Each example asserts 200007 native
+instructions and the correct result. All local batches are terminal.
+Hosted run `37150232969` passes baseline
+and i686, while native/Miri jobs are running. Prior GC revision `3494c64` now has
+all seven hosted jobs green in run `37148460303`; it does not certify this change.
 Cranelift's original machine-relocation buffer and module-owned copy remain
 outside complete byte accounting; this repair closes admission ordering only.
 
 #### Next Steps
-Finish native/image/resource/disassembly gates, run full native verification,
-commit/push this repair and collect hosted ARM64 evidence. Continue the remaining
+Collect hosted native/Miri evidence from run `37150232969`. Continue the remaining
 compiler-memory and acceptance requirements without running deferred benchmarks.
 
 #### Relevant Files
@@ -2468,7 +2474,7 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 
 ### Phase 9 — Harden and establish supported-platform evidence
 
-**Status:** IN PROGRESS. **Depends on:** Phase 8. Hosted run `37146171083` at `2e21d80` passes all seven jobs, including native GNU/musl/ARM64, both Rust-only Miri seeds and real i686 fallback. Later GC repairs have focused native/fallback coverage and bounded ownership/GC review; their full native/Miri run `37148460303` remains pending. Earlier finite campaigns do not complete broader review obligations. Do not expand audit/fuzz infrastructure against the user's stated priority.
+**Status:** IN PROGRESS. **Depends on:** Phase 8. Hosted run `37148460303` at `3494c64` passes all seven jobs, including native GNU/musl/ARM64, both Rust-only Miri seeds and real i686 fallback. The later relocation-admission repair `d29bb12` passes full local GNU/musl gates; its hosted native/Miri run `37150232969` remains pending. Earlier finite campaigns and bounded ownership/GC review do not complete broader review obligations. Do not expand audit/fuzz infrastructure against the user's stated priority.
 
 Supervised heap/lifecycle coverage (`a951643`) adds four parameterized source
 families in fresh Off/Auto states. GNU/musl each pass 128 cases with per-slice
@@ -2505,7 +2511,7 @@ slice evidence; full safety/guard/lifecycle obligations remain open.
 
 ### Phase 10 — Publish a complete, accurately documented feature
 
-**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 9 and approved workload acceptance. All seven hosted jobs pass at `2e21d80`, including native GNU/musl/ARM64 gates and shipping builds. Later GC repairs still await full native/Miri completion. The documented example now asserts native execution on GNU/musl and zero-counter fallback on i686; `JIT.md` reflects actual CI lanes and revision limits. Complete review, frozen performance controls and current shipping/size acceptance remain open.
+**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 9 and approved workload acceptance. All seven hosted jobs pass at `3494c64`, including native GNU/musl/ARM64 gates and shipping builds. The later relocation-admission repair awaits hosted native/Miri completion after passing full local GNU/musl gates. The documented example asserts native execution on GNU/musl and zero-counter fallback on i686; `JIT.md` reflects actual CI lanes and revision limits. Complete review, frozen performance controls and current shipping/size acceptance remain open.
 
 **Files:** docs/examples, benchmark/size tooling, actual CI integration, this document.
 
