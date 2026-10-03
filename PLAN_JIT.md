@@ -11,6 +11,47 @@
 
 ### Progress snapshot — 2026-10-03
 
+Recovered working checkpoint: `a8b5729` is pushed. Hosted run `37137046824`
+exposed colliding `os.tmpname` paths in concurrent I/O tests. The immediate
+next milestone is atomic temporary-file reservation and a failing-before-fix
+regression, keeping concurrency enabled. Benchmarks remain deferred. Engram
+tools are unavailable; this checkpoint preserves the resumed task locally.
+
+### Temporary-file repair — 2026-10-03
+
+#### Goal
+Repair the actual concurrent I/O failure without weakening test concurrency.
+
+#### Instructions
+Continue useful correctness work, defer benchmarks, and commit logical changes.
+
+#### Discoveries
+Elapsed clock readings do not uniquely identify files. Atomic create-new must
+reserve the name; collisions need retries. Lua's POSIX `os.tmpname` leaves an
+empty file that its caller must remove. This is independent of native codegen.
+
+#### Accomplished
+The reserved-file regression fails before the fix (`tempfiles/red.log`). A
+shared helper now uses PID/checked atomic sequence names, create-new reservation,
+owner-only Unix permissions and bounded collision retries. `os.tmpname` closes
+the reserved file; `io.tmpfile` shares the helper and unlinks its open file.
+Focused baseline tests pass: 11 OS, seven stdlib-gap and three helper tests.
+The concurrent regression creates 256 reserved paths from eight Lua states.
+Helper tests preserve colliding files and check retry limits/error propagation.
+GNU and musl focused gates each pass 75 executions across nine suites, including
+the original concurrent I/O tests in Off, Auto and Force modes. No test is
+serialized or disabled. Full `make jit-verify` gates are running separately.
+
+#### Next Steps
+Collect the full GNU/musl native verification gates. Prior green gates and live
+hosted jobs do not validate this new patch. Benchmarks remain deferred.
+
+#### Relevant Files
+- `src/stdlib/tempfile.rs` — atomic reservation and deterministic collision tests.
+- `src/stdlib/os.rs`, `src/stdlib/io.rs` — shared temporary-file allocation.
+- `tests/os_lib.rs`, `Makefile` — reserved-file/concurrent and focused mode gates.
+- `target/jit-evidence/tempfiles/` — failing-before-fix and repaired gate logs.
+
 The requested plan document is written. Full implementation and release
 acceptance are not finished. The committed native tier executes Luna bytecode
 through Cranelift without replacing Luna's runtime. Hosted native GNU, musl and
@@ -358,6 +399,49 @@ Keep performance deferred and full-plan acceptance open.
 - `tests/fuel.rs` — reference callback interruption.
 - `tests/jit_native.rs` — native callback interruption/mutation regression.
 - `target/jit-evidence/callback-interruption/` — draft/final focused and lint logs.
+
+### Hosted I/O collision discovery — 2026-10-03
+
+#### Goal
+Repair the concrete temporary-file collision exposed by native CI before
+claiming repeatable baseline/full-gate acceptance.
+
+#### Instructions
+Do not serialize or disable the failing tests. Keep benchmarks deferred and
+limit the stdlib change to the observed collision and its regression coverage.
+
+#### Discoveries
+Run `37137046824` at documentation-only revision `9f5018d` failed its GNU native
+gate: `io_lines_with_no_name_reads_the_default_input` could not open
+`/tmp/lua_5017a`, while `io_redirects_its_default_streams` read `a\nb\nc\ncted`
+instead of `redirected`. Both use `os.tmpname()`. Its implementation uses only
+`process_start().elapsed().as_nanos()` and does not reserve a file; concurrent
+calls can collide and then overwrite/remove one another's output. The original
+comment incorrectly says this matches PUC-Rio. Lua 5.4's POSIX implementation
+uses `mkstemp` and closes the created file, leaving removal to the caller:
+https://www.lua.org/manual/5.4/manual.html#pdf-os.tmpname
+https://www.lua.org/source/5.4/loslib.c.html
+
+#### Accomplished
+Committed/pushed the separately verified callback-interruption regression as
+`a8b5729`; current hosted run `37139626097` is live. Located this independent
+baseline defect from completed CI logs and inspected the concrete implementation.
+No temp-file fix has been applied yet. Earlier passing logs remain historical
+evidence, but do not resolve this newly demonstrated intermittent failure.
+
+#### Next Steps
+Add a regression for reserved, distinct temporary files; replace elapsed-only
+naming with atomic file creation and collision retry, preserving catchable
+creation failure. Inspect `io.tmpfile`'s related elapsed-time naming before
+deciding whether to share the reservation helper. Verify the original I/O tests
+under concurrent execution and all JIT modes; do not treat a test-only rerun as
+a repair. This takes priority over the proposed unsupported-target lane.
+
+#### Relevant Files
+- `src/stdlib/os.rs` — elapsed-only `os.tmpname` implementation.
+- `src/stdlib/io.rs` — `io.tmpfile` already uses create-new, but no collision retry.
+- `tests/stdlib_gaps.rs`, `tests/os_lib.rs` — I/O regression locations.
+- `target/jit-evidence/hosted-ci/run-37137046824-failed.log` — failing CI evidence.
 
 ### User priority clarification — 2026-10-02
 
@@ -1709,8 +1793,8 @@ runtime edits must revalidate affected criteria. An unchecked item may reflect
 missing acceptance evidence rather than missing implementation.
 
 - [ ] Existing API and Lua 5.4 regression behavior remain compatible.
-- [x] `make verify` succeeds without JIT enabled by default.
-- [x] `make jit-verify` succeeds in Off, Auto, and Force, including optional async/derive and doctests.
+- [ ] `make verify` succeeds without JIT enabled by default. Earlier green evidence is insufficient until the demonstrated temporary-name collision is repaired.
+- [ ] `make jit-verify` succeeds in Off, Auto, and Force, including optional async/derive and doctests. Revalidate after the temporary-name repair; the prior full GNU/musl passes are not erased.
 - [ ] Eligible integrated workloads actually execute native instructions; counters and coverage substantiate this.
 - [ ] No proportional native-stack growth from Lua recursion/tail calls or suspension.
 - [ ] Small-fuel/interrupt/GC-request tests preserve reference scheduling behavior.

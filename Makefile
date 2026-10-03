@@ -383,6 +383,14 @@ jit-suspension:
 	@$(CARGO) test --locked -p luna --features jit --test jit_suspension $(TARGET_ARG)
 	@$(CARGO) test --locked -p luna --features jit,async --test jit_suspension $(TARGET_ARG)
 
+.PHONY: stdlib-tempfiles
+stdlib-tempfiles:
+	@$(CARGO) test --locked -p luna --test os_lib --test stdlib_gaps $(TARGET_ARG) $(ARGS)
+	@$(CARGO) test --locked -p luna --lib $(TARGET_ARG) stdlib::tempfile::tests
+	@for mode in off auto force; do \
+		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test os_lib --test stdlib_gaps $(TARGET_ARG) $(ARGS) || exit $$?; \
+	done
+
 jit-errors:
 	@$(CARGO) test --locked -p luna --features jit --test jit_errors $(TARGET_ARG)
 	@$(CARGO) test --locked -p luna --features jit,async --test jit_errors $(TARGET_ARG)

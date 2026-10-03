@@ -330,10 +330,9 @@ pub fn load_os<'gc>(ctx: Context<'gc>) {
         ctx,
         "tmpname",
         Callback::from_fn(&ctx, |ctx, _, mut stack| {
-            // Nothing is created, matching PUC-Rio, so the name is only useful to a caller that
-            // goes on to create the file itself.
-            let unique = process_start().elapsed().as_nanos();
-            let path = std::env::temp_dir().join(format!("lua_{unique:x}"));
+            let (path, file) =
+                super::tempfile::create().map_err(|error| error.to_string().into_value(ctx))?;
+            drop(file);
             stack.replace(ctx, ctx.intern(path.display().to_string().as_bytes()));
             Ok(CallbackReturn::Return)
         }),
