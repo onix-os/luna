@@ -677,6 +677,10 @@ jit-relocations:
 	@$(CARGO) test --locked -p luna --features jit --test jit_resources $(TARGET_ARG) relocation
 	@$(MAKE) --no-print-directory jit-config
 
+.PHONY: jit-compiler-lifetimes
+jit-compiler-lifetimes:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::lifetime_tests
+
 jit-resources:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::resources
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::registry::tests
@@ -868,6 +872,7 @@ help:
 	@echo "  jit-boundary Test native exits against the Rust boundary model"
 	@echo "  jit-native   Run integrated native execution and lifecycle tests"
 	@echo "  jit-fallback Execute unsupported-target fallback (TARGET=i686-unknown-linux-musl)"
+	@echo "  jit-compiler-lifetimes Check compiler workspace release boundaries"
 	@echo "  jit-numeric  Check reference and exact native numeric comparisons"
 	@echo "  jit-fuzz-smoke Run supervised admission/scalar/heap smoke"
 	@echo "  jit-fuzz     Run bounded seeded campaigns (FUZZ_TARGET/CASES/SEEDS)"

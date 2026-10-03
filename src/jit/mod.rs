@@ -672,9 +672,14 @@ impl Runtime {
                     result = compile();
                 }
             }
+            drop(snapshot);
             let mut manager = self.0.borrow_mut();
             match result {
                 Ok(code) => {
+                    #[cfg(test)]
+                    if failure == backend::Failure::RequireReleasedSnapshot {
+                        assert_eq!(manager.snapshots.0.current(), 0);
+                    }
                     if manager.tracked.contains_key(&id) && manager.config.mode == JitMode::Auto {
                         if manager.code.try_reserve(1).is_err() {
                             manager.stats.compilation_failures =

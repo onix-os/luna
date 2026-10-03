@@ -217,6 +217,8 @@ impl Code {
 #[cfg(test)]
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum Failure {
+    RequireReleasedWorkspace(usize),
+    RequireReleasedSnapshot,
     DetectHostSetup,
     DetectProviderSetup,
     ProtectAfterFirst,
@@ -367,6 +369,7 @@ pub(super) fn compile_in(
             .map(|id| (kind, id))
     })
     .map_err(fail)?;
+    drop(helper_signature);
     let mut context = module.make_context();
     context.func.signature = signature;
     let mut fb_context = FunctionBuilderContext::new();
@@ -472,6 +475,7 @@ pub(super) fn compile_in(
         builder.seal_all_blocks();
         builder.finalize(module.target_config());
     }
+    drop(fb_context);
     #[cfg(test)]
     if failure == Failure::CorruptTag {
         stores.corrupt_first(&mut context.func);
@@ -638,6 +642,11 @@ pub(super) fn compile_in(
         stores.corrupt_binding(&mut context.func, parameters[0], fault);
     }
     stores.verify_bindings(&context.func, parameters[0], &paths, &graph)?;
+    drop((stores, paths, graph, blocks));
+    #[cfg(test)]
+    if let Failure::RequireReleasedWorkspace(baseline) = failure {
+        assert_eq!(snapshot.operations.allocator().0.current(), baseline);
+    }
     module
         .define_function(function, &mut context)
         .map_err(fail)?;
@@ -647,6 +656,7 @@ pub(super) fn compile_in(
     }
     #[cfg(test)]
     let byte_len = context.compiled_code().unwrap().code_buffer().len();
+    drop(context);
     module.finalize_definitions().map_err(fail)?;
     let entry =
         unsafe { std::mem::transmute::<*const u8, Entry>(module.get_finalized_function(function)) };
@@ -670,6 +680,9 @@ pub(super) fn compile_in(
 
 #[cfg(test)]
 mod relocation_tests;
+
+#[cfg(test)]
+mod lifetime_tests;
 
 struct Emitter<'a, 'b> {
     builder: &'a mut FunctionBuilder<'b>,

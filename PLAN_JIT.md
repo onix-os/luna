@@ -11,6 +11,40 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Compiler workspace lifetimes — 2026-10-03
+
+The preceding goal turn made verified progress (`f9e8022` through `7afcd24`):
+real unsupported-target execution, portability repairs and full native gates.
+The next controllable-memory improvement is releasing temporary verification
+storage before code generation, dropping the frontend/codegen contexts before
+finalization, and dropping source snapshots before cached-owner installation.
+Pinned Cranelift 0.136.1 copies machine code and owned relocations in
+`define_function`; finalization does not need the caller's Context. Existing
+code retains these owners until function return. Add failing-before-fix lifetime
+checks using the existing test-only backend failure mechanism; do not introduce
+a new compiler worker, global allocator or claimed hard RSS bound. Cranelift's
+earlier transient allocations remain outside Luna's allocator ledgers.
+
+Both new regressions fail before the change: verification workspace holds 2772
+charged bytes at codegen entry instead of the source-only baseline of 108; cache
+owner installation still holds 56 snapshot bytes instead of zero (`red.log`).
+Release helper-signature and frontend storage after lowering, verified flow/
+store/path/block records before codegen, codegen Context before finalization,
+and the source snapshot after the final compile/retry but before installation.
+Keep snapshots alive across the existing bounded mapping-eviction retry.
+
+The repaired lifetime regressions pass, including actual native results and
+preservation of a live peer after allocation/protection failures. The first
+broader batch stopped at an incorrect command name (`jit-memory`); use existing
+`jit-host-memory`. Preserve `jit-relocations`' configuration-test prerequisite
+when adding the focused lifetime target. No full-gate result is claimed yet.
+
+The corrected focused GNU/musl batch `16825` exits 0. Lifetime, relocation,
+combined-host memory, retained-image and policy/eviction/scheduling suites all
+pass on both targets. The public memory-limit tests still enforce their exact
+measured peak and one-byte-short refusal, including async execution. This is
+earlier lifetime release, not a complete Cranelift ledger or a measured speedup.
+
 ### Unsupported-target execution — 2026-10-03
 
 The preceding goal turn made verified progress: atomic temporary-file repair
