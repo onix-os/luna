@@ -529,6 +529,13 @@ weak values and finalizable values are separate: finalizer resurrection may
 retain the latter for another collection cycle. Native write counts prove work
 before and after requests; no extra host collection hides a missing interrupt.
 
+Lua `stop`/`restart` and the Rust pacing methods share one scheduling flag;
+`isrunning` reports that flag, not allocation debt. Explicit collect/step requests
+do not restart stopped automatic collection. Public `Context::request_gc`
+retains its deferred, last-request-wins behavior; Lua pacing verbs update the
+flag directly. The GC request gate checks that distinction and exact pacing
+observations across native/interpreter boundaries.
+
 `make jit-helpers` directly tests all nine scoped Rust helper entries with
 closed upvalues and canonical reference identity. It checks effect-free decline
 and PC rollback, panic materialization of exactly the declared scratch prefix,

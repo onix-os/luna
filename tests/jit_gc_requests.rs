@@ -167,3 +167,120 @@ fn collection_forms_preserve_interrupts_finalizers_and_native_resumption() {
         }
     }
 }
+
+#[derive(Debug, PartialEq, Eq)]
+struct PacingSlice {
+    done: bool,
+    mode: ExecutorMode,
+    fuel: i32,
+    interrupted: bool,
+    automatic: bool,
+    observed: Vec<bool>,
+}
+
+fn pacing_run(request: &str, native: bool, budget: i32) -> Vec<PacingSlice> {
+    let mut lua = Lua::core();
+    lua.set_jit_config(JitConfig {
+        mode: if native { JitMode::Auto } else { JitMode::Off },
+        hot_threshold: u32::MAX,
+        ..Default::default()
+    })
+    .unwrap();
+    let observed = Rc::new(RefCell::new(Vec::<bool>::new()));
+    let executor = lua.enter(|ctx| {
+        let target = Table::new(&ctx);
+        target.set(ctx, "value", 0).unwrap();
+        ctx.set_global("target", target);
+        let observed = observed.clone();
+        ctx.set_global(
+            "record",
+            Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+                observed.borrow_mut().push(stack.consume(ctx)?);
+                Ok(CallbackReturn::Return)
+            }),
+        );
+        let script = r#"
+for i=1,100 do target.value=i end
+record(collectgarbage("isrunning"))
+collectgarbage("stop")
+record(collectgarbage("isrunning"))
+GC_REQUEST
+record(collectgarbage("isrunning"))
+for i=1,100 do target.value=100+i end
+collectgarbage("restart")
+record(collectgarbage("isrunning"))
+collectgarbage("stop")
+record(collectgarbage("isrunning"))
+return target.value
+"#
+        .replace("GC_REQUEST", request);
+        let closure = Closure::load(ctx, Some("gc-pacing"), script.as_bytes()).unwrap();
+        ctx.stash(Executor::start(ctx, closure.into(), ()))
+    });
+    if native {
+        while lua.prepare_jit().unwrap() != 0 {}
+    }
+    let mut slices = Vec::new();
+    let mut interrupts = 0;
+    for _ in 0..10_000 {
+        let mut slice = lua.enter(|ctx| {
+            let mut fuel = Fuel::with(budget);
+            let executor = ctx.fetch(&executor);
+            PacingSlice {
+                done: executor.step(ctx, &mut fuel).unwrap(),
+                mode: executor.mode(),
+                fuel: fuel.remaining(),
+                interrupted: fuel.is_interrupted(),
+                automatic: false,
+                observed: observed.borrow().clone(),
+            }
+        });
+        slice.automatic = lua.gc_is_running();
+        assert_eq!(slice.automatic, lua.gc_is_automatic());
+        assert_eq!(lua.jit_stats().queued_requests, 0);
+        if slice.interrupted {
+            interrupts += 1;
+            assert!(!slice.automatic);
+            assert_eq!(slice.observed, [true, false]);
+            assert_eq!(
+                lua.jit_stats().native_table_writes,
+                if native { 100 } else { 0 }
+            );
+        }
+        let done = slice.done;
+        slices.push(slice);
+        if done {
+            assert_eq!(
+                lua.try_enter(|ctx| ctx.fetch(&executor).take_result::<i64>(ctx)?)
+                    .unwrap(),
+                200
+            );
+            assert_eq!(interrupts, 1);
+            assert_eq!(*observed.borrow(), [true, false, false, true, false]);
+            assert!(!lua.gc_is_running());
+            assert_eq!(
+                lua.jit_stats().native_table_writes,
+                if native { 200 } else { 0 }
+            );
+            assert_eq!(lua.jit_stats().native_entries > 0, native);
+            return slices;
+        }
+    }
+    panic!("pacing scenario did not finish");
+}
+
+#[test]
+fn pacing_queries_and_requests_match_reference_between_native_segments() {
+    for request in [
+        "collectgarbage()",
+        "collectgarbage(nil)",
+        "collectgarbage('collect')",
+        "collectgarbage('step')",
+    ] {
+        for budget in [-1, 0, 1, 64, 65536] {
+            let reference = pacing_run(request, false, budget);
+            let native = pacing_run(request, true, budget);
+            assert_eq!(native, reference, "{request}, fuel={budget}");
+        }
+    }
+}

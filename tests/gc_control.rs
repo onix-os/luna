@@ -92,6 +92,53 @@ fn stop_and_restart_are_reportable_from_rust() {
 
 mod common;
 
+#[test]
+fn lua_reports_the_host_pacing_state_after_allocations() -> Result<(), ExternError> {
+    let mut lua = common::core();
+    let executor = lua.try_enter(|ctx| {
+        let closure = Closure::load(
+            ctx,
+            None,
+            &b"local t={} for i=1,100 do t[i]={i} end return collectgarbage('isrunning')"[..],
+        )?;
+        Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+    })?;
+    lua.gc_stop();
+    assert!(!lua.execute::<bool>(&executor)?);
+    assert!(!lua.gc_is_running());
+    Ok(())
+}
+
+#[test]
+fn stop_survives_collection_and_restart_is_visible_immediately() -> Result<(), ExternError> {
+    for request in [
+        "collectgarbage()",
+        "collectgarbage(nil)",
+        "collectgarbage('collect')",
+        "collectgarbage('step')",
+    ] {
+        let mut lua = common::core();
+        let source = format!("collectgarbage('stop'); {request}; return true");
+        let executor = lua.try_enter(|ctx| {
+            let closure = Closure::load(ctx, None, source.as_bytes())?;
+            Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+        })?;
+        assert!(lua.execute::<bool>(&executor)?);
+        assert!(!lua.gc_is_running(), "{request}");
+    }
+    assert!(eval(
+        r#"
+        collectgarbage('stop')
+        assert(not collectgarbage('isrunning'))
+        collectgarbage('restart')
+        assert(collectgarbage('isrunning'))
+        collectgarbage('stop')
+        return not collectgarbage('isrunning')
+    "#
+    )?);
+    Ok(())
+}
+
 /// A script can observe its own `collectgarbage("collect")`.
 ///
 /// Collection cannot happen while the arena is borrowed, so the verb is a request the host carries

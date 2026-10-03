@@ -26,6 +26,12 @@ pub enum GcRequest {
     Step,
 }
 
+#[derive(Copy, Clone)]
+struct GcControl {
+    request: GcRequest,
+    automatic: bool,
+}
+
 use crate::{
     finalizers::Finalizers,
     stash::{Fetchable, Stashable},
@@ -199,7 +205,21 @@ impl<'gc> Context<'gc> {
 
     /// Ask the host to act on the collector before the next slice.
     pub fn request_gc(self, request: GcRequest) {
-        self.state.gc_request.set(request);
+        self.state.gc_control.set(GcControl {
+            request,
+            ..self.state.gc_control.get()
+        });
+    }
+
+    pub(crate) fn gc_is_running(self) -> bool {
+        self.state.gc_control.get().automatic
+    }
+
+    pub(crate) fn set_gc_pacing(self, automatic: bool) {
+        self.state.gc_control.set(GcControl {
+            automatic,
+            ..self.state.gc_control.get()
+        });
     }
 
     pub fn interned_strings(self) -> InternedStringSet<'gc> {
@@ -271,8 +291,6 @@ pub struct Lua {
     arena: Arena<Rootable![State<'_>]>,
     // Host-side configuration rather than collected state: nothing in the arena reads it.
     memory_limit: Option<usize>,
-    // Whether `enter` collects on its own, or the host has taken the schedule over.
-    gc_automatic: bool,
     #[cfg(feature = "jit")]
     jit: crate::jit::Runtime,
 }
@@ -292,7 +310,6 @@ impl Lua {
         Lua {
             arena,
             memory_limit: None,
-            gc_automatic: true,
             #[cfg(feature = "jit")]
             jit,
         }
@@ -610,12 +627,12 @@ impl Lua {
     /// threshold to `usize::MAX`, which meant nothing was ever owed and a manual step silently did
     /// nothing either. Suspending the schedule and leaving the debt alone is the honest version.
     pub fn gc_stop(&mut self) {
-        self.gc_automatic = false;
+        self.set_gc_pacing(false);
     }
 
     /// Resume automatic pacing after [`Lua::gc_stop`].
     pub fn gc_restart(&mut self) {
-        self.gc_automatic = true;
+        self.set_gc_pacing(true);
     }
 
     /// Whether the collector is pacing itself.
@@ -623,7 +640,7 @@ impl Lua {
     /// The same question as [`Lua::gc_is_automatic`]; both spellings exist because Lua asks it as
     /// `collectgarbage("isrunning")` and Rust asks it about the schedule.
     pub fn gc_is_running(&self) -> bool {
-        self.gc_automatic
+        self.gc_is_automatic()
     }
 
     pub fn gc_metrics(&self) -> &Metrics {
@@ -650,9 +667,12 @@ impl Lua {
         // Carry out whatever `collectgarbage` asked for while it was running. It could not do this
         // itself: acting on the collector needs `&mut Lua`, and a callback only has a `Context`.
         let request = self.arena.mutate(|_, state| {
-            let request = state.gc_request.get();
-            state.gc_request.set(GcRequest::None);
-            request
+            let control = state.gc_control.get();
+            state.gc_control.set(GcControl {
+                request: GcRequest::None,
+                ..control
+            });
+            control.request
         });
         match request {
             GcRequest::None => {}
@@ -665,7 +685,7 @@ impl Lua {
         // Collection is a *separate* job from running the mutator, and only happens here when the
         // host has not taken it over. A host that calls `gc_step` itself owns the schedule; see
         // `Lua::set_gc_pacing`.
-        if self.gc_automatic {
+        if self.gc_is_automatic() {
             self.gc_step(Some(Self::AUTOMATIC_GRANULARITY));
         }
 
@@ -781,7 +801,8 @@ impl Lua {
     ///
     /// True unless the host has taken the schedule over with [`Lua::set_gc_pacing`].
     pub fn gc_is_automatic(&self) -> bool {
-        self.gc_automatic
+        self.arena
+            .mutate(|_, state| state.gc_control.get().automatic)
     }
 
     /// Decide whether the collector paces itself, or the host does.
@@ -791,7 +812,8 @@ impl Lua {
     /// shell can spend idle time, and neither has to accept a collection at a moment it did not
     /// choose.
     pub fn set_gc_pacing(&mut self, automatic: bool) {
-        self.gc_automatic = automatic;
+        self.arena
+            .mutate(|mc, state| state.ctx(mc).set_gc_pacing(automatic));
     }
 
     /// A version of `Lua::enter` that expects failure and automatically converts [`Error`] into
@@ -1047,9 +1069,8 @@ struct State<'gc> {
     strings: InternedStringSet<'gc>,
     finalizers: Finalizers<'gc>,
     max_call_depth: Gc<'gc, Cell<usize>>,
-    // What `collectgarbage` asked for. A callback has no `&mut Lua`, so it leaves a request here
-    // and `Lua::enter` carries it out once `arena.mutate` has returned.
-    gc_request: Gc<'gc, Cell<GcRequest>>,
+    // Pending collection request and pacing shared with the host.
+    gc_control: Gc<'gc, Cell<GcControl>>,
     // Whether a debug hook is installed. Read once per VM slice and branched on per instruction,
     // so the cost when no hook exists is one predictable branch — measured, see PLAN.md Phase 3.
     hook_enabled: Gc<'gc, Cell<bool>>,
@@ -1094,7 +1115,13 @@ impl<'gc> State<'gc> {
             strings: InternedStringSet::new(mc),
             finalizers: Finalizers::new(mc),
             max_call_depth: Gc::new(mc, Cell::new(DEFAULT_MAX_CALL_DEPTH)),
-            gc_request: Gc::new(mc, Cell::new(GcRequest::None)),
+            gc_control: Gc::new(
+                mc,
+                Cell::new(GcControl {
+                    request: GcRequest::None,
+                    automatic: true,
+                }),
+            ),
             hook_enabled: Gc::new(mc, Cell::new(false)),
             hook: Gc::new(mc, Lock::new(Value::Nil)),
             hook_depth: Gc::new(mc, Cell::new(usize::MAX)),

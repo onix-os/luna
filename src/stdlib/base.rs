@@ -514,11 +514,7 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
     ctx.set_global(
         "collectgarbage",
         Callback::from_fn(&ctx, move |ctx, mut exec, mut stack| {
-            // Everything but "count" is a *request*: acting on the collector needs `&mut Lua`,
-            // which no callback has, so the host carries it out when the slice ends. The verbs that
-            // collect also interrupt the slice, so that "end of slice" is the next statement rather
-            // than whenever this one happens to run out of fuel — otherwise a script could not
-            // observe its own `collectgarbage("collect")`.
+            // Collection requests run at the next host boundary.
             let option = stack.consume::<Option<String>>(ctx)?;
             match option.map_or(b"collect".as_slice(), String::as_bytes) {
                 b"count" => {
@@ -535,17 +531,15 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
                     stack.into_back(ctx, true);
                 }
                 b"stop" => {
-                    ctx.request_gc(crate::GcRequest::Stop);
+                    ctx.set_gc_pacing(false);
                     stack.into_back(ctx, 0);
                 }
                 b"restart" => {
-                    ctx.request_gc(crate::GcRequest::Restart);
+                    ctx.set_gc_pacing(true);
                     stack.into_back(ctx, 0);
                 }
                 b"isrunning" => {
-                    // The request has not been carried out yet, so answer from the arena: a
-                    // stopped collector is one that is never owed anything.
-                    stack.into_back(ctx, ctx.metrics().allocation_debt() > 0.0);
+                    stack.into_back(ctx, ctx.gc_is_running());
                 }
                 _ => {
                     return Err("bad argument to 'collectgarbage'".into_value(ctx).into());

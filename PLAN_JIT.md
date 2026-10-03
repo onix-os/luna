@@ -11,6 +11,58 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Shared GC pacing state — 2026-10-03
+
+#### Goal
+Make Lua's pacing controls report the same state as the host and survive explicit
+collection requests, without changing public Rust request ordering.
+
+#### Instructions
+Continue non-benchmark fixes and incremental unsigned commits. Full validation
+uses immutable pushed CI revisions; do not freeze development for duplicate runs.
+
+#### Discoveries
+`collectgarbage("isrunning")` reads allocation debt, although `gc_stop` deliberately
+preserves debt. Lua stop/restart currently share the one-slot collection-request
+queue: a subsequent collect/step can overwrite the scheduling request before
+the host sees it. The Rust host's separate bool is inaccessible from Context.
+
+#### Accomplished
+Both baseline reproductions fail before repair: Lua reports running after a host
+stop/allocation, and default collection overwrites a preceding Lua stop request.
+Implemented one private GC-control cell containing pacing and pending request,
+reusing the existing request-cell allocation. Host and Lua pacing setters share
+that bool. Public `Context::request_gc` retains its existing last-request-wins
+semantics, including Stop/Restart; stdlib pacing verbs update the shared bool
+directly without running the collector. Existing host setter/getter signatures
+are unchanged; Context's new pacing helpers are crate-private. Added explicit
+public-request ordering checks (including cancellation by None) and 20 paired
+native pacing scenarios covering default/nil/collect/step at five fuel budgets.
+Each requires 100 native table writes before its single interruption and another
+100 afterward, with exact Off/native modes/fuel/pacing/event comparisons.
+Focused batch `54895` exits 0. GNU/musl each pass 142 executions across 22
+repeated suites, zero ignored/failures, including host-memory-limit enforcement
+and async host-finish checks. Real i686 passes 96 executions across 14 suites;
+native-only fixtures are correctly empty there. The 20 new paired scenarios run
+in four native target/feature configurations (80 pairs), alongside the previous
+15 collection scenarios per configuration. Formatting and advisory clippy pass;
+the existing redundant constructor closure warning merely shifted lines. No
+performance result or new full-suite result is claimed. All owned local test
+processes are terminal.
+
+#### Next Steps
+Commit/push this repair and collect immutable hosted full results. Run
+`37146171083` at the preceding debug-index fix is now SUCCESS for all seven
+jobs. Run `37147866586` at the default-GC fix passes verify and real i686 fallback;
+native and Miri jobs remain live at the last check. Continue the remaining
+acceptance checklist; compiler-memory scope, GC lifecycle review and deferred
+performance requirements are still open.
+
+#### Relevant Files
+- `src/lua.rs`, `src/stdlib/base.rs` — host/context control state and Lua verbs.
+- `tests/gc_control.rs`, `tests/jit_gc_requests.rs` — pacing/query/boundary checks.
+- `target/jit-evidence/gc-pacing-state/` — regression and verification logs.
+
 ### Default collection request repair — 2026-10-03
 
 #### Goal
@@ -2297,7 +2349,7 @@ missing acceptance evidence rather than missing implementation.
 - [x] `make jit-verify` succeeds in Off, Auto, and Force, including optional async/derive and doctests. GNU/musl each pass 5152 executions / 446 suites / 24 ignored at `a0f9ac5`.
 - [x] Eligible integrated workloads actually execute native instructions; counters and coverage substantiate this. See the acceptance evidence table above and GNU full gate at `2e21d80`; this is execution coverage, not performance acceptance.
 - [x] No proportional native-stack growth from Lua recursion/tail calls or suspension. The deep-recursion checkpoint above records GNU/musl stack samples at normal depths 128/4096 and tail depths 128/16384, exact slice/GC comparisons and passing coroutine/async resumption. Source review confirms generated frames return before managed-frame transitions or suspension; this does not bound arbitrary recursive Rust callback reentry.
-- [ ] Small-fuel/interrupt/GC-request tests preserve reference scheduling behavior.
+- [x] Small-fuel/interrupt/GC-request tests preserve reference scheduling behavior. Existing `jit_native` fixtures cover negative/zero/small fuel, pre-interruption and callback interruption. The GC-request/pacing checkpoints compare exact Off/native slices, events and host flags at five budgets, with real native work surrounding collection; GNU/musl focused gates pass after the default-request and shared-pacing repairs. This is a work/boundary contract, not a wall-time or compiler-memory bound.
 - [x] Callbacks, reentrancy, coroutines, async futures, close handlers, and errors pass mixed-tier tests. The evidence table above identifies selective-tier, native-counter, exact-slice and typed-error assertions; GNU's full gate at `2e21d80` passes them, with previous full GNU/musl/ARM64 evidence at `a0f9ac5`.
 - [ ] GC roots, barriers, weak references, finalizers, and code lifetimes pass integrated stress tests and review.
 - [x] No synchronous compilation occurs inside `Executor::step`.
