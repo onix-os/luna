@@ -256,6 +256,60 @@ without treating this admission limit as completion of the full plan.
 - `tests/jit_config.rs`, `tests/jit_resources.rs` — public configuration/resource behavior.
 - `target/jit-evidence/relocations/` — focused/full logs, lint output and source manifest.
 
+### Error-boundary evidence reconciliation — 2026-10-03
+
+#### Goal
+Verify phase-5 source positions and typed Rust errors after proven native work.
+
+#### Instructions
+Continue runtime correctness work without benchmarks or new audit/fuzz infrastructure.
+
+#### Discoveries
+The ordinary error-position corpus runs through the mode-aware harness but does
+not assert native execution. Existing native invalid-key tests preserve typed
+errors, but do not cover the complete uncaught/pcall/xpcall position matrix.
+The new relocation revision's hosted run `37138361134` is still live; do not
+restart it or infer its result from the earlier green revision.
+
+#### Accomplished
+Added two integrated regressions with 72 paired Off/Prepared scenarios per
+feature configuration: seven faults, three catch paths and three fuel budgets
+(63 position cases), plus three typed-callback catch/rethrow paths at the same
+budgets (nine identity cases). Every native case proves at least 101 native
+table writes before the error; each slice compares fuel/mode/completion, with
+collection between slices. Faults cover nil indexing, invalid arithmetic/key,
+integer zero division, normal/tail non-callable transitions and explicit Lua
+errors. Uncaught, pcall and xpcall paths retain line 4; typed Rust payloads retain
+their original Arc identity through catches and rethrows.
+
+Final batch `78535` exits 0: `make jit-errors` passes both tests with `jit` and
+`jit,async` on GNU and musl (four passing test executions per platform).
+Initial Clippy identified one needless wrapper in the new test; it was removed.
+Final advisory Clippy exits 0 without new-test diagnostics; the existing 141
+lib-test warnings remain. Runtime/manifests are unchanged from `38ba46d`; no
+runtime fix or speedup is claimed. All owned local jobs are terminal.
+
+Reconciled five final acceptance items against the full `38ba46d` GNU/musl logs
+and current source: baseline gate, all-mode/all-feature JIT gate, compilation
+outside manual steps, queue/cache/mapping/backoff/lease tests, and binary/manual
+prototype provenance. In particular, the binary/manual fixture executes the
+reference results while asserting zero preparation/native entries, and private
+registration combines weak identity checks with monotonically assigned IDs.
+The stalled-compiler test and service call sites prove the manual-step contract.
+Unchecked entries still require evidence or acceptance, not necessarily code.
+
+#### Next Steps
+Commit the verified error-boundary coverage, then collect the current relocation
+run's hosted results and the new test revision's native evidence after pushing.
+Continue reconciling the remaining contract without restarting benchmarks or
+marking unreviewed behavior complete. Keep full-plan acceptance open.
+
+#### Relevant Files
+- `tests/error_positions.rs`, `tests/error.rs` — reference position/error behavior.
+- `tests/jit_errors.rs` — explicit native error-boundary matrix.
+- `Makefile` — focused error-boundary gate.
+- `target/jit-evidence/error-boundaries/` — GNU/musl and advisory-Clippy logs.
+
 ### User priority clarification — 2026-10-02
 
 The user explicitly rejected turning this JIT/performance task into a
@@ -1597,18 +1651,25 @@ The size-oriented existing `opt-level = "s"` can influence interpreter layout. M
 
 All applicable criteria must be checked with evidence; no partial phase substitutes for completion.
 
+Checked items below have revision-scoped evidence at `38ba46d`: full GNU/musl
+`make jit-verify` (5073 executions each, including its `verify` prerequisites),
+source inspection and the focused resource/scheduling/provenance regressions.
+They do not mark unchecked review/performance requirements complete, and later
+runtime edits must revalidate affected criteria. An unchecked item may reflect
+missing acceptance evidence rather than missing implementation.
+
 - [ ] Existing API and Lua 5.4 regression behavior remain compatible.
-- [ ] `make verify` succeeds without JIT enabled by default.
-- [ ] `make jit-verify` succeeds in Off, Auto, and Force, including optional async/derive and doctests.
+- [x] `make verify` succeeds without JIT enabled by default.
+- [x] `make jit-verify` succeeds in Off, Auto, and Force, including optional async/derive and doctests.
 - [ ] Eligible integrated workloads actually execute native instructions; counters and coverage substantiate this.
 - [ ] No proportional native-stack growth from Lua recursion/tail calls or suspension.
 - [ ] Small-fuel/interrupt/GC-request tests preserve reference scheduling behavior.
 - [ ] Callbacks, reentrancy, coroutines, async futures, close handlers, and errors pass mixed-tier tests.
 - [ ] GC roots, barriers, weak references, finalizers, and code lifetimes pass integrated stress tests and review.
-- [ ] No synchronous compilation occurs inside `Executor::step`.
-- [ ] Queue/cache/native-memory limits, compiler failure/backoff, and active-entry eviction are tested.
+- [x] No synchronous compilation occurs inside `Executor::step`.
+- [x] Queue/cache/native-memory limits, compiler failure/backoff, and active-entry eviction are tested.
 - [ ] Debug hooks and debug mutation retain correct behavior.
-- [ ] Binary/prototype provenance policy is enforced and documented.
+- [x] Binary/prototype provenance policy is enforced and documented.
 - [ ] Executable memory is never deliberately mapped writable and executable simultaneously; allocation/protection failure falls back or reports capability failure safely.
 - [ ] `make jit-fuzz-smoke` passes; longer campaign evidence and unsafe-boundary review are recorded.
 - [ ] Native platform tests actually execute on each advertised release target.
