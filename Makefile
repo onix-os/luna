@@ -383,6 +383,11 @@ jit-suspension:
 	@$(CARGO) test --locked -p luna --features jit --test jit_suspension $(TARGET_ARG) $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit,async --test jit_suspension $(TARGET_ARG) $(ARGS)
 
+.PHONY: jit-sequences
+jit-sequences:
+	@$(CARGO) test --locked -p luna --features jit --test jit_sequences $(TARGET_ARG) $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit,async --test jit_sequences $(TARGET_ARG) $(ARGS)
+
 .PHONY: stdlib-tempfiles
 stdlib-tempfiles:
 	@$(CARGO) test --locked -p luna --test os_lib --test stdlib_gaps $(TARGET_ARG) $(ARGS)
@@ -425,11 +430,12 @@ jit-config:
 .PHONY: jit-test-modes
 jit-test-modes:
 	@$(CARGO) test --locked -p luna --features jit --test jit_test_modes $(TARGET_ARG) $(ARGS)
-	@LUNA_TEST_JIT_MODE=force $(CARGO) test --locked -p luna --features jit --test scripts $(TARGET_ARG) $(ARGS)
+	@LUNA_TEST_JIT_MODE=force $(CARGO) test --locked -p luna --features jit --test scripts --test strings $(TARGET_ARG) $(ARGS)
 
 .PHONY: jit-stats
 jit-stats:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::stats_tests
+	@$(CARGO) test --locked -p luna --features jit --test jit_dispatches $(TARGET_ARG)
 	@$(CARGO) test --locked -p luna --features jit --test jit_fallback $(TARGET_ARG)
 	@$(MAKE) --no-print-directory jit-native jit-heap
 
@@ -455,6 +461,11 @@ jit-numeric:
 	@$(CARGO) test -p luna --test numeric_semantics $(TARGET_ARG) $(ARGS)
 	@$(CARGO) test -p luna --features jit --test jit_native $(TARGET_ARG) mixed_numeric
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::model::tests::mixed_numeric
+	@$(MAKE) --no-print-directory jit-numeric-exits
+
+.PHONY: jit-numeric-exits
+jit-numeric-exits:
+	@$(CARGO) test --locked -p luna --features jit --test jit_numeric_exits $(TARGET_ARG) $(ARGS)
 
 jit-fuzz-smoke:
 	@case "$$(uname -sm)" in 'Linux x86_64'|'Linux aarch64') ;; *) echo 'Native fuzz requires supported Linux host'; exit 2;; esac
@@ -918,6 +929,7 @@ help:
 	@echo "  jit-config   Test configuration and disabled-state collection"
 	@echo "  jit-stats    Verify native exit reasons and execution counters"
 	@echo "  jit-test-modes Test Force preparation and explicit exclusions"
+	@echo "  jit-numeric-exits Check numeric fallbacks between native work"
 	@echo "  jit-registers Test register-255 and stack-256 boundaries"
 	@echo "  jit-policy   Test quota refusal and configuration retirement"
 	@echo "  jit-resources Test owned-container budgets and reclamation"
@@ -935,6 +947,7 @@ help:
 	@echo "  jit-access   Test register, scalar output and helper admission"
 	@echo "  jit-exits    Test exit snapshots and retry-after-store rejection"
 	@echo "  jit-suspension Test native coroutine and foreign-await resumption"
+	@echo "  jit-sequences Test Rust continuations across native execution"
 	@echo "  jit-bench-paired Alternate checked Off/Auto samples"
 	@echo "  jit-performance Check frozen paired workload thresholds"
 	@echo "  jit-disassembly Dump finalized native kernels and addresses"

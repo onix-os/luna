@@ -85,7 +85,7 @@ pub(super) fn run_vm<'gc>(
     #[cfg(feature = "jit")]
     let mut native_instructions = 0;
     #[cfg(feature = "jit")]
-    let mut interpreted = false;
+    let mut interpreter_stats = ctx.jit().interpreter_stats();
     #[cfg(feature = "jit")]
     if hook_enabled && ctx.jit().active() {
         let mut manager = ctx.jit().0.borrow_mut();
@@ -123,7 +123,7 @@ pub(super) fn run_vm<'gc>(
             }
             if let Some(transition) = current_prototype.opcodes[*registers.pc].call_transition() {
                 *registers.pc += 1;
-                interpreted = true;
+                interpreter_stats.dispatches += 1;
                 match transition {
                     crate::opcode::CallTransition::Call {
                         func,
@@ -172,7 +172,7 @@ pub(super) fn run_vm<'gc>(
         let op = current_prototype.opcodes[*registers.pc].decode();
         #[cfg(feature = "jit")]
         {
-            interpreted = true;
+            interpreter_stats.dispatches += 1;
         }
         *registers.pc += 1;
 
@@ -897,8 +897,9 @@ pub(super) fn run_vm<'gc>(
         }
     }
     #[cfg(feature = "jit")]
-    ctx.jit()
-        .record_interpreter(instructions_run - native_instructions, interpreted);
+    {
+        interpreter_stats.reported_instructions = Some(instructions_run - native_instructions);
+    }
     Ok(instructions_run)
 }
 

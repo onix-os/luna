@@ -296,6 +296,52 @@ fn cleanup_case(
 }
 
 #[test]
+fn native_close_handlers_preserve_return_break_goto_and_fallthrough() -> Result<(), ExternError> {
+    for transfer in ["return 23,nil", "break", "goto outside", ""] {
+        let script = format!(
+            r#"
+            local t={{n=0}}
+            local events={{}}
+            local function resource(id)
+                return setmetatable({{}},{{__close=function(_,err)
+                    assert(err==nil)
+                    events[#events+1]=id
+                    for i=1,100 do t.n=t.n+1 end
+                end}})
+            end
+            local function work()
+                while true do
+                    local a <close> = resource(1)
+                    do
+                        local b <close> = resource(2)
+                        for i=1,100 do t.n=t.n+1 end
+                        {transfer}
+                    end
+                    break
+                end
+                ::outside::
+                return 23,nil
+            end
+            for i=1,100 do t.n=t.n+1 end
+            local values=table.pack(work())
+            assert(values.n==2 and values[1]==23 and values[2]==nil)
+            for i=1,100 do t.n=t.n+1 end
+            return t.n==500 and #events==2 and events[1]==2 and events[2]==1
+            "#
+        );
+        for fuel in [-1, 0, 1, 64, 65536] {
+            let (expected, off) = cleanup_case(&script, false, fuel)?;
+            let (actual, native) = cleanup_case(&script, true, fuel)?;
+            assert_eq!(actual, expected, "transfer={transfer}, fuel={fuel}");
+            assert_eq!(off.native_instructions, 0);
+            assert_eq!(native.native_table_writes, 505);
+            assert_eq!(native.native_panic_exits, 0);
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn coroutine_cleanup_keeps_identity_order_errors_and_slice_boundaries() -> Result<(), ExternError> {
     for (action, check, outer_error) in [
         ("", "ok and err==nil", 0),

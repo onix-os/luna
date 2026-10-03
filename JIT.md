@@ -2,33 +2,47 @@
 
 This branch implements the first native execution tier described in [PLAN_JIT.md](PLAN_JIT.md). It is **not the finished plan** and is not the LuaJIT runtime or its FFI. Constructors still default to interpreted execution. Do not use these results to claim production readiness or hostile-code isolation.
 
-As checked on 2026-10-03, all seven hosted jobs pass at `2e21d80`
-([run 37146171083](https://github.com/onix-os/luna/actions/runs/37146171083)):
+As checked on 2026-10-04, all seven hosted jobs pass at `dc2533b`
+([run 37156905915](https://github.com/onix-os/luna/actions/runs/37156905915)):
 native Linux x86-64 GNU/musl and ARM64 GNU, two Rust-only Miri seeds, baseline
 verification and real i686 interpreter fallback. Local full GNU/musl gates at
-that revision each pass 5189 executions across 452 repeated suites, with 24
-ignored and zero failures; i686 passes 1847 across 299 suites, with two ignored.
+that revision each pass 5283 executions across 476 repeated suites, with 24
+ignored and zero failures. This includes the GC request/pacing repairs,
+relocation admission before mapping, native-exit reasons and total dispatches.
 These are repeated test executions, not unique tests or performance measurements.
 
-Later fixes `009bf3b` and `3494c64` repair default/nil `collectgarbage()` requests
-and shared host/Lua GC pacing. Focused GNU/musl/i686 regressions pass; subsequent
-GNU/musl GC/lifetime and code-memory checks pass as recorded in `PLAN_JIT.md`.
-The [full run at `3494c64`](https://github.com/onix-os/luna/actions/runs/37148460303)
-now passes all seven jobs. Older green runs do not certify later runtime changes. Benchmarks remain deferred,
-not accepted; earlier upvalue/callback/compiled-but-disabled cost failures remain
-unresolved. This is not full-plan acceptance.
-
-The subsequent relocation-admission change (`d29bb12`) compiles into an owned compiler
-buffer, checks the relocation count, then installs through Cranelift's byte
-definition API. Focused and full GNU/musl gates pass (5223 executions across
-458 repeated suites, 24 ignored, zero failed per target). The
-[hosted native/Miri verification](https://github.com/onix-os/luna/actions/runs/37150232969)
-remains pending. The earlier hosted results do not cover this installation-path
-change; detailed evidence is recorded in `PLAN_JIT.md`.
+The test harness makes Force refusals explicit, with exact IR-block
+exclusions for the existing math and string corpora. Both GNU/musl examples
+assert native execution and return 5000050000 with 200007 native instructions.
+Dynamic numeric-exit tests also pass in jit/jit+async on GNU/musl, and dispatch
+accounting covers errors and transitions on GNU/musl and real i686.
+The newer module relocation-copy reservation passes focused resource/native
+gates, but its full and hosted verification remain pending; the completed runs
+above predate that change.
+Benchmarks remain deferred, not accepted; earlier upvalue/callback/compiled-but-
+disabled cost failures remain unresolved. This is not full-plan acceptance.
 
 ## Enable and prepare
 
 Enable the optional `jit` Cargo feature and set `JitConfig.mode` to `JitMode::Auto`. See `examples/jit.rs`; run it with `nix develop -c make jit-example`.
+
+The native dependency set uses Rust 1.97.1 in the Nix shell and CI; the pinned
+Cranelift and instruction-cache crates declare Rust 1.96.0 as their minimum.
+`make environment` reports the selected local toolchain. Direct native-only
+dependencies, as recorded in `Cargo.toml`, `Cargo.lock` and their package
+manifests, are:
+
+| Dependency | Locked version | Declared license |
+| --- | --- | --- |
+| `cranelift-codegen`, `cranelift-frontend`, `cranelift-jit`, `cranelift-module` | 0.136.1 | Apache-2.0 WITH LLVM-exception |
+| `wasmtime-internal-jit-icache-coherence` | 49.0.1 | Apache-2.0 WITH LLVM-exception |
+| `memmap2` | 0.9.11 | MIT OR Apache-2.0 |
+| `libc` | 0.2.189 | MIT OR Apache-2.0 |
+
+Compiler/cache/mapping versions are exact manifest pins; `libc` uses the 0.2
+requirement and the lockfile version above. This is the direct native dependency
+inventory, not a transitive license audit. Default builds do not enable the JIT
+compiler dependencies.
 
 The example asserts the Lua result and nonzero preparation, native-instruction
 and code-memory counters on supported targets. On unsupported targets it stays
@@ -87,6 +101,16 @@ fences in the pinned backend, and subsequent instructions reload guarded slots.
 Calls, returns, actual metamethod/user callback invocation, close tracking/unwinding, coroutines, and async transitions still run through explicit interpreter exits. Native execution does not recursively call Lua on the native stack or keep a generated frame across suspension. Hook-enabled slices remain interpreted. Integrated GC/lifecycle tests and bounded ownership/barrier review are recorded in `PLAN_JIT.md`; broader compiler/unsafe-boundary review, current full-platform verification and performance acceptance remain open.
 
 Every generated operation checks the remaining reference slice allowance before executing; a native invocation completes at most 64 logical bytecode instructions. A guard failure leaves the PC before the unperformed instruction. Completed scalar writes are materialized into the same canonical Lua registers, and the interpreter immediately makes progress without repeating completed work. Fuel retains the interpreter's existing approximate transition charges, including minimal progress with exhausted or interrupted input.
+
+`make jit-numeric-exits` compares Off/prepared execution for 24 dynamic-operand
+cases at five fuel budgets, with GC after every slice. It covers wrapping integer
+arithmetic, floor division/modulo signs and minimum-integer edges, integer-zero
+errors, floating zero/infinity/NaN, signed zero and string coercion/errors. Exact
+slice traces, results and error strings agree; floats are compared by bits except
+that NaN payloads are normalized. Each prepared run must perform exactly 201
+native table writes, proving native work both before and after the numeric
+operation or its caught error. This proves mixed-tier behavior, not native
+lowering of floor-division/modulo/coercion paths that intentionally remain interpreted.
 
 ## Resources and counters
 
@@ -215,21 +239,21 @@ The disabled `service_jit()` fast path remains unchanged.
 
 - `max_prototype_instructions` and `max_snapshot_bytes` bound snapshot admission before copying bytecode. Native scratch uses exact 1–8-slot specializations, then the smallest fitting 16/32/64/128/256-slot tier, bounded to 256 scalar slots. Zero-register entries use an empty initialized prefix. Scratch-bearing routines are non-inlined, so compiled-but-Off VM entries do not reserve their 4 KB maximum.
 - `max_ir_instructions` (1048576) and `max_ir_blocks` (65536) independently cap a conservative frontend expansion envelope before graph allocation or Cranelift setup. Actual frontend instruction/block counts must fit the admitted envelope before code generation. The estimate can reject a prototype below the source-opcode ceiling; these limits do not bound optimizer CPU time, compiler working memory or RSS. Lowering either limit retires cached code and pending requests; existing leases retain their normal lifetime policy.
-- `max_relocations` (65536) caps the actual compiled function's relocation records before module relocation conversion/copying or native mapping allocation. Excess records return `ResourceLimit("native relocations")` and leave interpretation and other installed modules usable. Admitted records are converted in a fallible snapshot-ledger staging vector; refusal returns `ResourceLimit("native relocation staging")`. Cranelift installs the bytes and relocations with its existing linker/provider, then the staging vector and codegen context are dropped before finalization. The check follows code generation: it does not bound Cranelift's earlier machine-relocation buffer, compiler working memory or compilation time. The module's own relocation copy remains outside the byte ledger. Lowering the cap retires installed code and queued work without invalidating active leases. Raising it alone does not reset failed attempts; clear the cache to retry.
+- `max_relocations` (65536) caps the actual compiled function's relocation records before module relocation conversion/copying or native mapping allocation. Excess records return `ResourceLimit("native relocations")` and leave interpretation and other installed modules usable. Admitted records are converted in a fallible snapshot-ledger staging vector; refusal returns `ResourceLimit("native relocation staging")`. The module's separate relocation copy is admitted against that ledger before definition using its checked `ModuleReloc` array layout; refusal returns `ResourceLimit("native relocation copy")`. Its reservation outlives module destruction, including errors/unwinding. Cranelift installs the bytes and relocations with its existing linker/provider, then the staging vector and codegen context are dropped before finalization. The checks follow code generation: they do not bound Cranelift's earlier machine-relocation buffer, other compiler working memory or compilation time. The copy accounting follows pinned Cranelift 0.136.1 and Rust 1.97.1 slice-clone allocation; review that contract on upgrades. Quota refusal is recoverable, but the upstream clone still uses infallible standard allocation. Lowering the cap retires installed code and queued work without invalidating active leases. Raising it alone does not reset failed attempts; clear the cache to retry.
 - `max_queue_entries` bounds pending identity requests. Saturating hotness and `max_compile_attempts` limit repeated failures; clearing the cache resets attempts.
 - `max_code_bytes` bounds actual page-rounded JIT mappings, including the compiler's code/readonly/writable segments. Retired but pinned mappings remain charged until the last lease drops. Allocation failure frees partial mappings and leaves interpretation usable.
 - `max_metadata_bytes` independently bounds requested allocation layouts for weak registrations, tracking/code-index maps, pending identities, preparation ID buffers, native-entry flags and mapping records. Containers use a shared fallible allocator; retained capacity and temporary old/new growth are charged. Registration refusal leaves ordinary source loading/interpreting usable; metadata allocation refusal is typed `ResourceLimit("JIT metadata")`. Lowering this ceiling retires registrations, code and requests; existing closures continue interpreted, and new source loads can register after limits are raised. Active leases keep their entry flags/mapping records and remain charged until their final owner drops, even above a newly reduced quota. Ordinary cache clearing retains live source registrations.
-- Owned operation/constant snapshot vectors have a separate allocator and `max_snapshot_bytes` ceiling; their charges follow the vectors' actual lifetime and release on success, refusal or panic. `metadata_bytes`/`snapshot_bytes` report current requested container storage, and their peak fields retain the high-water reserved usage. `metadata_allocation_refusals` counts quota/underlying allocation refusals; `registration_refusals` counts optional source registrations declined on allocation pressure. Empty retired containers release capacity.
+- Owned operation/constant snapshot vectors have a separate allocator and `max_snapshot_bytes` ceiling; their charges follow the vectors' actual lifetime and release on success, refusal or panic. Compiler workspace, relocation staging and the known module relocation-copy reservation share that ceiling and the host parent quota. `metadata_bytes`/`snapshot_bytes` report current requested/reserved storage, and their peak fields retain the high-water reserved usage. `metadata_allocation_refusals` counts quota/underlying allocation refusals; `registration_refusals` counts optional source registrations declined on allocation pressure. Empty retired containers release capacity.
 - Cached code uses a private strong-only shared owner whose count, allocator handle, padding and `Code` payload are one exact budgeted allocation. Allocation is fallible before publication; refusal frees the finalized image and does not evict a live peer. Cache retirement retains the charge until the final lease drops. State bootstrap owners are charged separately below.
 - Compiler/provider error status uses one fallible metadata-charged atomic owner rather than three uncharged std Arc flags. Its count, allocator handle, padding and flags are charged before JITBuilder setup and retained through provider/module reclamation. Error precedence remains metadata, mapping quota, provider unavailability, then ordinary compilation failure. The atomic owner requires a Send + Sync value for either auto trait; checked clone increments and an AcqRel final decrement govern lifetime. The cached-code owner remains single-threaded.
-- The provider adapter box and its shared mutex handoff are allocated fallibly and charged by exact typed layouts before JITBuilder setup. The initialized Global adapter allocation transfers to Cranelift's required standard Box; its charge outlives box destruction. After successful relocation/protection, the complete mapping owner moves into Code, the handoff becomes empty, and the module/adapter/charge are destroyed before publication. Failure drops the unclaimed mapping owner with the last handoff handle. Cached Code retains no ISA, symbols, declarations, compiled blobs or finalization queues. Transient Cranelift-owned compiler buffers remain unaccounted.
+- The provider adapter box and its shared mutex handoff are allocated fallibly and charged by exact typed layouts before JITBuilder setup. The initialized Global adapter allocation transfers to Cranelift's required standard Box; its charge outlives box destruction. After successful relocation/protection, the complete mapping owner moves into Code, the handoff becomes empty, and the module/adapter/charge are destroyed before publication. Failure drops the unclaimed mapping owner with the last handoff handle. Cached Code retains no ISA, symbols, declarations, compiled blobs or finalization queues. Other transient Cranelift-owned compiler buffers remain unaccounted.
 - Each provider allocation owns one anonymous memmap2 mapping in a fallibly budgeted Segment vector. There are no per-segment SystemMemoryProvider private record vectors. Page-rounded padding for over-page alignment is charged before mapping, and an aligned payload-end guard precedes pointer creation. Zero-size requests reserve a live page; invalid alignment/overflow refuses before record allocation. Finalization does not grow record storage. Executable maps clear cache before RX conversion, readonly maps become R, writable data remains RW; feature-gated Linux ARM64 BTI and the pinned compiler's pipeline flush are preserved.
 - Metadata and snapshot allocators share a state-owned host ledger with page-rounded mappings. Parent and individual quota admission both precede allocation; temporary old/new growth and failed-provider rollback apply to the parent too. `accounted_jit_bytes`/`accounted_jit_peak_bytes` report current/high-water reservations across those categories; `host_allocation_refusals` counts parent quota refusals. Mapping pages do not consume the metadata quota.
 - `Lua::total_memory()` remains collector-only. Additive `Lua::accounted_memory()` includes collector allocations plus the charged JIT categories; without the JIT feature the two metrics are equal. `set_memory_limit` applies to accounted usage. JIT admission uses headroom refreshed at host/arena/GC boundaries, with typed `ResourceLimit("host memory")` from public preparation/service. Lowered limits deny growth without invalidating active leases. Removing a limit restores admission; individual JIT ceilings remain in force.
 - Synchronous/asynchronous finish checks reclaim idle cached code and collect twice before stopping an over-limit executor. They check before running more work, before final completion and before polling a parked foreign future. Manual `Executor::step` remains host-controlled. GC allocation within a slice can overshoot, and finalizer/host allocations are not made fallible by this policy.
 - Mapped-page usage is an inline atomic in the existing host root ledger, not a separately allocated counter Arc. Private `MappingCounter` handles resolve child ledgers to that root without allocating and preserve it through detached code leases. Mapped usage and charged combined-host usage remain separate counters; actual mappings still reserve both quotas before allocation and release both after unmapping.
 - Ledger and runtime owners use private exact-layout, strong-only Global allocations. `bootstrap_bytes` reports their live layouts; `accounted_jit_bytes` and the host ceiling include them. The normal state-owned floor is three ledger layouts plus the runtime layout, retained after code/prototype cleanup. Both reserve the same root atomic as payloads before allocation; refusal rolls back and final deallocation precedes charge release. The runtime's RefCell preserves non-Send/non-Sync ownership, with compile-time trait checks. Private fallible factories exist; existing infallible Lua constructors retain their allocation-failure contract.
-- This is **not yet a complete compiler ledger**. It excludes allocator overhead, Cranelift-owned transient allocations and process RSS. Cached code retains the finalized mappings, not the compiler module or its buffers. Luna's entry flags and actual provider mapping-record storage use the shared ledgers; pinned mappings remain charged after retirement. Bounded unleased LRU eviction and fallible sparse-container compaction exist, but complete compiler accounting remains required before Phase 3/7 acceptance. Accounted limits are not an RSS or hostile-compiler ceiling.
+- This is **not yet a complete compiler ledger**. It excludes allocator overhead, other Cranelift-owned transient allocations and process RSS. Cached code retains the finalized mappings, not the compiler module or its buffers. Luna's entry flags and actual provider mapping-record storage use the shared ledgers; pinned mappings remain charged after retirement. Bounded unleased LRU eviction and fallible sparse-container compaction exist, but complete compiler accounting remains required before Phase 3/7 acceptance. Accounted limits are not an RSS or hostile-compiler ceiling.
 
 Compilation releases verification records, flow graphs and frontend block maps
 after verification and before codegen. The frontend context and helper signature
@@ -244,7 +268,8 @@ At `a0f9ac5`, full GNU/musl gates each pass 5152 test executions across 446
 repeated suites, with 24 ignored and zero failures. The focused lifetime/resource
 gates pass 77 executions per target. These are correctness/resource results,
 not the deferred performance acceptance.
-- `native_entries` counts real machine-code invocations, including immediate guard exits. `native_instructions` counts completed logical bytecodes, not CPU instructions. `interpreted_instructions` counts the reference VM's reported instructions, which exclude some transition opcodes. `interpreted_slices` counts completed slices that fetched an interpreted opcode. `hook_exits` counts slices kept interpreted with hooks enabled.
+- `total_dispatches` counts completed native bytecodes plus interpreted opcode dispatches, including call/return transitions and failing interpreted operations. Native guard attempts, declined helpers and a panicking native instruction are not counted as completed native work; subsequent interpreter dispatch is counted once. Interpreter dispatches are retained on error or Rust unwinding, using a slice-local accumulator published at scope exit. This is not CPU instructions, fuel or callback-body work, and it saturates independently. Cache clearing/disabling retains it.
+- `native_entries` counts real machine-code invocations, including immediate guard exits. `native_instructions` counts completed logical bytecodes, not CPU instructions. `interpreted_instructions` counts the reference VM's reported instructions, which exclude some transition opcodes and slices returning errors. `interpreted_slices` counts completed slices that fetched an interpreted opcode. These existing counters and fuel accounting retain their previous meanings. `hook_exits` counts slices kept interpreted with hooks enabled.
 - Native invocations return exactly one of four reasons: `native_interpreter_exits` (handoff for an interpreted operation or helper decline), `guard_exits` (failed scalar guard), `native_budget_exits` (slice allowance exhausted), or `native_panic_exits` (caught helper panic). These totals partition `native_entries` until counters saturate; each saturates independently at `u64::MAX`. Zero-instruction exits still count. Panic exits are recorded after state materialization and before resuming Rust unwinding. Hook-only interpreted slices do not count as native exits. Cache clearing and disabling JIT retain these cumulative counters. `make jit-stats` checks reason accounting, native execution and unsupported-target zeros; the metrics example includes the new reason totals without requiring a timing run to test them.
 - `code_lookups` counts eligible slice-local cache probes; `code_leases` counts successful owned leases, even when an entry is interpreted. A single VM slice reuses its lease across native/reference fragments, but repacks canonical registers for every invocation. Hotness observation remains per interpreted dispatch when no code is installed.
 - `helper_calls` counts scoped helper attempts, `helper_instructions` counts completed helper-backed bytecodes, and `helper_declines` counts effect-free fallback requests. Table/upvalue/allocation counters count successful accesses; table-through-upvalue operations include a successful upvalue read. These are real native helper paths, not the interpreter's opcode loop.
@@ -426,7 +451,17 @@ forced GC and separate external poll cost, coverage and observed resources.
 Counters exclude frame-transition opcodes as above; one whole executor step may
 contain more than one 64-operation VM invocation. `make jit-suspension` checks
 both feature configurations and all modes at fuel 1, 64 and 65536. These tests and
-observations do not complete the full mixed-tier transition/error matrix.
+observations alone do not complete the mixed-tier transition/error matrix;
+the Phase 5 checklist in `PLAN_JIT.md` records the combined evidence.
+
+`make jit-sequences` checks direct Rust `Sequence` continuations with and without
+async enabled: Pending, nested Lua call/error, yield and host resume. Exact
+Off/native slice traces, retained stack prefixes, error identity and trailing
+nils are checked with collection between slices. Per-phase table-write counts
+prove native work before, inside and after the continuation. `jit-suspension`
+also checks normal return/break/goto/fallthrough close handlers, and
+`jit-upvalues` checks nested Rust-driven executors reading and writing open and
+closed cells. These are correctness checks, not timing acceptance.
 
 The same gate compares successful non-tail recursion at depths 128 and 4096
 against the interpreter, plus tail recursion at depths 128 and 16384. It checks
@@ -568,10 +603,11 @@ Unsupported targets remain interpreter-only, not successful native preparations.
 `make jit-test-modes` checks the wrapper in separate processes so mode selection
 cannot race with other tests' environment. Empty batches and same-entry execution
 are tested as zero native work, not acceleration evidence.
-The existing `tests/scripts/math.lua` corpus exceeds the default IR-block
-admission cap. Its fixture explicitly permits only `IR blocks` and asserts that
-this refusal occurred in supported-target Force mode; other scripts have no
-blanket exemption. The original script still runs and checks its Lua semantics.
+The existing `tests/scripts/math.lua` and `tests/strings.lua` corpora exceed the
+default IR-block admission cap. Their fixtures explicitly permit only `IR blocks`
+and assert that this refusal occurred in supported-target Force mode; other
+scripts have no blanket exemption. Both original scripts still run and check
+their Lua semantics.
 No quota was raised and this pre-existing fallback is not claimed as whole-script
 native coverage. A source executed within one arena entry may be prepared only
 after that execution finishes; installation totals alone do not prove native use.

@@ -14,6 +14,45 @@ use super::global_owner::GlobalShared;
 
 pub(crate) type LedgerRef = GlobalShared<Ledger, HeaderCharge>;
 
+#[cfg(any(
+    test,
+    all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )
+))]
+pub(super) struct Reservation {
+    ledger: LedgerRef,
+    bytes: usize,
+}
+
+#[cfg(any(
+    test,
+    all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )
+))]
+impl Reservation {
+    pub fn new(ledger: LedgerRef, bytes: usize) -> Result<Self, AllocError> {
+        ledger.reserve(bytes)?;
+        Ok(Self { ledger, bytes })
+    }
+}
+
+#[cfg(any(
+    test,
+    all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )
+))]
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        self.ledger.release(self.bytes);
+    }
+}
+
 pub(crate) struct HeaderCharge {
     root: Option<LedgerRef>,
     bytes: usize,
@@ -544,6 +583,56 @@ unsafe impl Allocator for BudgetAllocator {
 mod tests {
     use super::*;
     use allocator_api2::vec::Vec;
+
+    #[test]
+    fn exact_child_and_parent_quota_roll_back_and_recover() {
+        for (parent_limit, child_limit) in [(64, 128), (128, 64)] {
+            let parent = Ledger::new(parent_limit);
+            let child = Ledger::child(child_limit, parent.clone());
+            assert!(Reservation::new(child.clone(), 65).is_err());
+            assert_eq!((parent.current(), child.current()), (0, 0));
+            let charge = Reservation::new(child.clone(), 64).unwrap();
+            assert_eq!((parent.current(), child.current()), (64, 64));
+            assert!(Reservation::new(child.clone(), 1).is_err());
+            assert_eq!((parent.current(), child.current()), (64, 64));
+            drop(charge);
+            assert_eq!((parent.current(), child.current()), (0, 0));
+            drop(Reservation::new(child.clone(), 64).unwrap());
+            assert_eq!((parent.current(), child.current()), (0, 0));
+        }
+    }
+
+    #[test]
+    fn zero_bytes_do_not_allocate_and_overflow_does_not_wrap() {
+        let ledger = Ledger::new(usize::MAX);
+        ledger.fail_after(0);
+        drop(Reservation::new(ledger.clone(), 0).unwrap());
+        assert_eq!((ledger.current(), ledger.peak()), (0, 0));
+        let charge = Reservation::new(ledger.clone(), 1).unwrap();
+        assert!(Reservation::new(ledger.clone(), usize::MAX).is_err());
+        assert_eq!(ledger.current(), 1);
+        drop(charge);
+        assert_eq!(ledger.current(), 0);
+    }
+
+    #[test]
+    fn reservation_outlives_owner_destruction_and_unwinding() {
+        struct Owner(LedgerRef);
+        impl Drop for Owner {
+            fn drop(&mut self) {
+                assert_eq!(self.0.current(), 64);
+            }
+        }
+        let ledger = Ledger::new(64);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _charge;
+            let _owner = Owner(ledger.clone());
+            _charge = Reservation::new(ledger.clone(), 64).unwrap();
+            panic!("reservation unwind sentinel");
+        }));
+        assert!(result.is_err());
+        assert_eq!(ledger.current(), 0);
+    }
 
     #[test]
     fn children_share_parent_capacity_without_losing_individual_limits() {

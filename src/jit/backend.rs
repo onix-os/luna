@@ -1,4 +1,4 @@
-use std::{io, sync::atomic::Ordering};
+use std::{alloc::Layout, io, sync::atomic::Ordering};
 
 use allocator_api2::vec::Vec as BudgetVec;
 use cranelift_codegen::ir::{
@@ -18,7 +18,7 @@ use super::{
     helpers,
     ir::Snapshot,
     memory_status::MemoryStatus,
-    resources::{BudgetAllocator, MappingCounter},
+    resources::{BudgetAllocator, MappingCounter, Reservation},
     segments::{Request, Segment},
     JitError,
 };
@@ -83,7 +83,10 @@ impl JITMemoryProvider for Memory {
             return Err(io::Error::other("host memory quota exhausted"));
         }
         #[cfg(test)]
-        if self.failure == Failure::Allocate {
+        if matches!(
+            self.failure,
+            Failure::Allocate | Failure::RefuseRelocationCopy
+        ) {
             self.total.fetch_sub(bytes, Ordering::Relaxed);
             self.allocations.allocator().0.release_external(bytes);
             self.status.unavailable.store(true, Ordering::Relaxed);
@@ -261,6 +264,8 @@ pub(super) enum Failure {
     CorruptRegionFlow(super::entry_flow::RegionFault),
     RefuseRegionWorkspace,
     RefuseRelocationStorage(bool),
+    RefuseRelocationCopy,
+    RequireRelocationCopy(usize),
     CorruptBinding(super::tags::BindingFault),
 }
 
@@ -349,6 +354,7 @@ pub(super) fn compile_in(
         jit.symbol(name, entry as *const u8);
     }
     jit.memory_provider(provider);
+    let relocation_copy_charge;
     let mut module = JITModule::new(jit);
     let ptr = module.target_config().pointer_type();
     let mut signature = module.make_signature();
@@ -676,6 +682,28 @@ pub(super) fn compile_in(
             .iter()
             .map(|relocation| ModuleReloc::from_mach_reloc(relocation, &context.func, function)),
     );
+    let relocation_copy_bytes = Layout::array::<ModuleReloc>(relocations)
+        .map_err(|_| JitError::ResourceLimit("native relocation copy size"))?
+        .size();
+    #[cfg(test)]
+    if failure == Failure::RefuseRelocationCopy {
+        let ledger = &snapshot.operations.allocator().0;
+        ledger.set_limit(ledger.current());
+    }
+    relocation_copy_charge = Reservation::new(
+        snapshot.operations.allocator().0.clone(),
+        relocation_copy_bytes,
+    )
+    .map_err(|_| JitError::ResourceLimit("native relocation copy"))?;
+    #[cfg(test)]
+    if let Failure::RequireRelocationCopy(baseline) = failure {
+        assert_eq!(
+            snapshot.operations.allocator().0.current(),
+            baseline
+                + module_relocations.capacity() * std::mem::size_of::<ModuleReloc>()
+                + relocation_copy_bytes
+        );
+    }
     module
         .define_function_bytes(
             function,
@@ -686,6 +714,13 @@ pub(super) fn compile_in(
         .map_err(fail)?;
     drop(module_relocations);
     #[cfg(test)]
+    if let Failure::RequireRelocationCopy(baseline) = failure {
+        assert_eq!(
+            snapshot.operations.allocator().0.current(),
+            baseline + relocation_copy_bytes
+        );
+    }
+    #[cfg(test)]
     let byte_len = compiled.code_buffer().len();
     drop(context);
     module.finalize_definitions().map_err(fail)?;
@@ -695,6 +730,11 @@ pub(super) fn compile_in(
         .take()
         .ok_or_else(|| JitError::Compilation("missing finalized native memory".into()))?;
     drop(module);
+    drop(relocation_copy_charge);
+    #[cfg(test)]
+    if let Failure::RequireRelocationCopy(baseline) = failure {
+        assert_eq!(snapshot.operations.allocator().0.current(), baseline);
+    }
     drop(provider_charge);
     drop(memory);
     Ok(Code {
