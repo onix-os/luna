@@ -11,6 +11,83 @@
 
 ### Progress snapshot — 2026-10-03
 
+### GC root and lifetime reconciliation — 2026-10-03
+
+#### Goal
+Verify the existing JIT reference-root, barrier, weak-table, finalizer and source/
+code-lifetime contract against its integrated tests and concrete ownership paths.
+
+#### Instructions
+No benchmarks or expanded audit/fuzz infrastructure. Keep this bounded runtime
+review separate from the remaining broad compiler/unsafe-boundary acceptance.
+
+#### Discoveries
+Native scratch represents references only as tag REFERENCE with zero bits; the
+actual Value stays in the canonical register file. Snapshots use those same
+pointer-free slots, instruction descriptors and counts. Reference constants are
+loaded through the current rooted closure/prototype, not embedded GC addresses.
+The helper frame is scoped to one arena mutation/native invocation; collection
+is outside that mutation. There are no GC references retained in installed code.
+
+The executor obtains the stack's mutation-barrier borrow before `run_vm`.
+Helpers store heap results into that canonical stack immediately, use `set_raw`
+for table barriers/weak storage, and route upvalue writes through the existing
+open-stack or closed-cell barrier path. Same-frame aliases read pending scalar
+scratch and update both representations on writes. Calls, metamethods and host
+reentry happen after native scratch is materialized and generated frames return.
+
+Registration routing checks a weak upgrade and pointer identity, with monotonic
+nonwrapping generation IDs. Dead registrations retire queued work and cache
+ownership, while active code leases remain independent until their final drop.
+Finalizers resurrect pending objects during collection and run Lua afterward;
+manual drivers must call `run_finalizers`. The existing weak-mode-at-attachment
+contract is preserved, not silently redefined as automatic metatable mutation
+tracking or complete PUC-Lua weak-mode conformance (see historical discovery).
+
+#### Accomplished
+Inspected canonical scratch, helper operations, stack/upvalue/table barriers,
+snapshot contents, registration identity checks, finalizer queues and retirement.
+Mapped them to existing tests: every-slice GC with 1000 allocated nested tables;
+alternating executors with Rust table/userdata replacement; weak keys/values and
+ephemeron reattachment; open/closed/joined/foreign-stack upvalues; helper panic
+materialization; finalizer resurrection; queued-source collection and live-peer
+preservation; and active-code retirement/reclamation. Each native fixture checks
+actual native instructions or operation-specific counters. Batch `17694` exits
+0: the existing GNU/musl helper/registry/heap/upvalue/native/policy/GC-request gates
+each pass 173 executions across 23 repeated suites, zero failures or ignored.
+No runtime source or new stress infrastructure was changed.
+
+Inspected hosted verify job `111277136272` at `3494c64`: it is baseline-only
+and explicitly runs zero native fixtures. Its success is not native/async proof
+and it is not the full local `make verify` recipe. The separate native jobs run
+the full JIT gate. Added a focused verification pass using existing `jit-heap`
+with async enabled plus `jit-suspension` in both configurations on GNU/musl.
+That batch (`77282`) exits 0: each target passes 51 more executions across three
+suites, including the actual foreign-await heap fixture and externally parked
+future probe. Combined focused evidence is 224 executions / 26 repeated suites
+per target, zero failures/ignored. All local processes are terminal. Do not
+credit the unrelated green baseline job for native/async coverage.
+
+No new defect was found in these reviewed paths. The GC lifetime criterion in
+Section 10 now records this source/test evidence. Collection stress is at
+host-visible slice/exit boundaries; collecting while a generated frame still
+borrows the arena is neither permitted nor part of this execution model.
+
+#### Next Steps
+Collect latest hosted native/Miri results. Run `37148460303` at `3494c64` passes
+baseline verify and i686 fallback; native/Miri remain live. Earlier default-GC
+run `37147866586` additionally passes native GNU, with the remaining native/Miri
+jobs live. Continue API/documentation and original phase-status reconciliation;
+baseline weak-mode semantics, full compiler-memory scope and deferred performance
+requirements must not be silently broadened or waived.
+
+#### Relevant Files
+- `src/jit/{abi,helpers,ir,registry,mod}.rs` — reference transport and ownership.
+- `src/thread/{executor,thread}.rs`, `src/closure.rs` — stack/cell barrier paths.
+- `src/table/{table,raw,weak}.rs`, `src/finalizers.rs` — weak storage/finalization.
+- `tests/jit_{heap,upvalues,native,gc_requests}.rs` — integrated GC evidence.
+- `target/jit-evidence/gc-lifetime-review/` — focused GNU/musl gate logs.
+
 ### Native code-memory ownership reconciliation — 2026-10-03
 
 #### Goal
@@ -2243,9 +2320,9 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 
 ### Phase 6 — Add heap fast paths with collector and mutation proofs
 
-**Status:** IN PROGRESS. **Depends on:** Phase 5. Fixed helper ABI v3 executes table/upvalue/allocation operations through existing barrier APIs. Weak tables, readonly/intercept changes, invalid keys, every-slice GC, finalizer resurrection and debug mutation have native evidence. New focused cases cover alternating executors with Rust table/userdata replacement and weak-value metatable mutation/reattachment; complete mode/ephemeron/guard matrices and broader lifecycle stress remain open.
+**Status:** Helper-backed implementation and bounded GC/mutation review verified; latest full native/Miri CI remains pending. **Depends on:** Phase 5. Fixed helper ABI v3 uses canonical roots and existing barriers. The GC root/lifetime checkpoint records source review and current GNU/musl evidence for every-slice collection, interleaved Rust mutation, weak values/keys and ephemeron reattachment, joined/foreign upvalues, finalizer resurrection, debug mutation, panic exits and async resumption. No direct-storage inline cache is enabled. This is not a performance result or a claim of complete PUC-Lua weak-mode conformance.
 
-**Files:** runtime/guards, table modules, closure/upvalue integration, `tests/jit_gc.rs`, `tests/jit_mutation.rs`, existing GC/weak/userdata suites.
+**Files:** `src/jit/{abi,helpers,ir,registry,mod}.rs`, table modules, closure/upvalue integration, `tests/jit_heap.rs`, `tests/jit_upvalues.rs`, `tests/jit_gc_requests.rs`, and existing GC/weak/userdata suites. The three implemented integration files cover the originally proposed `jit_gc.rs`/`jit_mutation.rs` roles.
 
 1. Add safe native fast paths for common table lookup/update and upvalue operations, beginning with barrier-aware helpers.
 2. Document all invalidation dependencies: table storage, metatables and their contents, readonly/intercept flags, weak-mode changes, Lua mutation, and Rust mutation.
@@ -2411,7 +2488,7 @@ missing acceptance evidence rather than missing implementation.
 - [x] No proportional native-stack growth from Lua recursion/tail calls or suspension. The deep-recursion checkpoint above records GNU/musl stack samples at normal depths 128/4096 and tail depths 128/16384, exact slice/GC comparisons and passing coroutine/async resumption. Source review confirms generated frames return before managed-frame transitions or suspension; this does not bound arbitrary recursive Rust callback reentry.
 - [x] Small-fuel/interrupt/GC-request tests preserve reference scheduling behavior. Existing `jit_native` fixtures cover negative/zero/small fuel, pre-interruption and callback interruption. The GC-request/pacing checkpoints compare exact Off/native slices, events and host flags at five budgets, with real native work surrounding collection; GNU/musl focused gates pass after the default-request and shared-pacing repairs. This is a work/boundary contract, not a wall-time or compiler-memory bound.
 - [x] Callbacks, reentrancy, coroutines, async futures, close handlers, and errors pass mixed-tier tests. The evidence table above identifies selective-tier, native-counter, exact-slice and typed-error assertions; GNU's full gate at `2e21d80` passes them, with previous full GNU/musl/ARM64 evidence at `a0f9ac5`.
-- [ ] GC roots, barriers, weak references, finalizers, and code lifetimes pass integrated stress tests and review.
+- [x] GC roots, barriers, weak references, finalizers, and code lifetimes pass integrated stress tests and review. The GC root/lifetime checkpoint records canonical-reference/barrier/registry/finalizer source paths and 224 passing focused executions per GNU/musl target at unchanged runtime revision `3494c64`, including async resumption. The separate code-memory checkpoint covers mapping ownership and final-lease reclamation. Baseline weak-mode-at-attachment behavior remains explicit; this does not close the broader unsafe-boundary/compiler-memory review.
 - [x] No synchronous compilation occurs inside `Executor::step`.
 - [x] Queue/cache/native-memory limits, compiler failure/backoff, and active-entry eviction are tested.
 - [x] Debug hooks and debug mutation retain correct behavior. Exact hook/traceback and valid/invalid mutation fixtures pass focused GNU/musl and full GNU at `2e21d80`; full-range debug indices also pass on real i686. This preserves Luna's supported debug behavior, not unsupported PUC-Lua APIs.
