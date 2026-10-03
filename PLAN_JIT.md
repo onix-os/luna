@@ -68,6 +68,60 @@ against current source before claiming full-plan completion.
 - `target/jit-evidence/native-call-transitions/` — checked source manifest,
   full-suite logs and prepared benchmark artifacts.
 
+### Compilation-scheduling verification — 2026-10-03
+
+The user requests continued non-benchmark work; deferred timings must not block
+implementation or correctness verification. Current source already uses explicit
+`service_jit` outside arena mutation, not a production background compiler.
+The missing phase-7 proof is deliberately stalled compilation while independent
+manual executors continue; no new worker API is required by the chosen service
+design. Add a per-state, test-only pre-compilation hook, block one independently
+owned Lua state on a channel, and drive three other executors with tiny/normal/
+large fuel and collection between slices. Compare each slice/mode/fuel/result
+against Off, saturate the two-entry queue, forbid compiler entry during manual
+stepping, then service queued work and prove actual native execution. Release
+and join the blocked compiler even on test failure. Channel deadlines are test
+liveness bounds, not performance thresholds. This is scheduling coverage, not
+new cybersecurity infrastructure or a claim of concurrent access to one Lua.
+
+Initial focused GNU batch `52533` and GNU/musl policy/resource batch `89962`
+exit 0: 63 test executions per platform across the combined lanes. The new
+blocked-compiler test executes on both targets. This is focused acceptance;
+the previously recorded 5053-execution full gates predate this test-only change.
+Final batch `58688` exits 0 after the readability cleanup: GNU and musl each
+pass 63 tests across seven suites with zero failures. All owned jobs are terminal.
+
+#### Goal
+Continue non-benchmark work by closing the concrete stalled-compiler scheduling
+coverage gap and correcting stale status entries.
+
+#### Instructions
+Benchmarks remain deferred by user request. Keep implementation/correctness
+work moving, use Make/Nix, and commit logical milestones without signatures.
+
+#### Discoveries
+The public compiler service is synchronous and holds `&mut Lua`; simultaneous
+compilation and stepping of that same state are not a supported API. Independent
+states and manual executors must remain independent. Instruction profiling does
+not require idle hardware, unlike the deferred elapsed-time comparisons.
+
+#### Accomplished
+Added a test-only per-state compiler-entry hook and stalled-worker regression
+with three interleaved executors, two-entry queue saturation, GC, exact fuel/mode/
+result comparisons at three budgets, and eventual native execution. No production
+worker/API was added and no new performance claim is made.
+
+#### Next Steps
+Commit the accepted scheduling milestone. Reconcile other outdated checklist
+entries against concrete evidence;
+continue genuine implementation/coverage gaps without restarting benchmarks.
+
+#### Relevant Files
+- `src/jit/mod.rs` — test-only compiler-entry hook and scheduling-test module.
+- `src/jit/scheduling_tests.rs` — blocked compiler and manual-executor regression.
+- `Makefile` — includes scheduling coverage in `jit-policy`.
+- `target/jit-evidence/compiler-scheduling/` — focused GNU/musl evidence.
+
 ### User priority clarification — 2026-10-02
 
 The user explicitly rejected turning this JIT/performance task into a
@@ -780,7 +834,7 @@ prevent Phase 3/release acceptance.
 
 ### Phase 5 — Preserve callbacks, coroutines, async, and unwinding
 
-**Status:** IN PROGRESS. **Depends on:** Phase 4. Dedicated native heap tests cover reentrant callbacks, coroutine suspension, foreign futures, and close-handler error unwinding. Shared public-host coroutine/await scenarios verify native heap work around suspension, GC while parked, real Pending/wake behavior and tier coverage at fuel 1/64/65536. Selective preparation independently verifies all four caller/callee tier combinations for normal and tail calls. Deep/infinite tail-call bounds and executor-driven coroutine cleanup now pass GNU/musl gates. Broader error/close acceptance, including uncaught-coroutine error-unwind timing, remains open.
+**Status:** IN PROGRESS. **Depends on:** Phase 4. Dedicated native heap tests cover reentrant callbacks, coroutine suspension, foreign futures, and close-handler error unwinding. Shared public-host coroutine/await scenarios verify native heap work around suspension, GC while parked, real Pending/wake behavior and tier coverage at fuel 1/64/65536. Selective preparation independently verifies all four caller/callee tier combinations for normal and tail calls. Deep/infinite tail-call bounds, executor-driven cleanup and deferred uncaught-coroutine error cleanup pass GNU/musl gates (`9ed8a0f`, `fe0042a`, `3a17a1f`). The remaining phase checklist still needs complete evidence reconciliation; the already repaired coroutine timing defect is not an open implementation item.
 
 **Files:** runtime wrappers, thread executor/frame integration, `tests/jit_transitions.rs`, existing callback/reentrancy/async/close/error tests.
 
@@ -1273,7 +1327,7 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 
 ### Phase 7 — Add hotness policy and nonblocking automatic compilation
 
-**Status:** IN PROGRESS. **Depends on:** Phases 3 and 6. Hotness/bounded queue/explicit outside-arena service, bounded failed attempts, configuration retirement, typed refusal and bounded LRU retry with diagnostics are implemented. Completed GC cancels dead queued sources without compilation and preserves live queued executors/identities. Scheduling failure injection, broader backoff/compaction policy and complete resource ledgers remain open.
+**Status:** IN PROGRESS. **Depends on:** Phases 3 and 6. Hotness/bounded queue/explicit outside-arena service, bounded failed attempts, configuration retirement, typed refusal and bounded LRU retry with diagnostics are implemented. Completed GC cancels dead queued sources without compilation and preserves live queued executors/identities. A deliberately stalled compiler now has GNU/musl evidence: independent manual executors retain exact fuel/modes/results while their compilation queue stays bounded, then execute natively after service. Remaining backoff/compaction and resource checklist coverage still needs reconciliation.
 
 **Files:** compiler/cache policy, Lua host service APIs, `tests/jit_policy.rs`, `tests/jit_resources.rs`, benchmark harness.
 
@@ -1474,8 +1528,8 @@ Do not disable tests, lower safety guarantees, catch arbitrary crashes as succes
 | 4: native slices | IN PROGRESS | Actual native counters, numeric/fuel correctness | Explicit example returned 5000050000 with 200007 native logical instructions; fourteen native tests pass. Scalar operations, numeric loops, guarded comparison, and interpreter fallback integrated. Helper-backed heap operations execute natively; broader numeric/error coverage remains open. |
 | 5: lifecycle integration | IN PROGRESS | Mixed-tier callbacks, async/coroutines, errors and close tests | Dedicated heap/upvalue tests cover reentry, close/error unwinding, panic materialization, debug mutation, shared captures and finalizer resurrection. Public coroutine/foreign-await scenarios (`7351b4b`) verify all three modes at fuel 1/64/65536, native table updates after resumption, GC while parked, six Pending polls/two Ready polls/six wakes, and no compilation inside slices. GNU/musl full-feature Force passes. Complete transition/error/mock coverage remains open. |
 | 6: heap/GC integration | IN PROGRESS | Native heap paths, barriers, GC/mutation/invalidation stress | Fresh helper guards preserve weak/readonly/intercept/invalid-key behavior. Every-slice GC, open/closed upvalues, pending-scalar panic inspection, debug local/upvalue join and finalizer-only native upvalue writes pass. Shared-cell tests additionally prove exact operation counts and write visibility across error guards, foreign stacks, GC and Rust reentry. Broader interleaved executors, mode mutations and exhaustive guard coverage remain open. |
-| 7: Auto policy | IN PROGRESS | Nonblocking stepping, owned compile work, limits/backoff, hot promotion | Bounded hot requests and explicit outside-arena service; configuration retirement, queue/attempt reductions, typed quota refusal and reset tests pass. LRU retry, charged recency, sparse compaction, refusal backoff and source collection preserve leases/live identities. Real hot queued-source GC tests (`5570951`) cancel dead requests without snapshot/compiler work, preserve a live peer's queue/identity and reclaim all accounted storage after its final drop. Injected blocked compiler and complete resource/diagnostic coverage remain open. |
-| 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Exact small frames (`af26288`) pass full GNU/musl correctness and the table speedup target twice (1.2805/1.2692). Current native upvalue (0.7067/0.7000) and callback (0.8186/0.8164) gates still fail. Matched speed compiled-Off controls fail float twice and integer once; shipping integer fails once, so its one all-green repeat is insufficient. Both checkers retain their frozen ratios-of-medians gates. Rejected reference-move and VM-splitting experiments remain removed. Prepared symbol-retained profiles await a quiet host. Full performance acceptance remains open. |
+| 7: Auto policy | IN PROGRESS | Nonblocking stepping, owned compile work, limits/backoff, hot promotion | Bounded hot requests and explicit outside-arena service; configuration retirement, queue/attempt reductions, typed quota refusal and reset tests pass. LRU retry, charged recency, sparse compaction, refusal backoff and source collection preserve leases/live identities. Real hot queued-source GC tests (`5570951`) cancel dead requests without snapshot/compiler work, preserve a live peer's queue/identity and reclaim all accounted storage after its final drop. Stalled-compiler isolation now passes GNU/musl: three executors, queue saturation, every-slice GC, exact Off/Auto fuel/modes/results and eventual native execution. Complete resource/diagnostic checklist reconciliation remains open. |
+| 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Exact small frames (`af26288`) pass full GNU/musl correctness and the table speedup target twice (1.2805/1.2692). Last measured native upvalue (0.7067/0.7000) and callback (0.8186/0.8164) gates still fail. Matched speed compiled-Off controls fail float twice and integer once; shipping integer fails once, so its one all-green repeat is insufficient. Repeated instruction profiles are collected and transition dispatch (`4863789`) is committed with correctness evidence. Its speed comparisons are deferred by the user, not passed. Frozen performance acceptance remains open; diagnostics do not require an idle host. |
 | 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Limited supervised admission/scalar campaigns test signals/timeouts/inherited limits; a five-seed 5120-kernel campaign verifies exits/slots/reclamation. Latest full GNU/musl x86-64 gates on `e747b07` pass 3054 tests/421 suite results each, 24 ignored; allocation/protection refusal is tested. Pinned default-seed Rust-only Miri passes 76 tests/fourteen namespaces, including owned flow/block/exit/access/work admission, scalar-tag SSA/guard/phi verification and pure IR-emitter rejection, reference Move alias/scalar/panic checks and queued-source retirement. Generated machine code, active native lease invocation, coroutine/foreign-await scenarios and executable finalization are not Miri-covered. Broader heap/lifecycle fuzz, complete unsafe review and actual ARM64/hosted evidence remain open. |
 | 10: release acceptance | IN PROGRESS | Complete gates, thresholds, docs/examples, actual CI | Prepared example and resource/security documentation exist. Active workflow wiring runs full GNU/musl x86-64 and GNU ARM64 gates, builds matched shipping artifacts and uploads evidence. Workflow lint/local musl integration pass; repeated local shipping/size/disabled-cost evidence is recorded. Actual hosted/ARM64 results, complete hardening and both native/disabled performance acceptance remain missing. |
 
