@@ -16,9 +16,13 @@ exclusions for the existing math and string corpora. Both GNU/musl examples
 assert native execution and return 5000050000 with 200007 native instructions.
 Dynamic numeric-exit tests also pass in jit/jit+async on GNU/musl, and dispatch
 accounting covers errors and transitions on GNU/musl and real i686.
-The newer module relocation-copy reservation passes focused resource/native
-gates, but its full and hosted verification remain pending; the completed runs
-above predate that change.
+The module relocation-copy runtime `1f905f9` also passes full local GNU/musl
+gates: 5298/5307 executions, 476/482 suites, 24 ignored each and zero failures.
+Test-only lifecycle additions landed during that paired run; separate focused
+and GNU all-features gates cover them. All seven hosted jobs also pass at
+`1f905f9` ([run 37159200148](https://github.com/onix-os/luna/actions/runs/37159200148)).
+The later oversized-image refusal fix has separate focused evidence;
+these full runs do not validate that newer runtime change.
 Benchmarks remain deferred, not accepted; earlier upvalue/callback/compiled-but-
 disabled cost failures remain unresolved. This is not full-plan acceptance.
 
@@ -65,7 +69,11 @@ it while obtaining the lease, without another tracking-table probe.
 An evicted prototype can warm again while its lifetime attempt budget allows;
 otherwise it stays interpreted until explicit cache clearing. Leased modules
 are never pressure-eviction victims. If all candidates are leased, no code is
-retired. Metadata/snapshot/capability/compiler errors do not trigger eviction.
+retired. An image whose own page-rounded segments exceed the entire code-cache
+limit returns `ResourceLimit("native image size")` without evicting a peer or
+consuming a retry; increasing the limit permits another attempt if its budget
+is not exhausted. Alignment padding and all provider segment kinds count.
+Metadata/snapshot/capability/compiler errors do not trigger eviction.
 A service call still handles at most one prototype, but can make two backend
 compilation attempts. This is bounded retry, not compiler preemption.
 `cache_evictions` counts pressure retirements; `cache_eviction_refusals` counts

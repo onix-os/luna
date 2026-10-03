@@ -59,6 +59,15 @@ impl JITMemoryProvider for Memory {
             self.status.quota_refused.store(true, Ordering::Relaxed);
         })?;
         let bytes = request.bytes;
+        let image_bytes = self
+            .allocations
+            .iter()
+            .try_fold(bytes, |total, segment| total.checked_add(segment.bytes));
+        if image_bytes.is_none_or(|bytes| bytes > self.limit) {
+            self.status.image_refused.store(true, Ordering::Relaxed);
+            self.status.quota_refused.store(true, Ordering::Relaxed);
+            return Err(io::Error::other("native image exceeds code cache limit"));
+        }
         self.allocations.try_reserve_exact(1).map_err(|_| {
             self.status.metadata_refused.store(true, Ordering::Relaxed);
             io::Error::other("native allocation record quota exhausted")
@@ -4769,6 +4778,42 @@ mod memory_tests {
         assert_eq!(host.refusals(), 0);
         drop(memory);
         assert_eq!((host.current(), metadata.current()), (0, 0));
+    }
+
+    #[test]
+    fn oversized_image_refuses_before_record_allocation_and_preserves_its_segments() {
+        for case in 0..3 {
+            let mut memory = memory(1);
+            let metadata = memory.allocations.allocator().0.clone();
+            let total = memory.total.clone();
+            if case == 1 {
+                memory.allocate(1, 1, JITMemoryKind::Executable).unwrap();
+            }
+            let baseline = (metadata.current(), total.load(Ordering::Relaxed));
+            metadata.fail_after(0);
+            memory.failure = Failure::Allocate;
+            let (size, align) = match case {
+                0 => (memory.page + 1, 1),
+                1 => (1, 1),
+                _ => (1, 4 * memory.page as u64),
+            };
+            assert!(memory
+                .allocate(size, align, JITMemoryKind::ReadOnly)
+                .is_err());
+            assert!(matches!(
+                memory.status.error(),
+                Some(JitError::ResourceLimit("native image size"))
+            ));
+            assert!(!memory.status.metadata_refused.load(Ordering::Relaxed));
+            assert!(!memory.status.unavailable.load(Ordering::Relaxed));
+            assert_eq!(memory.allocations.len(), usize::from(case == 1));
+            assert_eq!(
+                (metadata.current(), total.load(Ordering::Relaxed)),
+                baseline
+            );
+            drop(memory);
+            assert_eq!((metadata.current(), total.load(Ordering::Relaxed)), (0, 0));
+        }
     }
 
     #[test]

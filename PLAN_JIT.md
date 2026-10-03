@@ -18,12 +18,53 @@ all six requirements and the GNU/musl focused evidence. Its lifecycle milestone
 is verified; boundary-model/compiler-resource obligations and deferred
 performance acceptance are still open.
 
-GNU's full relocation-copy gate has completed (5298 executions / 476 suites /
-24 ignored / zero failures). Musl's paired full run and hosted run `37159200148`
-remain in progress. The local paired run began before `deed84a` and some new
+The paired full relocation-copy gate (`55568`) has completed: GNU reports
+5298 executions / 476 suites, musl 5307 / 482; each has 24 ignored and zero
+failures. Both examples return 5000050000 with 200007 native instructions.
+Hosted run `37159200148` also passes all seven jobs at `1f905f9`, including
+native GNU/musl/ARM64, both Rust-only Miri seeds and i686 fallback. The local
+paired run began before `deed84a` and some new
 fixtures were added during it; it is not a clean full-gate claim for that test
 commit. Separate GNU all-features and focused GNU/musl results cover the added
 tests as detailed in Phase 5.
+
+### Oversized native image admission — 2026-10-04
+
+The code-cache policy previously treated an image larger than the entire cache
+as ordinary occupancy pressure: it evicted one healthy unleased peer and
+recompiled an image that still could not fit. A new runtime regression reproduces
+that loss (`52009`, `target/jit-evidence/oversized-image/before.log`).
+
+The provider now checks the checked sum of its own page-rounded segments plus
+the requested segment against `max_code_bytes`, before record/mapping allocation.
+This includes alignment padding and executable/read-only/writable segments.
+Permanent per-image oversize reports `ResourceLimit("native image size")`;
+ordinary shared-cache occupancy still reports `native mappings` and keeps the
+existing one-victim/one-retry policy. No quota is increased and no extra
+allocation or code-execution path is introduced.
+
+The previous oversized-retry regression explicitly expected one lost victim
+and two failed compilations. It now requires both cached peers to survive with
+one failed attempt and zero eviction attempts. A separate fixture verifies
+successful compilation and native execution after increasing the limit, without
+resetting attempt history. Provider tests cover oversized single segments,
+aggregate multi-segment images and over-page alignment; injected record and
+mapping failures prove the early-refusal ordering. MemoryStatus checks all 16
+flag combinations. This supersedes the historical oversized-retry behavior
+recorded below, not general bounded eviction for an otherwise fitting image.
+
+This fixes a resource-policy defect, not the remaining unaccounted Cranelift
+working storage. The completed `1f905f9` full gates predate this runtime change;
+focused validation (`21150`) passes on GNU and musl: 558 executions / ten
+repeated suites / four ignored / zero failures per target, including the JIT
+boundary, owner, memory-status and resource gates. Real i686 resource checks
+pass 30 executions / three suites / zero ignored (`90775`). Formatting,
+default/all-feature checks, advisory Clippy and warning-denied rustdoc pass
+(`3976`); the existing 141 lib-test Clippy warnings remain. Initial candidate
+testing exposed the old oversized-retry expectation before it was updated;
+that failed run remains in the evidence directory. No new local Miri run is
+claimed. Logs are under `target/jit-evidence/oversized-image/`. Full candidate
+revalidation and its hosted jobs remain pending. Benchmarks remain deferred.
 
 ### Module relocation-copy accounting — 2026-10-04
 
