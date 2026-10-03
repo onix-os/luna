@@ -422,6 +422,12 @@ jit-abi:
 jit-config:
 	@$(CARGO) test -p luna --features jit --test jit_config $(TARGET_ARG) $(ARGS)
 
+.PHONY: jit-stats
+jit-stats:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::stats_tests
+	@$(CARGO) test --locked -p luna --features jit --test jit_fallback $(TARGET_ARG)
+	@$(MAKE) --no-print-directory jit-native jit-heap
+
 .PHONY: stdlib-portability jit-fallback
 stdlib-portability:
 	@$(CARGO) test --locked -p luna --lib $(TARGET_ARG) string::tests
@@ -905,6 +911,7 @@ help:
 	@echo "  jit-upvalues Test upvalue aliases, foreign stacks and GC"
 	@echo "  jit-abi      Test scalar and reference ABI conversions"
 	@echo "  jit-config   Test configuration and disabled-state collection"
+	@echo "  jit-stats    Verify native exit reasons and execution counters"
 	@echo "  jit-registers Test register-255 and stack-256 boundaries"
 	@echo "  jit-policy   Test quota refusal and configuration retirement"
 	@echo "  jit-resources Test owned-container budgets and reclamation"

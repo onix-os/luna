@@ -11,6 +11,57 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Native exit-reason statistics — 2026-10-03
+
+#### Goal
+Complete the native ABI reason breakdown required by Phase 1 diagnostics without
+conflating native invocations, interpreted slices, hooks or helper declines.
+
+#### Instructions
+No timing runs. Keep the existing Guard counter and instruction-count meaning;
+verify actual native execution, unsupported-target zeros and panic ordering.
+
+#### Discoveries
+The four native return reasons already exist in the ABI. The wrapper previously
+recorded only Guard separately. Reason accounting belongs after canonical-state
+materialization and before a caught helper panic is resumed on the Rust side.
+It must also count invocations that perform zero instructions. Independent
+saturating counters no longer have an ordinary arithmetic partition at overflow.
+
+#### Accomplished
+Added `native_interpreter_exits`, `native_budget_exits` and `native_panic_exits`
+beside existing `guard_exits`, with one reason increment per native invocation.
+No generated ABI, PC/fuel transition or interpreter behavior changes. Metrics
+example output exposes the added totals; its unit checks do not run benchmarks.
+
+Pure tests cover all four reasons, zero-work invocations and independent overflow
+saturation. Integrated tests cover budget exhaustion followed by interpreter
+handoff, guards, Off/Auto switches, cache retirement and caught helper panics.
+They assert native-entry partitioning and panic recording before catch_unwind
+returns; later successful execution leaves the panic total unchanged. Real
+i686 fallback asserts all four native reason totals remain zero.
+
+Initial focused native/config/metrics gates pass GNU/musl and pure/config checks
+pass i686. The final expanded matrix (`61666`) exits 0: GNU/musl each pass 53
+executions across seven repeated suites; i686 passes ten across five suites,
+including the real fallback fixtures. No failures or ignored tests. Formatting
+and `git diff --check` pass. Full GNU/musl verification is live in batch `95585`.
+The first formatting
+attempt had a cfg-delimiter typo, repaired before any test execution; it is not
+runtime red/green evidence.
+
+#### Next Steps
+Poll full GNU/musl batch `95585` and complete explicit Force-harness refusal
+reporting. This does not close compiler
+working-memory accounting, broad review or deferred performance acceptance.
+
+#### Relevant Files
+- `src/jit/mod.rs` — public totals, exit accounting and saturation tests.
+- `tests/jit_{native,heap,fallback}.rs` — actual reason and unsupported-target checks.
+- `examples/jit_metrics.rs` — native reason fields in diagnostic output.
+- `Makefile`, `JIT.md` — `jit-stats` gate and counter contract.
+- `target/jit-evidence/exit-statistics/` — target and metrics-test logs.
+
 ### Configuration and gate requirement audit — 2026-10-03
 
 #### Goal

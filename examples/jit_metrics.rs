@@ -268,7 +268,7 @@ fn measure(workload: &Workload, mode: Mode, sample: usize, fuel: i32) -> Result<
     let native_coverage = stats.native_instructions as f64
         / (stats.native_instructions + stats.interpreted_instructions).max(1) as f64;
     println!(
-        "metrics_case={} mode={} sample={sample} verified=1 executions={executions} fuel={fuel} load_ns={load_ns} prepare_batch_ns={prepare_batch_ns} prepared={prepared} total_session_ns={total_ns} first_native_observed_ns={} steps={} step_total_ns={} max_step_ns={} host_enter_total_ns={} max_host_enter_ns={} max_logical_vm_work={} max_fuel_debit={} service_calls={} service_total_ns={} max_service_ns={} queued_service_calls={} queued_service_total_ns={} native_coverage={native_coverage:.6} native_instructions={} interpreted_instructions={} native_entries={} guard_exits={} helper_declines={} installed_regions={} compilation_requests={} compilation_failures={} cache_evictions={} observed_queue_peak={} queue_current={} observed_code_peak_bytes={} code_current_bytes={} metadata_current_bytes={} metadata_peak_bytes={} snapshot_current_bytes={} snapshot_peak_bytes={} observed_gc_peak_bytes={} gc_current_bytes={}",
+        "metrics_case={} mode={} sample={sample} verified=1 executions={executions} fuel={fuel} load_ns={load_ns} prepare_batch_ns={prepare_batch_ns} prepared={prepared} total_session_ns={total_ns} first_native_observed_ns={} steps={} step_total_ns={} max_step_ns={} host_enter_total_ns={} max_host_enter_ns={} max_logical_vm_work={} max_fuel_debit={} service_calls={} service_total_ns={} max_service_ns={} queued_service_calls={} queued_service_total_ns={} native_coverage={native_coverage:.6} native_instructions={} interpreted_instructions={} native_entries={} guard_exits={} native_interpreter_exits={} native_budget_exits={} native_panic_exits={} helper_declines={} installed_regions={} compilation_requests={} compilation_failures={} cache_evictions={} observed_queue_peak={} queue_current={} observed_code_peak_bytes={} code_current_bytes={} metadata_current_bytes={} metadata_peak_bytes={} snapshot_current_bytes={} snapshot_peak_bytes={} observed_gc_peak_bytes={} gc_current_bytes={}",
         workload.name,
         mode.name(),
         observation.first_native_ns.map_or("none".to_owned(), |ns| ns.to_string()),
@@ -288,6 +288,9 @@ fn measure(workload: &Workload, mode: Mode, sample: usize, fuel: i32) -> Result<
         stats.interpreted_instructions,
         stats.native_entries,
         stats.guard_exits,
+        stats.native_interpreter_exits,
+        stats.native_budget_exits,
+        stats.native_panic_exits,
         stats.helper_declines,
         stats.installed_regions,
         stats.compilation_requests,

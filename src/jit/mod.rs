@@ -208,6 +208,9 @@ pub struct JitStats {
     pub code_leases: u64,
     pub native_instructions: u64,
     pub guard_exits: u64,
+    pub native_interpreter_exits: u64,
+    pub native_budget_exits: u64,
+    pub native_panic_exits: u64,
     pub helper_calls: u64,
     pub helper_instructions: u64,
     pub helper_declines: u64,
@@ -239,6 +242,106 @@ pub struct JitStats {
     pub metadata_compaction_bytes: u64,
     pub registration_refusals: u64,
     pub queued_requests: usize,
+}
+
+impl JitStats {
+    #[cfg(any(
+        test,
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )
+    ))]
+    fn record_native_exit(&mut self, exit: &abi::Exit) {
+        self.native_entries = self.native_entries.saturating_add(1);
+        self.native_instructions = self
+            .native_instructions
+            .saturating_add(u64::from(exit.instructions));
+        let counter = match exit.reason {
+            reason if reason == exits::Kind::Interpreter as u32 => {
+                &mut self.native_interpreter_exits
+            }
+            reason if reason == exits::Kind::Guard as u32 => &mut self.guard_exits,
+            reason if reason == exits::Kind::Budget as u32 => &mut self.native_budget_exits,
+            reason if reason == exits::Kind::Panic as u32 => &mut self.native_panic_exits,
+            _ => panic!("invalid native exit reason"),
+        };
+        *counter = counter.saturating_add(1);
+    }
+}
+
+#[cfg(test)]
+mod stats_tests {
+    use super::*;
+
+    #[test]
+    fn zero_work_exits_still_count_native_entries() {
+        let mut stats = JitStats::default();
+        for reason in [
+            exits::Kind::Interpreter,
+            exits::Kind::Guard,
+            exits::Kind::Budget,
+            exits::Kind::Panic,
+        ] {
+            stats.record_native_exit(&abi::Exit {
+                pc: 0,
+                instructions: 0,
+                reason: reason as u32,
+            });
+        }
+        assert_eq!(stats.native_entries, 4);
+        assert_eq!(stats.native_instructions, 0);
+        assert_eq!(
+            (
+                stats.native_interpreter_exits,
+                stats.guard_exits,
+                stats.native_budget_exits,
+                stats.native_panic_exits
+            ),
+            (1, 1, 1, 1)
+        );
+    }
+
+    #[test]
+    fn native_exit_counts_partition_entries_and_saturate_independently() {
+        for reason in [
+            exits::Kind::Interpreter,
+            exits::Kind::Guard,
+            exits::Kind::Budget,
+            exits::Kind::Panic,
+        ] {
+            for initial in [0, u64::MAX - 1, u64::MAX] {
+                let mut stats = JitStats {
+                    native_entries: initial,
+                    native_instructions: initial,
+                    guard_exits: initial,
+                    native_interpreter_exits: initial,
+                    native_budget_exits: initial,
+                    native_panic_exits: initial,
+                    ..Default::default()
+                };
+                let before = stats;
+                stats.record_native_exit(&abi::Exit {
+                    pc: 17,
+                    instructions: 3,
+                    reason: reason as u32,
+                });
+                assert_eq!(stats.native_entries, initial.saturating_add(1));
+                assert_eq!(stats.native_instructions, initial.saturating_add(3));
+                for (kind, count) in [
+                    (exits::Kind::Interpreter, stats.native_interpreter_exits),
+                    (exits::Kind::Guard, stats.guard_exits),
+                    (exits::Kind::Budget, stats.native_budget_exits),
+                    (exits::Kind::Panic, stats.native_panic_exits),
+                ] {
+                    assert_eq!(count, initial.saturating_add(u64::from(kind == reason)));
+                }
+                assert_eq!(stats.interpreted_slices, before.interpreted_slices);
+                assert_eq!(stats.hook_exits, before.hook_exits);
+                assert_eq!(stats.helper_declines, before.helper_declines);
+            }
+        }
+    }
 }
 
 /// Configuration, admission, or native compilation failure.
@@ -902,15 +1005,7 @@ impl Runtime {
             .stats
             .native_allocations
             .saturating_add(counts.allocations);
-        manager.stats.native_entries = manager.stats.native_entries.saturating_add(1);
-        manager.stats.native_instructions = manager
-            .stats
-            .native_instructions
-            .saturating_add(u64::from(exit.instructions));
-        manager.stats.guard_exits = manager
-            .stats
-            .guard_exits
-            .saturating_add(u64::from(exit.reason == exits::Kind::Guard as u32));
+        manager.stats.record_native_exit(&exit);
         if let Some(payload) = frame.panic.take() {
             drop(manager);
             std::panic::resume_unwind(payload);

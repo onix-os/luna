@@ -30,6 +30,46 @@ fn native_empty() -> Lua {
     lua
 }
 
+fn assert_exit_partition(stats: luna::JitStats) {
+    assert_eq!(
+        stats.native_entries,
+        stats.guard_exits
+            + stats.native_interpreter_exits
+            + stats.native_budget_exits
+            + stats.native_panic_exits
+    );
+}
+
+#[test]
+fn native_exit_reasons_distinguish_budget_and_interpreter_handoff() -> Result<(), ExternError> {
+    let mut lua = native_empty();
+    let executor = source(
+        &mut lua,
+        b"local sum=0 for i=1,100 do sum=sum+i end return sum",
+    )?;
+    assert_eq!(lua.prepare_jit().unwrap(), 1);
+    lua.enter(|ctx| {
+        assert!(!ctx.fetch(&executor).step(ctx, &mut Fuel::empty()).unwrap());
+    });
+    let partial = lua.jit_stats();
+    assert!(partial.native_instructions > 0);
+    assert!(partial.native_budget_exits > 0);
+    assert_eq!(partial.native_interpreter_exits, 0);
+    assert_eq!(partial.guard_exits, 0);
+    assert_eq!(partial.native_panic_exits, 0);
+    assert_exit_partition(partial);
+    assert_eq!(lua.execute::<i64>(&executor)?, 5050);
+    let finished = lua.jit_stats();
+    assert!(finished.native_interpreter_exits > 0);
+    assert_eq!(finished.guard_exits, 0);
+    assert_eq!(finished.native_panic_exits, 0);
+    assert_exit_partition(finished);
+    lua.clear_jit_cache();
+    assert_eq!(lua.jit_stats().native_entries, finished.native_entries);
+    assert_exit_partition(lua.jit_stats());
+    Ok(())
+}
+
 #[test]
 fn off_and_auto_dispatch_switches_preserve_slice_fuel_and_counters() -> Result<(), ExternError> {
     let mut reference = Lua::empty();
@@ -73,6 +113,13 @@ fn off_and_auto_dispatch_switches_preserve_slice_fuel_and_counters() -> Result<(
             assert_eq!(after.native_instructions, before.native_instructions);
             assert_eq!(after.code_lookups, before.code_lookups);
             assert_eq!(after.compilation_requests, before.compilation_requests);
+            assert_eq!(after.guard_exits, before.guard_exits);
+            assert_eq!(
+                after.native_interpreter_exits,
+                before.native_interpreter_exits
+            );
+            assert_eq!(after.native_budget_exits, before.native_budget_exits);
+            assert_eq!(after.native_panic_exits, before.native_panic_exits);
             assert_eq!(
                 after.interpreted_instructions - before.interpreted_instructions,
                 64
@@ -82,6 +129,7 @@ fn off_and_auto_dispatch_switches_preserve_slice_fuel_and_counters() -> Result<(
             assert!(after.native_entries > before.native_entries);
             assert!(after.native_instructions > before.native_instructions);
         }
+        assert_exit_partition(after);
         reference.gc_collect();
         candidate.gc_collect();
     }
@@ -193,6 +241,7 @@ fn native_guard_bailout_does_not_repeat_effects_or_charge_extra_fuel() -> Result
     assert_eq!(compiled.execute::<i64>(&right)?, 100);
     assert_eq!(interpreted.execute::<i64>(&left)?, 100);
     assert!(compiled.jit_stats().guard_exits > 0);
+    assert_exit_partition(compiled.jit_stats());
     Ok(())
 }
 
