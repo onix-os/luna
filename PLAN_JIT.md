@@ -11,6 +11,68 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Acceptance reconciliation and GC request gap — 2026-10-03
+
+#### Goal
+Reconcile existing acceptance evidence and identify the next concrete scheduling
+gap while the debug-index full gates finish without changing their source inputs.
+
+#### Instructions
+Keep benchmarks deferred and the full objective open. Preserve the live batch
+`45064`; do not restart it on an observation timeout.
+
+#### Discoveries
+Default `collectgarbage()` queues Collect but neither interrupts fuel nor returns
+the explicit collect result. The explicit `"collect"` branch does both. The
+existing next-statement regression tests only the explicit string form.
+An untracked probe using the existing interpreter example reproduces the actual
+observable difference: explicit collection clears a weak reference and runs its
+finalizer before the next statement, while default collection does not.
+`nix develop -c make run EXAMPLE=interpreter
+ARGS=target/jit-evidence/debug-indices/default-gc-probe.lua` exits 2 with
+`explicit true default false` and the assertion failure. This is a scheduling
+bug, not native-code corruption; the probe uses the baseline interpreter.
+
+#### Accomplished
+Inspected small-fuel/pre-interrupt/callback-interrupt tests, native heap roots,
+selective caller/callee suspension, error and typed-payload tests. Their native
+counters prevent interpreting the whole fixture from masquerading as native
+coverage. Exact debug events and valid/invalid mutation paths have focused
+GNU/musl evidence at `2e21d80`; the broader verification remains in progress.
+No runtime/test input was edited during the full batch. The GC-request acceptance
+item remains unchecked because its default-request path is demonstrably wrong.
+
+GNU `make jit-verify` now completes successfully at `2e21d80`: 5189 passing test
+executions across 452 repeated suites, 24 ignored and zero failures, including
+its existing smoke campaign. Batch `45064` has advanced to musl; i686 follows.
+Output wait `371` completed without output after its observation deadline; a
+subsequent poll of the same live session reported `GNU full passed`.
+
+The following acceptance evidence was inspected rather than inferred from a
+green aggregate alone:
+
+| Requirement | Current evidence and scope |
+| --- | --- |
+| Actual native workload execution | `jit_native` asserts native execution for each of ten scalar/mixed scripts; `jit_heap` and `jit_upvalues` assert concrete native allocation/read/write counts. `jit_suspension` checks each eligible segment after suspension. Performance thresholds remain separate and deferred. |
+| Mixed-tier calls, reentry, suspension and errors | Selective caller/callee fixtures cover all four tier combinations, normal/tail calls and exact suspension slices. Heap tests check nested executor reentry and close-handler mutations. Foreign-future fixtures verify Pending/Ready/wake counts and no VM work while externally parked. Error fixtures require a native table-write prefix, exact fault positions/slices and preserved typed payloads. |
+| Debug behavior | `jit_debug` compares complete events/tracebacks/fuel at five budgets, proves native prefixes/suffixes and interpreted hooked main-body writes. Heap/upvalue suites cover valid local/cell mutation and joining; `stdlib-debug` and the fourth native fixture cover rejected full-range indices without mutation. Unsupported call/return masks remain rejected. |
+
+These requirements now have checked evidence in Section 10. This does not
+accept the separate GC lifecycle review, all API compatibility, compiler-memory
+scope, deferred performance gates or unapproved deviations.
+
+#### Next Steps
+Collect the existing full batch, then add a failing regression for default/nil
+collection and route default collection through the explicit collect behavior.
+Check return values, interruption boundaries and weak/finalizer visibility in
+baseline and prepared-native execution, without turning this into a GC redesign.
+
+#### Relevant Files
+- `src/stdlib/base.rs` — explicit/default collection request branches.
+- `src/lua.rs` — request fulfillment after exiting the arena entry.
+- `tests/gc_control.rs` — current next-statement regression uses explicit collect.
+- `target/jit-evidence/debug-indices/default-gc-probe.{lua,log}` — reproduction.
+
 ### Full-range debug indices — 2026-10-03
 
 #### Goal
@@ -35,10 +97,24 @@ clamping remain unchanged. Added full-range local/upvalue/identity/join tests,
 An initial test edit had a missing brace, repaired before collecting the actual
 failing-before-fix logs. Focused GNU/musl/i686 batch `34866` exits 0. Baseline and
 Off/Auto/Force each pass all 11 debug-library tests on all three targets. Native
-heap/upvalue suites pass on GNU/musl. Musl also passes all four exact debug
-regressions with and without async; GNU is rerunning the fourth fixture, added
-after its initial three-test pass. Advisory clippy completes with its existing
-warnings. Full verification remains pending for this production-source change.
+heap/upvalue suites pass on GNU/musl. Both targets pass all four exact debug
+regressions with and without async; GNU's final rerun `56115` exits 0 after
+adding the fourth fixture. Advisory clippy completes with its existing warnings.
+Fix `2e21d80` is committed and pushed. Full GNU/musl/i686 verification is running
+in batch `45064`; GNU has passed and musl is live, with i686 pending. Output
+wait `371` is terminal; poll the same session for further output. Do not claim
+the full batch complete before its exit. Source/build inputs match pushed
+`2e21d80`; only this progress record has changed since the commit.
+
+Debug mutation review confirms that callbacks run after native scratch is
+materialized, new native entries reload canonical registers, and upvalue helpers
+resolve the closure's current cell on each access. Existing `jit_heap` coverage
+mutates locals/upvalues and joins cells between native calls; `jit_upvalues`
+also joins a cell to the currently executing frame, compares exact slices with
+GC, and checks native writes or effect-free declines for changed value types.
+Together with the exact hook/replacement/error/traceback regressions, these are
+the evidence paths for the debug acceptance item, not a claim of implementing
+unsupported call/return hook masks or every PUC-Lua debug API.
 
 Hosted compiler-lifetime run `37143852327` at `a0f9ac5` is now terminal SUCCESS
 for all seven jobs, including both Miri seeds and all three native platforms.
@@ -2161,14 +2237,14 @@ missing acceptance evidence rather than missing implementation.
 - [ ] Existing API and Lua 5.4 regression behavior remain compatible.
 - [x] `make verify` succeeds without JIT enabled by default. Revalidated in full GNU/musl gates at `a0f9ac5` after the compiler-lifetime changes.
 - [x] `make jit-verify` succeeds in Off, Auto, and Force, including optional async/derive and doctests. GNU/musl each pass 5152 executions / 446 suites / 24 ignored at `a0f9ac5`.
-- [ ] Eligible integrated workloads actually execute native instructions; counters and coverage substantiate this.
+- [x] Eligible integrated workloads actually execute native instructions; counters and coverage substantiate this. See the acceptance evidence table above and GNU full gate at `2e21d80`; this is execution coverage, not performance acceptance.
 - [x] No proportional native-stack growth from Lua recursion/tail calls or suspension. The deep-recursion checkpoint above records GNU/musl stack samples at normal depths 128/4096 and tail depths 128/16384, exact slice/GC comparisons and passing coroutine/async resumption. Source review confirms generated frames return before managed-frame transitions or suspension; this does not bound arbitrary recursive Rust callback reentry.
 - [ ] Small-fuel/interrupt/GC-request tests preserve reference scheduling behavior.
-- [ ] Callbacks, reentrancy, coroutines, async futures, close handlers, and errors pass mixed-tier tests.
+- [x] Callbacks, reentrancy, coroutines, async futures, close handlers, and errors pass mixed-tier tests. The evidence table above identifies selective-tier, native-counter, exact-slice and typed-error assertions; GNU's full gate at `2e21d80` passes them, with previous full GNU/musl/ARM64 evidence at `a0f9ac5`.
 - [ ] GC roots, barriers, weak references, finalizers, and code lifetimes pass integrated stress tests and review.
 - [x] No synchronous compilation occurs inside `Executor::step`.
 - [x] Queue/cache/native-memory limits, compiler failure/backoff, and active-entry eviction are tested.
-- [ ] Debug hooks and debug mutation retain correct behavior.
+- [x] Debug hooks and debug mutation retain correct behavior. Exact hook/traceback and valid/invalid mutation fixtures pass focused GNU/musl and full GNU at `2e21d80`; full-range debug indices also pass on real i686. This preserves Luna's supported debug behavior, not unsupported PUC-Lua APIs.
 - [x] Binary/prototype provenance policy is enforced and documented.
 - [ ] Executable memory is never deliberately mapped writable and executable simultaneously; allocation/protection failure falls back or reports capability failure safely.
 - [ ] `make jit-fuzz-smoke` passes; longer campaign evidence and unsafe-boundary review are recorded.
