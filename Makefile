@@ -383,6 +383,11 @@ jit-suspension:
 	@$(CARGO) test --locked -p luna --features jit --test jit_suspension $(TARGET_ARG) $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit,async --test jit_suspension $(TARGET_ARG) $(ARGS)
 
+.PHONY: jit-sequences
+jit-sequences:
+	@$(CARGO) test --locked -p luna --features jit --test jit_sequences $(TARGET_ARG) $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit,async --test jit_sequences $(TARGET_ARG) $(ARGS)
+
 .PHONY: stdlib-tempfiles
 stdlib-tempfiles:
 	@$(CARGO) test --locked -p luna --test os_lib --test stdlib_gaps $(TARGET_ARG) $(ARGS)
@@ -942,6 +947,7 @@ help:
 	@echo "  jit-access   Test register, scalar output and helper admission"
 	@echo "  jit-exits    Test exit snapshots and retry-after-store rejection"
 	@echo "  jit-suspension Test native coroutine and foreign-await resumption"
+	@echo "  jit-sequences Test Rust continuations across native execution"
 	@echo "  jit-bench-paired Alternate checked Off/Auto samples"
 	@echo "  jit-performance Check frozen paired workload thresholds"
 	@echo "  jit-disassembly Dump finalized native kernels and addresses"

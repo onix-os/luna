@@ -262,6 +262,8 @@ fn rust_reentry_observes_shared_open_and_closed_cell_writes() -> Result<(), Exte
     let scripts: &[&[u8]] = &[
         b"local n=0 local function set(x) n=x end local function read() return n end for i=1,50 do set(i) assert(observe(read)==i) end return n",
         b"local function make() local n=0 return function(x) n=x end,function() return n end end local set,read=make() for i=1,50 do set(i) assert(observe(read)==i) end return observe(read)",
+        b"local n=0 local function change() n=n+1 return n end for i=1,50 do assert(observe(change)==i) end return n",
+        b"local function make() local n=0 return function() n=n+1 return n end end local change=make() local result for i=1,50 do result=observe(change) assert(result==i) end return result",
     ];
     for script in scripts {
         for native in [false, true] {
