@@ -11,6 +11,49 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Full-range debug indices — 2026-10-03
+
+#### Goal
+Preserve debug API behavior for the complete Lua integer range in both tiers.
+
+#### Instructions
+Continue correctness work without benchmarks, expanded audit/fuzz infrastructure
+or signed/batched commits. The original performance acceptance remains deferred.
+
+#### Discoveries
+Debug local/upvalue access converted one-based indices with unchecked signed
+subtraction. `i64::MIN` panics before the existing invalid-index path is reached.
+On real i686, `debug.getinfo(4294967296)` also panics after a narrowing cast and
+unsigned subtraction; adjacent large levels can alias an existing frame.
+Both failures reproduce before the fix in `red.log` and `red-i686.log`.
+
+#### Accomplished
+Replaced debug index subtraction/casts with one checked zero-based conversion.
+Existing nil/error behavior, positive indices and getinfo's existing level
+clamping remain unchanged. Added full-range local/upvalue/identity/join tests,
+32-bit frame-level tests and explicit prepared-native resumption evidence.
+An initial test edit had a missing brace, repaired before collecting the actual
+failing-before-fix logs. Focused GNU/musl/i686 batch `34866` exits 0. Baseline and
+Off/Auto/Force each pass all 11 debug-library tests on all three targets. Native
+heap/upvalue suites pass on GNU/musl. Musl also passes all four exact debug
+regressions with and without async; GNU is rerunning the fourth fixture, added
+after its initial three-test pass. Advisory clippy completes with its existing
+warnings. Full verification remains pending for this production-source change.
+
+Hosted compiler-lifetime run `37143852327` at `a0f9ac5` is now terminal SUCCESS
+for all seven jobs, including both Miri seeds and all three native platforms.
+
+#### Next Steps
+Finish focused gates and full verification for this production change, record
+results, then commit and push. Do not infer overall Lua 5.4 conformance from
+these bounded debug API regressions.
+
+#### Relevant Files
+- `src/stdlib/debug.rs` — checked local/upvalue/frame index conversion.
+- `tests/debug_lib.rs`, `tests/jit_debug.rs` — edge cases and native resumption.
+- `Makefile` — baseline/Off/Auto/Force `stdlib-debug` target.
+- `target/jit-evidence/debug-indices/` — red and repaired verification logs.
+
 ### Deep non-tail recursion — 2026-10-03
 
 #### Goal

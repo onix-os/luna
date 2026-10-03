@@ -127,6 +127,43 @@ fn compare(source: &str, budget: i32) -> Run {
 }
 
 #[test]
+fn invalid_debug_mutations_preserve_values_and_native_resumption() {
+    let source = r#"
+for i=1,100 do target.value=i end
+checkpoint("prefix")
+local x,y=41,42
+local f=function() return x end
+local g=function() return y end
+for _,index in ipairs({-9223372036854775807-1,-1,0,4294967296,9223372036854775807}) do
+    assert(debug.getupvalue(f,index)==nil)
+    assert(debug.setupvalue(f,index,99)==nil)
+    assert(not pcall(debug.upvalueid,f,index))
+    assert(not pcall(debug.upvaluejoin,f,index,g,1))
+    assert(not pcall(debug.upvaluejoin,f,1,g,index))
+    assert(debug.getlocal(1,index)==nil)
+    assert(debug.setlocal(1,index,99)==nil)
+    assert(debug.getlocal(index,1)==nil)
+    assert(debug.setlocal(index,1,99)==nil)
+    assert(f()==41 and g()==42)
+end
+checkpoint("mutations")
+for i=1,100 do target.value=200+i end
+checkpoint("suffix")
+return tostring(target.value)
+"#;
+    for budget in [-1, 0, 1, 64, 4096] {
+        let native = compare(source, budget);
+        assert_eq!(native.result, "300");
+        assert_eq!(native.checkpoints.len(), 3);
+        assert_eq!(native.checkpoints[0], ("prefix".into(), 100));
+        assert_eq!(native.checkpoints[1].0, "mutations");
+        assert_eq!(native.checkpoints[2].0, "suffix");
+        assert_eq!(native.checkpoints[2].1 - native.checkpoints[1].1, 100);
+        assert!(native.stats.native_upvalue_reads >= 10);
+    }
+}
+
+#[test]
 fn hook_events_and_replacement_match_reference_between_native_prefix_and_suffix() {
     for (mask, count) in [("l", 0), ("", 7), ("l", 7)] {
         for replace in [false, true] {

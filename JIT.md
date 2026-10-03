@@ -515,6 +515,12 @@ checkpoints prove execution before and after hooks while hooked main-body
 writes remain interpreted. The target runs with and without optional async
 support; these are correctness checks, not performance measurements.
 
+`make stdlib-debug` checks baseline, Off, Auto and prepared execution of debug
+indices and mutation. Out-of-range local/upvalue indices retain their existing
+nil/error results across the full Lua integer range; large frame levels do not
+wrap on 32-bit hosts. The native debug gate also proves that rejected mutations
+leave captured values intact and native execution resumes afterward.
+
 `make jit-helpers` directly tests all nine scoped Rust helper entries with
 closed upvalues and canonical reference identity. It checks effect-free decline
 and PC rollback, panic materialization of exactly the declared scratch prefix,

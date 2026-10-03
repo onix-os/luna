@@ -400,6 +400,13 @@ jit-debug:
 	@$(CARGO) test --locked -p luna --features jit --test jit_debug $(TARGET_ARG) $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit,async --test jit_debug $(TARGET_ARG) $(ARGS)
 
+.PHONY: stdlib-debug
+stdlib-debug:
+	@$(CARGO) test --locked -p luna --test debug_lib $(TARGET_ARG) $(ARGS)
+	@set -e; for mode in off auto force; do \
+		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test debug_lib $(TARGET_ARG) $(ARGS); \
+	done
+
 jit-abi:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests
 
@@ -875,6 +882,7 @@ help:
 	@echo "  jit-relocations Test finalization relocation limits and fallback"
 	@echo "  jit-errors   Test native error positions and typed callback errors"
 	@echo "  jit-debug    Compare exact hook events and mixed-tier tracebacks"
+	@echo "  stdlib-debug Test debug indices and mutation in Off/Auto/Force"
 	@echo "  jit-boundary Test native exits against the Rust boundary model"
 	@echo "  jit-native   Run integrated native execution and lifecycle tests"
 	@echo "  jit-fallback Execute unsupported-target fallback (TARGET=i686-unknown-linux-musl)"
