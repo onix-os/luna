@@ -13,9 +13,9 @@
 
 The requested plan document is written. Full implementation and release
 acceptance are not finished. The committed native tier executes Luna bytecode
-through Cranelift without replacing Luna's runtime. The latest full GNU and
-musl gates each pass 5053 test executions across repeated modes/suites, not
-5053 unique tests. Coroutine cleanup and deferred-error defects exposed after
+through Cranelift without replacing Luna's runtime. Hosted native GNU, musl and
+ARM64 jobs at `52b2dec` each pass 5059 test executions across 435 repeated
+mode/doc/disassembly suites, not 5059 unique tests. Coroutine cleanup and deferred-error defects exposed after
 the prior green gates are repaired, with focused and full-suite evidence below.
 The exact-small-frame runtime change has repeated native benchmark evidence:
 the table target now passes, while upvalue/callback and disabled-tier costs
@@ -29,8 +29,9 @@ executions/114 new corpus inputs. Both dependency locks remain unchanged.
 
 Current performance gates still fail for upvalues/callbacks and inconsistent
 compiled-disabled overhead. Remaining compiler-memory and safety review remain
-outstanding. Hosted native GNU, musl and ARM64 gates now have passing evidence
-at `4863789`; the overall workflow requires the Miri repairs recorded below.
+outstanding. Hosted run `37134741669` at `52b2dec` passes all six jobs, including
+both Miri seeds and all native/platform evidence uploads. This closes the
+recorded hosted-CI/platform gap, not the remaining implementation or performance gates.
 Do not infer a completion percentage or delivery date from commit/test counts.
 
 ### User checkpoint — commit now, benchmark later (2026-10-03)
@@ -161,15 +162,24 @@ Raised the existing Miri job deadline from 20 to 45 minutes to allow the current
 suite to finish; this remains bounded and does not turn the cancelled seed green.
 Final `nix develop -c make jit-miri-wrapper-tests ci-check fmt-check` exits 0:
 44 portable log names, three propagated failure cases, workflow lint and Rust
-formatting pass. No full runtime suite or actual Miri rerun was needed to check
-these recipe-only changes; hosted acceptance of the repair is still pending.
+formatting pass. These local recipe checks do not substitute for Miri execution.
 Pushed both scheduling and CI-repair commits through `52b2dec` under the user's
 existing publish request. `git ls-remote` confirms the remote branch matches
-`52b2decc811bd99227020d8b145a8c6386174d3c`. New hosted run `37134741669`
-is confirmed in progress, with default verification, both Miri seeds and all
-three native jobs running. Keep polling that run; do not dispatch a duplicate.
-The next poll confirms default verification has completed successfully; native
-and Miri jobs remain live. This includes the new evidence-recipe regression.
+`52b2decc811bd99227020d8b145a8c6386174d3c`. Hosted run `37134741669` now
+finishes successfully with all six jobs green. GNU, musl and ARM64 each report
+5059 passing executions / 435 suite results / 24 ignored / zero failures,
+including the extra disassembly test. All three logs contain five successful
+executions of the new scheduling regression and the native example result
+`5000050000` with `200007` native logical instructions. Shipping artifact
+builds and native evidence uploads succeed; these are builds, not benchmarks.
+
+Miri seeds 0 and 1 each pass 293 tests across 42 selected suites, with zero
+failures or ignored tests, and upload all 44 portable log files successfully.
+Seed 1 completes in 33 minutes 48 seconds, within the repaired 45-minute bound;
+seed 0 completes in 17 minutes 39 seconds. Generated machine code is not executed
+under Miri. Default verification also passes the new evidence-recipe regression.
+The run and every owned job are terminal; no duplicate was dispatched.
+Run: https://github.com/onix-os/luna/actions/runs/37134741669
 
 Runtime inspection confirms the previous profile attributes substantial
 short-call cost to VM dispatch, frame transitions and per-invocation marshalling.
@@ -179,10 +189,10 @@ accounted fixed owners, detached compiler ownership and actual ARM64 evidence.
 Historical acceptance paragraphs below remain revision-scoped.
 
 #### Next Steps
-Inspect run `37134741669` for the pushed repair and scheduling test on all native
-targets; verify both Miri seeds and their uploads before claiming workflow success.
-Continue genuine
-non-benchmark implementation gaps; frozen performance acceptance remains deferred.
+Continue genuine non-benchmark implementation gaps, including transient compiler
+working-memory policy and the remaining runtime checklist reconciliation, without
+expanding audit/fuzz infrastructure. Frozen performance acceptance remains
+user-deferred. Hosted success alone does not prove full-plan completion.
 
 #### Relevant Files
 - `Makefile` — Miri commands and evidence filenames.
@@ -1431,7 +1441,7 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 
 ### Phase 9 — Harden and establish supported-platform evidence
 
-**Status:** IN PROGRESS. **Depends on:** Phase 8. Hosted native GNU, musl and ARM64 gates pass at `4863789` (run `37078917137`). Seed-0 Rust-only Miri passes its component gate, but artifact upload fails; seed 1 times out. Local CI repairs await hosted verification. Earlier finite heap/scalar campaigns do not complete the broader review obligations. Do not expand audit/fuzz infrastructure against the user's stated priority.
+**Status:** IN PROGRESS. **Depends on:** Phase 8. Hosted run `37134741669` at `52b2dec` passes native GNU, musl and ARM64 gates, both selected Rust-only Miri seeds and all evidence uploads. Earlier finite heap/scalar campaigns do not complete the broader review obligations. Do not expand audit/fuzz infrastructure against the user's stated priority.
 
 Supervised heap/lifecycle coverage (`a951643`) adds four parameterized source
 families in fresh Off/Auto states. GNU/musl each pass 128 cases with per-slice
@@ -1468,7 +1478,7 @@ slice evidence; full safety/guard/lifecycle obligations remain open.
 
 ### Phase 10 — Publish a complete, accurately documented feature
 
-**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 9 and approved workload acceptance. Hosted native GNU/musl/ARM64 gates, shipping builds and the prepared example pass at `4863789`. The repaired overall workflow is running at `52b2dec`; complete review, frozen performance controls and current shipping/size acceptance remain open.
+**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 9 and approved workload acceptance. All six hosted jobs pass at `52b2dec`, including native GNU/musl/ARM64 gates, shipping builds, the prepared example and both Miri seeds. Complete review, frozen performance controls and current shipping/size acceptance remain open.
 
 **Files:** docs/examples, benchmark/size tooling, actual CI integration, this document.
 
@@ -1599,8 +1609,8 @@ Do not disable tests, lower safety guarantees, catch arbitrary crashes as succes
 | 6: heap/GC integration | IN PROGRESS | Native heap paths, barriers, GC/mutation/invalidation stress | Fresh helper guards preserve weak/readonly/intercept/invalid-key behavior. Every-slice GC, open/closed upvalues, pending-scalar panic inspection, debug local/upvalue join and finalizer-only native upvalue writes pass. Shared-cell tests additionally prove exact operation counts and write visibility across error guards, foreign stacks, GC and Rust reentry. Broader interleaved executors, mode mutations and exhaustive guard coverage remain open. |
 | 7: Auto policy | IN PROGRESS | Nonblocking stepping, owned compile work, limits/backoff, hot promotion | Bounded hot requests and explicit outside-arena service; configuration retirement, queue/attempt reductions, typed quota refusal and reset tests pass. LRU retry, charged recency, sparse compaction, refusal backoff and source collection preserve leases/live identities. Real hot queued-source GC tests (`5570951`) cancel dead requests without snapshot/compiler work, preserve a live peer's queue/identity and reclaim all accounted storage after its final drop. Stalled-compiler isolation now passes GNU/musl: three executors, queue saturation, every-slice GC, exact Off/Auto fuel/modes/results and eventual native execution. Complete resource/diagnostic checklist reconciliation remains open. |
 | 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Exact small frames (`af26288`) pass full GNU/musl correctness and the table speedup target twice (1.2805/1.2692). Last measured native upvalue (0.7067/0.7000) and callback (0.8186/0.8164) gates still fail. Matched speed compiled-Off controls fail float twice and integer once; shipping integer fails once, so its one all-green repeat is insufficient. Repeated instruction profiles are collected and transition dispatch (`4863789`) is committed with correctness evidence. Its speed comparisons are deferred by the user, not passed. Frozen performance acceptance remains open; diagnostics do not require an idle host. |
-| 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Hosted run `37078917137` at `4863789` passes all three native platforms, including actual ARM64 execution (5054 passing executions, including disassembly). Seed-0 Rust-only Miri passes 293 executions/42 suites but upload fails; seed 1 exceeds the 20-minute deadline. Portable filenames and a 45-minute deadline are locally repaired, not yet hosted-verified. Generated code is not Miri-covered. Finite campaigns do not complete broader review obligations; no new audit/fuzz expansion is authorized. |
-| 10: release acceptance | IN PROGRESS | Complete gates, thresholds, docs/examples, actual CI | Hosted GNU/musl/ARM64 native gates, matched shipping builds and artifact uploads pass at `4863789`. Full workflow acceptance awaits Miri repair verification. New scheduling tests have focused local GNU/musl evidence only. Remaining implementation/review reconciliation and native/disabled performance acceptance are unfinished; benchmarks are user-deferred, not passed. |
+| 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Hosted run `37134741669` at `52b2dec` passes all three native platforms (5059 executions/435 suite results/24 ignored each, including disassembly). Both Miri seeds pass 293 tests/42 suites and upload all 44 logs. The scheduling regression executes successfully on every native platform. Generated code is not Miri-covered. Finite campaigns do not complete broader review obligations; no new audit/fuzz expansion is authorized. |
+| 10: release acceptance | IN PROGRESS | Complete gates, thresholds, docs/examples, actual CI | All six hosted jobs, matched shipping builds and artifact uploads pass at `52b2dec`. Current runtime code has native GNU/musl/ARM64 evidence. Remaining implementation/review reconciliation and native/disabled performance acceptance are unfinished; benchmarks are user-deferred, not passed. |
 
 Status values: TODO, IN PROGRESS, COMPLETE, or BLOCKED with a concrete reason. Attach toolchain, platform, commands, counts, exclusions, and evidence paths when updating a row. COMPLETE requires the stated phase exit, not a percentage estimate.
 

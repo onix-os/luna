@@ -2,13 +2,14 @@
 
 This branch implements the first native execution tier described in [PLAN_JIT.md](PLAN_JIT.md). It is **not the finished plan** and is not the LuaJIT runtime or its FFI. Constructors still default to interpreted execution. Do not use these results to claim production readiness or hostile-code isolation.
 
-Hosted native gates pass on Linux x86-64 GNU, x86-64 musl and ARM64 GNU at
-`4863789` ([run 37078917137](https://github.com/onix-os/luna/actions/runs/37078917137)).
-ARM64 executes native code, including the example's 200007 native logical
-instructions. The overall workflow failed: Miri seed 0 passed its component
-gate but could not upload colon-containing log names; seed 1 timed out.
-The filename/deadline repairs and newer scheduling regression are pushed in
-`52b2dec`; their hosted results are pending. Benchmarks are deferred by the
+All six hosted jobs pass at `52b2dec`
+([run 37134741669](https://github.com/onix-os/luna/actions/runs/37134741669)).
+Linux x86-64 GNU, x86-64 musl and ARM64 GNU each pass 5059 test executions
+across repeated modes/suites, including the scheduling regression and disassembly
+check. Each native example completes 200007 logical instructions. Both Rust-only
+Miri seeds pass 293 tests across 42 suites; all evidence uploads succeed.
+This resolves the previous filename/timeout failures, not full-plan acceptance.
+Benchmarks are deferred by the
 maintainer, not accepted, and earlier upvalue/callback/disabled-cost failures
 remain unresolved.
 
