@@ -114,13 +114,27 @@ execute five times across feature/mode lanes; the unchanged large-concatenation
 test passes four times. `file` confirms static ELF32 i386 executables. The
 fallback lane includes baseline, JIT Off/Auto and all-feature Force suites.
 RNG and owned-string fixes are pushed as `f9e8022` and `166c7ae`. Width/clamping
-fixes, capability-aware test expectations and the new CI lane are ready to commit.
+fixes are pushed as `71a945e`; capability-aware tests and the new CI lane are
+pushed as `a893bd7`. Hosted run `37142633733` now passes its actual i686 fallback
+job `111260042537`; the downloaded log confirms the same 1839 passing executions,
+295 suites and two ignored. Verify also passes; native and Miri jobs remain live.
+The previous temporary-file repair run `37140446824` completes successfully in
+all six jobs. Its green status does not validate the later portability repairs.
 
 #### Next Steps
-Collect final-source GNU/musl full gates. The earlier GNU run passed but crossed
-source edits, so use `gnu-final.log`, not that transitional log, for final-source
-acceptance. Collect the new hosted fallback lane after push; local validation
-is not a hosted result. Benchmarks and full-plan acceptance remain open.
+Final-source GNU and musl `make jit-verify` gates now each pass 5142 executions
+across 446 repeated suites, with 24 ignored and zero failures. Final GNU batch
+`30920` and musl-containing batch `97720` exit 0. Use `gnu-final.log`, not the
+earlier GNU log that crossed edits. Source/build inputs still match `a893bd7`.
+The final GNU focused portability gate passes 152 executions across 11 suites.
+Final workflow validation and advisory clippy exit 0; the inherited 141
+library-test warnings remain. All owned local test/build jobs are terminal.
+
+Collect remaining native/Miri jobs in hosted run `37142633733` rather than
+dispatching replacements; its fallback and verify jobs already pass. Continue
+the original non-benchmark checklist review, including controllable compiler
+memory and integrated boundary evidence. Benchmarks and full-plan acceptance
+remain open; this closes a real platform gap, not the whole objective.
 
 #### Relevant Files
 - `flake.nix`, `Makefile`, `.github/workflows/tests.yml` — real i686 execution lane.
@@ -1926,8 +1940,8 @@ runtime edits must revalidate affected criteria. An unchecked item may reflect
 missing acceptance evidence rather than missing implementation.
 
 - [ ] Existing API and Lua 5.4 regression behavior remain compatible.
-- [x] `make verify` succeeds without JIT enabled by default. Revalidated in full GNU/musl gates at `ab3e710` after the temporary-name repair.
-- [x] `make jit-verify` succeeds in Off, Auto, and Force, including optional async/derive and doctests. GNU/musl each pass 5118 executions / 440 suites / 24 ignored at `ab3e710`.
+- [x] `make verify` succeeds without JIT enabled by default. Revalidated in full GNU/musl gates at `a893bd7` after the portability repairs.
+- [x] `make jit-verify` succeeds in Off, Auto, and Force, including optional async/derive and doctests. GNU/musl each pass 5142 executions / 446 suites / 24 ignored at `a893bd7`.
 - [ ] Eligible integrated workloads actually execute native instructions; counters and coverage substantiate this.
 - [ ] No proportional native-stack growth from Lua recursion/tail calls or suspension.
 - [ ] Small-fuel/interrupt/GC-request tests preserve reference scheduling behavior.
@@ -1940,7 +1954,7 @@ missing acceptance evidence rather than missing implementation.
 - [ ] Executable memory is never deliberately mapped writable and executable simultaneously; allocation/protection failure falls back or reports capability failure safely.
 - [ ] `make jit-fuzz-smoke` passes; longer campaign evidence and unsafe-boundary review are recorded.
 - [x] Native platform tests actually execute on each advertised release target.
-- [ ] Unsupported or denied-JIT environments preserve interpreter functionality.
+- [x] Unsupported or denied-JIT environments preserve interpreter functionality. Real i686 fallback passes locally and in hosted job `111260042537` at `a893bd7`; supported-target mapping/protection-denial regressions also pass in the full native gates. This is executed target/fault coverage, not a claim about every possible OS policy.
 - [ ] `make jit-bench` meets preapproved numerical workload thresholds with controls enabled.
 - [ ] `make jit-size` records interpreter/JIT feature costs and compiled-but-disabled overhead.
 - [ ] Docs, examples, resource/security caveats, and actual CI wiring match behavior.

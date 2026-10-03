@@ -13,6 +13,14 @@ Benchmarks are deferred by the
 maintainer, not accepted, and earlier upvalue/callback/disabled-cost failures
 remain unresolved.
 
+The portability milestone `a893bd7` passes final local GNU/musl verification:
+5142 test executions each across 446 repeated suites, with 24 ignored and zero
+failures. Real i686 interpreter fallback passes 1839 executions locally and in
+the [hosted fallback job](https://github.com/onix-os/luna/actions/runs/37142633733/job/111260042537).
+That job exercises the unsupported-target branch rather than native compilation.
+The remaining native/Miri jobs for this revision are still pending at this
+checkpoint; the older green runs do not certify these later source changes.
+
 ## Enable and prepare
 
 Enable the optional `jit` Cargo feature and set `JitConfig.mode` to `JitMode::Auto`. See `examples/jit.rs`; run it with `nix develop -c make jit-example`.
@@ -540,7 +548,8 @@ and service report `Unavailable`; convenience execution remains interpreted,
 with no queued requests, compiled regions or native instructions. A failure to
 execute the target fails the gate rather than silently skipping it.
 
-Remaining stages include complete boundary/IR/cache accounting, broader helper/heap optimization and explicit mixed-tier lifecycle stress, refined promotion policy, expanded heap/lifecycle and coverage-guided fuzzing, executed ARM64 verification, and actual hosted CI results.
+The unchecked acceptance criteria in `PLAN_JIT.md` track remaining work. Historical
+checkpoints and individual platform passes do not establish full-plan completion.
 
 `make jit-profile` retains Rust symbols and attempts an opt-level-3 perf capture of the checked upvalue workload; it requires host perf permission and does not alter kernel settings. `make jit-rust-assembly` extracts symbol-retained Rust dispatch/helper/invocation assembly without perf permission. These are diagnostic lanes, not acceptance timing builds or native JIT disassembly. On the current host perf recording is denied (`perf_event_paranoid=4`); Rust assembly verified that outlining removed the native scratch probe page from `run_vm`.
 
