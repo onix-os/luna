@@ -2,6 +2,16 @@
 
 This branch implements the first native execution tier described in [PLAN_JIT.md](PLAN_JIT.md). It is **not the finished plan** and is not the LuaJIT runtime or its FFI. Constructors still default to interpreted execution. Do not use these results to claim production readiness or hostile-code isolation.
 
+Hosted native gates pass on Linux x86-64 GNU, x86-64 musl and ARM64 GNU at
+`4863789` ([run 37078917137](https://github.com/onix-os/luna/actions/runs/37078917137)).
+ARM64 executes native code, including the example's 200007 native logical
+instructions. The overall workflow failed: Miri seed 0 passed its component
+gate but could not upload colon-containing log names; seed 1 timed out.
+The filename/deadline repairs and newer scheduling regression are pushed in
+`52b2dec`; their hosted results are pending. Benchmarks are deferred by the
+maintainer, not accepted, and earlier upvalue/callback/disabled-cost failures
+remain unresolved.
+
 ## Enable and prepare
 
 Enable the optional `jit` Cargo feature and set `JitConfig.mode` to `JitMode::Auto`. See `examples/jit.rs`; run it with `nix develop -c make jit-example`.
@@ -165,8 +175,8 @@ postorder vectors; only nodes remain after construction. Storage refusal reports
 `ResourceLimit("frontend dominance storage")`. Construction is limited to
 `64 * (DFG blocks + reserved raw predecessor edges + 1)` charged steps, refusing
 with `ResourceLimit("frontend dominance work")` before codegen. This bounds the
-analysis, not total compiler CPU time. Backend internals, frontend builder storage
-and fixed owner allocations remain outside the ledger. This is not complete
+analysis, not total compiler CPU time. Backend internals and frontend builder
+storage remain outside the ledger; fixed owners are accounted below. This is not complete
 compiler working-memory or RSS accounting.
 The retained, fallible PC-to-block map is charged to the snapshot ledger and
 can refuse with `ResourceLimit("frontend block map")` before compiler/host setup.
@@ -183,7 +193,7 @@ their cached code even while JIT is Off. Live closures keep their registrations;
 partial cycles can defer retirement until completion. GC performs no compilation.
 The disabled `service_jit()` fast path remains unchanged.
 
-- `max_prototype_instructions` and `max_snapshot_bytes` bound snapshot admission before copying bytecode. Native scratch uses the smallest fitting 8/16/32/64/128/256-slot tier, bounded to 256 scalar slots. Scratch-bearing routines are non-inlined, so compiled-but-Off VM entries do not reserve their 4 KB maximum.
+- `max_prototype_instructions` and `max_snapshot_bytes` bound snapshot admission before copying bytecode. Native scratch uses exact 1–8-slot specializations, then the smallest fitting 16/32/64/128/256-slot tier, bounded to 256 scalar slots. Zero-register entries use an empty initialized prefix. Scratch-bearing routines are non-inlined, so compiled-but-Off VM entries do not reserve their 4 KB maximum.
 - `max_ir_instructions` (1048576) and `max_ir_blocks` (65536) independently cap a conservative frontend expansion envelope before graph allocation or Cranelift setup. Actual frontend instruction/block counts must fit the admitted envelope before code generation. The estimate can reject a prototype below the source-opcode ceiling; these limits do not bound optimizer CPU time, compiler working memory or RSS. Lowering either limit retires cached code and pending requests; existing leases retain their normal lifetime policy.
 - `max_queue_entries` bounds pending identity requests. Saturating hotness and `max_compile_attempts` limit repeated failures; clearing the cache resets attempts.
 - `max_code_bytes` bounds actual page-rounded JIT mappings, including the compiler's code/readonly/writable segments. Retired but pinned mappings remain charged until the last lease drops. Allocation failure frees partial mappings and leaves interpretation usable.
@@ -198,13 +208,13 @@ The disabled `service_jit()` fast path remains unchanged.
 - Synchronous/asynchronous finish checks reclaim idle cached code and collect twice before stopping an over-limit executor. They check before running more work, before final completion and before polling a parked foreign future. Manual `Executor::step` remains host-controlled. GC allocation within a slice can overshoot, and finalizer/host allocations are not made fallible by this policy.
 - Mapped-page usage is an inline atomic in the existing host root ledger, not a separately allocated counter Arc. Private `MappingCounter` handles resolve child ledgers to that root without allocating and preserve it through detached code leases. Mapped usage and charged combined-host usage remain separate counters; actual mappings still reserve both quotas before allocation and release both after unmapping.
 - Ledger and runtime owners use private exact-layout, strong-only Global allocations. `bootstrap_bytes` reports their live layouts; `accounted_jit_bytes` and the host ceiling include them. The normal state-owned floor is three ledger layouts plus the runtime layout, retained after code/prototype cleanup. Both reserve the same root atomic as payloads before allocation; refusal rolls back and final deallocation precedes charge release. The runtime's RefCell preserves non-Send/non-Sync ownership, with compile-time trait checks. Private fallible factories exist; existing infallible Lua constructors retain their allocation-failure contract.
-- This is **not yet a complete compiler ledger**. It excludes allocator overhead, other Cranelift internal/transient/retained allocations and process RSS. Luna's entry flags and actual provider mapping-record storage use the shared ledgers; pinned mappings remain charged after retirement. Bounded unleased LRU eviction and fallible sparse-container compaction exist, but complete compiler accounting remains required before Phase 3/7 acceptance. Accounted limits are not an RSS or hostile-compiler ceiling.
+- This is **not yet a complete compiler ledger**. It excludes allocator overhead, Cranelift-owned transient allocations and process RSS. Cached code retains the finalized mappings, not the compiler module or its buffers. Luna's entry flags and actual provider mapping-record storage use the shared ledgers; pinned mappings remain charged after retirement. Bounded unleased LRU eviction and fallible sparse-container compaction exist, but complete compiler accounting remains required before Phase 3/7 acceptance. Accounted limits are not an RSS or hostile-compiler ceiling.
 - `native_entries` counts real machine-code invocations, including immediate guard exits. `native_instructions` counts completed logical bytecodes, not CPU instructions. `interpreted_instructions` counts the reference VM's reported instructions, which exclude some transition opcodes. `interpreted_slices` counts completed slices that fetched an interpreted opcode. `hook_exits` counts slices kept interpreted with hooks enabled.
 - `code_lookups` counts eligible slice-local cache probes; `code_leases` counts successful owned leases, even when an entry is interpreted. A single VM slice reuses its lease across native/reference fragments, but repacks canonical registers for every invocation. Hotness observation remains per interpreted dispatch when no code is installed.
 - `helper_calls` counts scoped helper attempts, `helper_instructions` counts completed helper-backed bytecodes, and `helper_declines` counts effect-free fallback requests. Table/upvalue/allocation counters count successful accesses; table-through-upvalue operations include a successful upvalue read. These are real native helper paths, not the interpreter's opcode loop.
 - `code_bytes` is live mapped usage; `snapshot_bytes` follows owned snapshot vectors; `installed_regions`, requests, failures, and execution counters are cumulative. Preparation is synchronous, so the host usually observes zero current snapshot usage after it returns. Benchmarks also report current/peak container charges and refusals.
 
-The backend is compiled for Linux x86-64/aarch64. Executed integration evidence exists on x86-64 GNU and musl; ARM64 execution remains unverified. `supported_target` reports build eligibility, **not successful executable-memory allocation or release platform certification**. Explicit preparation/service reports unsupported targets, typed `ResourceLimit` mapping/metadata/snapshot refusals, native allocation/protection denial as `Unavailable`, or compiler errors. Optional convenience service failures do not become Lua language errors. Test-only injection covers allocation/protection denial after source loading, preservation of another installed module, interpreter fallback and recovery; it does not modify host permissions or expose a script-facing fault option.
+The backend is compiled for Linux x86-64/aarch64. Executed integration evidence exists on x86-64 GNU, musl and ARM64 GNU at `4863789`, as linked above. `supported_target` reports build eligibility, **not successful executable-memory allocation or release platform certification**. Explicit preparation/service reports unsupported targets, typed `ResourceLimit` mapping/metadata/snapshot refusals, native allocation/protection denial as `Unavailable`, or compiler errors. Optional convenience service failures do not become Lua language errors. Test-only injection covers allocation/protection denial after source loading, preservation of another installed module, interpreter fallback and recovery; it does not modify host permissions or expose a script-facing fault option.
 
 ## Unsafe boundary review: current scalar/heap tier
 
@@ -355,7 +365,8 @@ and metamethod transitions) break before its completed-work
 increment. A high native fraction therefore does not mean those transitions
 are compiled or inexpensive. Full opcode/transition coverage remains open.
 Memory peaks are observed at host boundaries except the existing
-metadata/snapshot ledger peaks. Compiler allocations, fixed owners, allocator overhead and RSS remain
+metadata/snapshot ledger peaks. Fixed owners are included in `bootstrap_bytes`
+and accounted JIT usage. Cranelift transient allocations, allocator overhead and RSS remain
 excluded. These measurements are neither hard CPU limits nor complete memory
 accounting.
 

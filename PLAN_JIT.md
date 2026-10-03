@@ -149,7 +149,7 @@ regression. Historical entries saying ARM64 evidence is missing are superseded
 by this checkpoint. Run: https://github.com/onix-os/luna/actions/runs/37078917137
 
 #### Accomplished
-Scheduling verification is committed locally as `da5f1eb`, with 63 focused
+Scheduling verification is committed as `da5f1eb`, with 63 focused
 passing executions each on GNU and musl. Downloaded hosted job status and
 failure logs; no benchmarks were run. Miri evidence basenames now use hyphens
 instead of namespace colons, without changing test filters or exclusions.
@@ -163,16 +163,32 @@ Final `nix develop -c make jit-miri-wrapper-tests ci-check fmt-check` exits 0:
 44 portable log names, three propagated failure cases, workflow lint and Rust
 formatting pass. No full runtime suite or actual Miri rerun was needed to check
 these recipe-only changes; hosted acceptance of the repair is still pending.
+Pushed both scheduling and CI-repair commits through `52b2dec` under the user's
+existing publish request. `git ls-remote` confirms the remote branch matches
+`52b2decc811bd99227020d8b145a8c6386174d3c`. New hosted run `37134741669`
+is confirmed in progress, with default verification, both Miri seeds and all
+three native jobs running. Keep polling that run; do not dispatch a duplicate.
+The next poll confirms default verification has completed successfully; native
+and Miri jobs remain live. This includes the new evidence-recipe regression.
+
+Runtime inspection confirms the previous profile attributes substantial
+short-call cost to VM dispatch, frame transitions and per-invocation marshalling.
+No new runtime optimization or timing claim follows from this inspection.
+Reconciled current public documentation with exact-small-frame dispatch,
+accounted fixed owners, detached compiler ownership and actual ARM64 evidence.
+Historical acceptance paragraphs below remain revision-scoped.
 
 #### Next Steps
-Verify both Miri seeds on the next authorized push. The existing hosted run
-predates `da5f1eb`. Continue genuine
+Inspect run `37134741669` for the pushed repair and scheduling test on all native
+targets; verify both Miri seeds and their uploads before claiming workflow success.
+Continue genuine
 non-benchmark implementation gaps; frozen performance acceptance remains deferred.
 
 #### Relevant Files
 - `Makefile` — Miri commands and evidence filenames.
 - `.github/workflows/tests.yml` — hosted native and Miri jobs.
 - `tests/test-jit-miri.sh` — portable filenames and recipe failure propagation.
+- `JIT.md` — current execution, ownership and platform scope.
 - `target/jit-evidence/hosted-ci/` — downloaded run metadata and logs.
 
 ### User priority clarification — 2026-10-02
@@ -1452,7 +1468,7 @@ slice evidence; full safety/guard/lifecycle obligations remain open.
 
 ### Phase 10 — Publish a complete, accurately documented feature
 
-**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 9 and approved workload acceptance. Active native workflow wiring and a prepared example exist; executed hosted/ARM64 results, complete hardening, frozen performance controls and shipping/size reporting remain open.
+**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 9 and approved workload acceptance. Hosted native GNU/musl/ARM64 gates, shipping builds and the prepared example pass at `4863789`. The repaired overall workflow is running at `52b2dec`; complete review, frozen performance controls and current shipping/size acceptance remain open.
 
 **Files:** docs/examples, benchmark/size tooling, actual CI integration, this document.
 
