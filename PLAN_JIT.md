@@ -9,7 +9,21 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Progress snapshot — 2026-10-03
+### Progress snapshot — 2026-10-04
+
+Lifecycle regression commit `deed84a` adds direct Rust continuation coverage,
+normal close-transfer coverage and nested-executor upvalue writes without
+changing production runtime `1f905f9`. The Phase 5 reconciliation below records
+all six requirements and the GNU/musl focused evidence. Its lifecycle milestone
+is verified; boundary-model/compiler-resource obligations and deferred
+performance acceptance are still open.
+
+GNU's full relocation-copy gate has completed (5298 executions / 476 suites /
+24 ignored / zero failures). Musl's paired full run and hosted run `37159200148`
+remain in progress. The local paired run began before `deed84a` and some new
+fixtures were added during it; it is not a clean full-gate claim for that test
+commit. Separate GNU all-features and focused GNU/musl results cover the added
+tests as detailed in Phase 5.
 
 ### Module relocation-copy accounting — 2026-10-04
 
@@ -2330,7 +2344,7 @@ prevent Phase 3/release acceptance.
 
 ### Phase 5 — Preserve callbacks, coroutines, async, and unwinding
 
-**Status:** IN PROGRESS. **Depends on:** Phase 4. Dedicated native heap tests cover reentrant callbacks, coroutine suspension, foreign futures, and close-handler error unwinding. Shared public-host coroutine/await scenarios verify native heap work around suspension, GC while parked, real Pending/wake behavior and tier coverage at fuel 1/64/65536. Selective preparation independently verifies all four caller/callee tier combinations for normal and tail calls. Deep/infinite tail-call bounds, executor-driven cleanup and deferred uncaught-coroutine error cleanup pass GNU/musl gates (`9ed8a0f`, `fe0042a`, `3a17a1f`). The remaining phase checklist still needs complete evidence reconciliation; the already repaired coroutine timing defect is not an open implementation item.
+**Status:** LIFECYCLE IMPLEMENTATION MILESTONE VERIFIED; prerequisite acceptance remains open. **Depends on:** Phase 4. The six-item reconciliation below combines selective-tier calls, direct Rust continuations, nested-executor upvalue reads/writes, callback mutation/interruption, coroutine/foreign-future suspension, normal/error cleanup and typed errors. New tests run against unchanged production runtime `1f905f9`. This closes the embedding-lifecycle implementation milestone, not Phase 2/3 boundary/compiler-resource obligations or release/performance acceptance.
 
 **Files:** runtime wrappers, thread executor/frame integration, `tests/jit_transitions.rs`, existing callback/reentrancy/async/close/error tests.
 
@@ -2344,6 +2358,44 @@ prevent Phase 3/release acceptance.
 **Verify:** `make jit-test-all JIT_MODE=force`; transition tests assert native execution on at least one side of each required boundary and canonical completion after it. Infinite/deep tail-call tests retain bounded step behavior and no proportional native-stack growth.
 
 **Exit:** compiled execution is integrated with the embedding lifecycle, not just standalone numeric programs.
+
+#### Lifecycle checklist reconciliation — 2026-10-04
+
+| Original requirement | Executed evidence and scope |
+| --- | --- |
+| Native work around canonical calls/returns/tail calls | `jit_suspension` selective caller/callee fixture brackets each side with Rust callbacks and checks per-segment native instruction/table-write deltas, exact results and slice traces. |
+| Caller/callee tier combinations | Selective preparation fixes all four tier pairs, normal/tail calls and fuel 1/64/65536; installed count and queue assertions prevent accidental promotion. |
+| Rust sequences, nested executors, mutation and interruption | New `jit_sequences` exercises direct `Sequence::poll/error`, Pending, nested Lua Call, Yield and resume. `jit_upvalues` now checks both reads and writes inside a nested Rust-driven executor with open and closed cells. `jit_native` verifies global/metatable replacement and fuel interruption after native work. |
+| Coroutine/foreign-future suspension | Public-host fixtures in `jit_suspension` and `examples/jit_support/suspension.rs` verify native work before/after suspension, real Pending/wake behavior, outside-arena polling and collection while parked. The invocation returns before executor-managed transitions; suspended frames retain canonical state, not a live generated stack frame. |
+| Normal and exceptional close paths | New normal-close matrix covers return, break, goto and block fallthrough with LIFO events and exact native table-write counts. Existing suspension/heap fixtures cover errors, coroutine close, handler errors and deferred cleanup. |
+| Errors, positions, tail bounds and nils | `jit_errors` checks fault positions, exact slices and typed callback payload identity through catch/rethrow. Deep normal/tail recursion fixtures sample bounded host-stack spans; tail arena peaks stay within the recorded bound. Sequence and mixed-tier fixtures retain interior/trailing nils and arity. |
+
+The direct sequence matrix compares Off/prepared traces at fuel -1/0/1/64/65536
+for successful and failing callees. It collects after every slice and while
+yielded, preserves the Lua error table identity and retained stack prefixes,
+and checks exact native table-write checkpoints 101/201/201/301. There are ten
+paired cases per configuration, 40 across GNU/musl with jit and jit+async.
+Normal close adds 20 paired cases per configuration (80 total), each requiring
+505 native table writes, ordered handler events and exact reference traces.
+Nested executor cases require 50 native upvalue writes and at least 50 reads,
+including writes to an outer executor's still-open cell.
+
+Focused GNU sequence and normal-close commands pass both feature configurations;
+musl `make jit-sequences jit-suspension` passes 38 executions / four suites.
+`make jit-upvalues` passes seven tests on each target after adding nested writes.
+The extended reentry fixture also passes with all features on GNU and musl
+(`57683`, one selected test each).
+GNU `make fmt-check jit-clippy jit-rustdoc jit-test-all JIT_MODE=force` exits 0
+(`47745`), with 995 passing executions / 80 suites / four ignored tests.
+That all-features run includes the new sequence/close tests but predates the two
+additional nested-writer scripts; their focused results are separate evidence.
+Clippy remains advisory with existing warnings. Logs are under
+`target/jit-evidence/sequences/`. The initial sequence fixture compile error
+used an unavailable root `LuaError` import and was corrected before these runs;
+it was not a production-runtime defect.
+
+No runtime implementation changed in this checkpoint. No benchmark, GPU work,
+new audit/fuzz infrastructure or additional supported platform is claimed.
 
 #### Selective caller/callee acceptance — 2026-10-02
 

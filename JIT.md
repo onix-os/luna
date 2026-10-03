@@ -451,7 +451,17 @@ forced GC and separate external poll cost, coverage and observed resources.
 Counters exclude frame-transition opcodes as above; one whole executor step may
 contain more than one 64-operation VM invocation. `make jit-suspension` checks
 both feature configurations and all modes at fuel 1, 64 and 65536. These tests and
-observations do not complete the full mixed-tier transition/error matrix.
+observations alone do not complete the mixed-tier transition/error matrix;
+the Phase 5 checklist in `PLAN_JIT.md` records the combined evidence.
+
+`make jit-sequences` checks direct Rust `Sequence` continuations with and without
+async enabled: Pending, nested Lua call/error, yield and host resume. Exact
+Off/native slice traces, retained stack prefixes, error identity and trailing
+nils are checked with collection between slices. Per-phase table-write counts
+prove native work before, inside and after the continuation. `jit-suspension`
+also checks normal return/break/goto/fallthrough close handlers, and
+`jit-upvalues` checks nested Rust-driven executors reading and writing open and
+closed cells. These are correctness checks, not timing acceptance.
 
 The same gate compares successful non-tail recursion at depths 128 and 4096
 against the interpreter, plus tail recursion at depths 128 and 16384. It checks
