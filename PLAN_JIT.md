@@ -32,6 +32,8 @@ compiled-disabled overhead. Remaining compiler-memory and safety review remain
 outstanding. Hosted run `37134741669` at `52b2dec` passes all six jobs, including
 both Miri seeds and all native/platform evidence uploads. This closes the
 recorded hosted-CI/platform gap, not the remaining implementation or performance gates.
+The newer relocation-admission milestone passes local full GNU/musl gates with
+5073 executions each; its ARM64/hosted evidence is not supplied by the older run.
 Do not infer a completion percentage or delivery date from commit/test counts.
 
 ### User checkpoint — commit now, benchmark later (2026-10-03)
@@ -200,6 +202,59 @@ user-deferred. Hosted success alone does not prove full-plan completion.
 - `tests/test-jit-miri.sh` — portable filenames and recipe failure propagation.
 - `JIT.md` — current execution, ownership and platform scope.
 - `target/jit-evidence/hosted-ci/` — downloaded run metadata and logs.
+
+### Relocation admission — 2026-10-03
+
+#### Goal
+Close the phase-7 relocation-count admission gap without changing execution or
+restarting benchmarks.
+
+#### Instructions
+Use the pinned backend and existing installation path, Make/Nix verification,
+and incremental unsigned commits. Do not expand audit/fuzz infrastructure.
+
+#### Discoveries
+Cranelift 0.136.1 `define_function_with_control_plane` compiles the function,
+copies its relocation records and allocates its writable code buffer.
+`finalize_definitions` subsequently applies relocations and changes protections.
+The existing mapping quota bounds bytes, but does not explicitly limit the
+number of relocation records processed during finalization.
+
+#### Accomplished
+Implemented positive `JitConfig::max_relocations` (default 65536) and check the
+actual compiled relocation count after definition, before finalization. Refuse
+with `ResourceLimit("native relocations")`; retain ordinary cleanup, backoff and
+interpreter fallback. Lowering the cap retires code/requests like the IR caps.
+This bounds accepted finalization work, not earlier compiler allocations or CPU
+time. No new linker, worker, process isolation or RSS claim is introduced.
+Initial GNU `make fmt jit-relocations` passes eight tests across three suites.
+The backend fixture admits the exact measured count, rejects one less before
+injected protection failure, restores snapshot/metadata/mapping usage, preserves
+a callable peer and recovers on the same snapshot. Public fixtures prove typed
+refusal, interpreter fallback, no eviction, attempt backoff, explicit-reset
+native recovery, and lowering-cap code/queue retirement. Configuration validation
+rejects zero transactionally. This is focused evidence, not a new full gate.
+Final batch `59360` exits 0: focused musl passes the same eight tests, then full
+GNU and musl `make jit-verify` each pass 5073 executions / 434 suite results /
+24 ignored / zero failures. These counts repeat tests across modes and feature
+sets. The source manifest matches after both gates. `make jit-clippy` (`70440`)
+exits 0 with the existing 141 lib-test warnings; no strict-warning acceptance is
+claimed. The new relocation code/tests introduce no reported lint diagnostics.
+All owned local jobs are terminal and no benchmarks ran. The previous green
+hosted run at `52b2dec` predates this new configuration/admission change.
+
+#### Next Steps
+Commit/push the verified milestone and collect its ARM64/hosted results. Keep
+compiler working-memory and deferred performance acceptance open; a relocation
+count is not an RSS or compiler-CPU ceiling. Continue genuine runtime work,
+without treating this admission limit as completion of the full plan.
+
+#### Relevant Files
+- `src/jit/mod.rs`, `src/jit/work.rs` — configuration and compiler limits.
+- `src/jit/backend.rs` — actual relocation admission before finalization.
+- `src/jit/backend/relocation_tests.rs` — exact boundary and cleanup/peer tests.
+- `tests/jit_config.rs`, `tests/jit_resources.rs` — public configuration/resource behavior.
+- `target/jit-evidence/relocations/` — focused/full logs, lint output and source manifest.
 
 ### User priority clarification — 2026-10-02
 

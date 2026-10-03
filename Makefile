@@ -55,7 +55,7 @@ $(info ------------------------------------------)
 .PHONY: jit-disassembly
 .PHONY: jit-bench-build jit-bench-run
 .PHONY: jit-metrics jit-metrics-build jit-metrics-run jit-metrics-tests
-.PHONY: jit-miri jit-miri-wrapper-tests
+.PHONY: jit-miri jit-miri-wrapper-tests jit-relocations
 .PHONY: jit-helpers jit-abi jit-config jit-registry jit-suspension jit-ir jit-generic-for jit-exits jit-access
 .PHONY: jit-tags
 .PHONY: jit-input jit-float-input jit-arithmetic jit-truth jit-comparison jit-comparison-backend
@@ -645,6 +645,11 @@ jit-host-finish-async:
 jit-host-reference:
 	@$(CARGO) test --locked -p luna --test memory_accounting $(TARGET_ARG)
 
+jit-relocations:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::relocation_tests
+	@$(CARGO) test --locked -p luna --features jit --test jit_resources $(TARGET_ARG) relocation
+	@$(MAKE) --no-print-directory jit-config
+
 jit-resources:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::resources
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::registry::tests
@@ -831,6 +836,7 @@ help:
 	@echo "  jit-backend  Execute the native helper-call and worker-transfer probes"
 	@echo "  jit-helpers  Test scoped Rust helper frames and panic transport"
 	@echo "  jit-miri     Check Rust-only JIT components (nix develop .#miri)"
+	@echo "  jit-relocations Test finalization relocation limits and fallback"
 	@echo "  jit-boundary Test native exits against the Rust boundary model"
 	@echo "  jit-native   Run integrated native execution and lifecycle tests"
 	@echo "  jit-numeric  Check reference and exact native numeric comparisons"

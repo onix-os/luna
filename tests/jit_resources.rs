@@ -45,6 +45,101 @@ fn state() -> Lua {
 }
 
 #[test]
+fn relocation_refusal_preserves_peer_and_interpretation_until_explicit_retry(
+) -> Result<(), ExternError> {
+    let mut lua = state();
+    let mut config = lua.jit_config();
+    config.max_relocations = 1;
+    config.max_compile_attempts = 1;
+    lua.set_jit_config(config).unwrap();
+    let peer = lua.try_enter(|ctx| Ok(ctx.stash(Closure::load(ctx, None, b"return 42")?)))?;
+    assert_eq!(lua.prepare_jit().unwrap(), 1);
+    let baseline = lua.jit_stats();
+    let candidate = lua.try_enter(|ctx| {
+        Ok(ctx.stash(Closure::load(
+            ctx,
+            None,
+            b"local t={} t.x=40 t.y=2 return t.x+t.y",
+        )?))
+    })?;
+    assert!(matches!(
+        lua.prepare_jit(),
+        Err(JitError::ResourceLimit("native relocations"))
+    ));
+    let refused = lua.jit_stats();
+    assert_eq!(refused.code_bytes, baseline.code_bytes);
+    assert_eq!(refused.snapshot_bytes, 0);
+    assert_eq!(refused.installed_regions, baseline.installed_regions);
+    assert_eq!(
+        refused.compilation_failures,
+        baseline.compilation_failures + 1
+    );
+    assert_eq!(refused.cache_evictions, baseline.cache_evictions);
+    let executor =
+        lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&candidate).into(), ())));
+    assert_eq!(lua.execute::<i64>(&executor)?, 42);
+    assert_eq!(lua.jit_stats().native_entries, refused.native_entries);
+    assert_eq!(
+        lua.jit_stats().compilation_failures,
+        refused.compilation_failures
+    );
+    let executor = lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&peer).into(), ())));
+    assert_eq!(lua.execute::<i64>(&executor)?, 42);
+    assert!(lua.jit_stats().native_instructions > refused.native_instructions);
+
+    let mut config = lua.jit_config();
+    config.max_relocations = JitConfig::default().max_relocations;
+    lua.set_jit_config(config).unwrap();
+    assert_eq!(lua.prepare_jit().unwrap(), 0);
+    lua.clear_jit_cache();
+    assert_eq!(lua.prepare_jit().unwrap(), 2);
+    let before = lua.jit_stats();
+    let executor =
+        lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&candidate).into(), ())));
+    assert_eq!(lua.execute::<i64>(&executor)?, 42);
+    let after = lua.jit_stats();
+    assert!(after.native_table_writes > before.native_table_writes);
+    assert!(after.native_table_reads > before.native_table_reads);
+    Ok(())
+}
+
+#[test]
+fn lowering_relocation_limit_retires_code_and_queued_requests() -> Result<(), ExternError> {
+    let mut lua = state();
+    let candidate = lua.try_enter(|ctx| {
+        Ok(ctx.stash(Closure::load(
+            ctx,
+            None,
+            b"local t={} t.x=40 t.y=2 return t.x+t.y",
+        )?))
+    })?;
+    assert_eq!(lua.prepare_jit().unwrap(), 1);
+    assert!(lua.jit_stats().code_bytes > 0);
+    let pending = source(&mut lua, b"local s=0 for i=1,100 do s=s+i end return s")?;
+    lua.enter(|ctx| {
+        assert!(!ctx
+            .fetch(&pending)
+            .step(ctx, &mut luna::Fuel::empty())
+            .unwrap());
+    });
+    assert!(lua.jit_stats().queued_requests > 0);
+    let mut config = lua.jit_config();
+    config.max_relocations = 1;
+    lua.set_jit_config(config).unwrap();
+    let stats = lua.jit_stats();
+    assert_eq!(stats.code_bytes, 0);
+    assert_eq!(stats.snapshot_bytes, 0);
+    assert_eq!(stats.queued_requests, 0);
+    assert_eq!(stats.registered_prototypes, 2);
+    let executor =
+        lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&candidate).into(), ())));
+    assert_eq!(lua.execute::<i64>(&executor)?, 42);
+    assert_eq!(lua.jit_stats().native_entries, stats.native_entries);
+    assert_eq!(lua.jit_stats().code_bytes, 0);
+    Ok(())
+}
+
+#[test]
 fn ir_shape_refusal_preserves_interpretation_and_recovers_after_reset() -> Result<(), ExternError> {
     for instructions in [true, false] {
         let mut lua = state();

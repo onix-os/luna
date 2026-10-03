@@ -125,6 +125,7 @@ pub struct JitConfig {
     pub max_prototype_instructions: usize,
     pub max_ir_instructions: usize,
     pub max_ir_blocks: usize,
+    pub max_relocations: usize,
     pub max_queue_entries: usize,
     pub max_code_bytes: usize,
     pub max_snapshot_bytes: usize,
@@ -140,6 +141,7 @@ impl Default for JitConfig {
             max_prototype_instructions: 4096,
             max_ir_instructions: 1024 * 1024,
             max_ir_blocks: 65536,
+            max_relocations: 65536,
             max_queue_entries: 16,
             max_code_bytes: 8 * 1024 * 1024,
             max_snapshot_bytes: 2 * 1024 * 1024,
@@ -159,6 +161,7 @@ impl JitConfig {
         if self.max_prototype_instructions == 0
             || self.max_ir_instructions == 0
             || self.max_ir_blocks == 0
+            || self.max_relocations == 0
             || self.max_queue_entries == 0
             || self.max_code_bytes == 0
             || self.max_snapshot_bytes == 0
@@ -455,6 +458,7 @@ impl Manager {
             || config.max_prototype_instructions < self.config.max_prototype_instructions
             || config.max_ir_instructions < self.config.max_ir_instructions
             || config.max_ir_blocks < self.config.max_ir_blocks
+            || config.max_relocations < self.config.max_relocations
         {
             self.clear();
         } else {
