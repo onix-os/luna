@@ -89,6 +89,28 @@ fn exact_relocation_limit_admits_and_refusal_preserves_peer_before_allocation() 
         assert_eq!(slots[0].tag, abi::INTEGER);
         assert_eq!(slots[0].bits, 42);
     }
+    let refused = compile_source(exact, Failure::RefuseRelocationCopy);
+    snapshots.set_limit(2 * 1024 * 1024);
+    assert!(matches!(
+        refused,
+        Err(JitError::ResourceLimit("native relocation copy"))
+    ));
+    assert_eq!(
+        (total.load(Ordering::Relaxed), metadata.0.current()),
+        baseline
+    );
+    assert_eq!(snapshots.current(), snapshot_baseline);
+    let mut slots = vec![Slot::from_value(crate::Value::Nil); peer.registers];
+    assert!(peer.invoke(&mut slots, 0, 64).instructions > 0);
+    assert_eq!(slots[0].bits, 42);
+    let charged = compile_source(exact, Failure::RequireRelocationCopy(snapshot_baseline)).unwrap();
+    assert_eq!(charged.relocations, count);
+    drop(charged);
+    assert_eq!(
+        (total.load(Ordering::Relaxed), metadata.0.current()),
+        baseline
+    );
+    assert_eq!(snapshots.current(), snapshot_baseline);
     assert!(matches!(
         compile_source(exact, Failure::Allocate),
         Err(JitError::Unavailable(_))

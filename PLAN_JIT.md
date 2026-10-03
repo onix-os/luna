@@ -11,6 +11,45 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Module relocation-copy accounting — 2026-10-04
+
+Closed the known byte-ledger gap in Cranelift's `define_function_bytes` copy.
+A nonallocating reservation admits the checked `ModuleReloc` array layout
+against the snapshot ledger and its host parent before definition/native mapping.
+The guard is declared before the module and released after module destruction,
+so errors and unwinding retain the charge for the owner's lifetime. Staging and
+the module copy are charged separately; successful compilation releases both
+before publishing Code. Quota refusal reports `native relocation copy` and does
+not evict or invalidate an installed peer.
+
+The accounting contract was checked against Cranelift 0.136.1's
+`relocs.to_owned()`/`CompiledBlob` ownership and Rust 1.97.1's slice-clone and
+RawVec array-layout allocation. `ModuleRelocTarget` has no separately allocated
+payloads. This charges the known requested layout, not allocator overhead, all
+compiler internals or RSS. Upstream allocation remains infallible; this does not
+promise recovery from a system allocator OOM. Review the contract on upgrades.
+
+Final focused batch `95512` exits 0: GNU/musl each pass 115 executions / 15 suites,
+real i686 passes 30 / three; zero failures/ignored. Relocation tests verify copy
+quota refusal before the injected mapping denial, coexistence of staging/copy
+charges, reclamation, native peer survival and exact-limit retry. Existing host
+memory gates and native fixtures pass. Three pure reservation tests cover parent/
+child refusal and rollback, zero storage/overflow and destructor/unwind ordering;
+they reside in the existing `jit::resources::tests` selection used by hosted Miri.
+No new Miri execution is claimed. Formatting and warning-denied docs pass;
+advisory Clippy retains the existing 141 lib-test warnings with no added warning.
+Default/all-feature checks also passed in batch `58659`.
+
+Evidence: `target/jit-evidence/relocation-copy/`. Changed files are
+`src/jit/{resources,backend}.rs`, `src/jit/backend/relocation_tests.rs` and the
+resource documentation. Full current-runtime and hosted verification remain
+pending; Phase 3/7 compiler-memory policy/review and deferred performance remain
+open. No benchmarks or new audit/fuzz infrastructure ran.
+
+The preceding dispatch-counter revision `dc2533b` now also has all-seven-green
+hosted evidence in run `37156905915`, verified after the local full gates.
+That run predates this relocation-copy reservation and does not certify it.
+
 ### Configuration/diagnostics milestone verified — 2026-10-04
 
 Full GNU/musl `make jit-verify jit-example` (`76295`) exits 0 for runtime
@@ -2767,7 +2806,7 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 
 ### Phase 6 — Add heap fast paths with collector and mutation proofs
 
-**Status:** Helper-backed implementation and bounded GC/mutation review verified; all seven hosted jobs pass at `a8bc5c7`. **Depends on:** Phase 5. Fixed helper ABI v3 uses canonical roots and existing barriers. The GC root/lifetime checkpoint records source review and GNU/musl evidence for every-slice collection, interleaved Rust mutation, weak values/keys and ephemeron reattachment, joined/foreign upvalues, finalizer resurrection, debug mutation, panic exits and async resumption. The later dispatch-counter runtime change awaits full revalidation. No direct-storage inline cache is enabled. This is not a performance result or a claim of complete PUC-Lua weak-mode conformance.
+**Status:** Helper-backed implementation and bounded GC/mutation review verified; all seven hosted jobs pass at `dc2533b`. **Depends on:** Phase 5. Fixed helper ABI v3 uses canonical roots and existing barriers. The GC root/lifetime checkpoint records source review and GNU/musl evidence for every-slice collection, interleaved Rust mutation, weak values/keys and ephemeron reattachment, joined/foreign upvalues, finalizer resurrection, debug mutation, panic exits and async resumption. The later relocation-copy runtime change awaits full revalidation. No direct-storage inline cache is enabled. This is not a performance result or a claim of complete PUC-Lua weak-mode conformance.
 
 **Files:** `src/jit/{abi,helpers,ir,registry,mod}.rs`, table modules, closure/upvalue integration, `tests/jit_heap.rs`, `tests/jit_upvalues.rs`, `tests/jit_gc_requests.rs`, and existing GC/weak/userdata suites. The three implemented integration files cover the originally proposed `jit_gc.rs`/`jit_mutation.rs` roles.
 
@@ -2819,7 +2858,7 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 
 ### Phase 9 — Harden and establish supported-platform evidence
 
-**Status:** IN PROGRESS. **Depends on:** Phase 8. Hosted run `37154853416` at `a8bc5c7` passes all seven jobs, including native GNU/musl/ARM64, both Rust-only Miri seeds and real i686 fallback. This includes relocation admission and the strict Force harness; the later dispatch-counter change awaits full revalidation. Earlier finite campaigns and bounded ownership/GC review do not complete broader review obligations. Do not expand audit/fuzz infrastructure against the user's stated priority.
+**Status:** IN PROGRESS. **Depends on:** Phase 8. Hosted run `37156905915` at `dc2533b` passes all seven jobs, including native GNU/musl/ARM64, both Rust-only Miri seeds and real i686 fallback. This includes relocation admission and the strict Force harness; the later relocation-copy change awaits full revalidation. Earlier finite campaigns and bounded ownership/GC review do not complete broader review obligations. Do not expand audit/fuzz infrastructure against the user's stated priority.
 
 Supervised heap/lifecycle coverage (`a951643`) adds four parameterized source
 families in fresh Off/Auto states. GNU/musl each pass 128 cases with per-slice
@@ -2856,7 +2895,7 @@ slice evidence; full safety/guard/lifecycle obligations remain open.
 
 ### Phase 10 — Publish a complete, accurately documented feature
 
-**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 9 and approved workload acceptance. All seven hosted jobs pass at `a8bc5c7`, including native GNU/musl/ARM64 gates and shipping builds. The later dispatch-counter runtime change has focused checks but awaits full revalidation. The documented example asserts native execution on GNU/musl and zero-counter fallback on i686; `JIT.md` reflects actual CI lanes and revision limits. Complete review, frozen performance controls and current shipping/size acceptance remain open.
+**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 9 and approved workload acceptance. All seven hosted jobs pass at `dc2533b`, including native GNU/musl/ARM64 gates and shipping builds. The later relocation-copy runtime change has focused checks but awaits full revalidation. The documented example asserts native execution on GNU/musl and zero-counter fallback on i686; `JIT.md` reflects actual CI lanes and revision limits. Complete review, frozen performance controls and current shipping/size acceptance remain open.
 
 **Files:** docs/examples, benchmark/size tooling, actual CI integration, this document.
 
