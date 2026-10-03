@@ -7,7 +7,7 @@ use cranelift_codegen::ir::{
 };
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{BranchProtection, JITBuilder, JITMemoryKind, JITMemoryProvider, JITModule};
-use cranelift_module::{default_libcall_names, Linkage, Module, ModuleResult};
+use cranelift_module::{default_libcall_names, Linkage, Module, ModuleReloc, ModuleResult};
 
 use super::{
     abi::{self, Entry, Exit, Slot},
@@ -260,6 +260,7 @@ pub(super) enum Failure {
     CorruptEntryFlow(super::entry_flow::Fault),
     CorruptRegionFlow(super::entry_flow::RegionFault),
     RefuseRegionWorkspace,
+    RefuseRelocationStorage(bool),
     CorruptBinding(super::tags::BindingFault),
 }
 
@@ -647,15 +648,45 @@ pub(super) fn compile_in(
     if let Failure::RequireReleasedWorkspace(baseline) = failure {
         assert_eq!(snapshot.operations.allocator().0.current(), baseline);
     }
-    module
-        .define_function(function, &mut context)
-        .map_err(fail)?;
-    let relocations = context.compiled_code().unwrap().buffer.relocs().len();
+    context
+        .compile(module.isa(), &mut Default::default())
+        .map_err(|error| fail(error.into()))?;
+    let compiled = context.compiled_code().unwrap();
+    let relocations = compiled.buffer.relocs().len();
     if relocations > work.relocations {
         return Err(JitError::ResourceLimit("native relocations"));
     }
     #[cfg(test)]
-    let byte_len = context.compiled_code().unwrap().code_buffer().len();
+    if let Failure::RefuseRelocationStorage(allocation) = failure {
+        let ledger = &snapshot.operations.allocator().0;
+        if allocation {
+            ledger.fail_after(0);
+        } else {
+            ledger.set_limit(ledger.current());
+        }
+    }
+    let mut module_relocations = BudgetVec::new_in(snapshot.operations.allocator().clone());
+    module_relocations
+        .try_reserve_exact(relocations)
+        .map_err(|_| JitError::ResourceLimit("native relocation staging"))?;
+    module_relocations.extend(
+        compiled
+            .buffer
+            .relocs()
+            .iter()
+            .map(|relocation| ModuleReloc::from_mach_reloc(relocation, &context.func, function)),
+    );
+    module
+        .define_function_bytes(
+            function,
+            u64::from(compiled.buffer.alignment),
+            compiled.code_buffer(),
+            &module_relocations,
+        )
+        .map_err(fail)?;
+    drop(module_relocations);
+    #[cfg(test)]
+    let byte_len = compiled.code_buffer().len();
     drop(context);
     module.finalize_definitions().map_err(fail)?;
     let entry =

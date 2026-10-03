@@ -11,6 +11,59 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Relocation admission before native allocation — 2026-10-03
+
+#### Goal
+Enforce the existing relocation-count ceiling before native mapping allocation,
+without claiming a complete Cranelift working-memory bound.
+
+#### Instructions
+Continue non-benchmark resource work through Make gates; preserve interpreter
+fallback, peer code, pinned backend semantics and incremental commits.
+
+#### Discoveries
+Pinned `JITModule::define_function` compiles, converts relocations and allocates
+the native blob before returning. Checking the count afterward cannot prevent
+that allocation. The regression now injects allocation denial as well as
+protection denial; it fails before the repair with the wrong error precedence.
+
+#### Accomplished
+Split code generation from installation using `Context::compile` and the
+upstream `define_function_bytes` API. Check the actual count first, then convert
+relocations using `ModuleReloc::from_mach_reloc` in a fallible snapshot-ledger
+vector. Preserve emitted alignment and upstream ISA minimum/symbol alignment,
+linker/provider, cache maintenance and finalization. Drop staging after copying,
+and Context before finalization. No custom linker or compiler fork is introduced.
+
+The byte-definition API does not populate the module's PC-to-function map or
+optional Wasmtime exception metadata. Luna never queries that map, destroys the
+module before publication, and emits status-returning helpers, not exception
+landing pads. Its Lua debug/error paths use canonical PCs and interpreter exits;
+Rust panics must still be contained before returning through generated frames.
+Any future exception-aware lowering must revisit this installation contract.
+
+The allocation-denial regression fails in `before.log` (batch `10099`, exit 2)
+and passes after the split (batch `35236`, exit 0). Added staging quota and
+underlying-allocation refusal checks, exact-limit success, peer execution and
+same-snapshot recovery. Batch `20288` exits 0: GNU/musl each pass 260 executions
+across 18 repeated suites, zero failures, one ignored artifact test (explicitly
+executed by the subsequent disassembly target). Gates cover relocations, compiler
+lifetimes, images, resources, host admission, segments, native execution, numeric
+semantics and finalized disassembly. Formatting and `git diff --check` pass.
+Cranelift's original machine-relocation buffer and module-owned copy remain
+outside complete byte accounting; this repair closes admission ordering only.
+
+#### Next Steps
+Finish native/image/resource/disassembly gates, run full native verification,
+commit/push this repair and collect hosted ARM64 evidence. Continue the remaining
+compiler-memory and acceptance requirements without running deferred benchmarks.
+
+#### Relevant Files
+- `src/jit/backend.rs` — generation/admission/installation ordering.
+- `src/jit/backend/relocation_tests.rs` — refusal ordering and recovery.
+- `JIT.md` — exact relocation cap and staging semantics.
+- `target/jit-evidence/relocation-admission/` — red/green and native gate logs.
+
 ### Documentation and example reconciliation — 2026-10-03
 
 #### Goal

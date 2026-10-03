@@ -9,7 +9,7 @@ fn snapshot(source: &[u8]) -> Snapshot {
 }
 
 #[test]
-fn exact_relocation_limit_admits_and_refusal_preserves_peer_before_protection() {
+fn exact_relocation_limit_admits_and_refusal_preserves_peer_before_allocation() {
     let source = snapshot(b"local t={} t.x=40 t.y=2 return t.x+t.y");
     let snapshots = source.operations.allocator().0.clone();
     let snapshot_baseline = snapshots.current();
@@ -43,7 +43,7 @@ fn exact_relocation_limit_admits_and_refusal_preserves_peer_before_protection() 
     )
     .unwrap();
     let baseline = (total.load(Ordering::Relaxed), metadata.0.current());
-    for failure in [Failure::None, Failure::Protect] {
+    for failure in [Failure::None, Failure::Allocate, Failure::Protect] {
         let result = compile_source(
             Limits {
                 relocations: count - 1,
@@ -71,6 +71,28 @@ fn exact_relocation_limit_admits_and_refusal_preserves_peer_before_protection() 
         relocations: count,
         ..defaults
     };
+    for allocation in [false, true] {
+        let refused = compile_source(exact, Failure::RefuseRelocationStorage(allocation));
+        snapshots.set_limit(2 * 1024 * 1024);
+        snapshots.fail_after(usize::MAX);
+        assert!(matches!(
+            refused,
+            Err(JitError::ResourceLimit("native relocation staging"))
+        ));
+        assert_eq!(
+            (total.load(Ordering::Relaxed), metadata.0.current()),
+            baseline
+        );
+        assert_eq!(snapshots.current(), snapshot_baseline);
+        let mut slots = vec![Slot::from_value(crate::Value::Nil); peer.registers];
+        assert!(peer.invoke(&mut slots, 0, 64).instructions > 0);
+        assert_eq!(slots[0].tag, abi::INTEGER);
+        assert_eq!(slots[0].bits, 42);
+    }
+    assert!(matches!(
+        compile_source(exact, Failure::Allocate),
+        Err(JitError::Unavailable(_))
+    ));
     assert!(matches!(
         compile_source(exact, Failure::Protect),
         Err(JitError::Unavailable(_))
