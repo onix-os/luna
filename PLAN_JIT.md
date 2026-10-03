@@ -11,6 +11,21 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Configuration/diagnostics milestone verified — 2026-10-04
+
+Full GNU/musl `make jit-verify jit-example` (`76295`) exits 0 for runtime
+`dc2533b`; only documentation changed to `e33b4d6` during the run. Each target
+reports 5283 executions / 476 repeated suites / 24 ignored / zero failures.
+Both examples return 5000050000 with 200007 native instructions. Logs are
+`target/jit-evidence/dispatches/full-{gnu,musl}.log`.
+
+This closes the final Phase 1 revalidation after total-dispatch accounting.
+The original six-item configuration/gate audit, strict Force harness, complete
+exit reasons and error/transition dispatch counts now have the required local
+evidence. Hosted run `37156905915` is still pending; the latest all-seven-green
+revision remains `a8bc5c7`. Phase 3 compiler resources and release/performance
+acceptance remain open. No benchmarks were run or waived.
+
 ### Backend feasibility and dependency reconciliation — 2026-10-04
 
 Reviewed the seven original Phase 0 requirements against source and retained
@@ -1956,7 +1971,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 1 — Add configuration, capabilities, and honest test lanes
 
-**Status:** IN PROGRESS; implementation present, final revalidation pending. **Depends on:** Phase 0. Configuration, dependency isolation, defaults/traits, transactional validation and native exit reasons are verified. Full strict-harness GNU/musl gates and all seven hosted jobs pass at `a8bc5c7`, including the exact math/string IR-block exclusions. Item 6's total dispatch counter now includes transitions/errors and passes focused GNU/musl/i686 gates; full verification of this later runtime change is pending. Later compiler accounting and deferred performance are not inferred from these checks.
+**Status:** CONFIGURATION/GATES VERIFIED at `dc2533b`. **Depends on:** Phase 0. The original six-item audit covers optional dependencies, additive configuration/defaults/traits, transactional validation, Make gates, explicit test routing/refusals and diagnostics. Total dispatch and native-exit counters have focused GNU/musl/i686 evidence plus full GNU/musl revalidation. Exact math/string corpus IR-block exclusions remain explicit; successful Force preparation alone is not native-execution proof. Hosted verification of this runtime revision is still pending and remains distinct from this local milestone. Later compiler accounting and deferred performance are not inferred from these checks.
 
 **Files:** manifests/lockfile, `Makefile`, `src/lib.rs`, `src/lua.rs`, `src/jit/mod.rs`, tests/common helpers, integration test constructors, `examples/jit.rs`.
 

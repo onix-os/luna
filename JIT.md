@@ -17,9 +17,12 @@ exclusions for the existing math and string corpora. Full local GNU/musl
 executions across 470 repeated suites, 24 ignored and zero failures. Both examples
 assert native execution and return 5000050000 with 200007 native instructions.
 Dynamic numeric-exit tests also pass in jit/jit+async on GNU/musl.
-The subsequent total-dispatch counter passes focused GNU/musl and real i686
-tests, including errors and transitions. Full and hosted gates at `a8bc5c7`
-predate that runtime change and do not certify it.
+The subsequent total-dispatch counter at `dc2533b` passes focused GNU/musl and
+real i686 tests, including errors and transitions, and full local GNU/musl
+`jit-verify jit-example`: each target reports 5283 executions / 476 repeated
+suites / 24 ignored / zero failures. Both asserting examples still return
+5000050000 with 200007 native instructions. Hosted verification of this later
+runtime revision is pending; the older hosted run does not certify it.
 Benchmarks remain deferred, not accepted; earlier upvalue/callback/compiled-but-
 disabled cost failures remain unresolved. This is not full-plan acceptance.
 
