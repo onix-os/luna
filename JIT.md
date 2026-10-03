@@ -219,6 +219,20 @@ The disabled `service_jit()` fast path remains unchanged.
 - Mapped-page usage is an inline atomic in the existing host root ledger, not a separately allocated counter Arc. Private `MappingCounter` handles resolve child ledgers to that root without allocating and preserve it through detached code leases. Mapped usage and charged combined-host usage remain separate counters; actual mappings still reserve both quotas before allocation and release both after unmapping.
 - Ledger and runtime owners use private exact-layout, strong-only Global allocations. `bootstrap_bytes` reports their live layouts; `accounted_jit_bytes` and the host ceiling include them. The normal state-owned floor is three ledger layouts plus the runtime layout, retained after code/prototype cleanup. Both reserve the same root atomic as payloads before allocation; refusal rolls back and final deallocation precedes charge release. The runtime's RefCell preserves non-Send/non-Sync ownership, with compile-time trait checks. Private fallible factories exist; existing infallible Lua constructors retain their allocation-failure contract.
 - This is **not yet a complete compiler ledger**. It excludes allocator overhead, Cranelift-owned transient allocations and process RSS. Cached code retains the finalized mappings, not the compiler module or its buffers. Luna's entry flags and actual provider mapping-record storage use the shared ledgers; pinned mappings remain charged after retirement. Bounded unleased LRU eviction and fallible sparse-container compaction exist, but complete compiler accounting remains required before Phase 3/7 acceptance. Accounted limits are not an RSS or hostile-compiler ceiling.
+
+Compilation releases verification records, flow graphs and frontend block maps
+after verification and before codegen. The frontend context and helper signature
+are dropped after lowering; the codegen Context is dropped after the module has
+copied code/relocations and before finalization. Source snapshots remain alive
+through any bounded eviction retry, then are dropped before cached-owner
+installation. `make jit-compiler-lifetimes` checks the charged workspace and
+snapshot boundaries, native results, and live-peer preservation on failures.
+Earlier destruction reduces overlapping lifetimes; it does not account for or
+bound all Cranelift transient allocations.
+At `a0f9ac5`, full GNU/musl gates each pass 5152 test executions across 446
+repeated suites, with 24 ignored and zero failures. The focused lifetime/resource
+gates pass 77 executions per target. These are correctness/resource results,
+not the deferred performance acceptance.
 - `native_entries` counts real machine-code invocations, including immediate guard exits. `native_instructions` counts completed logical bytecodes, not CPU instructions. `interpreted_instructions` counts the reference VM's reported instructions, which exclude some transition opcodes. `interpreted_slices` counts completed slices that fetched an interpreted opcode. `hook_exits` counts slices kept interpreted with hooks enabled.
 - `code_lookups` counts eligible slice-local cache probes; `code_leases` counts successful owned leases, even when an entry is interpreted. A single VM slice reuses its lease across native/reference fragments, but repacks canonical registers for every invocation. Hotness observation remains per interpreted dispatch when no code is installed.
 - `helper_calls` counts scoped helper attempts, `helper_instructions` counts completed helper-backed bytecodes, and `helper_declines` counts effect-free fallback requests. Table/upvalue/allocation counters count successful accesses; table-through-upvalue operations include a successful upvalue read. These are real native helper paths, not the interpreter's opcode loop.
@@ -232,7 +246,7 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 2. Snapshots contain decoded owned instructions and scalar tag/bits constants only. Reference constant placeholders resolve by validated index through the scoped helper's active closure, not cached GC pointers. Register, constant, upvalue, prototype, skip, and jump operands are validated before code generation. Code checks the budget at every instruction entry, including backedges.
 3. Each eligible VM frame slice acquires one strong-owned `Code` lease with its `JITModule` alive, releasing the manager borrow before execution. It reuses the lease across native/reference fragments and drops it on slice completion, frame transition, error or unwind; no scratch/host state survives an invocation. Scratch slots, exit buffer, opaque host, and borrowed Rust helper frame outlive the synchronous call. Entry/bounds checks select an outlined scratch tier large enough for the admitted prefix; every used `MaybeUninit` slot is written before a typed slice is formed, and the unused suffix is never read as `Slot`. Reference-result tests cover both sides of every tier boundary including 256. The lifetime-erasing pointer cast is confined to the scoped gateway; no pointer, GC reference, or helper result escapes into cached code. A null host in boundary-model tests declines helper work.
 4. Helpers decode scalar operands from scratch and reference operands from canonical traced slots. Each destination synchronizes both representations; table/upvalue setters retain normal barrier APIs. Pending scalars materialize on every exit and before a caught panic resumes. No helper invokes collection, users, hooks, or frame changes. Existing upvalue access reads a closed cell, another stack, or registers above the current frame; its same-stack assertion excludes current-frame aliasing. Old canonical references can remain rooted until exit, but no collection can observe that interval. Any future callback/safepoint/current-frame-inspection helper must restore full synchronization first. No Rust heap layout is assumed by machine code.
-5. Each provider allocation owns an anonymous memmap2 handle in a budgeted Segment record. Metadata, page quota and shared parent reservations precede mapping; allocation failure rolls page reservations back. The aligned payload remains within the mapped range. Executable ranges clear cache before RX conversion and pipeline-flush after all segments; readonly ranges become R, writable data stays RW, and no RWX mapping is requested. Linux ARM64 BTI uses the same detected-feature policy as pinned Cranelift. Protection failure never publishes an entry; existing leases pin all maps until module reclamation. The exact optional memmap2/internal-icache dependencies match the pinned compiler versions; the upstream icache crate is an unsupported internal API requiring renewed review on upgrades. Actual ARM64 execution remains unverified.
+5. Each provider allocation owns an anonymous memmap2 handle in a budgeted Segment record. Metadata, page quota and shared parent reservations precede mapping; allocation failure rolls page reservations back. The aligned payload remains within the mapped range. Executable ranges clear cache before RX conversion and pipeline-flush after all segments; readonly ranges become R, writable data stays RW, and no RWX mapping is requested. Linux ARM64 BTI uses the same detected-feature policy as pinned Cranelift. Protection failure never publishes an entry; existing leases pin all maps until module reclamation. The exact optional memmap2/internal-icache dependencies match the pinned compiler versions; the upstream icache crate is an unsupported internal API requiring renewed review on upgrades. Executed ARM64 evidence is revision-scoped; later runtime changes still require the native platform gate.
 6. Helper gateway signatures use opaque pointers and fixed-width immediate operands. The gateway catches Rust unwind payloads and returns an explicit panic exit; after native return, Rust resumes the same payload rather than converting it to Lua success or interpreter fallback. No helper invokes user callbacks, Lua code, frame transitions, the compiler, or collection. Rust `panic=abort` still aborts normally. A deliberately conflicting table borrow verifies the unwind profile returns through the generated frame and leaves the state reusable.
 7. Helpers advance the canonical PC before effects, restore it when declining before effects, and return at most one completed logical operation per call. Guard failures do not perform a table mutation, user callback, or Lua error before interpreter retry. Fresh metatable contents and interception/readonly flags are consulted on each access; no invalidation cache or table layout assumptions exist yet.
 8. Tests hold a code lease across cache retirement and verify memory returns to zero after the last lease drops. Scalar boundary tests compare every entry and budget against an independent Rust model. Heap tests compare per-slice fuel/state with full GC after every slice, prove heap counters, exercise weak tables, readonly/invalid-key typed errors, open/closed upvalues, Rust interception mutation, and reentrant callbacks. Extend this review for every new helper, cached assumption, or frame transition.
@@ -402,6 +416,17 @@ contain more than one 64-operation VM invocation. `make jit-suspension` checks
 both feature configurations and all modes at fuel 1, 64 and 65536. These tests and
 observations do not complete the full mixed-tier transition/error matrix.
 
+The same gate compares successful non-tail recursion at depths 128 and 4096
+against the interpreter, plus tail recursion at depths 128 and 16384. It checks
+exact slice modes/fuel/results with collection between slices and requires
+native execution. Callback stack-address samples every 128 levels must stay
+within a 32 KiB span. Non-tail Lua frames intentionally consume managed memory;
+only tail recursion checks depth-independent arena usage. Separate tests retain
+the configured frame-limit error and unbounded-tail-loop fuel checks. Run with
+`ARGS='-- --nocapture'` to retain the observed stack spans. These checks concern
+Lua recursion; recursively reentering executors from Rust callbacks can still
+grow the host stack.
+
 The separate `cache_churn` case supports fuel 1..=64. It calibrates a scalar
 module in a separate native state, reports that calibration cost, then bounds
 the measured state to two modules, eight retained sources, one queued request
@@ -481,6 +506,20 @@ captures, joined aliases, foreign coroutine stacks, reference values, scalar
 type changes, error guards, debug rebinding and Rust callback reentry. These
 are behavior checks for the current helper-backed tier, not performance
 acceptance or a direct scalar-upvalue cache.
+
+`make jit-debug` compares prepared native execution against Off for exact
+line/count/combined hook events, hook replacement, caught hook errors and
+normal/tail-call tracebacks. It checks identical slice modes, fuel and interrupt
+boundaries at five budgets, collecting after every slice. Native table-write
+checkpoints prove execution before and after hooks while hooked main-body
+writes remain interpreted. The target runs with and without optional async
+support; these are correctness checks, not performance measurements.
+
+`make stdlib-debug` checks baseline, Off, Auto and prepared execution of debug
+indices and mutation. Out-of-range local/upvalue indices retain their existing
+nil/error results across the full Lua integer range; large frame levels do not
+wrap on 32-bit hosts. The native debug gate also proves that rejected mutations
+leave captured values intact and native execution resumes afterward.
 
 `make jit-helpers` directly tests all nine scoped Rust helper entries with
 closed upvalues and canonical reference identity. It checks effect-free decline

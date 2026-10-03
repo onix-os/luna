@@ -11,6 +11,301 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Acceptance reconciliation and GC request gap — 2026-10-03
+
+#### Goal
+Reconcile existing acceptance evidence and identify the next concrete scheduling
+gap while the debug-index full gates finish without changing their source inputs.
+
+#### Instructions
+Keep benchmarks deferred and the full objective open. Preserve the live batch
+`45064`; do not restart it on an observation timeout.
+
+#### Discoveries
+Default `collectgarbage()` queues Collect but neither interrupts fuel nor returns
+the explicit collect result. The explicit `"collect"` branch does both. The
+existing next-statement regression tests only the explicit string form.
+An untracked probe using the existing interpreter example reproduces the actual
+observable difference: explicit collection clears a weak reference and runs its
+finalizer before the next statement, while default collection does not.
+`nix develop -c make run EXAMPLE=interpreter
+ARGS=target/jit-evidence/debug-indices/default-gc-probe.lua` exits 2 with
+`explicit true default false` and the assertion failure. This is a scheduling
+bug, not native-code corruption; the probe uses the baseline interpreter.
+
+#### Accomplished
+Inspected small-fuel/pre-interrupt/callback-interrupt tests, native heap roots,
+selective caller/callee suspension, error and typed-payload tests. Their native
+counters prevent interpreting the whole fixture from masquerading as native
+coverage. Exact debug events and valid/invalid mutation paths have focused
+GNU/musl evidence at `2e21d80`; the broader verification remains in progress.
+No runtime/test input was edited during the full batch. The GC-request acceptance
+item remains unchecked because its default-request path is demonstrably wrong.
+
+GNU `make jit-verify` now completes successfully at `2e21d80`: 5189 passing test
+executions across 452 repeated suites, 24 ignored and zero failures, including
+its existing smoke campaign. Batch `45064` has advanced to musl; i686 follows.
+Output wait `371` completed without output after its observation deadline; a
+subsequent poll of the same live session reported `GNU full passed`.
+
+The following acceptance evidence was inspected rather than inferred from a
+green aggregate alone:
+
+| Requirement | Current evidence and scope |
+| --- | --- |
+| Actual native workload execution | `jit_native` asserts native execution for each of ten scalar/mixed scripts; `jit_heap` and `jit_upvalues` assert concrete native allocation/read/write counts. `jit_suspension` checks each eligible segment after suspension. Performance thresholds remain separate and deferred. |
+| Mixed-tier calls, reentry, suspension and errors | Selective caller/callee fixtures cover all four tier combinations, normal/tail calls and exact suspension slices. Heap tests check nested executor reentry and close-handler mutations. Foreign-future fixtures verify Pending/Ready/wake counts and no VM work while externally parked. Error fixtures require a native table-write prefix, exact fault positions/slices and preserved typed payloads. |
+| Debug behavior | `jit_debug` compares complete events/tracebacks/fuel at five budgets, proves native prefixes/suffixes and interpreted hooked main-body writes. Heap/upvalue suites cover valid local/cell mutation and joining; `stdlib-debug` and the fourth native fixture cover rejected full-range indices without mutation. Unsupported call/return masks remain rejected. |
+
+These requirements now have checked evidence in Section 10. This does not
+accept the separate GC lifecycle review, all API compatibility, compiler-memory
+scope, deferred performance gates or unapproved deviations.
+
+#### Next Steps
+Collect the existing full batch, then add a failing regression for default/nil
+collection and route default collection through the explicit collect behavior.
+Check return values, interruption boundaries and weak/finalizer visibility in
+baseline and prepared-native execution, without turning this into a GC redesign.
+
+#### Relevant Files
+- `src/stdlib/base.rs` — explicit/default collection request branches.
+- `src/lua.rs` — request fulfillment after exiting the arena entry.
+- `tests/gc_control.rs` — current next-statement regression uses explicit collect.
+- `target/jit-evidence/debug-indices/default-gc-probe.{lua,log}` — reproduction.
+
+### Full-range debug indices — 2026-10-03
+
+#### Goal
+Preserve debug API behavior for the complete Lua integer range in both tiers.
+
+#### Instructions
+Continue correctness work without benchmarks, expanded audit/fuzz infrastructure
+or signed/batched commits. The original performance acceptance remains deferred.
+
+#### Discoveries
+Debug local/upvalue access converted one-based indices with unchecked signed
+subtraction. `i64::MIN` panics before the existing invalid-index path is reached.
+On real i686, `debug.getinfo(4294967296)` also panics after a narrowing cast and
+unsigned subtraction; adjacent large levels can alias an existing frame.
+Both failures reproduce before the fix in `red.log` and `red-i686.log`.
+
+#### Accomplished
+Replaced debug index subtraction/casts with one checked zero-based conversion.
+Existing nil/error behavior, positive indices and getinfo's existing level
+clamping remain unchanged. Added full-range local/upvalue/identity/join tests,
+32-bit frame-level tests and explicit prepared-native resumption evidence.
+An initial test edit had a missing brace, repaired before collecting the actual
+failing-before-fix logs. Focused GNU/musl/i686 batch `34866` exits 0. Baseline and
+Off/Auto/Force each pass all 11 debug-library tests on all three targets. Native
+heap/upvalue suites pass on GNU/musl. Both targets pass all four exact debug
+regressions with and without async; GNU's final rerun `56115` exits 0 after
+adding the fourth fixture. Advisory clippy completes with its existing warnings.
+Fix `2e21d80` is committed and pushed. Full GNU/musl/i686 verification is running
+in batch `45064`; GNU has passed and musl is live, with i686 pending. Output
+wait `371` is terminal; poll the same session for further output. Do not claim
+the full batch complete before its exit. Source/build inputs match pushed
+`2e21d80`; only this progress record has changed since the commit.
+
+Debug mutation review confirms that callbacks run after native scratch is
+materialized, new native entries reload canonical registers, and upvalue helpers
+resolve the closure's current cell on each access. Existing `jit_heap` coverage
+mutates locals/upvalues and joins cells between native calls; `jit_upvalues`
+also joins a cell to the currently executing frame, compares exact slices with
+GC, and checks native writes or effect-free declines for changed value types.
+Together with the exact hook/replacement/error/traceback regressions, these are
+the evidence paths for the debug acceptance item, not a claim of implementing
+unsupported call/return hook masks or every PUC-Lua debug API.
+
+Hosted compiler-lifetime run `37143852327` at `a0f9ac5` is now terminal SUCCESS
+for all seven jobs, including both Miri seeds and all three native platforms.
+
+#### Next Steps
+Finish focused gates and full verification for this production change, record
+results, then commit and push. Do not infer overall Lua 5.4 conformance from
+these bounded debug API regressions.
+
+#### Relevant Files
+- `src/stdlib/debug.rs` — checked local/upvalue/frame index conversion.
+- `tests/debug_lib.rs`, `tests/jit_debug.rs` — edge cases and native resumption.
+- `Makefile` — baseline/Off/Auto/Force `stdlib-debug` target.
+- `target/jit-evidence/debug-indices/` — red and repaired verification logs.
+
+### Deep non-tail recursion — 2026-10-03
+
+#### Goal
+Close the successful deep non-tail recursion coverage gap without benchmarks.
+
+#### Instructions
+Keep the original acceptance scope and incremental unsigned commits; do not
+treat the deferred performance gates as accepted.
+
+#### Discoveries
+The existing recursion fixture enforces an eight-frame limit: it proves error
+handling, not successful deep non-tail execution. A configurable limit allows
+128- and 4096-level calls while retaining the original overflow regression.
+Lua frames grow on the managed stack; native host-stack growth must not track
+that depth. `run_vm` returns from `ctx.jit().run` before handling call/return
+transitions. `LuaFrame::call_function` pushes managed frames, tail calls replace
+them, and the executor loop invokes the next slice. Callback/yield/async dispatch
+occurs outside that native invocation, not with generated frames suspended.
+
+#### Accomplished
+Added a paired deep-recursion regression at fuel 1, 64 and 65536. It compares
+each result/mode/fuel slice, collects after every slice, checks exact final sums,
+requires actual native execution and samples callback host-stack addresses every
+128 recursive levels. All samples must fit a 32 KiB span independently of depth.
+The original tail-depth, overflow, coroutine and async regressions remain.
+GNU and musl `jit-suspension` each pass 16 tests with `jit` and 18 with
+`jit,async`, zero failures/ignored. The observed rerun (`91016`, exit 0) records
+zero callback stack-address span for every new case: two samples at depth 128,
+33 at depth 4096, both tiers and all three fuel budgets. The six new paired
+scenarios run in all four feature/target configurations. Formatting and advisory
+clippy pass; the existing `cleanup_case` type-complexity warning is unchanged.
+No production runtime code changed. These are focused gates, not a new full
+verification run. All owned local processes are terminal.
+
+The preceding compiler-lifetime hosted run `37143852327` now passes all three
+native jobs, verify, i686 fallback and Miri seed 0; seed 1 remains live. The
+debug-regression run `37145545728` at `13690de` is also confirmed live. Neither
+run was restarted or duplicated manually.
+
+#### Next Steps
+Collect hosted results after committing and pushing this regression milestone.
+Continue the remaining original acceptance requirements, including debug
+mutation evidence reconciliation and the deferred performance gates.
+The source argument covers Lua control transitions, not arbitrarily recursive
+Rust callbacks; host callback reentry can still consume host stack.
+
+#### Relevant Files
+- `tests/jit_suspension.rs` — bounded host-stack/deep managed-frame comparison.
+- `Makefile` — forward `ARGS` to the suspension gate for observable evidence.
+- `src/thread/{vm,thread,executor}.rs` — inspected transition dispatch, unchanged.
+- `target/jit-evidence/recursion-stack/` — focused gate and stack-sample logs.
+
+### Exact debug transitions — 2026-10-03
+
+The preceding goal turn made verified progress: compiler-lifetime repair
+`a0f9ac5` and evidence `32f6a84` are pushed, with full GNU/musl gates passing.
+The next non-benchmark gap is exact debug-hook events and mixed-tier tracebacks.
+Add paired Off/prepared runs at five fuel budgets with collection after every
+slice, ordered event logs and explicit interrupt checkpoints. Require 100
+native table writes before hooks, none from hooked main-body writes, and 100
+more after disabling hooks. Cover line/count/combined masks, hook replacement,
+normal/tail calls and xpcall traceback frames. Preparation must remain outside
+manual slices. This extends correctness coverage, not audit/fuzz infrastructure.
+
+#### Goal
+Verify exact debug behavior across native/interpreter transitions.
+
+#### Instructions
+Continue non-benchmark correctness work and incremental unsigned commits. Keep
+performance acceptance deferred and do not expand audit/fuzz infrastructure.
+
+#### Discoveries
+Hook-body execution may legitimately be native while recursive hooks are
+suppressed. Main-body table-write checkpoints distinguish this from incorrectly
+running hooked code natively. Traceback strings contain stable source frames,
+so the paired runner compares their complete contents rather than substrings.
+
+#### Accomplished
+Added three regressions covering 55 paired scenarios per feature configuration:
+30 hook-mask/replacement cases, ten normal/tail traceback cases, and 15 caught
+hook-error cases. All compare complete event and slice traces against Off, with
+collection after every slice and explicit native prefix/suffix evidence.
+`nix develop -c make fmt jit-debug`, the musl `jit-debug` target, and advisory
+`jit-clippy` complete successfully in batch `98945`. Both targets pass all three
+tests with `jit` and `jit,async`: 12 passing test executions, 220 paired scenarios,
+zero failures. Existing lint warnings remain; none identify `jit_debug.rs`.
+No runtime defect was found and no production source changed. This is focused
+verification, not a newly run full suite or performance acceptance.
+
+The preceding compiler-lifetime hosted run `37143852327` now passes native GNU
+and ARM64 as well as verify and i686 fallback. Musl's native gate has passed,
+but its artifact build and both Miri jobs remain live at the latest check.
+
+#### Next Steps
+Collect hosted results for the pushed regression revision and reconcile the
+remaining original acceptance checklist. Compiler-memory limitations and
+deferred performance acceptance are not resolved by these debug regressions.
+
+#### Relevant Files
+- `tests/jit_debug.rs` — exact differential hooks, errors and traceback fixtures.
+- `Makefile`, `JIT.md` — focused `jit-debug` gate and its documented scope.
+- `target/jit-evidence/debug-transitions/` — GNU/musl and advisory lint logs.
+
+### Compiler workspace lifetimes — 2026-10-03
+
+The preceding goal turn made verified progress (`f9e8022` through `7afcd24`):
+real unsupported-target execution, portability repairs and full native gates.
+The next controllable-memory improvement is releasing temporary verification
+storage before code generation, dropping the frontend/codegen contexts before
+finalization, and dropping source snapshots before cached-owner installation.
+Pinned Cranelift 0.136.1 copies machine code and owned relocations in
+`define_function`; finalization does not need the caller's Context. Existing
+code retains these owners until function return. Add failing-before-fix lifetime
+checks using the existing test-only backend failure mechanism; do not introduce
+a new compiler worker, global allocator or claimed hard RSS bound. Cranelift's
+earlier transient allocations remain outside Luna's allocator ledgers.
+
+Both new regressions fail before the change: verification workspace holds 2772
+charged bytes at codegen entry instead of the source-only baseline of 108; cache
+owner installation still holds 56 snapshot bytes instead of zero (`red.log`).
+Release helper-signature and frontend storage after lowering, verified flow/
+store/path/block records before codegen, codegen Context before finalization,
+and the source snapshot after the final compile/retry but before installation.
+Keep snapshots alive across the existing bounded mapping-eviction retry.
+
+The repaired lifetime regressions pass, including actual native results and
+preservation of a live peer after allocation/protection failures. The first
+broader batch stopped at an incorrect command name (`jit-memory`); use existing
+`jit-host-memory`. Preserve `jit-relocations`' configuration-test prerequisite
+when adding the focused lifetime target. No full-gate result is claimed yet.
+
+The corrected focused GNU/musl batch `16825` exits 0. Lifetime, relocation,
+combined-host memory, retained-image and policy/eviction/scheduling suites all
+pass on both targets. The public memory-limit tests still enforce their exact
+measured peak and one-byte-short refusal, including async execution. This is
+earlier lifetime release, not a complete Cranelift ledger or a measured speedup.
+
+#### Goal
+Reduce controllable compiler working-storage lifetimes without weakening limits.
+
+#### Instructions
+Continue non-benchmark work and keep incremental unsigned commits. Do not add
+compiler workers or expand audit/fuzz infrastructure; keep the full goal open.
+
+#### Discoveries
+Rust's last borrow ending does not drop heap-owning locals. The verification
+records and source snapshot outlived their final use, overlapping later native
+allocation/cache installation. Pinned Cranelift owns the code/relocation copy
+after definition, so its Context can be destroyed before finalization.
+
+#### Accomplished
+Pushed `a0f9ac5`. Both new regressions fail on the original lifetimes and pass
+after the repair. Focused GNU/musl gates each pass 77 tests across 17 suites.
+Full GNU and musl verification each pass 5152 executions across 446 repeated
+suites, 24 ignored and zero failures. Batch `35850` exits 0, including advisory
+clippy; its inherited 141 library-test warnings remain, with no new lifetime
+fixture warnings. Source/build inputs still match `a0f9ac5`; only docs changed.
+All owned local build/test jobs are terminal. Hosted run
+`37143852327` passes verify and i686 fallback; native/Miri jobs remain live.
+The previous portability run `37142633733` now passes all three native jobs as
+well as fallback/verify, with its Miri jobs still live at the last check.
+
+#### Next Steps
+Collect the existing hosted native/Miri jobs without dispatching duplicates. Continue
+the original acceptance checklist. A concrete next gap is exact debug-hook
+event/traceback equivalence across mixed tiers: the existing native hook test
+only checks positive hook/native counters, while generic hook tests use broad
+count expectations. Preserve benchmarks as deferred, not accepted.
+
+#### Relevant Files
+- `src/jit/backend.rs` — lowering/proof/codegen owner release boundaries.
+- `src/jit/mod.rs` — release snapshots after the last retry, before installation.
+- `src/jit/backend/lifetime_tests.rs` — failing-before-fix resource/native checks.
+- `Makefile`, `JIT.md` — focused gate and explicit accounting limitations.
+- `target/jit-evidence/compiler-lifetimes/` — red/focused/full verification logs.
+
 ### Unsupported-target execution — 2026-10-03
 
 The preceding goal turn made verified progress: atomic temporary-file repair
@@ -1940,16 +2235,16 @@ runtime edits must revalidate affected criteria. An unchecked item may reflect
 missing acceptance evidence rather than missing implementation.
 
 - [ ] Existing API and Lua 5.4 regression behavior remain compatible.
-- [x] `make verify` succeeds without JIT enabled by default. Revalidated in full GNU/musl gates at `a893bd7` after the portability repairs.
-- [x] `make jit-verify` succeeds in Off, Auto, and Force, including optional async/derive and doctests. GNU/musl each pass 5142 executions / 446 suites / 24 ignored at `a893bd7`.
-- [ ] Eligible integrated workloads actually execute native instructions; counters and coverage substantiate this.
-- [ ] No proportional native-stack growth from Lua recursion/tail calls or suspension.
+- [x] `make verify` succeeds without JIT enabled by default. Revalidated in full GNU/musl gates at `a0f9ac5` after the compiler-lifetime changes.
+- [x] `make jit-verify` succeeds in Off, Auto, and Force, including optional async/derive and doctests. GNU/musl each pass 5152 executions / 446 suites / 24 ignored at `a0f9ac5`.
+- [x] Eligible integrated workloads actually execute native instructions; counters and coverage substantiate this. See the acceptance evidence table above and GNU full gate at `2e21d80`; this is execution coverage, not performance acceptance.
+- [x] No proportional native-stack growth from Lua recursion/tail calls or suspension. The deep-recursion checkpoint above records GNU/musl stack samples at normal depths 128/4096 and tail depths 128/16384, exact slice/GC comparisons and passing coroutine/async resumption. Source review confirms generated frames return before managed-frame transitions or suspension; this does not bound arbitrary recursive Rust callback reentry.
 - [ ] Small-fuel/interrupt/GC-request tests preserve reference scheduling behavior.
-- [ ] Callbacks, reentrancy, coroutines, async futures, close handlers, and errors pass mixed-tier tests.
+- [x] Callbacks, reentrancy, coroutines, async futures, close handlers, and errors pass mixed-tier tests. The evidence table above identifies selective-tier, native-counter, exact-slice and typed-error assertions; GNU's full gate at `2e21d80` passes them, with previous full GNU/musl/ARM64 evidence at `a0f9ac5`.
 - [ ] GC roots, barriers, weak references, finalizers, and code lifetimes pass integrated stress tests and review.
 - [x] No synchronous compilation occurs inside `Executor::step`.
 - [x] Queue/cache/native-memory limits, compiler failure/backoff, and active-entry eviction are tested.
-- [ ] Debug hooks and debug mutation retain correct behavior.
+- [x] Debug hooks and debug mutation retain correct behavior. Exact hook/traceback and valid/invalid mutation fixtures pass focused GNU/musl and full GNU at `2e21d80`; full-range debug indices also pass on real i686. This preserves Luna's supported debug behavior, not unsupported PUC-Lua APIs.
 - [x] Binary/prototype provenance policy is enforced and documented.
 - [ ] Executable memory is never deliberately mapped writable and executable simultaneously; allocation/protection failure falls back or reports capability failure safely.
 - [ ] `make jit-fuzz-smoke` passes; longer campaign evidence and unsafe-boundary review are recorded.
