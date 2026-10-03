@@ -407,11 +407,31 @@ stdlib-debug:
 		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test debug_lib $(TARGET_ARG) $(ARGS); \
 	done
 
+.PHONY: jit-gc-requests
+jit-gc-requests:
+	@$(CARGO) test --locked -p luna --test gc_control --test gc_pacing --test gc_finalizers $(TARGET_ARG) $(ARGS)
+	@set -e; for mode in off auto force; do \
+		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test gc_control --test gc_pacing --test gc_finalizers $(TARGET_ARG) $(ARGS); \
+	done
+	@$(CARGO) test --locked -p luna --features jit --test jit_gc_requests $(TARGET_ARG) $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit,async --test jit_gc_requests $(TARGET_ARG) $(ARGS)
+
 jit-abi:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests
 
 jit-config:
 	@$(CARGO) test -p luna --features jit --test jit_config $(TARGET_ARG) $(ARGS)
+
+.PHONY: jit-test-modes
+jit-test-modes:
+	@$(CARGO) test --locked -p luna --features jit --test jit_test_modes $(TARGET_ARG) $(ARGS)
+	@LUNA_TEST_JIT_MODE=force $(CARGO) test --locked -p luna --features jit --test scripts $(TARGET_ARG) $(ARGS)
+
+.PHONY: jit-stats
+jit-stats:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::stats_tests
+	@$(CARGO) test --locked -p luna --features jit --test jit_fallback $(TARGET_ARG)
+	@$(MAKE) --no-print-directory jit-native jit-heap
 
 .PHONY: stdlib-portability jit-fallback
 stdlib-portability:
@@ -882,6 +902,7 @@ help:
 	@echo "  jit-relocations Test finalization relocation limits and fallback"
 	@echo "  jit-errors   Test native error positions and typed callback errors"
 	@echo "  jit-debug    Compare exact hook events and mixed-tier tracebacks"
+	@echo "  jit-gc-requests Test default/nil/explicit GC request boundaries"
 	@echo "  stdlib-debug Test debug indices and mutation in Off/Auto/Force"
 	@echo "  jit-boundary Test native exits against the Rust boundary model"
 	@echo "  jit-native   Run integrated native execution and lifecycle tests"
@@ -895,6 +916,8 @@ help:
 	@echo "  jit-upvalues Test upvalue aliases, foreign stacks and GC"
 	@echo "  jit-abi      Test scalar and reference ABI conversions"
 	@echo "  jit-config   Test configuration and disabled-state collection"
+	@echo "  jit-stats    Verify native exit reasons and execution counters"
+	@echo "  jit-test-modes Test Force preparation and explicit exclusions"
 	@echo "  jit-registers Test register-255 and stack-256 boundaries"
 	@echo "  jit-policy   Test quota refusal and configuration retirement"
 	@echo "  jit-resources Test owned-container budgets and reclamation"

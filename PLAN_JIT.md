@@ -11,6 +11,543 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Strict Force preparation and explicit exclusions — 2026-10-03
+
+#### Goal
+Make the corpus Force lane fail on unexpected preparation errors and expose
+legitimate exclusions without confusing installation with native execution.
+
+#### Instructions
+Do not change production defaults, resource ceilings or deferred benchmark
+thresholds. Mode tests use child environments, not concurrent process-global
+environment mutation. Commit this harness milestone separately.
+
+#### Discoveries
+The strict GNU Force corpus (`43283`, exit 2) exposes an existing silent refusal
+in `tests/scripts/math.lua`: `IR blocks`. It is now an exact, fixture-local
+allowance with a positive refusal assertion, not a global ignored error class.
+The Lua corpus still executes its semantic assertions. No resource limit changed.
+
+Same-entry execution can finish interpreted, then install that source afterward:
+unreachable arena objects are not reclaimed until collection. The worker fixture
+initially assumed zero installations and failed; it now asserts zero native
+instructions while permitting the actual post-execution installation. Empty
+source states separately assert an empty successful preparation batch.
+
+#### Accomplished
+The shared wrapper now fails unexpected ResourceLimit, Unavailable, compiler and
+configuration errors. Only an explicitly named resource reason is permitted.
+Its report records preparation calls, actual installed-region deltas (including
+partial batch progress), empty batches, resource refusals and unsupported skips.
+Explicit exclusions emit `JIT_FORCE_EXCLUDED`, visible with `--nocapture`.
+Unsupported targets never masquerade as successful native preparations.
+
+Added isolated worker checks for Off, Auto, prepared native execution, empty and
+same-entry work, unexpected refusal, exact allowance and wrong-reason refusal.
+Expected child failures are checked by both exit status and refusal diagnostic;
+success requires a verification marker, correct Lua result and native counters.
+`jit-test-modes` also runs the actual script corpus in Force mode.
+Final worker/corpus batch `59063` exits 0 on GNU, musl and real i686: each target
+passes two harness functions (including eight child cases) and the complete
+script-corpus test, three reported tests across two suites, no failures/ignored.
+The earlier worker expansion had a nested-result unwrap typo and an incorrect
+zero-installation assumption for same-entry execution; both were corrected as
+fixture errors, not runtime changes. The strict whole-corpus failure at math
+remains the evidence that silent refusal was previously accepted.
+
+The previous native-counter full batch `95585` is complete: GNU/musl each pass
+5248 executions across 458 repeated suites, 24 ignored and zero failed at
+`48df12e`, with successful native examples. It finished before this shared
+harness was edited. Its production runtime is unchanged by the current work.
+The earlier relocation revision `d29bb12` now has all seven hosted jobs green
+in run `37150232969`; hosted counter revision `37152214033` remains pending.
+Harness implementation and target checks are committed/pushed as `20aa89d`.
+Diagnostic batch `71110` failed only because `--nocapture` was passed to Cargo
+without its argument separator. Corrected batch `68825` exits 0 using
+`ARGS='-- --nocapture'`; `diagnostics-fixed-gnu.log` records the exact IR-block
+exclusion immediately after the math script name. Full batch `48511` is still
+live; no full strict-harness pass is claimed yet.
+
+#### Next Steps
+Poll full GNU/musl batch `48511`, then
+reconcile Phase 1 evidence. Compiler memory, broad review
+and deferred numerical performance acceptance remain outside this milestone.
+
+#### Relevant Files
+- `tests/common/mod.rs` — strict preparation, exact allowances and reports.
+- `tests/jit_test_modes.rs` — isolated mode/refusal/same-entry workers.
+- `tests/scripts.rs` — explicit existing math IR-block exclusion.
+- `Makefile`, `JIT.md` — runnable mode gate and reporting contract.
+- `target/jit-evidence/force-reporting/` — strict corpus failure and worker gates.
+- `target/jit-evidence/exit-statistics/full-*.log` — completed counter verification.
+
+### Native exit-reason statistics — 2026-10-03
+
+#### Goal
+Complete the native ABI reason breakdown required by Phase 1 diagnostics without
+conflating native invocations, interpreted slices, hooks or helper declines.
+
+#### Instructions
+No timing runs. Keep the existing Guard counter and instruction-count meaning;
+verify actual native execution, unsupported-target zeros and panic ordering.
+
+#### Discoveries
+The four native return reasons already exist in the ABI. The wrapper previously
+recorded only Guard separately. Reason accounting belongs after canonical-state
+materialization and before a caught helper panic is resumed on the Rust side.
+It must also count invocations that perform zero instructions. Independent
+saturating counters no longer have an ordinary arithmetic partition at overflow.
+
+#### Accomplished
+Added `native_interpreter_exits`, `native_budget_exits` and `native_panic_exits`
+beside existing `guard_exits`, with one reason increment per native invocation.
+No generated ABI, PC/fuel transition or interpreter behavior changes. Metrics
+example output exposes the added totals; its unit checks do not run benchmarks.
+
+Pure tests cover all four reasons, zero-work invocations and independent overflow
+saturation. Integrated tests cover budget exhaustion followed by interpreter
+handoff, guards, Off/Auto switches, cache retirement and caught helper panics.
+They assert native-entry partitioning and panic recording before catch_unwind
+returns; later successful execution leaves the panic total unchanged. Real
+i686 fallback asserts all four native reason totals remain zero.
+
+Initial focused native/config/metrics gates pass GNU/musl and pure/config checks
+pass i686. The final expanded matrix (`61666`) exits 0: GNU/musl each pass 53
+executions across seven repeated suites; i686 passes ten across five suites,
+including the real fallback fixtures. No failures or ignored tests. Formatting
+and `git diff --check` pass. Full GNU/musl verification is live in batch `95585`.
+The first formatting
+attempt had a cfg-delimiter typo, repaired before any test execution; it is not
+runtime red/green evidence.
+
+#### Next Steps
+Poll full GNU/musl batch `95585` and complete explicit Force-harness refusal
+reporting. This does not close compiler
+working-memory accounting, broad review or deferred performance acceptance.
+
+#### Relevant Files
+- `src/jit/mod.rs` — public totals, exit accounting and saturation tests.
+- `tests/jit_{native,heap,fallback}.rs` — actual reason and unsupported-target checks.
+- `examples/jit_metrics.rs` — native reason fields in diagnostic output.
+- `Makefile`, `JIT.md` — `jit-stats` gate and counter contract.
+- `target/jit-evidence/exit-statistics/` — target and metrics-test logs.
+
+### Configuration and gate requirement audit — 2026-10-03
+
+#### Goal
+Check the six original Phase 1 requirements against current implementation and
+execution evidence, rather than treating historical status labels as proof.
+
+#### Instructions
+No benchmark runs or expanded audit infrastructure. Keep tests, documentation
+corrections and acceptance claims scoped to what was actually inspected.
+
+#### Discoveries
+Configuration validation runs before registry/cache changes. The old public test
+covered only six of ten positive fields and compared configuration, not live
+state. General Force wrappers reject compiler errors but currently allow resource/
+capability refusals without explicit per-refusal reporting. They cannot compile
+source loaded and consumed in the same arena entry. Native-specific fixtures
+remain responsible for actual native-counter assertions.
+
+The native ABI has Interpreter/Guard/Budget/Panic exits, while public statistics
+count native entries/instructions and Guard exits but do not expose separate
+Interpreter/Budget/Panic exit totals. Hook and helper-decline counters describe
+different boundaries. Do not call these existing counters a complete native-exit
+reason distribution or equate them to executor dispatch counts.
+
+#### Accomplished
+Expanded invalid-configuration tests to all ten fields, checking exact statistics
+and config equality after refusal. A native fixture holds installed peer code and
+one queued prototype through all refusals, then compiles the unchanged request
+and proves both functions execute natively. Added public Lua non-Send/non-Sync
+compile-time assertions and included `Default` in constructor coverage.
+
+Batch `52318` exits 0: GNU/musl each pass 35 executions across six repeated suites
+(`jit-config`, `jit-policy`, `jit-runtime-owner-pure`); real i686 passes six
+configuration tests. GNU repeats all seven config tests successfully with
+`LUNA_TEST_JIT_MODE=force`, proving the production constructors ignore that test
+switch. `make fmt-check` passes. `make jit-tree` contains no Cranelift, memmap2 or
+icache runtime dependency without JIT; both Make test wrappers reject an invalid
+mode before invoking Cargo. No runtime implementation changed in this milestone.
+
+| Phase 1 item | Current evidence / remaining obligation |
+| --- | --- |
+| 1: optional dependencies | Cargo target/feature gates and fresh Make dependency tree verify default isolation; pinned compiler versions remain unchanged. |
+| 2: additive configuration/defaults | Feature-gated API exports and Lua fields; four Off constructors and public non-Send/non-Sync assertions pass. |
+| 3: configuration/capabilities | All positive fields are transactional in Off and with native code/queued work; independent states, supported-target identity, real i686 capability and existing enable/disable policy tests pass. |
+| 4: Make gates | Existing full GNU/musl gate at `d29bb12` covers checks, modes, async/derive and warning-denied docs; invalid mode rejection passes separately. |
+| 5: honest constructor routing | Ordinary root integration tests use `tests/common`; targeted JIT fixtures choose explicit modes. Raw register-boundary/manual-prototype tests and memory-accounting tests deliberately select their reference/native states; util serialization tests do not execute Lua code. Same-entry execution and Force resource-refusal reporting remain explicit limitations, not forced-native proof. |
+| 6: diagnostics | Existing counter meanings and mutation sites were inspected; separate native Interpreter/Budget/Panic exit totals and clear Force refusal diagnostics remain to be implemented/verified. |
+
+Corrected two stale `JIT.md` ownership assertions: cached Code owns detached
+mappings, not a live JITModule; current-frame upvalue aliases use pending scratch
+and synchronized writes rather than being excluded. Source and existing tests
+already implement those contracts; this was a documentation correction.
+
+#### Next Steps
+Complete native-exit reason reporting and explicit test-harness refusal reporting
+with targeted assertions, then reconcile Phase 1 without claiming full compiler
+accounting or deferred performance acceptance. Collect remaining jobs from hosted
+run `37150232969`; musl, baseline, i686 and Miri seed 1 currently pass, with GNU,
+ARM64 and Miri seed 0 still live. All local jobs are terminal.
+
+#### Relevant Files
+- `tests/jit_config.rs` — all-field atomicity, live-state preservation and traits.
+- `tests/common/mod.rs`, `Makefile` — inspected mode-routing and gate behavior.
+- `src/jit/mod.rs`, `src/lua.rs` — inspected validation and statistics paths.
+- `JIT.md` — corrected detached-code and current-frame alias ownership contract.
+- `target/jit-evidence/configuration-review/` — target, mode and dependency logs.
+
+### Relocation admission before native allocation — 2026-10-03
+
+#### Goal
+Enforce the existing relocation-count ceiling before native mapping allocation,
+without claiming a complete Cranelift working-memory bound.
+
+#### Instructions
+Continue non-benchmark resource work through Make gates; preserve interpreter
+fallback, peer code, pinned backend semantics and incremental commits.
+
+#### Discoveries
+Pinned `JITModule::define_function` compiles, converts relocations and allocates
+the native blob before returning. Checking the count afterward cannot prevent
+that allocation. The regression now injects allocation denial as well as
+protection denial; it fails before the repair with the wrong error precedence.
+
+#### Accomplished
+Split code generation from installation using `Context::compile` and the
+upstream `define_function_bytes` API. Check the actual count first, then convert
+relocations using `ModuleReloc::from_mach_reloc` in a fallible snapshot-ledger
+vector. Preserve emitted alignment and upstream ISA minimum/symbol alignment,
+linker/provider, cache maintenance and finalization. Drop staging after copying,
+and Context before finalization. No custom linker or compiler fork is introduced.
+
+The byte-definition API does not populate the module's PC-to-function map or
+optional Wasmtime exception metadata. Luna never queries that map, destroys the
+module before publication, and emits status-returning helpers, not exception
+landing pads. Its Lua debug/error paths use canonical PCs and interpreter exits;
+Rust panics must still be contained before returning through generated frames.
+Any future exception-aware lowering must revisit this installation contract.
+
+The allocation-denial regression fails in `before.log` (batch `10099`, exit 2)
+and passes after the split (batch `35236`, exit 0). Added staging quota and
+underlying-allocation refusal checks, exact-limit success, peer execution and
+same-snapshot recovery. Batch `20288` exits 0: GNU/musl each pass 260 executions
+across 18 repeated suites, zero failures, one ignored artifact test (explicitly
+executed by the subsequent disassembly target). Gates cover relocations, compiler
+lifetimes, images, resources, host admission, segments, native execution, numeric
+semantics and finalized disassembly. Formatting and `git diff --check` pass.
+Committed and pushed as `d29bb12`. Full GNU/musl `make jit-verify jit-example`
+batch `12839` exits 0: each target passes 5223 executions across 458 repeated
+suites, 24 ignored and zero failed. Each example asserts 200007 native
+instructions and the correct result. All local batches are terminal.
+Hosted run `37150232969` passes baseline
+and i686, while native/Miri jobs are running. Prior GC revision `3494c64` now has
+all seven hosted jobs green in run `37148460303`; it does not certify this change.
+Cranelift's original machine-relocation buffer and module-owned copy remain
+outside complete byte accounting; this repair closes admission ordering only.
+
+#### Next Steps
+Collect hosted native/Miri evidence from run `37150232969`. Continue the remaining
+compiler-memory and acceptance requirements without running deferred benchmarks.
+
+#### Relevant Files
+- `src/jit/backend.rs` — generation/admission/installation ordering.
+- `src/jit/backend/relocation_tests.rs` — refusal ordering and recovery.
+- `JIT.md` — exact relocation cap and staging semantics.
+- `target/jit-evidence/relocation-admission/` — red/green and native gate logs.
+
+### Documentation and example reconciliation — 2026-10-03
+
+#### Goal
+Refresh user-facing revision evidence and verify the documented example on native
+GNU/musl and the real unsupported i686 target.
+
+#### Instructions
+Benchmarks remain deferred. Continue non-benchmark work and commit incrementally;
+do not equate these bounded checks with full-plan acceptance.
+
+#### Discoveries
+The example previously checked its result but only printed native counters.
+Phase 10 requires verifying those counters. Hosted baseline `verify` is not local `make verify` or
+the native matrix; evidence must identify the actual gate and source revision.
+
+#### Accomplished
+Added native/fallback assertions to the example. Batch `27981` exits 0:
+`make fmt-check jit-example TARGET=x86_64-unknown-linux-gnu`, followed by
+`make jit-example` for musl and real i686 via their Nix shells. GNU/musl each
+return 5000050000 with six prepared prototypes, 200007 native instructions and
+61440 mapped bytes. i686 returns the same result with all three counters zero.
+Core includes registered standard-library prototypes, so preparation is not
+assumed to produce exactly one module. Explicit preparation errors propagate.
+
+Refreshed `JIT.md` and Phase 9/10 evidence against source and live hosted results.
+Run `37146171083` at `2e21d80` is confirmed all-seven green. Run `37148460303`
+at `3494c64` passes baseline, i686, native GNU and ARM64; musl/Miri remain pending.
+Documented the distinction between baseline CI, full native gates, Rust-only
+Miri and shipping artifact builds; none substitutes for deferred measurements.
+`make fmt-check ci-check` and `git diff --check` also pass. No timing runs or
+runtime-library changes were made in this milestone.
+
+#### Next Steps
+Collect latest native/Miri completion and continue remaining API/phase evidence
+reconciliation. Compiler-memory scope, broad review and deferred performance/size
+acceptance remain open; the full plan is not complete.
+
+#### Relevant Files
+- `examples/jit.rs` — documented native/fallback example.
+- `JIT.md`, `PLAN_JIT.md` — user-facing scope and revision-specific acceptance.
+- `.github/workflows/tests.yml`, `Makefile` — actual validation lanes.
+- `target/jit-evidence/example-reconciliation/` — native/fallback execution logs.
+
+### GC root and lifetime reconciliation — 2026-10-03
+
+#### Goal
+Verify the existing JIT reference-root, barrier, weak-table, finalizer and source/
+code-lifetime contract against its integrated tests and concrete ownership paths.
+
+#### Instructions
+No benchmarks or expanded audit/fuzz infrastructure. Keep this bounded runtime
+review separate from the remaining broad compiler/unsafe-boundary acceptance.
+
+#### Discoveries
+Native scratch represents references only as tag REFERENCE with zero bits; the
+actual Value stays in the canonical register file. Snapshots use those same
+pointer-free slots, instruction descriptors and counts. Reference constants are
+loaded through the current rooted closure/prototype, not embedded GC addresses.
+The helper frame is scoped to one arena mutation/native invocation; collection
+is outside that mutation. There are no GC references retained in installed code.
+
+The executor obtains the stack's mutation-barrier borrow before `run_vm`.
+Helpers store heap results into that canonical stack immediately, use `set_raw`
+for table barriers/weak storage, and route upvalue writes through the existing
+open-stack or closed-cell barrier path. Same-frame aliases read pending scalar
+scratch and update both representations on writes. Calls, metamethods and host
+reentry happen after native scratch is materialized and generated frames return.
+
+Registration routing checks a weak upgrade and pointer identity, with monotonic
+nonwrapping generation IDs. Dead registrations retire queued work and cache
+ownership, while active code leases remain independent until their final drop.
+Finalizers resurrect pending objects during collection and run Lua afterward;
+manual drivers must call `run_finalizers`. The existing weak-mode-at-attachment
+contract is preserved, not silently redefined as automatic metatable mutation
+tracking or complete PUC-Lua weak-mode conformance (see historical discovery).
+
+#### Accomplished
+Inspected canonical scratch, helper operations, stack/upvalue/table barriers,
+snapshot contents, registration identity checks, finalizer queues and retirement.
+Mapped them to existing tests: every-slice GC with 1000 allocated nested tables;
+alternating executors with Rust table/userdata replacement; weak keys/values and
+ephemeron reattachment; open/closed/joined/foreign-stack upvalues; helper panic
+materialization; finalizer resurrection; queued-source collection and live-peer
+preservation; and active-code retirement/reclamation. Each native fixture checks
+actual native instructions or operation-specific counters. Batch `17694` exits
+0: the existing GNU/musl helper/registry/heap/upvalue/native/policy/GC-request gates
+each pass 173 executions across 23 repeated suites, zero failures or ignored.
+No runtime source or new stress infrastructure was changed.
+
+Inspected hosted verify job `111277136272` at `3494c64`: it is baseline-only
+and explicitly runs zero native fixtures. Its success is not native/async proof
+and it is not the full local `make verify` recipe. The separate native jobs run
+the full JIT gate. Added a focused verification pass using existing `jit-heap`
+with async enabled plus `jit-suspension` in both configurations on GNU/musl.
+That batch (`77282`) exits 0: each target passes 51 more executions across three
+suites, including the actual foreign-await heap fixture and externally parked
+future probe. Combined focused evidence is 224 executions / 26 repeated suites
+per target, zero failures/ignored. All local processes are terminal. Do not
+credit the unrelated green baseline job for native/async coverage.
+
+No new defect was found in these reviewed paths. The GC lifetime criterion in
+Section 10 now records this source/test evidence. Collection stress is at
+host-visible slice/exit boundaries; collecting while a generated frame still
+borrows the arena is neither permitted nor part of this execution model.
+
+#### Next Steps
+Collect latest hosted native/Miri results. Run `37148460303` at `3494c64` passes
+baseline verify and i686 fallback; native/Miri remain live. Earlier default-GC
+run `37147866586` additionally passes native GNU, with the remaining native/Miri
+jobs live. Continue API/documentation and original phase-status reconciliation;
+baseline weak-mode semantics, full compiler-memory scope and deferred performance
+requirements must not be silently broadened or waived.
+
+#### Relevant Files
+- `src/jit/{abi,helpers,ir,registry,mod}.rs` — reference transport and ownership.
+- `src/thread/{executor,thread}.rs`, `src/closure.rs` — stack/cell barrier paths.
+- `src/table/{table,raw,weak}.rs`, `src/finalizers.rs` — weak storage/finalization.
+- `tests/jit_{heap,upvalues,native,gc_requests}.rs` — integrated GC evidence.
+- `target/jit-evidence/gc-lifetime-review/` — focused GNU/musl gate logs.
+
+### Native code-memory ownership reconciliation — 2026-10-03
+
+#### Goal
+Verify the existing allocation/protection/publication/reclamation contract and
+record acceptance evidence without adding new audit or fuzz infrastructure.
+
+#### Instructions
+Benchmarks remain deferred. Use existing Make gates and preserve revision-scoped
+evidence; do not turn focused memory review into full compiler-memory acceptance.
+
+#### Discoveries
+`Segment::new` uses anonymous mutable mappings; pinned memmap2 0.9.11 requests
+READ|WRITE, without EXEC. Finalization clears the instruction cache, consumes
+the mutable mapping and requests READ|EXEC for code or READ for constants;
+writable data remains READ|WRITE. ARM64 BTI adds its flag to READ|EXEC, not WRITE.
+`Memory::finalize` also flushes instruction pipelines before returning success.
+The native entry is obtained only after `finalize_definitions` succeeds.
+
+Successful compilation detaches the image into `Code::_memory` before dropping
+the compiler module/provider. A detached provider cannot allocate, finalize or
+free that image. `Prepared` retains a shared code owner; pressure eviction only
+selects sole cache-owned images. Clearing registrations retires cache ownership,
+not active leases. Final release drops each mapping before releasing its charges.
+
+#### Accomplished
+Inspected source and pinned dependency implementations for the actual protection
+flags and publication order. Existing tests inspect `/proc/self/maps`, exercise
+partial protection failure, reject allocation/protection before publication,
+execute a surviving peer, recover after denial, and retain executable leases
+across retirement. The existing isolated reclamation test checks every aligned
+mapping page with `mincore` before release and ENOMEM afterward, not merely
+zero counters. Focused GNU/musl batch `96577` exits 0 on `3494c64`: each passes
+239 executions across 14 repeated suites, zero failures and one intentionally
+ignored artifact-dump test (run separately by `jit-disassembly`). Commands are
+`make jit-segments jit-segments-reclamation jit-image jit-policy`, through the
+Nix shell, repeated with the musl target. No runtime source or test infrastructure
+changed for this review. All owned local jobs are terminal.
+
+The backend/segment/lease source and dependency pins are unchanged from
+`2e21d80`, whose full hosted GNU/musl/ARM64 and both Miri lanes passed. This
+connects the source argument with revision-scoped platform evidence, not a claim
+about every kernel policy or that the newest whole-repository CI has finished.
+The code-memory protection/failure criterion in Section 10 is now checked.
+
+#### Next Steps
+Collect current hosted results: pacing revision `3494c64`, run `37148460303`,
+passes verify; its remaining six jobs are live. Default-collection revision
+`009bf3b`, run `37147866586`, passes verify and i686 fallback; the remaining jobs
+are live. Continue GC roots/barriers/lifetimes and API/documentation acceptance
+reconciliation. Earlier Cranelift transient allocations remain outside the
+controlled ledgers; this review does not establish a total compiler RSS bound
+or complete the separate broad review/fuzz/performance requirements.
+
+#### Relevant Files
+- `src/jit/segments.rs` — RW allocation, RX/RO finalization and ARM64 BTI flags.
+- `src/jit/backend.rs` — provider, publication, image ownership and OS tests.
+- `src/jit/mod.rs` — active leases, retirement and pressure eviction.
+- `Cargo.lock` — memmap2 0.9.11 / Cranelift 0.136.1 versions inspected locally.
+- `target/jit-evidence/code-memory-review/` — existing focused gate logs.
+
+### Shared GC pacing state — 2026-10-03
+
+#### Goal
+Make Lua's pacing controls report the same state as the host and survive explicit
+collection requests, without changing public Rust request ordering.
+
+#### Instructions
+Continue non-benchmark fixes and incremental unsigned commits. Full validation
+uses immutable pushed CI revisions; do not freeze development for duplicate runs.
+
+#### Discoveries
+`collectgarbage("isrunning")` reads allocation debt, although `gc_stop` deliberately
+preserves debt. Lua stop/restart currently share the one-slot collection-request
+queue: a subsequent collect/step can overwrite the scheduling request before
+the host sees it. The Rust host's separate bool is inaccessible from Context.
+
+#### Accomplished
+Both baseline reproductions fail before repair: Lua reports running after a host
+stop/allocation, and default collection overwrites a preceding Lua stop request.
+Implemented one private GC-control cell containing pacing and pending request,
+reusing the existing request-cell allocation. Host and Lua pacing setters share
+that bool. Public `Context::request_gc` retains its existing last-request-wins
+semantics, including Stop/Restart; stdlib pacing verbs update the shared bool
+directly without running the collector. Existing host setter/getter signatures
+are unchanged; Context's new pacing helpers are crate-private. Added explicit
+public-request ordering checks (including cancellation by None) and 20 paired
+native pacing scenarios covering default/nil/collect/step at five fuel budgets.
+Each requires 100 native table writes before its single interruption and another
+100 afterward, with exact Off/native modes/fuel/pacing/event comparisons.
+Focused batch `54895` exits 0. GNU/musl each pass 142 executions across 22
+repeated suites, zero ignored/failures, including host-memory-limit enforcement
+and async host-finish checks. Real i686 passes 96 executions across 14 suites;
+native-only fixtures are correctly empty there. The 20 new paired scenarios run
+in four native target/feature configurations (80 pairs), alongside the previous
+15 collection scenarios per configuration. Formatting and advisory clippy pass;
+the existing redundant constructor closure warning merely shifted lines. No
+performance result or new full-suite result is claimed. All owned local test
+processes are terminal.
+
+#### Next Steps
+Commit/push this repair and collect immutable hosted full results. Run
+`37146171083` at the preceding debug-index fix is now SUCCESS for all seven
+jobs. Run `37147866586` at the default-GC fix passes verify and real i686 fallback;
+native and Miri jobs remain live at the last check. Continue the remaining
+acceptance checklist; compiler-memory scope, GC lifecycle review and deferred
+performance requirements are still open.
+
+#### Relevant Files
+- `src/lua.rs`, `src/stdlib/base.rs` — host/context control state and Lua verbs.
+- `tests/gc_control.rs`, `tests/jit_gc_requests.rs` — pacing/query/boundary checks.
+- `target/jit-evidence/gc-pacing-state/` — regression and verification logs.
+
+### Default collection request repair — 2026-10-03
+
+#### Goal
+Make default/nil collection requests preserve the explicit collection boundary.
+
+#### Instructions
+Keep the original goal open and benchmarks deferred. Validate through Make,
+without changing source inputs during an already-running full verification.
+
+#### Discoveries
+The expanded `gc_control` suite reproduces both missing default return values
+and missing next-statement finalizer/weak-reference visibility before repair.
+The native fixture stops automatic GC and never forces collection between
+slices: only the script's requests can make the objects collectible. Extra
+host collections would conceal the request-boundary defect.
+
+#### Accomplished
+The prior debug-index full batch `45064` is terminal, exit 0. At `2e21d80`, GNU
+and musl each pass 5189 executions / 452 repeated suites / 24 ignored, and real
+i686 fallback passes 1847 executions / 299 repeated suites / two ignored, all
+with zero failures. Only then were the GC regression source inputs changed.
+Added default/nil/explicit baseline assertions and a stopped-GC paired runner
+checking exact slice/fuel/interrupt/event traces, finalizer visibility and
+native table writes before and after collection. Baseline red logs show both
+expected failures. The first native fixture omitted the manual host's required
+`run_finalizers` call and failed even for explicit collection; its red log is
+not evidence for the default-request bug. Corrected the fixture to drain pending
+handlers outside the arena. The stopped-collector diagnostic then exposed a
+fixture assumption: a finalized object is resurrected for its handler and can
+remain in a weak table until a later cycle. Separate the ordinary weak value
+from the finalizable value; still require weak clearing and the handler before
+the next statement, without forcing any extra collection.
+Default and
+nil options now normalize to the explicit `collect` byte-string dispatch without
+allocation. All three forms share the same request, interrupt and return-value
+path. Initial focused batches `21316` and `99004` stopped at the fixture issues;
+corrected batch `67137` exits 0. GNU/musl each pass 86 test executions across
+14 repeated suites, zero ignored/failures. Real i686 passes 84, with the two
+native-only suites correctly empty. Fifteen paired native/interpreter scenarios
+run with and without async on each native target (60 paired scenarios total).
+Formatting and advisory clippy complete; inherited warnings remain, with none
+identifying the changed GC fixture/control/dispatch files. All owned local
+test processes are terminal. This is focused validation, not a new full gate.
+
+#### Next Steps
+Commit and push the repair, then collect the automatic push CI's immutable commit
+checkout for full platform verification. Do not dispatch duplicate workflows or
+start another local full batch that would require freezing unrelated progress.
+Hosted results must still be collected before full acceptance is claimed.
+The preceding debug-index run `37146171083` passes verify, i686 fallback, native
+GNU/ARM64 and Miri seed 0; native musl and Miri seed 1 remain live at last check.
+
+#### Relevant Files
+- `src/stdlib/base.rs` — collectgarbage request dispatch.
+- `tests/gc_control.rs`, `tests/jit_gc_requests.rs` — behavior and boundary tests.
+- `Makefile` — baseline/Off/Auto/Force and async-aware GC request gate.
+- `target/jit-evidence/gc-requests/` — failing and repaired gate evidence.
+
 ### Acceptance reconciliation and GC request gap — 2026-10-03
 
 #### Goal
@@ -1277,7 +1814,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 1 — Add configuration, capabilities, and honest test lanes
 
-**Status:** IN PROGRESS. **Depends on:** Phase 0. Optional configuration, capabilities, counters, Make gates, constructor wrappers, preparation/service APIs, and feature documentation exist. Platform/refusal and complete accounting acceptance remain open.
+**Status:** IN PROGRESS. **Depends on:** Phase 0. The configuration/gate audit verifies dependency isolation, additive APIs, defaults/traits and all-field transactional validation. All native exit reasons are now counted, with full local GNU/musl verification at `48df12e`. Strict Force errors, explicit math IR-block admission exclusion and per-state preparation reports pass focused GNU/musl/i686 tests at `20aa89d`; full strict-harness gates remain running. Complete phase reconciliation is pending those results; later compiler accounting and deferred performance are not inferred from these checks.
 
 **Files:** manifests/lockfile, `Makefile`, `src/lib.rs`, `src/lua.rs`, `src/jit/mod.rs`, tests/common helpers, integration test constructors, `examples/jit.rs`.
 
@@ -2073,9 +2610,9 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 
 ### Phase 6 — Add heap fast paths with collector and mutation proofs
 
-**Status:** IN PROGRESS. **Depends on:** Phase 5. Fixed helper ABI v3 executes table/upvalue/allocation operations through existing barrier APIs. Weak tables, readonly/intercept changes, invalid keys, every-slice GC, finalizer resurrection and debug mutation have native evidence. New focused cases cover alternating executors with Rust table/userdata replacement and weak-value metatable mutation/reattachment; complete mode/ephemeron/guard matrices and broader lifecycle stress remain open.
+**Status:** Helper-backed implementation and bounded GC/mutation review verified; latest full native/Miri CI remains pending. **Depends on:** Phase 5. Fixed helper ABI v3 uses canonical roots and existing barriers. The GC root/lifetime checkpoint records source review and current GNU/musl evidence for every-slice collection, interleaved Rust mutation, weak values/keys and ephemeron reattachment, joined/foreign upvalues, finalizer resurrection, debug mutation, panic exits and async resumption. No direct-storage inline cache is enabled. This is not a performance result or a claim of complete PUC-Lua weak-mode conformance.
 
-**Files:** runtime/guards, table modules, closure/upvalue integration, `tests/jit_gc.rs`, `tests/jit_mutation.rs`, existing GC/weak/userdata suites.
+**Files:** `src/jit/{abi,helpers,ir,registry,mod}.rs`, table modules, closure/upvalue integration, `tests/jit_heap.rs`, `tests/jit_upvalues.rs`, `tests/jit_gc_requests.rs`, and existing GC/weak/userdata suites. The three implemented integration files cover the originally proposed `jit_gc.rs`/`jit_mutation.rs` roles.
 
 1. Add safe native fast paths for common table lookup/update and upvalue operations, beginning with barrier-aware helpers.
 2. Document all invalidation dependencies: table storage, metatables and their contents, readonly/intercept flags, weak-mode changes, Lua mutation, and Rust mutation.
@@ -2125,7 +2662,7 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 
 ### Phase 9 — Harden and establish supported-platform evidence
 
-**Status:** IN PROGRESS. **Depends on:** Phase 8. Hosted run `37134741669` at `52b2dec` passes native GNU, musl and ARM64 gates, both selected Rust-only Miri seeds and all evidence uploads. Earlier finite heap/scalar campaigns do not complete the broader review obligations. Do not expand audit/fuzz infrastructure against the user's stated priority.
+**Status:** IN PROGRESS. **Depends on:** Phase 8. Hosted run `37148460303` at `3494c64` passes all seven jobs, including native GNU/musl/ARM64, both Rust-only Miri seeds and real i686 fallback. The later relocation-admission repair `d29bb12` passes full local GNU/musl gates; its hosted native/Miri run `37150232969` remains pending. Earlier finite campaigns and bounded ownership/GC review do not complete broader review obligations. Do not expand audit/fuzz infrastructure against the user's stated priority.
 
 Supervised heap/lifecycle coverage (`a951643`) adds four parameterized source
 families in fresh Off/Auto states. GNU/musl each pass 128 cases with per-slice
@@ -2162,7 +2699,7 @@ slice evidence; full safety/guard/lifecycle obligations remain open.
 
 ### Phase 10 — Publish a complete, accurately documented feature
 
-**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 9 and approved workload acceptance. All six hosted jobs pass at `52b2dec`, including native GNU/musl/ARM64 gates, shipping builds, the prepared example and both Miri seeds. Complete review, frozen performance controls and current shipping/size acceptance remain open.
+**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 9 and approved workload acceptance. All seven hosted jobs pass at `3494c64`, including native GNU/musl/ARM64 gates and shipping builds. The later relocation-admission repair awaits hosted native/Miri completion after passing full local GNU/musl gates. The documented example asserts native execution on GNU/musl and zero-counter fallback on i686; `JIT.md` reflects actual CI lanes and revision limits. Complete review, frozen performance controls and current shipping/size acceptance remain open.
 
 **Files:** docs/examples, benchmark/size tooling, actual CI integration, this document.
 
@@ -2239,14 +2776,14 @@ missing acceptance evidence rather than missing implementation.
 - [x] `make jit-verify` succeeds in Off, Auto, and Force, including optional async/derive and doctests. GNU/musl each pass 5152 executions / 446 suites / 24 ignored at `a0f9ac5`.
 - [x] Eligible integrated workloads actually execute native instructions; counters and coverage substantiate this. See the acceptance evidence table above and GNU full gate at `2e21d80`; this is execution coverage, not performance acceptance.
 - [x] No proportional native-stack growth from Lua recursion/tail calls or suspension. The deep-recursion checkpoint above records GNU/musl stack samples at normal depths 128/4096 and tail depths 128/16384, exact slice/GC comparisons and passing coroutine/async resumption. Source review confirms generated frames return before managed-frame transitions or suspension; this does not bound arbitrary recursive Rust callback reentry.
-- [ ] Small-fuel/interrupt/GC-request tests preserve reference scheduling behavior.
+- [x] Small-fuel/interrupt/GC-request tests preserve reference scheduling behavior. Existing `jit_native` fixtures cover negative/zero/small fuel, pre-interruption and callback interruption. The GC-request/pacing checkpoints compare exact Off/native slices, events and host flags at five budgets, with real native work surrounding collection; GNU/musl focused gates pass after the default-request and shared-pacing repairs. This is a work/boundary contract, not a wall-time or compiler-memory bound.
 - [x] Callbacks, reentrancy, coroutines, async futures, close handlers, and errors pass mixed-tier tests. The evidence table above identifies selective-tier, native-counter, exact-slice and typed-error assertions; GNU's full gate at `2e21d80` passes them, with previous full GNU/musl/ARM64 evidence at `a0f9ac5`.
-- [ ] GC roots, barriers, weak references, finalizers, and code lifetimes pass integrated stress tests and review.
+- [x] GC roots, barriers, weak references, finalizers, and code lifetimes pass integrated stress tests and review. The GC root/lifetime checkpoint records canonical-reference/barrier/registry/finalizer source paths and 224 passing focused executions per GNU/musl target at unchanged runtime revision `3494c64`, including async resumption. The separate code-memory checkpoint covers mapping ownership and final-lease reclamation. Baseline weak-mode-at-attachment behavior remains explicit; this does not close the broader unsafe-boundary/compiler-memory review.
 - [x] No synchronous compilation occurs inside `Executor::step`.
 - [x] Queue/cache/native-memory limits, compiler failure/backoff, and active-entry eviction are tested.
 - [x] Debug hooks and debug mutation retain correct behavior. Exact hook/traceback and valid/invalid mutation fixtures pass focused GNU/musl and full GNU at `2e21d80`; full-range debug indices also pass on real i686. This preserves Luna's supported debug behavior, not unsupported PUC-Lua APIs.
 - [x] Binary/prototype provenance policy is enforced and documented.
-- [ ] Executable memory is never deliberately mapped writable and executable simultaneously; allocation/protection failure falls back or reports capability failure safely.
+- [x] Executable memory is never deliberately mapped writable and executable simultaneously; allocation/protection failure falls back or reports capability failure safely. The code-memory checkpoint above records pinned mapping flags, finalization-before-publication, OS permission/reclamation checks and peer-preserving denial/recovery tests; focused GNU/musl gates pass at `3494c64` with unchanged backend source from the fully hosted-verified `2e21d80`.
 - [ ] `make jit-fuzz-smoke` passes; longer campaign evidence and unsafe-boundary review are recorded.
 - [x] Native platform tests actually execute on each advertised release target.
 - [x] Unsupported or denied-JIT environments preserve interpreter functionality. Real i686 fallback passes locally and in hosted job `111260042537` at `a893bd7`; supported-target mapping/protection-denial regressions also pass in the full native gates. This is executed target/fault coverage, not a claim about every possible OS policy.
@@ -2301,8 +2838,8 @@ Do not disable tests, lower safety guarantees, catch arbitrary crashes as succes
 | 6: heap/GC integration | IN PROGRESS | Native heap paths, barriers, GC/mutation/invalidation stress | Fresh helper guards preserve weak/readonly/intercept/invalid-key behavior. Every-slice GC, open/closed upvalues, pending-scalar panic inspection, debug local/upvalue join and finalizer-only native upvalue writes pass. Shared-cell tests additionally prove exact operation counts and write visibility across error guards, foreign stacks, GC and Rust reentry. Broader interleaved executors, mode mutations and exhaustive guard coverage remain open. |
 | 7: Auto policy | IN PROGRESS | Nonblocking stepping, owned compile work, limits/backoff, hot promotion | Bounded hot requests and explicit outside-arena service; configuration retirement, queue/attempt reductions, typed quota refusal and reset tests pass. LRU retry, charged recency, sparse compaction, refusal backoff and source collection preserve leases/live identities. Real hot queued-source GC tests (`5570951`) cancel dead requests without snapshot/compiler work, preserve a live peer's queue/identity and reclaim all accounted storage after its final drop. Stalled-compiler isolation now passes GNU/musl: three executors, queue saturation, every-slice GC, exact Off/Auto fuel/modes/results and eventual native execution. Complete resource/diagnostic checklist reconciliation remains open. |
 | 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Exact small frames (`af26288`) pass full GNU/musl correctness and the table speedup target twice (1.2805/1.2692). Last measured native upvalue (0.7067/0.7000) and callback (0.8186/0.8164) gates still fail. Matched speed compiled-Off controls fail float twice and integer once; shipping integer fails once, so its one all-green repeat is insufficient. Repeated instruction profiles are collected and transition dispatch (`4863789`) is committed with correctness evidence. Its speed comparisons are deferred by the user, not passed. Frozen performance acceptance remains open; diagnostics do not require an idle host. |
-| 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Hosted run `37134741669` at `52b2dec` passes all three native platforms (5059 executions/435 suite results/24 ignored each, including disassembly). Both Miri seeds pass 293 tests/42 suites and upload all 44 logs. The scheduling regression executes successfully on every native platform. Generated code is not Miri-covered. Finite campaigns do not complete broader review obligations; no new audit/fuzz expansion is authorized. |
-| 10: release acceptance | IN PROGRESS | Complete gates, thresholds, docs/examples, actual CI | All six hosted jobs, matched shipping builds and artifact uploads pass at `52b2dec`. Current runtime code has native GNU/musl/ARM64 evidence. Remaining implementation/review reconciliation and native/disabled performance acceptance are unfinished; benchmarks are user-deferred, not passed. |
+| 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Run `37146171083` at `2e21d80` passes all seven jobs, including three native platforms, two Rust-only Miri seeds and real i686 fallback. Local GNU/musl each pass 5189 executions/452 suites/24 ignored; i686 passes 1847/299/2. Later GC repairs have focused evidence and bounded ownership/GC review; full native/Miri run `37148460303` remains pending. Generated code is not Miri-covered. Broader review remains open; no new audit/fuzz expansion is authorized. |
+| 10: release acceptance | IN PROGRESS | Complete gates, thresholds, docs/examples, actual CI | All seven hosted jobs and shipping builds pass at `2e21d80`; later runtime edits require their own full result. Native-counter example assertions pass GNU/musl; real i686 asserts interpreter-only execution. Documentation distinguishes baseline/native/Miri/fallback lanes and artifact builds from measurements. Remaining implementation/review reconciliation and native/disabled performance acceptance are unfinished; benchmarks are user-deferred, not passed. |
 
 Status values: TODO, IN PROGRESS, COMPLETE, or BLOCKED with a concrete reason. Attach toolchain, platform, commands, counts, exclusions, and evidence paths when updating a row. COMPLETE requires the stated phase exit, not a percentage estimate.
 

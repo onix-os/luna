@@ -6,6 +6,31 @@
 
 use luna::{Closure, Executor, Lua};
 
+#[test]
+fn host_requests_keep_last_request_wins_semantics() {
+    use luna::GcRequest::{Collect, None, Restart, Step, Stop};
+
+    let mut lua = common::core();
+    for initial in [false, true] {
+        for (requests, expected) in [
+            ([Stop, None], initial),
+            ([Restart, None], initial),
+            ([Stop, Restart], true),
+            ([Restart, Stop], false),
+            ([Stop, Collect], initial),
+            ([Restart, Step], initial),
+        ] {
+            lua.set_gc_pacing(initial);
+            lua.enter(|ctx| {
+                for request in requests {
+                    ctx.request_gc(request);
+                }
+            });
+            assert_eq!(lua.gc_is_running(), expected, "{requests:?}");
+        }
+    }
+}
+
 /// Allocate a few thousand dead tables and report memory before and after.
 fn churn(lua: &mut Lua) {
     let executor = lua

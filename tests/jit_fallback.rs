@@ -66,6 +66,10 @@ fn no_native_work(lua: &Lua) {
     let stats = lua.jit_stats();
     assert_eq!(stats.native_entries, 0);
     assert_eq!(stats.native_instructions, 0);
+    assert_eq!(stats.guard_exits, 0);
+    assert_eq!(stats.native_interpreter_exits, 0);
+    assert_eq!(stats.native_budget_exits, 0);
+    assert_eq!(stats.native_panic_exits, 0);
     assert_eq!(stats.installed_regions, 0);
     assert_eq!(stats.code_bytes, 0);
     assert_eq!(stats.snapshot_bytes, 0);

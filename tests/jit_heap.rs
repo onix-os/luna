@@ -563,12 +563,22 @@ fn helper_panics_return_through_native_code_before_rust_unwinding() -> Result<()
             });
         }));
         assert!(result.is_err());
+        let stats = lua.jit_stats();
+        assert_eq!(stats.native_panic_exits, u64::from(native));
+        assert_eq!(
+            stats.native_entries,
+            stats.guard_exits
+                + stats.native_interpreter_exits
+                + stats.native_budget_exits
+                + stats.native_panic_exits
+        );
         lua.enter(|ctx| {
             ctx.fetch(&executor).stop(&ctx);
         });
         lua.gc_collect();
         let next = source(&mut lua, b"local x=40 return x+2")?;
         assert_eq!(lua.execute::<i64>(&next)?, 42);
+        assert_eq!(lua.jit_stats().native_panic_exits, stats.native_panic_exits);
     }
     Ok(())
 }

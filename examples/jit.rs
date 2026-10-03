@@ -2,7 +2,8 @@ use luna::{Closure, Executor, JitConfig, JitMode, Lua};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut lua = Lua::core();
-    if lua.jit_capabilities().supported_target {
+    let supported_target = lua.jit_capabilities().supported_target;
+    if supported_target {
         lua.set_jit_config(JitConfig {
             mode: JitMode::Auto,
             ..JitConfig::default()
@@ -20,6 +21,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result: i64 = lua.execute(&executor)?;
     assert_eq!(result, 5_000_050_000);
     let stats = lua.jit_stats();
+    if supported_target {
+        assert!(prepared > 0);
+        assert!(stats.native_instructions > 0);
+        assert!(stats.code_bytes > 0);
+    } else {
+        assert_eq!(prepared, 0);
+        assert_eq!(stats.native_instructions, 0);
+        assert_eq!(stats.code_bytes, 0);
+    }
     println!(
         "result={result} prepared={prepared} native_instructions={} native_memory_bytes={}",
         stats.native_instructions, stats.code_bytes

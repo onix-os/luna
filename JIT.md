@@ -2,28 +2,39 @@
 
 This branch implements the first native execution tier described in [PLAN_JIT.md](PLAN_JIT.md). It is **not the finished plan** and is not the LuaJIT runtime or its FFI. Constructors still default to interpreted execution. Do not use these results to claim production readiness or hostile-code isolation.
 
-All six hosted jobs pass at `52b2dec`
-([run 37134741669](https://github.com/onix-os/luna/actions/runs/37134741669)).
-Linux x86-64 GNU, x86-64 musl and ARM64 GNU each pass 5059 test executions
-across repeated modes/suites, including the scheduling regression and disassembly
-check. Each native example completes 200007 logical instructions. Both Rust-only
-Miri seeds pass 293 tests across 42 suites; all evidence uploads succeed.
-This resolves the previous filename/timeout failures, not full-plan acceptance.
-Benchmarks are deferred by the
-maintainer, not accepted, and earlier upvalue/callback/disabled-cost failures
-remain unresolved.
+As checked on 2026-10-03, all seven hosted jobs pass at `2e21d80`
+([run 37146171083](https://github.com/onix-os/luna/actions/runs/37146171083)):
+native Linux x86-64 GNU/musl and ARM64 GNU, two Rust-only Miri seeds, baseline
+verification and real i686 interpreter fallback. Local full GNU/musl gates at
+that revision each pass 5189 executions across 452 repeated suites, with 24
+ignored and zero failures; i686 passes 1847 across 299 suites, with two ignored.
+These are repeated test executions, not unique tests or performance measurements.
 
-The portability milestone `a893bd7` passes final local GNU/musl verification:
-5142 test executions each across 446 repeated suites, with 24 ignored and zero
-failures. Real i686 interpreter fallback passes 1839 executions locally and in
-the [hosted fallback job](https://github.com/onix-os/luna/actions/runs/37142633733/job/111260042537).
-That job exercises the unsupported-target branch rather than native compilation.
-The remaining native/Miri jobs for this revision are still pending at this
-checkpoint; the older green runs do not certify these later source changes.
+Later fixes `009bf3b` and `3494c64` repair default/nil `collectgarbage()` requests
+and shared host/Lua GC pacing. Focused GNU/musl/i686 regressions pass; subsequent
+GNU/musl GC/lifetime and code-memory checks pass as recorded in `PLAN_JIT.md`.
+The [full run at `3494c64`](https://github.com/onix-os/luna/actions/runs/37148460303)
+now passes all seven jobs. Older green runs do not certify later runtime changes. Benchmarks remain deferred,
+not accepted; earlier upvalue/callback/compiled-but-disabled cost failures remain
+unresolved. This is not full-plan acceptance.
+
+The subsequent relocation-admission change (`d29bb12`) compiles into an owned compiler
+buffer, checks the relocation count, then installs through Cranelift's byte
+definition API. Focused and full GNU/musl gates pass (5223 executions across
+458 repeated suites, 24 ignored, zero failed per target). The
+[hosted native/Miri verification](https://github.com/onix-os/luna/actions/runs/37150232969)
+remains pending. The earlier hosted results do not cover this installation-path
+change; detailed evidence is recorded in `PLAN_JIT.md`.
 
 ## Enable and prepare
 
 Enable the optional `jit` Cargo feature and set `JitConfig.mode` to `JitMode::Auto`. See `examples/jit.rs`; run it with `nix develop -c make jit-example`.
+
+The example asserts the Lua result and nonzero preparation, native-instruction
+and code-memory counters on supported targets. On unsupported targets it stays
+Off and asserts the same result with zero native counters. Build eligibility is
+not permission to map executable memory: explicit preparation errors propagate
+from this example rather than silently passing an interpreted run as native.
 
 Source loaded through `Closure::load` / `load_with_env` gets private weak prototype registrations, including nested functions. `prepare_jit()` queues a bounded batch of registered sources and compiles that queue outside the GC arena. Keep closures or executors stashed so collection cannot retire their source before preparation. A batch is limited by `max_queue_entries`; call again for further prototypes. Binary chunks and manually constructed prototypes remain interpreted.
 
@@ -73,7 +84,7 @@ Fixed bytecode write masks are not complete dynamic helper clobber sets;
 upvalue writes can affect any current-frame slot. Generated calls are memory
 fences in the pinned backend, and subsequent instructions reload guarded slots.
 
-Calls, returns, actual metamethod/user callback invocation, close tracking/unwinding, coroutines, and async transitions still run through explicit interpreter exits. Native execution does not recursively call Lua on the native stack or keep a generated frame across suspension. Hook-enabled slices remain interpreted. Heap coverage and lifecycle acceptance remain incomplete until the full plan's stress/performance/platform gates are satisfied.
+Calls, returns, actual metamethod/user callback invocation, close tracking/unwinding, coroutines, and async transitions still run through explicit interpreter exits. Native execution does not recursively call Lua on the native stack or keep a generated frame across suspension. Hook-enabled slices remain interpreted. Integrated GC/lifecycle tests and bounded ownership/barrier review are recorded in `PLAN_JIT.md`; broader compiler/unsafe-boundary review, current full-platform verification and performance acceptance remain open.
 
 Every generated operation checks the remaining reference slice allowance before executing; a native invocation completes at most 64 logical bytecode instructions. A guard failure leaves the PC before the unperformed instruction. Completed scalar writes are materialized into the same canonical Lua registers, and the interpreter immediately makes progress without repeating completed work. Fuel retains the interpreter's existing approximate transition charges, including minimal progress with exhausted or interrupted input.
 
@@ -204,7 +215,7 @@ The disabled `service_jit()` fast path remains unchanged.
 
 - `max_prototype_instructions` and `max_snapshot_bytes` bound snapshot admission before copying bytecode. Native scratch uses exact 1–8-slot specializations, then the smallest fitting 16/32/64/128/256-slot tier, bounded to 256 scalar slots. Zero-register entries use an empty initialized prefix. Scratch-bearing routines are non-inlined, so compiled-but-Off VM entries do not reserve their 4 KB maximum.
 - `max_ir_instructions` (1048576) and `max_ir_blocks` (65536) independently cap a conservative frontend expansion envelope before graph allocation or Cranelift setup. Actual frontend instruction/block counts must fit the admitted envelope before code generation. The estimate can reject a prototype below the source-opcode ceiling; these limits do not bound optimizer CPU time, compiler working memory or RSS. Lowering either limit retires cached code and pending requests; existing leases retain their normal lifetime policy.
-- `max_relocations` (65536) caps the actual compiled function's relocation records before finalization applies them or changes memory protections. Excess records return `ResourceLimit("native relocations")`, release the candidate's writable mappings/metadata, and leave interpretation and other installed modules usable. This check follows code generation and the backend's relocation-vector allocation; it is not a bound on those earlier allocations or compilation time. Lowering the cap retires installed code and queued work without invalidating active leases. Raising it alone does not reset failed attempts; clear the cache to retry.
+- `max_relocations` (65536) caps the actual compiled function's relocation records before module relocation conversion/copying or native mapping allocation. Excess records return `ResourceLimit("native relocations")` and leave interpretation and other installed modules usable. Admitted records are converted in a fallible snapshot-ledger staging vector; refusal returns `ResourceLimit("native relocation staging")`. Cranelift installs the bytes and relocations with its existing linker/provider, then the staging vector and codegen context are dropped before finalization. The check follows code generation: it does not bound Cranelift's earlier machine-relocation buffer, compiler working memory or compilation time. The module's own relocation copy remains outside the byte ledger. Lowering the cap retires installed code and queued work without invalidating active leases. Raising it alone does not reset failed attempts; clear the cache to retry.
 - `max_queue_entries` bounds pending identity requests. Saturating hotness and `max_compile_attempts` limit repeated failures; clearing the cache resets attempts.
 - `max_code_bytes` bounds actual page-rounded JIT mappings, including the compiler's code/readonly/writable segments. Retired but pinned mappings remain charged until the last lease drops. Allocation failure frees partial mappings and leaves interpretation usable.
 - `max_metadata_bytes` independently bounds requested allocation layouts for weak registrations, tracking/code-index maps, pending identities, preparation ID buffers, native-entry flags and mapping records. Containers use a shared fallible allocator; retained capacity and temporary old/new growth are charged. Registration refusal leaves ordinary source loading/interpreting usable; metadata allocation refusal is typed `ResourceLimit("JIT metadata")`. Lowering this ceiling retires registrations, code and requests; existing closures continue interpreted, and new source loads can register after limits are raised. Active leases keep their entry flags/mapping records and remain charged until their final owner drops, even above a newly reduced quota. Ordinary cache clearing retains live source registrations.
@@ -234,18 +245,19 @@ repeated suites, with 24 ignored and zero failures. The focused lifetime/resourc
 gates pass 77 executions per target. These are correctness/resource results,
 not the deferred performance acceptance.
 - `native_entries` counts real machine-code invocations, including immediate guard exits. `native_instructions` counts completed logical bytecodes, not CPU instructions. `interpreted_instructions` counts the reference VM's reported instructions, which exclude some transition opcodes. `interpreted_slices` counts completed slices that fetched an interpreted opcode. `hook_exits` counts slices kept interpreted with hooks enabled.
+- Native invocations return exactly one of four reasons: `native_interpreter_exits` (handoff for an interpreted operation or helper decline), `guard_exits` (failed scalar guard), `native_budget_exits` (slice allowance exhausted), or `native_panic_exits` (caught helper panic). These totals partition `native_entries` until counters saturate; each saturates independently at `u64::MAX`. Zero-instruction exits still count. Panic exits are recorded after state materialization and before resuming Rust unwinding. Hook-only interpreted slices do not count as native exits. Cache clearing and disabling JIT retain these cumulative counters. `make jit-stats` checks reason accounting, native execution and unsupported-target zeros; the metrics example includes the new reason totals without requiring a timing run to test them.
 - `code_lookups` counts eligible slice-local cache probes; `code_leases` counts successful owned leases, even when an entry is interpreted. A single VM slice reuses its lease across native/reference fragments, but repacks canonical registers for every invocation. Hotness observation remains per interpreted dispatch when no code is installed.
 - `helper_calls` counts scoped helper attempts, `helper_instructions` counts completed helper-backed bytecodes, and `helper_declines` counts effect-free fallback requests. Table/upvalue/allocation counters count successful accesses; table-through-upvalue operations include a successful upvalue read. These are real native helper paths, not the interpreter's opcode loop.
 - `code_bytes` is live mapped usage; `snapshot_bytes` follows owned snapshot vectors; `installed_regions`, requests, failures, and execution counters are cumulative. Preparation is synchronous, so the host usually observes zero current snapshot usage after it returns. Benchmarks also report current/peak container charges and refusals.
 
-The backend is compiled for Linux x86-64/aarch64. Executed integration evidence exists on x86-64 GNU, musl and ARM64 GNU at `4863789`, as linked above. `supported_target` reports build eligibility, **not successful executable-memory allocation or release platform certification**. Explicit preparation/service reports unsupported targets, typed `ResourceLimit` mapping/metadata/snapshot refusals, native allocation/protection denial as `Unavailable`, or compiler errors. Optional convenience service failures do not become Lua language errors. Test-only injection covers allocation/protection denial after source loading, preservation of another installed module, interpreter fallback and recovery; it does not modify host permissions or expose a script-facing fault option.
+The backend is compiled for Linux x86-64/aarch64. Executed integration evidence exists on x86-64 GNU, musl and ARM64 GNU at `2e21d80`, as linked above. `supported_target` reports build eligibility, **not successful executable-memory allocation or release platform certification**. Explicit preparation/service reports unsupported targets, typed `ResourceLimit` mapping/metadata/snapshot refusals, native allocation/protection denial as `Unavailable`, or compiler errors. Optional convenience service failures do not become Lua language errors. Test-only injection covers allocation/protection denial after source loading, preservation of another installed module, interpreter fallback and recovery; it does not modify host permissions or expose a script-facing fault option.
 
 ## Unsafe boundary review: current scalar/heap tier
 
 1. The v3 generated signature is `extern "C" fn(*mut Slot, u64, u32, *mut Exit, *mut Host)` with the platform's native C calling convention. `Slot` and `Exit` use `repr(C)` and asserted size/offsets. Nine fixed imported helpers use `extern "C" fn(*mut Host, *mut Slot, u32, u32, u32, u32) -> u32`; each specializes a const helper kind. The opaque host carries only the scoped frame pointer, not an indirect callback. Compiler lookup matches explicit unique kind keys, independent of registry order. No Rust enum, `Gc`, frame layout, or arena lifetime is assumed by generated code. There is no persisted native cache or public helper ABI to migrate.
 2. Snapshots contain decoded owned instructions and scalar tag/bits constants only. Reference constant placeholders resolve by validated index through the scoped helper's active closure, not cached GC pointers. Register, constant, upvalue, prototype, skip, and jump operands are validated before code generation. Code checks the budget at every instruction entry, including backedges.
-3. Each eligible VM frame slice acquires one strong-owned `Code` lease with its `JITModule` alive, releasing the manager borrow before execution. It reuses the lease across native/reference fragments and drops it on slice completion, frame transition, error or unwind; no scratch/host state survives an invocation. Scratch slots, exit buffer, opaque host, and borrowed Rust helper frame outlive the synchronous call. Entry/bounds checks select an outlined scratch tier large enough for the admitted prefix; every used `MaybeUninit` slot is written before a typed slice is formed, and the unused suffix is never read as `Slot`. Reference-result tests cover both sides of every tier boundary including 256. The lifetime-erasing pointer cast is confined to the scoped gateway; no pointer, GC reference, or helper result escapes into cached code. A null host in boundary-model tests declines helper work.
-4. Helpers decode scalar operands from scratch and reference operands from canonical traced slots. Each destination synchronizes both representations; table/upvalue setters retain normal barrier APIs. Pending scalars materialize on every exit and before a caught panic resumes. No helper invokes collection, users, hooks, or frame changes. Existing upvalue access reads a closed cell, another stack, or registers above the current frame; its same-stack assertion excludes current-frame aliasing. Old canonical references can remain rooted until exit, but no collection can observe that interval. Any future callback/safepoint/current-frame-inspection helper must restore full synchronization first. No Rust heap layout is assumed by machine code.
+3. Each eligible VM frame slice acquires one strong-owned `Code` lease that keeps the detached native mappings alive; the `JITModule` was destroyed before publication. The manager borrow is released before execution. The slice reuses the lease across native/reference fragments and drops it on completion, frame transition, error or unwind; no scratch/host state survives an invocation. Scratch slots, exit buffer, opaque host, and borrowed Rust helper frame outlive the synchronous call. Entry/bounds checks select an outlined scratch tier large enough for the admitted prefix; every used `MaybeUninit` slot is written before a typed slice is formed, and the unused suffix is never read as `Slot`. Reference-result tests cover both sides of every tier boundary including 256. The lifetime-erasing pointer cast is confined to the scoped gateway; no pointer, GC reference, or helper result escapes into cached code. A null host in boundary-model tests declines helper work.
+4. Helpers decode scalar operands from scratch and reference operands from canonical traced slots. Each destination synchronizes both representations; table/upvalue setters retain normal barrier APIs. Pending scalars materialize on every exit and before a caught panic resumes. No helper invokes collection, users, hooks, or frame changes. Upvalues can alias the current frame: reads use pending scratch within the admitted prefix, and writes update both scratch and canonical storage. Cells outside that prefix, earlier frames, foreign stacks and closed cells retain their canonical/barrier paths. Old canonical references can remain rooted until exit, but no collection can observe that interval. Any future callback or safepoint helper must restore full synchronization first. No Rust heap layout is assumed by machine code.
 5. Each provider allocation owns an anonymous memmap2 handle in a budgeted Segment record. Metadata, page quota and shared parent reservations precede mapping; allocation failure rolls page reservations back. The aligned payload remains within the mapped range. Executable ranges clear cache before RX conversion and pipeline-flush after all segments; readonly ranges become R, writable data stays RW, and no RWX mapping is requested. Linux ARM64 BTI uses the same detected-feature policy as pinned Cranelift. Protection failure never publishes an entry; existing leases pin all maps until module reclamation. The exact optional memmap2/internal-icache dependencies match the pinned compiler versions; the upstream icache crate is an unsupported internal API requiring renewed review on upgrades. Executed ARM64 evidence is revision-scoped; later runtime changes still require the native platform gate.
 6. Helper gateway signatures use opaque pointers and fixed-width immediate operands. The gateway catches Rust unwind payloads and returns an explicit panic exit; after native return, Rust resumes the same payload rather than converting it to Lua success or interpreter fallback. No helper invokes user callbacks, Lua code, frame transitions, the compiler, or collection. Rust `panic=abort` still aborts normally. A deliberately conflicting table borrow verifies the unwind profile returns through the generated frame and leaves the state reusable.
 7. Helpers advance the canonical PC before effects, restore it when declining before effects, and return at most one completed logical operation per call. Guard failures do not perform a table mutation, user callback, or Lua error before interpreter retry. Fresh metatable contents and interception/readonly flags are consulted on each access; no invalidation cache or table layout assumptions exist yet.
@@ -521,6 +533,21 @@ nil/error results across the full Lua integer range; large frame levels do not
 wrap on 32-bit hosts. The native debug gate also proves that rejected mutations
 leave captured values intact and native execution resumes afterward.
 
+`make jit-gc-requests` checks default, nil and explicit collection requests in
+baseline, Off, Auto and prepared execution, including async-enabled builds.
+The native fixture disables automatic collection, drains pending finalizers at
+host boundaries and compares exact slice/fuel/interrupt/event traces. Ordinary
+weak values and finalizable values are separate: finalizer resurrection may
+retain the latter for another collection cycle. Native write counts prove work
+before and after requests; no extra host collection hides a missing interrupt.
+
+Lua `stop`/`restart` and the Rust pacing methods share one scheduling flag;
+`isrunning` reports that flag, not allocation debt. Explicit collect/step requests
+do not restart stopped automatic collection. Public `Context::request_gc`
+retains its deferred, last-request-wins behavior; Lua pacing verbs update the
+flag directly. The GC request gate checks that distinction and exact pacing
+observations across native/interpreter boundaries.
+
 `make jit-helpers` directly tests all nine scoped Rust helper entries with
 closed upvalues and canonical reference identity. It checks effect-free decline
 and PC rollback, panic materialization of exactly the declared scratch prefix,
@@ -529,6 +556,25 @@ Rust. These fixtures run in the Miri lane too. They do not invoke generated
 code or replace native open/foreign-upvalue and GC-slice tests.
 
 Use `make jit-boundary`, `make jit-native`, `make jit-heap`, `make jit-policy`, `make jit-registers`, and `make jit-verify` in the Nix development environment. Test-only Force wrappers prepare after host arena entries; sources loaded and executed wholly within one entry cannot be prepared between those operations and are not falsely counted as forced-native coverage. Dedicated native tests explicitly prepare and assert nonzero native instruction counts.
+
+Force preparation now fails tests on unexpected errors, including resource or
+executable-memory refusals. A fixture intentionally testing a quota refusal must
+call the test-only `allow_jit_resource_refusal` with its exact reason; a different
+refusal still fails. `preparation_report` exposes calls, actual installations
+(including work installed before a later refusal), empty successful batches,
+allowed/unexpected resource refusals and unsupported-target skips. Explicit
+exclusions emit `JIT_FORCE_EXCLUDED` diagnostics, visible with `--nocapture`.
+Unsupported targets remain interpreter-only, not successful native preparations.
+`make jit-test-modes` checks the wrapper in separate processes so mode selection
+cannot race with other tests' environment. Empty batches and same-entry execution
+are tested as zero native work, not acceleration evidence.
+The existing `tests/scripts/math.lua` corpus exceeds the default IR-block
+admission cap. Its fixture explicitly permits only `IR blocks` and asserts that
+this refusal occurred in supported-target Force mode; other scripts have no
+blanket exemption. The original script still runs and checks its Lua semantics.
+No quota was raised and this pre-existing fallback is not claimed as whole-script
+native coverage. A source executed within one arena entry may be prepared only
+after that execution finishes; installation totals alone do not prove native use.
 
 `make jit-resources` checks failed and successful growth, retained capacity, lower-limit ownership, injected underlying/partial-snapshot failure, queue refusal without stranded flags, generated-mapping reclamation after installation refusal, separate registration/snapshot budgets, retroactive registration retirement and final-source collection. Requested container layouts are reserved before `Global` allocation and released only after deallocation; default allocator growth keeps the old block charged while allocating/copying its replacement. The allocator is static/GC-free; the weak registry still uses the collector's traced hashbrown implementation and fresh generation/identity verification.
 
@@ -573,7 +619,17 @@ The size gate first runs the JIT artifact in Auto and asserts native work/result
 
 `make jit-platform TARGET=x86_64-unknown-linux-musl` runs the full baseline/JIT gate and prepared example on matching Linux hardware. The gate rejects undeclared targets and architecture mismatches before compiling. The same command accepts `x86_64-unknown-linux-gnu` or `aarch64-unknown-linux-gnu`; the toolchain must contain the requested standard library and any required linker. Ordinary `jit-verify` and focused test/doc targets also forward `TARGET`, including recursive fuzz workers. Fuzz replay artifacts record the target so musl evidence is not silently replayed as GNU.
 
-The active workflow is `.github/workflows/tests.yml`, promoted from the former non-active `workflows/tests.yml` template. It retains baseline checks and adds full native GNU/musl x86-64 and GNU ARM64 jobs on matching hosted runners, with pinned action commits, Rust 1.97.1, target-specific caches and uploaded logs/campaign artifacts on failure as well as success. `make ci-check` validates the workflow with actionlint supplied by the Nix shell. Local workflow validation is not an executed hosted run; ARM64 and hosted-CI results remain required before release acceptance.
+The active workflow is `.github/workflows/tests.yml`. Its baseline `verify` job
+runs formatting, baseline check/test, Miri-wrapper tests, advisory Clippy and
+rustdoc; it is not the full local `make verify` recipe and does not prove native
+execution. Three native jobs run `make jit-platform TARGET=...` on matching GNU,
+musl and ARM64 hardware, then build matched shipping artifacts with
+`make jit-size-build SIZE_PROFILE=shipping`. These builds do not establish size
+or runtime-overhead acceptance. Separate jobs run two pinned Rust-only Miri seeds
+and real i686 fallback. Action commits/toolchains are pinned and native/Miri/
+fallback evidence uploads run on failure as well as success. `make ci-check`
+validates wiring with actionlint; executed results remain revision-scoped as
+linked above, not implied by workflow lint or an older green run.
 
 `nix develop .#fallback -c make jit-fallback TARGET=i686-unknown-linux-musl`
 builds and executes static 32-bit binaries on a Linux x86-64 host with 32-bit
