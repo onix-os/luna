@@ -2,29 +2,23 @@
 
 This branch implements the first native execution tier described in [PLAN_JIT.md](PLAN_JIT.md). It is **not the finished plan** and is not the LuaJIT runtime or its FFI. Constructors still default to interpreted execution. Do not use these results to claim production readiness or hostile-code isolation.
 
-As checked on 2026-10-03, all seven hosted jobs pass at `2e21d80`
-([run 37146171083](https://github.com/onix-os/luna/actions/runs/37146171083)):
+As checked on 2026-10-03, all seven hosted jobs pass at `48df12e`
+([run 37152214033](https://github.com/onix-os/luna/actions/runs/37152214033)):
 native Linux x86-64 GNU/musl and ARM64 GNU, two Rust-only Miri seeds, baseline
 verification and real i686 interpreter fallback. Local full GNU/musl gates at
-that revision each pass 5189 executions across 452 repeated suites, with 24
-ignored and zero failures; i686 passes 1847 across 299 suites, with two ignored.
+that revision each pass 5248 executions across 458 repeated suites, with 24
+ignored and zero failures. This includes the GC request/pacing repairs,
+relocation admission before mapping and complete native-exit counters.
 These are repeated test executions, not unique tests or performance measurements.
 
-Later fixes `009bf3b` and `3494c64` repair default/nil `collectgarbage()` requests
-and shared host/Lua GC pacing. Focused GNU/musl/i686 regressions pass; subsequent
-GNU/musl GC/lifetime and code-memory checks pass as recorded in `PLAN_JIT.md`.
-The [full run at `3494c64`](https://github.com/onix-os/luna/actions/runs/37148460303)
-now passes all seven jobs. Older green runs do not certify later runtime changes. Benchmarks remain deferred,
-not accepted; earlier upvalue/callback/compiled-but-disabled cost failures remain
-unresolved. This is not full-plan acceptance.
-
-The subsequent relocation-admission change (`d29bb12`) compiles into an owned compiler
-buffer, checks the relocation count, then installs through Cranelift's byte
-definition API. Focused and full GNU/musl gates pass (5223 executions across
-458 repeated suites, 24 ignored, zero failed per target). The
-[hosted native/Miri verification](https://github.com/onix-os/luna/actions/runs/37150232969)
-remains pending. The earlier hosted results do not cover this installation-path
-change; detailed evidence is recorded in `PLAN_JIT.md`.
+Later test-harness changes make Force refusals explicit. Focused GNU/musl/i686
+gates pass with exact IR-block exclusions for the existing math and string
+corpora. Full strict-harness verification must be rerun after those exclusions;
+the failed run is recorded rather than treated as a pass. Dynamic numeric-exit
+tests also pass in jit/jit+async on GNU/musl. These later changes do not modify
+the production runtime, but older green runs do not certify new test coverage.
+Benchmarks remain deferred, not accepted; earlier upvalue/callback/compiled-but-
+disabled cost failures remain unresolved. This is not full-plan acceptance.
 
 ## Enable and prepare
 
@@ -87,6 +81,16 @@ fences in the pinned backend, and subsequent instructions reload guarded slots.
 Calls, returns, actual metamethod/user callback invocation, close tracking/unwinding, coroutines, and async transitions still run through explicit interpreter exits. Native execution does not recursively call Lua on the native stack or keep a generated frame across suspension. Hook-enabled slices remain interpreted. Integrated GC/lifecycle tests and bounded ownership/barrier review are recorded in `PLAN_JIT.md`; broader compiler/unsafe-boundary review, current full-platform verification and performance acceptance remain open.
 
 Every generated operation checks the remaining reference slice allowance before executing; a native invocation completes at most 64 logical bytecode instructions. A guard failure leaves the PC before the unperformed instruction. Completed scalar writes are materialized into the same canonical Lua registers, and the interpreter immediately makes progress without repeating completed work. Fuel retains the interpreter's existing approximate transition charges, including minimal progress with exhausted or interrupted input.
+
+`make jit-numeric-exits` compares Off/prepared execution for 24 dynamic-operand
+cases at five fuel budgets, with GC after every slice. It covers wrapping integer
+arithmetic, floor division/modulo signs and minimum-integer edges, integer-zero
+errors, floating zero/infinity/NaN, signed zero and string coercion/errors. Exact
+slice traces, results and error strings agree; floats are compared by bits except
+that NaN payloads are normalized. Each prepared run must perform exactly 201
+native table writes, proving native work both before and after the numeric
+operation or its caught error. This proves mixed-tier behavior, not native
+lowering of floor-division/modulo/coercion paths that intentionally remain interpreted.
 
 ## Resources and counters
 

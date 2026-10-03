@@ -11,6 +11,69 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Dynamic numeric exits and native-slice reconciliation — 2026-10-03
+
+#### Goal
+Verify the Phase 4 numeric-edge requirements with dynamic operands, exact slice
+agreement and native work on both sides of interpreter fallback or caught errors.
+
+#### Instructions
+Use the existing native implementation and Make gates. Do not substitute constant
+folding, successful preparation or semantic-only tests for native execution.
+Benchmarks and release acceptance remain deferred/open.
+
+#### Discoveries
+The existing numeric corpus covers semantic corners and the scalar model compares
+every entry/budget, but not every numeric fallback case had dedicated proof of
+native prefix and suffix work. Arguments supplied from Rust prevent constant
+folding from replacing the operation under test. NaN class is compared without
+claiming payload preservation; finite values, infinities and signed zero retain
+exact bit comparisons.
+
+#### Accomplished
+Added 24 arithmetic/division/modulo/coercion cases at fuel -1, 0, 1, 64 and 65536.
+Each Off/prepared pair compares complete finished/mode/fuel/interrupt traces,
+result types/values and error strings while collecting after every slice. The
+prepared run must perform exactly 201 native table writes (initialization plus
+100 on each side), preserve installation count, leave no compilation queue and
+report no native panic. Correct results alone cannot satisfy the native test.
+
+Initial GNU batch `52239` and remaining matrix `4178` exit 0: jit and jit+async on
+GNU/musl each pass all 120 pairs, 480 pairs across four configurations. Formatting
+and advisory Clippy (`57506`) pass; the existing 141 lib-test warnings and
+`jit_suspension` type-complexity warning remain, with none in the new fixture.
+Finalized disassembly refresh (`37952`) exits 0 on GNU/musl. Both scalar images
+execute 207 native instructions and return 5050. The table image deliberately
+receives a null host, exits before allocation at PC 0 and reports zero native
+instructions: it is a disassembly/helper-refusal artifact, not table-execution
+proof. Actual native table execution is established by the integrated fixtures.
+Hosted run `37152214033` at unchanged runtime `48df12e` is now all-seven green.
+No runtime implementation changed. The earlier strict-harness full batch failed
+on the string-corpus admission exclusion, not this fixture; it is not full-pass
+evidence. The string runner repair was committed separately as `e955333`.
+
+| Phase 4 requirement | Concrete evidence |
+| --- | --- |
+| 1: scalar/loop lowering | Exhaustive flow/access classification, backend emission and source-bound verification; independent scalar model and exact mixed-comparison tests. |
+| 2: canonical references/exits | Scoped helper frame and rooted stack; generated frames return before calls, metamethods or frame changes. Phase 6 extends initial interpreted allocation to guarded table helpers rather than direct GC-layout access. |
+| 3: numeric fallback | New dynamic matrix plus existing numeric/error corpus; floor division/modulo and coercion deliberately use interpreter semantics. Floating division uses IEEE native arithmetic. |
+| 4: work/materialization | Model per-entry/budget checks, interrupted/negative-fuel fixtures, side-effect guard test and exact numeric slice traces; native regions remain at most 64 logical instructions. |
+| 5: real native work | Dedicated native/scalar/heap fixtures and exact 201-write prefix/suffix requirement, not preparation counts or timing. |
+| 6: finalized code artifacts | Refreshed `jit-disassembly` validates architecture/entry addresses and retains finalized code/disassembly/hash metadata. Scalar execution is checked; table null-host refusal is deliberately not table-operation execution evidence. |
+
+#### Next Steps
+Rerun full strict-harness gates with both exact
+corpus exclusions and this new fixture. Reconcile milestone statuses only against
+their original exit criteria; Phase 3 resource review and deferred performance
+are not completed by numeric correctness evidence.
+
+#### Relevant Files
+- `tests/jit_numeric_exits.rs` — dynamic operands, independent expected values,
+  exact mixed-tier traces and native prefix/suffix counters.
+- `Makefile` — standalone `jit-numeric-exits`, also included by `jit-numeric`.
+- `JIT.md` — numeric execution evidence and its limits.
+- `target/jit-evidence/numeric-exits/` — four configuration logs and code artifacts.
+
 ### Strict Force preparation and explicit exclusions — 2026-10-03
 
 #### Goal

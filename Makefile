@@ -455,6 +455,11 @@ jit-numeric:
 	@$(CARGO) test -p luna --test numeric_semantics $(TARGET_ARG) $(ARGS)
 	@$(CARGO) test -p luna --features jit --test jit_native $(TARGET_ARG) mixed_numeric
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::model::tests::mixed_numeric
+	@$(MAKE) --no-print-directory jit-numeric-exits
+
+.PHONY: jit-numeric-exits
+jit-numeric-exits:
+	@$(CARGO) test --locked -p luna --features jit --test jit_numeric_exits $(TARGET_ARG) $(ARGS)
 
 jit-fuzz-smoke:
 	@case "$$(uname -sm)" in 'Linux x86_64'|'Linux aarch64') ;; *) echo 'Native fuzz requires supported Linux host'; exit 2;; esac
@@ -918,6 +923,7 @@ help:
 	@echo "  jit-config   Test configuration and disabled-state collection"
 	@echo "  jit-stats    Verify native exit reasons and execution counters"
 	@echo "  jit-test-modes Test Force preparation and explicit exclusions"
+	@echo "  jit-numeric-exits Check numeric fallbacks between native work"
 	@echo "  jit-registers Test register-255 and stack-256 boundaries"
 	@echo "  jit-policy   Test quota refusal and configuration retirement"
 	@echo "  jit-resources Test owned-container budgets and reclamation"
