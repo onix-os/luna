@@ -27,6 +27,24 @@ disabled cost failures remain unresolved. This is not full-plan acceptance.
 
 Enable the optional `jit` Cargo feature and set `JitConfig.mode` to `JitMode::Auto`. See `examples/jit.rs`; run it with `nix develop -c make jit-example`.
 
+The native dependency set uses Rust 1.97.1 in the Nix shell and CI; the pinned
+Cranelift and instruction-cache crates declare Rust 1.96.0 as their minimum.
+`make environment` reports the selected local toolchain. Direct native-only
+dependencies, as recorded in `Cargo.toml`, `Cargo.lock` and their package
+manifests, are:
+
+| Dependency | Locked version | Declared license |
+| --- | --- | --- |
+| `cranelift-codegen`, `cranelift-frontend`, `cranelift-jit`, `cranelift-module` | 0.136.1 | Apache-2.0 WITH LLVM-exception |
+| `wasmtime-internal-jit-icache-coherence` | 49.0.1 | Apache-2.0 WITH LLVM-exception |
+| `memmap2` | 0.9.11 | MIT OR Apache-2.0 |
+| `libc` | 0.2.189 | MIT OR Apache-2.0 |
+
+Compiler/cache/mapping versions are exact manifest pins; `libc` uses the 0.2
+requirement and the lockfile version above. This is the direct native dependency
+inventory, not a transitive license audit. Default builds do not enable the JIT
+compiler dependencies.
+
 The example asserts the Lua result and nonzero preparation, native-instruction
 and code-memory counters on supported targets. On unsupported targets it stays
 Off and asserts the same result with zero native counters. Build eligibility is

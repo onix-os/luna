@@ -11,6 +11,33 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Backend feasibility and dependency reconciliation — 2026-10-04
+
+Reviewed the seven original Phase 0 requirements against source and retained
+evidence. Its architecture-feasibility exit is verified at `a8bc5c7`; this is not
+performance, whole-compiler memory or release acceptance.
+
+| Original requirement | Evidence and scope |
+| --- | --- |
+| 1: repo-native baseline | Full GNU/musl `jit-verify` at `a8bc5c7` includes `verify`. Fresh `nix develop -c make clippy` (`15397`) exits 0 at runtime `dc2533b`, with the existing advisory warnings. The initial baseline Clippy log contains two `never_loop` errors; it is historical failure evidence, not a green baseline. |
+| 2: accounting and control | `tests/fuel_reference.rs` checks exact exhausted/negative fuel, return-transition charges and interrupted minimal progress. Native fuel/interrupt and GC-request/pacing fixtures extend these checks without redefining the 64-instruction VM granularity. |
+| 3: opcode inventory | Exhaustive `Operation` matches in `jit/flow.rs`, `access.rs`, `exits.rs` and `ir.rs` classify lowering, effects, operands and exits. Unsupported valid operations retain interpreter paths. |
+| 4: borrow boundary | `Executor::step` owns the thread/stack borrow for `run_vm`; `LuaFrame::registers` splits its canonical register window. `Runtime::invoke` lends only a scoped frame to helpers, materializes scratch and returns before managed calls/frame changes. Rust callbacks execute later through the separate callback branch; nested-executor and current-frame upvalue tests verify the supported reentry cases. No generated frame spans collection or user callbacks. |
+| 5: executed backend probe | `make jit-backend` executes a generated scalar function that calls a Rust helper, verifies RX/non-writable mapping permissions and explicitly frees its image. Hosted ARM64 job `111296046576` at `a8bc5c7` records both probe tests passing in all four native-mode/feature suites. GNU/musl full gates also execute them. Detached-image lifetime/refusal tests cover the production owner beyond this initial probe. |
+| 6: dependencies and transfer | `JIT.md` now records direct native dependency versions/licenses from locked package manifests. Fresh `make environment` records Rust/Cargo 1.97.1. `worker_owned_code_can_transfer_to_the_invoking_thread` compiles on a worker and invokes/frees on the owner thread; this proves the pinned probe transfer, not a production compiler worker. Lua remains non-Send/non-Sync. |
+| 7: reference workloads | `examples/jit_support/workloads.rs` defines seven warm cases, cold config and the Oslo-derived predicate. Retained `luna-jit-interpreter-bench.log` records nine Off cases with zero native work before the later tuning checkpoints. These are historical, unpaired measurements, not current performance acceptance or an end-to-end Oslo migration. |
+
+ARM64 raw log and current environment/Clippy output are under
+`target/jit-evidence/phase-zero/`. No benchmarks or new audit infrastructure ran.
+The full `dc2533b` dispatch-counter gate remains live in session `76295`.
+
+The compiler-resource review identified a remaining controllable allocation:
+pinned Cranelift `define_function_bytes` clones the relocation slice into its
+`CompiledBlob`. Luna currently charges only its staging vector. Reserve that
+known copy's quota before definition and retain the reservation until the module
+is destroyed; verify refusal/reclamation without calling this a complete ledger
+for optimizer buffers, allocator overhead or RSS. Phase 3 remains open.
+
 ### Total dispatch accounting — 2026-10-03
 
 Implemented Phase 1 item 6's `JitStats.total_dispatches`: completed native
@@ -1911,7 +1938,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 0 — Establish the reference and prove backend feasibility
 
-**Status:** IN PROGRESS. **Depends on:** none. Baseline, accounting probes, pinned backend, x86-64 helper/worker ownership probes, corpus and full GNU/musl x86-64 gates are recorded below. ARM64 native evidence and complete prerequisite review remain open.
+**Status:** ARCHITECTURE FEASIBILITY VERIFIED at `a8bc5c7`. **Depends on:** none. The seven-item reconciliation above records baseline/control tests, exhaustive opcode inventory, the borrow boundary, executed GNU/musl/ARM64 helper/transfer probes, pinned dependencies/licenses and historical interpreter workload results. The original disposable probe is retained as `make jit-backend`; production ownership has separate integrated evidence. This does not certify a compiler worker, complete compiler-memory accounting, current timing acceptance or release readiness.
 
 **Files:** existing tests, `Makefile`, this document; disposable experiment artifacts under ignored `target/` or `/tmp` only.
 
@@ -2725,7 +2752,7 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 
 ### Phase 6 — Add heap fast paths with collector and mutation proofs
 
-**Status:** Helper-backed implementation and bounded GC/mutation review verified; latest full native/Miri CI remains pending. **Depends on:** Phase 5. Fixed helper ABI v3 uses canonical roots and existing barriers. The GC root/lifetime checkpoint records source review and current GNU/musl evidence for every-slice collection, interleaved Rust mutation, weak values/keys and ephemeron reattachment, joined/foreign upvalues, finalizer resurrection, debug mutation, panic exits and async resumption. No direct-storage inline cache is enabled. This is not a performance result or a claim of complete PUC-Lua weak-mode conformance.
+**Status:** Helper-backed implementation and bounded GC/mutation review verified; all seven hosted jobs pass at `a8bc5c7`. **Depends on:** Phase 5. Fixed helper ABI v3 uses canonical roots and existing barriers. The GC root/lifetime checkpoint records source review and GNU/musl evidence for every-slice collection, interleaved Rust mutation, weak values/keys and ephemeron reattachment, joined/foreign upvalues, finalizer resurrection, debug mutation, panic exits and async resumption. The later dispatch-counter runtime change awaits full revalidation. No direct-storage inline cache is enabled. This is not a performance result or a claim of complete PUC-Lua weak-mode conformance.
 
 **Files:** `src/jit/{abi,helpers,ir,registry,mod}.rs`, table modules, closure/upvalue integration, `tests/jit_heap.rs`, `tests/jit_upvalues.rs`, `tests/jit_gc_requests.rs`, and existing GC/weak/userdata suites. The three implemented integration files cover the originally proposed `jit_gc.rs`/`jit_mutation.rs` roles.
 
@@ -2777,7 +2804,7 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 
 ### Phase 9 — Harden and establish supported-platform evidence
 
-**Status:** IN PROGRESS. **Depends on:** Phase 8. Hosted run `37148460303` at `3494c64` passes all seven jobs, including native GNU/musl/ARM64, both Rust-only Miri seeds and real i686 fallback. The later relocation-admission repair `d29bb12` passes full local GNU/musl gates; its hosted native/Miri run `37150232969` remains pending. Earlier finite campaigns and bounded ownership/GC review do not complete broader review obligations. Do not expand audit/fuzz infrastructure against the user's stated priority.
+**Status:** IN PROGRESS. **Depends on:** Phase 8. Hosted run `37154853416` at `a8bc5c7` passes all seven jobs, including native GNU/musl/ARM64, both Rust-only Miri seeds and real i686 fallback. This includes relocation admission and the strict Force harness; the later dispatch-counter change awaits full revalidation. Earlier finite campaigns and bounded ownership/GC review do not complete broader review obligations. Do not expand audit/fuzz infrastructure against the user's stated priority.
 
 Supervised heap/lifecycle coverage (`a951643`) adds four parameterized source
 families in fresh Off/Auto states. GNU/musl each pass 128 cases with per-slice
@@ -2814,7 +2841,7 @@ slice evidence; full safety/guard/lifecycle obligations remain open.
 
 ### Phase 10 — Publish a complete, accurately documented feature
 
-**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 9 and approved workload acceptance. All seven hosted jobs pass at `3494c64`, including native GNU/musl/ARM64 gates and shipping builds. The later relocation-admission repair awaits hosted native/Miri completion after passing full local GNU/musl gates. The documented example asserts native execution on GNU/musl and zero-counter fallback on i686; `JIT.md` reflects actual CI lanes and revision limits. Complete review, frozen performance controls and current shipping/size acceptance remain open.
+**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 9 and approved workload acceptance. All seven hosted jobs pass at `a8bc5c7`, including native GNU/musl/ARM64 gates and shipping builds. The later dispatch-counter runtime change has focused checks but awaits full revalidation. The documented example asserts native execution on GNU/musl and zero-counter fallback on i686; `JIT.md` reflects actual CI lanes and revision limits. Complete review, frozen performance controls and current shipping/size acceptance remain open.
 
 **Files:** docs/examples, benchmark/size tooling, actual CI integration, this document.
 
