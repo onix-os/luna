@@ -425,7 +425,7 @@ jit-config:
 .PHONY: jit-test-modes
 jit-test-modes:
 	@$(CARGO) test --locked -p luna --features jit --test jit_test_modes $(TARGET_ARG) $(ARGS)
-	@LUNA_TEST_JIT_MODE=force $(CARGO) test --locked -p luna --features jit --test scripts $(TARGET_ARG) $(ARGS)
+	@LUNA_TEST_JIT_MODE=force $(CARGO) test --locked -p luna --features jit --test scripts --test strings $(TARGET_ARG) $(ARGS)
 
 .PHONY: jit-stats
 jit-stats:

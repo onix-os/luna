@@ -68,8 +68,17 @@ without its argument separator. Corrected batch `68825` exits 0 using
 exclusion immediately after the math script name. Full batch `48511` is still
 live; no full strict-harness pass is claimed yet.
 
+Full batch `48511` subsequently exits 2 in `tests/strings.lua`: its separate
+runner also relied on a silent `IR blocks` refusal. Added the same exact,
+fixture-local allowance and positive refusal assertion there; no quota or Lua
+semantic expectation changed. `jit-test-modes` now exercises both corpus runners.
+Updated worker/corpus matrix `80247` exits 0 on GNU/musl/i686: each target passes
+four reported tests across three suites, including eight child cases and both
+Lua corpora. GNU's nocapture log shows the named IR-block exclusion for each
+corpus. The failed full batch never reached musl and is not counted as a pass.
+
 #### Next Steps
-Poll full GNU/musl batch `48511`, then
+Rerun the strict full gates with both explicit corpus exclusions, then
 reconcile Phase 1 evidence. Compiler memory, broad review
 and deferred numerical performance acceptance remain outside this milestone.
 

@@ -568,10 +568,11 @@ Unsupported targets remain interpreter-only, not successful native preparations.
 `make jit-test-modes` checks the wrapper in separate processes so mode selection
 cannot race with other tests' environment. Empty batches and same-entry execution
 are tested as zero native work, not acceleration evidence.
-The existing `tests/scripts/math.lua` corpus exceeds the default IR-block
-admission cap. Its fixture explicitly permits only `IR blocks` and asserts that
-this refusal occurred in supported-target Force mode; other scripts have no
-blanket exemption. The original script still runs and checks its Lua semantics.
+The existing `tests/scripts/math.lua` and `tests/strings.lua` corpora exceed the
+default IR-block admission cap. Their fixtures explicitly permit only `IR blocks`
+and assert that this refusal occurred in supported-target Force mode; other
+scripts have no blanket exemption. Both original scripts still run and check
+their Lua semantics.
 No quota was raised and this pre-existing fallback is not claimed as whole-script
 native coverage. A source executed within one arena entry may be prepared only
 after that execution finishes; installation totals alone do not prove native use.
