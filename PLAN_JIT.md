@@ -11,6 +11,49 @@
 
 ### Progress snapshot — 2026-10-03
 
+### Documentation and example reconciliation — 2026-10-03
+
+#### Goal
+Refresh user-facing revision evidence and verify the documented example on native
+GNU/musl and the real unsupported i686 target.
+
+#### Instructions
+Benchmarks remain deferred. Continue non-benchmark work and commit incrementally;
+do not equate these bounded checks with full-plan acceptance.
+
+#### Discoveries
+The example previously checked its result but only printed native counters.
+Phase 10 requires verifying those counters. Hosted baseline `verify` is not local `make verify` or
+the native matrix; evidence must identify the actual gate and source revision.
+
+#### Accomplished
+Added native/fallback assertions to the example. Batch `27981` exits 0:
+`make fmt-check jit-example TARGET=x86_64-unknown-linux-gnu`, followed by
+`make jit-example` for musl and real i686 via their Nix shells. GNU/musl each
+return 5000050000 with six prepared prototypes, 200007 native instructions and
+61440 mapped bytes. i686 returns the same result with all three counters zero.
+Core includes registered standard-library prototypes, so preparation is not
+assumed to produce exactly one module. Explicit preparation errors propagate.
+
+Refreshed `JIT.md` and Phase 9/10 evidence against source and live hosted results.
+Run `37146171083` at `2e21d80` is confirmed all-seven green. Run `37148460303`
+at `3494c64` passes baseline, i686, native GNU and ARM64; musl/Miri remain pending.
+Documented the distinction between baseline CI, full native gates, Rust-only
+Miri and shipping artifact builds; none substitutes for deferred measurements.
+`make fmt-check ci-check` and `git diff --check` also pass. No timing runs or
+runtime-library changes were made in this milestone.
+
+#### Next Steps
+Collect latest native/Miri completion and continue remaining API/phase evidence
+reconciliation. Compiler-memory scope, broad review and deferred performance/size
+acceptance remain open; the full plan is not complete.
+
+#### Relevant Files
+- `examples/jit.rs` — documented native/fallback example.
+- `JIT.md`, `PLAN_JIT.md` — user-facing scope and revision-specific acceptance.
+- `.github/workflows/tests.yml`, `Makefile` — actual validation lanes.
+- `target/jit-evidence/example-reconciliation/` — native/fallback execution logs.
+
 ### GC root and lifetime reconciliation — 2026-10-03
 
 #### Goal
@@ -2372,7 +2415,7 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 
 ### Phase 9 — Harden and establish supported-platform evidence
 
-**Status:** IN PROGRESS. **Depends on:** Phase 8. Hosted run `37134741669` at `52b2dec` passes native GNU, musl and ARM64 gates, both selected Rust-only Miri seeds and all evidence uploads. Earlier finite heap/scalar campaigns do not complete the broader review obligations. Do not expand audit/fuzz infrastructure against the user's stated priority.
+**Status:** IN PROGRESS. **Depends on:** Phase 8. Hosted run `37146171083` at `2e21d80` passes all seven jobs, including native GNU/musl/ARM64, both Rust-only Miri seeds and real i686 fallback. Later GC repairs have focused native/fallback coverage and bounded ownership/GC review; their full native/Miri run `37148460303` remains pending. Earlier finite campaigns do not complete broader review obligations. Do not expand audit/fuzz infrastructure against the user's stated priority.
 
 Supervised heap/lifecycle coverage (`a951643`) adds four parameterized source
 families in fresh Off/Auto states. GNU/musl each pass 128 cases with per-slice
@@ -2409,7 +2452,7 @@ slice evidence; full safety/guard/lifecycle obligations remain open.
 
 ### Phase 10 — Publish a complete, accurately documented feature
 
-**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 9 and approved workload acceptance. All six hosted jobs pass at `52b2dec`, including native GNU/musl/ARM64 gates, shipping builds, the prepared example and both Miri seeds. Complete review, frozen performance controls and current shipping/size acceptance remain open.
+**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 9 and approved workload acceptance. All seven hosted jobs pass at `2e21d80`, including native GNU/musl/ARM64 gates and shipping builds. Later GC repairs still await full native/Miri completion. The documented example now asserts native execution on GNU/musl and zero-counter fallback on i686; `JIT.md` reflects actual CI lanes and revision limits. Complete review, frozen performance controls and current shipping/size acceptance remain open.
 
 **Files:** docs/examples, benchmark/size tooling, actual CI integration, this document.
 
@@ -2548,8 +2591,8 @@ Do not disable tests, lower safety guarantees, catch arbitrary crashes as succes
 | 6: heap/GC integration | IN PROGRESS | Native heap paths, barriers, GC/mutation/invalidation stress | Fresh helper guards preserve weak/readonly/intercept/invalid-key behavior. Every-slice GC, open/closed upvalues, pending-scalar panic inspection, debug local/upvalue join and finalizer-only native upvalue writes pass. Shared-cell tests additionally prove exact operation counts and write visibility across error guards, foreign stacks, GC and Rust reentry. Broader interleaved executors, mode mutations and exhaustive guard coverage remain open. |
 | 7: Auto policy | IN PROGRESS | Nonblocking stepping, owned compile work, limits/backoff, hot promotion | Bounded hot requests and explicit outside-arena service; configuration retirement, queue/attempt reductions, typed quota refusal and reset tests pass. LRU retry, charged recency, sparse compaction, refusal backoff and source collection preserve leases/live identities. Real hot queued-source GC tests (`5570951`) cancel dead requests without snapshot/compiler work, preserve a live peer's queue/identity and reclaim all accounted storage after its final drop. Stalled-compiler isolation now passes GNU/musl: three executors, queue saturation, every-slice GC, exact Off/Auto fuel/modes/results and eventual native execution. Complete resource/diagnostic checklist reconciliation remains open. |
 | 8: measured optimization | IN PROGRESS | Differential exits, coverage, approved workload performance | Exact small frames (`af26288`) pass full GNU/musl correctness and the table speedup target twice (1.2805/1.2692). Last measured native upvalue (0.7067/0.7000) and callback (0.8186/0.8164) gates still fail. Matched speed compiled-Off controls fail float twice and integer once; shipping integer fails once, so its one all-green repeat is insufficient. Repeated instruction profiles are collected and transition dispatch (`4863789`) is committed with correctness evidence. Its speed comparisons are deferred by the user, not passed. Frozen performance acceptance remains open; diagnostics do not require an idle host. |
-| 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Hosted run `37134741669` at `52b2dec` passes all three native platforms (5059 executions/435 suite results/24 ignored each, including disassembly). Both Miri seeds pass 293 tests/42 suites and upload all 44 logs. The scheduling regression executes successfully on every native platform. Generated code is not Miri-covered. Finite campaigns do not complete broader review obligations; no new audit/fuzz expansion is authorized. |
-| 10: release acceptance | IN PROGRESS | Complete gates, thresholds, docs/examples, actual CI | All six hosted jobs, matched shipping builds and artifact uploads pass at `52b2dec`. Current runtime code has native GNU/musl/ARM64 evidence. Remaining implementation/review reconciliation and native/disabled performance acceptance are unfinished; benchmarks are user-deferred, not passed. |
+| 9: hardening/platforms | IN PROGRESS | Fuzz artifacts, unsafe review, native target executions | Run `37146171083` at `2e21d80` passes all seven jobs, including three native platforms, two Rust-only Miri seeds and real i686 fallback. Local GNU/musl each pass 5189 executions/452 suites/24 ignored; i686 passes 1847/299/2. Later GC repairs have focused evidence and bounded ownership/GC review; full native/Miri run `37148460303` remains pending. Generated code is not Miri-covered. Broader review remains open; no new audit/fuzz expansion is authorized. |
+| 10: release acceptance | IN PROGRESS | Complete gates, thresholds, docs/examples, actual CI | All seven hosted jobs and shipping builds pass at `2e21d80`; later runtime edits require their own full result. Native-counter example assertions pass GNU/musl; real i686 asserts interpreter-only execution. Documentation distinguishes baseline/native/Miri/fallback lanes and artifact builds from measurements. Remaining implementation/review reconciliation and native/disabled performance acceptance are unfinished; benchmarks are user-deferred, not passed. |
 
 Status values: TODO, IN PROGRESS, COMPLETE, or BLOCKED with a concrete reason. Attach toolchain, platform, commands, counts, exclusions, and evidence paths when updating a row. COMPLETE requires the stated phase exit, not a percentage estimate.
 

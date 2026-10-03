@@ -2,28 +2,32 @@
 
 This branch implements the first native execution tier described in [PLAN_JIT.md](PLAN_JIT.md). It is **not the finished plan** and is not the LuaJIT runtime or its FFI. Constructors still default to interpreted execution. Do not use these results to claim production readiness or hostile-code isolation.
 
-All six hosted jobs pass at `52b2dec`
-([run 37134741669](https://github.com/onix-os/luna/actions/runs/37134741669)).
-Linux x86-64 GNU, x86-64 musl and ARM64 GNU each pass 5059 test executions
-across repeated modes/suites, including the scheduling regression and disassembly
-check. Each native example completes 200007 logical instructions. Both Rust-only
-Miri seeds pass 293 tests across 42 suites; all evidence uploads succeed.
-This resolves the previous filename/timeout failures, not full-plan acceptance.
-Benchmarks are deferred by the
-maintainer, not accepted, and earlier upvalue/callback/disabled-cost failures
-remain unresolved.
+As checked on 2026-10-03, all seven hosted jobs pass at `2e21d80`
+([run 37146171083](https://github.com/onix-os/luna/actions/runs/37146171083)):
+native Linux x86-64 GNU/musl and ARM64 GNU, two Rust-only Miri seeds, baseline
+verification and real i686 interpreter fallback. Local full GNU/musl gates at
+that revision each pass 5189 executions across 452 repeated suites, with 24
+ignored and zero failures; i686 passes 1847 across 299 suites, with two ignored.
+These are repeated test executions, not unique tests or performance measurements.
 
-The portability milestone `a893bd7` passes final local GNU/musl verification:
-5142 test executions each across 446 repeated suites, with 24 ignored and zero
-failures. Real i686 interpreter fallback passes 1839 executions locally and in
-the [hosted fallback job](https://github.com/onix-os/luna/actions/runs/37142633733/job/111260042537).
-That job exercises the unsupported-target branch rather than native compilation.
-The remaining native/Miri jobs for this revision are still pending at this
-checkpoint; the older green runs do not certify these later source changes.
+Later fixes `009bf3b` and `3494c64` repair default/nil `collectgarbage()` requests
+and shared host/Lua GC pacing. Focused GNU/musl/i686 regressions pass; subsequent
+GNU/musl GC/lifetime and code-memory checks pass as recorded in `PLAN_JIT.md`.
+The [full run at `3494c64`](https://github.com/onix-os/luna/actions/runs/37148460303)
+currently passes baseline, i686, native GNU and ARM64, with musl/Miri still pending. Older
+green runs do not certify later runtime changes. Benchmarks remain deferred,
+not accepted; earlier upvalue/callback/compiled-but-disabled cost failures remain
+unresolved. This is not full-plan acceptance.
 
 ## Enable and prepare
 
 Enable the optional `jit` Cargo feature and set `JitConfig.mode` to `JitMode::Auto`. See `examples/jit.rs`; run it with `nix develop -c make jit-example`.
+
+The example asserts the Lua result and nonzero preparation, native-instruction
+and code-memory counters on supported targets. On unsupported targets it stays
+Off and asserts the same result with zero native counters. Build eligibility is
+not permission to map executable memory: explicit preparation errors propagate
+from this example rather than silently passing an interpreted run as native.
 
 Source loaded through `Closure::load` / `load_with_env` gets private weak prototype registrations, including nested functions. `prepare_jit()` queues a bounded batch of registered sources and compiles that queue outside the GC arena. Keep closures or executors stashed so collection cannot retire their source before preparation. A batch is limited by `max_queue_entries`; call again for further prototypes. Binary chunks and manually constructed prototypes remain interpreted.
 
@@ -73,7 +77,7 @@ Fixed bytecode write masks are not complete dynamic helper clobber sets;
 upvalue writes can affect any current-frame slot. Generated calls are memory
 fences in the pinned backend, and subsequent instructions reload guarded slots.
 
-Calls, returns, actual metamethod/user callback invocation, close tracking/unwinding, coroutines, and async transitions still run through explicit interpreter exits. Native execution does not recursively call Lua on the native stack or keep a generated frame across suspension. Hook-enabled slices remain interpreted. Heap coverage and lifecycle acceptance remain incomplete until the full plan's stress/performance/platform gates are satisfied.
+Calls, returns, actual metamethod/user callback invocation, close tracking/unwinding, coroutines, and async transitions still run through explicit interpreter exits. Native execution does not recursively call Lua on the native stack or keep a generated frame across suspension. Hook-enabled slices remain interpreted. Integrated GC/lifecycle tests and bounded ownership/barrier review are recorded in `PLAN_JIT.md`; broader compiler/unsafe-boundary review, current full-platform verification and performance acceptance remain open.
 
 Every generated operation checks the remaining reference slice allowance before executing; a native invocation completes at most 64 logical bytecode instructions. A guard failure leaves the PC before the unperformed instruction. Completed scalar writes are materialized into the same canonical Lua registers, and the interpreter immediately makes progress without repeating completed work. Fuel retains the interpreter's existing approximate transition charges, including minimal progress with exhausted or interrupted input.
 
@@ -238,7 +242,7 @@ not the deferred performance acceptance.
 - `helper_calls` counts scoped helper attempts, `helper_instructions` counts completed helper-backed bytecodes, and `helper_declines` counts effect-free fallback requests. Table/upvalue/allocation counters count successful accesses; table-through-upvalue operations include a successful upvalue read. These are real native helper paths, not the interpreter's opcode loop.
 - `code_bytes` is live mapped usage; `snapshot_bytes` follows owned snapshot vectors; `installed_regions`, requests, failures, and execution counters are cumulative. Preparation is synchronous, so the host usually observes zero current snapshot usage after it returns. Benchmarks also report current/peak container charges and refusals.
 
-The backend is compiled for Linux x86-64/aarch64. Executed integration evidence exists on x86-64 GNU, musl and ARM64 GNU at `4863789`, as linked above. `supported_target` reports build eligibility, **not successful executable-memory allocation or release platform certification**. Explicit preparation/service reports unsupported targets, typed `ResourceLimit` mapping/metadata/snapshot refusals, native allocation/protection denial as `Unavailable`, or compiler errors. Optional convenience service failures do not become Lua language errors. Test-only injection covers allocation/protection denial after source loading, preservation of another installed module, interpreter fallback and recovery; it does not modify host permissions or expose a script-facing fault option.
+The backend is compiled for Linux x86-64/aarch64. Executed integration evidence exists on x86-64 GNU, musl and ARM64 GNU at `2e21d80`, as linked above. `supported_target` reports build eligibility, **not successful executable-memory allocation or release platform certification**. Explicit preparation/service reports unsupported targets, typed `ResourceLimit` mapping/metadata/snapshot refusals, native allocation/protection denial as `Unavailable`, or compiler errors. Optional convenience service failures do not become Lua language errors. Test-only injection covers allocation/protection denial after source loading, preservation of another installed module, interpreter fallback and recovery; it does not modify host permissions or expose a script-facing fault option.
 
 ## Unsafe boundary review: current scalar/heap tier
 
@@ -588,7 +592,17 @@ The size gate first runs the JIT artifact in Auto and asserts native work/result
 
 `make jit-platform TARGET=x86_64-unknown-linux-musl` runs the full baseline/JIT gate and prepared example on matching Linux hardware. The gate rejects undeclared targets and architecture mismatches before compiling. The same command accepts `x86_64-unknown-linux-gnu` or `aarch64-unknown-linux-gnu`; the toolchain must contain the requested standard library and any required linker. Ordinary `jit-verify` and focused test/doc targets also forward `TARGET`, including recursive fuzz workers. Fuzz replay artifacts record the target so musl evidence is not silently replayed as GNU.
 
-The active workflow is `.github/workflows/tests.yml`, promoted from the former non-active `workflows/tests.yml` template. It retains baseline checks and adds full native GNU/musl x86-64 and GNU ARM64 jobs on matching hosted runners, with pinned action commits, Rust 1.97.1, target-specific caches and uploaded logs/campaign artifacts on failure as well as success. `make ci-check` validates the workflow with actionlint supplied by the Nix shell. Local workflow validation is not an executed hosted run; ARM64 and hosted-CI results remain required before release acceptance.
+The active workflow is `.github/workflows/tests.yml`. Its baseline `verify` job
+runs formatting, baseline check/test, Miri-wrapper tests, advisory Clippy and
+rustdoc; it is not the full local `make verify` recipe and does not prove native
+execution. Three native jobs run `make jit-platform TARGET=...` on matching GNU,
+musl and ARM64 hardware, then build matched shipping artifacts with
+`make jit-size-build SIZE_PROFILE=shipping`. These builds do not establish size
+or runtime-overhead acceptance. Separate jobs run two pinned Rust-only Miri seeds
+and real i686 fallback. Action commits/toolchains are pinned and native/Miri/
+fallback evidence uploads run on failure as well as success. `make ci-check`
+validates wiring with actionlint; executed results remain revision-scoped as
+linked above, not implied by workflow lint or an older green run.
 
 `nix develop .#fallback -c make jit-fallback TARGET=i686-unknown-linux-musl`
 builds and executes static 32-bit binaries on a Linux x86-64 host with 32-bit
