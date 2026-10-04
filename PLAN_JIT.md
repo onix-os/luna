@@ -16,8 +16,8 @@
 | Revision | Local full GNU/musl gate | Hosted platform gate |
 | --- | --- | --- |
 | `0787fa8` requested-byte diagnostics | Included in the descendant `db62dfe` run below | All seven jobs pass in [run 37162289605](https://github.com/onix-os/luna/actions/runs/37162289605) |
-| `db62dfe` integrated Rust mock | `90136` exits 0; each target has 5353 passing executions / 482 suites / 24 ignored / zero failures | Run `37163080413` still pending at this checkpoint |
-| `819c933` signature accounting | Focused checks pass below; full paired run `60733` is active in an isolated, fixed-source checkout | Run `37164134522` still pending at this checkpoint |
+| `db62dfe` integrated Rust mock | `90136` exits 0; each target has 5353 passing executions / 482 suites / 24 ignored / zero failures | All seven jobs pass in [run 37163080413](https://github.com/onix-os/luna/actions/runs/37163080413) |
+| `819c933` signature accounting | Full run `60733`: GNU completes with 5363 passing executions / 482 suites / 24 ignored / zero failures; musl remains active in the fixed-source checkout | Run `37164134522` still pending at this checkpoint |
 
 The `db62dfe` full run uses `make jit-verify jit-example`: baseline verification,
 Off/Auto/Force, optional features, doctests, warning-denied docs and the existing
@@ -50,7 +50,8 @@ it is released before Code publication. Quota refusal reports `native signatures
 and preserves installed peers without eviction. No new unsafe allocation bridge
 or quota increase is introduced.
 
-The pinned source contract is `ModuleDeclarations::declare_function`,
+The pinned source contract is `ModuleDeclarations::declare_function` /
+`declare_anonymous_function`,
 `Module::declare_func_in_func` and `Signature`'s two owned vectors. Tests check
 initial/clone capacities, checked layout overflow, reservation persistence
 through workspace/context teardown, quota refusal before injected mapping
@@ -74,6 +75,34 @@ passes 30 executions across three suites and its example remains interpreter-onl
 Formatting, default/all-feature checking, advisory Clippy and warning-denied
 rustdoc pass (`79457`); existing Clippy warnings remain. These are focused
 results for this batch, not a full-gate or performance acceptance claim.
+
+#### Anonymous private entry
+
+The subsequent compiler-storage change uses `declare_anonymous_function` for
+Luna's private entry. Definition and finalized entry retrieval already use its
+`FuncId`; the old `luna_slice_v3` name had no consumers. In pinned Cranelift
+0.136.1 this removes two owned entry-name strings and its name-map registration,
+while preserving Local linkage and the same cloned ABI signature. Named helper
+imports and their relocation contract are unchanged. This removes unnecessary
+allocations; it does not estimate or bound all private compiler storage.
+
+The signature-lifetime regression checks the actual module declaration is
+anonymous, Local and ABI-identical before executing the result and checking
+cleanup/peer survival. Focused GNU/musl compiler-lifetime, relocation, native
+and example gates (`1973`) each pass 30 executions across five suites, without
+failures or ignored tests. Both examples retain result 5000050000, 200007 native
+instructions, 61440 mapped bytes and 47760 requested bytes. Evidence is under
+`target/jit-evidence/anonymous-entry/`. The full run `60733` remains fixed at
+`819c933` and does not validate this subsequent declaration change.
+
+Formatting, default/all-feature checks, advisory Clippy and warning-denied
+rustdoc pass (`99774`), retaining the existing 138 library / 141 lib-test Clippy
+warnings. GNU and musl finalized-kernel disassembly gates also pass: scalar
+execution reports 207 native instructions; the table diagnostic intentionally
+tests null-host refusal, not native table execution.
+Separate GNU/musl heap and upvalue suites (`81255`) each pass 23 executions
+across two suites, without failures or ignored tests; their native counters
+verify the unchanged named-helper integration with canonical objects.
 
 The clean full GNU/musl gate at `fda2254` (`8753`) exits 0: each target reports
 5333 passing executions / 482 repeated suites / 24 ignored / zero failures.

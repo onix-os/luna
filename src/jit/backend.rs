@@ -391,8 +391,15 @@ pub(super) fn compile_in(
     let mut signature = module.make_signature();
     fill_signature(&mut signature.params, entry_types)?;
     let function = module
-        .declare_function("luna_slice_v3", Linkage::Local, &signature)
+        .declare_anonymous_function(&signature)
         .map_err(fail)?;
+    #[cfg(test)]
+    if matches!(failure, Failure::RequireSignatures(_)) {
+        let declaration = module.declarations().get_function_decl(function);
+        assert!(declaration.name.is_none());
+        assert_eq!(declaration.linkage, Linkage::Local);
+        assert_eq!(declaration.signature, signature);
+    }
     let mut helper_signature = module.make_signature();
     fill_signature(&mut helper_signature.params, helper_types)?;
     fill_signature(&mut helper_signature.returns, helper_returns)?;

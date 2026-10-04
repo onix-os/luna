@@ -2,12 +2,12 @@
 
 This branch implements the first native execution tier described in [PLAN_JIT.md](PLAN_JIT.md). It is **not the finished plan** and is not the LuaJIT runtime or its FFI. Constructors still default to interpreted execution. Do not use these results to claim production readiness or hostile-code isolation.
 
-As checked on 2026-10-04, all seven hosted jobs pass at `0787fa8`
-([run 37162289605](https://github.com/onix-os/luna/actions/runs/37162289605)):
+As checked on 2026-10-04, all seven hosted jobs pass at `db62dfe`
+([run 37163080413](https://github.com/onix-os/luna/actions/runs/37163080413)):
 native Linux x86-64 GNU/musl and ARM64 GNU, two Rust-only Miri seeds, baseline
 verification and real i686 interpreter fallback. This includes the
 oversized-image admission repair, relocation-copy accounting and requested-byte
-diagnostics. It predates the test-only integrated mock and signature accounting.
+diagnostics and the test-only integrated mock. It predates signature accounting.
 
 Local full GNU/musl gates at `db62dfe`, including the integrated mock, each pass
 5353 executions across 482 repeated suites, with 24 ignored and zero failures.
@@ -20,8 +20,9 @@ Dynamic numeric-exit tests also pass in jit/jit+async on GNU/musl, and dispatch
 accounting covers errors and transitions on GNU/musl and real i686.
 The subsequent signature-accounting revision `819c933` has focused GNU/musl
 checks (544 passing executions each), real i686 fallback and static/doc checks.
-Its full local and hosted verification are still running. Older green results
-do not certify this newer runtime change. `PLAN_JIT.md` retains the historical
+Its full local and hosted verification are still running. A subsequent removal
+of the private entry name has separate focused checks, not those full results.
+Older green results do not certify newer runtime changes. `PLAN_JIT.md` retains the historical
 revision-specific evidence and current acceptance limits.
 Benchmarks remain deferred, not accepted; earlier upvalue/callback/compiled-but-
 disabled cost failures remain unresolved. This is not full-plan acceptance.
@@ -287,6 +288,10 @@ working buffers or every internal clone. Upstream cloning remains infallible;
 this is not system-OOM recovery. The contract is checked against pinned
 Cranelift 0.136.1 and the Rust vector clone/capacity behavior and needs review
 on compiler/toolchain upgrades.
+The private entry uses an anonymous local declaration and is defined/retrieved
+by `FuncId`. It therefore needs neither an owned entry name nor a name-map
+registration. Helper imports remain named; their symbol storage is not covered
+by the signature-array reservation.
 Earlier destruction reduces overlapping lifetimes; it does not account for or
 bound all Cranelift transient allocations.
 At `a0f9ac5`, full GNU/musl gates each pass 5152 test executions across 446
