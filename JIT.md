@@ -10,8 +10,8 @@ oversized-image admission repair, relocation-copy accounting and requested-byte
 diagnostics, integrated mock, signature/helper-symbol accounting and anonymous
 private entry. It predates the host-ISA refusal fix described below.
 
-Local full GNU/musl gates at `a854536`, including helper-symbol accounting, each
-pass 5368 executions across 482 repeated suites, with 24 ignored and zero failures.
+Local full GNU/musl gates at `d054ba8`, including host-ISA refusal handling, each
+pass 5378 executions across 482 repeated suites, with 24 ignored and zero failures.
 These are repeated test executions, not unique tests or performance measurements.
 
 The test harness makes Force refusals explicit, with exact IR-block
@@ -22,9 +22,11 @@ accounting covers errors and transitions on GNU/musl and real i686.
 The local full run includes
 baseline, all JIT modes, optional features, doctests and the existing bounded
 smoke corpus; it does not establish current ARM64 or Miri evidence by itself.
-The subsequent host-ISA refusal fix passes focused GNU/musl checks (573 passing
+The host-ISA refusal fix also passes focused GNU/musl checks (573 passing
 executions each, four ignored) and real i686 fallback (30 passing executions).
-Those focused checks do not replace full or hosted gates for the new revision.
+Hosted run `37168811569` for `d054ba8` remains in progress; baseline and i686 jobs
+have passed, while native and Miri jobs are pending. Local full checks do not
+replace that revision's ARM64/Miri evidence.
 `PLAN_JIT.md` retains
 the revision-specific evidence, compatibility reconciliation and acceptance limits.
 Benchmarks remain deferred, not accepted; earlier upvalue/callback/compiled-but-
