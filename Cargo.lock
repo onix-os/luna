@@ -410,6 +410,7 @@ dependencies = [
  "cranelift-frontend",
  "cranelift-jit",
  "cranelift-module",
+ "cranelift-native",
  "hashbrown 0.14.5",
  "libc",
  "luna-derive",

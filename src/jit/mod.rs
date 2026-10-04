@@ -230,15 +230,20 @@ pub struct JitStats {
     pub cache_eviction_refusals: u64,
     pub registered_prototypes: usize,
     pub installed_regions: u64,
+    /// Page-rounded bytes of live native mappings, including retired leased code.
     pub code_bytes: usize,
     /// Live provider-requested payload bytes, excluding page and alignment padding.
     pub code_requested_bytes: usize,
+    /// Live requested/reserved snapshot and known compiler-workspace bytes.
     pub snapshot_bytes: usize,
     pub snapshot_peak_bytes: usize,
+    /// Live charged metadata payloads and owners, excluding bootstrap storage.
     pub metadata_bytes: usize,
     pub metadata_peak_bytes: usize,
     pub metadata_allocation_refusals: usize,
+    /// Charged JIT storage, including bootstrap owners and compiler reservations.
     pub accounted_jit_bytes: usize,
+    /// Charged runtime and ledger-owner allocation layouts.
     pub bootstrap_bytes: usize,
     pub accounted_jit_peak_bytes: usize,
     pub host_allocation_refusals: usize,

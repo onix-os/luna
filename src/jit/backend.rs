@@ -5,6 +5,7 @@ use cranelift_codegen::ir::{
     condcodes::{FloatCC, IntCC},
     types, AbiParam, Block, Inst, InstBuilder, MemFlagsData, Value as IrValue,
 };
+use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{BranchProtection, JITBuilder, JITMemoryKind, JITMemoryProvider, JITModule};
 use cranelift_module::{default_libcall_names, Linkage, Module, ModuleReloc, ModuleResult};
@@ -96,7 +97,10 @@ impl JITMemoryProvider for Memory {
         #[cfg(test)]
         if matches!(
             self.failure,
-            Failure::Allocate | Failure::RefuseRelocationCopy | Failure::RefuseSignatures
+            Failure::Allocate
+                | Failure::RefuseRelocationCopy
+                | Failure::RefuseSignatures
+                | Failure::RefuseSymbols
         ) {
             self.total.fetch_sub(bytes, Ordering::Relaxed);
             self.allocations.allocator().0.release_external(bytes);
@@ -279,6 +283,8 @@ pub(super) enum Failure {
     RefuseRelocationCopy,
     RequireRelocationCopy(usize),
     RefuseSignatures,
+    RefuseSymbols,
+    NativeIsaUnavailable,
     RequireSignatures(usize),
     CorruptBinding(super::tags::BindingFault),
 }
@@ -359,13 +365,25 @@ pub(super) fn compile_in(
             "injected provider setup probe".into(),
         ));
     }
-    let mut jit = JITBuilder::with_flags(
-        &[("opt_level", "speed"), ("enable_verifier", "true")],
-        default_libcall_names(),
-    )
-    .map_err(fail)?;
+    let symbol_bytes = symbol_storage_bytes(helpers::SYMBOLS.map(|(_, name, _)| name.len()))?;
+    #[cfg(test)]
+    if failure == Failure::RefuseSymbols {
+        let ledger = &snapshot.operations.allocator().0;
+        ledger.set_limit(ledger.current());
+    }
+    let symbol_charge = Reservation::new(snapshot.operations.allocator().0.clone(), symbol_bytes)
+        .map_err(|_| JitError::ResourceLimit("native symbols"))?;
+    #[cfg(test)]
+    let native_isa = if failure == Failure::NativeIsaUnavailable {
+        Err("injected unsupported host instruction set")
+    } else {
+        cranelift_native::builder()
+    };
+    #[cfg(not(test))]
+    let native_isa = cranelift_native::builder();
+    let mut jit = native_builder(native_isa)?;
     for (_, name, entry) in helpers::SYMBOLS {
-        jit.symbol(name, entry as *const u8);
+        jit.symbol(owned_symbol(name)?, entry as *const u8);
     }
     jit.memory_provider(provider);
     let relocation_copy_charge;
@@ -391,8 +409,15 @@ pub(super) fn compile_in(
     let mut signature = module.make_signature();
     fill_signature(&mut signature.params, entry_types)?;
     let function = module
-        .declare_function("luna_slice_v3", Linkage::Local, &signature)
+        .declare_anonymous_function(&signature)
         .map_err(fail)?;
+    #[cfg(test)]
+    if matches!(failure, Failure::RequireSignatures(_)) {
+        let declaration = module.declarations().get_function_decl(function);
+        assert!(declaration.name.is_none());
+        assert_eq!(declaration.linkage, Linkage::Local);
+        assert_eq!(declaration.signature, signature);
+    }
     let mut helper_signature = module.make_signature();
     fill_signature(&mut helper_signature.params, helper_types)?;
     fill_signature(&mut helper_signature.returns, helper_returns)?;
@@ -683,7 +708,7 @@ pub(super) fn compile_in(
     {
         assert_eq!(
             snapshot.operations.allocator().0.current(),
-            baseline + signature_bytes
+            baseline + signature_bytes + symbol_bytes
         );
     }
     context
@@ -733,6 +758,7 @@ pub(super) fn compile_in(
             snapshot.operations.allocator().0.current(),
             baseline
                 + signature_bytes
+                + symbol_bytes
                 + module_relocations.capacity() * std::mem::size_of::<ModuleReloc>()
                 + relocation_copy_bytes
         );
@@ -750,7 +776,7 @@ pub(super) fn compile_in(
     if let Failure::RequireRelocationCopy(baseline) = failure {
         assert_eq!(
             snapshot.operations.allocator().0.current(),
-            baseline + signature_bytes + relocation_copy_bytes
+            baseline + signature_bytes + symbol_bytes + relocation_copy_bytes
         );
     }
     #[cfg(test)]
@@ -760,7 +786,7 @@ pub(super) fn compile_in(
     if let Failure::RequireSignatures(baseline) = failure {
         assert_eq!(
             snapshot.operations.allocator().0.current(),
-            baseline + signature_bytes + relocation_copy_bytes
+            baseline + signature_bytes + symbol_bytes + relocation_copy_bytes
         );
     }
     module.finalize_definitions().map_err(fail)?;
@@ -771,6 +797,7 @@ pub(super) fn compile_in(
         .ok_or_else(|| JitError::Compilation("missing finalized native memory".into()))?;
     drop(module);
     drop(signature_charge);
+    drop(symbol_charge);
     drop(relocation_copy_charge);
     #[cfg(test)]
     if let Failure::RequireRelocationCopy(baseline) | Failure::RequireSignatures(baseline) = failure
@@ -789,6 +816,57 @@ pub(super) fn compile_in(
         registers: snapshot.registers,
         entries,
     })
+}
+
+fn native_builder(
+    isa: Result<cranelift_codegen::isa::Builder, &'static str>,
+) -> Result<JITBuilder, JitError> {
+    let isa = isa.map_err(JitError::Unavailable)?;
+    let mut flags = settings::builder();
+    for (name, value) in [
+        ("opt_level", "speed"),
+        ("enable_verifier", "true"),
+        ("use_colocated_libcalls", "false"),
+        (
+            "is_pic",
+            if cfg!(target_arch = "x86_64") {
+                "true"
+            } else {
+                "false"
+            },
+        ),
+    ] {
+        flags
+            .set(name, value)
+            .map_err(|error| JitError::Compilation(error.to_string()))?;
+    }
+    let isa = isa
+        .finish(settings::Flags::new(flags))
+        .map_err(|error| JitError::Compilation(error.to_string()))?;
+    Ok(JITBuilder::with_isa(isa, default_libcall_names()))
+}
+
+fn symbol_storage_bytes(lengths: impl IntoIterator<Item = usize>) -> Result<usize, JitError> {
+    let total = lengths
+        .into_iter()
+        .try_fold((0usize, 0usize), |(total, largest), length| {
+            Layout::array::<u8>(length).ok()?;
+            Some((total.checked_add(length)?, largest.max(length)))
+        })
+        .and_then(|(total, largest)| total.checked_mul(3)?.checked_add(largest));
+    total.ok_or(JitError::ResourceLimit("native symbol size"))
+}
+
+fn owned_symbol(name: &str) -> Result<String, JitError> {
+    let mut owned = String::new();
+    owned
+        .try_reserve_exact(name.len())
+        .map_err(|_| JitError::ResourceLimit("native symbol allocation"))?;
+    if owned.capacity() != name.len() {
+        return Err(JitError::ResourceLimit("native symbol capacity"));
+    }
+    owned.push_str(name);
+    Ok(owned)
 }
 
 fn signature_storage_bytes(

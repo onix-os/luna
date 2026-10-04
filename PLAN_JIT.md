@@ -11,28 +11,248 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Repeated under-load estimates — five windows
+
+The user requested many repeated measurements because this machine will not
+be idle. **Idle CPU availability is no longer a prerequisite for collecting
+estimates or comparing performance changes.** Keep paired controls, immutable
+artifacts, full distributions and explicit limits on interpretation; repetition
+does not cancel systematic bias, serial correlation or workload-order effects.
+This supersedes earlier instructions to wait for a globally quiet host.
+
+Measured 2026-10-04 21:35:34–21:47:26 UTC: five windows of 24 blocks. Each block
+runs both native profiles, reversing their order on alternate blocks, then an
+alternating speed/shipping compiled-Off comparison. The existing harness
+alternates baseline/candidate within each eleven-pair batch. After the first
+window, the four-window extension was declared before collecting its results,
+with 60 seconds before each additional window; runs were not extended until a
+desired threshold passed. All nine workloads remain enabled.
+
+Totals: **120 native batches per profile, 60 compiled-Off batches per profile,
+35,640 workload pairs** excluding warmups/native-proof runs. Each cost worker
+retains twenty iterations. All 360 run logs contain all nine result rows;
+all five drivers terminate successfully. Artifact hashes match before/after;
+only documentation differs from tested runtime `d054ba8`. The experiment uses
+the existing Rust 1.97.1 / x86-64 GNU speed and shipping binaries. No runtime,
+threshold, corpus or sample-count changes were made.
+
+The central estimate is the median of per-batch ratios of medians, not a pooled
+ratio, best run, or median of every individual timing. Brackets show the
+linearly interpolated 10th–90th percentile **observed batch spread**, not a
+confidence interval. Every outlier and failed run is retained. The samples
+share one host and five short windows; they are not 35,640 independent
+experiments or a population estimate for other machines. Background work
+changed across windows (Rust builds, rendering and Gearbox); per-window
+`vmstat` and per-block process snapshots are retained.
+
+Native ratios are Off / Auto, so larger is better. Counts apply the original
+per-batch workload thresholds; the unscored Oslo case has no pass count.
+
+| Workload | Speed median [p10, p90] | Passes / 120 | Shipping median [p10, p90] | Passes / 120 |
+| --- | --- | --- | --- | --- |
+| Integer loops | 2.675 [2.449, 2.765] | 116 | 2.992 [2.886, 3.074] | 120 |
+| Float loops | 4.667 [3.890, 4.775] | 120 | 5.342 [4.348, 5.670] | 120 |
+| Tables | 1.229 [1.140, 1.270] | 32 | 1.237 [1.167, 1.278] | 37 |
+| Upvalues | 0.741 [0.726, 0.757] | 0 | 0.605 [0.585, 0.618] | 0 |
+| Metamethods | 0.856 [0.847, 0.868] | 117 | 0.887 [0.877, 0.897] | 119 |
+| Rust callbacks | 0.817 [0.798, 0.831] | 10 | 0.757 [0.747, 0.769] | 2 |
+| Allocation/GC | 1.003 [0.991, 1.020] | 120 | 0.803 [0.795, 0.820] | 8 |
+| Oslo predicate | 0.926 [0.911, 0.964] | — | 0.957 [0.946, 0.977] | — |
+| Cold configuration | 0.999 [0.975, 1.024] | 119 | 0.999 [0.983, 1.019] | 120 |
+
+Compiled-Off overhead is JIT-Off / no-feature minus one, expressed as percent;
+smaller is better, with the original 5% ceiling. Negative observations remain
+visible rather than being discarded. Bracket endpoints are also percentages.
+
+| Workload | Speed overhead [p10, p90] | Passes / 60 | Shipping overhead [p10, p90] | Passes / 60 |
+| --- | --- | --- | --- | --- |
+| Integer loops | 2.83% [-13.79, 17.33] | 39 | 1.43% [-11.98, 16.72] | 49 |
+| Float loops | 5.95% [4.25, 7.59] | 13 | 1.97% [0.47, 6.63] | 53 |
+| Tables | -1.44% [-2.40, 0.81] | 59 | 4.64% [3.40, 5.93] | 42 |
+| Upvalues | 4.54% [2.40, 6.34] | 46 | 6.81% [5.95, 8.28] | 5 |
+| Metamethods | 1.30% [0.10, 2.85] | 58 | 2.71% [1.17, 4.42] | 58 |
+| Rust callbacks | 2.57% [0.73, 3.90] | 56 | 3.47% [2.31, 4.83] | 54 |
+| Allocation/GC | 0.93% [-0.70, 2.22] | 60 | 2.01% [1.17, 3.09] | 58 |
+| Oslo predicate | 1.54% [0.85, 2.68] | 58 | 1.58% [0.74, 2.94] | 57 |
+| Cold configuration | 3.93% [2.92, 4.95] | 56 | 2.65% [1.25, 3.87] | 58 |
+
+The persistent signals are more useful than the earliest two noisy runs:
+speed upvalue window medians range only 0.7407–0.7422; shipping upvalues
+0.5967–0.6099. Speed callback window medians range 0.8046–0.8216, shipping
+0.7541–0.7593. Upvalues and callbacks are clear optimization targets, not
+problems that more repetitions make disappear. Table median gains around
+1.23x fall just below the frozen 1.25x target. Numeric loops accelerate clearly.
+Shipping allocation/GC also regresses, unlike the roughly neutral speed build.
+
+All 120 checked native speed runs fail the overall gate. Shipping commands
+exit zero because they are observational, but their failed workload rows remain
+in the table. Complete compiled-Off gates pass only 7/60 speed and 2/60 shipping
+runs; do not select these green runs and discard the others. Speed float
+overhead has a +5.95% median; shipping upvalue overhead +6.81%. Full performance
+acceptance therefore remains unmet even when using the requested under-load
+estimation approach. This is not a request to stop other applications or wait
+indefinitely for idle hardware.
+
+Evidence: `target/jit-evidence/repeated-load-20261004/` and its `epoch-2`
+through `epoch-5` directories. `run.sh`/`run-more.sh` preserve command order;
+`exits.tsv` and driver exit files distinguish measurement completion from gate
+success. `summary.json` includes minima/maxima and all five window medians;
+`summary.tsv` and `summarize.awk` reproduce aggregate results from all logs.
+Independent JavaScript and AWK calculations agree for all 36 groups, including
+counts, median/quantiles and pass totals. Summaries consume the harness's
+four-decimal ratios, not invented extra measurement precision.
+
+For subsequent optimizations, compare unchanged and candidate artifacts in
+the same interleaved multi-window design; do not compare one fresh run with
+an old result from a different load period. Preserve correctness/native-work
+assertions and frozen thresholds. Busy-host estimates are actionable, but
+universal speed claims and release acceptance still require their actual gates.
+
+#### Benchmarks resumed on request — contended-host observations
+
+The user explicitly requested "benchmark now", lifting the prior timing
+deferral. Fresh artifacts were built from clean `13b6f7d` (runtime `d054ba8`)
+using Rust 1.97.1, Linux x86-64 GNU, on an Intel i7-13700KF. No implementation,
+workload, threshold or sample-count change preceded these runs.
+
+**These timings are not clean performance acceptance.** Unrelated Atlasis tests
+used roughly eleven CPU cores throughout the observed runs. Process snapshots
+and per-second `vmstat` logs record contention and substantial I/O wait. No
+unrelated process was stopped. Runs proceeded as requested, retaining unfavorable
+samples and failures rather than claiming an idle host or requiring a GPU.
+
+Each native profile has two full paired runs with eleven samples per workload.
+The speed artifact uses opt-level 3 and `--check`; both Make invocations exit 2
+with failed thresholds. Shipping uses opt-level s without `--check`, as required
+by the harness; its successful command exits do not accept its failed rows.
+Numbers below are Off median / Auto median: above 1 means faster native mode.
+
+| Workload | Speed run 1 / 2 | Shipping run 1 / 2 | Frozen minimum |
+| --- | --- | --- | --- |
+| Integer | 2.0823 / 1.4887 | 3.0714 / 2.2815 | 2.0 |
+| Float | 3.1125 / 5.1107 | 4.8032 / 4.8821 | 2.0 |
+| Table | 1.0610 / 1.2997 | 1.3149 / 1.3846 | 1.25 |
+| Upvalue | 0.6737 / 0.7058 | 0.6092 / 0.6123 | 1.25 |
+| Metamethod | 0.8695 / 0.7623 | 0.7473 / 1.0008 | 0.8333 |
+| Rust callbacks | 0.8745 / 0.5885 | 0.6579 / 0.7224 | 0.8333 |
+| Allocation/GC | 0.8684 / 1.1746 | 0.6960 / 0.5700 | 0.8333 |
+| Oslo predicate | 0.9726 / 0.9614 | 0.9567 / 0.9436 | Unscored |
+| Cold configuration | 0.9408 / 0.8903 | 1.0543 / 0.9309 | 0.8696 |
+
+Fresh matched no-feature versus compiled-Off probes use the same profiles,
+LTO, single codegen unit and stripping. Two comparisons per profile retain all
+nine controls, eleven sample pairs and twenty iterations. All four checked
+Make invocations exit 2. Speed run 1 fails upvalue (+7.73%) and allocation/GC
+(+6.82%); speed run 2 fails integer (+5.17%), float (+6.10%) and upvalue
+(+5.94%). Shipping runs fail upvalue at +7.46% and +6.89%; other controls pass
+their individual rows. Host contention prevents attributing these percentages
+solely to code changes, but none of these runs establishes the 5% control gate.
+Each profile's JIT-enabled probe passes its separate native-result/counter proof.
+
+Artifact file sizes are independent of timing contention: speed no-JIT/JIT is
+1426608 / 6596944 bytes (delta 5170336); shipping is 1151544 / 4277712 bytes
+(delta 3126168). These are the matched measurement embeddings, not a universal
+downstream library-size estimate. ELF section sizes are retained separately.
+
+Evidence is under `target/jit-evidence/benchmark-now-13b6f7d/`: exact revision,
+empty worktree patch, environment, immutable benchmark copies, SHA-256 records,
+process/vmstat logs, every output and individual exit status. Commands use
+`make jit-bench-build` then `jit-bench-run --mode paired --samples 11` (with
+`--check` only for speed), and `jit-size-build` then `jit-size-run` for each
+profile. Run arguments are passed through Make's `ARGS`; matched artifact paths
+use `COST_DIR`. All jobs are terminal; wrapper completion does not mean checked
+performance passed. Upvalue work remains a consistent regression signal across
+all four native observations; establish an uncontended baseline before retaining
+measurement-driven optimizations. Full-plan performance acceptance remains open.
+
 #### Current verification status
 
 | Revision | Local full GNU/musl gate | Hosted platform gate |
 | --- | --- | --- |
 | `0787fa8` requested-byte diagnostics | Included in the descendant `db62dfe` run below | All seven jobs pass in [run 37162289605](https://github.com/onix-os/luna/actions/runs/37162289605) |
-| `db62dfe` integrated Rust mock | `90136` exits 0; each target has 5353 passing executions / 482 suites / 24 ignored / zero failures | Run `37163080413` still pending at this checkpoint |
-| `819c933` signature accounting | Focused checks pass below; full paired run `60733` is active in an isolated, fixed-source checkout | Run `37164134522` still pending at this checkpoint |
+| `db62dfe` integrated Rust mock | `90136` exits 0; each target has 5353 passing executions / 482 suites / 24 ignored / zero failures | All seven jobs pass in [run 37163080413](https://github.com/onix-os/luna/actions/runs/37163080413) |
+| `819c933` signature accounting | `60733` exits 0; each target has 5363 passing executions / 482 suites / 24 ignored / zero failures | All seven jobs pass in [run 37164134522](https://github.com/onix-os/luna/actions/runs/37164134522) |
+| `c9fdce8` anonymous private entry | Focused GNU/musl checks pass; included in the descendant full run below | All seven jobs pass in [run 37165215564](https://github.com/onix-os/luna/actions/runs/37165215564) |
+| `a854536` helper-symbol accounting | `84133` exits 0; each target has 5368 passing executions / 482 suites / 24 ignored / zero failures | All seven jobs pass in [run 37165807143](https://github.com/onix-os/luna/actions/runs/37165807143) |
+| `d054ba8` fallible host-ISA detection | `65052` exits 0; each target has 5378 passing executions / 482 suites / 24 ignored / zero failures | All seven jobs pass in [run 37168811569](https://github.com/onix-os/luna/actions/runs/37168811569) |
 
 The `db62dfe` full run uses `make jit-verify jit-example`: baseline verification,
 Off/Auto/Force, optional features, doctests, warning-denied docs and the existing
 bounded smoke corpus. Both examples return 5000050000 with 200007 native
 instructions, 61440 mapped bytes and 47760 requested bytes. Logs are under
 `target/jit-evidence/mock-boundary/full-{gnu,musl}.log`. After this run terminated,
-the main checkout fast-forwarded to `819c933`; its isolated full run remains
-unchanged. The signature logs are under `target/jit-evidence/signatures/`.
+the main checkout fast-forwarded to `819c933`; its isolated full run remained
+unchanged through completion. Its GNU/musl examples also return the expected
+result and native/memory counters. The signature logs are under
+`target/jit-evidence/signatures/`; isolated smoke artifacts were retained under
+`signatures/isolated-artifacts/` before removing the clean worktree.
+
+The subsequent fixed-source `a854536` pair uses the same full commands and
+expected example result/counters, including anonymous entry and helper-symbol
+accounting. Logs are under `target/jit-evidence/helper-symbols/full-{gnu,musl}.log`.
+Documentation reconciliation and then the host-ISA fix below followed that pair;
+no runtime edit occurred during either full run. The new fix has its own full
+GNU/musl pair at `d054ba8`, recorded separately in the table. That pair also
+retains the expected example result/counters; logs are under
+`target/jit-evidence/native-isa/full-{gnu,musl}.log`. Only documentation changed
+while it ran. Hosted run `37168811569` also completes successfully in all seven
+jobs; the retained JSON identifies the exact `d054ba8` SHA. The read-only watch
+`81657` exits 0. No runtime edit follows this tested revision.
 
 Hosted `fda2254` run `37161623201` also completed successfully. Hosted success
 means all seven configured jobs, including real ARM64, two Rust-only Miri seeds
 and real i686 fallback; it does not establish timing or size acceptance. The
 historical pending statements below describe their earlier checkpoints and are
-superseded by this table. No benchmark ran, and no remaining compiler-memory,
+superseded by this table. These correctness gates include no benchmark; the
+separate resumed timing observations above do not waive remaining compiler-memory,
 ordering-deviation or release acceptance item is waived.
+
+#### Fallible host instruction-set detection
+
+The pinned `cranelift-jit` 0.136.1 convenience constructor calls
+`cranelift_native::builder().unwrap_or_else(panic)`. Ordinary detector errors
+therefore bypassed Luna's typed preparation-failure path. This was confirmed
+from pinned source, not reproduced on unsupported physical hardware.
+
+Luna now calls the detector directly and maps its errors to
+`JitError::Unavailable`, then constructs the JIT with the successful ISA. The
+exact optional, target-gated `cranelift-native` dependency was already in the
+transitive lockfile; only Luna's dependency edge is added. Speed optimization,
+verification, non-colocated libcalls and x86-only PIC match the pinned upstream
+constructor. Successful-host tests compare all shared and ISA flags, target
+triple and calling convention. No ISA override, arbitrary-panic catch, unsafe
+bridge or persisted/foreign code-loading path is introduced.
+
+Injected refusal tests verify the exact typed reason, reservation cleanup,
+unchanged mapped/requested storage and an installed native peer that remains
+executable. The public fixture checks both explicit `prepare_jit` failure and
+automatic service refusal during a 10000-iteration interpreted sum, exact failure
+counts, no eviction, and native recovery after clearing the exhausted attempts.
+The sum remains 50005000 in both modes; recovery uses a fresh executor from the
+retained closure rather than rerunning a stopped executor.
+
+Evidence is under `target/jit-evidence/native-isa/`. Final GNU/musl focused runs
+each pass 573 executions across 15 suites, four ignored and zero failures:
+compiler lifetimes, relocations, boundary, host memory, heap and upvalues. Both
+examples return 5000050000 with 200007 native instructions, 61440 mapped bytes
+and 47760 requested bytes. Formatting, default/all-feature checks, advisory
+Clippy and warning-denied docs succeed; existing 138 library / 141 lib-test
+Clippy warnings remain. Finalized-kernel disassembly succeeds on both targets.
+Real i686 fallback passes 30 executions across three suites, without ignored
+tests or failures; its example returns the same result with all native counters
+zero. No new local Miri, physical CPU-feature masking or performance claim is
+made. The subsequent full GNU/musl pair `65052` exits 0 with 5378 executions /
+482 repeated suites / 24 ignored / zero failures per target, including existing
+scalar/heap smoke and both native examples. Hosted run `37168811569` subsequently
+passes all seven jobs, supplying current ARM64 and two-seed Rust-only Miri
+evidence without attributing earlier results to this change.
+
+Two acceptance questions remain unanswered: the historical mock-after-native
+ordering deviation, and whether the documented in-process resource limits are
+acceptable instead of a hard cap on private compiler allocations. Neither
+question delivery nor passing tests supplies that approval. Benchmark deferral
+has now been lifted; the contended runs above and measurement-dependent
+optimizations remain unaccepted.
 
 #### Predictable ABI signature storage
 
@@ -50,7 +270,8 @@ it is released before Code publication. Quota refusal reports `native signatures
 and preserves installed peers without eviction. No new unsafe allocation bridge
 or quota increase is introduced.
 
-The pinned source contract is `ModuleDeclarations::declare_function`,
+The pinned source contract is `ModuleDeclarations::declare_function` /
+`declare_anonymous_function`,
 `Module::declare_func_in_func` and `Signature`'s two owned vectors. Tests check
 initial/clone capacities, checked layout overflow, reservation persistence
 through workspace/context teardown, quota refusal before injected mapping
@@ -74,6 +295,70 @@ passes 30 executions across three suites and its example remains interpreter-onl
 Formatting, default/all-feature checking, advisory Clippy and warning-denied
 rustdoc pass (`79457`); existing Clippy warnings remain. These are focused
 results for this batch, not a full-gate or performance acceptance claim.
+
+#### Anonymous private entry
+
+The subsequent compiler-storage change uses `declare_anonymous_function` for
+Luna's private entry. Definition and finalized entry retrieval already use its
+`FuncId`; the old `luna_slice_v3` name had no consumers. In pinned Cranelift
+0.136.1 this removes two owned entry-name strings and its name-map registration,
+while preserving Local linkage and the same cloned ABI signature. Named helper
+imports and their relocation contract are unchanged. This removes unnecessary
+allocations; it does not estimate or bound all private compiler storage.
+
+The signature-lifetime regression checks the actual module declaration is
+anonymous, Local and ABI-identical before executing the result and checking
+cleanup/peer survival. Focused GNU/musl compiler-lifetime, relocation, native
+and example gates (`1973`) each pass 30 executions across five suites, without
+failures or ignored tests. Both examples retain result 5000050000, 200007 native
+instructions, 61440 mapped bytes and 47760 requested bytes. Evidence is under
+`target/jit-evidence/anonymous-entry/`. The full run `60733` remains fixed at
+`819c933` and does not validate this subsequent declaration change.
+
+Formatting, default/all-feature checks, advisory Clippy and warning-denied
+rustdoc pass (`99774`), retaining the existing 138 library / 141 lib-test Clippy
+warnings. GNU and musl finalized-kernel disassembly gates also pass: scalar
+execution reports 207 native instructions; the table diagnostic intentionally
+tests null-host refusal, not native table execution.
+Separate GNU/musl heap and upvalue suites (`81255`) each pass 23 executions
+across two suites, without failures or ignored tests; their native counters
+verify the unchanged named-helper integration with canonical objects.
+
+#### Predictable helper-symbol storage
+
+Helper registration now reserves three times the sum of the fixed helper-name
+byte lengths plus the largest name length before constructing JITBuilder. The
+three retained copies are the builder symbol map, module declaration and module
+name map; the extra largest-name allowance covers one sequential lookup
+temporary, including registered-symbol cache hits. Initial strings use fallible
+exact reservation and transfer into the builder without another copy. Anonymous
+local entries require no name storage.
+
+The reservation shares snapshot/host-parent admission and remains alive until
+after Module destruction, including errors/unwinding. Refusal reports
+`native symbols`, not code-cache occupancy, so it does not evict a peer. Existing
+compiler-lifetime/relocation assertions now distinguish retained symbol and
+signature reservations from released workspace. Tests check byte-layout
+overflow, zero/UTF-8 names, pinned string capacities, early refusal, failure
+cleanup, peer survival and successful native execution.
+
+This accounts for known string payloads, not private map capacities, dynamic
+backend libcall names, other compiler buffers or diagnostic formatting. It is
+not system-OOM recovery or complete compiler-memory acceptance. Evidence is
+under `target/jit-evidence/helper-symbols/`; earlier full/hosted results predate
+this change.
+
+Focused pair `71965` exits 0: GNU/musl each report 546 passing executions across
+13 suites, four ignored and zero failures, covering compiler lifetimes,
+relocations, the full JIT boundary and host-memory integration. Both examples
+return 5000050000 with 200007 native instructions, 61440 mapped bytes and 47760
+requested bytes. Formatting, default/all-feature checks, advisory Clippy and
+warning-denied docs pass (`72237`), with the existing warning backlog. The same
+batch passes 30 real i686 resource tests across three suites; its example stays
+interpreter-only with all native/mapping/requested counters zero. No new local
+Miri or benchmark result is claimed.
+GNU/musl heap and upvalue checks (`91934`) also pass 23 executions across two
+suites per target, with zero failures/ignored and native helper assertions.
 
 The clean full GNU/musl gate at `fda2254` (`8753`) exits 0: each target reports
 5333 passing executions / 482 repeated suites / 24 ignored / zero failures.
@@ -2176,7 +2461,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 1 — Add configuration, capabilities, and honest test lanes
 
-**Status:** CONFIGURATION/GATES VERIFIED at `dc2533b`. **Depends on:** Phase 0. The original six-item audit covers optional dependencies, additive configuration/defaults/traits, transactional validation, Make gates, explicit test routing/refusals and diagnostics. Total dispatch and native-exit counters have focused GNU/musl/i686 evidence plus full GNU/musl revalidation. Exact math/string corpus IR-block exclusions remain explicit; successful Force preparation alone is not native-execution proof. Hosted verification of this runtime revision is still pending and remains distinct from this local milestone. Later compiler accounting and deferred performance are not inferred from these checks.
+**Status:** CONFIGURATION/GATES VERIFIED at `dc2533b`. **Depends on:** Phase 0. The original six-item audit covers optional dependencies, additive configuration/defaults/traits, transactional validation, Make gates, explicit test routing/refusals and diagnostics. Total dispatch and native-exit counters have focused GNU/musl/i686 evidence plus full GNU/musl revalidation. Exact math/string corpus IR-block exclusions remain explicit; successful Force preparation alone is not native-execution proof. Descendant hosted verification through `a854536` passes all seven jobs; the top status table records revision scope. Later compiler accounting and deferred performance are not inferred from these checks.
 
 **Files:** manifests/lockfile, `Makefile`, `src/lib.rs`, `src/lua.rs`, `src/jit/mod.rs`, tests/common helpers, integration test constructors, `examples/jit.rs`.
 
@@ -2195,7 +2480,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 **Status:** REFERENCE MOCK MILESTONE VERIFIED at `db62dfe`; the original ordering deviation remains. **Depends on:** Phase 1. Defined-layout scalar ABI and independent Rust slice model have a test-only interpreter-integrated before/one-scalar-after mock, including real i686 execution without a native backend. Full GNU/musl revalidation passes as recorded in the current status table. It preserves exact executor traces and canonical fallback across the cases below without native counters. The model was added after the first native experiment, so the original mock-before-emission ordering was not satisfied; current tests cannot retroactively change that history. This does not close Phase 3 compiler accounting or broader release acceptance.
 
-**Files:** `src/jit/{abi,model,mock,mod}.rs`, `src/thread/{executor,thread}.rs`, `src/vm.rs`, `tests/jit_native.rs`, `tests/jit_control.rs`, `tests/fuel_reference.rs`. These are the implemented boundary/runtime/fuel locations rather than the originally proposed `runtime.rs` and `jit_boundary.rs`/`jit_fuel.rs` files.
+**Files:** `src/jit/{abi,model,mock,mod}.rs`, `src/thread/{executor,thread,vm}.rs`, `tests/jit_native.rs`, `tests/jit_suspension.rs`, `tests/fuel_reference.rs`. These are the implemented boundary/runtime/fuel locations rather than the originally proposed `runtime.rs` and `jit_boundary.rs`/`jit_fuel.rs` files.
 
 1. Define entry/exit descriptors, canonical-state materialization, PC/error-position conventions, and ownership of error payloads.
 2. Build a Rust reference implementation of the proposed slice protocol. Test it before emitting machine code.
@@ -2250,7 +2535,51 @@ deviation, and full current-tree gates remain separate acceptance evidence.
 
 ### Phase 3 — Build validated owned IR and bounded code ownership
 
-**Status:** IN PROGRESS. **Depends on:** Phase 2. Owned snapshots and a quota-charged instruction-level CFG validate all successors/operands, preserve legal PC re-entry, and feed exhaustive lowering/native-effect admission. Weak generation IDs, bounded queues/attempts, leased code, capped mappings, bounded unleased LRU eviction and fallible sparse-metadata compaction exist. Full typed/region/effect/exit review, complete accounting, combined-limit semantics and hardening remain open.
+**Status:** IMPLEMENTATION EVIDENCE RECONCILED; compiler-resource acceptance remains open. **Depends on:** Phase 2. Owned snapshots and a quota-charged instruction-level CFG validate successors/operands and feed exhaustive lowering/native-effect admission. Actual emitted scalar/helper/entry/exit flows are checked before code generation. Weak generation IDs, bounded queues/attempts, leased code, capped mappings, bounded unleased LRU eviction and fallible sparse-metadata compaction exist. The seven-item map below replaces historical statements that combined-limit semantics or all flow validation are still missing; it does not close the compiler-resource decision or retroactively satisfy prerequisite ordering.
+
+#### Original ownership/admission requirements — 2026-10-04
+
+| Requirement | Current implementation and executed evidence |
+| --- | --- |
+| 1: validated CFG/types/effects/exits | `Snapshot::verify` and `flow.rs` validate operands, reachable edges, legal entries and region partitions. Before `Context::compile`, `backend.rs` invokes scalar/tag/arithmetic/truth/comparison/loop/transfer, helper, exit, entry/region and source-binding verifiers. The corresponding unit fixtures deliberately corrupt emitted IR and check refusal; `jit_native`, `jit_numeric_exits`, heap and suspension fixtures check actual canonical execution. These are the implemented conservative contracts, not arbitrary optimizing-compiler equivalence proofs. |
+| 2: exhaustive opcode admission | `flow::description` explicitly matches decoded operations and records direct/guarded/helper/interpreted lowering and effects. Unsupported valid work falls back; malformed snapshots and invalid native effects refuse. Unreachable instructions are validated too. `flow` and admission fixtures cover these distinctions. |
+| 3: private source identity | `registry.rs` uses traced weak prototypes and checked, nonwrapping state-local IDs; public prototype construction remains unchanged. Identity, collection, registration-reset, manual/binary-source and independent-state tests in `jit_native`, `jit_resources` and registry fixtures exercise retirement and reuse. |
+| 4: bounded owned snapshots | Snapshot fields are budgeted decoded operations, scalar/reference-marker Slots and counts, not GC pointers. Size/overflow/prototype limits precede fallible reservation; references carry canonical-slot meaning rather than owned GC addresses. CFG/verifier storage shares the snapshot ledger; work-shape limits precede frontend setup. Queue and attempt bounds are separate. Refusal/recovery tests check interpreted results and released charges. |
+| 5: code lifecycle | Budgeted provider segments finalize before publication; detached Code owns mappings, and active strong leases preserve them across retirement/disablement/state destruction. Mapping/protection failures, generation retirement, pinned leases, bounded LRU eviction and compaction-refusal tests cover this path. The twelve-category boundary record in `JIT.md` supplies the ownership review, with native permission checks distinct from Rust-only Miri. |
+| 6: outside-step compilation | `Lua::prepare_jit`/`service_jit` create an owned snapshot in a separate arena entry, compile after leaving it, then install on the owner thread. `manual_steps_only_queue_compilation` and `blocked_compiler_does_not_stall_manual_executors_or_share_queue_state` cover the scheduling boundary. No worker, Send Lua state or hard compiler timeout is claimed. |
+| 7: separate and combined accounting | `resources.rs` tests child/parent quotas, rollback, overlapping growth, external pages and lowered limits. `lua::memory_tests` and `tests/jit_memory.rs` check the exact live-category sum, combined peak versus one-byte-less refusal, arena-headroom refresh, recovery and independent states. `total_memory` remains GC allocation usage; additive accounted usage includes the documented JIT categories. Opaque compiler storage remains excluded, as inventoried below. |
+
+GNU and musl full `make jit-verify jit-example` at `d054ba8` each pass 5378
+executions across 482 repeated suites, with 24 ignored and zero failures; both
+native examples pass. All seven hosted jobs for this revision also pass.
+Earlier full GNU/musl and seven-job hosted results at `a854536` cover the same
+ownership/flow/accounting runtime before the isolated host-ISA constructor fix.
+Do not rerun unchanged correctness suites to substitute for the still-unanswered
+resource-policy decision or deferred performance acceptance.
+
+#### Current resource inventory
+
+This inventory separates the original section 4.5 requirement to control
+compiler working memory where controllable from a hard bound on the entire
+compiler process. It does not approve an exclusion or close this phase.
+
+| Category | Current implementation and limit | Remaining boundary |
+| --- | --- | --- |
+| Queue, tracking/cache maps, weak registry, entry flags and mapping records | Fallible `BudgetAllocator` containers share metadata and host-parent admission; retained capacity and growth overlap remain charged | These are requested allocation layouts, not allocator/RSS overhead |
+| Runtime, ledger, cached-code and provider/status/handoff owners | Exact typed owner/header charges and destruction ordering; detached leases retain live mapping/root charges | Infallible `Lua` construction still does not promise whole-state OOM recovery |
+| Owned snapshots and verification work | `ir.rs`, `flow.rs`, `tags.rs`, `entry_flow.rs`, `preds.rs` and `dominance.rs` allocate through the snapshot ledger; `work.rs` checks structural expansion before frontend setup | Structural bounds do not measure private Cranelift allocation or elapsed compiler time |
+| Known ABI arrays and relocation copies | Checked reservations precede the known upstream copies and outlive Context/Module; initial ABI vectors and relocation staging are fallible | Upstream clones remain infallible; private enclosing tables and additional internal copies are not covered |
+| Native storage | Provider admission charges page-rounded segments, alignment and records before mapping; requested payload bytes are reported separately; leases delay reclamation | Requested payloads are not extra host charges or an instruction-byte-only metric |
+| Private entry naming | Anonymous Local declaration avoids two owned name strings and the name-map entry; definition/retrieval use `FuncId` | Named helper imports still require separate storage |
+| Helper-symbol text | Reservation covers three retained payload copies per helper and the largest sequential lookup temporary before builder registration; initial strings allocate fallibly | Private map capacities, dynamic backend libcall names and infallible upstream copies remain distinct limitations |
+| Private compiler structures | Builder workspace is dropped before verification; verification workspace before codegen; Context and Module before publication | ISA objects, IR tables, optimizer/register-allocator buffers, declaration/symbol maps, backend code buffers and dynamic libcall names remain outside the byte ledger |
+| Diagnostic text | `JitError::Compilation(String)` is returned to the caller; Manager/cache do not retain it | Formatting in validation/backend error paths is not ledger-backed and is not included in accounted compilation peak; caller-owned errors are not persistent code-cache storage |
+
+The helper-name reservation preserves typed refusal, installed peers and the
+existing ABI without replacing/interposing the compiler's allocator, adding a
+subprocess or increasing quotas. Opaque storage and diagnostic ownership require
+their own explicit accounting design; known-copy reservations must not be
+presented as a complete compiler-memory ceiling.
 
 Basic-block analysis is now integrated (`56bc035`): bounded in-place partitions
 and header/linear successor checks preserve every legal PC. Full typed/data-flow
@@ -3051,7 +3380,7 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 
 ### Phase 6 — Add heap fast paths with collector and mutation proofs
 
-**Status:** Helper-backed implementation and bounded GC/mutation review verified; all seven hosted jobs pass at `dc2533b`. **Depends on:** Phase 5. Fixed helper ABI v3 uses canonical roots and existing barriers. The GC root/lifetime checkpoint records source review and GNU/musl evidence for every-slice collection, interleaved Rust mutation, weak values/keys and ephemeron reattachment, joined/foreign upvalues, finalizer resurrection, debug mutation, panic exits and async resumption. The later relocation-copy runtime change awaits full revalidation. No direct-storage inline cache is enabled. This is not a performance result or a claim of complete PUC-Lua weak-mode conformance.
+**Status:** Helper-backed implementation and bounded GC/mutation review verified; all seven hosted jobs pass through `d054ba8`. **Depends on:** Phase 5. Fixed helper ABI v3 uses canonical roots and existing barriers. The GC root/lifetime checkpoint records source review and GNU/musl evidence for every-slice collection, interleaved Rust mutation, weak values/keys and ephemeron reattachment, joined/foreign upvalues, finalizer resurrection, debug mutation, panic exits and async resumption. This includes relocation-copy, later compiler-storage changes and the host-ISA refusal fix. No direct-storage inline cache is enabled. This is not a performance result or a claim of complete PUC-Lua weak-mode conformance.
 
 **Files:** `src/jit/{abi,helpers,ir,registry,mod}.rs`, table modules, closure/upvalue integration, `tests/jit_heap.rs`, `tests/jit_upvalues.rs`, `tests/jit_gc_requests.rs`, and existing GC/weak/userdata suites. The three implemented integration files cover the originally proposed `jit_gc.rs`/`jit_mutation.rs` roles.
 
@@ -3137,7 +3466,7 @@ test commit. No benchmark timing or new test infrastructure is involved.
 
 ### Phase 9 — Harden and establish supported-platform evidence
 
-**Status:** IN PROGRESS. **Depends on:** Phase 8. Hosted run `37156905915` at `dc2533b` passes all seven jobs, including native GNU/musl/ARM64, both Rust-only Miri seeds and real i686 fallback. This includes relocation admission and the strict Force harness; the later relocation-copy change awaits full revalidation. Earlier finite campaigns and bounded ownership/GC review do not complete broader review obligations. Do not expand audit/fuzz infrastructure against the user's stated priority.
+**Status:** EVIDENCE MILESTONE VERIFIED at `d054ba8`; prerequisite acceptance remains open. **Depends on:** Phase 8. Hosted run `37168811569` passes all seven jobs, including native GNU/musl/ARM64, both Rust-only Miri seeds and real i686 fallback. This includes relocation-copy, signature/helper-symbol accounting and the host-ISA refusal fix; full local GNU/musl gates also pass. The original eight requirements are mapped below without treating finite campaigns as exhaustive proof or waiving Phase 8. Do not expand audit/fuzz infrastructure against the user's stated priority.
 
 Supervised heap/lifecycle coverage (`a951643`) adds four parameterized source
 families in fresh Off/Auto states. GNU/musl each pass 128 cases with per-slice
@@ -3172,9 +3501,31 @@ slice evidence; full safety/guard/lifecycle obligations remain open.
 
 **Exit:** runtime safety review and platform-specific integrated evidence are complete. Missing platform evidence is a release blocker for that platform, not a reason to claim universal support.
 
+#### Original platform/evidence requirements — 2026-10-04
+
+| Requirement | Existing implementation/evidence and remaining scope |
+| --- | --- |
+| 1: admission and codegen exercised separately | `src/jit/fuzz.rs` mutates and rejects malformed snapshots before mapping; scalar workers compile valid snapshots and check native results against `model.rs`. `fuzz/fuzz_targets` also retains distinct coverage-guided targets. No new campaign or coverage infrastructure is needed to record this evidence. |
+| 2: differential execution | Scalar workers check every entry, budgets and register inputs; `src/jit/fuzz/heap.rs` compares fresh interpreted/prepared states, slice/fuel traces, results and ordered effects. Prepared states use Auto with explicit preparation and native counters, not a claimed public Force mode. Strict Force routing is independently exercised by the workspace gates. |
+| 3: mutation and lifecycle cases | Existing heap families and `jit_heap`, `jit_upvalues`, `jit_suspension`, `jit_errors`, `jit_debug`, `jit_gc_requests` cover guards, host callbacks, close/error paths, weak tables, yields and tier transitions. Arithmetic edges have scalar/loop/comparison fixtures. This records those finite cases, not all possible programs. |
+| 4: supervised execution | `fuzz.rs` workers enforce 30-second CPU, 60-second wall, 2-GiB address-space, zero-core and 16-MiB output limits. Supervisor regression explicitly rejects panic, signal and timeout. These test-worker limits do not cap production compiler resources. |
+| 5: capability/resource refusal | Existing mapping/protection, quotas, relocation admission, cache/lease and compiler-refusal tests preserve interpretation and installed peers. `d054ba8` adds typed host-ISA inference refusal and public fallback/recovery. Error injection is not physical CPU masking. The native gate separately rejects an ARM64 target on x86-64 before cross-build/execution; the checked negative log is `acceptance-reconciliation/mismatched-target.log`. |
+| 6: ownership/helper boundary review | `JIT.md` records twelve bounded boundary categories; the earlier ownership/GC checkpoints identify reviewed source and executed tests. ABI, helpers and strong/global/provider/handoff owner primitives are unchanged from reviewed `3494c64`. Subsequent requested-byte tracking preserves the positive aligned payload bound; reservations, anonymous declarations and fallible ISA setup add no unsafe blocks. Rust-only Miri evidence stays separate from generated-code evidence. |
+| 7: actual target execution | All seven hosted jobs at `d054ba8` pass, including actual GNU/musl/ARM64 native execution, two Rust-only Miri seeds and real i686 fallback. Full local GNU/musl gates at the same runtime revision pass. Cross-builds and workflow lint do not replace these executed results. |
+| 8: dependency/provenance maintenance | `JIT.md` lists exact native dependency pins/licenses and now records the upgrade/advisory-response policy, source contracts and required existing gates. Source-only registration remains enforced; no binary/foreign native artifact loading is added. The policy is not a current advisory audit or automated monitoring service. |
+
+Long-run evidence remains revision-scoped at `710dd33` under
+`target/jit-evidence/current-frame-upvalues/`: GNU and musl each pass 4096
+scalar/admission cases and 96 heap cases across seeds 0, 1, 3735928559 and
+18446744073709551615. Logs retain worker limits, durations and native counters.
+These are historical longer campaigns, not new runs on `d054ba8`. Current full
+gates reuse the existing smoke corpus. This reconciliation records the original
+deliverables; it neither expands their scope nor accepts performance/resource
+deviations on the user's behalf.
+
 ### Phase 10 — Publish a complete, accurately documented feature
 
-**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 9 and approved workload acceptance. All seven hosted jobs pass at `dc2533b`, including native GNU/musl/ARM64 gates and shipping builds. The later relocation-copy runtime change has focused checks but awaits full revalidation. The documented example asserts native execution on GNU/musl and zero-counter fallback on i686; `JIT.md` reflects actual CI lanes and revision limits. Complete review, frozen performance controls and current shipping/size acceptance remain open.
+**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 9 and approved workload acceptance. All seven hosted jobs pass through `d054ba8`, including native GNU/musl/ARM64 gates and shipping builds; full local GNU/musl gates also pass. The documented example asserts native execution on supported native targets and zero-counter fallback on i686; `JIT.md` reflects actual CI lanes and revision limits. Frozen performance controls, measurement-dependent optimizations, current shipping/size acceptance and explicit compiler-resource/ordering decisions remain open.
 
 **Files:** docs/examples, benchmark/size tooling, actual CI integration, this document.
 
@@ -3238,6 +3589,34 @@ The size-oriented existing `opt-level = "s"` can influence interpreter layout. M
 
 All applicable criteria must be checked with evidence; no partial phase substitutes for completion.
 
+### Embedding and regression compatibility reconciliation
+
+The review compares public source against planned baseline `47b34de` and uses
+full GNU/musl `make jit-verify jit-example` at `a854536` for the current runtime.
+Each target passes 5368 executions across 482 suites, with 24 ignored and no
+failures. The ignored results repeat four native diagnostic/supervisor/worker
+tests selected through their separate Make recipes, plus two pre-existing
+ignored documentation snippets. They are not blanket native skips or a claim
+that every documentation snippet executes. Force harness exclusions remain
+exact and explicit.
+
+| Contract | Source and executed evidence |
+| --- | --- |
+| Existing Rust interfaces | `callback.rs`, `conversion.rs`, `userdata.rs`, `value.rs`, `async_callback.rs`, `stash.rs`, `util/src` and `derive/src` have no source changes from the baseline. Changed existing modules retain public signatures/fields; additions are feature-gated JIT APIs and additive `Lua::accounted_memory`. Public prototype construction is unchanged. |
+| Feature and ownership defaults | `Cargo.toml` keeps `default = []`; fresh `make jit-tree` shows no native compiler/icache/mapping dependency in the default normal tree. `jit_config` checks all constructors remain Off, `Lua` remains non-Send/non-Sync, invalid configuration is transactional and states are independent. |
+| Closures, values and provenance | `Closure::load_with_env` adds private source-only registration without a public prototype field. `jit_native` executes manual/binary prototypes interpreted with zero native entries and verifies source-native execution, identity retirement and cache clearing. Existing conversions, serde/util, derive and examples compile/run in full gates. |
+| Callbacks, async and executor control | `jit_sequences`, `jit_suspension`, `jit_upvalues`, `jit_gc_requests` and the optional async suites assert actual native work, canonical values/identity, exact slices and existing lifecycle/error behavior. These complement the unchanged callback/async public interfaces. |
+| Language regression routing | `tests/common/mod.rs` selects Off/Auto/Force and rejects unexpected preparation failures. `scripts.rs` and `strings.rs` explicitly allow only the documented `IR blocks` refusal for the large math/string corpora; `jit_test_modes` tests rejection and exclusion reporting. Baseline, mode, optional-feature and doc suites pass in both full gates. |
+| Existing GC metrics and additive accounting | `total_memory()` still returns collector allocation bytes. `jit_memory` checks the exact charged-category sum, owner floor, host-limit refusal/recovery and unchanged GC metrics. Public resource rustdoc now includes fixed owners and known compiler reservations rather than incorrectly excluding them. |
+
+Evidence for the source/dependency review is under
+`target/jit-evidence/api-compatibility/`; full logs are under `helper-symbols/`.
+This verifies the existing Luna embedding contract and regression behavior, not
+universal PUC-Lua conformance, unchanged allocation cost, or performance. Known
+baseline behavior corrections remain documented in their earlier checkpoints.
+Compiler-memory acceptance, deferred numerical gates and other unchecked
+criteria remain independent.
+
 Checked items below have revision-scoped evidence at `38ba46d`: full GNU/musl
 `make jit-verify` (5073 executions each, including its `verify` prerequisites),
 hosted ARM64 gate (5074 including disassembly), source inspection and the
@@ -3246,7 +3625,7 @@ They do not mark unchecked review/performance requirements complete, and later
 runtime edits must revalidate affected criteria. An unchecked item may reflect
 missing acceptance evidence rather than missing implementation.
 
-- [ ] Existing API and Lua 5.4 regression behavior remain compatible.
+- [x] Existing API and Lua 5.4 regression behavior remain compatible. The reconciliation above records public interface/default/provenance/control checks and full GNU/musl evidence at `a854536`; this is Luna regression compatibility, not a claim of complete PUC-Lua conformance or performance acceptance.
 - [x] `make verify` succeeds without JIT enabled by default. Revalidated in full GNU/musl gates at `a0f9ac5` after the compiler-lifetime changes.
 - [x] `make jit-verify` succeeds in Off, Auto, and Force, including optional async/derive and doctests. GNU/musl each pass 5152 executions / 446 suites / 24 ignored at `a0f9ac5`.
 - [x] Eligible integrated workloads actually execute native instructions; counters and coverage substantiate this. See the acceptance evidence table above and GNU full gate at `2e21d80`; this is execution coverage, not performance acceptance.
@@ -3259,12 +3638,12 @@ missing acceptance evidence rather than missing implementation.
 - [x] Debug hooks and debug mutation retain correct behavior. Exact hook/traceback and valid/invalid mutation fixtures pass focused GNU/musl and full GNU at `2e21d80`; full-range debug indices also pass on real i686. This preserves Luna's supported debug behavior, not unsupported PUC-Lua APIs.
 - [x] Binary/prototype provenance policy is enforced and documented.
 - [x] Executable memory is never deliberately mapped writable and executable simultaneously; allocation/protection failure falls back or reports capability failure safely. The code-memory checkpoint above records pinned mapping flags, finalization-before-publication, OS permission/reclamation checks and peer-preserving denial/recovery tests; focused GNU/musl gates pass at `3494c64` with unchanged backend source from the fully hosted-verified `2e21d80`.
-- [ ] `make jit-fuzz-smoke` passes; longer campaign evidence and unsafe-boundary review are recorded.
-- [x] Native platform tests actually execute on each advertised release target.
-- [x] Unsupported or denied-JIT environments preserve interpreter functionality. Real i686 fallback passes locally and in hosted job `111260042537` at `a893bd7`; supported-target mapping/protection-denial regressions also pass in the full native gates. This is executed target/fault coverage, not a claim about every possible OS policy.
+- [x] `make jit-fuzz-smoke` passes; longer campaign evidence and unsafe-boundary review are recorded. Full GNU/musl gates at `d054ba8` pass existing scalar/heap smoke and supervisor checks. The Phase 9 reconciliation records the retained longer campaigns at `710dd33`, their seeds/limits/counters, and twelve boundary-review categories with subsequent source-delta scope. Historical long campaigns are not relabeled as current-revision runs, nor as exhaustive proof.
+- [x] Native platform tests actually execute on each advertised release target. Hosted run `37168811569` at `d054ba8` passes actual GNU/musl/ARM64 execution; local GNU/musl full gates independently pass.
+- [x] Unsupported or denied-JIT environments preserve interpreter functionality. Real i686 fallback passes locally and in hosted run `37168811569` at `d054ba8`; supported-target mapping/protection-denial and injected host-ISA refusal regressions also pass in the full native gates. This is executed target/fault coverage, not physical CPU-feature masking or a claim about every possible OS policy.
 - [ ] `make jit-bench` meets preapproved numerical workload thresholds with controls enabled.
 - [ ] `make jit-size` records interpreter/JIT feature costs and compiled-but-disabled overhead.
-- [ ] Docs, examples, resource/security caveats, and actual CI wiring match behavior.
+- [x] Docs, examples, resource/security caveats, and actual CI wiring match behavior. `JIT.md` records source-only provenance, synchronous outside-arena service, unsupported CPU/mapping fallback, resource exclusions, dependency maintenance and revision-scoped results. Both local native examples pass at `d054ba8`; real i686 returns the same result with zero native counters. `make ci-check` passes, and all seven hosted jobs execute successfully. Unaccepted performance/size/resource decisions remain explicit; this documentation check is not release acceptance.
 - [ ] All deviations/exclusions are approved and recorded; phase/evidence statuses are accurate.
 - [ ] `git diff --check` passes and changes stay within the phase's approved scope.
 

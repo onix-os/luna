@@ -577,10 +577,12 @@ impl Lua {
         self.gc_metrics().total_allocation()
     }
 
-    /// Collector-tracked bytes plus charged JIT storage and page-rounded mappings.
+    /// Collector-tracked bytes plus charged JIT allocations and reservations.
     ///
-    /// Without the JIT feature this equals `total_memory`. Compiler-owned storage,
-    /// fixed owners and allocator overhead are excluded; this is not process RSS.
+    /// JIT charges include bootstrap owners, metadata, snapshots, known compiler
+    /// reservations and page-rounded native mappings. Without JIT this equals
+    /// `total_memory`. Unaccounted compiler buffers, diagnostic strings and allocator
+    /// overhead are excluded; this is not process RSS.
     pub fn accounted_memory(&self) -> usize {
         let bytes = self.total_memory();
         #[cfg(feature = "jit")]
