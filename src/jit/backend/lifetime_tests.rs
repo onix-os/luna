@@ -30,6 +30,99 @@ fn result(code: &Code, source: &Snapshot) -> u64 {
 }
 
 #[test]
+fn host_isa_refusal_is_typed_and_success_preserves_pinned_builder_settings() {
+    for reason in ["x86 support requires SSE2", "unsupported architecture"] {
+        assert!(
+            matches!(native_builder(Err(reason)), Err(JitError::Unavailable(actual)) if actual == reason)
+        );
+    }
+    let actual = JITModule::new(native_builder(cranelift_native::builder()).unwrap());
+    let expected = JITModule::new(
+        JITBuilder::with_flags(
+            &[("opt_level", "speed"), ("enable_verifier", "true")],
+            default_libcall_names(),
+        )
+        .unwrap(),
+    );
+    assert_eq!(actual.isa().triple(), expected.isa().triple());
+    assert_eq!(
+        actual.isa().default_call_conv(),
+        expected.isa().default_call_conv()
+    );
+    assert_eq!(
+        actual.isa().flags().to_string(),
+        expected.isa().flags().to_string()
+    );
+    let flags = |module: &JITModule| {
+        module
+            .isa()
+            .isa_flags()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(flags(&actual), flags(&expected));
+    assert_eq!(actual.isa().flags().opt_level(), settings::OptLevel::Speed);
+    assert!(actual.isa().flags().enable_verifier());
+    assert!(!actual.isa().flags().use_colocated_libcalls());
+    assert_eq!(actual.isa().flags().is_pic(), cfg!(target_arch = "x86_64"));
+}
+
+#[test]
+fn host_isa_refusal_preserves_public_execution_cached_peer_and_recovery() {
+    let mut lua = Lua::empty();
+    lua.set_jit_config(JitConfig {
+        mode: JitMode::Auto,
+        hot_threshold: 1,
+        ..JitConfig::default()
+    })
+    .unwrap();
+    let peer = lua
+        .try_enter(|ctx| Ok(ctx.stash(Closure::load(ctx, None, b"return 42")?)))
+        .unwrap();
+    assert_eq!(lua.prepare_jit().unwrap(), 1);
+    let retained = lua.jit_stats();
+    let source = lua
+        .try_enter(|ctx| {
+            Ok(ctx.stash(Closure::load(
+                ctx,
+                None,
+                b"local sum=0 for i=1,10000 do sum=sum+i end return sum",
+            )?))
+        })
+        .unwrap();
+    lua.enter(|ctx| ctx.jit().0.borrow_mut().memory_failure = Failure::NativeIsaUnavailable);
+    assert!(matches!(
+        lua.prepare_jit(),
+        Err(JitError::Unavailable(
+            "injected unsupported host instruction set"
+        ))
+    ));
+    let executor = lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&source).into(), ())));
+    assert_eq!(lua.execute::<i64>(&executor).unwrap(), 50_005_000);
+    let refused = lua.jit_stats();
+    assert_eq!(refused.compilation_failures, 2);
+    assert_eq!(refused.native_instructions, 0);
+    assert_eq!(refused.installed_regions, 1);
+    assert_eq!(refused.cache_evictions, 0);
+    assert_eq!(refused.snapshot_bytes, 0);
+    assert_eq!(refused.code_bytes, retained.code_bytes);
+    assert_eq!(refused.code_requested_bytes, retained.code_requested_bytes);
+    let peer_executor =
+        lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&peer).into(), ())));
+    assert_eq!(lua.execute::<i64>(&peer_executor).unwrap(), 42);
+    assert!(lua.jit_stats().native_instructions > 0);
+    lua.enter(|ctx| ctx.jit().0.borrow_mut().memory_failure = Failure::None);
+    lua.clear_jit_cache();
+    assert_eq!(lua.prepare_jit().unwrap(), 2);
+    let native_before = lua.jit_stats().native_instructions;
+    let recovered = lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&source).into(), ())));
+    assert_eq!(lua.execute::<i64>(&recovered).unwrap(), 50_005_000);
+    assert!(lua.jit_stats().native_instructions > native_before);
+    assert_eq!(lua.jit_stats().snapshot_bytes, 0);
+}
+
+#[test]
 fn symbol_layout_counts_registration_declarations_and_lookup_temporary() {
     let names = helpers::SYMBOLS.map(|(_, name, _)| name);
     assert_eq!(
@@ -116,6 +209,22 @@ fn declaration_refusals_preserve_peer_and_reservations_outlive_compiler_owners()
         metadata.0.current(),
         total.requested(),
     );
+    assert!(matches!(
+        compile(&source, Failure::NativeIsaUnavailable),
+        Err(JitError::Unavailable(
+            "injected unsupported host instruction set"
+        ))
+    ));
+    assert_eq!(snapshots.current(), baseline);
+    assert_eq!(
+        (
+            total.load(Ordering::Relaxed),
+            metadata.0.current(),
+            total.requested()
+        ),
+        retained
+    );
+    assert_eq!(result(&peer, &peer_source), 42);
     for (failure, expected) in [
         (Failure::RefuseSymbols, "native symbols"),
         (Failure::RefuseSignatures, "native signatures"),

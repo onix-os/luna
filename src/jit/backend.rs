@@ -5,6 +5,7 @@ use cranelift_codegen::ir::{
     condcodes::{FloatCC, IntCC},
     types, AbiParam, Block, Inst, InstBuilder, MemFlagsData, Value as IrValue,
 };
+use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{BranchProtection, JITBuilder, JITMemoryKind, JITMemoryProvider, JITModule};
 use cranelift_module::{default_libcall_names, Linkage, Module, ModuleReloc, ModuleResult};
@@ -283,6 +284,7 @@ pub(super) enum Failure {
     RequireRelocationCopy(usize),
     RefuseSignatures,
     RefuseSymbols,
+    NativeIsaUnavailable,
     RequireSignatures(usize),
     CorruptBinding(super::tags::BindingFault),
 }
@@ -371,11 +373,15 @@ pub(super) fn compile_in(
     }
     let symbol_charge = Reservation::new(snapshot.operations.allocator().0.clone(), symbol_bytes)
         .map_err(|_| JitError::ResourceLimit("native symbols"))?;
-    let mut jit = JITBuilder::with_flags(
-        &[("opt_level", "speed"), ("enable_verifier", "true")],
-        default_libcall_names(),
-    )
-    .map_err(fail)?;
+    #[cfg(test)]
+    let native_isa = if failure == Failure::NativeIsaUnavailable {
+        Err("injected unsupported host instruction set")
+    } else {
+        cranelift_native::builder()
+    };
+    #[cfg(not(test))]
+    let native_isa = cranelift_native::builder();
+    let mut jit = native_builder(native_isa)?;
     for (_, name, entry) in helpers::SYMBOLS {
         jit.symbol(owned_symbol(name)?, entry as *const u8);
     }
@@ -810,6 +816,34 @@ pub(super) fn compile_in(
         registers: snapshot.registers,
         entries,
     })
+}
+
+fn native_builder(
+    isa: Result<cranelift_codegen::isa::Builder, &'static str>,
+) -> Result<JITBuilder, JitError> {
+    let isa = isa.map_err(JitError::Unavailable)?;
+    let mut flags = settings::builder();
+    for (name, value) in [
+        ("opt_level", "speed"),
+        ("enable_verifier", "true"),
+        ("use_colocated_libcalls", "false"),
+        (
+            "is_pic",
+            if cfg!(target_arch = "x86_64") {
+                "true"
+            } else {
+                "false"
+            },
+        ),
+    ] {
+        flags
+            .set(name, value)
+            .map_err(|error| JitError::Compilation(error.to_string()))?;
+    }
+    let isa = isa
+        .finish(settings::Flags::new(flags))
+        .map_err(|error| JitError::Compilation(error.to_string()))?;
+    Ok(JITBuilder::with_isa(isa, default_libcall_names()))
 }
 
 fn symbol_storage_bytes(lengths: impl IntoIterator<Item = usize>) -> Result<usize, JitError> {

@@ -2,13 +2,13 @@
 
 This branch implements the first native execution tier described in [PLAN_JIT.md](PLAN_JIT.md). It is **not the finished plan** and is not the LuaJIT runtime or its FFI. Constructors still default to interpreted execution. Do not use these results to claim production readiness or hostile-code isolation.
 
-As checked on 2026-10-04, all seven hosted jobs pass at `c9fdce8`
-([run 37165215564](https://github.com/onix-os/luna/actions/runs/37165215564)):
+As checked on 2026-10-04, all seven hosted jobs pass at `a854536`
+([run 37165807143](https://github.com/onix-os/luna/actions/runs/37165807143)):
 native Linux x86-64 GNU/musl and ARM64 GNU, two Rust-only Miri seeds, baseline
 verification and real i686 interpreter fallback. This includes the
 oversized-image admission repair, relocation-copy accounting and requested-byte
-diagnostics, integrated mock, signature accounting and anonymous private entry.
-It predates helper-symbol accounting.
+diagnostics, integrated mock, signature/helper-symbol accounting and anonymous
+private entry. It predates the host-ISA refusal fix described below.
 
 Local full GNU/musl gates at `a854536`, including helper-symbol accounting, each
 pass 5368 executions across 482 repeated suites, with 24 ignored and zero failures.
@@ -19,10 +19,13 @@ exclusions for the existing math and string corpora. Both GNU/musl examples
 assert native execution and return 5000050000 with 200007 native instructions.
 Dynamic numeric-exit tests also pass in jit/jit+async on GNU/musl, and dispatch
 accounting covers errors and transitions on GNU/musl and real i686.
-Hosted verification of `a854536` is still running. The local full run includes
+The local full run includes
 baseline, all JIT modes, optional features, doctests and the existing bounded
 smoke corpus; it does not establish current ARM64 or Miri evidence by itself.
-Only documentation changed after that fixed-source run. `PLAN_JIT.md` retains
+The subsequent host-ISA refusal fix passes focused GNU/musl checks (573 passing
+executions each, four ignored) and real i686 fallback (30 passing executions).
+Those focused checks do not replace full or hosted gates for the new revision.
+`PLAN_JIT.md` retains
 the revision-specific evidence, compatibility reconciliation and acceptance limits.
 Benchmarks remain deferred, not accepted; earlier upvalue/callback/compiled-but-
 disabled cost failures remain unresolved. This is not full-plan acceptance.
@@ -39,7 +42,7 @@ manifests, are:
 
 | Dependency | Locked version | Declared license |
 | --- | --- | --- |
-| `cranelift-codegen`, `cranelift-frontend`, `cranelift-jit`, `cranelift-module` | 0.136.1 | Apache-2.0 WITH LLVM-exception |
+| `cranelift-codegen`, `cranelift-frontend`, `cranelift-jit`, `cranelift-module`, `cranelift-native` | 0.136.1 | Apache-2.0 WITH LLVM-exception |
 | `wasmtime-internal-jit-icache-coherence` | 49.0.1 | Apache-2.0 WITH LLVM-exception |
 | `memmap2` | 0.9.11 | MIT OR Apache-2.0 |
 | `libc` | 0.2.189 | MIT OR Apache-2.0 |
@@ -54,6 +57,16 @@ and code-memory counters on supported targets. On unsupported targets it stays
 Off and asserts the same result with zero native counters. Build eligibility is
 not permission to map executable memory: explicit preparation errors propagate
 from this example rather than silently passing an interpreted run as native.
+
+Host instruction-set detection uses the fallible `cranelift_native::builder`
+path. Its ordinary capability refusals return `JitError::Unavailable`; they do
+not invoke the panic used by the pinned upstream convenience constructor.
+Convenience execution remains interpreted after refusal, and previously cached
+code is preserved. The replacement retains the pinned native feature detection,
+speed optimization, verifier, non-colocated libcalls and x86-only PIC settings.
+This is not a catch-all for compiler panics, signals or allocation failure, and
+does not enable loading code produced for another CPU. Refusal tests inject
+detector errors; they are not tests on physically unsupported CPUs.
 
 Source loaded through `Closure::load` / `load_with_env` gets private weak prototype registrations, including nested functions. `prepare_jit()` queues a bounded batch of registered sources and compiles that queue outside the GC arena. Keep closures or executors stashed so collection cannot retire their source before preparation. A batch is limited by `max_queue_entries`; call again for further prototypes. Binary chunks and manually constructed prototypes remain interpreted.
 

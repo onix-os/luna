@@ -19,7 +19,7 @@
 | `db62dfe` integrated Rust mock | `90136` exits 0; each target has 5353 passing executions / 482 suites / 24 ignored / zero failures | All seven jobs pass in [run 37163080413](https://github.com/onix-os/luna/actions/runs/37163080413) |
 | `819c933` signature accounting | `60733` exits 0; each target has 5363 passing executions / 482 suites / 24 ignored / zero failures | All seven jobs pass in [run 37164134522](https://github.com/onix-os/luna/actions/runs/37164134522) |
 | `c9fdce8` anonymous private entry | Focused GNU/musl checks pass; included in the descendant full run below | All seven jobs pass in [run 37165215564](https://github.com/onix-os/luna/actions/runs/37165215564) |
-| `a854536` helper-symbol accounting | `84133` exits 0; each target has 5368 passing executions / 482 suites / 24 ignored / zero failures | Run `37165807143` still pending at this checkpoint |
+| `a854536` helper-symbol accounting | `84133` exits 0; each target has 5368 passing executions / 482 suites / 24 ignored / zero failures | All seven jobs pass in [run 37165807143](https://github.com/onix-os/luna/actions/runs/37165807143) |
 
 The `db62dfe` full run uses `make jit-verify jit-example`: baseline verification,
 Off/Auto/Force, optional features, doctests, warning-denied docs and the existing
@@ -35,8 +35,9 @@ result and native/memory counters. The signature logs are under
 The subsequent fixed-source `a854536` pair uses the same full commands and
 expected example result/counters, including anonymous entry and helper-symbol
 accounting. Logs are under `target/jit-evidence/helper-symbols/full-{gnu,musl}.log`.
-Only documentation changed after that pair terminated; no runtime edit occurred
-during either full run.
+Documentation reconciliation and then the host-ISA fix below followed that pair;
+no runtime edit occurred during either full run. The new fix has focused evidence,
+not those earlier full-run results.
 
 Hosted `fda2254` run `37161623201` also completed successfully. Hosted success
 means all seven configured jobs, including real ARM64, two Rust-only Miri seeds
@@ -44,6 +45,48 @@ and real i686 fallback; it does not establish timing or size acceptance. The
 historical pending statements below describe their earlier checkpoints and are
 superseded by this table. No benchmark ran, and no remaining compiler-memory,
 ordering-deviation or release acceptance item is waived.
+
+#### Fallible host instruction-set detection
+
+The pinned `cranelift-jit` 0.136.1 convenience constructor calls
+`cranelift_native::builder().unwrap_or_else(panic)`. Ordinary detector errors
+therefore bypassed Luna's typed preparation-failure path. This was confirmed
+from pinned source, not reproduced on unsupported physical hardware.
+
+Luna now calls the detector directly and maps its errors to
+`JitError::Unavailable`, then constructs the JIT with the successful ISA. The
+exact optional, target-gated `cranelift-native` dependency was already in the
+transitive lockfile; only Luna's dependency edge is added. Speed optimization,
+verification, non-colocated libcalls and x86-only PIC match the pinned upstream
+constructor. Successful-host tests compare all shared and ISA flags, target
+triple and calling convention. No ISA override, arbitrary-panic catch, unsafe
+bridge or persisted/foreign code-loading path is introduced.
+
+Injected refusal tests verify the exact typed reason, reservation cleanup,
+unchanged mapped/requested storage and an installed native peer that remains
+executable. The public fixture checks both explicit `prepare_jit` failure and
+automatic service refusal during a 10000-iteration interpreted sum, exact failure
+counts, no eviction, and native recovery after clearing the exhausted attempts.
+The sum remains 50005000 in both modes; recovery uses a fresh executor from the
+retained closure rather than rerunning a stopped executor.
+
+Evidence is under `target/jit-evidence/native-isa/`. Final GNU/musl focused runs
+each pass 573 executions across 15 suites, four ignored and zero failures:
+compiler lifetimes, relocations, boundary, host memory, heap and upvalues. Both
+examples return 5000050000 with 200007 native instructions, 61440 mapped bytes
+and 47760 requested bytes. Formatting, default/all-feature checks, advisory
+Clippy and warning-denied docs succeed; existing 138 library / 141 lib-test
+Clippy warnings remain. Finalized-kernel disassembly succeeds on both targets.
+Real i686 fallback passes 30 executions across three suites, without ignored
+tests or failures; its example returns the same result with all native counters
+zero. No new local Miri, physical CPU-feature masking or performance claim is
+made. Earlier full/hosted evidence in the table does not certify this change.
+
+Two acceptance questions remain unanswered: the historical mock-after-native
+ordering deviation, and whether the documented in-process resource limits are
+acceptable instead of a hard cap on private compiler allocations. Neither
+question delivery nor passing tests supplies that approval. Benchmarks and
+measurement-dependent optimizations remain deferred/unaccepted.
 
 #### Predictable ABI signature storage
 
