@@ -220,10 +220,10 @@ jit-cost-profile-run:
 	@mkdir -p $(COST_PROFILE_DIR)
 	@cp $(COST_DIR)/environment.log $(COST_DIR)/binary-sha256.log $(COST_PROFILE_DIR)/
 	@valgrind --version > $(COST_PROFILE_DIR)/profiler.log
-	@printf 'case=%s\niterations=3\nwarmups=2\ncollection=*run_vm*\nno_jit_mode=off\njit_mode=%s\n' '$(PROFILE_CASE)' '$(PROFILE_MODE)' >> $(COST_PROFILE_DIR)/profiler.log
+	@printf 'case=%s\niterations=3\nwarmups=2\ncollection=*Executor>::step\nno_jit_mode=off\njit_mode=%s\n' '$(PROFILE_CASE)' '$(PROFILE_MODE)' >> $(COST_PROFILE_DIR)/profiler.log
 	@set -e; for variant in no-jit jit-off; do \
 		mode=off; if test "$$variant" = jit-off; then mode='$(PROFILE_MODE)'; fi; \
-		valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*run_vm*' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file=$(COST_PROFILE_DIR)/$$variant.callgrind \
+		valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*Executor>::step' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file=$(COST_PROFILE_DIR)/$$variant.callgrind \
 			$(COST_DIR)/$$variant --worker --mode "$$mode" --case '$(PROFILE_CASE)' --iterations 3 > $(COST_PROFILE_DIR)/$$variant-profile.log 2>&1; \
 		grep -Eq '^summary: [1-9][0-9]*' $(COST_PROFILE_DIR)/$$variant.callgrind; \
 		callgrind_annotate --inclusive=no --threshold=99 $(COST_PROFILE_DIR)/$$variant.callgrind > $(COST_PROFILE_DIR)/$$variant-annotation.log; \
