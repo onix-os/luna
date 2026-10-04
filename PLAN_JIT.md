@@ -2295,7 +2295,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 1 — Add configuration, capabilities, and honest test lanes
 
-**Status:** CONFIGURATION/GATES VERIFIED at `dc2533b`. **Depends on:** Phase 0. The original six-item audit covers optional dependencies, additive configuration/defaults/traits, transactional validation, Make gates, explicit test routing/refusals and diagnostics. Total dispatch and native-exit counters have focused GNU/musl/i686 evidence plus full GNU/musl revalidation. Exact math/string corpus IR-block exclusions remain explicit; successful Force preparation alone is not native-execution proof. Hosted verification of this runtime revision is still pending and remains distinct from this local milestone. Later compiler accounting and deferred performance are not inferred from these checks.
+**Status:** CONFIGURATION/GATES VERIFIED at `dc2533b`. **Depends on:** Phase 0. The original six-item audit covers optional dependencies, additive configuration/defaults/traits, transactional validation, Make gates, explicit test routing/refusals and diagnostics. Total dispatch and native-exit counters have focused GNU/musl/i686 evidence plus full GNU/musl revalidation. Exact math/string corpus IR-block exclusions remain explicit; successful Force preparation alone is not native-execution proof. Descendant hosted verification through `a854536` passes all seven jobs; the top status table records revision scope. Later compiler accounting and deferred performance are not inferred from these checks.
 
 **Files:** manifests/lockfile, `Makefile`, `src/lib.rs`, `src/lua.rs`, `src/jit/mod.rs`, tests/common helpers, integration test constructors, `examples/jit.rs`.
 
@@ -3194,7 +3194,7 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 
 ### Phase 6 — Add heap fast paths with collector and mutation proofs
 
-**Status:** Helper-backed implementation and bounded GC/mutation review verified; all seven hosted jobs pass at `dc2533b`. **Depends on:** Phase 5. Fixed helper ABI v3 uses canonical roots and existing barriers. The GC root/lifetime checkpoint records source review and GNU/musl evidence for every-slice collection, interleaved Rust mutation, weak values/keys and ephemeron reattachment, joined/foreign upvalues, finalizer resurrection, debug mutation, panic exits and async resumption. The later relocation-copy runtime change awaits full revalidation. No direct-storage inline cache is enabled. This is not a performance result or a claim of complete PUC-Lua weak-mode conformance.
+**Status:** Helper-backed implementation and bounded GC/mutation review verified; all seven hosted jobs pass through `a854536`. **Depends on:** Phase 5. Fixed helper ABI v3 uses canonical roots and existing barriers. The GC root/lifetime checkpoint records source review and GNU/musl evidence for every-slice collection, interleaved Rust mutation, weak values/keys and ephemeron reattachment, joined/foreign upvalues, finalizer resurrection, debug mutation, panic exits and async resumption. This includes the relocation-copy and later compiler-storage changes. The new host-ISA refusal fix has separate focused evidence and awaits full/platform results. No direct-storage inline cache is enabled. This is not a performance result or a claim of complete PUC-Lua weak-mode conformance.
 
 **Files:** `src/jit/{abi,helpers,ir,registry,mod}.rs`, table modules, closure/upvalue integration, `tests/jit_heap.rs`, `tests/jit_upvalues.rs`, `tests/jit_gc_requests.rs`, and existing GC/weak/userdata suites. The three implemented integration files cover the originally proposed `jit_gc.rs`/`jit_mutation.rs` roles.
 
@@ -3280,7 +3280,7 @@ test commit. No benchmark timing or new test infrastructure is involved.
 
 ### Phase 9 — Harden and establish supported-platform evidence
 
-**Status:** IN PROGRESS. **Depends on:** Phase 8. Hosted run `37156905915` at `dc2533b` passes all seven jobs, including native GNU/musl/ARM64, both Rust-only Miri seeds and real i686 fallback. This includes relocation admission and the strict Force harness; the later relocation-copy change awaits full revalidation. Earlier finite campaigns and bounded ownership/GC review do not complete broader review obligations. Do not expand audit/fuzz infrastructure against the user's stated priority.
+**Status:** EVIDENCE RECONCILED; prerequisite/per-revision acceptance remains open. **Depends on:** Phase 8. Hosted run `37165807143` at `a854536` passes all seven jobs, including native GNU/musl/ARM64, both Rust-only Miri seeds and real i686 fallback. This includes relocation-copy and signature/helper-symbol accounting. The subsequent `d054ba8` host-ISA refusal fix has focused GNU/musl/i686 evidence; its full/platform gates are running. The original eight requirements are mapped below without treating finite campaigns as exhaustive proof or waiving Phase 8. Do not expand audit/fuzz infrastructure against the user's stated priority.
 
 Supervised heap/lifecycle coverage (`a951643`) adds four parameterized source
 families in fresh Off/Auto states. GNU/musl each pass 128 cases with per-slice
@@ -3315,9 +3315,31 @@ slice evidence; full safety/guard/lifecycle obligations remain open.
 
 **Exit:** runtime safety review and platform-specific integrated evidence are complete. Missing platform evidence is a release blocker for that platform, not a reason to claim universal support.
 
+#### Original platform/evidence requirements — 2026-10-04
+
+| Requirement | Existing implementation/evidence and remaining scope |
+| --- | --- |
+| 1: admission and codegen exercised separately | `src/jit/fuzz.rs` mutates and rejects malformed snapshots before mapping; scalar workers compile valid snapshots and check native results against `model.rs`. `fuzz/fuzz_targets` also retains distinct coverage-guided targets. No new campaign or coverage infrastructure is needed to record this evidence. |
+| 2: differential execution | Scalar workers check every entry, budgets and register inputs; `src/jit/fuzz/heap.rs` compares fresh interpreted/prepared states, slice/fuel traces, results and ordered effects. Prepared states use Auto with explicit preparation and native counters, not a claimed public Force mode. Strict Force routing is independently exercised by the workspace gates. |
+| 3: mutation and lifecycle cases | Existing heap families and `jit_heap`, `jit_upvalues`, `jit_suspension`, `jit_errors`, `jit_debug`, `jit_gc_requests` cover guards, host callbacks, close/error paths, weak tables, yields and tier transitions. Arithmetic edges have scalar/loop/comparison fixtures. This records those finite cases, not all possible programs. |
+| 4: supervised execution | `fuzz.rs` workers enforce 30-second CPU, 60-second wall, 2-GiB address-space, zero-core and 16-MiB output limits. Supervisor regression explicitly rejects panic, signal and timeout. These test-worker limits do not cap production compiler resources. |
+| 5: capability/resource refusal | Existing mapping/protection, quotas, relocation admission, cache/lease and compiler-refusal tests preserve interpretation and installed peers. `d054ba8` adds typed host-ISA inference refusal and public fallback/recovery. Error injection is not physical CPU masking. The native gate separately rejects an ARM64 target on x86-64 before cross-build/execution; the checked negative log is `acceptance-reconciliation/mismatched-target.log`. |
+| 6: ownership/helper boundary review | `JIT.md` records twelve bounded boundary categories; the earlier ownership/GC checkpoints identify reviewed source and executed tests. ABI, helpers and strong/global/provider/handoff owner primitives are unchanged from reviewed `3494c64`. Subsequent requested-byte tracking preserves the positive aligned payload bound; reservations, anonymous declarations and fallible ISA setup add no unsafe blocks. Rust-only Miri evidence stays separate from generated-code evidence. |
+| 7: actual target execution | All seven hosted jobs at `a854536` pass, including actual GNU/musl/ARM64 native execution and real i686 fallback. `d054ba8` still needs its revision-specific full/platform results; cross-builds and workflow lint cannot replace them. |
+| 8: dependency/provenance maintenance | `JIT.md` lists exact native dependency pins/licenses and now records the upgrade/advisory-response policy, source contracts and required existing gates. Source-only registration remains enforced; no binary/foreign native artifact loading is added. The policy is not a current advisory audit or automated monitoring service. |
+
+Long-run evidence remains revision-scoped at `710dd33` under
+`target/jit-evidence/current-frame-upvalues/`: GNU and musl each pass 4096
+scalar/admission cases and 96 heap cases across seeds 0, 1, 3735928559 and
+18446744073709551615. Logs retain worker limits, durations and native counters.
+These are historical longer campaigns, not new runs on `d054ba8`. Current full
+gates reuse the existing smoke corpus. This reconciliation records the original
+deliverables; it neither expands their scope nor accepts performance/resource
+deviations on the user's behalf.
+
 ### Phase 10 — Publish a complete, accurately documented feature
 
-**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 9 and approved workload acceptance. All seven hosted jobs pass at `dc2533b`, including native GNU/musl/ARM64 gates and shipping builds. The later relocation-copy runtime change has focused checks but awaits full revalidation. The documented example asserts native execution on GNU/musl and zero-counter fallback on i686; `JIT.md` reflects actual CI lanes and revision limits. Complete review, frozen performance controls and current shipping/size acceptance remain open.
+**Status:** IN PROGRESS, NOT ACCEPTED. **Depends on:** Phase 9 and approved workload acceptance. All seven hosted jobs pass through `a854536`, including native GNU/musl/ARM64 gates and shipping builds. The `d054ba8` host-ISA refusal fix has focused checks and running full/platform gates. The documented example asserts native execution on GNU/musl and zero-counter fallback on i686; `JIT.md` reflects actual CI lanes and revision limits. Frozen performance controls, measurement-dependent optimizations, current shipping/size acceptance and explicit compiler-resource/ordering decisions remain open.
 
 **Files:** docs/examples, benchmark/size tooling, actual CI integration, this document.
 

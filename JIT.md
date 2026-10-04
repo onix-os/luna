@@ -52,6 +52,23 @@ requirement and the lockfile version above. This is the direct native dependency
 inventory, not a transitive license audit. Default builds do not enable the JIT
 compiler dependencies.
 
+### Compiler dependency maintenance
+
+Keep the Cranelift family on matching exact versions and update the manifest
+and lockfile together. Before accepting an upgrade, check the upstream release
+notes and advisories for the pinned compiler, mapping and instruction-cache
+crates. Recheck the native-builder flags, signature/symbol/relocation allocation
+contracts, provider ownership and executable-memory finalization assumptions
+documented here. Run the existing native platform gates on GNU, musl and ARM64,
+Rust-only Miri and interpreter fallback; record the new revision and results.
+An affected native backend stays disabled in consuming applications until its
+fix passes the applicable gates. This is a maintenance policy, not an automated
+advisory monitor, response-time commitment or claim that these pins are free of
+known defects. Source-only JIT provenance remains mandatory: dependency updates
+do not authorize native compilation of dumped or manually constructed bytecode.
+
+### Execution and preparation
+
 The example asserts the Lua result and nonzero preparation, native-instruction
 and code-memory counters on supported targets. On unsupported targets it stays
 Off and asserts the same result with zero native counters. Build eligibility is
