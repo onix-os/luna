@@ -737,6 +737,10 @@ jit-registers:
 jit-boundary:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit:: $(ARGS)
 
+.PHONY: jit-mock
+jit-mock:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::mock:: $(ARGS)
+
 jit-example:
 	@$(CARGO) run --example jit --features jit $(TARGET_ARG)
 
@@ -948,6 +952,7 @@ help:
 	@echo "  jit-exits    Test exit snapshots and retry-after-store rejection"
 	@echo "  jit-suspension Test native coroutine and foreign-await resumption"
 	@echo "  jit-sequences Test Rust continuations across native execution"
+	@echo "  jit-mock     Test Rust-only slice exits and interpreter fallback"
 	@echo "  jit-bench-paired Alternate checked Off/Auto samples"
 	@echo "  jit-performance Check frozen paired workload thresholds"
 	@echo "  jit-disassembly Dump finalized native kernels and addresses"

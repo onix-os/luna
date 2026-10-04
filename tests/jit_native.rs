@@ -496,7 +496,7 @@ fn code_quota_failure_reclaims_memory_and_keeps_interpreter_working() -> Result<
     let executor = source(&mut lua, b"return 40+2")?;
     assert!(matches!(
         lua.prepare_jit(),
-        Err(luna::JitError::ResourceLimit("native mappings"))
+        Err(luna::JitError::ResourceLimit("native image size"))
     ));
     assert_eq!(lua.jit_stats().code_bytes, 0);
     assert_eq!(lua.execute::<i64>(&executor)?, 42);

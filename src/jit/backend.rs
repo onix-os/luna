@@ -39,7 +39,9 @@ impl Memory {
         let ledger = self.allocations.allocator().0.clone();
         for segment in self.allocations.drain(..) {
             let bytes = segment.bytes;
+            let requested = segment.requested_bytes;
             drop(segment);
+            self.total.release_requested(requested);
             self.total.fetch_sub(bytes, Ordering::Relaxed);
             ledger.release_external(bytes);
         }
@@ -59,6 +61,15 @@ impl JITMemoryProvider for Memory {
             self.status.quota_refused.store(true, Ordering::Relaxed);
         })?;
         let bytes = request.bytes;
+        let image_bytes = self
+            .allocations
+            .iter()
+            .try_fold(bytes, |total, segment| total.checked_add(segment.bytes));
+        if image_bytes.is_none_or(|bytes| bytes > self.limit) {
+            self.status.image_refused.store(true, Ordering::Relaxed);
+            self.status.quota_refused.store(true, Ordering::Relaxed);
+            return Err(io::Error::other("native image exceeds code cache limit"));
+        }
         self.allocations.try_reserve_exact(1).map_err(|_| {
             self.status.metadata_refused.store(true, Ordering::Relaxed);
             io::Error::other("native allocation record quota exhausted")
@@ -85,7 +96,7 @@ impl JITMemoryProvider for Memory {
         #[cfg(test)]
         if matches!(
             self.failure,
-            Failure::Allocate | Failure::RefuseRelocationCopy
+            Failure::Allocate | Failure::RefuseRelocationCopy | Failure::RefuseSignatures
         ) {
             self.total.fetch_sub(bytes, Ordering::Relaxed);
             self.allocations.allocator().0.release_external(bytes);
@@ -97,6 +108,7 @@ impl JITMemoryProvider for Memory {
         }
         match Segment::new(request, kind) {
             Ok((segment, pointer)) => {
+                self.total.add_requested(segment.requested_bytes);
                 self.allocations.push(segment);
                 Ok(pointer)
             }
@@ -266,6 +278,8 @@ pub(super) enum Failure {
     RefuseRelocationStorage(bool),
     RefuseRelocationCopy,
     RequireRelocationCopy(usize),
+    RefuseSignatures,
+    RequireSignatures(usize),
     CorruptBinding(super::tags::BindingFault),
 }
 
@@ -355,20 +369,33 @@ pub(super) fn compile_in(
     }
     jit.memory_provider(provider);
     let relocation_copy_charge;
+    let signature_charge;
     let mut module = JITModule::new(jit);
     let ptr = module.target_config().pointer_type();
-    let mut signature = module.make_signature();
-    for ty in [ptr, types::I64, types::I32, ptr, ptr] {
-        signature.params.push(AbiParam::new(ty));
+    let entry_types = [ptr, types::I64, types::I32, ptr, ptr];
+    let helper_types = [ptr, ptr, types::I32, types::I32, types::I32, types::I32];
+    let helper_returns = [types::I32];
+    let signature_bytes = signature_storage_bytes(
+        entry_types.len(),
+        helper_types.len(),
+        helper_returns.len(),
+        helpers::SYMBOLS.len(),
+    )?;
+    #[cfg(test)]
+    if failure == Failure::RefuseSignatures {
+        let ledger = &snapshot.operations.allocator().0;
+        ledger.set_limit(ledger.current());
     }
+    signature_charge = Reservation::new(snapshot.operations.allocator().0.clone(), signature_bytes)
+        .map_err(|_| JitError::ResourceLimit("native signatures"))?;
+    let mut signature = module.make_signature();
+    fill_signature(&mut signature.params, entry_types)?;
     let function = module
         .declare_function("luna_slice_v3", Linkage::Local, &signature)
         .map_err(fail)?;
     let mut helper_signature = module.make_signature();
-    for ty in [ptr, ptr, types::I32, types::I32, types::I32, types::I32] {
-        helper_signature.params.push(AbiParam::new(ty));
-    }
-    helper_signature.returns.push(AbiParam::new(types::I32));
+    fill_signature(&mut helper_signature.params, helper_types)?;
+    fill_signature(&mut helper_signature.returns, helper_returns)?;
     let helper_ids = super::arrays::try_array::<_, _, { helpers::SYMBOLS.len() }>(|index| {
         let (kind, name, _) = helpers::SYMBOLS[index];
         module
@@ -651,8 +678,13 @@ pub(super) fn compile_in(
     stores.verify_bindings(&context.func, parameters[0], &paths, &graph)?;
     drop((stores, paths, graph, blocks));
     #[cfg(test)]
-    if let Failure::RequireReleasedWorkspace(baseline) = failure {
-        assert_eq!(snapshot.operations.allocator().0.current(), baseline);
+    if let Failure::RequireReleasedWorkspace(baseline) | Failure::RequireSignatures(baseline) =
+        failure
+    {
+        assert_eq!(
+            snapshot.operations.allocator().0.current(),
+            baseline + signature_bytes
+        );
     }
     context
         .compile(module.isa(), &mut Default::default())
@@ -700,6 +732,7 @@ pub(super) fn compile_in(
         assert_eq!(
             snapshot.operations.allocator().0.current(),
             baseline
+                + signature_bytes
                 + module_relocations.capacity() * std::mem::size_of::<ModuleReloc>()
                 + relocation_copy_bytes
         );
@@ -717,12 +750,19 @@ pub(super) fn compile_in(
     if let Failure::RequireRelocationCopy(baseline) = failure {
         assert_eq!(
             snapshot.operations.allocator().0.current(),
-            baseline + relocation_copy_bytes
+            baseline + signature_bytes + relocation_copy_bytes
         );
     }
     #[cfg(test)]
     let byte_len = compiled.code_buffer().len();
     drop(context);
+    #[cfg(test)]
+    if let Failure::RequireSignatures(baseline) = failure {
+        assert_eq!(
+            snapshot.operations.allocator().0.current(),
+            baseline + signature_bytes + relocation_copy_bytes
+        );
+    }
     module.finalize_definitions().map_err(fail)?;
     let entry =
         unsafe { std::mem::transmute::<*const u8, Entry>(module.get_finalized_function(function)) };
@@ -730,9 +770,11 @@ pub(super) fn compile_in(
         .take()
         .ok_or_else(|| JitError::Compilation("missing finalized native memory".into()))?;
     drop(module);
+    drop(signature_charge);
     drop(relocation_copy_charge);
     #[cfg(test)]
-    if let Failure::RequireRelocationCopy(baseline) = failure {
+    if let Failure::RequireRelocationCopy(baseline) | Failure::RequireSignatures(baseline) = failure
+    {
         assert_eq!(snapshot.operations.allocator().0.current(), baseline);
     }
     drop(provider_charge);
@@ -747,6 +789,44 @@ pub(super) fn compile_in(
         registers: snapshot.registers,
         entries,
     })
+}
+
+fn signature_storage_bytes(
+    entry: usize,
+    helper_parameters: usize,
+    helper_returns: usize,
+    helpers: usize,
+) -> Result<usize, JitError> {
+    let bytes = |count| {
+        Layout::array::<AbiParam>(count)
+            .ok()
+            .map(|layout| layout.size())
+    };
+    let total = bytes(entry).and_then(|entry| {
+        let helper = bytes(helper_parameters)?.checked_add(bytes(helper_returns)?)?;
+        let copies = helpers.checked_mul(2)?.checked_add(1)?;
+        entry
+            .checked_mul(2)?
+            .checked_add(helper.checked_mul(copies)?)
+    });
+    total.ok_or(JitError::ResourceLimit("native signature size"))
+}
+
+fn fill_signature<const N: usize>(
+    parameters: &mut Vec<AbiParam>,
+    types: [cranelift_codegen::ir::Type; N],
+) -> Result<(), JitError> {
+    if !parameters.is_empty() {
+        return Err(JitError::ResourceLimit("native signature capacity"));
+    }
+    parameters
+        .try_reserve_exact(N)
+        .map_err(|_| JitError::ResourceLimit("native signature allocation"))?;
+    if parameters.capacity() != N {
+        return Err(JitError::ResourceLimit("native signature capacity"));
+    }
+    parameters.extend(types.map(AbiParam::new));
+    Ok(())
 }
 
 #[cfg(test)]
@@ -4512,6 +4592,61 @@ mod memory_tests {
     }
 
     #[test]
+    fn requested_bytes_exclude_padding_and_survive_finalization_until_reclamation() {
+        let mut memory = memory(16);
+        let total = memory.total.clone();
+        let mut requested = 0;
+        for (size, align, kind) in [
+            (0, 1, JITMemoryKind::Executable),
+            (17, 4 * memory.page as u64, JITMemoryKind::ReadOnly),
+            (memory.page + 1, 8, JITMemoryKind::Writable),
+        ] {
+            memory.allocate(size, align, kind).unwrap();
+            requested += size;
+            assert_eq!(total.requested(), requested);
+            assert!(total.load(Ordering::Relaxed) > requested);
+        }
+        let mapped = total.load(Ordering::Relaxed);
+        memory.finalize(BranchProtection::None).unwrap();
+        memory.finalize(BranchProtection::None).unwrap();
+        assert_eq!(total.requested(), requested);
+        assert_eq!(total.load(Ordering::Relaxed), mapped);
+        memory.release();
+        assert_eq!((total.requested(), total.load(Ordering::Relaxed)), (0, 0));
+        memory.release();
+        assert_eq!(total.requested(), 0);
+    }
+
+    #[test]
+    fn failed_mapping_and_protection_reclaim_requested_bytes_without_losing_peer() {
+        for failure in [Failure::Allocate, Failure::Protect] {
+            let mut peer = memory(4);
+            peer.allocate(31, 1, JITMemoryKind::Writable).unwrap();
+            let total = peer.total.clone();
+            let baseline = total.load(Ordering::Relaxed);
+            let mut candidate = memory(4);
+            candidate.total = total.clone();
+            candidate.failure = failure;
+            let result = candidate.allocate(97, 1, JITMemoryKind::Executable);
+            if failure == Failure::Allocate {
+                assert!(result.is_err());
+                assert_eq!(total.requested(), 31);
+            } else {
+                result.unwrap();
+                assert_eq!(total.requested(), 128);
+                assert!(candidate.finalize(BranchProtection::None).is_err());
+            }
+            drop(candidate);
+            assert_eq!(
+                (total.requested(), total.load(Ordering::Relaxed)),
+                (31, baseline)
+            );
+            drop(peer);
+            assert_eq!((total.requested(), total.load(Ordering::Relaxed)), (0, 0));
+        }
+    }
+
+    #[test]
     fn segment_permissions_and_repeated_finalization_keep_record_storage_fixed() {
         let mut memory = memory(16);
         let metadata = memory.allocations.allocator().0.clone();
@@ -4769,6 +4904,43 @@ mod memory_tests {
         assert_eq!(host.refusals(), 0);
         drop(memory);
         assert_eq!((host.current(), metadata.current()), (0, 0));
+    }
+
+    #[test]
+    fn oversized_image_refuses_before_record_allocation_and_preserves_its_segments() {
+        for case in 0..3 {
+            let mut memory = memory(1);
+            let metadata = memory.allocations.allocator().0.clone();
+            let total = memory.total.clone();
+            if case == 1 {
+                memory.allocate(1, 1, JITMemoryKind::Executable).unwrap();
+            }
+            let baseline = (metadata.current(), total.load(Ordering::Relaxed));
+            metadata.fail_after(0);
+            memory.failure = Failure::Allocate;
+            let (size, align) = match case {
+                0 => (memory.page + 1, 1),
+                1 => (1, 1),
+                _ => (1, 4 * memory.page as u64),
+            };
+            assert!(memory
+                .allocate(size, align, JITMemoryKind::ReadOnly)
+                .is_err());
+            assert!(matches!(
+                memory.status.error(),
+                Some(JitError::ResourceLimit("native image size"))
+            ));
+            assert!(!memory.status.metadata_refused.load(Ordering::Relaxed));
+            assert!(!memory.status.unavailable.load(Ordering::Relaxed));
+            assert_eq!(memory.allocations.len(), usize::from(case == 1));
+            assert_eq!(total.requested(), usize::from(case == 1));
+            assert_eq!(
+                (metadata.current(), total.load(Ordering::Relaxed)),
+                baseline
+            );
+            drop(memory);
+            assert_eq!((metadata.current(), total.load(Ordering::Relaxed)), (0, 0));
+        }
     }
 
     #[test]

@@ -11,6 +11,117 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Current verification status
+
+| Revision | Local full GNU/musl gate | Hosted platform gate |
+| --- | --- | --- |
+| `0787fa8` requested-byte diagnostics | Included in the descendant `db62dfe` run below | All seven jobs pass in [run 37162289605](https://github.com/onix-os/luna/actions/runs/37162289605) |
+| `db62dfe` integrated Rust mock | `90136` exits 0; each target has 5353 passing executions / 482 suites / 24 ignored / zero failures | Run `37163080413` still pending at this checkpoint |
+| `819c933` signature accounting | Focused checks pass below; full paired run `60733` is active in an isolated, fixed-source checkout | Run `37164134522` still pending at this checkpoint |
+
+The `db62dfe` full run uses `make jit-verify jit-example`: baseline verification,
+Off/Auto/Force, optional features, doctests, warning-denied docs and the existing
+bounded smoke corpus. Both examples return 5000050000 with 200007 native
+instructions, 61440 mapped bytes and 47760 requested bytes. Logs are under
+`target/jit-evidence/mock-boundary/full-{gnu,musl}.log`. After this run terminated,
+the main checkout fast-forwarded to `819c933`; its isolated full run remains
+unchanged. The signature logs are under `target/jit-evidence/signatures/`.
+
+Hosted `fda2254` run `37161623201` also completed successfully. Hosted success
+means all seven configured jobs, including real ARM64, two Rust-only Miri seeds
+and real i686 fallback; it does not establish timing or size acceptance. The
+historical pending statements below describe their earlier checkpoints and are
+superseded by this table. No benchmark ran, and no remaining compiler-memory,
+ordering-deviation or release acceptance item is waived.
+
+#### Predictable ABI signature storage
+
+The native entry has five parameters; helpers have six parameters and one
+return. Pinned Cranelift 0.136.1 clones each declaration signature into the
+module and clones each imported helper signature again into the function DFG.
+These known parameter vectors were previously outside the snapshot ledger.
+
+Before construction, a checked `AbiParam` array-layout reservation now covers
+two entry copies plus the original helper and two copies per helper symbol.
+The three Luna-built vectors use fallible exact reservation instead of growing
+through infallible pushes. The single reservation conservatively spans the
+complete compiler Context/Module lifetime, including early-dropped buffers;
+it is released before Code publication. Quota refusal reports `native signatures`
+and preserves installed peers without eviction. No new unsafe allocation bridge
+or quota increase is introduced.
+
+The pinned source contract is `ModuleDeclarations::declare_function`,
+`Module::declare_func_in_func` and `Signature`'s two owned vectors. Tests check
+initial/clone capacities, checked layout overflow, reservation persistence
+through workspace/context teardown, quota refusal before injected mapping
+failure, failure cleanup and native peer/retry results. The relocation and
+verification-workspace oracles now distinguish their own released storage from
+the signature reservation intentionally still held by compiler owners.
+
+This covers predictable ABI arrays, not their enclosing private compiler maps,
+symbol-name strings, ISA/optimization/register-allocation storage, all internal
+clones or allocator overhead/RSS. Upstream clone allocation remains infallible.
+Complete compiler-memory accounting and performance acceptance remain open.
+Development is isolated from full verification `90136` at `db62dfe`; evidence
+is under `target/jit-evidence/signatures/`.
+
+Focused verification (`66201`) exits 0 for GNU and musl: each reports 544
+passing executions across 13 suites, four ignored and zero failures. Both
+examples return 5000050000 with 200007 native instructions, 61440 mapped bytes
+and 47760 requested bytes. The targets cover compiler lifetimes, relocations,
+the JIT boundary and host-memory integration. Real i686 fallback (`64252`)
+passes 30 executions across three suites and its example remains interpreter-only.
+Formatting, default/all-feature checking, advisory Clippy and warning-denied
+rustdoc pass (`79457`); existing Clippy warnings remain. These are focused
+results for this batch, not a full-gate or performance acceptance claim.
+
+The clean full GNU/musl gate at `fda2254` (`8753`) exits 0: each target reports
+5333 passing executions / 482 repeated suites / 24 ignored / zero failures.
+Both examples return 5000050000 with 200007 native instructions. Logs are
+`target/jit-evidence/policy-reconciliation/full-{gnu,musl}.log`. The requested-byte
+runtime change `0787fa8` and the subsequent test-only Rust mock have separate
+focused evidence below; this full run predates them and does not certify them.
+
+#### Requested versus mapped native bytes
+
+Section 4.6 requires requested and allocated native bytes separately. Additive
+`JitStats::code_requested_bytes` records raw provider payload requests before
+page/alignment padding; existing `code_bytes` remains page-rounded mapping
+usage and remains the charged quantity. Requested bytes include linker veneers,
+GOT storage and read-only/writable segments, not just machine instructions.
+Zero-byte requests remain zero in this diagnostic but still map a live page.
+
+An inline atomic in the existing root ledger follows all mapping owners,
+including retired code leased beyond runtime destruction. Segment records retain
+their original request sizes. Successful mapping increments requested usage;
+physical reclamation precedes its decrement, and that decrement precedes
+releasing mapped quota for reuse. Failed allocation adds no request charge;
+partial/protection failures release their successful segments normally. This
+adds no separate allocation, quota or double-counted host charge. It does not
+account for opaque Cranelift working storage.
+
+Development uses isolated checkout `/tmp/luna-jit-requested-fda2254` and a separate
+Cargo target directory so the ongoing full `fda2254` gate keeps fixed production
+source. Focused GNU/musl validation (`85869`) passes 576 executions / 14 repeated
+suites / four ignored / zero failures per target. Both examples execute 200007
+native instructions and report 47760 requested bytes versus 61440 mapped bytes.
+The host-memory, resource, mapping-counter and full JIT boundary selections pass.
+Real i686 (`84824`) passes 33 executions / four suites / zero ignored, and the
+example reports zero requested/mapped/native counters. Default/all-feature
+checks, advisory Clippy and warning-denied docs pass (`52003`). No new local
+Miri run is claimed. The initial public fixture tried to rerun a stopped executor;
+that failed log is retained, and the corrected test starts fresh executors from
+the same retained closure and verifies cache reinstallation. Evidence is under
+`target/jit-evidence/requested-bytes/`; no current full-gate acceptance is implied.
+
+Automatic-policy reconciliation now covers all six original requirements, with
+new cold-source, pending-destruction and exact-threshold regressions. The first
+full `9dfbb34` gate failed on stale integration refusal-reason assertions;
+those expectations are corrected, not waived. Focused GNU/musl and pure i686
+policy checks pass. Full revalidation of the corrected tree remains pending;
+complete compiler working-memory accounting and performance acceptance remain
+open. See the Phase 7 reconciliation for exact scope and commands.
+
 Lifecycle regression commit `deed84a` adds direct Rust continuation coverage,
 normal close-transfer coverage and nested-executor upvalue writes without
 changing production runtime `1f905f9`. The Phase 5 reconciliation below records
@@ -18,12 +129,53 @@ all six requirements and the GNU/musl focused evidence. Its lifecycle milestone
 is verified; boundary-model/compiler-resource obligations and deferred
 performance acceptance are still open.
 
-GNU's full relocation-copy gate has completed (5298 executions / 476 suites /
-24 ignored / zero failures). Musl's paired full run and hosted run `37159200148`
-remain in progress. The local paired run began before `deed84a` and some new
+The paired full relocation-copy gate (`55568`) has completed: GNU reports
+5298 executions / 476 suites, musl 5307 / 482; each has 24 ignored and zero
+failures. Both examples return 5000050000 with 200007 native instructions.
+Hosted run `37159200148` also passes all seven jobs at `1f905f9`, including
+native GNU/musl/ARM64, both Rust-only Miri seeds and i686 fallback. The local
+paired run began before `deed84a` and some new
 fixtures were added during it; it is not a clean full-gate claim for that test
 commit. Separate GNU all-features and focused GNU/musl results cover the added
 tests as detailed in Phase 5.
+
+### Oversized native image admission — 2026-10-04
+
+The code-cache policy previously treated an image larger than the entire cache
+as ordinary occupancy pressure: it evicted one healthy unleased peer and
+recompiled an image that still could not fit. A new runtime regression reproduces
+that loss (`52009`, `target/jit-evidence/oversized-image/before.log`).
+
+The provider now checks the checked sum of its own page-rounded segments plus
+the requested segment against `max_code_bytes`, before record/mapping allocation.
+This includes alignment padding and executable/read-only/writable segments.
+Permanent per-image oversize reports `ResourceLimit("native image size")`;
+ordinary shared-cache occupancy still reports `native mappings` and keeps the
+existing one-victim/one-retry policy. No quota is increased and no extra
+allocation or code-execution path is introduced.
+
+The previous oversized-retry regression explicitly expected one lost victim
+and two failed compilations. It now requires both cached peers to survive with
+one failed attempt and zero eviction attempts. A separate fixture verifies
+successful compilation and native execution after increasing the limit, without
+resetting attempt history. Provider tests cover oversized single segments,
+aggregate multi-segment images and over-page alignment; injected record and
+mapping failures prove the early-refusal ordering. MemoryStatus checks all 16
+flag combinations. This supersedes the historical oversized-retry behavior
+recorded below, not general bounded eviction for an otherwise fitting image.
+
+This fixes a resource-policy defect, not the remaining unaccounted Cranelift
+working storage. The completed `1f905f9` full gates predate this runtime change;
+focused validation (`21150`) passes on GNU and musl: 558 executions / ten
+repeated suites / four ignored / zero failures per target, including the JIT
+boundary, owner, memory-status and resource gates. Real i686 resource checks
+pass 30 executions / three suites / zero ignored (`90775`). Formatting,
+default/all-feature checks, advisory Clippy and warning-denied rustdoc pass
+(`3976`); the existing 141 lib-test Clippy warnings remain. Initial candidate
+testing exposed the old oversized-retry expectation before it was updated;
+that failed run remains in the evidence directory. No new local Miri run is
+claimed. Logs are under `target/jit-evidence/oversized-image/`. Full candidate
+revalidation and its hosted jobs remain pending. Benchmarks remain deferred.
 
 ### Module relocation-copy accounting — 2026-10-04
 
@@ -2041,9 +2193,9 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 2 — Define and test the runtime boundary before optimizing
 
-**Status:** IN PROGRESS. **Depends on:** Phase 1. Defined-layout scalar ABI and independent Rust slice model cover all emitted scalar entries/budgets. Complete transition mock/error/helper coverage remains open; the model was added after the first native experiment, so the original mock-before-emission ordering was not fully satisfied.
+**Status:** REFERENCE MOCK MILESTONE VERIFIED at `db62dfe`; the original ordering deviation remains. **Depends on:** Phase 1. Defined-layout scalar ABI and independent Rust slice model have a test-only interpreter-integrated before/one-scalar-after mock, including real i686 execution without a native backend. Full GNU/musl revalidation passes as recorded in the current status table. It preserves exact executor traces and canonical fallback across the cases below without native counters. The model was added after the first native experiment, so the original mock-before-emission ordering was not satisfied; current tests cannot retroactively change that history. This does not close Phase 3 compiler accounting or broader release acceptance.
 
-**Files:** `src/jit/abi.rs`, `runtime.rs`, `src/thread/executor.rs`, `thread.rs`, `vm.rs`, `tests/jit_boundary.rs`, `tests/jit_fuel.rs`.
+**Files:** `src/jit/{abi,model,mock,mod}.rs`, `src/thread/{executor,thread}.rs`, `src/vm.rs`, `tests/jit_native.rs`, `tests/jit_control.rs`, `tests/fuel_reference.rs`. These are the implemented boundary/runtime/fuel locations rather than the originally proposed `runtime.rs` and `jit_boundary.rs`/`jit_fuel.rs` files.
 
 1. Define entry/exit descriptors, canonical-state materialization, PC/error-position conventions, and ownership of error payloads.
 2. Build a Rust reference implementation of the proposed slice protocol. Test it before emitting machine code.
@@ -2054,6 +2206,47 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 **Verify:** `make jit-test JIT_MODE=off` and `make jit-test-all JIT_MODE=force`; boundary tests demonstrate equivalent results, PCs, errors, side-effect order, and bounded progress. The mock is labeled as a mock and does not increment real native-entry counters.
 
 **Exit:** reference exits are correct; native compilation is not required for this phase.
+
+#### Rust-only integrated mock — 2026-10-04
+
+`make jit-mock` exercises `src/jit/mock.rs` through a `cfg(test)` VM seam.
+It is absent from normal library builds and has no public mode/environment API.
+Mock states remain JIT Off and never prepare or invoke native code. Before mode
+returns zero work at each attempt; After mode executes at most one scalar
+instruction through the independent Rust model and materializes slots/PC.
+Unsupported instructions decline to canonical interpreter execution. A zero-work
+exit must preserve PC and scalar bits and is followed by interpreter dispatch,
+not another mock attempt. Successful model work is counted as interpreted work.
+
+The corpus checks varargs, pending multireturns and trailing nils; reentrant Rust
+callbacks reading open cells after writes; coroutine yield/resume and close;
+error-table identity through protected calls/close handlers; and an uncaught
+arithmetic error at its expected source line. Known values/events are asserted.
+Each case compares reference/mock completion, executor mode, fuel, interruption,
+result/error, ordered side effects and total dispatches, with collection between
+slices. Every dispatch has exactly one mock attempt; bounded attempt/slice caps
+fail nonprogress. Native entries/instructions, requests, installations and both
+native byte counters must stay zero.
+
+Four cases, five fuel budgets (-1/0/1/64/65536) and two mock modes give 40 paired
+scenarios per configuration. GNU/musl `make jit-mock jit-boundary` (`86932`) each
+pass 484 executions / two suites / four ignored tests; the focused mock also
+passes on real i686, where no native backend is compiled. Initial compilation
+used the wrong integer width for a local dispatch counter; its failed log is
+retained. Evidence: `target/jit-evidence/mock-boundary/`.
+
+All-feature focused GNU/musl checks also pass (`91928`), with formatting and
+advisory Clippy retaining the existing 141 lib-test warnings. After strengthening
+interior/trailing nil assertions, the final GNU/musl all-feature and i686 mock
+matrix (`24794`) passes one selected test each, with all 40 paired scenarios
+inside each test. No new local Miri run or generated-code acceptance is claimed.
+
+This is a finite boundary/fallback model, not a model implementation of every
+heap helper or machine-code ABI. Complex operations use the real interpreter;
+the independent native/helper tests remain necessary. Existing lifecycle,
+typed-error, canonical-helper and mapping-owner checkpoints supply the related
+runtime evidence. The original model-before-emission ordering remains a recorded
+deviation, and full current-tree gates remain separate acceptance evidence.
 
 ### Phase 3 — Build validated owned IR and bounded code ownership
 
@@ -2875,7 +3068,7 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 
 ### Phase 7 — Add hotness policy and nonblocking automatic compilation
 
-**Status:** IN PROGRESS. **Depends on:** Phases 3 and 6. Hotness/bounded queue/explicit outside-arena service, bounded failed attempts, configuration retirement, typed refusal and bounded LRU retry with diagnostics are implemented. Completed GC cancels dead queued sources without compilation and preserves live queued executors/identities. A deliberately stalled compiler now has GNU/musl evidence: independent manual executors retain exact fuel/modes/results while their compilation queue stays bounded, then execute natively after service. Remaining backoff/compaction and resource checklist coverage still needs reconciliation.
+**Status:** POLICY IMPLEMENTATION MILESTONE VERIFIED at `fda2254`; resource prerequisites remain open. **Depends on:** Phases 3 and 6. The six-item table below records saturating hotness, bounded failed attempts/queues, outside-arena service, configuration retirement, stale-source cancellation, typed refusal and bounded LRU retry. Full GNU/musl revalidation passes after correcting exact integration refusal expectations. The oversized-image fix preserves peers when eviction cannot help. Remaining Cranelift working-memory accounting is not closed by this policy evidence; later requested-byte/mock changes have separate focused checks.
 
 **Files:** compiler/cache policy, Lua host service APIs, `tests/jit_policy.rs`, `tests/jit_resources.rs`, benchmark harness.
 
@@ -2889,6 +3082,40 @@ targets; they do not establish that any proposed rewrite improves elapsed time.
 **Verify:** `make jit-test JIT_MODE=auto`, `make jit-test-all JIT_MODE=force`, `make jit-verify`. A deliberately blocked compiler never blocks manual stepping; another executor continues making progress. Auto-policy tests eventually execute native code on admitted hot workloads and stay within configured queue/cache limits.
 
 **Exit:** Auto is an integrated execution policy with measured scheduling behavior.
+
+#### Automatic policy reconciliation — 2026-10-04
+
+| Original requirement | Evidence and scope |
+| --- | --- |
+| Hotness, promotion, failure backoff, specialization limits | `Manager::enqueue` saturates per-prototype hotness, queues at the threshold once, and stops at the lifetime attempt cap. The new exact-threshold/saturation fixture covers normal and forced requests after exhaustion. `failed_compilation_is_bounded_until_explicit_admission_reset` verifies public refusal counts, no retry after exhaustion and explicit recovery. There is one generic cached image per generation, not an unbounded specialization family. Backoff is a finite attempt blacklist, not a timed exponential scheduler. |
+| Compile outside stepping/arena and install between slices | `Executor::step` only observes/queues; `Lua::service_jit_inner` snapshots in arena mutation, releases it, then calls `Runtime::compile`. One service call handles one prototype, with at most one eviction retry. `manual_steps_only_queue_compilation` and the blocked-compiler fixture verify this boundary and later native execution. |
+| Slow compilation, saturation, destruction, cancellation and stale work | The existing blocked-compiler fixture stalls a compiler on an independently owned state while three local executors preserve reference fuel/modes/results, with a two-entry queue. New destruction coverage drops a state with queued work, forbids compiler entry and checks that only the externally held root-ledger layout remains. Registry tests cancel dead queued generations while preserving live ones; configuration tests cancel/trim requests on the owner thread. |
+| Bounded installation, relocation count and code size | Snapshot/IR limits bound entry records; final relocation count is checked before module definition. Relocation staging/copy and mapping records are quota-admitted. Provider size includes pages/alignment and all segments. Oversized images do not evict peers; ordinary occupancy pressure retains one-victim/one-retry bounds. `jit-relocations`, resource, owner and provider tests cover refusal, cleanup and retry. These are work/admission limits, not a compiler wall-clock bound or complete compiler-memory ledger. |
+| Host refusal reporting without new Lua errors | Public preparation/service return typed errors. Convenience `finish`/`finish_async` treat compilation as optional and preserve interpretation. Policy/native/resource fixtures check returned results after refusal; Force harness workers reject unexpected reasons and report only exact declared exclusions. |
+| Cold scripts and independent states | New public policy test executes 256 separately loaded short-lived sources with collection after each: requests, installations, failures and native instructions remain zero, and accounting returns to the bootstrap floor. Configuration, host-memory and blocked-compiler tests keep counters, queues and limits state-local. |
+
+There is no production background compiler worker: synchronous host service
+holds exclusive access to a non-Send/non-Sync Lua state. A production result
+therefore cannot arrive after concurrent state destruction or configuration
+mutation. Queued identities are weakly resolved before snapshots; installation
+also checks registration and Auto mode. These are current ownership guarantees,
+not evidence that a future worker's cancellation protocol has been implemented.
+
+The full `9dfbb34` run (`59993`) failed in baseline all-features `jit_native`:
+its one-byte code-limit assertion still expected `native mappings` rather than
+the new `native image size`. Musl did not start. The same obsolete expectation
+was corrected in two public policy cases and Force-mode worker diagnostics /
+exact allowlist. No broad refusal allowance was added. Runtime source is
+unchanged from `9dfbb34`; the subsequent changes are regression tests only.
+
+Focused GNU/musl `make jit-policy jit-native jit-test-modes` passes 45 executions
+/ eight suites / zero ignored per target (`5051`), including the strict Force
+script/string corpus. Final `make jit-policy` (`70613`) includes the new
+lifecycle/threshold checks: GNU/musl each pass 28 executions / four suites;
+i686 passes five pure policy tests with native-only suites compiled out.
+All have zero failures/ignored. Logs are in
+`target/jit-evidence/policy-reconciliation/`; full revalidation follows the final
+test commit. No benchmark timing or new test infrastructure is involved.
 
 ### Phase 8 — Optimize without weakening semantics
 

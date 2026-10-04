@@ -74,6 +74,11 @@ pub(super) fn run_vm<'gc>(
     let hook_enabled = ctx.hook_enabled();
     let frame_depth = lua_frame.frame_depth();
 
+    #[cfg(all(test, feature = "jit"))]
+    let mock = (!hook_enabled)
+        .then(|| ctx.jit().mock_snapshot(&current_prototype))
+        .flatten();
+
     #[cfg(feature = "jit")]
     let native_id = if !hook_enabled && ctx.jit().active() {
         ctx.jit_registry().borrow().identity(ctx, current_prototype)
@@ -107,6 +112,18 @@ pub(super) fn run_vm<'gc>(
     }
 
     loop {
+        #[cfg(all(test, feature = "jit"))]
+        if let Some(snapshot) = &mock {
+            let completed = ctx.jit().run_mock(snapshot, &mut registers);
+            interpreter_stats.dispatches += completed;
+            instructions_run += completed;
+            if instructions_run >= max_instructions {
+                break;
+            }
+            if completed != 0 {
+                continue;
+            }
+        }
         #[cfg(feature = "jit")]
         if let Some(code) = &native_code {
             let completed = ctx.jit().run(

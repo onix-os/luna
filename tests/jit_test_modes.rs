@@ -37,7 +37,7 @@ fn mode_workers_enforce_force_refusals_and_report_exclusions() {
         assert_eq!(output.status.success(), !refused, "{mode}/{case}: {text}");
         if refused {
             assert!(
-                text.contains("unexpected forced preparation refusal: native mappings"),
+                text.contains("unexpected forced preparation refusal: native image size"),
                 "{text}"
             );
         } else {
@@ -50,7 +50,7 @@ fn mode_workers_enforce_force_refusals_and_report_exclusions() {
             );
         } else if case == "allowed" {
             assert!(
-                text.contains("JIT_FORCE_EXCLUDED reason=\"native mappings\""),
+                text.contains("JIT_FORCE_EXCLUDED reason=\"native image size\""),
                 "{text}"
             );
         }
@@ -97,7 +97,7 @@ fn preparation_worker() {
         lua.set_jit_config(config).unwrap();
     }
     if case == "allowed" {
-        lua.allow_jit_resource_refusal("native mappings");
+        lua.allow_jit_resource_refusal("native image size");
     } else if case == "wrong_reason" {
         lua.allow_jit_resource_refusal("prototype snapshot");
     }
@@ -110,7 +110,7 @@ fn preparation_worker() {
         assert_eq!(report.calls, 1);
         if case == "allowed" {
             assert_eq!(report.resource_refusals, 1);
-            assert_eq!(report.last_resource_refusal, Some("native mappings"));
+            assert_eq!(report.last_resource_refusal, Some("native image size"));
             assert_eq!(report.installed_regions, 0);
         } else {
             assert_eq!(report.installed_regions, 1);

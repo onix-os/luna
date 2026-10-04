@@ -356,6 +356,7 @@ impl Lua {
         let mut stats = self.jit.0.borrow().stats;
         stats.code_bytes = self.jit.usage();
         let manager = self.jit.0.borrow();
+        stats.code_requested_bytes = manager.memory.requested();
         stats.metadata_bytes = manager.metadata.0.current();
         stats.metadata_peak_bytes = manager.metadata.0.peak();
         stats.metadata_allocation_refusals = manager.metadata.0.refusals();

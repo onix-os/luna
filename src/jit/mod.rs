@@ -72,6 +72,8 @@ pub(crate) mod ir;
 ))]
 mod memory_status;
 #[cfg(test)]
+mod mock;
+#[cfg(test)]
 mod model;
 #[cfg(all(
     target_os = "linux",
@@ -229,6 +231,8 @@ pub struct JitStats {
     pub registered_prototypes: usize,
     pub installed_regions: u64,
     pub code_bytes: usize,
+    /// Live provider-requested payload bytes, excluding page and alignment padding.
+    pub code_requested_bytes: usize,
     pub snapshot_bytes: usize,
     pub snapshot_peak_bytes: usize,
     pub metadata_bytes: usize,
@@ -418,6 +422,8 @@ pub enum JitError {
 
 pub(crate) struct Manager {
     #[cfg(test)]
+    mock: Option<mock::Mock>,
+    #[cfg(test)]
     before_compile: Option<Box<dyn FnOnce()>>,
     pub(crate) config: JitConfig,
     pub(crate) stats: JitStats,
@@ -460,6 +466,8 @@ impl Default for Manager {
         let metadata = BudgetAllocator(Ledger::child(config.max_metadata_bytes, host.clone()));
         let snapshots = BudgetAllocator(Ledger::child(config.max_snapshot_bytes, host.clone()));
         Self {
+            #[cfg(test)]
+            mock: None,
             #[cfg(test)]
             before_compile: None,
             config,
@@ -1214,6 +1222,37 @@ mod policy_tests {
     }
 
     #[test]
+    fn hotness_threshold_saturates_without_duplicate_or_exhausted_requests() {
+        let mut manager = Manager::default();
+        manager.configure(JitConfig {
+            mode: JitMode::Auto,
+            hot_threshold: 2,
+            max_compile_attempts: 1,
+            ..Default::default()
+        });
+        manager.tracked.insert(1, Tracking::default());
+        manager.enqueue(1, false);
+        assert_eq!(manager.tracked[&1].hotness, 1);
+        assert!(manager.queue.is_empty());
+        manager.enqueue(1, false);
+        assert_eq!(manager.queue.as_slice(), &[1]);
+        manager.tracked.get_mut(&1).unwrap().hotness = u32::MAX;
+        for _ in 0..3 {
+            manager.enqueue(1, false);
+        }
+        assert_eq!(manager.tracked[&1].hotness, u32::MAX);
+        assert_eq!(manager.queue.as_slice(), &[1]);
+        assert_eq!(manager.stats.compilation_requests, 1);
+        assert_eq!(manager.next_request(), Some(1));
+        for force in [false, true] {
+            manager.enqueue(1, force);
+            assert!(manager.queue.is_empty());
+        }
+        assert_eq!(manager.tracked[&1].attempts, 1);
+        assert_eq!(manager.stats.compilation_requests, 1);
+    }
+
+    #[test]
     fn compaction_diagnostics_saturate_without_counting_deferred_passes() {
         let mut manager = Manager::default();
         manager.stats.metadata_compaction_attempts = u64::MAX;
@@ -1311,6 +1350,8 @@ mod eviction_tests {
             )
         };
         assert!(bytes > 0);
+        let requested = counter.requested();
+        assert!(requested > 0 && requested <= bytes);
         runtime.0.borrow_mut().clear_registrations();
         drop(runtime);
         assert_eq!(
@@ -1318,6 +1359,7 @@ mod eviction_tests {
             bootstrap - RuntimeOwner::allocation_bytes() - LedgerRef::allocation_bytes()
         );
         assert_eq!(counter.load(Ordering::Relaxed), bytes);
+        assert_eq!(counter.requested(), requested);
         assert_executable(&lease);
         assert!(matches!(
             backend::compile_in(
@@ -1331,9 +1373,11 @@ mod eviction_tests {
             Err(JitError::ResourceLimit("native mappings"))
         ));
         assert_eq!(counter.load(Ordering::Relaxed), bytes);
+        assert_eq!(counter.requested(), requested);
         assert_executable(&lease);
         drop(lease);
         assert_eq!((counter.load(Ordering::Relaxed), host.current()), (0, 0));
+        assert_eq!(counter.requested(), 0);
         let recovered = backend::compile_in(
             &snapshot(),
             counter.clone(),
@@ -1738,6 +1782,72 @@ mod eviction_tests {
     }
 
     #[test]
+    fn oversized_image_preserves_cached_peer_and_does_not_retry_eviction() {
+        let runtime = Runtime::new();
+        runtime.0.borrow_mut().configure(JitConfig {
+            mode: JitMode::Auto,
+            ..Default::default()
+        });
+        request(&runtime, 1).unwrap();
+        let bytes = runtime.usage();
+        runtime.0.borrow_mut().config.max_code_bytes = bytes;
+        let source = format!("local n=0 {} return n", "n=n+1 ".repeat(64));
+        let snapshot = || {
+            crate::Lua::empty().enter(|ctx| {
+                let prototype =
+                    crate::FunctionPrototype::compile(ctx, "oversized", source.as_bytes()).unwrap();
+                ir::Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
+            })
+        };
+        let enqueue = || {
+            let mut manager = runtime.0.borrow_mut();
+            manager.tracked.entry(2).or_default();
+            manager.enqueue(2, true);
+            assert_eq!(manager.next_request(), Some(2));
+        };
+        enqueue();
+        let result = runtime.compile(2, snapshot());
+        assert!(
+            runtime.lookup(1).is_some(),
+            "oversized image evicted its peer"
+        );
+        assert!(matches!(
+            result,
+            Err(JitError::ResourceLimit("native image size"))
+        ));
+        assert_eq!(runtime.usage(), bytes);
+        {
+            let manager = runtime.0.borrow();
+            assert_eq!(manager.stats.cache_evictions, 0);
+            assert_eq!(manager.stats.cache_eviction_refusals, 0);
+            assert_eq!(manager.stats.compilation_failures, 1);
+            assert_eq!(manager.tracked[&2].attempts, 1);
+            assert!(!manager.code.contains_key(&2));
+        }
+        assert_executable(&runtime.lookup(1).unwrap());
+        runtime.0.borrow_mut().config.max_code_bytes = JitConfig::default().max_code_bytes;
+        enqueue();
+        runtime.compile(2, snapshot()).unwrap();
+        assert!(runtime.usage() > 2 * bytes);
+        assert_executable(&runtime.lookup(1).unwrap());
+        let prepared = runtime.lookup(2).unwrap();
+        let mut slots = vec![abi::Slot::from_value(crate::Value::Nil); prepared.code.registers];
+        let mut pc = 0;
+        let mut instructions = 0;
+        loop {
+            let exit = prepared.code.invoke(&mut slots, pc, 64);
+            instructions += exit.instructions;
+            assert!(instructions < 1024);
+            if exit.instructions == 0 {
+                break;
+            }
+            pc = exit.pc as usize;
+        }
+        assert!(instructions > 64);
+        assert_eq!((slots[0].tag, slots[0].bits), (abi::INTEGER, 64));
+    }
+
+    #[test]
     fn pressure_evicts_lru_and_charges_retry_without_resetting_victim_attempts() {
         let (runtime, bytes) = two_module_cache();
         drop(runtime.lookup(1).unwrap());
@@ -1836,7 +1946,7 @@ mod eviction_tests {
     }
 
     #[test]
-    fn oversized_retry_stops_after_one_victim_and_two_failed_compilations() {
+    fn oversized_image_preserves_all_unleased_cache_entries() {
         let (runtime, bytes) = two_module_cache();
         {
             let mut manager = runtime.0.borrow_mut();
@@ -1853,16 +1963,20 @@ mod eviction_tests {
         });
         assert!(matches!(
             runtime.compile(3, snapshot),
-            Err(JitError::ResourceLimit("native mappings"))
+            Err(JitError::ResourceLimit("native image size"))
         ));
-        assert_eq!(runtime.usage(), bytes);
+        assert_eq!(runtime.usage(), 2 * bytes);
         let manager = runtime.0.borrow();
-        assert_eq!(manager.stats.cache_evictions, 1);
-        assert_eq!(manager.stats.compilation_failures, 2);
-        assert_eq!(manager.tracked[&3].attempts, 2);
-        assert!(!manager.code.contains_key(&1));
+        assert_eq!(manager.stats.cache_evictions, 0);
+        assert_eq!(manager.stats.cache_eviction_refusals, 0);
+        assert_eq!(manager.stats.compilation_failures, 1);
+        assert_eq!(manager.tracked[&3].attempts, 1);
+        assert!(manager.code.contains_key(&1));
         assert!(manager.code.contains_key(&2));
         assert!(!manager.code.contains_key(&3));
+        drop(manager);
+        assert_executable(&runtime.lookup(1).unwrap());
+        assert_executable(&runtime.lookup(2).unwrap());
     }
 
     #[test]

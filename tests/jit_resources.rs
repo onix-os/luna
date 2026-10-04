@@ -45,6 +45,39 @@ fn state() -> Lua {
 }
 
 #[test]
+fn requested_native_bytes_are_distinct_from_mapping_padding_and_state_local() {
+    let mut lua = state();
+    let peer = state();
+    let closure = lua.enter(|ctx| ctx.stash(Closure::load(ctx, None, b"return 42").unwrap()));
+    let start = |lua: &mut Lua| {
+        lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&closure).into(), ())))
+    };
+    let executor = start(&mut lua);
+    assert_eq!(lua.jit_stats().code_requested_bytes, 0);
+    assert_eq!(lua.prepare_jit().unwrap(), 1);
+    assert_eq!(lua.execute::<i64>(&executor).unwrap(), 42);
+    let stats = lua.jit_stats();
+    assert!(stats.native_instructions > 0);
+    assert!(stats.code_requested_bytes > 0);
+    assert!(stats.code_requested_bytes <= stats.code_bytes);
+    assert_eq!(peer.jit_stats().code_requested_bytes, 0);
+    assert_eq!(
+        stats.accounted_jit_bytes,
+        stats.bootstrap_bytes + stats.metadata_bytes + stats.snapshot_bytes + stats.code_bytes
+    );
+    lua.clear_jit_cache();
+    let cleared = lua.jit_stats();
+    assert_eq!((cleared.code_requested_bytes, cleared.code_bytes), (0, 0));
+    let executor = start(&mut lua);
+    assert_eq!(lua.prepare_jit().unwrap(), 1);
+    assert_eq!(lua.execute::<i64>(&executor).unwrap(), 42);
+    assert_eq!(
+        lua.jit_stats().code_requested_bytes,
+        stats.code_requested_bytes
+    );
+}
+
+#[test]
 fn relocation_refusal_preserves_peer_and_interpretation_until_explicit_retry(
 ) -> Result<(), ExternError> {
     let mut lua = state();

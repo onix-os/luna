@@ -2,13 +2,15 @@
 
 This branch implements the first native execution tier described in [PLAN_JIT.md](PLAN_JIT.md). It is **not the finished plan** and is not the LuaJIT runtime or its FFI. Constructors still default to interpreted execution. Do not use these results to claim production readiness or hostile-code isolation.
 
-As checked on 2026-10-04, all seven hosted jobs pass at `dc2533b`
-([run 37156905915](https://github.com/onix-os/luna/actions/runs/37156905915)):
+As checked on 2026-10-04, all seven hosted jobs pass at `0787fa8`
+([run 37162289605](https://github.com/onix-os/luna/actions/runs/37162289605)):
 native Linux x86-64 GNU/musl and ARM64 GNU, two Rust-only Miri seeds, baseline
-verification and real i686 interpreter fallback. Local full GNU/musl gates at
-that revision each pass 5283 executions across 476 repeated suites, with 24
-ignored and zero failures. This includes the GC request/pacing repairs,
-relocation admission before mapping, native-exit reasons and total dispatches.
+verification and real i686 interpreter fallback. This includes the
+oversized-image admission repair, relocation-copy accounting and requested-byte
+diagnostics. It predates the test-only integrated mock and signature accounting.
+
+Local full GNU/musl gates at `db62dfe`, including the integrated mock, each pass
+5353 executions across 482 repeated suites, with 24 ignored and zero failures.
 These are repeated test executions, not unique tests or performance measurements.
 
 The test harness makes Force refusals explicit, with exact IR-block
@@ -16,9 +18,11 @@ exclusions for the existing math and string corpora. Both GNU/musl examples
 assert native execution and return 5000050000 with 200007 native instructions.
 Dynamic numeric-exit tests also pass in jit/jit+async on GNU/musl, and dispatch
 accounting covers errors and transitions on GNU/musl and real i686.
-The newer module relocation-copy reservation passes focused resource/native
-gates, but its full and hosted verification remain pending; the completed runs
-above predate that change.
+The subsequent signature-accounting revision `819c933` has focused GNU/musl
+checks (544 passing executions each), real i686 fallback and static/doc checks.
+Its full local and hosted verification are still running. Older green results
+do not certify this newer runtime change. `PLAN_JIT.md` retains the historical
+revision-specific evidence and current acceptance limits.
 Benchmarks remain deferred, not accepted; earlier upvalue/callback/compiled-but-
 disabled cost failures remain unresolved. This is not full-plan acceptance.
 
@@ -65,9 +69,18 @@ it while obtaining the lease, without another tracking-table probe.
 An evicted prototype can warm again while its lifetime attempt budget allows;
 otherwise it stays interpreted until explicit cache clearing. Leased modules
 are never pressure-eviction victims. If all candidates are leased, no code is
-retired. Metadata/snapshot/capability/compiler errors do not trigger eviction.
+retired. An image whose own page-rounded segments exceed the entire code-cache
+limit returns `ResourceLimit("native image size")` without evicting a peer or
+consuming a retry; increasing the limit permits another attempt if its budget
+is not exhausted. Alignment padding and all provider segment kinds count.
+Metadata/snapshot/capability/compiler errors do not trigger eviction.
 A service call still handles at most one prototype, but can make two backend
 compilation attempts. This is bounded retry, not compiler preemption.
+`make jit-policy` checks exact hotness promotion/saturation, exhausted-attempt
+blacklisting, queue cancellation, pending-state destruction and short-lived
+source generations that never compile. A blocked compiler in an independently
+owned state must not stop manually stepped executors in another state; this
+does not make synchronous `service_jit` nonblocking for its own caller.
 `cache_evictions` counts pressure retirements; `cache_eviction_refusals` counts
 mapping-pressure retries refused because no unleased victim exists.
 `compilation_failures` counts each failed backend attempt, including failures
@@ -243,7 +256,7 @@ The disabled `service_jit()` fast path remains unchanged.
 - `max_queue_entries` bounds pending identity requests. Saturating hotness and `max_compile_attempts` limit repeated failures; clearing the cache resets attempts.
 - `max_code_bytes` bounds actual page-rounded JIT mappings, including the compiler's code/readonly/writable segments. Retired but pinned mappings remain charged until the last lease drops. Allocation failure frees partial mappings and leaves interpretation usable.
 - `max_metadata_bytes` independently bounds requested allocation layouts for weak registrations, tracking/code-index maps, pending identities, preparation ID buffers, native-entry flags and mapping records. Containers use a shared fallible allocator; retained capacity and temporary old/new growth are charged. Registration refusal leaves ordinary source loading/interpreting usable; metadata allocation refusal is typed `ResourceLimit("JIT metadata")`. Lowering this ceiling retires registrations, code and requests; existing closures continue interpreted, and new source loads can register after limits are raised. Active leases keep their entry flags/mapping records and remain charged until their final owner drops, even above a newly reduced quota. Ordinary cache clearing retains live source registrations.
-- Owned operation/constant snapshot vectors have a separate allocator and `max_snapshot_bytes` ceiling; their charges follow the vectors' actual lifetime and release on success, refusal or panic. Compiler workspace, relocation staging and the known module relocation-copy reservation share that ceiling and the host parent quota. `metadata_bytes`/`snapshot_bytes` report current requested/reserved storage, and their peak fields retain the high-water reserved usage. `metadata_allocation_refusals` counts quota/underlying allocation refusals; `registration_refusals` counts optional source registrations declined on allocation pressure. Empty retired containers release capacity.
+- Owned operation/constant snapshot vectors have a separate allocator and `max_snapshot_bytes` ceiling; their charges follow the vectors' actual lifetime and release on success, refusal or panic. Compiler workspace, ABI parameter-array reservations, relocation staging and the known module relocation-copy reservation share that ceiling and the host parent quota. `metadata_bytes`/`snapshot_bytes` report current requested/reserved storage, and their peak fields retain the high-water reserved usage. `metadata_allocation_refusals` counts quota/underlying allocation refusals; `registration_refusals` counts optional source registrations declined on allocation pressure. Empty retired containers release capacity.
 - Cached code uses a private strong-only shared owner whose count, allocator handle, padding and `Code` payload are one exact budgeted allocation. Allocation is fallible before publication; refusal frees the finalized image and does not evict a live peer. Cache retirement retains the charge until the final lease drops. State bootstrap owners are charged separately below.
 - Compiler/provider error status uses one fallible metadata-charged atomic owner rather than three uncharged std Arc flags. Its count, allocator handle, padding and flags are charged before JITBuilder setup and retained through provider/module reclamation. Error precedence remains metadata, mapping quota, provider unavailability, then ordinary compilation failure. The atomic owner requires a Send + Sync value for either auto trait; checked clone increments and an AcqRel final decrement govern lifetime. The cached-code owner remains single-threaded.
 - The provider adapter box and its shared mutex handoff are allocated fallibly and charged by exact typed layouts before JITBuilder setup. The initialized Global adapter allocation transfers to Cranelift's required standard Box; its charge outlives box destruction. After successful relocation/protection, the complete mapping owner moves into Code, the handoff becomes empty, and the module/adapter/charge are destroyed before publication. Failure drops the unclaimed mapping owner with the last handoff handle. Cached Code retains no ISA, symbols, declarations, compiled blobs or finalization queues. Other transient Cranelift-owned compiler buffers remain unaccounted.
@@ -262,6 +275,18 @@ copied code/relocations and before finalization. Source snapshots remain alive
 through any bounded eviction retry, then are dropped before cached-owner
 installation. `make jit-compiler-lifetimes` checks the charged workspace and
 snapshot boundaries, native results, and live-peer preservation on failures.
+
+The ABI parameter-array reservation covers Luna's entry/helper vectors plus
+their known Cranelift module-declaration and function-import clones. Initial
+vectors use fallible exact reservation. The combined charge precedes their
+construction and outlives both compiler Context and Module, conservatively
+retaining capacity budget for vectors dropped earlier. Refusal reports
+`native signatures` without triggering cache eviction. This accounts for known
+array layouts, not Signature-containing tables, symbol strings, ISA/backend
+working buffers or every internal clone. Upstream cloning remains infallible;
+this is not system-OOM recovery. The contract is checked against pinned
+Cranelift 0.136.1 and the Rust vector clone/capacity behavior and needs review
+on compiler/toolchain upgrades.
 Earlier destruction reduces overlapping lifetimes; it does not account for or
 bound all Cranelift transient allocations.
 At `a0f9ac5`, full GNU/musl gates each pass 5152 test executions across 446
@@ -273,7 +298,8 @@ not the deferred performance acceptance.
 - Native invocations return exactly one of four reasons: `native_interpreter_exits` (handoff for an interpreted operation or helper decline), `guard_exits` (failed scalar guard), `native_budget_exits` (slice allowance exhausted), or `native_panic_exits` (caught helper panic). These totals partition `native_entries` until counters saturate; each saturates independently at `u64::MAX`. Zero-instruction exits still count. Panic exits are recorded after state materialization and before resuming Rust unwinding. Hook-only interpreted slices do not count as native exits. Cache clearing and disabling JIT retain these cumulative counters. `make jit-stats` checks reason accounting, native execution and unsupported-target zeros; the metrics example includes the new reason totals without requiring a timing run to test them.
 - `code_lookups` counts eligible slice-local cache probes; `code_leases` counts successful owned leases, even when an entry is interpreted. A single VM slice reuses its lease across native/reference fragments, but repacks canonical registers for every invocation. Hotness observation remains per interpreted dispatch when no code is installed.
 - `helper_calls` counts scoped helper attempts, `helper_instructions` counts completed helper-backed bytecodes, and `helper_declines` counts effect-free fallback requests. Table/upvalue/allocation counters count successful accesses; table-through-upvalue operations include a successful upvalue read. These are real native helper paths, not the interpreter's opcode loop.
-- `code_bytes` is live mapped usage; `snapshot_bytes` follows owned snapshot vectors; `installed_regions`, requests, failures, and execution counters are cumulative. Preparation is synchronous, so the host usually observes zero current snapshot usage after it returns. Benchmarks also report current/peak container charges and refusals.
+- `code_bytes` is live page-rounded mapped usage. `code_requested_bytes` is the provider-requested payload total before page/alignment padding, including linker veneers/GOT storage and any read-only/writable segments. It is not just machine instruction bytes. A zero-byte provider request contributes zero requested bytes but still reserves a live page. Both counters follow retired leases through final reclamation. Requested bytes are already included in mapped charges and are not added to `accounted_jit_bytes` again.
+- `snapshot_bytes` follows owned snapshot vectors; `installed_regions`, requests, failures, and execution counters are cumulative. Preparation is synchronous, so the host usually observes zero current snapshot usage after it returns. Benchmarks also report current/peak container charges and refusals. `make jit-example` reports both requested and mapped native bytes without timing acceptance.
 
 The backend is compiled for Linux x86-64/aarch64. Executed integration evidence exists on x86-64 GNU, musl and ARM64 GNU at `2e21d80`, as linked above. `supported_target` reports build eligibility, **not successful executable-memory allocation or release platform certification**. Explicit preparation/service reports unsupported targets, typed `ResourceLimit` mapping/metadata/snapshot refusals, native allocation/protection denial as `Unavailable`, or compiler errors. Optional convenience service failures do not become Lua language errors. Test-only injection covers allocation/protection denial after source loading, preservation of another installed module, interpreter fallback and recovery; it does not modify host permissions or expose a script-facing fault option.
 
@@ -681,6 +707,13 @@ execute the target fails the gate rather than silently skipping it.
 
 The unchecked acceptance criteria in `PLAN_JIT.md` track remaining work. Historical
 checkpoints and individual platform passes do not establish full-plan completion.
+
+`make jit-mock` runs a test-only Rust slice model integrated with interpreter
+dispatch. Before/one-scalar-after exits preserve exact executor traces, errors,
+side-effect order and GC-visible state across selected callback/vararg/coroutine/
+close cases. Unsupported operations execute canonically after a mock decline.
+The mock reports no native work and also runs on i686 without a native backend;
+it is not a substitute for generated-code tests and is absent from library builds.
 
 `make jit-profile` retains Rust symbols and attempts an opt-level-3 perf capture of the checked upvalue workload; it requires host perf permission and does not alter kernel settings. `make jit-rust-assembly` extracts symbol-retained Rust dispatch/helper/invocation assembly without perf permission. These are diagnostic lanes, not acceptance timing builds or native JIT disassembly. On the current host perf recording is denied (`perf_event_paranoid=4`); Rust assembly verified that outlining removed the native scratch probe page from `run_vm`.
 

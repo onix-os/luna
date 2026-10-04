@@ -5,6 +5,7 @@ use super::{atomic_owner::AtomicShared, resources::BudgetAllocator, JitError};
 #[derive(Default)]
 pub(super) struct MemoryStatus {
     pub quota_refused: AtomicBool,
+    pub image_refused: AtomicBool,
     pub metadata_refused: AtomicBool,
     pub unavailable: AtomicBool,
 }
@@ -18,6 +19,8 @@ impl MemoryStatus {
     pub fn error(&self) -> Option<JitError> {
         if self.metadata_refused.load(Ordering::Relaxed) {
             Some(JitError::ResourceLimit("JIT metadata"))
+        } else if self.image_refused.load(Ordering::Relaxed) {
+            Some(JitError::ResourceLimit("native image size"))
         } else if self.quota_refused.load(Ordering::Relaxed) {
             Some(JitError::ResourceLimit("native mappings"))
         } else if self.unavailable.load(Ordering::Relaxed) {
@@ -82,7 +85,8 @@ mod tests {
     #[test]
     fn error_precedence_matches_provider_protocol_for_every_flag_combination() {
         let status = MemoryStatus::default();
-        for bits in 0..8 {
+        for bits in 0..16 {
+            status.image_refused.store(bits & 8 != 0, Ordering::Relaxed);
             status
                 .metadata_refused
                 .store(bits & 4 != 0, Ordering::Relaxed);
@@ -93,6 +97,11 @@ mod tests {
                 assert!(matches!(
                     error,
                     Some(JitError::ResourceLimit("JIT metadata"))
+                ));
+            } else if bits & 8 != 0 {
+                assert!(matches!(
+                    error,
+                    Some(JitError::ResourceLimit("native image size"))
                 ));
             } else if bits & 2 != 0 {
                 assert!(matches!(
