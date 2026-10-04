@@ -2,13 +2,15 @@
 
 This branch implements the first native execution tier described in [PLAN_JIT.md](PLAN_JIT.md). It is **not the finished plan** and is not the LuaJIT runtime or its FFI. Constructors still default to interpreted execution. Do not use these results to claim production readiness or hostile-code isolation.
 
-As checked on 2026-10-04, all seven hosted jobs pass at `dc2533b`
-([run 37156905915](https://github.com/onix-os/luna/actions/runs/37156905915)):
+As checked on 2026-10-04, all seven hosted jobs pass at `0787fa8`
+([run 37162289605](https://github.com/onix-os/luna/actions/runs/37162289605)):
 native Linux x86-64 GNU/musl and ARM64 GNU, two Rust-only Miri seeds, baseline
-verification and real i686 interpreter fallback. Local full GNU/musl gates at
-that revision each pass 5283 executions across 476 repeated suites, with 24
-ignored and zero failures. This includes the GC request/pacing repairs,
-relocation admission before mapping, native-exit reasons and total dispatches.
+verification and real i686 interpreter fallback. This includes the
+oversized-image admission repair, relocation-copy accounting and requested-byte
+diagnostics. It predates the test-only integrated mock and signature accounting.
+
+Local full GNU/musl gates at `db62dfe`, including the integrated mock, each pass
+5353 executions across 482 repeated suites, with 24 ignored and zero failures.
 These are repeated test executions, not unique tests or performance measurements.
 
 The test harness makes Force refusals explicit, with exact IR-block
@@ -16,17 +18,11 @@ exclusions for the existing math and string corpora. Both GNU/musl examples
 assert native execution and return 5000050000 with 200007 native instructions.
 Dynamic numeric-exit tests also pass in jit/jit+async on GNU/musl, and dispatch
 accounting covers errors and transitions on GNU/musl and real i686.
-The module relocation-copy runtime `1f905f9` also passes full local GNU/musl
-gates: 5298/5307 executions, 476/482 suites, 24 ignored each and zero failures.
-Test-only lifecycle additions landed during that paired run; separate focused
-and GNU all-features gates cover them. All seven hosted jobs also pass at
-`1f905f9` ([run 37159200148](https://github.com/onix-os/luna/actions/runs/37159200148)).
-The later oversized-image refusal fix has separate focused evidence;
-these full runs do not validate that newer runtime change.
-Full local GNU/musl verification subsequently passes at `fda2254`, including
-the oversized-image fix and corrected integration expectations: 5333 executions
-/ 482 suites / 24 ignored / zero failures each. The later requested-byte
-diagnostic and test-only Rust mock have focused checks, not that full-gate result.
+The subsequent signature-accounting revision `819c933` has focused GNU/musl
+checks (544 passing executions each), real i686 fallback and static/doc checks.
+Its full local and hosted verification are still running. Older green results
+do not certify this newer runtime change. `PLAN_JIT.md` retains the historical
+revision-specific evidence and current acceptance limits.
 Benchmarks remain deferred, not accepted; earlier upvalue/callback/compiled-but-
 disabled cost failures remain unresolved. This is not full-plan acceptance.
 

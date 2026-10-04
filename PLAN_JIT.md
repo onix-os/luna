@@ -11,6 +11,29 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Current verification status
+
+| Revision | Local full GNU/musl gate | Hosted platform gate |
+| --- | --- | --- |
+| `0787fa8` requested-byte diagnostics | Included in the descendant `db62dfe` run below | All seven jobs pass in [run 37162289605](https://github.com/onix-os/luna/actions/runs/37162289605) |
+| `db62dfe` integrated Rust mock | `90136` exits 0; each target has 5353 passing executions / 482 suites / 24 ignored / zero failures | Run `37163080413` still pending at this checkpoint |
+| `819c933` signature accounting | Focused checks pass below; full paired run `60733` is active in an isolated, fixed-source checkout | Run `37164134522` still pending at this checkpoint |
+
+The `db62dfe` full run uses `make jit-verify jit-example`: baseline verification,
+Off/Auto/Force, optional features, doctests, warning-denied docs and the existing
+bounded smoke corpus. Both examples return 5000050000 with 200007 native
+instructions, 61440 mapped bytes and 47760 requested bytes. Logs are under
+`target/jit-evidence/mock-boundary/full-{gnu,musl}.log`. After this run terminated,
+the main checkout fast-forwarded to `819c933`; its isolated full run remains
+unchanged. The signature logs are under `target/jit-evidence/signatures/`.
+
+Hosted `fda2254` run `37161623201` also completed successfully. Hosted success
+means all seven configured jobs, including real ARM64, two Rust-only Miri seeds
+and real i686 fallback; it does not establish timing or size acceptance. The
+historical pending statements below describe their earlier checkpoints and are
+superseded by this table. No benchmark ran, and no remaining compiler-memory,
+ordering-deviation or release acceptance item is waived.
+
 #### Predictable ABI signature storage
 
 The native entry has five parameters; helpers have six parameters and one
@@ -2170,9 +2193,9 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 ### Phase 2 — Define and test the runtime boundary before optimizing
 
-**Status:** REFERENCE MOCK IMPLEMENTED; full revalidation and the original ordering deviation remain. **Depends on:** Phase 1. Defined-layout scalar ABI and independent Rust slice model now have a test-only interpreter-integrated before/one-scalar-after mock, including real i686 execution without a native backend. It preserves exact executor traces and canonical fallback across the cases below without native counters. The model was added after the first native experiment, so the original mock-before-emission ordering was not satisfied; current tests cannot retroactively change that history. This does not close Phase 3 compiler accounting or broader release acceptance.
+**Status:** REFERENCE MOCK MILESTONE VERIFIED at `db62dfe`; the original ordering deviation remains. **Depends on:** Phase 1. Defined-layout scalar ABI and independent Rust slice model have a test-only interpreter-integrated before/one-scalar-after mock, including real i686 execution without a native backend. Full GNU/musl revalidation passes as recorded in the current status table. It preserves exact executor traces and canonical fallback across the cases below without native counters. The model was added after the first native experiment, so the original mock-before-emission ordering was not satisfied; current tests cannot retroactively change that history. This does not close Phase 3 compiler accounting or broader release acceptance.
 
-**Files:** `src/jit/abi.rs`, `runtime.rs`, `src/thread/executor.rs`, `thread.rs`, `vm.rs`, `tests/jit_boundary.rs`, `tests/jit_fuel.rs`.
+**Files:** `src/jit/{abi,model,mock,mod}.rs`, `src/thread/{executor,thread}.rs`, `src/vm.rs`, `tests/jit_native.rs`, `tests/jit_control.rs`, `tests/fuel_reference.rs`. These are the implemented boundary/runtime/fuel locations rather than the originally proposed `runtime.rs` and `jit_boundary.rs`/`jit_fuel.rs` files.
 
 1. Define entry/exit descriptors, canonical-state materialization, PC/error-position conventions, and ownership of error payloads.
 2. Build a Rust reference implementation of the proposed slice protocol. Test it before emitting machine code.
