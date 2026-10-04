@@ -11,6 +11,103 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Repeated under-load estimates — five windows
+
+The user requested many repeated measurements because this machine will not
+be idle. **Idle CPU availability is no longer a prerequisite for collecting
+estimates or comparing performance changes.** Keep paired controls, immutable
+artifacts, full distributions and explicit limits on interpretation; repetition
+does not cancel systematic bias, serial correlation or workload-order effects.
+This supersedes earlier instructions to wait for a globally quiet host.
+
+Measured 2026-10-04 21:35:34–21:47:26 UTC: five windows of 24 blocks. Each block
+runs both native profiles, reversing their order on alternate blocks, then an
+alternating speed/shipping compiled-Off comparison. The existing harness
+alternates baseline/candidate within each eleven-pair batch. After the first
+window, the four-window extension was declared before collecting its results,
+with 60 seconds before each additional window; runs were not extended until a
+desired threshold passed. All nine workloads remain enabled.
+
+Totals: **120 native batches per profile, 60 compiled-Off batches per profile,
+35,640 workload pairs** excluding warmups/native-proof runs. Each cost worker
+retains twenty iterations. All 360 run logs contain all nine result rows;
+all five drivers terminate successfully. Artifact hashes match before/after;
+only documentation differs from tested runtime `d054ba8`. The experiment uses
+the existing Rust 1.97.1 / x86-64 GNU speed and shipping binaries. No runtime,
+threshold, corpus or sample-count changes were made.
+
+The central estimate is the median of per-batch ratios of medians, not a pooled
+ratio, best run, or median of every individual timing. Brackets show the
+linearly interpolated 10th–90th percentile **observed batch spread**, not a
+confidence interval. Every outlier and failed run is retained. The samples
+share one host and five short windows; they are not 35,640 independent
+experiments or a population estimate for other machines. Background work
+changed across windows (Rust builds, rendering and Gearbox); per-window
+`vmstat` and per-block process snapshots are retained.
+
+Native ratios are Off / Auto, so larger is better. Counts apply the original
+per-batch workload thresholds; the unscored Oslo case has no pass count.
+
+| Workload | Speed median [p10, p90] | Passes / 120 | Shipping median [p10, p90] | Passes / 120 |
+| --- | --- | --- | --- | --- |
+| Integer loops | 2.675 [2.449, 2.765] | 116 | 2.992 [2.886, 3.074] | 120 |
+| Float loops | 4.667 [3.890, 4.775] | 120 | 5.342 [4.348, 5.670] | 120 |
+| Tables | 1.229 [1.140, 1.270] | 32 | 1.237 [1.167, 1.278] | 37 |
+| Upvalues | 0.741 [0.726, 0.757] | 0 | 0.605 [0.585, 0.618] | 0 |
+| Metamethods | 0.856 [0.847, 0.868] | 117 | 0.887 [0.877, 0.897] | 119 |
+| Rust callbacks | 0.817 [0.798, 0.831] | 10 | 0.757 [0.747, 0.769] | 2 |
+| Allocation/GC | 1.003 [0.991, 1.020] | 120 | 0.803 [0.795, 0.820] | 8 |
+| Oslo predicate | 0.926 [0.911, 0.964] | — | 0.957 [0.946, 0.977] | — |
+| Cold configuration | 0.999 [0.975, 1.024] | 119 | 0.999 [0.983, 1.019] | 120 |
+
+Compiled-Off overhead is JIT-Off / no-feature minus one, expressed as percent;
+smaller is better, with the original 5% ceiling. Negative observations remain
+visible rather than being discarded. Bracket endpoints are also percentages.
+
+| Workload | Speed overhead [p10, p90] | Passes / 60 | Shipping overhead [p10, p90] | Passes / 60 |
+| --- | --- | --- | --- | --- |
+| Integer loops | 2.83% [-13.79, 17.33] | 39 | 1.43% [-11.98, 16.72] | 49 |
+| Float loops | 5.95% [4.25, 7.59] | 13 | 1.97% [0.47, 6.63] | 53 |
+| Tables | -1.44% [-2.40, 0.81] | 59 | 4.64% [3.40, 5.93] | 42 |
+| Upvalues | 4.54% [2.40, 6.34] | 46 | 6.81% [5.95, 8.28] | 5 |
+| Metamethods | 1.30% [0.10, 2.85] | 58 | 2.71% [1.17, 4.42] | 58 |
+| Rust callbacks | 2.57% [0.73, 3.90] | 56 | 3.47% [2.31, 4.83] | 54 |
+| Allocation/GC | 0.93% [-0.70, 2.22] | 60 | 2.01% [1.17, 3.09] | 58 |
+| Oslo predicate | 1.54% [0.85, 2.68] | 58 | 1.58% [0.74, 2.94] | 57 |
+| Cold configuration | 3.93% [2.92, 4.95] | 56 | 2.65% [1.25, 3.87] | 58 |
+
+The persistent signals are more useful than the earliest two noisy runs:
+speed upvalue window medians range only 0.7407–0.7422; shipping upvalues
+0.5967–0.6099. Speed callback window medians range 0.8046–0.8216, shipping
+0.7541–0.7593. Upvalues and callbacks are clear optimization targets, not
+problems that more repetitions make disappear. Table median gains around
+1.23x fall just below the frozen 1.25x target. Numeric loops accelerate clearly.
+Shipping allocation/GC also regresses, unlike the roughly neutral speed build.
+
+All 120 checked native speed runs fail the overall gate. Shipping commands
+exit zero because they are observational, but their failed workload rows remain
+in the table. Complete compiled-Off gates pass only 7/60 speed and 2/60 shipping
+runs; do not select these green runs and discard the others. Speed float
+overhead has a +5.95% median; shipping upvalue overhead +6.81%. Full performance
+acceptance therefore remains unmet even when using the requested under-load
+estimation approach. This is not a request to stop other applications or wait
+indefinitely for idle hardware.
+
+Evidence: `target/jit-evidence/repeated-load-20261004/` and its `epoch-2`
+through `epoch-5` directories. `run.sh`/`run-more.sh` preserve command order;
+`exits.tsv` and driver exit files distinguish measurement completion from gate
+success. `summary.json` includes minima/maxima and all five window medians;
+`summary.tsv` and `summarize.awk` reproduce aggregate results from all logs.
+Independent JavaScript and AWK calculations agree for all 36 groups, including
+counts, median/quantiles and pass totals. Summaries consume the harness's
+four-decimal ratios, not invented extra measurement precision.
+
+For subsequent optimizations, compare unchanged and candidate artifacts in
+the same interleaved multi-window design; do not compare one fresh run with
+an old result from a different load period. Preserve correctness/native-work
+assertions and frozen thresholds. Busy-host estimates are actionable, but
+universal speed claims and release acceptance still require their actual gates.
+
 #### Benchmarks resumed on request — contended-host observations
 
 The user explicitly requested "benchmark now", lifting the prior timing

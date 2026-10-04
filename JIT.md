@@ -29,12 +29,16 @@ Miri evidence, independently of the local GNU/musl results. Only documentation
 changed after the tested runtime revision.
 `PLAN_JIT.md` retains
 the revision-specific evidence, compatibility reconciliation and acceptance limits.
-Benchmarks have resumed on request: two runs per native profile and two matched
-compiled-Off comparisons per profile are recorded in `PLAN_JIT.md`. Concurrent
-CPU-heavy tests make these observational, not clean timing acceptance. Both
-checked speed runs and all four compiled-Off checks fail their frozen gates;
-upvalue execution remains slower in every observed native run. This is not
-full-plan acceptance.
+Repeated under-load measurements now cover five windows: 120 batches per native
+profile and 60 compiled-Off batches per profile, with all nine workloads and
+eleven paired samples. `PLAN_JIT.md` records medians, observed percentile spread,
+window variation and pass counts without discarding outliers. An idle CPU is
+not required to collect useful estimates. Speed-profile median ratios are
+2.68x integer, 4.67x float, 1.23x table, 0.74x upvalue and 0.82x callback
+(Off / Auto). The last two regress consistently across windows. Compiled-Off
+controls also remain unmet; repeated measurements do not erase systematic
+host bias or substitute for passing the frozen gates. This is not full-plan
+acceptance.
 
 ## Enable and prepare
 
