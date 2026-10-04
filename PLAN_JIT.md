@@ -11,6 +11,47 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Predictable ABI signature storage
+
+The native entry has five parameters; helpers have six parameters and one
+return. Pinned Cranelift 0.136.1 clones each declaration signature into the
+module and clones each imported helper signature again into the function DFG.
+These known parameter vectors were previously outside the snapshot ledger.
+
+Before construction, a checked `AbiParam` array-layout reservation now covers
+two entry copies plus the original helper and two copies per helper symbol.
+The three Luna-built vectors use fallible exact reservation instead of growing
+through infallible pushes. The single reservation conservatively spans the
+complete compiler Context/Module lifetime, including early-dropped buffers;
+it is released before Code publication. Quota refusal reports `native signatures`
+and preserves installed peers without eviction. No new unsafe allocation bridge
+or quota increase is introduced.
+
+The pinned source contract is `ModuleDeclarations::declare_function`,
+`Module::declare_func_in_func` and `Signature`'s two owned vectors. Tests check
+initial/clone capacities, checked layout overflow, reservation persistence
+through workspace/context teardown, quota refusal before injected mapping
+failure, failure cleanup and native peer/retry results. The relocation and
+verification-workspace oracles now distinguish their own released storage from
+the signature reservation intentionally still held by compiler owners.
+
+This covers predictable ABI arrays, not their enclosing private compiler maps,
+symbol-name strings, ISA/optimization/register-allocation storage, all internal
+clones or allocator overhead/RSS. Upstream clone allocation remains infallible.
+Complete compiler-memory accounting and performance acceptance remain open.
+Development is isolated from full verification `90136` at `db62dfe`; evidence
+is under `target/jit-evidence/signatures/`.
+
+Focused verification (`66201`) exits 0 for GNU and musl: each reports 544
+passing executions across 13 suites, four ignored and zero failures. Both
+examples return 5000050000 with 200007 native instructions, 61440 mapped bytes
+and 47760 requested bytes. The targets cover compiler lifetimes, relocations,
+the JIT boundary and host-memory integration. Real i686 fallback (`64252`)
+passes 30 executions across three suites and its example remains interpreter-only.
+Formatting, default/all-feature checking, advisory Clippy and warning-denied
+rustdoc pass (`79457`); existing Clippy warnings remain. These are focused
+results for this batch, not a full-gate or performance acceptance claim.
+
 The clean full GNU/musl gate at `fda2254` (`8753`) exits 0: each target reports
 5333 passing executions / 482 repeated suites / 24 ignored / zero failures.
 Both examples return 5000050000 with 200007 native instructions. Logs are
