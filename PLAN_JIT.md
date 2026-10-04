@@ -11,6 +11,64 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Short-slice regression investigation — 2026-10-05
+
+Five runtime experiments were rejected. Their patches, immutable binaries,
+profiles, raw timings and summaries remain under
+`target/jit-evidence/short-slice-performance/`; the interpreter dispatch source
+was restored unchanged. None is a shipped regression fix.
+
+Small-inline moves one through eight register invocation bodies into their
+caller, retaining outlined larger scratch frames. Dispatch v1 handles the first
+native entry and immediate call/return/budget exit outside the large interpreter
+loop. V2 keeps that wrapper outlined. V3 sends Off directly to the interpreter,
+with native state only for Auto fallback. V4 additionally specializes the
+interpreter loop for Off versus Auto. All preserve logical slice boundaries,
+leases, helper semantics and the frozen workload/threshold set.
+
+The table reports medians of same-block baseline Auto time / candidate Auto time;
+larger is better. Cost columns report candidate compiled-Off / no-feature minus
+one for upvalues, not native execution. Except v1's eight-block speed screen,
+native comparisons have 24 interleaved blocks in three windows, both profiles,
+all nine workloads and eleven pairs per batch. Cost comparisons have twelve
+batches per profile; v1's cost screen independently ran twelve per profile.
+All results, including outliers and threshold failures, are retained.
+
+| Experiment | Speed Auto upvalues / callbacks | Shipping Auto upvalues / callbacks | Upvalue Off overhead speed / shipping |
+| --- | --- | --- | --- |
+| Small-inline | 1.009x / 1.019x | 1.035x / 1.005x | 7.76% / 13.12% |
+| Dispatch v1 (speed screen) | 1.057x / 1.052x | Not measured | 10.75% / 20.11% |
+| Dispatch v2 | 1.047x / 1.028x | 1.023x / 1.008x | 14.05% / 13.47% |
+| Dispatch v3 | 1.066x / 1.038x | 1.023x / 0.999x | 9.63% / 14.71% |
+| Dispatch v4 | 1.057x / 1.043x | 1.011x / 0.999x | 12.01% / 11.12% |
+
+The modest native gains neither meet upvalue acceptance nor justify the
+compiled-Off regressions. V4 also raises median speed float overhead to 23.33%
+versus its 6.30% baseline. Repetition is useful for identifying this trade-off;
+it does not turn these observations into independent confidence intervals or
+remove systematic host bias. No unrelated processes were stopped.
+
+The retained differential test (`f0b268e`) covers six programs, alternating fuel
+budgets around the slice boundary and comparing completion, executor mode,
+remaining fuel and total dispatches at every step. It includes Lua calls, tail
+calls, Rust callbacks, numeric guards, metamethod fallback and unsupported
+instructions. Each candidate passes focused correctness tests. One mixed
+v1/v2 GNU `jit-verify` run passes 5383 executions across 482 repeated suites,
+24 ignored and zero failures; it is not final-version or performance acceptance.
+The final-v2 revalidation was deliberately stopped after timing rejected v2;
+its incomplete output is not counted as a passing gate.
+
+The profiling recipe now collects exact `<Executor>::step` entries using
+`*Executor>::step`. This includes call/return and callback execution, survives VM
+inlining and avoids nested collection toggles. Its baseline collection check
+passes for both binaries. These whole-executor instruction totals must not be
+compared directly with the older VM-only totals; compare identical scopes.
+
+The next isolated candidate skips zero-valued saturating helper-counter updates
+inside the already outlined invocation routine. It changes neither the VM loop,
+scratch layout nor helper ABI. Profiling and timing are still pending; no new
+runtime optimization is accepted yet.
+
 #### Repeated under-load estimates — five windows
 
 The user requested many repeated measurements because this machine will not
