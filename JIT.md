@@ -29,8 +29,12 @@ Miri evidence, independently of the local GNU/musl results. Only documentation
 changed after the tested runtime revision.
 `PLAN_JIT.md` retains
 the revision-specific evidence, compatibility reconciliation and acceptance limits.
-Benchmarks remain deferred, not accepted; earlier upvalue/callback/compiled-but-
-disabled cost failures remain unresolved. This is not full-plan acceptance.
+Benchmarks have resumed on request: two runs per native profile and two matched
+compiled-Off comparisons per profile are recorded in `PLAN_JIT.md`. Concurrent
+CPU-heavy tests make these observational, not clean timing acceptance. Both
+checked speed runs and all four compiled-Off checks fail their frozen gates;
+upvalue execution remains slower in every observed native run. This is not
+full-plan acceptance.
 
 ## Enable and prepare
 

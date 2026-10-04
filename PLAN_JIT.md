@@ -11,6 +11,63 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Benchmarks resumed on request — contended-host observations
+
+The user explicitly requested "benchmark now", lifting the prior timing
+deferral. Fresh artifacts were built from clean `13b6f7d` (runtime `d054ba8`)
+using Rust 1.97.1, Linux x86-64 GNU, on an Intel i7-13700KF. No implementation,
+workload, threshold or sample-count change preceded these runs.
+
+**These timings are not clean performance acceptance.** Unrelated Atlasis tests
+used roughly eleven CPU cores throughout the observed runs. Process snapshots
+and per-second `vmstat` logs record contention and substantial I/O wait. No
+unrelated process was stopped. Runs proceeded as requested, retaining unfavorable
+samples and failures rather than claiming an idle host or requiring a GPU.
+
+Each native profile has two full paired runs with eleven samples per workload.
+The speed artifact uses opt-level 3 and `--check`; both Make invocations exit 2
+with failed thresholds. Shipping uses opt-level s without `--check`, as required
+by the harness; its successful command exits do not accept its failed rows.
+Numbers below are Off median / Auto median: above 1 means faster native mode.
+
+| Workload | Speed run 1 / 2 | Shipping run 1 / 2 | Frozen minimum |
+| --- | --- | --- | --- |
+| Integer | 2.0823 / 1.4887 | 3.0714 / 2.2815 | 2.0 |
+| Float | 3.1125 / 5.1107 | 4.8032 / 4.8821 | 2.0 |
+| Table | 1.0610 / 1.2997 | 1.3149 / 1.3846 | 1.25 |
+| Upvalue | 0.6737 / 0.7058 | 0.6092 / 0.6123 | 1.25 |
+| Metamethod | 0.8695 / 0.7623 | 0.7473 / 1.0008 | 0.8333 |
+| Rust callbacks | 0.8745 / 0.5885 | 0.6579 / 0.7224 | 0.8333 |
+| Allocation/GC | 0.8684 / 1.1746 | 0.6960 / 0.5700 | 0.8333 |
+| Oslo predicate | 0.9726 / 0.9614 | 0.9567 / 0.9436 | Unscored |
+| Cold configuration | 0.9408 / 0.8903 | 1.0543 / 0.9309 | 0.8696 |
+
+Fresh matched no-feature versus compiled-Off probes use the same profiles,
+LTO, single codegen unit and stripping. Two comparisons per profile retain all
+nine controls, eleven sample pairs and twenty iterations. All four checked
+Make invocations exit 2. Speed run 1 fails upvalue (+7.73%) and allocation/GC
+(+6.82%); speed run 2 fails integer (+5.17%), float (+6.10%) and upvalue
+(+5.94%). Shipping runs fail upvalue at +7.46% and +6.89%; other controls pass
+their individual rows. Host contention prevents attributing these percentages
+solely to code changes, but none of these runs establishes the 5% control gate.
+Each profile's JIT-enabled probe passes its separate native-result/counter proof.
+
+Artifact file sizes are independent of timing contention: speed no-JIT/JIT is
+1426608 / 6596944 bytes (delta 5170336); shipping is 1151544 / 4277712 bytes
+(delta 3126168). These are the matched measurement embeddings, not a universal
+downstream library-size estimate. ELF section sizes are retained separately.
+
+Evidence is under `target/jit-evidence/benchmark-now-13b6f7d/`: exact revision,
+empty worktree patch, environment, immutable benchmark copies, SHA-256 records,
+process/vmstat logs, every output and individual exit status. Commands use
+`make jit-bench-build` then `jit-bench-run --mode paired --samples 11` (with
+`--check` only for speed), and `jit-size-build` then `jit-size-run` for each
+profile. Run arguments are passed through Make's `ARGS`; matched artifact paths
+use `COST_DIR`. All jobs are terminal; wrapper completion does not mean checked
+performance passed. Upvalue work remains a consistent regression signal across
+all four native observations; establish an uncontended baseline before retaining
+measurement-driven optimizations. Full-plan performance acceptance remains open.
+
 #### Current verification status
 
 | Revision | Local full GNU/musl gate | Hosted platform gate |
@@ -49,7 +106,8 @@ Hosted `fda2254` run `37161623201` also completed successfully. Hosted success
 means all seven configured jobs, including real ARM64, two Rust-only Miri seeds
 and real i686 fallback; it does not establish timing or size acceptance. The
 historical pending statements below describe their earlier checkpoints and are
-superseded by this table. No benchmark ran, and no remaining compiler-memory,
+superseded by this table. These correctness gates include no benchmark; the
+separate resumed timing observations above do not waive remaining compiler-memory,
 ordering-deviation or release acceptance item is waived.
 
 #### Fallible host instruction-set detection
@@ -95,8 +153,9 @@ evidence without attributing earlier results to this change.
 Two acceptance questions remain unanswered: the historical mock-after-native
 ordering deviation, and whether the documented in-process resource limits are
 acceptable instead of a hard cap on private compiler allocations. Neither
-question delivery nor passing tests supplies that approval. Benchmarks and
-measurement-dependent optimizations remain deferred/unaccepted.
+question delivery nor passing tests supplies that approval. Benchmark deferral
+has now been lifted; the contended runs above and measurement-dependent
+optimizations remain unaccepted.
 
 #### Predictable ABI signature storage
 
