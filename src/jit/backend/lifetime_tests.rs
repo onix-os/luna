@@ -30,6 +30,31 @@ fn result(code: &Code, source: &Snapshot) -> u64 {
 }
 
 #[test]
+fn symbol_layout_counts_registration_declarations_and_lookup_temporary() {
+    let names = helpers::SYMBOLS.map(|(_, name, _)| name);
+    assert_eq!(
+        symbol_storage_bytes(names.map(str::len)).unwrap(),
+        3 * names.iter().map(|name| name.len()).sum::<usize>()
+            + names.iter().map(|name| name.len()).max().unwrap()
+    );
+    assert_eq!(symbol_storage_bytes([]).unwrap(), 0);
+    assert_eq!(symbol_storage_bytes([0]).unwrap(), 0);
+    assert_eq!(symbol_storage_bytes([1, 2, 3]).unwrap(), 21);
+    for lengths in [[usize::MAX, 0], [isize::MAX as usize, 1]] {
+        assert!(matches!(
+            symbol_storage_bytes(lengths),
+            Err(JitError::ResourceLimit("native symbol size"))
+        ));
+    }
+    for name in names.into_iter().chain(["", "λx"]) {
+        let owned = owned_symbol(name).unwrap();
+        assert_eq!(owned, name);
+        assert_eq!(owned.capacity(), name.len());
+        assert_eq!(name.to_owned().capacity(), name.len());
+    }
+}
+
+#[test]
 fn signature_layout_counts_initial_declaration_and_import_vectors() {
     let element = std::mem::size_of::<AbiParam>();
     for helpers in [0, 1, helpers::SYMBOLS.len()] {
@@ -68,7 +93,7 @@ fn signature_layout_counts_initial_declaration_and_import_vectors() {
 }
 
 #[test]
-fn signature_refusal_preserves_peer_and_reservation_outlives_compiler_owners() {
+fn declaration_refusals_preserve_peer_and_reservations_outlive_compiler_owners() {
     let source = snapshot(b"local sum=0 for i=1,100 do sum=sum+i end return sum");
     let snapshots = source.operations.allocator().0.clone();
     let baseline = snapshots.current();
@@ -91,21 +116,26 @@ fn signature_refusal_preserves_peer_and_reservation_outlives_compiler_owners() {
         metadata.0.current(),
         total.requested(),
     );
-    assert!(matches!(
-        compile(&source, Failure::RefuseSignatures),
-        Err(JitError::ResourceLimit("native signatures"))
-    ));
-    snapshots.set_limit(2 * 1024 * 1024);
-    assert_eq!(snapshots.current(), baseline);
-    assert_eq!(
-        (
-            total.load(Ordering::Relaxed),
-            metadata.0.current(),
-            total.requested()
-        ),
-        retained
-    );
-    assert_eq!(result(&peer, &peer_source), 42);
+    for (failure, expected) in [
+        (Failure::RefuseSymbols, "native symbols"),
+        (Failure::RefuseSignatures, "native signatures"),
+    ] {
+        assert!(matches!(
+            compile(&source, failure),
+            Err(JitError::ResourceLimit(reason)) if reason == expected
+        ));
+        snapshots.set_limit(2 * 1024 * 1024);
+        assert_eq!(snapshots.current(), baseline);
+        assert_eq!(
+            (
+                total.load(Ordering::Relaxed),
+                metadata.0.current(),
+                total.requested()
+            ),
+            retained
+        );
+        assert_eq!(result(&peer, &peer_source), 42);
+    }
     for failure in [Failure::Allocate, Failure::Protect] {
         assert!(matches!(
             compile(&source, failure),

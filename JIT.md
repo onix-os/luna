@@ -20,8 +20,9 @@ Dynamic numeric-exit tests also pass in jit/jit+async on GNU/musl, and dispatch
 accounting covers errors and transitions on GNU/musl and real i686.
 The subsequent signature-accounting revision `819c933` has focused GNU/musl
 checks (544 passing executions each), real i686 fallback and static/doc checks.
-Its full local and hosted verification are still running. A subsequent removal
-of the private entry name has separate focused checks, not those full results.
+Its full local and hosted verification are still running. Subsequent anonymous
+entry and helper-symbol reservation changes have separate focused checks, not
+those full results.
 Older green results do not certify newer runtime changes. `PLAN_JIT.md` retains the historical
 revision-specific evidence and current acceptance limits.
 Benchmarks remain deferred, not accepted; earlier upvalue/callback/compiled-but-
@@ -257,7 +258,7 @@ The disabled `service_jit()` fast path remains unchanged.
 - `max_queue_entries` bounds pending identity requests. Saturating hotness and `max_compile_attempts` limit repeated failures; clearing the cache resets attempts.
 - `max_code_bytes` bounds actual page-rounded JIT mappings, including the compiler's code/readonly/writable segments. Retired but pinned mappings remain charged until the last lease drops. Allocation failure frees partial mappings and leaves interpretation usable.
 - `max_metadata_bytes` independently bounds requested allocation layouts for weak registrations, tracking/code-index maps, pending identities, preparation ID buffers, native-entry flags and mapping records. Containers use a shared fallible allocator; retained capacity and temporary old/new growth are charged. Registration refusal leaves ordinary source loading/interpreting usable; metadata allocation refusal is typed `ResourceLimit("JIT metadata")`. Lowering this ceiling retires registrations, code and requests; existing closures continue interpreted, and new source loads can register after limits are raised. Active leases keep their entry flags/mapping records and remain charged until their final owner drops, even above a newly reduced quota. Ordinary cache clearing retains live source registrations.
-- Owned operation/constant snapshot vectors have a separate allocator and `max_snapshot_bytes` ceiling; their charges follow the vectors' actual lifetime and release on success, refusal or panic. Compiler workspace, ABI parameter-array reservations, relocation staging and the known module relocation-copy reservation share that ceiling and the host parent quota. `metadata_bytes`/`snapshot_bytes` report current requested/reserved storage, and their peak fields retain the high-water reserved usage. `metadata_allocation_refusals` counts quota/underlying allocation refusals; `registration_refusals` counts optional source registrations declined on allocation pressure. Empty retired containers release capacity.
+- Owned operation/constant snapshot vectors have a separate allocator and `max_snapshot_bytes` ceiling; their charges follow the vectors' actual lifetime and release on success, refusal or panic. Compiler workspace, known helper-symbol/ABI-array reservations, relocation staging and the known module relocation-copy reservation share that ceiling and the host parent quota. `metadata_bytes`/`snapshot_bytes` report current requested/reserved storage, and their peak fields retain the high-water reserved usage. `metadata_allocation_refusals` counts quota/underlying allocation refusals; `registration_refusals` counts optional source registrations declined on allocation pressure. Empty retired containers release capacity.
 - Cached code uses a private strong-only shared owner whose count, allocator handle, padding and `Code` payload are one exact budgeted allocation. Allocation is fallible before publication; refusal frees the finalized image and does not evict a live peer. Cache retirement retains the charge until the final lease drops. State bootstrap owners are charged separately below.
 - Compiler/provider error status uses one fallible metadata-charged atomic owner rather than three uncharged std Arc flags. Its count, allocator handle, padding and flags are charged before JITBuilder setup and retained through provider/module reclamation. Error precedence remains metadata, mapping quota, provider unavailability, then ordinary compilation failure. The atomic owner requires a Send + Sync value for either auto trait; checked clone increments and an AcqRel final decrement govern lifetime. The cached-code owner remains single-threaded.
 - The provider adapter box and its shared mutex handoff are allocated fallibly and charged by exact typed layouts before JITBuilder setup. The initialized Global adapter allocation transfers to Cranelift's required standard Box; its charge outlives box destruction. After successful relocation/protection, the complete mapping owner moves into Code, the handoff becomes empty, and the module/adapter/charge are destroyed before publication. Failure drops the unclaimed mapping owner with the last handoff handle. Cached Code retains no ISA, symbols, declarations, compiled blobs or finalization queues. Other transient Cranelift-owned compiler buffers remain unaccounted.
@@ -290,8 +291,13 @@ Cranelift 0.136.1 and the Rust vector clone/capacity behavior and needs review
 on compiler/toolchain upgrades.
 The private entry uses an anonymous local declaration and is defined/retrieved
 by `FuncId`. It therefore needs neither an owned entry name nor a name-map
-registration. Helper imports remain named; their symbol storage is not covered
-by the signature-array reservation.
+registration. Helper imports remain named. A separate reservation covers their
+three retained name payloads and one largest-name sequential lookup temporary,
+before builder construction and through module destruction. Initial strings use
+fallible exact reservation; refusal reports `native symbols` without eviction.
+Private symbol/declaration map capacities and dynamic libcall names are not
+covered. Returned `JitError::Compilation` strings and diagnostic formatting are
+also outside the ledger; Manager/cache do not retain these caller-owned errors.
 Earlier destruction reduces overlapping lifetimes; it does not account for or
 bound all Cranelift transient allocations.
 At `a0f9ac5`, full GNU/musl gates each pass 5152 test executions across 446

@@ -104,6 +104,42 @@ Separate GNU/musl heap and upvalue suites (`81255`) each pass 23 executions
 across two suites, without failures or ignored tests; their native counters
 verify the unchanged named-helper integration with canonical objects.
 
+#### Predictable helper-symbol storage
+
+Helper registration now reserves three times the sum of the fixed helper-name
+byte lengths plus the largest name length before constructing JITBuilder. The
+three retained copies are the builder symbol map, module declaration and module
+name map; the extra largest-name allowance covers one sequential lookup
+temporary, including registered-symbol cache hits. Initial strings use fallible
+exact reservation and transfer into the builder without another copy. Anonymous
+local entries require no name storage.
+
+The reservation shares snapshot/host-parent admission and remains alive until
+after Module destruction, including errors/unwinding. Refusal reports
+`native symbols`, not code-cache occupancy, so it does not evict a peer. Existing
+compiler-lifetime/relocation assertions now distinguish retained symbol and
+signature reservations from released workspace. Tests check byte-layout
+overflow, zero/UTF-8 names, pinned string capacities, early refusal, failure
+cleanup, peer survival and successful native execution.
+
+This accounts for known string payloads, not private map capacities, dynamic
+backend libcall names, other compiler buffers or diagnostic formatting. It is
+not system-OOM recovery or complete compiler-memory acceptance. Evidence is
+under `target/jit-evidence/helper-symbols/`; earlier full/hosted results predate
+this change.
+
+Focused pair `71965` exits 0: GNU/musl each report 546 passing executions across
+13 suites, four ignored and zero failures, covering compiler lifetimes,
+relocations, the full JIT boundary and host-memory integration. Both examples
+return 5000050000 with 200007 native instructions, 61440 mapped bytes and 47760
+requested bytes. Formatting, default/all-feature checks, advisory Clippy and
+warning-denied docs pass (`72237`), with the existing warning backlog. The same
+batch passes 30 real i686 resource tests across three suites; its example stays
+interpreter-only with all native/mapping/requested counters zero. No new local
+Miri or benchmark result is claimed.
+GNU/musl heap and upvalue checks (`91934`) also pass 23 executions across two
+suites per target, with zero failures/ignored and native helper assertions.
+
 The clean full GNU/musl gate at `fda2254` (`8753`) exits 0: each target reports
 5333 passing executions / 482 repeated suites / 24 ignored / zero failures.
 Both examples return 5000050000 with 200007 native instructions. Logs are
@@ -2280,6 +2316,30 @@ deviation, and full current-tree gates remain separate acceptance evidence.
 ### Phase 3 — Build validated owned IR and bounded code ownership
 
 **Status:** IN PROGRESS. **Depends on:** Phase 2. Owned snapshots and a quota-charged instruction-level CFG validate all successors/operands, preserve legal PC re-entry, and feed exhaustive lowering/native-effect admission. Weak generation IDs, bounded queues/attempts, leased code, capped mappings, bounded unleased LRU eviction and fallible sparse-metadata compaction exist. Full typed/region/effect/exit review, complete accounting, combined-limit semantics and hardening remain open.
+
+#### Current resource inventory
+
+This inventory separates the original section 4.5 requirement to control
+compiler working memory where controllable from a hard bound on the entire
+compiler process. It does not approve an exclusion or close this phase.
+
+| Category | Current implementation and limit | Remaining boundary |
+| --- | --- | --- |
+| Queue, tracking/cache maps, weak registry, entry flags and mapping records | Fallible `BudgetAllocator` containers share metadata and host-parent admission; retained capacity and growth overlap remain charged | These are requested allocation layouts, not allocator/RSS overhead |
+| Runtime, ledger, cached-code and provider/status/handoff owners | Exact typed owner/header charges and destruction ordering; detached leases retain live mapping/root charges | Infallible `Lua` construction still does not promise whole-state OOM recovery |
+| Owned snapshots and verification work | `ir.rs`, `flow.rs`, `tags.rs`, `entry_flow.rs`, `preds.rs` and `dominance.rs` allocate through the snapshot ledger; `work.rs` checks structural expansion before frontend setup | Structural bounds do not measure private Cranelift allocation or elapsed compiler time |
+| Known ABI arrays and relocation copies | Checked reservations precede the known upstream copies and outlive Context/Module; initial ABI vectors and relocation staging are fallible | Upstream clones remain infallible; private enclosing tables and additional internal copies are not covered |
+| Native storage | Provider admission charges page-rounded segments, alignment and records before mapping; requested payload bytes are reported separately; leases delay reclamation | Requested payloads are not extra host charges or an instruction-byte-only metric |
+| Private entry naming | Anonymous Local declaration avoids two owned name strings and the name-map entry; definition/retrieval use `FuncId` | Named helper imports still require separate storage |
+| Helper-symbol text | Reservation covers three retained payload copies per helper and the largest sequential lookup temporary before builder registration; initial strings allocate fallibly | Private map capacities, dynamic backend libcall names and infallible upstream copies remain distinct limitations |
+| Private compiler structures | Builder workspace is dropped before verification; verification workspace before codegen; Context and Module before publication | ISA objects, IR tables, optimizer/register-allocator buffers, declaration/symbol maps, backend code buffers and dynamic libcall names remain outside the byte ledger |
+| Diagnostic text | `JitError::Compilation(String)` is returned to the caller; Manager/cache do not retain it | Formatting in validation/backend error paths is not ledger-backed and is not included in accounted compilation peak; caller-owned errors are not persistent code-cache storage |
+
+The helper-name reservation preserves typed refusal, installed peers and the
+existing ABI without replacing/interposing the compiler's allocator, adding a
+subprocess or increasing quotas. Opaque storage and diagnostic ownership require
+their own explicit accounting design; known-copy reservations must not be
+presented as a complete compiler-memory ceiling.
 
 Basic-block analysis is now integrated (`56bc035`): bounded in-place partitions
 and header/linear successor checks preserve every legal PC. Full typed/data-flow

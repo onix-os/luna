@@ -96,7 +96,10 @@ impl JITMemoryProvider for Memory {
         #[cfg(test)]
         if matches!(
             self.failure,
-            Failure::Allocate | Failure::RefuseRelocationCopy | Failure::RefuseSignatures
+            Failure::Allocate
+                | Failure::RefuseRelocationCopy
+                | Failure::RefuseSignatures
+                | Failure::RefuseSymbols
         ) {
             self.total.fetch_sub(bytes, Ordering::Relaxed);
             self.allocations.allocator().0.release_external(bytes);
@@ -279,6 +282,7 @@ pub(super) enum Failure {
     RefuseRelocationCopy,
     RequireRelocationCopy(usize),
     RefuseSignatures,
+    RefuseSymbols,
     RequireSignatures(usize),
     CorruptBinding(super::tags::BindingFault),
 }
@@ -359,13 +363,21 @@ pub(super) fn compile_in(
             "injected provider setup probe".into(),
         ));
     }
+    let symbol_bytes = symbol_storage_bytes(helpers::SYMBOLS.map(|(_, name, _)| name.len()))?;
+    #[cfg(test)]
+    if failure == Failure::RefuseSymbols {
+        let ledger = &snapshot.operations.allocator().0;
+        ledger.set_limit(ledger.current());
+    }
+    let symbol_charge = Reservation::new(snapshot.operations.allocator().0.clone(), symbol_bytes)
+        .map_err(|_| JitError::ResourceLimit("native symbols"))?;
     let mut jit = JITBuilder::with_flags(
         &[("opt_level", "speed"), ("enable_verifier", "true")],
         default_libcall_names(),
     )
     .map_err(fail)?;
     for (_, name, entry) in helpers::SYMBOLS {
-        jit.symbol(name, entry as *const u8);
+        jit.symbol(owned_symbol(name)?, entry as *const u8);
     }
     jit.memory_provider(provider);
     let relocation_copy_charge;
@@ -690,7 +702,7 @@ pub(super) fn compile_in(
     {
         assert_eq!(
             snapshot.operations.allocator().0.current(),
-            baseline + signature_bytes
+            baseline + signature_bytes + symbol_bytes
         );
     }
     context
@@ -740,6 +752,7 @@ pub(super) fn compile_in(
             snapshot.operations.allocator().0.current(),
             baseline
                 + signature_bytes
+                + symbol_bytes
                 + module_relocations.capacity() * std::mem::size_of::<ModuleReloc>()
                 + relocation_copy_bytes
         );
@@ -757,7 +770,7 @@ pub(super) fn compile_in(
     if let Failure::RequireRelocationCopy(baseline) = failure {
         assert_eq!(
             snapshot.operations.allocator().0.current(),
-            baseline + signature_bytes + relocation_copy_bytes
+            baseline + signature_bytes + symbol_bytes + relocation_copy_bytes
         );
     }
     #[cfg(test)]
@@ -767,7 +780,7 @@ pub(super) fn compile_in(
     if let Failure::RequireSignatures(baseline) = failure {
         assert_eq!(
             snapshot.operations.allocator().0.current(),
-            baseline + signature_bytes + relocation_copy_bytes
+            baseline + signature_bytes + symbol_bytes + relocation_copy_bytes
         );
     }
     module.finalize_definitions().map_err(fail)?;
@@ -778,6 +791,7 @@ pub(super) fn compile_in(
         .ok_or_else(|| JitError::Compilation("missing finalized native memory".into()))?;
     drop(module);
     drop(signature_charge);
+    drop(symbol_charge);
     drop(relocation_copy_charge);
     #[cfg(test)]
     if let Failure::RequireRelocationCopy(baseline) | Failure::RequireSignatures(baseline) = failure
@@ -796,6 +810,29 @@ pub(super) fn compile_in(
         registers: snapshot.registers,
         entries,
     })
+}
+
+fn symbol_storage_bytes(lengths: impl IntoIterator<Item = usize>) -> Result<usize, JitError> {
+    let total = lengths
+        .into_iter()
+        .try_fold((0usize, 0usize), |(total, largest), length| {
+            Layout::array::<u8>(length).ok()?;
+            Some((total.checked_add(length)?, largest.max(length)))
+        })
+        .and_then(|(total, largest)| total.checked_mul(3)?.checked_add(largest));
+    total.ok_or(JitError::ResourceLimit("native symbol size"))
+}
+
+fn owned_symbol(name: &str) -> Result<String, JitError> {
+    let mut owned = String::new();
+    owned
+        .try_reserve_exact(name.len())
+        .map_err(|_| JitError::ResourceLimit("native symbol allocation"))?;
+    if owned.capacity() != name.len() {
+        return Err(JitError::ResourceLimit("native symbol capacity"));
+    }
+    owned.push_str(name);
+    Ok(owned)
 }
 
 fn signature_storage_bytes(
