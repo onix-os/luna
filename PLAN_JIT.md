@@ -2195,7 +2195,7 @@ Each phase has a correctness gate. Run `make jit-verify` after substantive chang
 
 **Status:** REFERENCE MOCK MILESTONE VERIFIED at `db62dfe`; the original ordering deviation remains. **Depends on:** Phase 1. Defined-layout scalar ABI and independent Rust slice model have a test-only interpreter-integrated before/one-scalar-after mock, including real i686 execution without a native backend. Full GNU/musl revalidation passes as recorded in the current status table. It preserves exact executor traces and canonical fallback across the cases below without native counters. The model was added after the first native experiment, so the original mock-before-emission ordering was not satisfied; current tests cannot retroactively change that history. This does not close Phase 3 compiler accounting or broader release acceptance.
 
-**Files:** `src/jit/{abi,model,mock,mod}.rs`, `src/thread/{executor,thread}.rs`, `src/vm.rs`, `tests/jit_native.rs`, `tests/jit_control.rs`, `tests/fuel_reference.rs`. These are the implemented boundary/runtime/fuel locations rather than the originally proposed `runtime.rs` and `jit_boundary.rs`/`jit_fuel.rs` files.
+**Files:** `src/jit/{abi,model,mock,mod}.rs`, `src/thread/{executor,thread,vm}.rs`, `tests/jit_native.rs`, `tests/jit_suspension.rs`, `tests/fuel_reference.rs`. These are the implemented boundary/runtime/fuel locations rather than the originally proposed `runtime.rs` and `jit_boundary.rs`/`jit_fuel.rs` files.
 
 1. Define entry/exit descriptors, canonical-state materialization, PC/error-position conventions, and ownership of error payloads.
 2. Build a Rust reference implementation of the proposed slice protocol. Test it before emitting machine code.
