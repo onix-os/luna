@@ -2,15 +2,16 @@
 
 This branch implements the first native execution tier described in [PLAN_JIT.md](PLAN_JIT.md). It is **not the finished plan** and is not the LuaJIT runtime or its FFI. Constructors still default to interpreted execution. Do not use these results to claim production readiness or hostile-code isolation.
 
-As checked on 2026-10-04, all seven hosted jobs pass at `db62dfe`
-([run 37163080413](https://github.com/onix-os/luna/actions/runs/37163080413)):
+As checked on 2026-10-04, all seven hosted jobs pass at `c9fdce8`
+([run 37165215564](https://github.com/onix-os/luna/actions/runs/37165215564)):
 native Linux x86-64 GNU/musl and ARM64 GNU, two Rust-only Miri seeds, baseline
 verification and real i686 interpreter fallback. This includes the
 oversized-image admission repair, relocation-copy accounting and requested-byte
-diagnostics and the test-only integrated mock. It predates signature accounting.
+diagnostics, integrated mock, signature accounting and anonymous private entry.
+It predates helper-symbol accounting.
 
-Local full GNU/musl gates at `db62dfe`, including the integrated mock, each pass
-5353 executions across 482 repeated suites, with 24 ignored and zero failures.
+Local full GNU/musl gates at `a854536`, including helper-symbol accounting, each
+pass 5368 executions across 482 repeated suites, with 24 ignored and zero failures.
 These are repeated test executions, not unique tests or performance measurements.
 
 The test harness makes Force refusals explicit, with exact IR-block
@@ -18,13 +19,11 @@ exclusions for the existing math and string corpora. Both GNU/musl examples
 assert native execution and return 5000050000 with 200007 native instructions.
 Dynamic numeric-exit tests also pass in jit/jit+async on GNU/musl, and dispatch
 accounting covers errors and transitions on GNU/musl and real i686.
-The subsequent signature-accounting revision `819c933` has focused GNU/musl
-checks (544 passing executions each), real i686 fallback and static/doc checks.
-Its full local and hosted verification are still running. Subsequent anonymous
-entry and helper-symbol reservation changes have separate focused checks, not
-those full results.
-Older green results do not certify newer runtime changes. `PLAN_JIT.md` retains the historical
-revision-specific evidence and current acceptance limits.
+Hosted verification of `a854536` is still running. The local full run includes
+baseline, all JIT modes, optional features, doctests and the existing bounded
+smoke corpus; it does not establish current ARM64 or Miri evidence by itself.
+Only documentation changed after that fixed-source run. `PLAN_JIT.md` retains
+the revision-specific evidence, compatibility reconciliation and acceptance limits.
 Benchmarks remain deferred, not accepted; earlier upvalue/callback/compiled-but-
 disabled cost failures remain unresolved. This is not full-plan acceptance.
 

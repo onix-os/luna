@@ -17,15 +17,26 @@
 | --- | --- | --- |
 | `0787fa8` requested-byte diagnostics | Included in the descendant `db62dfe` run below | All seven jobs pass in [run 37162289605](https://github.com/onix-os/luna/actions/runs/37162289605) |
 | `db62dfe` integrated Rust mock | `90136` exits 0; each target has 5353 passing executions / 482 suites / 24 ignored / zero failures | All seven jobs pass in [run 37163080413](https://github.com/onix-os/luna/actions/runs/37163080413) |
-| `819c933` signature accounting | Full run `60733`: GNU completes with 5363 passing executions / 482 suites / 24 ignored / zero failures; musl remains active in the fixed-source checkout | Run `37164134522` still pending at this checkpoint |
+| `819c933` signature accounting | `60733` exits 0; each target has 5363 passing executions / 482 suites / 24 ignored / zero failures | All seven jobs pass in [run 37164134522](https://github.com/onix-os/luna/actions/runs/37164134522) |
+| `c9fdce8` anonymous private entry | Focused GNU/musl checks pass; included in the descendant full run below | All seven jobs pass in [run 37165215564](https://github.com/onix-os/luna/actions/runs/37165215564) |
+| `a854536` helper-symbol accounting | `84133` exits 0; each target has 5368 passing executions / 482 suites / 24 ignored / zero failures | Run `37165807143` still pending at this checkpoint |
 
 The `db62dfe` full run uses `make jit-verify jit-example`: baseline verification,
 Off/Auto/Force, optional features, doctests, warning-denied docs and the existing
 bounded smoke corpus. Both examples return 5000050000 with 200007 native
 instructions, 61440 mapped bytes and 47760 requested bytes. Logs are under
 `target/jit-evidence/mock-boundary/full-{gnu,musl}.log`. After this run terminated,
-the main checkout fast-forwarded to `819c933`; its isolated full run remains
-unchanged. The signature logs are under `target/jit-evidence/signatures/`.
+the main checkout fast-forwarded to `819c933`; its isolated full run remained
+unchanged through completion. Its GNU/musl examples also return the expected
+result and native/memory counters. The signature logs are under
+`target/jit-evidence/signatures/`; isolated smoke artifacts were retained under
+`signatures/isolated-artifacts/` before removing the clean worktree.
+
+The subsequent fixed-source `a854536` pair uses the same full commands and
+expected example result/counters, including anonymous entry and helper-symbol
+accounting. Logs are under `target/jit-evidence/helper-symbols/full-{gnu,musl}.log`.
+Only documentation changed after that pair terminated; no runtime edit occurred
+during either full run.
 
 Hosted `fda2254` run `37161623201` also completed successfully. Hosted success
 means all seven configured jobs, including real ARM64, two Rust-only Miri seeds
@@ -3327,6 +3338,34 @@ The size-oriented existing `opt-level = "s"` can influence interpreter layout. M
 
 All applicable criteria must be checked with evidence; no partial phase substitutes for completion.
 
+### Embedding and regression compatibility reconciliation
+
+The review compares public source against planned baseline `47b34de` and uses
+full GNU/musl `make jit-verify jit-example` at `a854536` for the current runtime.
+Each target passes 5368 executions across 482 suites, with 24 ignored and no
+failures. The ignored results repeat four native diagnostic/supervisor/worker
+tests selected through their separate Make recipes, plus two pre-existing
+ignored documentation snippets. They are not blanket native skips or a claim
+that every documentation snippet executes. Force harness exclusions remain
+exact and explicit.
+
+| Contract | Source and executed evidence |
+| --- | --- |
+| Existing Rust interfaces | `callback.rs`, `conversion.rs`, `userdata.rs`, `value.rs`, `async_callback.rs`, `stash.rs`, `util/src` and `derive/src` have no source changes from the baseline. Changed existing modules retain public signatures/fields; additions are feature-gated JIT APIs and additive `Lua::accounted_memory`. Public prototype construction is unchanged. |
+| Feature and ownership defaults | `Cargo.toml` keeps `default = []`; fresh `make jit-tree` shows no native compiler/icache/mapping dependency in the default normal tree. `jit_config` checks all constructors remain Off, `Lua` remains non-Send/non-Sync, invalid configuration is transactional and states are independent. |
+| Closures, values and provenance | `Closure::load_with_env` adds private source-only registration without a public prototype field. `jit_native` executes manual/binary prototypes interpreted with zero native entries and verifies source-native execution, identity retirement and cache clearing. Existing conversions, serde/util, derive and examples compile/run in full gates. |
+| Callbacks, async and executor control | `jit_sequences`, `jit_suspension`, `jit_upvalues`, `jit_gc_requests` and the optional async suites assert actual native work, canonical values/identity, exact slices and existing lifecycle/error behavior. These complement the unchanged callback/async public interfaces. |
+| Language regression routing | `tests/common/mod.rs` selects Off/Auto/Force and rejects unexpected preparation failures. `scripts.rs` and `strings.rs` explicitly allow only the documented `IR blocks` refusal for the large math/string corpora; `jit_test_modes` tests rejection and exclusion reporting. Baseline, mode, optional-feature and doc suites pass in both full gates. |
+| Existing GC metrics and additive accounting | `total_memory()` still returns collector allocation bytes. `jit_memory` checks the exact charged-category sum, owner floor, host-limit refusal/recovery and unchanged GC metrics. Public resource rustdoc now includes fixed owners and known compiler reservations rather than incorrectly excluding them. |
+
+Evidence for the source/dependency review is under
+`target/jit-evidence/api-compatibility/`; full logs are under `helper-symbols/`.
+This verifies the existing Luna embedding contract and regression behavior, not
+universal PUC-Lua conformance, unchanged allocation cost, or performance. Known
+baseline behavior corrections remain documented in their earlier checkpoints.
+Compiler-memory acceptance, deferred numerical gates and other unchecked
+criteria remain independent.
+
 Checked items below have revision-scoped evidence at `38ba46d`: full GNU/musl
 `make jit-verify` (5073 executions each, including its `verify` prerequisites),
 hosted ARM64 gate (5074 including disassembly), source inspection and the
@@ -3335,7 +3374,7 @@ They do not mark unchecked review/performance requirements complete, and later
 runtime edits must revalidate affected criteria. An unchecked item may reflect
 missing acceptance evidence rather than missing implementation.
 
-- [ ] Existing API and Lua 5.4 regression behavior remain compatible.
+- [x] Existing API and Lua 5.4 regression behavior remain compatible. The reconciliation above records public interface/default/provenance/control checks and full GNU/musl evidence at `a854536`; this is Luna regression compatibility, not a claim of complete PUC-Lua conformance or performance acceptance.
 - [x] `make verify` succeeds without JIT enabled by default. Revalidated in full GNU/musl gates at `a0f9ac5` after the compiler-lifetime changes.
 - [x] `make jit-verify` succeeds in Off, Auto, and Force, including optional async/derive and doctests. GNU/musl each pass 5152 executions / 446 suites / 24 ignored at `a0f9ac5`.
 - [x] Eligible integrated workloads actually execute native instructions; counters and coverage substantiate this. See the acceptance evidence table above and GNU full gate at `2e21d80`; this is execution coverage, not performance acceptance.
