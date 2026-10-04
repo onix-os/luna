@@ -2,13 +2,13 @@
 
 This branch implements the first native execution tier described in [PLAN_JIT.md](PLAN_JIT.md). It is **not the finished plan** and is not the LuaJIT runtime or its FFI. Constructors still default to interpreted execution. Do not use these results to claim production readiness or hostile-code isolation.
 
-As checked on 2026-10-04, all seven hosted jobs pass at `a854536`
-([run 37165807143](https://github.com/onix-os/luna/actions/runs/37165807143)):
+As checked on 2026-10-04, all seven hosted jobs pass at `d054ba8`
+([run 37168811569](https://github.com/onix-os/luna/actions/runs/37168811569)):
 native Linux x86-64 GNU/musl and ARM64 GNU, two Rust-only Miri seeds, baseline
 verification and real i686 interpreter fallback. This includes the
 oversized-image admission repair, relocation-copy accounting and requested-byte
 diagnostics, integrated mock, signature/helper-symbol accounting and anonymous
-private entry. It predates the host-ISA refusal fix described below.
+private entry, plus the host-ISA refusal fix described below.
 
 Local full GNU/musl gates at `d054ba8`, including host-ISA refusal handling, each
 pass 5378 executions across 482 repeated suites, with 24 ignored and zero failures.
@@ -24,9 +24,9 @@ baseline, all JIT modes, optional features, doctests and the existing bounded
 smoke corpus; it does not establish current ARM64 or Miri evidence by itself.
 The host-ISA refusal fix also passes focused GNU/musl checks (573 passing
 executions each, four ignored) and real i686 fallback (30 passing executions).
-Hosted run `37168811569` for `d054ba8` remains in progress; baseline and i686 jobs
-have passed, while native and Miri jobs are pending. Local full checks do not
-replace that revision's ARM64/Miri evidence.
+Hosted run `37168811569` supplies that revision's actual ARM64 and Rust-only
+Miri evidence, independently of the local GNU/musl results. Only documentation
+changed after the tested runtime revision.
 `PLAN_JIT.md` retains
 the revision-specific evidence, compatibility reconciliation and acceptance limits.
 Benchmarks remain deferred, not accepted; earlier upvalue/callback/compiled-but-
