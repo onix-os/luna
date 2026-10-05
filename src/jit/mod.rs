@@ -66,6 +66,8 @@ mod handoff;
 mod helper_flow;
 mod helpers;
 pub(crate) mod ir;
+#[cfg(test)]
+mod leaf;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")

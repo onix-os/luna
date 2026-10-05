@@ -282,6 +282,13 @@ jit-backend:
 jit-helpers:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::helpers::tests
 
+.PHONY: jit-leaf jit-leaf-miri
+jit-leaf:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::leaf::tests $(ARGS)
+
+jit-leaf-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::leaf::tests -- --test-threads=1
+
 .PHONY: jit-projection jit-projection-miri
 jit-projection:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::projection:: $(ARGS)
