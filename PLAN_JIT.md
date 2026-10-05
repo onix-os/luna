@@ -71,6 +71,8 @@ Additional counter and cache experiments were also rejected:
 | Skip zero helper-counter merges | 1.033x / 1.005x | 1.024x / 0.988x | 5.24% / 7.66% |
 | Two-entry inline code index | 1.111x / 1.074x | 1.129x / 1.043x | 9.39% / 7.76% |
 | Inline index, outlined lookup | 1.120x / 1.083x | 1.104x / 1.035x | 13.58% / 11.68% |
+| Cumulative helper cells | 1.025x / 1.018x | 1.021x / 0.994x | 8.87% / 4.30% |
+| Cumulative execution/helper cells | 1.081x / 1.028x | 1.077x / 1.021x | 10.07% / 7.86% |
 
 These use the same 24-block comparison protocol. The inline index produces the
 first sustained double-digit native upvalue gains, but its compiled-Off cost
@@ -96,14 +98,32 @@ a full timing acceptance. The retained error tests (`cfc97f7`) now compare
 dispatch totals after every step through guard/helper errors, pcall/xpcall and
 typed callback catch/rethrow under three fuel budgets.
 
-The current candidate keeps cumulative saturating helper counters beside the
-manager in its already charged runtime-owner allocation. Helpers update only
-the counters they use, without borrowing the manager during native execution;
-public statistics copy the same eight cumulative fields. This removes the
-per-entry zeroed counter payload and unconditional counter merges. No VM,
-source identity, native coverage, scratch-slot or helper ABI change is included.
-It remains uncommitted and unaccepted pending focused tests, matched profiles,
-native timings and compiled-Off controls in both consuming binaries.
+The two cumulative-counter variants are also rejected. The first places eight
+helper cells beside the manager in its charged owner allocation; the second
+also removes manager borrows for interpreter-slice and native-exit counting.
+Both preserve saturating counts and the public statistics snapshot. The second
+passes 160 focused executions across 25 repeated suites and 21 Rust-only Miri
+executions across four suites, including panic/error and independent-borrow
+checks. Its native upvalue gain is real in these observations, but speed float
+Off overhead reaches 16.03% versus 6.47% baseline, and shipping callback Off
+overhead reaches 9.73% versus 1.43%. Correctness does not justify shipping that
+trade-off. Source, profiles, binaries and all 144 commands per variant remain
+in the evidence directory; no counter-board change is committed.
+
+The execution-counter variant's no-feature binaries differ in file hashes,
+while extracted speed `.text` sections are byte-identical. The complete files
+differ in only 64 bytes, consistent with the one-line shift in panic-location
+metadata caused by the JIT-only hook-block edit. That attribution is an
+inference; the retained comparison uses each artifact's own matched controls.
+
+The current candidate scans the existing randomized code map for at most two
+entries, retaining hashed lookup for larger maps. The lookup is outlined, and
+there is no new cache, allocation, owner field, prototype token or weak-check
+shortcut. Runtime layout, resource accounting, scratch ABI and interpreter
+dispatch are unchanged. An allocation-denied property test compares successful
+and missing-key mutable lookups against the original hash lookup for map sizes
+zero through sixteen. It remains uncommitted and unaccepted pending tests,
+profiles and both native/compiled-Off performance comparisons.
 
 #### Repeated under-load estimates — five windows
 
