@@ -437,6 +437,69 @@ backward barrier can borrow and grow its marking queue, so closed-cell commits
 must not be casually treated as infallible across a native C boundary. The
 foundation tests are not acceptance evidence for those remaining items.
 
+**Whole-executor attribution and ordinary-boundary repair (`f244788`):** fresh
+speed/symbol profiles compare the original `d054ba8`, rejected projected
+`65296db`, default-disabled `6903e1d` and the repaired ordinary native boundary.
+All use the same worker, two warmups, three iterations and `*Executor>::step`
+collection. Native coverage remains 298,428 upvalue instructions / 99,375
+callback instructions. No-feature controls execute exactly 91,575,447 /
+42,538,855 instructions in every comparison.
+
+| Revision/path | Upvalue instructions | Callback instructions |
+|---|---:|---:|
+| Original `d054ba8` | 125,507,182 | 48,156,109 |
+| Projected `65296db` | 149,906,878 | 50,790,934 |
+| Default-disabled `6903e1d` | 136,254,722 | 50,790,853 |
+| Static ordinary boundary `f244788` | 128,743,331 | 48,828,414 |
+
+The rejected candidate spends 7,099,092 instructions in projection flushing.
+Callbacks do not use scalar projection, but still pay the shared runtime-boundary
+overhead. `invoke_frame<PROJECTED>` now statically omits projection-only view,
+flush and counter work on ordinary native calls. Inlining and passing the exact
+initialized register prefix preserve small-frame specialization. The original
+scratch pointer, v4 helper/host ABI, canonical materialization, helper panic
+transport, exit PC/fuel and statistics contracts remain unchanged. The real
+native entry test exercises both boundary modes, signed zero, scalar/reference
+results and exact counters. Projection admission is still default-disabled.
+
+Full GNU Auto/runtime/native-preface validation records 1,047 passing executions
+and four ignored tests. Musl runtime/upvalue lanes pass 4/7. Scoped Rust runtime
+Miri tests pass 32 under both Stacked seed one and Tree seed two; these do not
+execute generated machine code. Miri reports an unused test-only projected
+compiler selector, alongside existing compiler warnings. All-feature Clippy
+retains 141 inherited library-test warnings.
+
+The repair's full unchanged 24-block/144-command speed/shipping comparison is
+complete, with per-block hashes, both byte-identical no-feature controls,
+alternating orders, three windows and contention telemetry. Direct original
+Auto baseline/candidate medians are 0.980711/1.008009 for upvalues and
+0.982477/0.991721 for callbacks (speed/shipping): roughly baseline performance,
+not the requested acceleration. Own-Off/Auto ratios remain 0.6918/0.61185 for
+upvalues and 0.7718/0.7669 for callbacks. Compiled-Off median overhead still fails:
+speed integer 8.69%, float 5.19%, upvalue 5.01%, callback 5.685%; shipping integer
+8.865%, table 9.165%, upvalue 6.62%, callback 7.205%. Frozen thresholds are unchanged.
+This recovers introduced boundary work but does not close original regression
+acceptance. The instruction reductions are not substituted for wall-clock gates.
+
+**Artifact provenance discovery:** sharing a Cargo target between the frozen
+worktree and the main checkout initially reused a stale release binary despite
+different source. That default-profile attempt is explicitly invalid and retained
+under `projection-default-*-stale*`; it is not used in the table above. A scoped
+package clean and fresh builds establish the valid default profiles. Use
+`make jit-clean-release-package TARGET=...` when switching source worktrees with
+a shared release cache. It cleans only Luna package release artifacts, not the
+evidence directory or all dependency caches. A binary hash proves immutability,
+not correspondence to the current source. Never use blanket `make clean` to
+resolve this while retaining evidence.
+
+Profiles and comparisons are retained under
+`target/jit-evidence/short-slice-performance/{projection-executor-profile,projection-default-executor-profile,static-boundary-executor-profile,static-boundary-timing}/`
+and `static-boundary-summary.tsv`. The remaining performance gap requires
+cost-supported work on short-function/call/source-lookup execution, not another
+projection/helper-placement variation. Physical Lua frames, hooks, fresh bindings,
+canonical roots, panic/PC/fuel, native coverage and all resource/lease proofs
+remain required for that work.
+
 **Current conclusion:** these changes are valid correctness experiments, not
 accepted regression fixes. The runtime keeps the baseline randomized lookup
 and original interpreter dispatch; the rejected scalar projection is disabled in
