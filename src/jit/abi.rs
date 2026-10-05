@@ -316,6 +316,41 @@ mod tests {
     }
 
     #[test]
+    fn reference_markers_preserve_canonical_scalar_payloads() {
+        let mut values = vec![
+            Value::Nil,
+            Value::Boolean(false),
+            Value::Boolean(true),
+            Value::Integer(i64::MIN),
+            Value::Integer(-1),
+            Value::Integer(0),
+            Value::Integer(i64::MAX),
+        ];
+        values.extend(
+            [
+                0,
+                (-0.0f64).to_bits(),
+                1,
+                u64::MAX,
+                0x7ff0_0000_0000_0001,
+                0x7ff8_0000_0000_1234,
+            ]
+            .into_iter()
+            .map(|bits| Value::Number(f64::from_bits(bits))),
+        );
+        let slot = Slot {
+            tag: REFERENCE,
+            bits: 0,
+        };
+        for original in values {
+            let mut canonical = original;
+            slot.write_back(&mut canonical);
+            assert_identical(canonical, original);
+            assert_identical(slot.value(original), original);
+        }
+    }
+
+    #[test]
     #[should_panic(expected = "invalid native scalar tag")]
     fn invalid_materialization_tag_is_rejected() {
         Slot {
