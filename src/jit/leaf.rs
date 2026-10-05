@@ -2,7 +2,7 @@ use crate::{opcode::Operation, types::RegisterIndex, Value};
 
 use super::{abi, ir::Snapshot, projection::Origin};
 
-const VERSION: u64 = 0x4c55_4e41_4345_4c31;
+pub(super) const VERSION: u64 = 0x4c55_4e41_4345_4c31;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Arithmetic {
@@ -195,6 +195,536 @@ const _: () = {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(miri))]
+    fn with_closure(test: impl for<'gc> FnOnce(crate::Context<'gc>, crate::Closure<'gc>)) {
+        let mut lua = crate::Lua::empty();
+        let executor = lua.enter(|ctx| {
+            let closure =
+                crate::Closure::load(ctx, None, b"local sum=0 return function(v) sum=sum+v end")
+                    .unwrap();
+            ctx.stash(crate::Executor::start(ctx, closure.into(), ()))
+        });
+        lua.finish(&executor).unwrap();
+        lua.enter(|ctx| {
+            let closure = ctx
+                .fetch(&executor)
+                .take_result::<crate::Closure>(ctx)
+                .unwrap()
+                .unwrap();
+            test(ctx, closure);
+        });
+    }
+
+    #[cfg(not(miri))]
+    #[test]
+    fn generated_leaf_preserves_current_aliases_and_every_budget_cut() {
+        use crate::jit::{backend, helpers, resources, work, JitConfig};
+        use crate::thread::LuaRegisters;
+        use std::sync::atomic::Ordering;
+        with_closure(|ctx, closure| {
+            let snapshot = Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
+            let pattern = Pattern::recognize(&snapshot).unwrap();
+            let metadata_ledger = resources::Ledger::new(2 * 1024 * 1024);
+            let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
+            let code = backend::compile_leaf_in(
+                &snapshot,
+                total.clone(),
+                128 * 1024,
+                resources::BudgetAllocator(metadata_ledger.clone()),
+                work::Limits::from(&JitConfig::default()),
+                backend::Failure::None,
+            )
+            .unwrap();
+            assert!(!code.projected_upvalues);
+            for budget in [0, 1, 2, 3, 64] {
+                let mut canonical = vec![Value::Nil; code.registers];
+                canonical[0] = Value::Integer(2);
+                let mut pc = 0;
+                LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+                    let cell = registers.projection_open_at(ctx, 0);
+                    closure.set_upvalue(&ctx, usize::from(pattern.upvalue), cell);
+                    let mut scratch: Vec<_> = registers
+                        .stack_frame
+                        .iter()
+                        .copied()
+                        .map(abi::Slot::from_value)
+                        .collect();
+                    let binding =
+                        Binding::from_origin(registers.projection_origin(cell).unwrap(), &scratch)
+                            .unwrap();
+                    let mut frame = helpers::Frame {
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: helpers::Counts::default(),
+                        slot_count: code.registers,
+                        panic: None,
+                        projection: None,
+                    };
+                    let (exit, delta) = binding
+                        .with_native(&mut scratch, |slots, view| {
+                            let mut host = abi::Host {
+                                data: std::ptr::addr_of_mut!(frame).cast(),
+                                projection: view.cast(),
+                            };
+                            unsafe { code.invoke_raw(slots, 0, budget, &mut host) }
+                        })
+                        .unwrap();
+                    let completed = budget.min(3);
+                    assert_eq!(
+                        (exit.pc, exit.instructions),
+                        (u64::from(completed), completed)
+                    );
+                    assert_eq!(
+                        (delta.reads, delta.writes),
+                        (u32::from(budget >= 1), u32::from(budget >= 3))
+                    );
+                    assert_eq!((frame.count.calls, frame.count.completed), (0, 0));
+                    assert!(frame.panic.is_none());
+                    for (slot, value) in scratch.iter().zip(frame.registers.stack_frame.iter_mut())
+                    {
+                        slot.write_back(value);
+                    }
+                    delta.apply_upper(&mut []).unwrap();
+                    assert_eq!(scratch[0].bits, if budget >= 3 { 4 } else { 2 });
+                    if budget >= 1 {
+                        assert_eq!(
+                            scratch[usize::from(pattern.read.0)].bits,
+                            if budget >= 2 { 4 } else { 2 }
+                        );
+                    }
+                });
+            }
+            let mut canonical = vec![Value::Nil; code.registers];
+            canonical[0] = Value::Integer(2);
+            let mut pc = 0;
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+                let cell = registers.projection_open_at(ctx, 0);
+                closure.set_upvalue(&ctx, usize::from(pattern.upvalue), cell);
+                let mut reads = 0;
+                let mut writes = 0;
+                for entry in 0..3 {
+                    let mut scratch: Vec<_> = registers
+                        .stack_frame
+                        .iter()
+                        .copied()
+                        .map(abi::Slot::from_value)
+                        .collect();
+                    let binding =
+                        Binding::from_origin(registers.projection_origin(cell).unwrap(), &scratch)
+                            .unwrap();
+                    let mut frame = helpers::Frame {
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: helpers::Counts::default(),
+                        slot_count: code.registers,
+                        panic: None,
+                        projection: None,
+                    };
+                    let (exit, delta) = binding
+                        .with_native(&mut scratch, |slots, view| {
+                            let mut host = abi::Host {
+                                data: std::ptr::addr_of_mut!(frame).cast(),
+                                projection: view.cast(),
+                            };
+                            unsafe { code.invoke_raw(slots, entry, 1, &mut host) }
+                        })
+                        .unwrap();
+                    assert_eq!((exit.pc, exit.instructions), (entry as u64 + 1, 1));
+                    assert_eq!(frame.count.calls, 0);
+                    reads += delta.reads;
+                    writes += delta.writes;
+                    for (slot, value) in scratch.iter().zip(frame.registers.stack_frame.iter_mut())
+                    {
+                        slot.write_back(value);
+                    }
+                    delta.apply_upper(&mut []).unwrap();
+                    *frame.registers.pc = exit.pc as usize;
+                }
+                assert_eq!((reads, writes), (1, 1));
+                assert!(matches!(registers.stack_frame[0], Value::Integer(4)));
+            });
+            drop(code);
+            assert_eq!(total.load(Ordering::Relaxed), 0);
+            assert_eq!(metadata_ledger.current(), 0);
+        });
+    }
+
+    #[cfg(not(miri))]
+    #[test]
+    fn generated_leaf_keeps_closed_cells_on_original_helpers() {
+        use crate::jit::{backend, helpers, resources, work, JitConfig};
+        use crate::{
+            closure::{UpValue, UpValueState},
+            thread::LuaRegisters,
+        };
+        with_closure(|ctx, closure| {
+            let snapshot = Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
+            let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
+            let code = backend::compile_leaf_in(
+                &snapshot,
+                total.clone(),
+                128 * 1024,
+                resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
+                work::Limits::from(&JitConfig::default()),
+                backend::Failure::None,
+            )
+            .unwrap();
+            let cell = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(7)));
+            closure.set_upvalue(&ctx, 0, cell);
+            let mut canonical = vec![Value::Nil; code.registers];
+            canonical[0] = Value::Integer(2);
+            let mut pc = 0;
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+                let mut scratch: Vec<_> = registers
+                    .stack_frame
+                    .iter()
+                    .copied()
+                    .map(abi::Slot::from_value)
+                    .collect();
+                assert!(
+                    Binding::from_origin(registers.projection_origin(cell).unwrap(), &scratch)
+                        .is_none()
+                );
+                let mut frame = helpers::Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: code.registers,
+                    panic: None,
+                    projection: None,
+                };
+                let mut host = abi::Host {
+                    data: std::ptr::addr_of_mut!(frame).cast(),
+                    projection: std::ptr::null_mut(),
+                };
+                let exit = unsafe { code.invoke_host(&mut scratch, 0, 64, &mut host) };
+                assert_eq!((exit.pc, exit.instructions), (3, 3));
+                assert_eq!(
+                    (
+                        frame.count.calls,
+                        frame.count.completed,
+                        frame.count.upvalue_reads,
+                        frame.count.upvalue_writes
+                    ),
+                    (2, 2, 1, 1)
+                );
+                assert!(frame.panic.is_none());
+                assert!(matches!(
+                    cell.get(),
+                    UpValueState::Closed(Value::Integer(9))
+                ));
+            });
+            drop(code);
+            assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 0);
+        });
+    }
+
+    #[cfg(not(miri))]
+    #[test]
+    fn generated_leaf_accounts_all_thunks_and_releases_failed_images() {
+        use crate::jit::{backend, resources, work, JitConfig, JitError};
+        use std::sync::atomic::Ordering;
+        with_closure(|_ctx, closure| {
+            let snapshot = Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
+            let metadata_ledger = resources::Ledger::new(2 * 1024 * 1024);
+            let metadata = resources::BudgetAllocator(metadata_ledger.clone());
+            let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
+            let limits = work::Limits::from(&JitConfig::default());
+            let compile = |failure, limits, image_limit| {
+                backend::compile_leaf_in(
+                    &snapshot,
+                    total.clone(),
+                    image_limit,
+                    metadata.clone(),
+                    limits,
+                    failure,
+                )
+            };
+            let peer = compile(backend::Failure::None, limits, 128 * 1024).unwrap();
+            let snapshot_baseline = snapshot.operations.allocator().0.current();
+            let metadata_baseline = metadata_ledger.current();
+            let mapped_baseline = total.load(Ordering::Relaxed);
+            for failure in [
+                backend::Failure::Allocate,
+                backend::Failure::Protect,
+                backend::Failure::ProtectAfterFirst,
+                backend::Failure::RefuseSignatures,
+                backend::Failure::RefuseRelocationStorage(false),
+                backend::Failure::RefuseRelocationStorage(true),
+                backend::Failure::RefuseRelocationCopy,
+                backend::Failure::RequireReleasedWorkspace(snapshot_baseline),
+                backend::Failure::RequireSignatures(snapshot_baseline),
+                backend::Failure::RequireRelocationCopy(snapshot_baseline),
+            ] {
+                let result = compile(failure, limits, 128 * 1024);
+                assert_eq!(
+                    result.is_ok(),
+                    matches!(
+                        failure,
+                        backend::Failure::RequireReleasedWorkspace(_)
+                            | backend::Failure::RequireSignatures(_)
+                            | backend::Failure::RequireRelocationCopy(_)
+                    )
+                );
+                drop(result);
+                snapshot.operations.allocator().0.set_limit(1024 * 1024);
+                snapshot.operations.allocator().0.fail_after(usize::MAX);
+                assert_eq!(
+                    snapshot.operations.allocator().0.current(),
+                    snapshot_baseline
+                );
+                assert_eq!(metadata_ledger.current(), metadata_baseline);
+                assert_eq!(total.load(Ordering::Relaxed), mapped_baseline);
+                let mut scratch = vec![abi::Slot::from_value(Value::Nil); peer.registers];
+                assert_eq!(peer.invoke(&mut scratch, 0, 0).instructions, 0);
+            }
+            for limits in [
+                work::Limits {
+                    instructions: 0,
+                    ..limits
+                },
+                work::Limits {
+                    blocks: 0,
+                    ..limits
+                },
+                work::Limits {
+                    relocations: 0,
+                    ..limits
+                },
+            ] {
+                assert!(matches!(
+                    compile(backend::Failure::None, limits, 128 * 1024),
+                    Err(JitError::ResourceLimit(_))
+                ));
+                assert_eq!(total.load(Ordering::Relaxed), mapped_baseline);
+                assert_eq!(metadata_ledger.current(), metadata_baseline);
+                assert_eq!(
+                    snapshot.operations.allocator().0.current(),
+                    snapshot_baseline
+                );
+            }
+            assert!(matches!(
+                compile(backend::Failure::None, limits, 1),
+                Err(JitError::ResourceLimit(_))
+            ));
+            assert_eq!(total.load(Ordering::Relaxed), mapped_baseline);
+            assert_eq!(metadata_ledger.current(), metadata_baseline);
+            let ordinary = backend::compile_in(
+                &snapshot,
+                total.clone(),
+                128 * 1024,
+                metadata,
+                limits,
+                backend::Failure::None,
+            )
+            .unwrap();
+            assert!(!ordinary.projected_upvalues);
+            drop((ordinary, peer));
+            assert_eq!(total.load(Ordering::Relaxed), 0);
+            assert_eq!(metadata_ledger.current(), 0);
+        });
+    }
+
+    #[cfg(not(miri))]
+    #[test]
+    fn generated_leaf_upper_payloads_commit_only_after_validated_writes() {
+        use crate::jit::{backend, helpers, resources, work, JitConfig};
+        use crate::thread::LuaRegisters;
+        with_closure(|ctx, closure| {
+            let snapshot = Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
+            let pattern = Pattern::recognize(&snapshot).unwrap();
+            let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
+            let code = backend::compile_leaf_in(
+                &snapshot,
+                total.clone(),
+                128 * 1024,
+                resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
+                work::Limits::from(&JitConfig::default()),
+                backend::Failure::None,
+            )
+            .unwrap();
+            for value in [
+                Value::Nil,
+                Value::Boolean(false),
+                Value::Boolean(true),
+                Value::Integer(i64::MIN),
+                Value::Integer(i64::MAX),
+                Value::Number(-0.0),
+                Value::Number(f64::from_bits(0x7ff8_1234_5678_9abc)),
+            ] {
+                for entry in [0, 2] {
+                    let mut canonical = vec![Value::Nil; code.registers + 1];
+                    canonical[0] = if entry == 0 {
+                        value
+                    } else {
+                        Value::Integer(42)
+                    };
+                    canonical[1 + usize::from(pattern.result.0)] = value;
+                    let mut pc = entry;
+                    LuaRegisters::projection_split_frame(
+                        ctx,
+                        &mut pc,
+                        &mut canonical,
+                        1,
+                        |mut registers| {
+                            let cell = registers.projection_open_at(ctx, 0);
+                            closure.set_upvalue(&ctx, 0, cell);
+                            let mut scratch: Vec<_> = registers
+                                .stack_frame
+                                .iter()
+                                .copied()
+                                .map(abi::Slot::from_value)
+                                .collect();
+                            let binding = Binding::from_origin(
+                                registers.projection_origin(cell).unwrap(),
+                                &scratch,
+                            )
+                            .unwrap();
+                            let mut frame = helpers::Frame {
+                                ctx,
+                                closure,
+                                registers: &mut registers,
+                                count: helpers::Counts::default(),
+                                slot_count: code.registers,
+                                panic: None,
+                                projection: None,
+                            };
+                            let before = frame.registers.projection_read(true, 0).unwrap();
+                            let (exit, delta) = binding
+                                .with_native(&mut scratch, |slots, view| {
+                                    let mut host = abi::Host {
+                                        data: std::ptr::addr_of_mut!(frame).cast(),
+                                        projection: view.cast(),
+                                    };
+                                    unsafe { code.invoke_raw(slots, entry, 1, &mut host) }
+                                })
+                                .unwrap();
+                            assert_eq!((exit.pc, exit.instructions), (entry as u64 + 1, 1));
+                            assert_eq!(
+                                (delta.reads, delta.writes),
+                                if entry == 0 { (1, 0) } else { (0, 1) }
+                            );
+                            assert_eq!(frame.count.calls, 0);
+                            let unchanged = abi::Slot::from_value(
+                                frame.registers.projection_read(true, 0).unwrap(),
+                            );
+                            let expected_before = abi::Slot::from_value(before);
+                            assert_eq!(
+                                (unchanged.tag, unchanged.bits),
+                                (expected_before.tag, expected_before.bits)
+                            );
+                            let mut upper = [before];
+                            delta.apply_upper(&mut upper).unwrap();
+                            frame.registers.projection_write(true, 0, upper[0]);
+                            let actual = if entry == 0 {
+                                scratch[usize::from(pattern.read.0)]
+                            } else {
+                                abi::Slot::from_value(
+                                    frame.registers.projection_read(true, 0).unwrap(),
+                                )
+                            };
+                            let expected = abi::Slot::from_value(value);
+                            assert_eq!((actual.tag, actual.bits), (expected.tag, expected.bits));
+                        },
+                    );
+                }
+            }
+            drop(code);
+            assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 0);
+        });
+    }
+
+    #[cfg(not(miri))]
+    #[test]
+    fn generated_leaf_guard_fallbacks_preserve_reference_writes_and_counts() {
+        use crate::jit::{backend, helpers, resources, work, JitConfig};
+        use crate::thread::LuaRegisters;
+        with_closure(|ctx, closure| {
+            let snapshot = Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
+            let pattern = Pattern::recognize(&snapshot).unwrap();
+            let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
+            let code = backend::compile_leaf_in(
+                &snapshot,
+                total.clone(),
+                128 * 1024,
+                resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
+                work::Limits::from(&JitConfig::default()),
+                backend::Failure::None,
+            )
+            .unwrap();
+            for corrupted in [false, true] {
+                let mut canonical = vec![Value::Nil; code.registers];
+                canonical[0] = Value::Integer(7);
+                let table = crate::Table::new(&ctx);
+                canonical[usize::from(pattern.result.0)] = Value::Table(table);
+                let mut pc = if corrupted { 0 } else { 2 };
+                LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+                    let cell = registers.projection_open_at(ctx, 0);
+                    closure.set_upvalue(&ctx, 0, cell);
+                    let mut scratch: Vec<_> = registers
+                        .stack_frame
+                        .iter()
+                        .copied()
+                        .map(abi::Slot::from_value)
+                        .collect();
+                    let binding =
+                        Binding::from_origin(registers.projection_origin(cell).unwrap(), &scratch)
+                            .unwrap();
+                    let entry = *registers.pc;
+                    let mut frame = helpers::Frame {
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: helpers::Counts::default(),
+                        slot_count: code.registers,
+                        panic: None,
+                        projection: None,
+                    };
+                    let (exit, delta) = binding
+                        .with_native(&mut scratch, |slots, view| {
+                            if corrupted {
+                                unsafe {
+                                    (*view).version ^= 1;
+                                }
+                            }
+                            let mut host = abi::Host {
+                                data: std::ptr::addr_of_mut!(frame).cast(),
+                                projection: view.cast(),
+                            };
+                            let exit = unsafe { code.invoke_raw(slots, entry, 1, &mut host) };
+                            if corrupted {
+                                unsafe {
+                                    (*view).version ^= 1;
+                                }
+                            }
+                            exit
+                        })
+                        .unwrap();
+                    assert_eq!((exit.pc, exit.instructions), (entry as u64 + 1, 1));
+                    assert_eq!((delta.reads, delta.writes), (0, 0));
+                    assert_eq!((frame.count.calls, frame.count.completed), (1, 1));
+                    assert!(frame.panic.is_none());
+                    if corrupted {
+                        assert_eq!(frame.count.upvalue_reads, 1);
+                        assert_eq!(scratch[usize::from(pattern.read.0)].bits, 7);
+                    } else {
+                        assert_eq!(frame.count.upvalue_writes, 1);
+                        assert!(
+                            matches!(frame.registers.stack_frame[0], Value::Table(actual) if actual == table)
+                        );
+                        assert_eq!(scratch[0].tag, abi::REFERENCE);
+                    }
+                    delta.apply_upper(&mut []).unwrap();
+                });
+            }
+            drop(code);
+            assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 0);
+        });
+    }
 
     #[test]
     fn recognizes_real_leaf_bytecode_without_changing_execution() {

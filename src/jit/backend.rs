@@ -329,6 +329,8 @@ pub(super) fn compile_in(
         Selection {
             projected: false,
             #[cfg(test)]
+            leaf: false,
+            #[cfg(test)]
             failure,
         },
     )
@@ -351,6 +353,30 @@ pub(super) fn compile_projected_in(
         work,
         Selection {
             projected: true,
+            leaf: false,
+            failure,
+        },
+    )
+}
+
+#[cfg(test)]
+pub(super) fn compile_leaf_in(
+    snapshot: &Snapshot,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    work: super::work::Limits,
+    failure: Failure,
+) -> Result<Code, JitError> {
+    compile_selected(
+        snapshot,
+        total,
+        limit,
+        metadata,
+        work,
+        Selection {
+            projected: false,
+            leaf: true,
             failure,
         },
     )
@@ -358,6 +384,8 @@ pub(super) fn compile_projected_in(
 
 struct Selection {
     projected: bool,
+    #[cfg(test)]
+    leaf: bool,
     #[cfg(test)]
     failure: Failure,
 }
@@ -372,6 +400,15 @@ fn compile_selected(
 ) -> Result<Code, JitError> {
     #[cfg(test)]
     let failure = selection.failure;
+    #[cfg(test)]
+    let leaf_pattern = if selection.leaf {
+        Some(
+            super::leaf::Pattern::recognize(snapshot)
+                .ok_or_else(|| JitError::Compilation("invalid scalar-cell leaf".into()))?,
+        )
+    } else {
+        None
+    };
     let expansion = super::work::Expansion::admit(snapshot, work)?;
     let graph = super::flow::FlowGraph::new(snapshot)?;
     let mut stores = super::tags::Stores::new(&graph, snapshot)?;
@@ -456,7 +493,11 @@ fn compile_selected(
     let helper_types = [ptr, ptr, types::I32, types::I32, types::I32, types::I32];
     let helper_returns = [types::I32];
     let projected_kinds = [abi::HELPER_GET_UPVALUE, abi::HELPER_SET_UPVALUE].map(|kind| {
-        selection.projected
+        #[cfg(test)]
+        let selected = selection.projected || leaf_pattern.is_some();
+        #[cfg(not(test))]
+        let selected = selection.projected;
+        selected
             && snapshot.operations.iter().any(|operation| {
                 matches!(
                     (kind, operation),
@@ -811,6 +852,18 @@ fn compile_selected(
         let mut frontend = FunctionBuilderContext::new();
         {
             let mut builder = FunctionBuilder::new(&mut projection.func, &mut frontend);
+            #[cfg(test)]
+            if let Some(pattern) = leaf_pattern {
+                super::projection::lowering::emit_leaf_helper(
+                    &mut builder,
+                    kind,
+                    fallback_ref,
+                    pattern,
+                )?;
+            } else {
+                super::projection::lowering::emit_helper(&mut builder, kind, fallback_ref)?;
+            }
+            #[cfg(not(test))]
             super::projection::lowering::emit_helper(&mut builder, kind, fallback_ref)?;
             builder.seal_all_blocks();
             builder.finalize(module.isa().frontend_config());
@@ -820,6 +873,18 @@ fn compile_selected(
                 "invalid projection helper signature".into(),
             ));
         }
+        #[cfg(test)]
+        if let Some(pattern) = leaf_pattern {
+            super::projection::lowering::verify_leaf_helper(
+                &projection.func,
+                kind,
+                fallback_ref,
+                pattern,
+            )?;
+        } else {
+            super::projection::lowering::verify_helper(&projection.func, kind, fallback_ref)?;
+        }
+        #[cfg(not(test))]
         super::projection::lowering::verify_helper(&projection.func, kind, fallback_ref)?;
         projection_instructions += projection
             .func
@@ -1002,7 +1067,7 @@ fn compile_selected(
         relocations,
         registers: snapshot.registers,
         entries,
-        projected_upvalues: projection_count != 0,
+        projected_upvalues: selection.projected && projection_count != 0,
     })
 }
 
