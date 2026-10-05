@@ -11,6 +11,37 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Linked aggregate native execution — 2026-10-05
+
+`2d869b6` adds **test-only native linking and execution** for the two-function
+program. The three symbolic imports bind to the actual owned callee and typed
+enter/leave hooks. The linked source template is reverified before codegen;
+wrong callee/enter/leave targets and signatures are rejected. Both functions
+compile before aggregate finalized relocation admission and native mappings.
+Existing fallible Memory/Provider/Handoff machinery owns and reclaims mappings.
+Known signature/symbol/template workspace, relocation staging and module copies
+are reserved; the signature workspace is conservative, not a claim that every
+internal Cranelift allocation is individually charged.
+
+Actual generated code executes add/sub/mul through both hooks against POD
+scalar buffers. It preserves buffers on refused entry, bad view version, float
+operand and insufficient budget. Alias/wrapping cases compare every scratch
+slot using source-derived read/result indices. Owned code remains executable
+after both compiler snapshots are dropped. Allocation, partial/full protection,
+signature/symbol/copy, mapping/relocation quota and late shared-owner refusals
+preserve an executable peer lease and restore resource counters completely.
+
+Final GNU/musl focused plus GNU Auto all-feature validation passes 1,131
+repeated executions/84 suites, four existing ignores and zero failures.
+Formatting and GNU baseline/JIT checks pass. Evidence and retained draft/fixture
+failures are in `target/jit-evidence/short-slice-performance/call-native/`.
+Machine-code tests are not Miri evidence; no new ARM64 execution is claimed.
+
+The hooks still operate on scalar models, **not canonical Lua frames**. Actual
+callee weak-source/lease guards and scoped physical-frame/fuel/statistics
+integration remain next. No production selector or performance improvement is
+enabled, and the original upvalue/callback/compiled-Off gates remain unresolved.
+
 #### Aggregate call-program IR — 2026-10-05
 
 `cfaed82` adds **test-only compiler IR**, not a production call tier. A plan

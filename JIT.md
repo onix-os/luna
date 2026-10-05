@@ -75,6 +75,11 @@ the original performance regressions remain unresolved.
 
 ## Enable and prepare
 
+`make jit-call-native` links and executes the test-only aggregate program with
+typed scalar-buffer hooks, including guards, quotas, lease retention and rollback.
+This is native execution, but not canonical Lua-frame integration or performance
+acceptance; the production selector remains disabled.
+
 `make jit-call-plans` validates test-only aggregate caller/callee admission and
 two-function Cranelift IR; `nix develop .#miri -c make jit-call-plans-miri` checks
 the pure source plans. The enter/leave imports are not linked runtime helpers,
