@@ -827,6 +827,14 @@ impl std::ops::DerefMut for FrameStack<'_, '_> {
 }
 
 pub(super) struct LuaFrame<'gc, 'a> {
+    #[cfg(all(
+        test,
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    pub(super) pair_handoff: Option<&'a mut Option<crate::jit::PreparedPair>>,
     pub(super) state: &'a mut ThreadState<'gc>,
     // Held for the whole of `run_vm`, so the opcode loop pays one borrow per slice rather than one
     // per access. Safe to hold across the loop because a native never runs inside it — the executor
@@ -836,6 +844,23 @@ pub(super) struct LuaFrame<'gc, 'a> {
 }
 
 impl<'gc, 'a> LuaFrame<'gc, 'a> {
+    #[cfg(all(
+        test,
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    pub(super) fn pair_fixed_stack(&self) -> bool {
+        matches!(
+            self.state.frames.last(),
+            Some(Frame::Lua {
+                is_variable: false,
+                ..
+            })
+        )
+    }
+
     const FUEL_PER_CALL: i32 = 4;
     const FUEL_PER_ITEM: i32 = 1;
 

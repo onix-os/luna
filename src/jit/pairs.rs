@@ -25,6 +25,7 @@ struct Entry {
 }
 
 pub(super) struct State {
+    executions: (usize, usize),
     entries: MetadataMap<Key, Entry>,
     queue: Vec<Key, BudgetAllocator>,
     entry_compactor: Compactor,
@@ -35,6 +36,7 @@ pub(super) struct State {
 impl State {
     fn new(allocator: BudgetAllocator) -> Self {
         Self {
+            executions: (0, 0),
             entries: metadata_map(allocator.clone()),
             queue: Vec::new_in(allocator.clone()),
             entry_compactor: Compactor::default(),
@@ -132,6 +134,54 @@ impl State {
 }
 
 impl Runtime {
+    pub(crate) fn record_pair_execution(&self, calls: usize, returns: usize) {
+        if let Some(pairs) = &mut self.0.borrow_mut().pairs {
+            pairs.executions.0 = pairs.executions.0.saturating_add(calls);
+            pairs.executions.1 = pairs.executions.1.saturating_add(returns);
+        }
+    }
+
+    pub(crate) fn test_pair_executions(&self) -> (usize, usize) {
+        self.0
+            .borrow()
+            .pairs
+            .as_ref()
+            .map_or((0, 0), |pairs| pairs.executions)
+    }
+
+    pub(crate) fn prepare_call_at<'gc>(
+        &self,
+        ctx: crate::Context<'gc>,
+        caller: crate::Closure<'gc>,
+        registers: &crate::thread::LuaRegisters<'gc, '_>,
+    ) -> Option<super::PreparedPair> {
+        let prototype = caller.prototype();
+        let crate::opcode::Operation::Call {
+            func,
+            args,
+            returns,
+        } = prototype.opcodes.get(*registers.pc)?.decode()
+        else {
+            return None;
+        };
+        if args.to_constant().is_none() || returns.to_constant() != Some(0) {
+            return None;
+        }
+        let crate::Value::Function(crate::Function::Closure(callee)) =
+            registers.stack_frame.get(usize::from(func.0)).copied()?
+        else {
+            return None;
+        };
+        let registry = ctx.jit_registry().borrow();
+        let key = Key {
+            caller: registry.identity(ctx, prototype)?,
+            callee: registry.identity(ctx, callee.prototype())?,
+            pc: *registers.pc,
+        };
+        self.pair_lease(key)
+            .map(|program| super::PreparedPair { program })
+    }
+
     pub(crate) fn call_pairs_enabled(&self) -> bool {
         let manager = self.0.borrow();
         manager.config.mode == JitMode::Auto && manager.pairs.is_some()

@@ -9,6 +9,24 @@ use super::{
 };
 
 pub(crate) struct ActivationHost<'gc, 'a> {
+    #[cfg(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    handoff: Option<crate::jit::PreparedPair>,
+    #[cfg(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    select_pairs: bool,
+    #[cfg(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    decline_pairs: bool,
     state: &'a mut ThreadState<'gc>,
     stack: RefMut<'a, StackVec<'gc>>,
     fuel: &'a mut Fuel,
@@ -26,11 +44,39 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         stack: RefMut<'a, StackVec<'gc>>,
         fuel: &'a mut Fuel,
     ) -> Self {
-        Self { state, stack, fuel }
+        Self {
+            state,
+            stack,
+            fuel,
+            #[cfg(all(
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))]
+            handoff: None,
+            #[cfg(all(
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))]
+            select_pairs: false,
+            #[cfg(all(
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))]
+            decline_pairs: false,
+        }
     }
 
     fn with_frame<R>(&mut self, f: impl for<'frame> FnOnce(LuaFrame<'gc, 'frame>) -> R) -> R {
         f(LuaFrame {
+            #[cfg(all(
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))]
+            pair_handoff: self.select_pairs.then_some(&mut self.handoff),
             state: self.state,
             stack: FrameStack::Borrowed(&mut self.stack),
             fuel: self.fuel,
@@ -154,6 +200,17 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
     pub(crate) fn test_capacity(&self) -> usize {
         self.stack.capacity()
     }
+
+    pub(crate) fn test_pair_selection(&mut self, enabled: bool) {
+        self.decline_pairs = !enabled;
+    }
+
+    pub(crate) fn test_variable_stack(&mut self) {
+        let Some(Frame::Lua { is_variable, .. }) = self.state.frames.last_mut() else {
+            panic!();
+        };
+        *is_variable = true;
+    }
 }
 
 impl<'gc, 'a> ActivationHost<'gc, 'a> {
@@ -164,11 +221,60 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         loop {
             assert!(matches!(self.state.frames.last(), Some(Frame::Lua { .. })));
             let capacity = self.stack.capacity();
+            #[cfg(all(
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))]
+            {
+                assert!(self.handoff.is_none());
+                self.select_pairs = !self.decline_pairs
+                    && limit - activations >= 2
+                    && budget >= 4
+                    && step_fuel == 4
+                    && ctx.jit().call_pairs_enabled();
+            }
             let result = self.with_frame(|frame| run_vm(ctx, frame, budget));
-            stack_growths += usize::from(self.stack.capacity() > capacity);
             activations += 1;
+            #[cfg(all(
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))]
+            let (result, step_charged) = if let Some(pair) = self.handoff.take() {
+                let prefix = result.expect("pair handoff with VM error");
+                assert!(prefix < budget);
+                self.fuel.consume(prefix.try_into().unwrap());
+                self.select_pairs = false;
+                if let Some((calls, returns)) = pair.invoke(ctx, self, budget) {
+                    assert_eq!(calls, 1);
+                    activations += returns;
+                    (Ok(0), true)
+                } else {
+                    (
+                        self.with_frame(|frame| run_vm(ctx, frame, budget - prefix)),
+                        false,
+                    )
+                }
+            } else {
+                (result, false)
+            };
+            stack_growths += usize::from(self.stack.capacity() > capacity);
             let result =
                 result.map(|instructions| self.fuel.consume(instructions.try_into().unwrap()));
+            #[cfg(all(
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))]
+            if !step_charged {
+                self.fuel.consume(step_fuel);
+            }
+            #[cfg(not(all(
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            )))]
             self.fuel.consume(step_fuel);
             if result.is_err()
                 || activations == limit

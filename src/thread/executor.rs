@@ -629,6 +629,14 @@ impl<'gc> Executor<'gc> {
                         let stack = top_state.stack;
                         let ordinary = |top_state: &mut ThreadState<'gc>, fuel: &mut Fuel| {
                             let lua_frame = LuaFrame {
+                                #[cfg(all(
+                                    test,
+                                    feature = "jit",
+                                    not(miri),
+                                    target_os = "linux",
+                                    any(target_arch = "x86_64", target_arch = "aarch64")
+                                ))]
+                                pair_handoff: None,
                                 state: top_state,
                                 stack: stack.borrow_mut(&ctx).into(),
                                 fuel,

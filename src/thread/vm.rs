@@ -104,6 +104,14 @@ pub(super) fn run_vm<'gc>(
     // Read once per slice, not per instruction: with no hook installed this leaves a single
     // always-false branch in the loop, which is what Phase 3 set out to measure.
     let hook_enabled = ctx.hook_enabled();
+    #[cfg(all(
+        test,
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    let pair_handoff = !hook_enabled && lua_frame.pair_handoff.is_some();
     let frame_depth = lua_frame.frame_depth();
 
     #[cfg(all(test, feature = "jit"))]
@@ -187,6 +195,25 @@ pub(super) fn run_vm<'gc>(
             #[cfg(not(test))]
             let transition = current_prototype.opcodes[*registers.pc].call_transition();
             if let Some(transition) = transition {
+                #[cfg(all(
+                    test,
+                    feature = "jit",
+                    not(miri),
+                    target_os = "linux",
+                    any(target_arch = "x86_64", target_arch = "aarch64")
+                ))]
+                if pair_handoff && matches!(transition, crate::opcode::CallTransition::Call { .. })
+                {
+                    if let Some(pair) = ctx.jit().prepare_call_at(ctx, current_function, &registers)
+                    {
+                        drop(registers);
+                        if lua_frame.pair_fixed_stack() {
+                            *lua_frame.pair_handoff.as_deref_mut().unwrap() = Some(pair);
+                            break;
+                        }
+                        registers = lua_frame.registers();
+                    }
+                }
                 *registers.pc += 1;
                 interpreter_stats.dispatches += 1;
                 match transition {
@@ -235,6 +262,23 @@ pub(super) fn run_vm<'gc>(
         }
 
         let op = current_prototype.opcodes[*registers.pc].decode();
+        #[cfg(all(
+            test,
+            feature = "jit",
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ))]
+        if pair_handoff && matches!(op, Operation::Call { .. }) {
+            if let Some(pair) = ctx.jit().prepare_call_at(ctx, current_function, &registers) {
+                drop(registers);
+                if lua_frame.pair_fixed_stack() {
+                    *lua_frame.pair_handoff.as_deref_mut().unwrap() = Some(pair);
+                    break;
+                }
+                registers = lua_frame.registers();
+            }
+        }
         #[cfg(feature = "jit")]
         {
             interpreter_stats.dispatches += 1;

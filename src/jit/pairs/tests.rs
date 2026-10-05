@@ -6,6 +6,10 @@ use crate::{
 const SOURCE: &[u8] = b"local n=7 local function f(v) n=n+v end f(2) return n";
 
 fn fixture() -> (Lua, StashedClosure, Key) {
+    fixture_source(SOURCE)
+}
+
+fn fixture_source(source: &[u8]) -> (Lua, StashedClosure, Key) {
     let mut lua = Lua::empty();
     lua.set_gc_pacing(false);
     lua.set_jit_config(JitConfig {
@@ -16,7 +20,7 @@ fn fixture() -> (Lua, StashedClosure, Key) {
     .unwrap();
     let (closure, key) = lua.enter(|ctx| {
         ctx.jit().test_call_pairs(true);
-        let closure = Closure::load(ctx, None, SOURCE).unwrap();
+        let closure = Closure::load(ctx, None, source).unwrap();
         let prototype = closure.prototype();
         let registry = ctx.jit_registry().borrow();
         let key = Key {
@@ -361,4 +365,250 @@ fn second_snapshot_refusal_releases_the_first_snapshot_and_consumes_one_attempt(
             1
         )
     });
+}
+
+#[test]
+fn selected_pairs_match_canonical_prefixes_fuel_limits_and_declined_fallbacks() {
+    for source in [
+        SOURCE,
+        &b"local n=7.5 local function f(v) n=n+v end f(2) return n"[..],
+        &b"local n=7 local function f(v) n=n+v end f(2.5) return n"[..],
+    ] {
+        let (mut lua, closure, key) = fixture_source(source);
+        lua.enter(|ctx| ctx.jit().observe_pair(key));
+        assert_eq!(lua.service_jit().unwrap(), 1);
+        for budget in [1, 2, 3, 4, 5, 64] {
+            for limit in [1, 2, 64] {
+                for fuel in [-1, 0, 1, 8, 9, 10, 16, 20, 64, 10000] {
+                    let run = |lua: &mut Lua, select| {
+                        lua.enter(|ctx| {
+                            with_test_thread(
+                                ctx,
+                                ctx.fetch(&closure),
+                                &mut Fuel::with(fuel),
+                                |host| {
+                                    host.test_pair_selection(select);
+                                    let before = ctx.jit().0.borrow().stats;
+                                    let outcome = host.run(ctx, limit, budget, 4);
+                                    assert!(outcome.result.is_ok());
+                                    let after = ctx.jit().0.borrow().stats;
+                                    let (frames, values, open, remaining) = host.test_trace();
+                                    let slots = values
+                                        .into_iter()
+                                        .map(|value| {
+                                            let slot = crate::jit::abi::Slot::from_value(value);
+                                            (slot.tag, slot.bits)
+                                        })
+                                        .collect::<Vec<_>>();
+                                    (
+                                        frames,
+                                        slots,
+                                        open,
+                                        remaining,
+                                        outcome.activations,
+                                        after.total_dispatches - before.total_dispatches,
+                                        after.native_instructions + after.interpreted_instructions
+                                            - before.native_instructions
+                                            - before.interpreted_instructions,
+                                    )
+                                },
+                            )
+                        })
+                    };
+                    let reference = run(&mut lua, false);
+                    let selected = run(&mut lua, true);
+                    assert_eq!(
+                        selected, reference,
+                        "source={source:?} budget={budget} limit={limit} fuel={fuel}"
+                    );
+                }
+            }
+        }
+        let completed = lua.enter(|ctx| ctx.jit().test_pair_executions().1);
+        assert_eq!(completed > 0, source == SOURCE);
+    }
+}
+
+#[test]
+fn cached_native_caller_prefixes_handoff_and_release_before_nested_callbacks() {
+    use crate::{Callback, CallbackReturn, Executor};
+    use std::{cell::Cell, rc::Rc};
+
+    let source = b"local cb=... local n=0 local function f(v) n=n+v end for i=1,30 do f(2) end cb() return n";
+    let (mut lua, closure, key) = fixture_source(source);
+    lua.enter(|ctx| {
+        ctx.jit().test_activation_host(64);
+        ctx.jit().0.borrow_mut().enqueue(key.caller, true);
+        ctx.jit().0.borrow_mut().enqueue(key.callee, true);
+        ctx.jit().observe_pair(key);
+    });
+    for _ in 0..3 {
+        assert_eq!(lua.service_jit().unwrap(), 1);
+    }
+    assert_eq!(lua.service_jit().unwrap(), 0);
+    let called = Rc::new(Cell::new(false));
+    let saved = called.clone();
+    let executor = lua.enter(|ctx| {
+        let child = Closure::load(ctx, None, b"local n=0 for i=1,7 do n=n+i end return n").unwrap();
+        let callback = Callback::from_fn_with(&ctx, child, move |child, ctx, _, mut stack| {
+            assert!(ctx.jit().test_pair_executions().1 > 0);
+            let nested = Executor::start(ctx, (*child).into(), ());
+            let mut fuel = Fuel::with(65536);
+            while !nested.step(ctx, &mut fuel).unwrap() {}
+            assert_eq!(nested.take_result::<i64>(ctx).unwrap().unwrap(), 28);
+            saved.set(true);
+            stack.clear();
+            Ok(CallbackReturn::Return)
+        });
+        ctx.stash(Executor::start(
+            ctx,
+            ctx.fetch(&closure).into(),
+            (callback,),
+        ))
+    });
+    let mut done = false;
+    for _ in 0..1000 {
+        done = lua.enter(|ctx| ctx.fetch(&executor).step(ctx, &mut Fuel::with(64)).unwrap());
+        lua.gc_collect();
+        if done {
+            break;
+        }
+    }
+    assert!(done && called.get());
+    lua.enter(|ctx| {
+        assert_eq!(
+            ctx.fetch(&executor)
+                .take_result::<i64>(ctx)
+                .unwrap()
+                .unwrap(),
+            60
+        );
+        assert!(ctx.jit().test_pair_executions().1 > 0);
+    });
+}
+
+#[test]
+fn native_transition_handoffs_preserve_single_host_run_traces() {
+    let (mut lua, closure, key) = fixture();
+    lua.enter(|ctx| {
+        ctx.jit().test_activation_host(64);
+        ctx.jit().0.borrow_mut().enqueue(key.caller, true);
+        ctx.jit().0.borrow_mut().enqueue(key.callee, true);
+        ctx.jit().observe_pair(key);
+    });
+    for _ in 0..3 {
+        assert_eq!(lua.service_jit().unwrap(), 1);
+    }
+    for fuel in [-1, 0, 1, 8, 9, 10, 16, 20, 64, 10000] {
+        let run = |lua: &mut Lua, selected| {
+            lua.enter(|ctx| {
+                with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(fuel), |host| {
+                    host.test_pair_selection(selected);
+                    let before = ctx.jit().0.borrow().stats;
+                    let outcome = host.run(ctx, 64, 64, 4);
+                    assert!(outcome.result.is_ok());
+                    let after = ctx.jit().0.borrow().stats;
+                    let (frames, values, open, fuel) = host.test_trace();
+                    let slots = values
+                        .into_iter()
+                        .map(|value| {
+                            let slot = crate::jit::abi::Slot::from_value(value);
+                            (slot.tag, slot.bits)
+                        })
+                        .collect::<Vec<_>>();
+                    (
+                        frames,
+                        slots,
+                        open,
+                        fuel,
+                        outcome.activations,
+                        after.total_dispatches - before.total_dispatches,
+                        after.native_instructions + after.interpreted_instructions
+                            - before.native_instructions
+                            - before.interpreted_instructions,
+                    )
+                })
+            })
+        };
+        assert_eq!(run(&mut lua, true), run(&mut lua, false), "fuel={fuel}");
+    }
+    assert!(lua.enter(|ctx| ctx.jit().test_pair_executions().1 > 0));
+}
+
+#[test]
+fn interrupted_and_error_fallbacks_do_not_repeat_or_drop_caller_prefix_work() {
+    for source in [
+        SOURCE,
+        &b"local n=7 local function f(v) n=n+v end f({}) return n"[..],
+    ] {
+        let (mut lua, closure, key) = fixture_source(source);
+        lua.enter(|ctx| ctx.jit().observe_pair(key));
+        assert_eq!(lua.service_jit().unwrap(), 1);
+        for interrupted in [false, true] {
+            let run = |lua: &mut Lua, select| {
+                lua.enter(|ctx| {
+                    let mut fuel = Fuel::with(65536);
+                    if interrupted {
+                        fuel.interrupt();
+                    }
+                    with_test_thread(ctx, ctx.fetch(&closure), &mut fuel, |host| {
+                        host.test_pair_selection(select);
+                        let before = ctx.jit().0.borrow().stats;
+                        let outcome = host.run(ctx, 64, 64, 4);
+                        let result = format!("{:?}", outcome.result);
+                        let after = ctx.jit().0.borrow().stats;
+                        let (frames, values, open, remaining) = host.test_trace();
+                        let slots = values
+                            .into_iter()
+                            .map(|value| {
+                                let slot = crate::jit::abi::Slot::from_value(value);
+                                (slot.tag, slot.bits)
+                            })
+                            .collect::<Vec<_>>();
+                        (
+                            result,
+                            frames,
+                            slots,
+                            open,
+                            remaining,
+                            outcome.activations,
+                            after.total_dispatches - before.total_dispatches,
+                            after.native_instructions + after.interpreted_instructions
+                                - before.native_instructions
+                                - before.interpreted_instructions,
+                        )
+                    })
+                })
+            };
+            assert_eq!(
+                run(&mut lua, true),
+                run(&mut lua, false),
+                "source={source:?} interrupted={interrupted}"
+            );
+        }
+    }
+}
+
+#[test]
+fn variable_stack_protocol_errors_preserve_unsuccessful_slice_fuel_accounting() {
+    let (mut lua, closure, key) = fixture();
+    lua.enter(|ctx| ctx.jit().observe_pair(key));
+    assert_eq!(lua.service_jit().unwrap(), 1);
+    let run = |lua: &mut Lua, select| {
+        lua.enter(|ctx| {
+            with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(65536), |host| {
+                host.test_pair_selection(select);
+                host.test_variable_stack();
+                let outcome = host.run(ctx, 64, 64, 4);
+                assert!(matches!(
+                    outcome.result,
+                    Err(crate::thread::VMError::ExpectedVariableStack(false))
+                ));
+                let (frames, _, open, fuel) = host.test_trace();
+                (frames, open, fuel, outcome.activations)
+            })
+        })
+    };
+    assert_eq!(run(&mut lua, true), run(&mut lua, false));
+    assert_eq!(lua.enter(|ctx| ctx.jit().test_pair_executions()), (0, 0));
 }

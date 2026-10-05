@@ -952,6 +952,37 @@ pub(crate) struct Prepared {
     code: owner::Shared<backend::Code>,
 }
 
+#[cfg(all(
+    test,
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+pub(crate) struct PreparedPair {
+    program: owner::Shared<canonical::Program>,
+}
+
+#[cfg(all(
+    test,
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+impl PreparedPair {
+    pub(crate) fn invoke<'gc>(
+        &self,
+        ctx: crate::Context<'gc>,
+        host: &mut crate::thread::activation::ActivationHost<'gc, '_>,
+        budget: u32,
+    ) -> Option<(usize, usize)> {
+        let outcome = self.program.invoke(ctx, host, budget);
+        if let Some((calls, returns)) = outcome {
+            ctx.jit().record_pair_execution(calls, returns);
+        }
+        outcome
+    }
+}
+
 pub(crate) struct InterpreterStats<'a> {
     runtime: &'a Runtime,
     pub dispatches: u32,
