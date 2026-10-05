@@ -204,6 +204,8 @@ pub(super) struct Code {
     pub scalar_leaf: Option<super::leaf::Pattern>,
     #[cfg(test)]
     cell_kernel: bool,
+    #[cfg(test)]
+    pub integer_activation: bool,
     #[cfg(all(test, not(miri)))]
     pub scalar_kernel: Option<super::owner::Shared<Code>>,
 }
@@ -391,6 +393,8 @@ pub(super) fn compile_in(
             #[cfg(test)]
             cell_kernel: false,
             #[cfg(test)]
+            integer_activation: false,
+            #[cfg(test)]
             failure,
         },
     )
@@ -415,6 +419,7 @@ pub(super) fn compile_projected_in(
             projected: true,
             leaf: false,
             cell_kernel: false,
+            integer_activation: false,
             failure,
         },
     )
@@ -439,6 +444,7 @@ pub(super) fn compile_leaf_in(
             projected: false,
             leaf: true,
             cell_kernel: false,
+            integer_activation: false,
             failure,
         },
     )
@@ -463,6 +469,7 @@ pub(super) fn compile_leaf_kernel_in(
             projected: false,
             leaf: true,
             cell_kernel: true,
+            integer_activation: false,
             failure,
         },
     )
@@ -476,6 +483,31 @@ pub(super) fn compile_leaf_pair_in(
     metadata: BudgetAllocator,
     work: super::work::Limits,
     failure: Failure,
+) -> Result<Code, JitError> {
+    compile_leaf_pair_selected(snapshot, total, limit, metadata, work, failure, false)
+}
+
+#[cfg(all(test, not(miri)))]
+pub(super) fn compile_integer_leaf_pair_in(
+    snapshot: &Snapshot,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    work: super::work::Limits,
+    failure: Failure,
+) -> Result<Code, JitError> {
+    compile_leaf_pair_selected(snapshot, total, limit, metadata, work, failure, true)
+}
+
+#[cfg(all(test, not(miri)))]
+fn compile_leaf_pair_selected(
+    snapshot: &Snapshot,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    work: super::work::Limits,
+    failure: Failure,
+    integer_activation: bool,
 ) -> Result<Code, JitError> {
     let expansion = super::work::Expansion::admit(snapshot, work)?;
     let mut ordinary = compile_in(
@@ -497,9 +529,25 @@ pub(super) fn compile_leaf_pair_in(
         blocks: work.blocks.saturating_sub(expansion.blocks),
         relocations: work.relocations.saturating_sub(ordinary.relocations),
     };
-    let Ok(kernel) =
+    let kernel = if integer_activation {
+        compile_selected(
+            snapshot,
+            total,
+            limit,
+            metadata.clone(),
+            remaining,
+            Selection {
+                projected: false,
+                leaf: true,
+                cell_kernel: true,
+                integer_activation: true,
+                failure,
+            },
+        )
+    } else {
         compile_leaf_kernel_in(snapshot, total, limit, metadata.clone(), remaining, failure)
-    else {
+    };
+    let Ok(kernel) = kernel else {
         return Ok(ordinary);
     };
     let previous_limit = metadata.0.limit();
@@ -523,6 +571,8 @@ struct Selection {
     leaf: bool,
     #[cfg(test)]
     cell_kernel: bool,
+    #[cfg(test)]
+    integer_activation: bool,
     #[cfg(test)]
     failure: Failure,
 }
@@ -1138,6 +1188,59 @@ fn compile_selected(
         )?;
     }
     #[cfg(test)]
+    if selection.integer_activation {
+        let plan = super::integer::Plan::new(snapshot)?;
+        let _workspace = Reservation::new(snapshot.operations.allocator().0.clone(), 16 * 1024)
+            .map_err(|_| JitError::ResourceLimit("integer template workspace"))?;
+        let previous_instructions = context
+            .func
+            .layout
+            .blocks()
+            .map(|block| context.func.layout.block_insts(block).count())
+            .sum::<usize>();
+        let previous_blocks = context.func.layout.blocks().count();
+        let signature = context.func.signature.clone();
+        context.func = plan.function(
+            context.func.name.clone(),
+            signature.clone(),
+            module.target_config(),
+        )?;
+        plan.verify(&context.func, signature, module.target_config())?;
+        cranelift_codegen::verify_function(&context.func, module.isa())
+            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        let instructions = context
+            .func
+            .layout
+            .blocks()
+            .map(|block| context.func.layout.block_insts(block).count())
+            .sum::<usize>();
+        expansion.verify_actual(
+            previous_instructions
+                .checked_add(
+                    instructions
+                        .checked_mul(2)
+                        .ok_or(JitError::ResourceLimit("integer template instructions"))?,
+                )
+                .and_then(|count| count.checked_add(projection_instructions))
+                .ok_or(JitError::ResourceLimit("integer template instructions"))?,
+            previous_blocks
+                .checked_add(
+                    context
+                        .func
+                        .layout
+                        .blocks()
+                        .count()
+                        .checked_mul(2)
+                        .ok_or(JitError::ResourceLimit("integer template blocks"))?,
+                )
+                .and_then(|count| count.checked_add(projection_blocks))
+                .ok_or(JitError::ResourceLimit("integer template blocks"))?,
+        )?;
+        for (pc, entry) in entries.iter_mut().enumerate() {
+            *entry = pc == 0;
+        }
+    }
+    #[cfg(test)]
     if let Failure::RequireReleasedWorkspace(baseline) | Failure::RequireSignatures(baseline) =
         failure
     {
@@ -1310,6 +1413,8 @@ fn compile_selected(
         scalar_leaf: leaf_pattern,
         #[cfg(test)]
         cell_kernel: selection.cell_kernel,
+        #[cfg(test)]
+        integer_activation: selection.integer_activation,
         #[cfg(all(test, not(miri)))]
         scalar_kernel: None,
     })

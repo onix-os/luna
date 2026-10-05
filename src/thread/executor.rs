@@ -1077,9 +1077,20 @@ mod activation_tests {
         kernels: bool,
         activations: Option<u64>,
     ) -> (Vec<Slice>, Result<i64, std::string::String>) {
+        run_mode_checked_kernel(source, budget, native, kernels, activations, false)
+    }
+
+    fn run_mode_checked_kernel(
+        source: &str,
+        budget: i32,
+        native: bool,
+        kernels: bool,
+        activations: Option<u64>,
+        integer: bool,
+    ) -> (Vec<Slice>, Result<i64, std::string::String>) {
         let mut lua = Lua::core();
         lua.load_debug();
-        let _ = (native, kernels, activations);
+        let _ = (native, kernels, activations, integer);
         #[cfg(feature = "jit")]
         let native = native && !cfg!(miri) && lua.jit_capabilities().supported_target;
         #[cfg(feature = "jit")]
@@ -1095,7 +1106,11 @@ mod activation_tests {
         .unwrap();
         let executor = lua.enter(|ctx| {
             #[cfg(all(feature = "jit", not(miri)))]
-            ctx.jit().test_scalar_kernels(native && kernels);
+            if integer {
+                ctx.jit().test_integer_activations(native && kernels);
+            } else {
+                ctx.jit().test_scalar_kernels(native && kernels);
+            }
             ctx.set_global(
                 "nested_boundary",
                 Callback::from_fn(&ctx, |ctx, _, mut stack| {
@@ -1261,6 +1276,11 @@ mod activation_tests {
                     reference,
                     run_mode_checked(source, budget, true, true, Some(activations)),
                     "{source}, {budget}"
+                );
+                assert_eq!(
+                    reference,
+                    run_mode_checked_kernel(source, budget, true, true, Some(activations), true),
+                    "integer {source}, {budget}"
                 );
             }
         }

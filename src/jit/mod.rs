@@ -65,6 +65,12 @@ mod handoff;
 ))]
 mod helper_flow;
 mod helpers;
+#[cfg(all(
+    test,
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod integer;
 pub(crate) mod ir;
 #[cfg(test)]
 mod leaf;
@@ -490,6 +496,8 @@ pub(crate) struct Manager {
     scalar_leaves: bool,
     #[cfg(all(test, not(miri)))]
     scalar_kernels: bool,
+    #[cfg(all(test, not(miri)))]
+    integer_activations: bool,
     #[cfg(test)]
     scalar_native_counts: (u64, u64),
     #[cfg(all(test, not(miri)))]
@@ -543,6 +551,8 @@ impl Default for Manager {
             scalar_leaves: false,
             #[cfg(all(test, not(miri)))]
             scalar_kernels: false,
+            #[cfg(all(test, not(miri)))]
+            integer_activations: false,
             #[cfg(test)]
             scalar_native_counts: (0, 0),
             #[cfg(all(test, not(miri)))]
@@ -871,6 +881,13 @@ impl Runtime {
         self.0.borrow().scalar_activation_entries
     }
 
+    #[cfg(all(test, not(miri)))]
+    pub(crate) fn test_integer_activations(&self, enabled: bool) {
+        let mut manager = self.0.borrow_mut();
+        manager.scalar_kernels = enabled;
+        manager.integer_activations = enabled;
+    }
+
     pub(crate) fn new() -> Self {
         Self::try_new(Manager::default())
             .unwrap_or_else(|_| std::alloc::handle_alloc_error(RuntimeOwner::allocation_layout()))
@@ -985,6 +1002,19 @@ impl Runtime {
             #[cfg(test)]
             let failure = self.0.borrow().memory_failure;
             let compile = || {
+                #[cfg(all(test, not(miri)))]
+                if self.0.borrow().integer_activations
+                    && leaf::Pattern::recognize(&snapshot).is_some()
+                {
+                    return backend::compile_integer_leaf_pair_in(
+                        &snapshot,
+                        memory.clone(),
+                        limit,
+                        metadata.clone(),
+                        work,
+                        failure,
+                    );
+                }
                 #[cfg(all(test, not(miri)))]
                 if self.0.borrow().scalar_kernels && leaf::Pattern::recognize(&snapshot).is_some() {
                     return backend::compile_leaf_pair_in(
@@ -1231,7 +1261,11 @@ impl Runtime {
             std::slice::from_raw_parts_mut(scratch.as_mut_ptr().cast::<abi::Slot>(), register_count)
         };
         #[cfg(all(test, not(miri)))]
-        if let Some(kernel) = &code.scalar_kernel {
+        if let Some(kernel) = code
+            .scalar_kernel
+            .as_ref()
+            .filter(|kernel| !kernel.integer_activation)
+        {
             let pattern = kernel.scalar_leaf.expect("scalar kernel has no pattern");
             let binding = if pattern.permits_cell_entry(*registers.pc, slots) {
                 closure

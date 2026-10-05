@@ -1,5 +1,11 @@
 # Native JIT: experimental scalar and heap tier
 
+A new test-only integer leaf emitter uses a straight-line, helper-free body
+instead of the generic dispatch/inlining body. GNU/musl tests cover native
+slot aliases, guards and fuel declines; public-step comparisons retain
+canonical interpreter behavior. This is a correctness checkpoint, not a
+measured performance fix or production enablement.
+
 Two production direct-callee forms failed the complete frozen comparison and
 are disabled again. Owned and borrowed frame preflights collected 48 blocks /
 288 timing commands; neither accelerates upvalues or callbacks, and disabled

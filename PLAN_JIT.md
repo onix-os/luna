@@ -11,6 +11,42 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Straight-line integer emitter checkpoint — 2026-10-05
+
+The experimental four-operation integer leaf now has a dedicated CLIF body:
+guard PC zero, sufficient fuel, descriptor identity/freshness and integer
+operands; execute wrapping Add/Sub/Mul; commit scalar registers and the scoped
+cell; exit at canonical Return. It contains no helper calls or GC pointers.
+All other entries retain ordinary native execution. The emitter remains
+test-only at this checkpoint; callback and compiled-Off acceptance are still
+independent open work.
+
+Source recognition and the existing generic source/flow/helper verifiers run
+before replacement. An independently regenerated canonical template must
+match the entire CLIF function, followed by Cranelift verification. Work
+accounting includes the original body, emitted body, regenerated verifier
+body and existing helper bodies; template workspace has a bounded reservation.
+Optional child admission retains the ordinary owner on refusal.
+
+GNU/musl native tests execute 1,152 alias/PC/budget combinations per target
+and nine invalid descriptor/operand refusals. The mutation test changes
+constants, comparisons, branch targets, memory offsets, operands and the
+signature. Sixteen source cases compare both experimental routes against Off
+at four public fuel budgets with GC after every public step.
+
+The full focused GNU/musl and GNU Auto all-feature run passes 1,158 repeated
+executions across 86 suites, four existing ignores, zero failures; formatting
+and GNU baseline/JIT checks pass. Subsequent expanded mutation runs pass eight
+executions/two suites. Rust-only Miri passes the pure source/constant refusal
+test under Stacked seed one and Tree seed two; native tests are excluded and
+the exhaustive mutation test is explicitly filtered. This does not establish
+native ARM64 evidence or performance improvement.
+
+Evidence: `integer-entry-full-validation`, `integer-entry-mutation-validation`
+and `integer-entry-miri-validation` logs and exit files beneath
+`target/jit-evidence/short-slice-performance/`. Next promote one bounded
+candidate, prove real integrated execution and repeat the frozen comparison.
+
 #### Production callee activation comparisons rejected — 2026-10-05
 
 The direct activation was promoted in `7b6743f`; `6a11d99` proves through the
