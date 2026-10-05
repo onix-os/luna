@@ -1017,9 +1017,18 @@ mod activation_tests {
         budget: i32,
         native: bool,
     ) -> (Vec<Slice>, Result<i64, std::string::String>) {
+        run_mode(source, budget, native, false)
+    }
+
+    fn run_mode(
+        source: &str,
+        budget: i32,
+        native: bool,
+        kernels: bool,
+    ) -> (Vec<Slice>, Result<i64, std::string::String>) {
         let mut lua = Lua::core();
         lua.load_debug();
-        let _ = native;
+        let _ = (native, kernels);
         #[cfg(feature = "jit")]
         let native = native && !cfg!(miri) && lua.jit_capabilities().supported_target;
         #[cfg(feature = "jit")]
@@ -1034,6 +1043,8 @@ mod activation_tests {
         })
         .unwrap();
         let executor = lua.enter(|ctx| {
+            #[cfg(all(feature = "jit", not(miri)))]
+            ctx.jit().test_scalar_kernels(native && kernels);
             ctx.set_global(
                 "nested_boundary",
                 Callback::from_fn(&ctx, |ctx, _, mut stack| {
@@ -1144,6 +1155,21 @@ mod activation_tests {
 
     #[test]
     fn native_and_interpreted_activations_have_identical_canonical_slices() {
+        compare_canonical_slices(false);
+    }
+
+    #[cfg(all(
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[test]
+    fn scalar_kernels_have_identical_canonical_slices() {
+        compare_canonical_slices(true);
+    }
+
+    fn compare_canonical_slices(kernels: bool) {
         for source in [
             "local function f(x) return x+1 end local n=0 for i=1,100 do n=f(n) end return n",
             "local n=0 local function f(x) n=n+x end for i=1,100 do f(1) end return n",
@@ -1155,13 +1181,13 @@ mod activation_tests {
             "local function f() return 1+{} end return f()",
         ] {
             for budget in [0, 1, 17, 4096] {
-                let reference = run(source, budget, false);
+                let reference = run_mode(source, budget, false, kernels);
                 if source.contains("1+{}") {
                     assert!(reference.1.is_err());
                 } else {
                     assert_eq!(reference.1, Ok(100));
                 }
-                assert_eq!(reference, run(source, budget, true), "{source}, {budget}");
+                assert_eq!(reference, run_mode(source, budget, true, kernels), "{source}, {budget}");
             }
         }
     }

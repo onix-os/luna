@@ -204,6 +204,8 @@ pub(super) struct Code {
     pub scalar_leaf: Option<super::leaf::Pattern>,
     #[cfg(test)]
     cell_kernel: bool,
+    #[cfg(all(test, not(miri)))]
+    pub scalar_kernel: Option<super::owner::Shared<Code>>,
 }
 
 impl Code {
@@ -276,6 +278,8 @@ pub(super) enum Failure {
     ProtectAfterFirst,
     RefuseOwnerStorage,
     RefuseOwnerAllocation,
+    RefuseScalarOwnerStorage,
+    RefuseScalarOwnerAllocation,
     RefusePredecessors,
     RefuseDominanceStorage,
     RefuseDominanceWork,
@@ -436,6 +440,42 @@ pub(super) fn compile_leaf_kernel_in(
             failure,
         },
     )
+}
+
+#[cfg(all(test, not(miri)))]
+pub(super) fn compile_leaf_pair_in(
+    snapshot: &Snapshot,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    work: super::work::Limits,
+    failure: Failure,
+) -> Result<Code, JitError> {
+    let per_entry = super::work::Limits {
+        instructions: work.instructions / 2,
+        blocks: work.blocks / 2,
+        relocations: work.relocations / 2,
+    };
+    let mut ordinary = compile_in(
+        snapshot,
+        total.clone(),
+        limit,
+        metadata.clone(),
+        per_entry,
+        failure,
+    )?;
+    let kernel =
+        compile_leaf_kernel_in(snapshot, total, limit, metadata.clone(), per_entry, failure)?;
+    match failure {
+        Failure::RefuseScalarOwnerStorage => metadata.0.set_limit(metadata.0.current()),
+        Failure::RefuseScalarOwnerAllocation => metadata.0.fail_after(0),
+        _ => {}
+    }
+    ordinary.scalar_kernel = Some(
+        super::owner::Shared::try_new(kernel, metadata)
+            .map_err(|_| JitError::ResourceLimit("scalar kernel owner"))?,
+    );
+    Ok(ordinary)
 }
 
 struct Selection {
@@ -1231,6 +1271,8 @@ fn compile_selected(
         scalar_leaf: leaf_pattern,
         #[cfg(test)]
         cell_kernel: selection.cell_kernel,
+        #[cfg(all(test, not(miri)))]
+        scalar_kernel: None,
     })
 }
 

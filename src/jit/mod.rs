@@ -488,6 +488,8 @@ pub(crate) struct Manager {
     before_compile: Option<Box<dyn FnOnce()>>,
     #[cfg(test)]
     scalar_leaves: bool,
+    #[cfg(all(test, not(miri)))]
+    scalar_kernels: bool,
     #[cfg(test)]
     scalar_native_counts: (u64, u64),
     pub(crate) config: JitConfig,
@@ -537,6 +539,8 @@ impl Default for Manager {
             before_compile: None,
             #[cfg(test)]
             scalar_leaves: false,
+            #[cfg(all(test, not(miri)))]
+            scalar_kernels: false,
             #[cfg(test)]
             scalar_native_counts: (0, 0),
             config,
@@ -853,6 +857,11 @@ impl Drop for InterpreterStats<'_> {
 }
 
 impl Runtime {
+    #[cfg(all(test, not(miri)))]
+    pub(crate) fn test_scalar_kernels(&self, enabled: bool) {
+        self.0.borrow_mut().scalar_kernels = enabled;
+    }
+
     pub(crate) fn new() -> Self {
         Self::try_new(Manager::default())
             .unwrap_or_else(|_| std::alloc::handle_alloc_error(RuntimeOwner::allocation_layout()))
@@ -907,6 +916,17 @@ impl Runtime {
             #[cfg(test)]
             let failure = self.0.borrow().memory_failure;
             let compile = || {
+                #[cfg(all(test, not(miri)))]
+                if self.0.borrow().scalar_kernels && leaf::Pattern::recognize(&snapshot).is_some() {
+                    return backend::compile_leaf_pair_in(
+                        &snapshot,
+                        memory.clone(),
+                        limit,
+                        metadata.clone(),
+                        work,
+                        failure,
+                    );
+                }
                 #[cfg(test)]
                 if self.0.borrow().scalar_leaves && leaf::Pattern::recognize(&snapshot).is_some() {
                     return backend::compile_leaf_in(
@@ -1119,6 +1139,18 @@ impl Runtime {
         let slots = unsafe {
             std::slice::from_raw_parts_mut(scratch.as_mut_ptr().cast::<abi::Slot>(), register_count)
         };
+        #[cfg(all(test, not(miri)))]
+        if let Some(kernel) = &code.scalar_kernel {
+            let pattern = kernel.scalar_leaf.expect("scalar kernel has no pattern");
+            let binding = closure
+                .upvalues()
+                .get(usize::from(pattern.upvalue))
+                .and_then(|cell| registers.projection_origin(cell.get()))
+                .and_then(|origin| leaf::Binding::from_origin(origin, slots));
+            if let Some(binding) = binding {
+                return self.invoke_scalar_kernel(kernel, registers, slots, binding, budget);
+            }
+        }
         if code.projected_upvalues {
             projection::with_frame(
                 registers,
@@ -1145,6 +1177,54 @@ impl Runtime {
                 budget,
             )
         }
+    }
+
+    #[cfg(all(
+        test,
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    fn invoke_scalar_kernel<'gc>(
+        &self,
+        code: &backend::Code,
+        registers: &mut crate::thread::LuaRegisters<'gc, '_>,
+        slots: &mut [abi::Slot],
+        binding: leaf::Binding,
+        budget: u32,
+    ) -> u32 {
+        let pc = *registers.pc;
+        let (exit, delta) = binding
+            .with_native(slots, |pointer, view| unsafe {
+                code.invoke_cell_raw(pointer, pc, budget, view)
+            })
+            .expect("invalid exiting scalar kernel");
+        for (slot, dest) in slots.iter().copied().zip(registers.stack_frame.iter_mut()) {
+            slot.write_back(dest);
+        }
+        *registers.pc = usize::try_from(exit.pc).expect("native PC exceeds host range");
+        delta
+            .apply_registers(registers)
+            .expect("invalid scalar kernel commit target");
+        let mut manager = self.0.borrow_mut();
+        manager.scalar_native_counts.0 = manager
+            .scalar_native_counts
+            .0
+            .saturating_add(u64::from(delta.reads));
+        manager.scalar_native_counts.1 = manager
+            .scalar_native_counts
+            .1
+            .saturating_add(u64::from(delta.writes));
+        manager.stats.native_upvalue_reads = manager
+            .stats
+            .native_upvalue_reads
+            .saturating_add(u64::from(delta.reads));
+        manager.stats.native_upvalue_writes = manager
+            .stats
+            .native_upvalue_writes
+            .saturating_add(u64::from(delta.writes));
+        manager.stats.record_native_exit(&exit);
+        exit.instructions
     }
 
     #[cfg(all(
