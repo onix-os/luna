@@ -32,6 +32,39 @@ fn source(lua: &mut Lua, script: &[u8]) -> Result<StashedExecutor, ExternError> 
     Ok(executor)
 }
 
+#[cfg(not(miri))]
+#[test]
+fn integer_leaf_activations_execute_without_upvalue_helpers() -> Result<(), ExternError> {
+    for (initial, operation, argument, expected) in [
+        (1, "+", 2, 3),
+        (1, "-", 2, -1),
+        (3, "*", 2, 6),
+        (i64::MAX, "+", 1, i64::MIN),
+        (i64::MIN, "-", 1, i64::MAX),
+        (i64::MAX, "*", 2, -2),
+    ] {
+        let initial = if initial == i64::MIN {
+            "(-9223372036854775807-1)".to_owned()
+        } else {
+            initial.to_string()
+        };
+        let script = format!(
+            "local sum={initial} local function add(v) sum=sum{operation}v end add({argument}) return sum"
+        );
+        let mut reference = state(false);
+        let mut native = state(true);
+        let left = source(&mut reference, script.as_bytes())?;
+        let right = source(&mut native, script.as_bytes())?;
+        assert_eq!(reference.execute::<i64>(&left)?, expected);
+        assert_eq!(native.execute::<i64>(&right)?, expected);
+        let stats = native.jit_stats();
+        assert_eq!(stats.native_upvalue_reads, 1);
+        assert_eq!(stats.native_upvalue_writes, 1);
+        assert!(stats.helper_calls < 2, "{stats:?}");
+    }
+    Ok(())
+}
+
 #[test]
 fn current_frame_aliases_read_scratch_write_through_and_decline_stale_tables(
 ) -> Result<(), ExternError> {

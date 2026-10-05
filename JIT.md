@@ -1,10 +1,10 @@
 # Native JIT: experimental scalar and heap tier
 
-A new test-only integer leaf emitter uses a straight-line, helper-free body
-instead of the generic dispatch/inlining body. GNU/musl tests cover native
-slot aliases, guards and fuel declines; public-step comparisons retain
-canonical interpreter behavior. This is a correctness checkpoint, not a
-measured performance fix or production enablement.
+A new integer leaf candidate uses a straight-line, helper-free body instead
+of the generic dispatch/inlining body. GNU/musl integration tests prove real
+helper-free execution, including integer overflow; public-step comparisons
+retain canonical interpreter behavior. It is enabled for a frozen benchmark
+comparison, not accepted as a measured performance fix.
 
 Two production direct-callee forms failed the complete frozen comparison and
 are disabled again. Owned and borrowed frame preflights collected 48 blocks /

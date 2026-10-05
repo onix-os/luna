@@ -11,6 +11,35 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Integer activation production candidate — 2026-10-05
+
+The straight-line integer emitter from `8a84bd4` is now enabled for source-bound
+integer leaves. Ordinary native entries remain installed for partial fuel,
+other PCs, floats, references, hooks, closed/foreign bindings and optional
+child resource refusals. No generic scalar kernel is selected in production.
+Physical frames, canonical Return and executor fuel accounting are unchanged.
+
+Public integration tests execute Add/Sub/Mul and wrapping overflow cases,
+requiring one native upvalue read/write with fewer than two helper calls. They
+do not use unit-test selectors. GNU/musl focused and GNU Auto all-feature
+validation passes 1,175 repeated executions/88 suites, four existing ignores,
+zero failures, plus GNU baseline/JIT checks. Miri passes 22 executions/four
+suites under the two documented models/seeds for scoped bindings and pure
+source verification; it does not execute generated machine code. A final
+GNU/musl integration rerun passes 16 executions/two suites after making two
+diagnostic-only items test-only; GNU JIT checks and formatting also pass.
+
+Evidence prefixes `integer-production-full-validation`,
+`integer-production-miri-validation` and `integer-production-final-validation`
+are retained under `target/jit-evidence/short-slice-performance/`. The initial
+overflow fixture failure is retained separately: Lua's positive numeral for
+2^63 parses as a float, so the minimum integer fixture now uses integer
+subtraction. Interpreter parity caught this before candidate acceptance.
+
+The candidate still requires the unchanged 24-block speed/shipping comparison.
+Callbacks and compiled-Off costs remain independent gates; no performance
+acceptance is claimed from correctness results.
+
 #### Straight-line integer emitter checkpoint — 2026-10-05
 
 The experimental four-operation integer leaf now has a dedicated CLIF body:

@@ -631,7 +631,6 @@ impl<'gc> Executor<'gc> {
                             fuel,
                         };
                         #[cfg(all(
-                            test,
                             feature = "jit",
                             not(miri),
                             target_os = "linux",
@@ -639,7 +638,6 @@ impl<'gc> Executor<'gc> {
                         ))]
                         let mut lua_frame = lua_frame;
                         #[cfg(all(
-                            test,
                             feature = "jit",
                             not(miri),
                             target_os = "linux",
@@ -664,7 +662,6 @@ impl<'gc> Executor<'gc> {
                             run_vm(ctx, lua_frame, Self::VM_GRANULARITY)
                         };
                         #[cfg(not(all(
-                            test,
                             feature = "jit",
                             not(miri),
                             target_os = "linux",
