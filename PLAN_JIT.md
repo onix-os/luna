@@ -11,6 +11,49 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Scoped pair selection and before-Call handoff — 2026-10-06
+
+`7c5b5b7` adds **test-only automatic selection** to the scoped host. The VM
+retains a PreparedPair lease before Call dispatch/PC advance and passes it out
+without retaining a typed register view. Both ordinary dispatch and a cached
+native caller's transition path can hand off. The host charges completed prefix
+instructions once, defers its one caller step until Call, and executes the
+leased program without a second lookup or a manager borrow across native code.
+
+If preflight declines, the host interprets the remainder of the same caller
+budget with re-interception disabled; it does not stop merely because prefix
+charging exhausted fuel. Fusion requires room for two activations, the ordinary
+step charge and a sufficient callee budget. Late consumed-Call refusal remains
+distinct from an untouched decline. Fixed-argument handoff requires a physical
+fixed stack: a protocol error must retain canonical unsuccessful-slice fuel
+accounting rather than charging a split prefix first.
+
+Eighteen pair tests include 540 cold trace-grid configurations (each compared
+against an unselected reference), cached-native prefix/fuel traces, interrupts,
+arithmetic-error fallback, variable-stack protocol failure and real public
+executor steps through a repeated-call loop. The latter collects between steps
+and runs a nested executor from a later callback, proving that scoped borrows
+and native leases are released before those callbacks. Native-pair completion
+counters establish actual selection rather than merely ordinary native work.
+`57b5dcd` also imports the unchanged frozen `closure_upvalue` corpus directly
+from `examples/jit_support/workloads.rs`: the selected tier returns 50005000
+and records completed native pairs. This is integrated corpus correctness,
+not a timing result or a speedup claim.
+Existing canonical and activation focused gates pass. Raw evidence is under
+`target/jit-evidence/short-slice-performance/pair-selection/`.
+
+Final committed-source GNU/musl focused and GNU Auto all-feature validation
+passes 1,240 repeated executions across 90 suites, four existing ignores and
+zero failures. Formatting and GNU baseline/JIT checks pass without new compiler
+warnings. The earlier runtime-only validation passed 1,237 executions before
+the frozen-corpus fixture; the final revision-specific count is authoritative.
+
+This is not production promotion or timing acceptance. The bridge still needs
+ordinary runtime error/panic handoff, pair pressure/eviction integration and
+complete production semantic/platform/ownership gates before a measured trial.
+The original upvalue, callback and compiled-Off regressions remain unresolved;
+no new ARM64 or native-code Miri certification is claimed.
+
 #### Queued caller/callee preparation — 2026-10-05
 
 `511ee89` adds **test-only pair preparation observed from real VM Calls**.
@@ -46,7 +89,7 @@ Committed-source GNU/musl focused and GNU Auto all-feature validation passes
 failures. Formatting and GNU baseline/JIT checks pass without new compiler
 warnings. These are correctness and ownership checks, not timing acceptance.
 
-Pair programs are **not yet selected automatically for execution**. The scoped
+At this earlier checkpoint pair programs are **not selected automatically for execution**. The scoped
 host still needs a private selector and a verified before-Call handoff that
 preserves the caller's partially consumed VM budget, immediate statistics,
 step fuel and exact fallback accounting. Pair-cache pressure/eviction behavior

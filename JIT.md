@@ -1,8 +1,13 @@
 # Native JIT: experimental scalar and heap tier
 
+The test-only scoped host now selects leased call programs before canonical
+Call dispatch (`7c5b5b7`). Cold/cached-native traces, fuel cutoffs, fallback
+errors and public executor callback/GC checks pass focused tests. Production
+promotion and unchanged performance acceptance remain pending.
+
 Test-only caller/callee programs are now queued from real VM Calls and prepared
 outside the arena (`511ee89`, `make jit-call-pairs`). They share state resource
-limits, cancel dead sources and retain safe code leases. Automatic execution
+limits, cancel dead sources and retain safe code leases. Production execution
 selection is still pending; the performance regressions remain unresolved.
 
 The test-only aggregate call bridge now executes against canonical Lua frames
