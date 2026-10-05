@@ -3,6 +3,49 @@
 use luna::{opcode::Operation, Closure, Executor, Fuel, JitConfig, JitMode, Lua};
 
 #[test]
+fn native_head_guard_fallback_does_not_retry_the_first_native_attempt() {
+    let mut lua = Lua::empty();
+    lua.set_jit_config(JitConfig {
+        mode: JitMode::Auto,
+        hot_threshold: 1,
+        ..Default::default()
+    })
+    .unwrap();
+    let factory = lua.enter(|ctx| {
+        let closure = Closure::load(
+            ctx,
+            Some("native-head-guard"),
+            b"return function(x) return x+1 end",
+        )
+        .unwrap();
+        ctx.stash(Executor::start(ctx, closure.into(), ()))
+    });
+    lua.finish(&factory).unwrap();
+    let function = lua.enter(|ctx| {
+        let function = ctx
+            .fetch(&factory)
+            .take_result::<luna::Function>(ctx)
+            .unwrap()
+            .unwrap();
+        ctx.stash(function)
+    });
+    lua.prepare_jit().unwrap();
+    let before = lua.jit_stats();
+    let executor = lua.enter(|ctx| {
+        let value = luna::Table::new(&ctx);
+        ctx.stash(Executor::start(ctx, ctx.fetch(&function), (value,)))
+    });
+    assert!(lua.execute::<()>(&executor).is_err());
+    let after = lua.jit_stats();
+    if lua.jit_capabilities().supported_target {
+        assert_eq!(after.guard_exits - before.guard_exits, 1);
+        assert_eq!(after.code_lookups - before.code_lookups, 1);
+        assert_eq!(after.native_entries - before.native_entries, 1);
+    }
+    assert_eq!(after.total_dispatches - before.total_dispatches, 1);
+}
+
+#[test]
 fn straight_line_dispatches_include_returns_and_failing_opcodes() {
     for (source, fails, arithmetic) in [
         ("return", false, false),
