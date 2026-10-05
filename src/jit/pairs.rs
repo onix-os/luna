@@ -9,7 +9,7 @@ use super::{
     JitConfig, JitError, JitMode, MetadataMap, Runtime,
 };
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Key {
     pub caller: u64,
     pub callee: u64,
@@ -22,6 +22,7 @@ struct Entry {
     attempts: u32,
     queued: bool,
     program: Option<Shared<Program>>,
+    last_used: u64,
 }
 
 pub(super) struct State {
@@ -51,6 +52,26 @@ impl State {
 
     pub fn clear(&mut self) {
         *self = Self::new(self.allocator.clone());
+    }
+
+    pub fn victim(&self, exclude: Option<Key>) -> Option<(u64, Key)> {
+        self.entries
+            .iter()
+            .filter_map(|(key, entry)| {
+                (Some(*key) != exclude
+                    && entry
+                        .program
+                        .as_ref()
+                        .is_some_and(|program| Shared::strong_count(program) == 1))
+                .then_some((entry.last_used, *key))
+            })
+            .min()
+    }
+
+    pub fn evict(&mut self, key: Key) {
+        let entry = self.entries.get_mut(&key).unwrap();
+        entry.program = None;
+        entry.hotness = 0;
     }
 
     pub fn configure(&mut self, config: &JitConfig, available: usize) {
@@ -260,16 +281,13 @@ impl Runtime {
             return None;
         }
         manager.stats.code_lookups = manager.stats.code_lookups.saturating_add(1);
-        let program = manager
-            .pairs
-            .as_ref()?
-            .entries
-            .get(&key)?
-            .program
-            .as_ref()?
-            .clone();
+        let last_used = manager.clock.saturating_add(1);
+        let program = manager.pairs.as_mut()?.entries.get_mut(&key)?;
+        let lease = program.program.as_ref()?.clone();
+        program.last_used = last_used;
+        manager.clock = last_used;
         manager.stats.code_leases = manager.stats.code_leases.saturating_add(1);
-        Some(program)
+        Some(lease)
     }
 
     pub(crate) fn compile_pair(
@@ -292,9 +310,43 @@ impl Runtime {
                 manager.memory_failure,
             )
         };
-        let result = Program::new(
-            key, &caller, &callee, memory, limit, metadata, limits, failure,
-        );
+        let compile = || {
+            Program::new(
+                key,
+                &caller,
+                &callee,
+                memory.clone(),
+                limit,
+                metadata.clone(),
+                limits,
+                failure,
+            )
+        };
+        let mut result = compile();
+        if matches!(&result, Err(JitError::ResourceLimit("native mappings"))) {
+            let mut manager = self.0.borrow_mut();
+            let eligible = manager.config.mode == JitMode::Auto
+                && manager.pairs.as_ref().is_some_and(|pairs| {
+                    pairs
+                        .entries
+                        .get(&key)
+                        .is_some_and(|entry| entry.attempts < manager.config.max_compile_attempts)
+                });
+            if eligible && manager.evict_cached(super::CacheKey::Pair(key)) {
+                manager
+                    .pairs
+                    .as_mut()
+                    .unwrap()
+                    .entries
+                    .get_mut(&key)
+                    .unwrap()
+                    .attempts += 1;
+                manager.stats.compilation_failures =
+                    manager.stats.compilation_failures.saturating_add(1);
+                drop(manager);
+                result = compile();
+            }
+        }
         drop(caller);
         drop(callee);
         let mut manager = self.0.borrow_mut();
@@ -320,14 +372,17 @@ impl Runtime {
             }
             let program = Shared::try_new(program, manager.metadata.clone())
                 .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
-            manager
+            let last_used = manager.clock.saturating_add(1);
+            let entry = manager
                 .pairs
                 .as_mut()
                 .unwrap()
                 .entries
                 .get_mut(&key)
-                .unwrap()
-                .program = Some(program);
+                .unwrap();
+            entry.program = Some(program);
+            entry.last_used = last_used;
+            manager.clock = last_used;
             manager.stats.installed_regions = manager.stats.installed_regions.saturating_add(1);
             Ok(())
         });

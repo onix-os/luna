@@ -649,6 +649,17 @@ struct CachedCode {
     last_used: u64,
 }
 
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum CacheKey {
+    Prototype(u64),
+    #[cfg(all(test, not(miri)))]
+    Pair(pairs::Key),
+}
+
 impl Manager {
     fn queued_count(&self) -> usize {
         let count = self.queue.len();
@@ -758,24 +769,55 @@ impl Manager {
         {
             return false;
         }
+        if !self.evict_cached(CacheKey::Prototype(id)) {
+            return false;
+        }
+        self.tracked.get_mut(&id).unwrap().attempts += 1;
+        true
+    }
+
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    fn evict_cached(&mut self, exclude: CacheKey) -> bool {
         let victim = self
             .code
             .iter()
             .filter(|(candidate, entry)| {
-                **candidate != id && owner::Shared::strong_count(&entry.code) == 1
+                CacheKey::Prototype(**candidate) != exclude
+                    && owner::Shared::strong_count(&entry.code) == 1
             })
             .min_by_key(|(candidate, entry)| (entry.last_used, **candidate))
-            .map(|(candidate, _)| *candidate);
-        let Some(victim) = victim else {
+            .map(|(candidate, entry)| (entry.last_used, CacheKey::Prototype(*candidate)));
+        #[cfg(all(test, not(miri)))]
+        let victim = victim
+            .into_iter()
+            .chain(self.pairs.as_ref().and_then(|pairs| {
+                let excluded = match exclude {
+                    CacheKey::Pair(key) => Some(key),
+                    CacheKey::Prototype(_) => None,
+                };
+                pairs
+                    .victim(excluded)
+                    .map(|(clock, key)| (clock, CacheKey::Pair(key)))
+            }))
+            .min();
+        let Some((_, victim)) = victim else {
             self.stats.cache_eviction_refusals =
                 self.stats.cache_eviction_refusals.saturating_add(1);
             return false;
         };
-        self.code.remove(&victim);
-        if let Some(tracking) = self.tracked.get_mut(&victim) {
-            tracking.hotness = 0;
+        match victim {
+            CacheKey::Prototype(id) => {
+                self.code.remove(&id);
+                if let Some(tracking) = self.tracked.get_mut(&id) {
+                    tracking.hotness = 0;
+                }
+            }
+            #[cfg(all(test, not(miri)))]
+            CacheKey::Pair(key) => self.pairs.as_mut().unwrap().evict(key),
         }
-        self.tracked.get_mut(&id).unwrap().attempts += 1;
         self.stats.cache_evictions = self.stats.cache_evictions.saturating_add(1);
         true
     }

@@ -20,8 +20,13 @@ fn fixture_source(source: &[u8]) -> (Lua, StashedClosure, Key) {
         ..Default::default()
     })
     .unwrap();
-    let (closure, key) = lua.enter(|ctx| {
-        ctx.jit().test_call_pairs(true);
+    lua.enter(|ctx| ctx.jit().test_call_pairs(true));
+    let (closure, key) = load_pair(&mut lua, source);
+    (lua, closure, key)
+}
+
+fn load_pair(lua: &mut Lua, source: &[u8]) -> (StashedClosure, Key) {
+    lua.enter(|ctx| {
         let closure = Closure::load(ctx, None, source).unwrap();
         let prototype = closure.prototype();
         let registry = ctx.jit_registry().borrow();
@@ -35,8 +40,305 @@ fn fixture_source(source: &[u8]) -> (Lua, StashedClosure, Key) {
                 .unwrap(),
         };
         (ctx.stash(closure), key)
+    })
+}
+
+fn compile_pair(lua: &mut Lua, key: Key) {
+    lua.enter(|ctx| ctx.jit().observe_pair(key));
+    assert_eq!(lua.service_jit().unwrap(), 1);
+    assert!(lua.enter(
+        |ctx| ctx.jit().0.borrow().pairs.as_ref().unwrap().entries[&key]
+            .program
+            .is_some()
+    ));
+}
+
+fn load_scalar(lua: &mut Lua) -> (StashedClosure, u64) {
+    lua.enter(|ctx| {
+        let closure = Closure::load(ctx, None, &b"return 42"[..]).unwrap();
+        let id = ctx
+            .jit_registry()
+            .borrow()
+            .identity(ctx, closure.prototype())
+            .unwrap();
+        (ctx.stash(closure), id)
+    })
+}
+
+fn compile_scalar(lua: &mut Lua, id: u64) {
+    lua.enter(|ctx| ctx.jit().0.borrow_mut().enqueue(id, true));
+    assert_eq!(lua.service_jit().unwrap(), 1);
+    assert!(lua.enter(|ctx| ctx.jit().0.borrow().code.contains_key(&id)));
+}
+
+#[test]
+fn pair_pressure_evicts_lru_and_bounds_retries_without_resetting_victim_attempts() {
+    let (mut lua, _first, first) = fixture();
+    compile_pair(&mut lua, first);
+    let bytes = lua.jit_stats().code_bytes;
+    let (_second, second) = load_pair(&mut lua, SOURCE);
+    compile_pair(&mut lua, second);
+    assert_eq!(lua.jit_stats().code_bytes, 2 * bytes);
+    lua.enter(|ctx| {
+        ctx.jit().0.borrow_mut().config.max_code_bytes = 2 * bytes;
+        drop(ctx.jit().pair_lease(first).unwrap());
     });
-    (lua, closure, key)
+    let (_third, third) = load_pair(&mut lua, SOURCE);
+    compile_pair(&mut lua, third);
+    lua.enter(|ctx| {
+        let manager = ctx.jit().0.borrow();
+        let entries = &manager.pairs.as_ref().unwrap().entries;
+        assert!(entries[&first].program.is_some());
+        assert!(entries[&second].program.is_none());
+        assert!(entries[&third].program.is_some());
+        assert_eq!(
+            (entries[&second].attempts, entries[&second].hotness),
+            (1, 0)
+        );
+        assert_eq!(entries[&third].attempts, 2);
+        assert_eq!(
+            (
+                manager.stats.cache_evictions,
+                manager.stats.compilation_failures
+            ),
+            (1, 1)
+        );
+    });
+    assert_eq!(lua.jit_stats().code_bytes, 2 * bytes);
+    lua.enter(|ctx| ctx.jit().observe_pair(second));
+    assert!(matches!(
+        lua.service_jit(),
+        Err(JitError::ResourceLimit("native mappings"))
+    ));
+    lua.enter(|ctx| {
+        let manager = ctx.jit().0.borrow();
+        assert_eq!(manager.pairs.as_ref().unwrap().entries[&second].attempts, 2);
+        assert_eq!(
+            (
+                manager.stats.cache_evictions,
+                manager.stats.compilation_failures
+            ),
+            (1, 2)
+        );
+        assert_eq!(manager.snapshots.0.current(), 0);
+    });
+    lua.enter(|ctx| ctx.jit().observe_pair(second));
+    assert_eq!(lua.service_jit().unwrap(), 0);
+}
+
+#[test]
+fn mapping_pressure_shares_one_lru_order_between_pair_and_scalar_caches() {
+    for target_pair in [false, true] {
+        let (mut lua, _pair_root, pair) = fixture();
+        compile_pair(&mut lua, pair);
+        let pair_bytes = lua.jit_stats().code_bytes;
+        let (_scalar_root, scalar) = load_scalar(&mut lua);
+        compile_scalar(&mut lua, scalar);
+        let scalar_bytes = lua.jit_stats().code_bytes - pair_bytes;
+        lua.enter(|ctx| {
+            let limit = pair_bytes
+                + scalar_bytes
+                + if target_pair {
+                    pair_bytes.saturating_sub(scalar_bytes)
+                } else {
+                    scalar_bytes.saturating_sub(pair_bytes)
+                };
+            ctx.jit().0.borrow_mut().config.max_code_bytes = limit;
+            if target_pair {
+                drop(ctx.jit().pair_lease(pair).unwrap());
+            } else {
+                drop(ctx.jit().lookup(scalar).unwrap());
+            }
+        });
+        let (_target_root, target) = if target_pair {
+            let (root, key) = load_pair(&mut lua, SOURCE);
+            compile_pair(&mut lua, key);
+            (root, key.caller)
+        } else {
+            let (root, id) = load_scalar(&mut lua);
+            compile_scalar(&mut lua, id);
+            (root, id)
+        };
+        lua.enter(|ctx| {
+            let manager = ctx.jit().0.borrow();
+            let entries = &manager.pairs.as_ref().unwrap().entries;
+            assert_eq!(entries[&pair].program.is_some(), target_pair);
+            assert_eq!(manager.code.contains_key(&scalar), !target_pair);
+            if target_pair {
+                assert_eq!(
+                    (
+                        manager.tracked[&scalar].attempts,
+                        manager.tracked[&scalar].hotness
+                    ),
+                    (1, 0)
+                );
+                assert_eq!(
+                    entries
+                        .iter()
+                        .find(|(key, _)| key.caller == target)
+                        .unwrap()
+                        .1
+                        .attempts,
+                    2
+                );
+            } else {
+                assert_eq!((entries[&pair].attempts, entries[&pair].hotness), (1, 0));
+                assert_eq!(manager.tracked[&target].attempts, 2);
+                assert!(manager.code.contains_key(&target));
+            }
+            assert_eq!(
+                (
+                    manager.stats.cache_evictions,
+                    manager.stats.compilation_failures
+                ),
+                (1, 1)
+            );
+        });
+        assert_eq!(lua.jit_stats().snapshot_bytes, 0);
+        assert!(lua.jit_stats().code_bytes <= lua.jit_config().max_code_bytes);
+    }
+}
+
+#[test]
+fn pinned_pair_leases_refuse_eviction_then_recover_without_resetting_attempts() {
+    let (mut lua, closure, key) = fixture();
+    compile_pair(&mut lua, key);
+    let bytes = lua.jit_stats().code_bytes;
+    let lease = lua.enter(|ctx| {
+        ctx.jit().0.borrow_mut().config.max_code_bytes = bytes;
+        ctx.jit().pair_lease(key).unwrap()
+    });
+    let (_next_root, next) = load_pair(&mut lua, SOURCE);
+    lua.enter(|ctx| ctx.jit().observe_pair(next));
+    assert!(matches!(
+        lua.service_jit(),
+        Err(JitError::ResourceLimit("native mappings"))
+    ));
+    assert_eq!(lua.jit_stats().cache_eviction_refusals, 1);
+    assert_eq!(lua.jit_stats().cache_evictions, 0);
+    assert_eq!(lua.jit_stats().code_bytes, bytes);
+    lua.enter(|ctx| {
+        ctx.jit().0.borrow_mut().config.hot_threshold = u32::MAX;
+        with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+            assert!(host.run(ctx, 1, key.pc as u32, 4).result.is_ok());
+            assert_eq!(lease.invoke(ctx, host, 64), Some((1, 1)));
+        });
+        ctx.jit().0.borrow_mut().config.hot_threshold = 1;
+    });
+    drop(lease);
+    let (_recovery_root, recovery) = load_pair(&mut lua, SOURCE);
+    compile_pair(&mut lua, recovery);
+    lua.enter(|ctx| {
+        let manager = ctx.jit().0.borrow();
+        let entries = &manager.pairs.as_ref().unwrap().entries;
+        assert!(entries[&key].program.is_none());
+        assert_eq!(entries[&key].attempts, 1);
+        assert_eq!(entries[&next].attempts, 1);
+        assert_eq!(entries[&recovery].attempts, 2);
+    });
+    assert_eq!(lua.jit_stats().cache_evictions, 1);
+    assert_eq!(lua.jit_stats().code_bytes, bytes);
+    assert_eq!(lua.jit_stats().snapshot_bytes, 0);
+}
+
+#[test]
+fn exhausted_pair_retry_budget_preserves_an_unpinned_peer() {
+    let (mut lua, _root, first) = fixture();
+    compile_pair(&mut lua, first);
+    let bytes = lua.jit_stats().code_bytes;
+    lua.enter(|ctx| {
+        let mut manager = ctx.jit().0.borrow_mut();
+        manager.config.max_code_bytes = bytes;
+        manager.config.max_compile_attempts = 1;
+    });
+    let (_next_root, next) = load_pair(&mut lua, SOURCE);
+    lua.enter(|ctx| ctx.jit().observe_pair(next));
+    assert!(matches!(
+        lua.service_jit(),
+        Err(JitError::ResourceLimit("native mappings"))
+    ));
+    lua.enter(|ctx| {
+        let manager = ctx.jit().0.borrow();
+        let entries = &manager.pairs.as_ref().unwrap().entries;
+        assert!(entries[&first].program.is_some());
+        assert_eq!(entries[&next].attempts, 1);
+        assert_eq!(
+            (
+                manager.stats.cache_evictions,
+                manager.stats.cache_eviction_refusals
+            ),
+            (0, 0)
+        );
+    });
+    lua.enter(|ctx| ctx.jit().observe_pair(next));
+    assert_eq!(lua.service_jit().unwrap(), 0);
+    assert_eq!(lua.jit_stats().code_bytes, bytes);
+    assert_eq!(lua.jit_stats().snapshot_bytes, 0);
+}
+
+#[test]
+fn saturated_pair_recency_uses_source_identity_tiebreak() {
+    let (mut lua, _first_root, first) = fixture();
+    compile_pair(&mut lua, first);
+    let bytes = lua.jit_stats().code_bytes;
+    let (_second_root, second) = load_pair(&mut lua, SOURCE);
+    compile_pair(&mut lua, second);
+    lua.enter(|ctx| {
+        let mut manager = ctx.jit().0.borrow_mut();
+        manager.config.max_code_bytes = 2 * bytes;
+        manager.clock = u64::MAX;
+        drop(manager);
+        drop(ctx.jit().pair_lease(second).unwrap());
+        drop(ctx.jit().pair_lease(first).unwrap());
+    });
+    let (_third_root, third) = load_pair(&mut lua, SOURCE);
+    compile_pair(&mut lua, third);
+    lua.enter(|ctx| {
+        let manager = ctx.jit().0.borrow();
+        let entries = &manager.pairs.as_ref().unwrap().entries;
+        assert_eq!(manager.clock, u64::MAX);
+        assert!(entries[&first].program.is_none());
+        assert!(entries[&second].program.is_some());
+        assert!(entries[&third].program.is_some());
+        assert_eq!(entries[&second].last_used, u64::MAX);
+        assert_eq!(entries[&third].last_used, u64::MAX);
+    });
+}
+
+#[test]
+fn retry_owner_refusal_releases_mappings_without_resetting_victim_attempts() {
+    let (mut lua, _root, first) = fixture();
+    compile_pair(&mut lua, first);
+    let bytes = lua.jit_stats().code_bytes;
+    lua.enter(|ctx| {
+        let mut manager = ctx.jit().0.borrow_mut();
+        manager.config.max_code_bytes = bytes;
+        manager.memory_failure = super::super::backend::Failure::RefuseOwnerAllocation;
+    });
+    let (_next_root, next) = load_pair(&mut lua, SOURCE);
+    lua.enter(|ctx| ctx.jit().observe_pair(next));
+    assert!(matches!(
+        lua.service_jit(),
+        Err(JitError::ResourceLimit("JIT metadata"))
+    ));
+    lua.enter(|ctx| {
+        let manager = ctx.jit().0.borrow();
+        let entries = &manager.pairs.as_ref().unwrap().entries;
+        assert!(entries[&first].program.is_none());
+        assert!(entries[&next].program.is_none());
+        assert_eq!((entries[&first].attempts, entries[&first].hotness), (1, 0));
+        assert_eq!(entries[&next].attempts, 2);
+        assert_eq!(
+            (
+                manager.stats.cache_evictions,
+                manager.stats.compilation_failures
+            ),
+            (1, 2)
+        );
+    });
+    assert_eq!(lua.jit_stats().code_bytes, 0);
+    assert_eq!(lua.jit_stats().code_requested_bytes, 0);
+    assert_eq!(lua.jit_stats().snapshot_bytes, 0);
 }
 
 #[test]
