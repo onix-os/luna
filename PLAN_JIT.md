@@ -73,6 +73,8 @@ Additional counter and cache experiments were also rejected:
 | Inline index, outlined lookup | 1.120x / 1.083x | 1.104x / 1.035x | 13.58% / 11.68% |
 | Cumulative helper cells | 1.025x / 1.018x | 1.021x / 0.994x | 8.87% / 4.30% |
 | Cumulative execution/helper cells | 1.081x / 1.028x | 1.077x / 1.021x | 10.07% / 7.86% |
+| Scan small existing maps, outlined | 1.132x / 1.073x | 1.091x / 1.042x | 6.42% / 5.98% |
+| Scan small existing maps, forced inline | 1.116x / 1.071x | 1.117x / 1.048x | 5.52% / 14.06% |
 
 These use the same 24-block comparison protocol. The inline index produces the
 first sustained double-digit native upvalue gains, but its compiled-Off cost
@@ -116,14 +118,27 @@ differ in only 64 bytes, consistent with the one-line shift in panic-location
 metadata caused by the JIT-only hook-block edit. That attribution is an
 inference; the retained comparison uses each artifact's own matched controls.
 
-The current candidate scans the existing randomized code map for at most two
-entries, retaining hashed lookup for larger maps. The lookup is outlined, and
-there is no new cache, allocation, owner field, prototype token or weak-check
-shortcut. Runtime layout, resource accounting, scratch ABI and interpreter
-dispatch are unchanged. An allocation-denied property test compares successful
-and missing-key mutable lookups against the original hash lookup for map sizes
-zero through sixteen. It remains uncommitted and unaccepted pending tests,
-profiles and both native/compiled-Off performance comparisons.
+Both small-map scans are also rejected. They scan the existing randomized map
+for at most two entries and retain hashed lookup for larger maps, without a
+new cache, allocation, owner field, prototype token or weak-check shortcut.
+The outlined version passes 166 focused executions across 15 suites and nine
+Rust-only owner/Miri executions, including allocation-denied hit/miss mutation
+checks for sizes zero through sixteen. Its native gains still raise speed
+float Off overhead to 11.71% versus 6.26% baseline. Forced inlining instead
+repairs that speed float control (0.72% versus 6.55%, all twelve batches pass)
+and passes speed callback attribution in all 24 batches, but shipping float,
+callback and upvalue Off costs worsen substantially. Each variant has the same
+24-block, 144-command comparison, with both no-feature binaries byte-identical
+to baseline. The source and property test are restored, not shipped.
+
+**Current conclusion:** these changes are valid correctness experiments, not
+accepted regression fixes. The runtime still uses the baseline randomized
+lookup, original counter layout and original interpreter dispatch. A default
+optimizer-selected small-map accessor has not been tested; the two forced
+inlining choices do not exhaust that design. Further work must address the
+remaining short-call/source-lookup costs without introducing new Off or
+shipping regressions. No workload, threshold or native coverage was weakened,
+and CPU contention is not treated as a blocker.
 
 #### Repeated under-load estimates — five windows
 
