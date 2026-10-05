@@ -142,6 +142,56 @@ executes the interpreter failure and checks zero native activity plus the same
 dispatch count. `make jit-fallback` passes 2013 executions across 319 suite runs,
 with two existing ignores; the original failure is retained.
 
+##### Production scalar-cell trials — 2026-10-05
+
+Both production candidates were measured and rejected. The first automatically
+admitted the test-validated scalar-cell getter/setter thunks. The second used
+Cranelift's IR inliner to embed those verified native helper bodies into the
+entry; it did not inline Lua calls or remove executor activations.
+
+Each completed 24 interleaved blocks in three windows, 144 timing commands,
+both speed/shipping profiles, all nine workloads and unchanged frozen gates.
+Source and binary hashes passed before and after every block. Both independently
+built no-feature controls were byte-identical to the immutable baseline.
+
+| Candidate | Speed Auto upvalues / callbacks | Shipping Auto upvalues / callbacks | Upvalue Off overhead speed / shipping | Callback Off overhead speed / shipping |
+| --- | --- | --- | --- | --- |
+| Scalar-cell thunks | 0.970x / 0.952x | 0.858x / 0.970x | 6.065% / 14.850% | 6.120% / 3.530% |
+| Inlined native helpers | 0.961x / 0.968x | 0.866x / 0.989x | 6.440% / 13.045% | 12.005% / 8.265% |
+
+Auto gains compare baseline Auto time with candidate Auto time, not candidate
+Off/Auto. Neither candidate passes any of its 24 native upvalue or callback
+gate batches. The inlined candidate fails all twelve matched disabled-cost
+batches for both workloads at both profiles. Fewer helper instructions are not
+evidence of a speedup: the first speed sample reduced upvalue helper instructions
+from 389110 to 129822 while whole-workload Auto performance regressed.
+
+Both production promotions were removed. Only test-only compiler groundwork
+remains: exact native callee name/signature matching, independently verified
+helper bodies, signature-copy reservations, pre/post-inline expansion checks,
+and name/signature corruption cases that refuse installation and preserve a
+live cached peer. The production selector and runtime scalar-cell binding remain
+unchanged and disabled. This is not a shipped performance fix.
+
+Final candidate GNU all-features Auto runs each passed 1065 executions in 80
+suite runs with four existing ignores. The retained test-only code passes both
+GNU Auto runs: JIT-feature 1044 executions in 79 suite runs, all-features 1065
+executions in 80 suite runs; each has four existing ignores.
+GNU/musl focused runs each passed 49 tests; checks and Clippy passed with existing
+warnings. Correctness does not satisfy performance
+acceptance. Complete binaries, source archives/patches, telemetry and timing
+results are retained under `target/jit-evidence/short-slice-performance/` with
+`leaf-production` and `leaf-inline` prefixes. Pre-final inliner binaries built
+while test sources changed are separately marked unbenchmarked and unusable
+for acceptance; all quoted results use the final manifest-verified binaries.
+
+Profiling the first candidate attributes substantial remaining work to
+`run_vm`, native invocation and Lua frame transitions. Removing a Lua activation
+would also remove its four-fuel step charge unless explicitly modeled. Any
+future native call integration must preserve those charges, slice boundaries,
+canonical frames, errors, roots and resumable exits; helper inlining alone does
+not solve the original tiny-call regression.
+
 Remaining implementation gates:
 
 1. Review and enable a production candidate only after the complete leaf-specific
