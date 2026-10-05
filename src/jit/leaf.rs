@@ -127,7 +127,6 @@ fn scalar(slot: abi::Slot) -> bool {
 }
 
 impl Binding {
-    #[cfg(test)]
     pub(super) fn integer_activation(&self, pattern: Pattern, right: abi::Slot) -> bool {
         let right = if matches!(pattern.right, Operand::Register(index) if index == pattern.read) {
             self.value

@@ -631,7 +631,6 @@ impl<'gc> Executor<'gc> {
                             fuel,
                         };
                         #[cfg(all(
-                            test,
                             feature = "jit",
                             not(miri),
                             target_os = "linux",
@@ -646,7 +645,6 @@ impl<'gc> Executor<'gc> {
                             Err(frame) => run_vm(ctx, frame, Self::VM_GRANULARITY),
                         };
                         #[cfg(not(all(
-                            test,
                             feature = "jit",
                             not(miri),
                             target_os = "linux",
