@@ -11,6 +11,34 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Paired-call error and panic transport — 2026-10-06
+
+`5423f42` replaces the test-only paired bridge's error assertions with a typed
+outcome. Canonical Call/Return errors reach the scoped host unchanged. Caller
+prefix fuel is charged only after a successful Call; an untouched decline
+continues the same ordinary slice and charges its prefix only on success.
+Attempted Return still counts as an activation, but failed Return does not
+increment completed-pair telemetry.
+
+Both C hooks retain the original Rust panic payload, return to generated code
+without unwinding across the C ABI, and resume unwinding after native return
+and release of the session borrow. Fifteen canonical tests and eighteen pair
+tests pass. New generated-code fixtures cover Call and Return errors and a
+caught hook assertion. Return-error frames, slots, open captures, fuel and
+dispatches match canonical execution; a separate typed-payload fixture checks
+payload identity and subsequent host/manager borrowing.
+
+Broader committed-source validation passes 3,499 test executions across 248
+suites: GNU all-feature Off/Auto/Force runs plus GNU and musl native-call,
+plan and activation checks. Each full mode retains four existing ignores;
+there are zero failures. Formatting and GNU baseline/JIT checks pass without
+compiler warnings. This does not add ARM64 or native-code Miri evidence.
+
+This remains test-only groundwork for the upvalue performance regression, not
+production promotion or a measured speedup. Pair-cache pressure/eviction,
+production integration and the original upvalue/callback/compiled-Off gates
+remain open. Evidence: `target/jit-evidence/short-slice-performance/pair-outcomes/`.
+
 #### Scoped pair selection and before-Call handoff — 2026-10-06
 
 `7c5b5b7` adds **test-only automatic selection** to the scoped host. The VM
@@ -49,7 +77,7 @@ warnings. The earlier runtime-only validation passed 1,237 executions before
 the frozen-corpus fixture; the final revision-specific count is authoritative.
 
 This is not production promotion or timing acceptance. The bridge still needs
-ordinary runtime error/panic handoff, pair pressure/eviction integration and
+pair pressure/eviction integration and
 complete production semantic/platform/ownership gates before a measured trial.
 The original upvalue, callback and compiled-Off regressions remain unresolved;
 no new ARM64 or native-code Miri certification is claimed.
