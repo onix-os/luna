@@ -66,18 +66,13 @@ mod handoff;
 mod helper_flow;
 mod helpers;
 #[cfg(all(
+    test,
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod integer;
 pub(crate) mod ir;
-#[cfg(any(
-    test,
-    all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )
-))]
+#[cfg(test)]
 mod leaf;
 #[cfg(all(
     target_os = "linux",
@@ -919,6 +914,7 @@ impl Runtime {
     }
 
     #[cfg(all(
+        test,
         not(miri),
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
@@ -935,11 +931,7 @@ impl Runtime {
         }
         {
             let manager = self.0.borrow();
-            if manager.config.mode != JitMode::Auto {
-                return None;
-            }
-            #[cfg(test)]
-            if !manager.scalar_kernels {
+            if !manager.scalar_kernels || manager.config.mode != JitMode::Auto {
                 return None;
             }
         }
@@ -976,11 +968,8 @@ impl Runtime {
         let completed = self.invoke_scalar_kernel(kernel, registers, slots, binding, budget);
         assert_eq!(completed, 3);
         assert_eq!(*registers.pc, 3);
-        #[cfg(test)]
-        {
-            let mut manager = self.0.borrow_mut();
-            manager.scalar_activation_entries = manager.scalar_activation_entries.saturating_add(1);
-        }
+        let mut manager = self.0.borrow_mut();
+        manager.scalar_activation_entries = manager.scalar_activation_entries.saturating_add(1);
         Some(completed)
     }
 
@@ -1013,16 +1002,6 @@ impl Runtime {
             #[cfg(test)]
             let failure = self.0.borrow().memory_failure;
             let compile = || {
-                #[cfg(all(not(test), not(miri)))]
-                if integer::Plan::new(&snapshot).is_ok() {
-                    return backend::compile_integer_leaf_pair_in(
-                        &snapshot,
-                        memory.clone(),
-                        limit,
-                        metadata.clone(),
-                        work,
-                    );
-                }
                 #[cfg(all(test, not(miri)))]
                 if self.0.borrow().integer_activations
                     && leaf::Pattern::recognize(&snapshot).is_some()
@@ -1098,6 +1077,7 @@ impl Runtime {
                             manager.metadata.0.set_limit(manager.metadata.0.current());
                         }
                         let reserved = manager.code.try_reserve(1);
+                        #[cfg(all(test, not(miri)))]
                         let (code, reserved) = if reserved.is_err() {
                             let mut code = code;
                             if code.discard_scalar_kernel() {
@@ -1123,7 +1103,10 @@ impl Runtime {
                             }
                             _ => {}
                         }
+                        #[cfg(all(test, not(miri)))]
                         let owner = code.into_shared(manager.metadata.clone());
+                        #[cfg(not(all(test, not(miri))))]
+                        let owner = owner::Shared::try_new(code, manager.metadata.clone());
                         let code = match owner {
                             Ok(code) => code,
                             Err(_) => {
@@ -1326,6 +1309,7 @@ impl Runtime {
     }
 
     #[cfg(all(
+        test,
         not(miri),
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")

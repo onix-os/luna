@@ -631,6 +631,7 @@ impl<'gc> Executor<'gc> {
                             fuel,
                         };
                         #[cfg(all(
+                            test,
                             feature = "jit",
                             not(miri),
                             target_os = "linux",
@@ -638,6 +639,7 @@ impl<'gc> Executor<'gc> {
                         ))]
                         let mut lua_frame = lua_frame;
                         #[cfg(all(
+                            test,
                             feature = "jit",
                             not(miri),
                             target_os = "linux",
@@ -662,6 +664,7 @@ impl<'gc> Executor<'gc> {
                             run_vm(ctx, lua_frame, Self::VM_GRANULARITY)
                         };
                         #[cfg(not(all(
+                            test,
                             feature = "jit",
                             not(miri),
                             target_os = "linux",
@@ -1334,6 +1337,55 @@ mod activation_tests {
             lua.enter(|ctx| ctx.jit().test_scalar_activation_entries()),
             1
         );
+    }
+
+    #[cfg(all(
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[test]
+    fn integer_activations_execute_without_upvalue_helpers() {
+        for (initial, operation, argument, expected) in [
+            (1, "+", 2, 3),
+            (1, "-", 2, -1),
+            (3, "*", 2, 6),
+            (i64::MAX, "+", 1, i64::MIN),
+            (i64::MIN, "-", 1, i64::MAX),
+            (i64::MAX, "*", 2, -2),
+        ] {
+            let initial = if initial == i64::MIN {
+                "(-9223372036854775807-1)".to_owned()
+            } else {
+                initial.to_string()
+            };
+            let source = format!(
+                "local sum={initial} local function add(v) sum=sum{operation}v end add({argument}) return sum"
+            );
+            let mut lua = Lua::empty();
+            lua.set_jit_config(crate::JitConfig {
+                mode: crate::JitMode::Auto,
+                hot_threshold: 1,
+                ..Default::default()
+            })
+            .unwrap();
+            let executor = lua.enter(|ctx| {
+                ctx.jit().test_integer_activations(true);
+                let closure = Closure::load(ctx, None, source.as_bytes()).unwrap();
+                ctx.stash(Executor::start(ctx, closure.into(), ()))
+            });
+            assert_eq!(lua.prepare_jit().unwrap(), 2);
+            assert_eq!(lua.execute::<i64>(&executor).unwrap(), expected);
+            let stats = lua.jit_stats();
+            assert_eq!(stats.native_upvalue_reads, 1);
+            assert_eq!(stats.native_upvalue_writes, 1);
+            assert!(stats.helper_calls < 2, "{stats:?}");
+            assert_eq!(
+                lua.enter(|ctx| ctx.jit().test_scalar_activation_entries()),
+                1
+            );
+        }
     }
 
     fn compare_canonical_slices(kernels: bool) {
