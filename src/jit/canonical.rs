@@ -17,7 +17,7 @@ use super::{
     projection::Origin,
 };
 
-struct Site {
+pub(super) struct Site {
     caller: u64,
     callee: u64,
     pc: usize,
@@ -26,6 +26,77 @@ struct Site {
     pattern: Pattern,
     registers: usize,
     start: RegisterIndex,
+}
+
+pub(super) struct Program {
+    pub site: Site,
+    pub code: CallCode,
+    origin: super::resources::MappingCounter,
+}
+
+impl Program {
+    pub fn new(
+        key: super::pairs::Key,
+        caller: &super::ir::Snapshot,
+        callee: &super::ir::Snapshot,
+        memory: super::resources::MappingCounter,
+        limit: usize,
+        metadata: super::resources::BudgetAllocator,
+        limits: super::work::Limits,
+        failure: super::backend::Failure,
+    ) -> Result<Self, super::JitError> {
+        if !super::resources::LedgerRef::ptr_eq(
+            &caller.operations.allocator().0,
+            &callee.operations.allocator().0,
+        ) || !memory.same_root(&super::resources::MappingCounter::new(
+            caller.operations.allocator().0.clone(),
+        )) || !memory.same_root(&super::resources::MappingCounter::new(metadata.0.clone()))
+        {
+            return Err(super::JitError::Compilation(
+                "pair ledger provenance".into(),
+            ));
+        }
+        let plan = super::calls::Plan::new(caller, callee, key.pc, limits)?;
+        let Operation::Return { start, .. } = callee.operations[3] else {
+            unreachable!()
+        };
+        let site = Site {
+            caller: key.caller,
+            callee: key.callee,
+            pc: key.pc,
+            function: plan.function,
+            arguments: plan.arguments,
+            pattern: plan.pattern,
+            registers: callee.registers,
+            start,
+        };
+        let origin = memory.clone();
+        let code = super::backend::calls::compile(
+            &plan,
+            Hooks { enter, leave },
+            memory,
+            limit,
+            metadata,
+            limits,
+            failure,
+            super::backend::calls::LinkFault::None,
+        )?;
+        Ok(Self { site, code, origin })
+    }
+
+    pub fn invoke<'gc>(
+        &self,
+        ctx: Context<'gc>,
+        host: &mut ActivationHost<'gc, '_>,
+        budget: u32,
+    ) -> Option<(usize, usize)> {
+        let manager = ctx.jit().0.borrow();
+        if manager.config.mode != super::JitMode::Auto || !self.origin.same_root(&manager.memory) {
+            return None;
+        }
+        drop(manager);
+        invoke(ctx, host, &self.site, &self.code, budget)
+    }
 }
 
 struct Session<'gc, 'host, 'borrow> {

@@ -100,6 +100,13 @@ mod model;
 ))]
 mod owner;
 #[cfg(all(
+    test,
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod pairs;
+#[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
@@ -499,6 +506,13 @@ pub enum JitError {
 }
 
 pub(crate) struct Manager {
+    #[cfg(all(
+        test,
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    pairs: Option<pairs::State>,
     #[cfg(test)]
     mock: Option<mock::Mock>,
     #[cfg(test)]
@@ -558,6 +572,13 @@ impl Default for Manager {
         let metadata = BudgetAllocator(Ledger::child(config.max_metadata_bytes, host.clone()));
         let snapshots = BudgetAllocator(Ledger::child(config.max_snapshot_bytes, host.clone()));
         Self {
+            #[cfg(all(
+                test,
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))]
+            pairs: None,
             #[cfg(test)]
             mock: None,
             #[cfg(test)]
@@ -629,6 +650,18 @@ struct CachedCode {
 }
 
 impl Manager {
+    fn queued_count(&self) -> usize {
+        let count = self.queue.len();
+        #[cfg(all(
+            test,
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ))]
+        let count = count + self.pairs.as_ref().map_or(0, pairs::State::queued);
+        count
+    }
+
     pub(crate) fn needs_compaction(&mut self) -> bool {
         let needed = self
             .tracked_compactor
@@ -636,6 +669,17 @@ impl Manager {
             | self
                 .queue_compactor
                 .needed(self.queue.len(), self.queue.capacity());
+        #[cfg(all(
+            test,
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ))]
+        let needed = needed
+            | self
+                .pairs
+                .as_mut()
+                .is_some_and(pairs::State::needs_compaction);
         #[cfg(all(
             target_os = "linux",
             any(target_arch = "x86_64", target_arch = "aarch64")
@@ -675,6 +719,18 @@ impl Manager {
     }
 
     pub(crate) fn compact_metadata(&mut self) {
+        #[cfg(all(
+            test,
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ))]
+        if let Some(pairs) = &mut self.pairs {
+            let results = pairs.compact();
+            for result in results {
+                self.record_compaction(result);
+            }
+        }
         let result = self.tracked_compactor.map(&mut self.tracked);
         self.record_compaction(result);
         let result = self.queue_compactor.vector(&mut self.queue);
@@ -750,7 +806,19 @@ impl Manager {
                 retained += usize::from(keep);
                 keep
             });
-            self.stats.queued_requests = self.queue.len();
+            #[cfg(all(
+                test,
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))]
+            if let Some(pairs) = &mut self.pairs {
+                pairs.configure(
+                    &config,
+                    config.max_queue_entries.saturating_sub(self.queue.len()),
+                );
+            }
+            self.stats.queued_requests = self.queued_count();
         }
         self.metadata.0.set_limit(config.max_metadata_bytes);
         self.snapshots.0.set_limit(config.max_snapshot_bytes);
@@ -762,11 +830,20 @@ impl Manager {
         self.stats.registered_prototypes = self.tracked.len();
         self.queue.retain(|request| *request != id);
         #[cfg(all(
+            test,
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ))]
+        if let Some(pairs) = &mut self.pairs {
+            pairs.retire(id);
+        }
+        #[cfg(all(
             target_os = "linux",
             any(target_arch = "x86_64", target_arch = "aarch64")
         ))]
         self.code.remove(&id);
-        self.stats.queued_requests = self.queue.len();
+        self.stats.queued_requests = self.queued_count();
         if self.tracked.is_empty() {
             self.tracked = metadata_map(self.metadata.clone());
         }
@@ -793,6 +870,7 @@ impl Manager {
         if self.code.contains_key(&id) {
             return;
         }
+        let queue_space = self.queued_count() < self.config.max_queue_entries;
         let Some(tracking) = self.tracked.get_mut(&id) else {
             return;
         };
@@ -800,7 +878,7 @@ impl Manager {
         if (force || tracking.hotness >= self.config.hot_threshold)
             && !tracking.queued
             && tracking.attempts < self.config.max_compile_attempts
-            && self.queue.len() < self.config.max_queue_entries
+            && queue_space
         {
             if self.queue.try_reserve(1).is_err() {
                 return;
@@ -808,7 +886,7 @@ impl Manager {
             self.queue.push(id);
             tracking.queued = true;
             self.stats.compilation_requests = self.stats.compilation_requests.saturating_add(1);
-            self.stats.queued_requests = self.queue.len();
+            self.stats.queued_requests = self.queued_count();
         }
     }
 
@@ -821,11 +899,20 @@ impl Manager {
             tracking.queued = false;
             tracking.attempts = tracking.attempts.saturating_add(1);
         }
-        self.stats.queued_requests = self.queue.len();
+        self.stats.queued_requests = self.queued_count();
         Some(id)
     }
 
     pub(crate) fn clear(&mut self) {
+        #[cfg(all(
+            test,
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ))]
+        if let Some(pairs) = &mut self.pairs {
+            pairs.clear();
+        }
         self.queue_compactor = Compactor::default();
         #[cfg(all(
             target_os = "linux",

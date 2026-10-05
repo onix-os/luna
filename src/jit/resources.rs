@@ -283,6 +283,16 @@ impl Ledger {
 pub(crate) struct MappingCounter(LedgerRef);
 
 impl MappingCounter {
+    #[cfg(all(
+        test,
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    pub(crate) fn same_root(&self, other: &Self) -> bool {
+        LedgerRef::ptr_eq(&self.0, &other.0)
+    }
+
     pub fn new(mut ledger: LedgerRef) -> Self {
         while let Some(parent) = &ledger.parent {
             ledger = parent.clone();

@@ -312,6 +312,10 @@ jit-call-native:
 jit-call-canonical:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical::tests $(ARGS)
 
+.PHONY: jit-call-pairs
+jit-call-pairs:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::pairs::tests $(ARGS)
+
 jit-integer:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::integer::tests $(ARGS)
 

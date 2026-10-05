@@ -129,6 +129,15 @@ pub(super) fn run_vm<'gc>(
         manager.stats.hook_exits = manager.stats.hook_exits.saturating_add(1);
     }
 
+    #[cfg(all(
+        test,
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    let observe_pairs = !hook_enabled && ctx.jit().call_pairs_enabled();
+
     let mut registers = lua_frame.registers();
     let mut instructions_run = 0;
 
@@ -350,6 +359,17 @@ pub(super) fn run_vm<'gc>(
                 args,
                 returns,
             } => {
+                #[cfg(all(
+                    test,
+                    feature = "jit",
+                    not(miri),
+                    target_os = "linux",
+                    any(target_arch = "x86_64", target_arch = "aarch64")
+                ))]
+                if observe_pairs {
+                    ctx.jit()
+                        .observe_call(ctx, current_function, &registers, func, args, returns);
+                }
                 lua_frame.call_function(ctx, func, args, returns)?;
                 break;
             }
