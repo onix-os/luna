@@ -487,6 +487,8 @@ mod tests {
                     backend::Failure::RefuseRelocationStorage(false),
                     backend::Failure::RefuseRelocationStorage(true),
                     backend::Failure::RefuseRelocationCopy,
+                    backend::Failure::CorruptInlineName,
+                    backend::Failure::CorruptInlineSignature,
                     backend::Failure::RequireReleasedWorkspace(snapshot_baseline),
                     backend::Failure::RequireSignatures(snapshot_baseline),
                     backend::Failure::RequireRelocationCopy(snapshot_baseline),
