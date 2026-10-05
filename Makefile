@@ -290,6 +290,13 @@ jit-leaf-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::leaf::tests -- --test-threads=1
 
 .PHONY: jit-integer jit-integer-miri
+.PHONY: jit-continuations jit-continuations-miri
+jit-continuations:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::continuations::tests $(ARGS)
+
+jit-continuations-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::continuations::tests -- --test-threads=1 $(ARGS)
+
 jit-integer:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::integer::tests $(ARGS)
 

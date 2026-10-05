@@ -201,6 +201,8 @@ pub(super) struct Code {
     pub entries: BudgetVec<bool, BudgetAllocator>,
     pub projected_upvalues: bool,
     #[cfg(test)]
+    pub continuations: Option<super::continuations::Continuations>,
+    #[cfg(test)]
     pub scalar_leaf: Option<super::leaf::Pattern>,
     #[cfg(test)]
     cell_kernel: bool,
@@ -224,7 +226,9 @@ impl Code {
         match super::owner::Shared::try_new_recover(self, allocator.clone()) {
             Ok(owner) => Ok(owner),
             Err((mut code, error)) => {
-                if code.discard_scalar_kernel() {
+                let scalar = code.discard_scalar_kernel();
+                let continuations = code.continuations.take().is_some();
+                if scalar || continuations {
                     super::owner::Shared::try_new(code, allocator)
                 } else {
                     Err(error)
@@ -308,6 +312,10 @@ pub(super) enum Failure {
     RefuseScalarOwnerAllocation,
     #[cfg(not(miri))]
     RefuseScalarCacheStorage,
+    #[cfg(not(miri))]
+    RefuseContinuationStorage,
+    #[cfg(not(miri))]
+    RefuseContinuationAllocation,
     RefusePredecessors,
     RefuseDominanceStorage,
     RefuseDominanceWork,
@@ -370,6 +378,37 @@ pub(super) fn compile(
         super::work::Limits::from(&super::JitConfig::default()),
         Failure::None,
     )
+}
+
+#[cfg(all(test, not(miri)))]
+pub(super) fn compile_continuations_in(
+    snapshot: &Snapshot,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    work: super::work::Limits,
+    failure: Failure,
+) -> Result<Code, JitError> {
+    let mut code = compile_in(snapshot, total, limit, metadata.clone(), work, failure)?;
+    let Ok(_owner) = Reservation::new(
+        metadata.0.clone(),
+        super::owner::Shared::<Code>::allocation_bytes(),
+    ) else {
+        return Ok(code);
+    };
+    let previous_limit = metadata.0.limit();
+    match failure {
+        Failure::RefuseContinuationStorage => metadata.0.set_limit(metadata.0.current()),
+        Failure::RefuseContinuationAllocation => metadata.0.fail_after(0),
+        _ => {}
+    }
+    code.continuations = super::continuations::Continuations::new(snapshot, metadata.clone()).ok();
+    match failure {
+        Failure::RefuseContinuationStorage => metadata.0.set_limit(previous_limit),
+        Failure::RefuseContinuationAllocation => metadata.0.fail_after(usize::MAX),
+        _ => {}
+    }
+    Ok(code)
 }
 
 pub(super) fn compile_in(
@@ -1409,6 +1448,8 @@ fn compile_selected(
         registers: snapshot.registers,
         entries,
         projected_upvalues: selection.projected && projection_count != 0,
+        #[cfg(test)]
+        continuations: None,
         #[cfg(test)]
         scalar_leaf: leaf_pattern,
         #[cfg(test)]
