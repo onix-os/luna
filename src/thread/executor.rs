@@ -630,7 +630,30 @@ impl<'gc> Executor<'gc> {
                             stack: stack.borrow_mut(&ctx),
                             fuel,
                         };
-                        match run_vm(ctx, lua_frame, Self::VM_GRANULARITY) {
+                        #[cfg(all(
+                            test,
+                            feature = "jit",
+                            not(miri),
+                            target_os = "linux",
+                            any(target_arch = "x86_64", target_arch = "aarch64")
+                        ))]
+                        let result = match super::vm::try_scalar_activation(
+                            ctx,
+                            lua_frame,
+                            Self::VM_GRANULARITY,
+                        ) {
+                            Ok(result) => result,
+                            Err(frame) => run_vm(ctx, frame, Self::VM_GRANULARITY),
+                        };
+                        #[cfg(not(all(
+                            test,
+                            feature = "jit",
+                            not(miri),
+                            target_os = "linux",
+                            any(target_arch = "x86_64", target_arch = "aarch64")
+                        )))]
+                        let result = run_vm(ctx, lua_frame, Self::VM_GRANULARITY);
+                        match result {
                             Err(err) => {
                                 // Give the error a `chunk:line:` prefix while the frame that raised
                                 // it is still on the stack. Added as anyhow context rather than
@@ -1026,9 +1049,19 @@ mod activation_tests {
         native: bool,
         kernels: bool,
     ) -> (Vec<Slice>, Result<i64, std::string::String>) {
+        run_mode_checked(source, budget, native, kernels, None)
+    }
+
+    fn run_mode_checked(
+        source: &str,
+        budget: i32,
+        native: bool,
+        kernels: bool,
+        activations: Option<u64>,
+    ) -> (Vec<Slice>, Result<i64, std::string::String>) {
         let mut lua = Lua::core();
         lua.load_debug();
-        let _ = (native, kernels);
+        let _ = (native, kernels, activations);
         #[cfg(feature = "jit")]
         let native = native && !cfg!(miri) && lua.jit_capabilities().supported_target;
         #[cfg(feature = "jit")]
@@ -1141,6 +1174,14 @@ mod activation_tests {
             trace.push(slice);
             lua.gc_collect();
             if done {
+                #[cfg(all(feature = "jit", not(miri)))]
+                if let Some(expected) = activations {
+                    assert_eq!(
+                        lua.enter(|ctx| ctx.jit().test_scalar_activation_entries()),
+                        expected,
+                        "{source}, {budget}"
+                    );
+                }
                 let result = lua.enter(|ctx| {
                     ctx.fetch(&executor)
                         .take_result::<i64>(ctx)
@@ -1167,6 +1208,44 @@ mod activation_tests {
     #[test]
     fn scalar_kernels_have_identical_canonical_slices() {
         compare_canonical_slices(true);
+    }
+
+    #[cfg(all(
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[test]
+    fn direct_scalar_activations_preserve_canonical_slices() {
+        for (source, expected, activations) in [
+            ("local n=0 local function f(x) n=n+x end for i=1,100 do f(1) end return n", 100, 100),
+            ("local n=0 local function f() n=n+1 end for i=1,100 do f() end return n", 100, 100),
+            ("local n=100 local function f(x) n=n-x end for i=1,100 do f(1) end return n", 0, 100),
+            ("local n=1 local function f(x) n=n*x end for i=1,4 do f(2) end return n", 16, 4),
+            ("local n=1 local function f() n=n+n end for i=1,4 do f() end return n", 16, 0),
+            ("local n=math.maxinteger local function f(x) n=n+x end f(1) return n==math.mininteger and 100 or 0", 100, 1),
+            ("local n=math.mininteger local function f(x) n=n-x end f(1) return n==math.maxinteger and 100 or 0", 100, 1),
+            ("local n=4611686018427387904 local function f(x) n=n*x end f(4) return n", 0, 1),
+            ("local n=0 local function f(x) n=n+x end for i=1,100 do f(0.5) end return n", 50, 0),
+            ("local function make() local n=0 return function(x) n=n+x return n end end local f=make() local n=0 for i=1,100 do n=f(1) end return n", 100, 0),
+            ("local n=1 local function f(x) n=n+x end local x=setmetatable({}, {__add=function() return {} end}) f(x) return type(n)=='table' and 100 or 0", 100, 0),
+            ("local n=0 local function f(x,t) n=n+x return t end local t={} for i=1,100 do assert(f(1,t)==t) end return n", 100, 0),
+            ("local n=0 local function f(x,t) n=n+x end local t={x=1} for i=1,100 do f(1,t) assert(t.x==1) end return n", 100, 100),
+            ("local n=0 local function f(x) n=n+x end local function g(x) return f(x) end for i=1,100 do g(1) end return n", 100, 100),
+            ("local n=0 local function f(x) n=n+x end local co=coroutine.create(function() for i=1,100 do f(1) if i%10==0 then coroutine.yield() end end end) while coroutine.status(co)~='dead' do assert(coroutine.resume(co)) end return n", 100, 0),
+            ("local ticks=0 debug.sethook(function() local x=0 for i=1,2 do x=x+i end ticks=ticks+x end,'',9) local n=0 local function f(x) n=n+x end for i=1,100 do f(1) end debug.sethook() return n", 100, 0),
+        ] {
+            for budget in [0, 1, 17, 4096] {
+                let reference = run_mode(source, budget, false, false);
+                assert_eq!(reference.1, Ok(expected));
+                assert_eq!(
+                    reference,
+                    run_mode_checked(source, budget, true, true, Some(activations)),
+                    "{source}, {budget}"
+                );
+            }
+        }
     }
 
     fn compare_canonical_slices(kernels: bool) {
