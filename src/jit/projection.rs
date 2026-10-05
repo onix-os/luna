@@ -8,6 +8,8 @@ use crate::{
 
 use super::abi::{self, Slot};
 
+mod native;
+
 const LIMIT: usize = 256;
 const FALLBACK: u32 = u32::MAX;
 const DETACHED: u64 = u64::MAX;
@@ -74,6 +76,7 @@ struct Projection<'gc, const CAPACITY: usize> {
     targets: [Option<Target<'gc>>; CAPACITY],
     binding_count: usize,
     cell_count: usize,
+    slot_count: usize,
     counts: Counts,
 }
 
@@ -103,6 +106,7 @@ impl<'gc, const CAPACITY: usize> Projection<'gc, CAPACITY> {
             targets: [None; CAPACITY],
             binding_count: upvalues.len(),
             cell_count: 0,
+            slot_count: scratch.len(),
             counts: Counts::default(),
         };
         for (binding, upvalue) in upvalues.iter().copied().enumerate() {
@@ -208,30 +212,7 @@ impl<'gc, const CAPACITY: usize> Projection<'gc, CAPACITY> {
         scratch: &[Slot],
         index: usize,
     ) -> Result<Value<'gc>, Error> {
-        let reference = match self.targets[index].ok_or(Error::ChangedTarget)? {
-            Target::Closed(upvalue) => match upvalue.get() {
-                UpValueState::Closed(value) => value,
-                _ => return Err(Error::ChangedTarget),
-            },
-            Target::Upper(index) => registers
-                .projection_read(true, index)
-                .ok_or(Error::ChangedTarget)?,
-            Target::Register(index) => registers
-                .projection_read(false, index)
-                .ok_or(Error::ChangedTarget)?,
-        };
-        let cell = self.cells[index];
-        let value = if cell.register == DETACHED {
-            cell.value
-        } else {
-            *scratch
-                .get(cell.register as usize)
-                .ok_or(Error::InvalidSlot)?
-        };
-        if value.tag > abi::REFERENCE {
-            return Err(Error::InvalidSlot);
-        }
-        Ok(value.value(reference))
+        pending(registers, self.targets[index], self.cells[index], scratch)
     }
 
     fn refresh(
@@ -251,6 +232,37 @@ impl<'gc, const CAPACITY: usize> Projection<'gc, CAPACITY> {
         *self = refreshed;
         Ok(())
     }
+}
+
+fn pending<'gc>(
+    registers: &LuaRegisters<'gc, '_>,
+    target: Option<Target<'gc>>,
+    cell: Cell,
+    scratch: &[Slot],
+) -> Result<Value<'gc>, Error> {
+    let reference = match target.ok_or(Error::ChangedTarget)? {
+        Target::Closed(upvalue) => match upvalue.get() {
+            UpValueState::Closed(value) => value,
+            _ => return Err(Error::ChangedTarget),
+        },
+        Target::Upper(index) => registers
+            .projection_read(true, index)
+            .ok_or(Error::ChangedTarget)?,
+        Target::Register(index) => registers
+            .projection_read(false, index)
+            .ok_or(Error::ChangedTarget)?,
+    };
+    let value = if cell.register == DETACHED {
+        cell.value
+    } else {
+        *scratch
+            .get(cell.register as usize)
+            .ok_or(Error::InvalidSlot)?
+    };
+    if value.tag > abi::REFERENCE {
+        return Err(Error::InvalidSlot);
+    }
+    Ok(value.value(reference))
 }
 
 const _: () = assert!(std::mem::size_of::<Cell>() == 32);
