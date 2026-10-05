@@ -13,7 +13,10 @@
 
 #### Integer activation production candidate — 2026-10-05
 
-The straight-line integer emitter from `8a84bd4` is now enabled for source-bound
+**Rejected and disabled in `56f4f8e`; results below supersede the candidate
+enablement checkpoint.**
+
+The straight-line integer emitter from `8a84bd4` was enabled for source-bound
 integer leaves. Ordinary native entries remain installed for partial fuel,
 other PCs, floats, references, hooks, closed/foreign bindings and optional
 child resource refusals. No generic scalar kernel is selected in production.
@@ -36,9 +39,44 @@ overflow fixture failure is retained separately: Lua's positive numeral for
 2^63 parses as a float, so the minimum integer fixture now uses integer
 subtraction. Interpreter parity caught this before candidate acceptance.
 
-The candidate still requires the unchanged 24-block speed/shipping comparison.
-Callbacks and compiled-Off costs remain independent gates; no performance
-acceptance is claimed from correctness results.
+The unchanged comparison completed at `1dd7bfd`: 24 blocks, three windows,
+144 timing commands, both profiles, all nine workloads, eleven paired samples,
+twelve feature-cost batches per profile and alternating variant/profile order.
+Source/artifact hashes verify before and after every block. No owned builds,
+tests or profiles ran during timing; contention telemetry and failed samples
+are retained. Independently rebuilt no-feature hashes differ from the original
+controls; no byte-identical equivalence or clean-host acceptance is claimed.
+
+| Direct original Auto / candidate Auto | Speed | Shipping |
+| --- | ---: | ---: |
+| Upvalues | 0.956213x | 0.977633x |
+| Callbacks | 0.977330x | 0.983496x |
+
+Upvalue and callback gates pass 0/24 in each profile. Candidate Off/Auto upvalue
+ratios are 0.705700x speed and 0.601750x shipping, below the unchanged 1.25x gate.
+Compiled-Off upvalue overhead is 11.345% speed / 19.185% shipping, passing 0/12
+cost batches in either profile. Speed integer overhead is 20.420% (0/12 passes)
+and float 5.545% (2/12); shipping integer is 8.030% (2/12) and callback 7.830%
+(0/12). Shipping table's 3.995% median still has one failing cost batch. Broad
+float/integer timing variation and baseline failures remain in the summary;
+none were discarded or used to relax gates.
+
+Collection exit zero means collection completed, not performance acceptance.
+The failed production changes are removed. The emitter and the six-case real
+helper-free integration proof remain private-selector tests, additionally
+requiring one actual direct activation. Restored GNU/musl integer, activation,
+upvalue and leaf tests pass 88 executions/eight suites without failures;
+formatting and GNU baseline/JIT checks pass. The archived production source
+independently verifies after rollback.
+
+Evidence prefix `integer-entry` beneath
+`target/jit-evidence/short-slice-performance/` includes immutable binaries,
+source archive/commit, manifests, build settings, comparison telemetry/logs,
+summary TSV, exit records and post-rollback validation. Original callback,
+upvalue and compiled-Off acceptance remain open. This measured form shows that
+changing the four-op kernel alone is insufficient; the next investigation must
+address cross-call execution structure without repeating rejected entry routing
+or weakening per-slice/callback-visible statistics.
 
 #### Straight-line integer emitter checkpoint — 2026-10-05
 
