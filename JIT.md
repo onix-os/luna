@@ -1,8 +1,13 @@
 # Native JIT: experimental scalar and heap tier
 
+The test-only scoped host now selects leased call programs before canonical
+Call dispatch (`7c5b5b7`). Cold/cached-native traces, fuel cutoffs, fallback
+errors and public executor callback/GC checks pass focused tests. Production
+promotion and unchanged performance acceptance remain pending.
+
 Test-only caller/callee programs are now queued from real VM Calls and prepared
 outside the arena (`511ee89`, `make jit-call-pairs`). They share state resource
-limits, cancel dead sources and retain safe code leases. Automatic execution
+limits, cancel dead sources and retain safe code leases. Production execution
 selection is still pending; the performance regressions remain unresolved.
 
 The test-only aggregate call bridge now executes against canonical Lua frames
@@ -818,6 +823,23 @@ execute the target fails the gate rather than silently skipping it.
 
 The unchecked acceptance criteria in `PLAN_JIT.md` track remaining work. Historical
 checkpoints and individual platform passes do not establish full-plan completion.
+
+Auto also queues source-bound fixed-argument calls into verified four-op integer
+upvalue leaves. Both cached-native and interpreted callers can warm this tier;
+service prepares and links the caller/callee pair outside arena mutation. The
+scoped executor performs canonical Call/Return with fresh register views and
+releases stack borrows before callbacks or suspension. Noninteger, variable,
+hooked and unsupported shapes retain ordinary execution. Off does not select
+pairs. Pair and ordinary programs share mapping limits, LRU pressure handling
+and bounded attempts; active leases cannot be pressure-evicted.
+
+`native_pair_calls` records consumed paired Calls, including failed Call
+handoffs. `native_pair_returns` records successful completed pairs, not guard
+exits or failed Returns. `make jit-call-runtime` exercises this production path
+through public APIs, including the unchanged frozen upvalue corpus, exact
+Off slice traces, GC, hooks, positioned errors, foreign-capture callbacks and
+Auto-to-Off cache retirement. These counters and tests establish actual
+execution, not a measured speedup or full-plan acceptance.
 
 `make jit-mock` runs a test-only Rust slice model integrated with interpreter
 dispatch. Before/one-scalar-after exits preserve exact executor traces, errors,

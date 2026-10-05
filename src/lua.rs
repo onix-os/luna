@@ -436,14 +436,12 @@ impl Lua {
         let request = self.jit.0.borrow_mut().next_request();
         let Some(id) = request else {
             #[cfg(all(
-                test,
                 not(miri),
                 target_os = "linux",
                 any(target_arch = "x86_64", target_arch = "aarch64")
             ))]
             return self.service_jit_pair();
             #[cfg(not(all(
-                test,
                 not(miri),
                 target_os = "linux",
                 any(target_arch = "x86_64", target_arch = "aarch64")
@@ -480,7 +478,6 @@ impl Lua {
     }
 
     #[cfg(all(
-        test,
         feature = "jit",
         not(miri),
         target_os = "linux",

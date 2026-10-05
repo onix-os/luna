@@ -9,7 +9,7 @@ use super::{
     JitConfig, JitError, JitMode, MetadataMap, Runtime,
 };
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Key {
     pub caller: u64,
     pub callee: u64,
@@ -22,9 +22,12 @@ struct Entry {
     attempts: u32,
     queued: bool,
     program: Option<Shared<Program>>,
+    last_used: u64,
 }
 
 pub(super) struct State {
+    #[cfg(test)]
+    executions: (usize, usize),
     entries: MetadataMap<Key, Entry>,
     queue: Vec<Key, BudgetAllocator>,
     entry_compactor: Compactor,
@@ -33,8 +36,10 @@ pub(super) struct State {
 }
 
 impl State {
-    fn new(allocator: BudgetAllocator) -> Self {
+    pub(super) fn new(allocator: BudgetAllocator) -> Self {
         Self {
+            #[cfg(test)]
+            executions: (0, 0),
             entries: metadata_map(allocator.clone()),
             queue: Vec::new_in(allocator.clone()),
             entry_compactor: Compactor::default(),
@@ -49,6 +54,26 @@ impl State {
 
     pub fn clear(&mut self) {
         *self = Self::new(self.allocator.clone());
+    }
+
+    pub fn victim(&self, exclude: Option<Key>) -> Option<(u64, Key)> {
+        self.entries
+            .iter()
+            .filter_map(|(key, entry)| {
+                (Some(*key) != exclude
+                    && entry
+                        .program
+                        .as_ref()
+                        .is_some_and(|program| Shared::strong_count(program) == 1))
+                .then_some((entry.last_used, *key))
+            })
+            .min()
+    }
+
+    pub fn evict(&mut self, key: Key) {
+        let entry = self.entries.get_mut(&key).unwrap();
+        entry.program = None;
+        entry.hotness = 0;
     }
 
     pub fn configure(&mut self, config: &JitConfig, available: usize) {
@@ -132,6 +157,63 @@ impl State {
 }
 
 impl Runtime {
+    pub(crate) fn record_pair_execution(&self, calls: usize, returns: usize) {
+        let mut manager = self.0.borrow_mut();
+        manager.stats.native_pair_calls =
+            manager.stats.native_pair_calls.saturating_add(calls as u64);
+        manager.stats.native_pair_returns = manager
+            .stats
+            .native_pair_returns
+            .saturating_add(returns as u64);
+        #[cfg(test)]
+        if let Some(pairs) = &mut manager.pairs {
+            pairs.executions.0 = pairs.executions.0.saturating_add(calls);
+            pairs.executions.1 = pairs.executions.1.saturating_add(returns);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_pair_executions(&self) -> (usize, usize) {
+        self.0
+            .borrow()
+            .pairs
+            .as_ref()
+            .map_or((0, 0), |pairs| pairs.executions)
+    }
+
+    pub(crate) fn prepare_call_at<'gc>(
+        &self,
+        ctx: crate::Context<'gc>,
+        caller: crate::Closure<'gc>,
+        registers: &crate::thread::LuaRegisters<'gc, '_>,
+    ) -> Option<super::PreparedPair> {
+        let prototype = caller.prototype();
+        let crate::opcode::Operation::Call {
+            func,
+            args,
+            returns,
+        } = prototype.opcodes.get(*registers.pc)?.decode()
+        else {
+            return None;
+        };
+        if args.to_constant().is_none() || returns.to_constant() != Some(0) {
+            return None;
+        }
+        let crate::Value::Function(crate::Function::Closure(callee)) =
+            registers.stack_frame.get(usize::from(func.0)).copied()?
+        else {
+            return None;
+        };
+        let registry = ctx.jit_registry().borrow();
+        let key = Key {
+            caller: registry.identity(ctx, prototype)?,
+            callee: registry.identity(ctx, callee.prototype())?,
+            pc: *registers.pc,
+        };
+        self.pair_lease(key)
+            .map(|program| super::PreparedPair { program })
+    }
+
     pub(crate) fn call_pairs_enabled(&self) -> bool {
         let manager = self.0.borrow();
         manager.config.mode == JitMode::Auto && manager.pairs.is_some()
@@ -157,6 +239,35 @@ impl Runtime {
         if callee.prototype().opcodes.len() != 4 {
             return;
         }
+        let prototype = callee.prototype();
+        let operations: [_; 4] = std::array::from_fn(|index| prototype.opcodes[index].decode());
+        let Some(pattern) = super::leaf::Pattern::from_operations(&operations) else {
+            return;
+        };
+        let crate::opcode::Operation::Return { count, .. } = operations[3] else {
+            return;
+        };
+        if count.to_constant().is_none() {
+            return;
+        }
+        match pattern.right {
+            super::leaf::Operand::Constant(index) => {
+                if !matches!(
+                    prototype.constants.get(usize::from(index)),
+                    Some(crate::Constant::Integer(_))
+                ) {
+                    return;
+                }
+            }
+            super::leaf::Operand::Register(register) if register != pattern.read => {
+                if register.0 >= arguments.to_constant().unwrap()
+                    || register.0 >= prototype.fixed_params
+                {
+                    return;
+                }
+            }
+            _ => {}
+        }
         let registry = ctx.jit_registry().borrow();
         let Some(caller) = registry.identity(ctx, caller.prototype()) else {
             return;
@@ -170,6 +281,7 @@ impl Runtime {
         self.observe_pair(Key { caller, callee, pc });
     }
 
+    #[cfg(test)]
     pub(crate) fn test_call_pairs(&self, enabled: bool) {
         let mut manager = self.0.borrow_mut();
         manager.pairs = enabled.then(|| State::new(manager.metadata.clone()));
@@ -210,16 +322,13 @@ impl Runtime {
             return None;
         }
         manager.stats.code_lookups = manager.stats.code_lookups.saturating_add(1);
-        let program = manager
-            .pairs
-            .as_ref()?
-            .entries
-            .get(&key)?
-            .program
-            .as_ref()?
-            .clone();
+        let last_used = manager.clock.saturating_add(1);
+        let program = manager.pairs.as_mut()?.entries.get_mut(&key)?;
+        let lease = program.program.as_ref()?.clone();
+        program.last_used = last_used;
+        manager.clock = last_used;
         manager.stats.code_leases = manager.stats.code_leases.saturating_add(1);
-        Some(program)
+        Some(lease)
     }
 
     pub(crate) fn compile_pair(
@@ -228,23 +337,61 @@ impl Runtime {
         caller: Snapshot,
         callee: Snapshot,
     ) -> Result<(), JitError> {
+        #[cfg(test)]
         let hook = self.0.borrow_mut().before_compile.take();
+        #[cfg(test)]
         if let Some(hook) = hook {
             hook();
         }
-        let (memory, limit, metadata, limits, failure) = {
+        let (memory, limit, metadata, limits) = {
             let manager = self.0.borrow();
             (
                 manager.memory.clone(),
                 manager.config.max_code_bytes,
                 manager.metadata.clone(),
                 super::work::Limits::from(&manager.config),
-                manager.memory_failure,
             )
         };
-        let result = Program::new(
-            key, &caller, &callee, memory, limit, metadata, limits, failure,
-        );
+        #[cfg(test)]
+        let failure = self.0.borrow().memory_failure;
+        let compile = || {
+            Program::new(
+                key,
+                &caller,
+                &callee,
+                memory.clone(),
+                limit,
+                metadata.clone(),
+                limits,
+                #[cfg(test)]
+                failure,
+            )
+        };
+        let mut result = compile();
+        if matches!(&result, Err(JitError::ResourceLimit("native mappings"))) {
+            let mut manager = self.0.borrow_mut();
+            let eligible = manager.config.mode == JitMode::Auto
+                && manager.pairs.as_ref().is_some_and(|pairs| {
+                    pairs
+                        .entries
+                        .get(&key)
+                        .is_some_and(|entry| entry.attempts < manager.config.max_compile_attempts)
+                });
+            if eligible && manager.evict_cached(super::CacheKey::Pair(key)) {
+                manager
+                    .pairs
+                    .as_mut()
+                    .unwrap()
+                    .entries
+                    .get_mut(&key)
+                    .unwrap()
+                    .attempts += 1;
+                manager.stats.compilation_failures =
+                    manager.stats.compilation_failures.saturating_add(1);
+                drop(manager);
+                result = compile();
+            }
+        }
         drop(caller);
         drop(callee);
         let mut manager = self.0.borrow_mut();
@@ -261,6 +408,7 @@ impl Runtime {
             {
                 return Ok(());
             }
+            #[cfg(test)]
             match failure {
                 super::backend::Failure::RefuseOwnerStorage => {
                     manager.metadata.0.set_limit(manager.metadata.0.current())
@@ -270,14 +418,17 @@ impl Runtime {
             }
             let program = Shared::try_new(program, manager.metadata.clone())
                 .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
-            manager
+            let last_used = manager.clock.saturating_add(1);
+            let entry = manager
                 .pairs
                 .as_mut()
                 .unwrap()
                 .entries
                 .get_mut(&key)
-                .unwrap()
-                .program = Some(program);
+                .unwrap();
+            entry.program = Some(program);
+            entry.last_used = last_used;
+            manager.clock = last_used;
             manager.stats.installed_regions = manager.stats.installed_regions.saturating_add(1);
             Ok(())
         });

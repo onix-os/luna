@@ -788,54 +788,43 @@ impl<'gc> ThreadState<'gc> {
     }
 }
 
-#[cfg(not(all(test, feature = "jit")))]
+#[cfg(not(feature = "jit"))]
 type FrameStack<'gc, 'a> = RefMut<'a, StackVec<'gc>>;
 
-#[cfg(all(test, feature = "jit"))]
-pub(super) enum FrameStack<'gc, 'a> {
-    Owned(RefMut<'a, StackVec<'gc>>),
-    Borrowed(&'a mut StackVec<'gc>),
-}
-
-#[cfg(all(test, feature = "jit"))]
-impl<'gc, 'a> From<RefMut<'a, StackVec<'gc>>> for FrameStack<'gc, 'a> {
-    fn from(stack: RefMut<'a, StackVec<'gc>>) -> Self {
-        Self::Owned(stack)
-    }
-}
-
-#[cfg(all(test, feature = "jit"))]
-impl<'gc> std::ops::Deref for FrameStack<'gc, '_> {
-    type Target = StackVec<'gc>;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            Self::Owned(stack) => stack,
-            Self::Borrowed(stack) => stack,
-        }
-    }
-}
-
-#[cfg(all(test, feature = "jit"))]
-impl std::ops::DerefMut for FrameStack<'_, '_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        match self {
-            Self::Owned(stack) => stack,
-            Self::Borrowed(stack) => stack,
-        }
-    }
-}
+#[cfg(feature = "jit")]
+type FrameStack<'gc, 'a> = &'a mut StackVec<'gc>;
 
 pub(super) struct LuaFrame<'gc, 'a> {
+    #[cfg(all(
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    pub(super) pair_handoff: Option<&'a mut Option<crate::jit::PreparedPair>>,
     pub(super) state: &'a mut ThreadState<'gc>,
-    // Held for the whole of `run_vm`, so the opcode loop pays one borrow per slice rather than one
-    // per access. Safe to hold across the loop because a native never runs inside it — the executor
-    // dispatches those, with this frame long dropped.
+    // The executor or activation host owns this stack borrow.
     pub(super) stack: FrameStack<'gc, 'a>,
     pub(super) fuel: &'a mut Fuel,
 }
 
 impl<'gc, 'a> LuaFrame<'gc, 'a> {
+    #[cfg(all(
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    pub(super) fn pair_fixed_stack(&self) -> bool {
+        matches!(
+            self.state.frames.last(),
+            Some(Frame::Lua {
+                is_variable: false,
+                ..
+            })
+        )
+    }
+
     const FUEL_PER_CALL: i32 = 4;
     const FUEL_PER_ITEM: i32 = 1;
 

@@ -103,7 +103,14 @@ impl<T, C> GlobalShared<T, C> {
             .load(Ordering::Relaxed)
     }
 
-    #[cfg(test)]
+    #[cfg(any(
+        test,
+        all(
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )
+    ))]
     pub fn ptr_eq(left: &Self, right: &Self) -> bool {
         left.pointer == right.pointer
     }

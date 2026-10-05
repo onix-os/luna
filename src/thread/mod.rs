@@ -1,4 +1,14 @@
-#[cfg(all(test, feature = "jit"))]
+#[cfg(all(
+    feature = "jit",
+    any(
+        test,
+        all(
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )
+    )
+))]
 pub(crate) mod activation;
 mod close;
 mod executor;

@@ -9,7 +9,165 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Progress snapshot — 2026-10-04
+### Progress snapshot — 2026-10-06
+
+#### Production Auto pair integration — 2026-10-06
+
+`4bd6b2e` promotes the source-bound pair queue, linked backend, canonical bridge,
+shared pressure handling and scoped selection together into production Auto.
+Off and unsupported-native execution remain ordinary. Auto initializes an
+empty optional cache without allocating entries until observation. Both
+interpreted Calls and cached-native Call transitions observe eligible pairs;
+compilation still occurs only through queued service outside arena mutation.
+`7cad1cd` tightens observation to the actual decoded leaf shape, fixed Return,
+integer constants and declared argument parameters before queue admission.
+The first broad Force run caught unsupported four-opcode callees queued by
+length alone. That failure is retained; no forced-preparation allowlists or
+performance thresholds were changed. Noninteger constants now stay on ordinary
+execution without a spurious compilation failure.
+
+The executor or activation host owns the whole-stack guard. LuaFrame now borrows
+that guarded Vec directly, eliminating the previous test-only Owned/Borrowed
+enum dispatch without raw ownership transfer. Scoped runs release all views
+before callback dispatch, suspension and collection. Private experimental
+test kernels retain their explicit selector priority; production has no such
+toggle or fault-injection parameters.
+
+`JitStats::native_pair_calls` counts consumed paired Calls;
+`native_pair_returns` counts successful completed pairs. Seven public-API
+runtime tests prove actual production selection of the unchanged frozen
+upvalue corpus, exact Off slice fuel/dispatch traces for cold and pre-prepared
+callers, GC between steps, noninteger and explicit-return fallbacks, positioned
+errors, hooks, a nested callback accessing its parent's open capture, and
+Auto-to-Off retirement without further native work.
+
+Call results discarded by the caller do not justify changing callee Return
+operands. The bridge now retains its fixed result count, preserving canonical
+copying and per-result fuel. Source-constructed four-op prototypes with one/two
+results match physical canonical traces; parsed explicit returns contain extra
+opcodes and stay on ordinary fallback. Variable Return is not admitted to the
+fixed-frame pair template. Sixteen canonical, twenty-four pair and seven
+plan tests pass. Evidence: `target/jit-evidence/short-slice-performance/pair-production/`.
+
+Corrected GNU Off/Auto/Force and musl Auto validation passed 4,704 test
+executions across 331 suites, with zero failures and sixteen repeated instances
+of four existing ignores. Formatting and baseline/JIT compilation checks passed.
+The scoped nested-callback borrowing test passed under both Miri stacked and
+tree borrows; these checks do not certify generated machine code. The executed
+i686-musl fallback gate passed 2,068 tests across 323 suites, with two ignores.
+Logs and terminal exit files are retained in the evidence directory above.
+
+This is a production candidate, not release or speed acceptance. The unchanged
+full performance/cost comparison and remaining platform/release gates remain
+required. Original upvalue/callback/compiled-Off performance failures are not
+cleared by correctness tests.
+
+#### Shared paired-program cache pressure — 2026-10-06
+
+`6f0c9dc` integrates the test-only pair cache with ordinary executable-cache
+pressure handling. Installation and successful lease acquisition update one
+shared saturating recency clock. Mapping pressure chooses the oldest unpinned
+program across both caches, excluding the requested program. Ties use cache
+kind and source identity/Call PC. A victim loses code ownership and hotness,
+not its consumed compile attempts. Live leases are never pressure-evicted.
+
+Pair compilation retries at most once after a mapping refusal, consuming the
+same pair's remaining attempt budget and retaining the two charged snapshots
+until both attempts finish. Exhausted attempts, pinned peers and non-mapping
+refusals do not bypass admission limits. Snapshots are released before cache
+owner allocation; a late owner refusal releases the newly compiled mappings.
+Ordinary compilation uses the same victim selector and its existing retry
+accounting. Production builds still have no pair cache or pair selector.
+
+Forty-nine focused pair/owner/eviction tests pass, including real compiled
+pair-to-scalar and scalar-to-pair pressure, LRU hits, saturated-clock ties,
+exhausted budgets, pinned lease execution and late retry-owner refusal.
+The initial recovery fixture accidentally serviced an ordinary request queued
+by its positioning slice; the failed log is retained, and fixture helpers now
+verify the requested cache entry was installed rather than trusting a count.
+Evidence: `target/jit-evidence/short-slice-performance/pair-pressure/`.
+
+Committed-source GNU all-feature Off/Auto/Force and focused musl validation
+passes 3,525 test executions across 247 suites, with zero failures and four
+existing ignores repeated in each full mode. Formatting and GNU baseline/JIT
+checks pass without compiler warnings. All validation jobs are terminal;
+the source archive and hashes are retained with the logs. No new ARM64 or
+native-code Miri acceptance is claimed.
+
+This addresses the pressure-integration prerequisite, not production promotion
+or performance acceptance. The original upvalue, callback and compiled-Off
+regressions and production semantic/platform gates remain open.
+
+#### Paired-call error and panic transport — 2026-10-06
+
+`5423f42` replaces the test-only paired bridge's error assertions with a typed
+outcome. Canonical Call/Return errors reach the scoped host unchanged. Caller
+prefix fuel is charged only after a successful Call; an untouched decline
+continues the same ordinary slice and charges its prefix only on success.
+Attempted Return still counts as an activation, but failed Return does not
+increment completed-pair telemetry.
+
+Both C hooks retain the original Rust panic payload, return to generated code
+without unwinding across the C ABI, and resume unwinding after native return
+and release of the session borrow. Fifteen canonical tests and eighteen pair
+tests pass. New generated-code fixtures cover Call and Return errors and a
+caught hook assertion. Return-error frames, slots, open captures, fuel and
+dispatches match canonical execution; a separate typed-payload fixture checks
+payload identity and subsequent host/manager borrowing.
+
+Broader committed-source validation passes 3,499 test executions across 248
+suites: GNU all-feature Off/Auto/Force runs plus GNU and musl native-call,
+plan and activation checks. Each full mode retains four existing ignores;
+there are zero failures. Formatting and GNU baseline/JIT checks pass without
+compiler warnings. This does not add ARM64 or native-code Miri evidence.
+
+This remains test-only groundwork for the upvalue performance regression, not
+production promotion or a measured speedup. Pair-cache pressure/eviction,
+production integration and the original upvalue/callback/compiled-Off gates
+remain open. Evidence: `target/jit-evidence/short-slice-performance/pair-outcomes/`.
+
+#### Scoped pair selection and before-Call handoff — 2026-10-06
+
+`7c5b5b7` adds **test-only automatic selection** to the scoped host. The VM
+retains a PreparedPair lease before Call dispatch/PC advance and passes it out
+without retaining a typed register view. Both ordinary dispatch and a cached
+native caller's transition path can hand off. The host charges completed prefix
+instructions once, defers its one caller step until Call, and executes the
+leased program without a second lookup or a manager borrow across native code.
+
+If preflight declines, the host interprets the remainder of the same caller
+budget with re-interception disabled; it does not stop merely because prefix
+charging exhausted fuel. Fusion requires room for two activations, the ordinary
+step charge and a sufficient callee budget. Late consumed-Call refusal remains
+distinct from an untouched decline. Fixed-argument handoff requires a physical
+fixed stack: a protocol error must retain canonical unsuccessful-slice fuel
+accounting rather than charging a split prefix first.
+
+Eighteen pair tests include 540 cold trace-grid configurations (each compared
+against an unselected reference), cached-native prefix/fuel traces, interrupts,
+arithmetic-error fallback, variable-stack protocol failure and real public
+executor steps through a repeated-call loop. The latter collects between steps
+and runs a nested executor from a later callback, proving that scoped borrows
+and native leases are released before those callbacks. Native-pair completion
+counters establish actual selection rather than merely ordinary native work.
+`57b5dcd` also imports the unchanged frozen `closure_upvalue` corpus directly
+from `examples/jit_support/workloads.rs`: the selected tier returns 50005000
+and records completed native pairs. This is integrated corpus correctness,
+not a timing result or a speedup claim.
+Existing canonical and activation focused gates pass. Raw evidence is under
+`target/jit-evidence/short-slice-performance/pair-selection/`.
+
+Final committed-source GNU/musl focused and GNU Auto all-feature validation
+passes 1,240 repeated executions across 90 suites, four existing ignores and
+zero failures. Formatting and GNU baseline/JIT checks pass without new compiler
+warnings. The earlier runtime-only validation passed 1,237 executions before
+the frozen-corpus fixture; the final revision-specific count is authoritative.
+
+This is not production promotion or timing acceptance. The bridge still needs
+pair pressure/eviction integration and
+complete production semantic/platform/ownership gates before a measured trial.
+The original upvalue, callback and compiled-Off regressions remain unresolved;
+no new ARM64 or native-code Miri certification is claimed.
 
 #### Queued caller/callee preparation — 2026-10-05
 
@@ -46,7 +204,7 @@ Committed-source GNU/musl focused and GNU Auto all-feature validation passes
 failures. Formatting and GNU baseline/JIT checks pass without new compiler
 warnings. These are correctness and ownership checks, not timing acceptance.
 
-Pair programs are **not yet selected automatically for execution**. The scoped
+At this earlier checkpoint pair programs are **not selected automatically for execution**. The scoped
 host still needs a private selector and a verified before-Call handoff that
 preserves the caller's partially consumed VM budget, immediate statistics,
 step fuel and exact fallback accounting. Pair-cache pressure/eviction behavior

@@ -17,7 +17,9 @@ pub(crate) struct Hooks {
 pub(crate) struct CallCode {
     _memory: Memory,
     entry: unsafe extern "C" fn(*mut c_void, u32) -> u32,
+    #[cfg(test)]
     pub relocations: usize,
+    #[cfg(test)]
     pub bytes: usize,
 }
 
@@ -32,6 +34,7 @@ impl CallCode {
     }
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy, Default)]
 pub(crate) enum LinkFault {
     #[default]
@@ -95,13 +98,14 @@ pub(crate) fn compile(
     limit: usize,
     metadata: BudgetAllocator,
     limits: super::super::work::Limits,
-    failure: Failure,
-    fault: LinkFault,
+    #[cfg(test)] failure: Failure,
+    #[cfg(test)] fault: LinkFault,
 ) -> Result<CallCode, JitError> {
     if plan.expansion.instructions > limits.instructions || plan.expansion.blocks > limits.blocks {
         return Err(JitError::ResourceLimit("aggregate IR"));
     }
     let workspace = plan.allocator();
+    #[cfg(test)]
     if failure == Failure::RefuseSignatures {
         workspace.0.set_limit(workspace.0.current());
     }
@@ -115,6 +119,7 @@ pub(crate) fn compile(
     let _signatures = Reservation::new(workspace.0.clone(), signature_bytes)
         .map_err(|_| JitError::ResourceLimit("aggregate signatures"))?;
     let symbol_bytes = symbol_storage_bytes(["activation_enter".len(), "activation_leave".len()])?;
+    #[cfg(test)]
     if failure == Failure::RefuseSymbols {
         workspace.0.set_limit(workspace.0.current());
     }
@@ -139,6 +144,7 @@ pub(crate) fn compile(
             allocations: BudgetVec::new_in(metadata.clone()),
             total,
             status: status.clone(),
+            #[cfg(test)]
             failure,
             limit,
             page: page as usize,
@@ -183,6 +189,7 @@ pub(crate) fn compile(
         .map_err(fail)?;
     let ids = [enter, leaf, leave];
     bind(&mut program.entry, ids)?;
+    #[cfg(test)]
     match fault {
         LinkFault::None => {}
         LinkFault::CalleeTarget | LinkFault::EnterTarget | LinkFault::LeaveTarget => {
@@ -227,11 +234,13 @@ pub(crate) fn compile(
     let copy_bytes = Layout::array::<ModuleReloc>(relocations)
         .map_err(|_| JitError::ResourceLimit("aggregate relocation copy size"))?
         .size();
+    #[cfg(test)]
     if failure == Failure::RefuseRelocationCopy {
         workspace.0.set_limit(workspace.0.current());
     }
     let _copies = Reservation::new(workspace.0.clone(), copy_bytes)
         .map_err(|_| JitError::ResourceLimit("aggregate relocation copy"))?;
+    #[cfg(test)]
     let mut bytes = 0;
     for (id, context) in contexts {
         let compiled = context.compiled_code().unwrap();
@@ -254,7 +263,10 @@ pub(crate) fn compile(
                 &staging,
             )
             .map_err(fail)?;
-        bytes += compiled.code_buffer().len();
+        #[cfg(test)]
+        {
+            bytes += compiled.code_buffer().len();
+        }
     }
     module.finalize_definitions().map_err(fail)?;
     let pointer = module.get_finalized_function(entry);
@@ -268,7 +280,9 @@ pub(crate) fn compile(
     Ok(CallCode {
         _memory: image,
         entry,
+        #[cfg(test)]
         relocations,
+        #[cfg(test)]
         bytes,
     })
 }

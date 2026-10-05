@@ -25,10 +25,16 @@ mod atomic_owner;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod backend;
-#[cfg(test)]
+#[cfg(any(
+    test,
+    all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )
+))]
 mod calls;
 #[cfg(all(
-    test,
     not(miri),
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -77,13 +83,20 @@ mod handoff;
 mod helper_flow;
 mod helpers;
 #[cfg(all(
-    test,
     target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    any(test, not(miri))
 ))]
 mod integer;
 pub(crate) mod ir;
-#[cfg(test)]
+#[cfg(any(
+    test,
+    all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )
+))]
 mod leaf;
 #[cfg(all(
     target_os = "linux",
@@ -100,7 +113,6 @@ mod model;
 ))]
 mod owner;
 #[cfg(all(
-    test,
     not(miri),
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -234,6 +246,8 @@ pub struct JitStats {
     pub interpreted_slices: u64,
     pub interpreted_instructions: u64,
     pub native_entries: u64,
+    pub native_pair_calls: u64,
+    pub native_pair_returns: u64,
     pub code_lookups: u64,
     pub code_leases: u64,
     pub native_instructions: u64,
@@ -507,7 +521,6 @@ pub enum JitError {
 
 pub(crate) struct Manager {
     #[cfg(all(
-        test,
         not(miri),
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
@@ -573,7 +586,6 @@ impl Default for Manager {
         let snapshots = BudgetAllocator(Ledger::child(config.max_snapshot_bytes, host.clone()));
         Self {
             #[cfg(all(
-                test,
                 not(miri),
                 target_os = "linux",
                 any(target_arch = "x86_64", target_arch = "aarch64")
@@ -649,11 +661,21 @@ struct CachedCode {
     last_used: u64,
 }
 
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum CacheKey {
+    Prototype(u64),
+    #[cfg(not(miri))]
+    Pair(pairs::Key),
+}
+
 impl Manager {
     fn queued_count(&self) -> usize {
         let count = self.queue.len();
         #[cfg(all(
-            test,
             not(miri),
             target_os = "linux",
             any(target_arch = "x86_64", target_arch = "aarch64")
@@ -670,7 +692,6 @@ impl Manager {
                 .queue_compactor
                 .needed(self.queue.len(), self.queue.capacity());
         #[cfg(all(
-            test,
             not(miri),
             target_os = "linux",
             any(target_arch = "x86_64", target_arch = "aarch64")
@@ -720,7 +741,6 @@ impl Manager {
 
     pub(crate) fn compact_metadata(&mut self) {
         #[cfg(all(
-            test,
             not(miri),
             target_os = "linux",
             any(target_arch = "x86_64", target_arch = "aarch64")
@@ -758,24 +778,55 @@ impl Manager {
         {
             return false;
         }
+        if !self.evict_cached(CacheKey::Prototype(id)) {
+            return false;
+        }
+        self.tracked.get_mut(&id).unwrap().attempts += 1;
+        true
+    }
+
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    fn evict_cached(&mut self, exclude: CacheKey) -> bool {
         let victim = self
             .code
             .iter()
             .filter(|(candidate, entry)| {
-                **candidate != id && owner::Shared::strong_count(&entry.code) == 1
+                CacheKey::Prototype(**candidate) != exclude
+                    && owner::Shared::strong_count(&entry.code) == 1
             })
             .min_by_key(|(candidate, entry)| (entry.last_used, **candidate))
-            .map(|(candidate, _)| *candidate);
-        let Some(victim) = victim else {
+            .map(|(candidate, entry)| (entry.last_used, CacheKey::Prototype(*candidate)));
+        #[cfg(not(miri))]
+        let victim = victim
+            .into_iter()
+            .chain(self.pairs.as_ref().and_then(|pairs| {
+                let excluded = match exclude {
+                    CacheKey::Pair(key) => Some(key),
+                    CacheKey::Prototype(_) => None,
+                };
+                pairs
+                    .victim(excluded)
+                    .map(|(clock, key)| (clock, CacheKey::Pair(key)))
+            }))
+            .min();
+        let Some((_, victim)) = victim else {
             self.stats.cache_eviction_refusals =
                 self.stats.cache_eviction_refusals.saturating_add(1);
             return false;
         };
-        self.code.remove(&victim);
-        if let Some(tracking) = self.tracked.get_mut(&victim) {
-            tracking.hotness = 0;
+        match victim {
+            CacheKey::Prototype(id) => {
+                self.code.remove(&id);
+                if let Some(tracking) = self.tracked.get_mut(&id) {
+                    tracking.hotness = 0;
+                }
+            }
+            #[cfg(not(miri))]
+            CacheKey::Pair(key) => self.pairs.as_mut().unwrap().evict(key),
         }
-        self.tracked.get_mut(&id).unwrap().attempts += 1;
         self.stats.cache_evictions = self.stats.cache_evictions.saturating_add(1);
         true
     }
@@ -807,7 +858,6 @@ impl Manager {
                 keep
             });
             #[cfg(all(
-                test,
                 not(miri),
                 target_os = "linux",
                 any(target_arch = "x86_64", target_arch = "aarch64")
@@ -823,6 +873,14 @@ impl Manager {
         self.metadata.0.set_limit(config.max_metadata_bytes);
         self.snapshots.0.set_limit(config.max_snapshot_bytes);
         self.config = config;
+        #[cfg(all(
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ))]
+        if self.config.mode == JitMode::Auto && self.pairs.is_none() {
+            self.pairs = Some(pairs::State::new(self.metadata.clone()));
+        }
     }
 
     pub(crate) fn retire(&mut self, id: u64) {
@@ -830,7 +888,6 @@ impl Manager {
         self.stats.registered_prototypes = self.tracked.len();
         self.queue.retain(|request| *request != id);
         #[cfg(all(
-            test,
             not(miri),
             target_os = "linux",
             any(target_arch = "x86_64", target_arch = "aarch64")
@@ -905,7 +962,6 @@ impl Manager {
 
     pub(crate) fn clear(&mut self) {
         #[cfg(all(
-            test,
             not(miri),
             target_os = "linux",
             any(target_arch = "x86_64", target_arch = "aarch64")
@@ -950,6 +1006,54 @@ pub(crate) struct Prepared {
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
     code: owner::Shared<backend::Code>,
+}
+
+#[cfg(all(
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+pub(crate) struct PreparedPair {
+    program: owner::Shared<canonical::Program>,
+}
+
+#[cfg(all(
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+pub(crate) struct PairOutcome {
+    pub calls: usize,
+    pub returns: usize,
+    pub result: Result<(), crate::thread::VMError>,
+}
+
+#[cfg(all(
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+impl PreparedPair {
+    pub(crate) fn invoke<'gc>(
+        &self,
+        ctx: crate::Context<'gc>,
+        host: &mut crate::thread::activation::ActivationHost<'gc, '_>,
+        budget: u32,
+        prefix: u32,
+    ) -> Option<PairOutcome> {
+        let outcome = self.program.invoke_result(ctx, host, budget, prefix);
+        if let Some(outcome) = &outcome {
+            ctx.jit().record_pair_execution(
+                outcome.calls,
+                if outcome.result.is_ok() {
+                    outcome.returns
+                } else {
+                    0
+                },
+            );
+        }
+        outcome
+    }
 }
 
 pub(crate) struct InterpreterStats<'a> {
@@ -1070,12 +1174,41 @@ impl Runtime {
         self.0.borrow().config.mode == JitMode::Auto
     }
 
-    #[cfg(all(
+    #[cfg(any(
         test,
+        all(
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )
+    ))]
+    pub(crate) fn scoped_activation_limit(&self) -> usize {
+        let manager = self.0.borrow();
+        #[cfg(test)]
+        if manager.activation_limit > 0 {
+            return manager.activation_limit;
+        }
+        #[cfg(all(test, not(miri)))]
+        if manager.scalar_kernels {
+            return 0;
+        }
+        #[cfg(all(
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ))]
+        if manager.config.mode == JitMode::Auto && manager.pairs.is_some() {
+            return 64;
+        }
+        0
+    }
+
+    #[cfg(all(
         not(miri),
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
+    #[cfg(test)]
     pub(crate) fn try_scalar_activation<'gc>(
         &self,
         ctx: crate::Context<'gc>,
@@ -1479,11 +1612,11 @@ impl Runtime {
     }
 
     #[cfg(all(
-        test,
         not(miri),
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
+    #[cfg(test)]
     fn invoke_scalar_kernel<'gc>(
         &self,
         code: &backend::Code,
@@ -2654,11 +2787,11 @@ mod eviction_tests {
 pub(crate) mod projection;
 
 #[cfg(all(
-    test,
     not(miri),
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
+#[cfg(test)]
 mod runtime_projection_tests {
     use super::*;
     use crate::{

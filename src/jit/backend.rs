@@ -25,7 +25,7 @@ use super::{
 };
 use crate::opcode::{Operation, RCIndex};
 
-#[cfg(all(test, not(miri)))]
+#[cfg(not(miri))]
 pub(super) mod calls;
 
 struct Memory {

@@ -1,4 +1,5 @@
 use std::{
+    any::Any,
     ffi::c_void,
     panic::{catch_unwind, AssertUnwindSafe},
 };
@@ -26,6 +27,7 @@ pub(super) struct Site {
     pattern: Pattern,
     registers: usize,
     start: RegisterIndex,
+    returns: u8,
 }
 
 pub(super) struct Program {
@@ -43,7 +45,7 @@ impl Program {
         limit: usize,
         metadata: super::resources::BudgetAllocator,
         limits: super::work::Limits,
-        failure: super::backend::Failure,
+        #[cfg(test)] failure: super::backend::Failure,
     ) -> Result<Self, super::JitError> {
         if !super::resources::LedgerRef::ptr_eq(
             &caller.operations.allocator().0,
@@ -57,7 +59,7 @@ impl Program {
             ));
         }
         let plan = super::calls::Plan::new(caller, callee, key.pc, limits)?;
-        let Operation::Return { start, .. } = callee.operations[3] else {
+        let Operation::Return { start, count } = callee.operations[3] else {
             unreachable!()
         };
         let site = Site {
@@ -69,6 +71,7 @@ impl Program {
             pattern: plan.pattern,
             registers: callee.registers,
             start,
+            returns: count.to_constant().unwrap(),
         };
         let origin = memory.clone();
         let code = super::backend::calls::compile(
@@ -78,24 +81,40 @@ impl Program {
             limit,
             metadata,
             limits,
+            #[cfg(test)]
             failure,
+            #[cfg(test)]
             super::backend::calls::LinkFault::None,
         )?;
         Ok(Self { site, code, origin })
     }
 
+    #[cfg(test)]
     pub fn invoke<'gc>(
         &self,
         ctx: Context<'gc>,
         host: &mut ActivationHost<'gc, '_>,
         budget: u32,
     ) -> Option<(usize, usize)> {
+        self.invoke_result(ctx, host, budget, 0).map(|outcome| {
+            outcome.result.unwrap();
+            (outcome.calls, outcome.returns)
+        })
+    }
+
+    pub fn invoke_result<'gc>(
+        &self,
+        ctx: Context<'gc>,
+        host: &mut ActivationHost<'gc, '_>,
+        budget: u32,
+        prefix: u32,
+    ) -> Option<super::PairOutcome> {
         let manager = ctx.jit().0.borrow();
         if manager.config.mode != super::JitMode::Auto || !self.origin.same_root(&manager.memory) {
             return None;
         }
         drop(manager);
-        invoke(ctx, host, &self.site, &self.code, budget)
+        invoke_result(ctx, host, &self.site, &self.code, budget, prefix)
     }
 }
 
@@ -111,7 +130,8 @@ struct Session<'gc, 'host, 'borrow> {
     calls: usize,
     returns: usize,
     error: Option<crate::thread::VMError>,
-    panicked: bool,
+    panic: Option<Box<dyn Any + Send>>,
+    prefix: u32,
 }
 
 impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
@@ -143,7 +163,8 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             calls: 0,
             returns: 0,
             error: None,
-            panicked: false,
+            panic: None,
+            prefix: 0,
         }
     }
 
@@ -160,6 +181,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             return false;
         }
         let mut fuel = self.host.fuel().clone();
+        fuel.consume(self.prefix.try_into().unwrap());
         fuel.consume(8 + i32::from(self.site.arguments));
         if !fuel.should_continue() {
             return false;
@@ -221,6 +243,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
                 Operand::Register(register) if register == site.pattern.read => true,
                 Operand::Register(register) => {
                     usize::from(register.0) < usize::from(site.arguments)
+                        && register.0 < callee.prototype().fixed_params
                         && matches!(
                             registers
                                 .stack_frame
@@ -258,6 +281,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             self.error = Some(error);
             return std::ptr::null_mut();
         }
+        self.host.charge_instructions(self.prefix);
         if !self.host.lua_ready() || !self.host.fuel().should_continue() {
             return std::ptr::null_mut();
         }
@@ -376,9 +400,12 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             return 1;
         }
         self.returns = 1;
-        let result = self
-            .host
-            .return_zero(ctx, self.site.start, self.frame.exit.instructions);
+        let result = self.host.return_fixed(
+            ctx,
+            self.site.start,
+            self.site.returns,
+            self.frame.exit.instructions,
+        );
         let mut stats = ctx.jit().interpreter_stats();
         stats.dispatches = 1;
         stats.reported_instructions = result.as_ref().ok().map(|_| 0);
@@ -387,6 +414,20 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             self.error = Some(error);
         }
         2
+    }
+
+    fn finish(mut self) -> super::PairOutcome {
+        let payload = self.panic.take();
+        let outcome = super::PairOutcome {
+            calls: self.calls,
+            returns: self.returns,
+            result: self.error.take().map_or(Ok(()), Err),
+        };
+        drop(self);
+        if let Some(payload) = payload {
+            std::panic::resume_unwind(payload);
+        }
+        outcome
     }
 }
 
@@ -399,8 +440,8 @@ unsafe extern "C" fn enter(
     let session = unsafe { &mut *data.cast::<Session<'_, '_, '_>>() };
     match catch_unwind(AssertUnwindSafe(|| session.enter(pc, function, arguments))) {
         Ok(frame) => frame,
-        Err(_) => {
-            session.panicked = true;
+        Err(payload) => {
+            session.panic = Some(payload);
             std::ptr::null_mut()
         }
     }
@@ -410,13 +451,14 @@ unsafe extern "C" fn leave(data: *mut c_void, frame: *mut NativeFrame, pc: u64, 
     let session = unsafe { &mut *data.cast::<Session<'_, '_, '_>>() };
     match catch_unwind(AssertUnwindSafe(|| session.leave(frame, pc, start))) {
         Ok(result) => result,
-        Err(_) => {
-            session.panicked = true;
+        Err(payload) => {
+            session.panic = Some(payload);
             0
         }
     }
 }
 
+#[cfg(test)]
 fn invoke<'gc>(
     ctx: Context<'gc>,
     host: &mut ActivationHost<'gc, '_>,
@@ -424,20 +466,30 @@ fn invoke<'gc>(
     code: &CallCode,
     budget: u32,
 ) -> Option<(usize, usize)> {
+    invoke_result(ctx, host, site, code, budget, 0).map(|outcome| {
+        outcome.result.unwrap();
+        (outcome.calls, outcome.returns)
+    })
+}
+
+fn invoke_result<'gc>(
+    ctx: Context<'gc>,
+    host: &mut ActivationHost<'gc, '_>,
+    site: &Site,
+    code: &CallCode,
+    budget: u32,
+    prefix: u32,
+) -> Option<super::PairOutcome> {
     let mut session = Session::new(ctx, host, site);
+    session.prefix = prefix;
     if !session.preflight(budget) {
         return None;
     }
     unsafe {
         code.invoke(std::ptr::addr_of_mut!(session).cast(), budget.min(64));
     }
-    assert!(!session.panicked, "canonical hook panicked");
-    assert!(
-        session.error.is_none(),
-        "canonical hook failed: {:?}",
-        session.error
-    );
-    Some((session.calls, session.returns))
+    let outcome = session.finish();
+    (outcome.calls != 0).then_some(outcome)
 }
 
 #[cfg(test)]

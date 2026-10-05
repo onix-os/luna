@@ -1,6 +1,10 @@
-use crate::{opcode::Operation, types::RegisterIndex, Value};
+#[cfg(test)]
+use crate::Value;
+use crate::{opcode::Operation, types::RegisterIndex};
 
-use super::{abi, ir::Snapshot, projection::Origin};
+#[cfg(test)]
+use super::projection::Origin;
+use super::{abi, ir::Snapshot};
 
 pub(super) const VERSION: u64 = 0x4c55_4e41_4345_4c31;
 
@@ -27,7 +31,7 @@ pub(super) struct Pattern {
 }
 
 impl Pattern {
-    #[cfg(not(miri))]
+    #[cfg(all(test, not(miri)))]
     pub(super) fn permits_cell_entry(self, pc: usize, slots: &[abi::Slot]) -> bool {
         pc != 2
             || slots
@@ -37,17 +41,21 @@ impl Pattern {
     }
 
     pub(super) fn recognize(snapshot: &Snapshot) -> Option<Self> {
+        snapshot.verify().ok()?;
+        Self::from_operations(&snapshot.operations)
+    }
+
+    pub(super) fn from_operations(operations: &[Operation]) -> Option<Self> {
         use crate::opcode::RCIndex;
         use Operation::*;
 
-        snapshot.verify().ok()?;
         let [GetUpValue {
             dest: read,
             source: upvalue,
         }, math, SetUpValue {
             dest: write,
             source,
-        }, Return { .. }] = snapshot.operations.as_slice()
+        }, Return { .. }] = operations
         else {
             return None;
         };
@@ -90,20 +98,24 @@ pub(super) struct View {
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
+#[cfg(test)]
 pub(super) type CellEntry =
     unsafe extern "C" fn(*mut abi::Slot, u64, u32, *mut abi::Exit, *mut View);
 
+#[cfg(test)]
 #[derive(Clone, Copy)]
 enum Target {
     Upper(usize),
     Register(usize),
 }
 
+#[cfg(test)]
 pub(super) struct Binding {
     target: Target,
     value: abi::Slot,
 }
 
+#[cfg(test)]
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Error {
     ViewMismatch,
@@ -111,12 +123,14 @@ pub(super) enum Error {
     TargetRange,
 }
 
+#[cfg(test)]
 pub(super) struct Delta {
     pub reads: u32,
     pub writes: u32,
     upper: Option<(usize, abi::Slot)>,
 }
 
+#[cfg(test)]
 fn scalar(slot: abi::Slot) -> bool {
     match slot.tag {
         abi::NIL => slot.bits == 0,
@@ -126,6 +140,7 @@ fn scalar(slot: abi::Slot) -> bool {
     }
 }
 
+#[cfg(test)]
 impl Binding {
     #[cfg(test)]
     pub(super) fn integer_activation(&self, pattern: Pattern, right: abi::Slot) -> bool {
@@ -200,6 +215,7 @@ impl Binding {
     }
 }
 
+#[cfg(test)]
 impl Delta {
     pub(super) fn apply_registers(
         &self,
