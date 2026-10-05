@@ -1479,4 +1479,36 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
             self.stack_frame[index] = value;
         }
     }
+
+    pub(crate) fn projection_split_frame<R>(
+        ctx: Context<'gc>,
+        pc: &mut usize,
+        canonical: &mut [Value<'gc>],
+        base: usize,
+        call: impl FnOnce(LuaRegisters<'gc, '_>) -> R,
+    ) -> R {
+        let allocator = MetricsAlloc::new(&ctx);
+        let mut open_upvalues = vec::Vec::new_in(allocator.clone());
+        let mut to_be_closed = vec::Vec::new_in(allocator.clone());
+        let (upper_stack, stack_frame) = canonical.split_at_mut(base);
+        call(LuaRegisters {
+            pc,
+            stack_frame,
+            upper_stack,
+            base,
+            open_upvalues: &mut open_upvalues,
+            to_be_closed: &mut to_be_closed,
+            stack: Gc::new(&ctx, RefLock::new(vec::Vec::new_in(allocator))),
+        })
+    }
+
+    pub(crate) fn projection_open_at(&self, ctx: Context<'gc>, index: usize) -> UpValue<'gc> {
+        UpValue::new(
+            &ctx,
+            UpValueState::Open(OpenUpValue {
+                stack: Gc::downgrade(self.stack),
+                stack_index: index,
+            }),
+        )
+    }
 }
