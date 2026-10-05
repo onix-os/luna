@@ -41,6 +41,23 @@ fn assert_exit_partition(stats: luna::JitStats) {
 }
 
 #[test]
+fn integer_leaf_activation_executes_without_upvalue_helpers() -> Result<(), ExternError> {
+    let mut lua = native_empty();
+    let executor = source(
+        &mut lua,
+        b"local sum=1 local function add(v) sum=sum+v end add(2) return sum",
+    )?;
+    assert_eq!(lua.prepare_jit().unwrap(), 2);
+    assert_eq!(lua.execute::<i64>(&executor)?, 3);
+    let stats = lua.jit_stats();
+    assert_eq!(stats.native_upvalue_reads, 1);
+    assert_eq!(stats.native_upvalue_writes, 1);
+    assert!(stats.helper_calls < 2, "{stats:?}");
+    assert_exit_partition(stats);
+    Ok(())
+}
+
+#[test]
 fn native_call_and_fallback_slices_preserve_step_boundaries() -> Result<(), ExternError> {
     let programs: &[&[u8]] = &[
         b"local n=0 local function f() n=n+1 return n end for i=1,120 do f() end return n",
