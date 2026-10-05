@@ -231,13 +231,37 @@ Small absolute upvalue gains are not native-tier acceptance: accelerating the
 interpreter too makes its relative native speedup worse. Generic batching is
 not retained as a production regression fix.
 
-The next uncommitted candidate selects batch64 once per host step only in active
-Auto mode. Off and interpreter-only builds use the original single-activation
-cadence. This does not remove any native workload, coverage, logical frame or
-fuel charge. Its independent source/archive/binary provenance, correctness
-reruns and frozen timing comparison use the `lua-native-batch` prefix; acceptance
-is still pending. Generic trial evidence uses `lua-batch`, under
+The second candidate selected batch64 once per host step only in active Auto
+mode; Off and interpreter-only builds kept single-activation cadence. It also
+completed all 24 blocks and 144 commands with verified hashes. Direct Auto
+upvalue gains are 1.081x speed and 1.072x shipping, but callbacks are 0.985x and
+0.986x. Own Off/Auto ratios are 0.7425x/0.62045x for upvalues and
+0.7593x/0.7898x for callbacks: zero of 24 frozen native gate batches pass for
+either workload/profile. Disabled upvalue overhead is 5.645%/7.795%; callbacks
+are 8.94%/3.845%. Multiple other cost gates fail too. Its source/archive/binary
+provenance, correctness reruns and unchanged comparison use `lua-native-batch`;
+the generic trial uses `lua-batch`, under
 `target/jit-evidence/short-slice-performance/`.
+
+Both production batching variants and the borrowed `LuaFrame` layout were
+removed. No native coverage, threshold or workload changed. The production
+executor, interpreter and native runtime remain unchanged. The retained
+`activation_tests` call the real public `Executor::step` and compare prepared
+Auto against Off, rather than maintaining an alternate test-only executor.
+They capture canonical frames/scalar stacks, exact per-step fuel/dispatches,
+callback interruption, nested open-upvalue access and collection after each
+slice. Make targets `vm-activation-tests`, `jit-activation-tests` and
+`vm-activation-miri` run these functional comparisons. Original performance
+regressions and full plan acceptance remain unresolved.
+
+Final retained-code GNU/musl runs each pass six focused executions and
+baseline/JIT checks/Clippy with the existing 141 library-test warnings. GNU
+all-features Auto passes 1068 executions across 80 suite runs (four existing
+ignores); baseline tests/doc tests pass 393 across 79 suites (two existing
+ignores). The retained nested-executor smoke passes under both Miri models.
+These final results use `activation-retained` logs, not discarded candidate
+tests. The production executor body was independently compared with HEAD and
+matches exactly; only the test module was appended.
 
 Remaining implementation gates:
 
