@@ -11,6 +11,53 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Native-entry continuation trials — 2026-10-05
+
+Two further native-entry candidates were measured and rejected. Both move the
+first native attempt ahead of the interpreter loop, retain the prepared-code
+lease on fallback, and skip a duplicate first native attempt. One carries the
+continuation by value in `LuaFrame`; the other borrows a short-lived continuation.
+Off delegates directly to the interpreter in both. Neither runtime change is
+retained. The guard-fallback regression test is retained separately (`ee59936`).
+
+Each candidate completed 24 interleaved blocks in three windows: 144 timing
+commands, both optimization profiles, all nine workloads, eleven paired samples,
+and twelve matched feature-cost batches per profile. Direct gains below mean
+baseline Auto time divided by candidate Auto time, not candidate Off/Auto ratios.
+
+| Continuation | Speed Auto upvalues / callbacks | Shipping Auto upvalues / callbacks | Upvalue Off overhead speed / shipping | Callback Off overhead speed / shipping |
+| --- | --- | --- | --- | --- |
+| By value | 0.987x / 1.002x | 1.028x / 1.010x | 34.23% / 26.64% | 18.34% / 13.78% |
+| Borrowed | 1.036x / 1.006x | 1.046x / 1.011x | 47.12% / 22.81% | 21.40% / 13.29% |
+
+Both fail the unchanged upvalue gate and 5% disabled-cost controls. The borrowed
+variant's apparent speed-profile upvalue Off/Auto ratio reaches 0.987x chiefly
+because Off slows, not because the original native regression was fixed. Even
+the by-value candidate's modest instruction-profile reduction is not timing
+acceptance. No native coverage requirement, threshold or workload was changed.
+
+Each candidate passes GNU Auto correctness (1026 executions in 79 suites, four
+existing ignores), GNU check/JIT check/Clippy with existing warnings, and musl
+native/upvalue/boundary tests (548 passes, four existing ignores). Five statistics
+tests also pass under Miri for the by-value candidate. These are correctness
+results, not performance or complete platform certification.
+
+Evidence is retained under `target/jit-evidence/short-slice-performance/` with
+`native-head` and `native-head-thin` prefixes: immutable binaries, all timing
+results and contention telemetry, summary TSVs, patches, and source archives.
+All artifact/source hashes pass before and after every timing block. The source
+archives independently verify against the original source manifests after the
+experiments are removed. Independently built no-feature controls have identical
+`.text` and `.rodata` to the baseline at both profiles; `.data.rel.ro` differs,
+including changed source-location line metadata. Original binaries were never
+rewritten or substituted, and candidate controls still face the frozen gates.
+
+The retained test calls a prepared arithmetic closure with a table argument and
+requires exactly one native entry, lookup and guard exit, followed by exactly one
+interpreted dispatch before the type error. Further work must address invocation
+and call/return costs without replaying these rejected dispatch restructurings.
+**The original performance regressions remain unresolved.**
+
 #### Short-slice regression investigation — 2026-10-05
 
 Five runtime experiments were rejected. Their patches, immutable binaries,
