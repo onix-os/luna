@@ -9,7 +9,58 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Progress snapshot — 2026-10-04
+### Progress snapshot — 2026-10-06
+
+#### Production Auto pair integration — 2026-10-06
+
+`4bd6b2e` promotes the source-bound pair queue, linked backend, canonical bridge,
+shared pressure handling and scoped selection together into production Auto.
+Off and unsupported-native execution remain ordinary. Auto initializes an
+empty optional cache without allocating entries until observation. Both
+interpreted Calls and cached-native Call transitions observe eligible pairs;
+compilation still occurs only through queued service outside arena mutation.
+`7cad1cd` tightens observation to the actual decoded leaf shape, fixed Return,
+integer constants and declared argument parameters before queue admission.
+The first broad Force run caught unsupported four-opcode callees queued by
+length alone. That failure is retained; no forced-preparation allowlists or
+performance thresholds were changed. Noninteger constants now stay on ordinary
+execution without a spurious compilation failure.
+
+The executor or activation host owns the whole-stack guard. LuaFrame now borrows
+that guarded Vec directly, eliminating the previous test-only Owned/Borrowed
+enum dispatch without raw ownership transfer. Scoped runs release all views
+before callback dispatch, suspension and collection. Private experimental
+test kernels retain their explicit selector priority; production has no such
+toggle or fault-injection parameters.
+
+`JitStats::native_pair_calls` counts consumed paired Calls;
+`native_pair_returns` counts successful completed pairs. Seven public-API
+runtime tests prove actual production selection of the unchanged frozen
+upvalue corpus, exact Off slice fuel/dispatch traces for cold and pre-prepared
+callers, GC between steps, noninteger and explicit-return fallbacks, positioned
+errors, hooks, a nested callback accessing its parent's open capture, and
+Auto-to-Off retirement without further native work.
+
+Call results discarded by the caller do not justify changing callee Return
+operands. The bridge now retains its fixed result count, preserving canonical
+copying and per-result fuel. Source-constructed four-op prototypes with one/two
+results match physical canonical traces; parsed explicit returns contain extra
+opcodes and stay on ordinary fallback. Variable Return is not admitted to the
+fixed-frame pair template. Sixteen canonical, twenty-four pair and seven
+plan tests pass. Evidence: `target/jit-evidence/short-slice-performance/pair-production/`.
+
+Corrected GNU Off/Auto/Force and musl Auto validation passed 4,704 test
+executions across 331 suites, with zero failures and sixteen repeated instances
+of four existing ignores. Formatting and baseline/JIT compilation checks passed.
+The scoped nested-callback borrowing test passed under both Miri stacked and
+tree borrows; these checks do not certify generated machine code. The executed
+i686-musl fallback gate passed 2,068 tests across 323 suites, with two ignores.
+Logs and terminal exit files are retained in the evidence directory above.
+
+This is a production candidate, not release or speed acceptance. The unchanged
+full performance/cost comparison and remaining platform/release gates remain
+required. Original upvalue/callback/compiled-Off performance failures are not
+cleared by correctness tests.
 
 #### Shared paired-program cache pressure — 2026-10-06
 
