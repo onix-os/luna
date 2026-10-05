@@ -14,6 +14,7 @@ use luna::{
 struct Run {
     result: Result<String, ExternError>,
     slices: Vec<(bool, ExecutorMode, i32)>,
+    dispatches: Vec<u64>,
     stats: JitStats,
 }
 
@@ -40,6 +41,7 @@ fn run(source: &str, native: bool, budget: i32, error: Option<RuntimeError>) -> 
     }
     let installed = lua.jit_stats().installed_regions;
     let mut slices = Vec::new();
+    let mut dispatches = Vec::new();
     for _ in 0..1000 {
         let slice = lua.enter(|ctx| {
             let executor = ctx.fetch(&executor);
@@ -51,6 +53,7 @@ fn run(source: &str, native: bool, budget: i32, error: Option<RuntimeError>) -> 
             )
         });
         slices.push(slice);
+        dispatches.push(lua.jit_stats().total_dispatches);
         lua.gc_collect();
         assert_eq!(lua.jit_stats().installed_regions, installed);
         assert_eq!(lua.jit_stats().queued_requests, 0);
@@ -66,6 +69,7 @@ fn run(source: &str, native: bool, budget: i32, error: Option<RuntimeError>) -> 
             return Run {
                 result,
                 slices,
+                dispatches,
                 stats,
             };
         }
@@ -100,6 +104,7 @@ fn native_guard_and_call_errors_keep_fault_lines_and_reference_slices() {
                 let reference = run(&source, false, budget, None);
                 let native = run(&source, true, budget, None);
                 assert_eq!(native.slices, reference.slices, "{source}, fuel={budget}");
+                assert_eq!(native.dispatches, reference.dispatches, "{source}, fuel={budget}");
                 assert_eq!(native.result.is_ok(), caught, "{source}");
                 let rendered = |result: Result<String, ExternError>| result.unwrap_or_else(|error| error.to_string());
                 let actual = rendered(native.result);
@@ -131,6 +136,10 @@ fn native_prefix_preserves_typed_callback_payload_through_catch_and_rethrow() {
             let reference = run(&source, false, budget, Some(error.clone()));
             let native = run(&source, true, budget, Some(error));
             assert_eq!(native.slices, reference.slices, "{source}, fuel={budget}");
+            assert_eq!(
+                native.dispatches, reference.dispatches,
+                "{source}, fuel={budget}"
+            );
             let expected = reference.result.unwrap_err();
             let actual = native.result.unwrap_err();
             assert_eq!(actual.to_string(), expected.to_string());

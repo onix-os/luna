@@ -41,6 +41,62 @@ fn assert_exit_partition(stats: luna::JitStats) {
 }
 
 #[test]
+fn native_call_and_fallback_slices_preserve_step_boundaries() -> Result<(), ExternError> {
+    let programs: &[&[u8]] = &[
+        b"local n=0 local function f() n=n+1 return n end for i=1,120 do f() end return n",
+        b"local function f(n) if n==0 then return 42 end return f(n-1) end return f(120)",
+        b"local n=0 for i=1,120 do n=n+tonumber('1') end return n",
+        b"local n=0 for i=1,120 do local x='1' n=n+x end return n",
+        b"local t=setmetatable({}, {__index=function() return 1 end}) local n=0 for i=1,120 do n=n+t.x end return n",
+        b"local n=0 for i=1,120 do n=n+1 if i%2==0 then n=n+1 end end return n",
+    ];
+    for &program in programs {
+        let mut reference = Lua::core();
+        let mut candidate = native();
+        let left = source(&mut reference, program)?;
+        let right = source(&mut candidate, program)?;
+        candidate.prepare_jit().unwrap();
+        let step = |lua: &mut Lua, executor: &StashedExecutor, budget| {
+            lua.enter(|ctx| {
+                let mut fuel = Fuel::with(budget);
+                let executor = ctx.fetch(executor);
+                let finished = executor.step(ctx, &mut fuel).unwrap();
+                (finished, executor.mode(), fuel.remaining())
+            })
+        };
+        let mut finished = false;
+        for index in 0..2000 {
+            let budget = [-1, 0, 1, 63, 64, 65][index % 6];
+            let expected = step(&mut reference, &left, budget);
+            let actual = step(&mut candidate, &right, budget);
+            assert_eq!(
+                actual,
+                expected,
+                "{} at step {index}",
+                String::from_utf8_lossy(program)
+            );
+            assert_eq!(
+                candidate.jit_stats().total_dispatches,
+                reference.jit_stats().total_dispatches
+            );
+            assert_exit_partition(candidate.jit_stats());
+            if actual.0 {
+                finished = true;
+                break;
+            }
+            candidate.prepare_jit().unwrap();
+        }
+        assert!(finished, "{}", String::from_utf8_lossy(program));
+        assert_eq!(
+            candidate.execute::<i64>(&right)?,
+            reference.execute::<i64>(&left)?
+        );
+        assert!(candidate.jit_stats().native_instructions > 0);
+    }
+    Ok(())
+}
+
+#[test]
 fn native_exit_reasons_distinguish_budget_and_interpreter_handoff() -> Result<(), ExternError> {
     let mut lua = native_empty();
     let executor = source(

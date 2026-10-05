@@ -11,6 +11,135 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Short-slice regression investigation — 2026-10-05
+
+Five runtime experiments were rejected. Their patches, immutable binaries,
+profiles, raw timings and summaries remain under
+`target/jit-evidence/short-slice-performance/`; the interpreter dispatch source
+was restored unchanged. None is a shipped regression fix.
+
+Small-inline moves one through eight register invocation bodies into their
+caller, retaining outlined larger scratch frames. Dispatch v1 handles the first
+native entry and immediate call/return/budget exit outside the large interpreter
+loop. V2 keeps that wrapper outlined. V3 sends Off directly to the interpreter,
+with native state only for Auto fallback. V4 additionally specializes the
+interpreter loop for Off versus Auto. All preserve logical slice boundaries,
+leases, helper semantics and the frozen workload/threshold set.
+
+The table reports medians of same-block baseline Auto time / candidate Auto time;
+larger is better. Cost columns report candidate compiled-Off / no-feature minus
+one for upvalues, not native execution. Except v1's eight-block speed screen,
+native comparisons have 24 interleaved blocks in three windows, both profiles,
+all nine workloads and eleven pairs per batch. Cost comparisons have twelve
+batches per profile; v1's cost screen independently ran twelve per profile.
+All results, including outliers and threshold failures, are retained.
+
+| Experiment | Speed Auto upvalues / callbacks | Shipping Auto upvalues / callbacks | Upvalue Off overhead speed / shipping |
+| --- | --- | --- | --- |
+| Small-inline | 1.009x / 1.019x | 1.035x / 1.005x | 7.76% / 13.12% |
+| Dispatch v1 (speed screen) | 1.057x / 1.052x | Not measured | 10.75% / 20.11% |
+| Dispatch v2 | 1.047x / 1.028x | 1.023x / 1.008x | 14.05% / 13.47% |
+| Dispatch v3 | 1.066x / 1.038x | 1.023x / 0.999x | 9.63% / 14.71% |
+| Dispatch v4 | 1.057x / 1.043x | 1.011x / 0.999x | 12.01% / 11.12% |
+
+The modest native gains neither meet upvalue acceptance nor justify the
+compiled-Off regressions. V4 also raises median speed float overhead to 23.33%
+versus its 6.30% baseline. Repetition is useful for identifying this trade-off;
+it does not turn these observations into independent confidence intervals or
+remove systematic host bias. No unrelated processes were stopped.
+
+The retained differential test (`f0b268e`) covers six programs, alternating fuel
+budgets around the slice boundary and comparing completion, executor mode,
+remaining fuel and total dispatches at every step. It includes Lua calls, tail
+calls, Rust callbacks, numeric guards, metamethod fallback and unsupported
+instructions. Each candidate passes focused correctness tests. One mixed
+v1/v2 GNU `jit-verify` run passes 5383 executions across 482 repeated suites,
+24 ignored and zero failures; it is not final-version or performance acceptance.
+The final-v2 revalidation was deliberately stopped after timing rejected v2;
+its incomplete output is not counted as a passing gate.
+
+The profiling recipe now collects exact `<Executor>::step` entries using
+`*Executor>::step`. This includes call/return and callback execution, survives VM
+inlining and avoids nested collection toggles. Its baseline collection check
+passes for both binaries. These whole-executor instruction totals must not be
+compared directly with the older VM-only totals; compare identical scopes.
+
+Additional counter and cache experiments were also rejected:
+
+| Experiment | Speed Auto upvalues / callbacks | Shipping Auto upvalues / callbacks | Upvalue Off overhead speed / shipping |
+| --- | --- | --- | --- |
+| Skip zero helper-counter merges | 1.033x / 1.005x | 1.024x / 0.988x | 5.24% / 7.66% |
+| Two-entry inline code index | 1.111x / 1.074x | 1.129x / 1.043x | 9.39% / 7.76% |
+| Inline index, outlined lookup | 1.120x / 1.083x | 1.104x / 1.035x | 13.58% / 11.68% |
+| Cumulative helper cells | 1.025x / 1.018x | 1.021x / 0.994x | 8.87% / 4.30% |
+| Cumulative execution/helper cells | 1.081x / 1.028x | 1.077x / 1.021x | 10.07% / 7.86% |
+| Scan small existing maps, outlined | 1.132x / 1.073x | 1.091x / 1.042x | 6.42% / 5.98% |
+| Scan small existing maps, forced inline | 1.116x / 1.071x | 1.117x / 1.048x | 5.52% / 14.06% |
+
+These use the same 24-block comparison protocol. The inline index produces the
+first sustained double-digit native upvalue gains, but its compiled-Off cost
+and shipping callback overhead fail the unchanged limits. Outlining its lookup
+does not repair that trade-off. Both indexes and the zero-merge patch were
+removed; their source copies and measurements are retained. The randomized
+metadata maps, original VM loop and source identity checks remain authoritative.
+
+Matched whole-executor Off instruction profiles execute exactly 98,375,383
+upvalue instructions with either the baseline or inline index, although the
+feature-cost binary gets slower. The no-feature binaries are byte-identical.
+Meanwhile the separate native benchmark's Off control gets faster. These are
+different consuming executables: their optimizer/layout behavior must not be
+pooled, and native Off/Auto ratios cannot substitute for direct Auto timings
+or the feature-cost gate. Code placement is a possible cause, not a proven
+hardware explanation; Callgrind branch simulation is not hardware telemetry.
+
+Deriving interpreter dispatch counts from completed instructions rather than
+an independent accumulator also fails to reduce bookkeeping: the matched Off
+upvalue profile adds 400,045 instructions/reads, and native work changes
+negligibly. It was removed without claiming a wall-time improvement or running
+a full timing acceptance. The retained error tests (`cfc97f7`) now compare
+dispatch totals after every step through guard/helper errors, pcall/xpcall and
+typed callback catch/rethrow under three fuel budgets.
+
+The two cumulative-counter variants are also rejected. The first places eight
+helper cells beside the manager in its charged owner allocation; the second
+also removes manager borrows for interpreter-slice and native-exit counting.
+Both preserve saturating counts and the public statistics snapshot. The second
+passes 160 focused executions across 25 repeated suites and 21 Rust-only Miri
+executions across four suites, including panic/error and independent-borrow
+checks. Its native upvalue gain is real in these observations, but speed float
+Off overhead reaches 16.03% versus 6.47% baseline, and shipping callback Off
+overhead reaches 9.73% versus 1.43%. Correctness does not justify shipping that
+trade-off. Source, profiles, binaries and all 144 commands per variant remain
+in the evidence directory; no counter-board change is committed.
+
+The execution-counter variant's no-feature binaries differ in file hashes,
+while extracted speed `.text` sections are byte-identical. The complete files
+differ in only 64 bytes, consistent with the one-line shift in panic-location
+metadata caused by the JIT-only hook-block edit. That attribution is an
+inference; the retained comparison uses each artifact's own matched controls.
+
+Both small-map scans are also rejected. They scan the existing randomized map
+for at most two entries and retain hashed lookup for larger maps, without a
+new cache, allocation, owner field, prototype token or weak-check shortcut.
+The outlined version passes 166 focused executions across 15 suites and nine
+Rust-only owner/Miri executions, including allocation-denied hit/miss mutation
+checks for sizes zero through sixteen. Its native gains still raise speed
+float Off overhead to 11.71% versus 6.26% baseline. Forced inlining instead
+repairs that speed float control (0.72% versus 6.55%, all twelve batches pass)
+and passes speed callback attribution in all 24 batches, but shipping float,
+callback and upvalue Off costs worsen substantially. Each variant has the same
+24-block, 144-command comparison, with both no-feature binaries byte-identical
+to baseline. The source and property test are restored, not shipped.
+
+**Current conclusion:** these changes are valid correctness experiments, not
+accepted regression fixes. The runtime still uses the baseline randomized
+lookup, original counter layout and original interpreter dispatch. A default
+optimizer-selected small-map accessor has not been tested; the two forced
+inlining choices do not exhaust that design. Further work must address the
+remaining short-call/source-lookup costs without introducing new Off or
+shipping regressions. No workload, threshold or native coverage was weakened,
+and CPU contention is not treated as a blocker.
+
 #### Repeated under-load estimates — five windows
 
 The user requested many repeated measurements because this machine will not
