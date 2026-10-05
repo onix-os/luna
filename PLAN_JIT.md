@@ -256,7 +256,9 @@ projection ABI, rather than another helper-shim placement variation. The
 current helpers still cross into Rust for each get/set; moving the unwind
 boundary does not remove that transition. A projection could let verified
 native code operate on scalar slots without reading Rust `Value` or GC layouts.
-This is not implemented or accepted. Before native use it requires:
+The Rust projection model is implemented and test-gated; native lowering and
+the live projection ABI are not implemented or accepted. Before native use it
+requires:
 
 - Fresh cell resolution and alias deduplication at entry, with current-frame
   aliases linked to existing scratch slots; foreign stacks retain helpers.
@@ -268,6 +270,33 @@ This is not implemented or accepted. Before native use it requires:
   of projection bounds, tags, dirty state, source opcode bindings and exits.
 - Exact dispatch/fuel/statistics behavior, differential alias/rebinding/error/
   GC tests, Miri for the Rust boundary, and unchanged paired performance gates.
+
+**Projection foundation:** `src/jit/projection.rs` uses fixed-capacity arrays
+bounded to 256 bindings, 32-byte C-layout scalar cells and eight-byte counters.
+Closed cells group by cell identity; open cells group by location on the active
+stack. Current-frame cells link to scratch slots, including writes made by
+ordinary native arithmetic rather than an upvalue setter. Cells outside the
+scratch prefix use detached scalar storage. Foreign stacks and reference
+payloads retain helper fallback. Closed-cell commit uses `UpValue::set` and its
+existing GC barrier; invalid targets/slots are preflighted before any commit.
+Refresh rejects outstanding projected writes and rebuilds alias groups after
+helper mutation/rebinding while retaining counts.
+
+`make jit-projection` and `make jit-projection-miri` pass eleven tests, including
+duplicate/upper/current-frame aliases, outside-prefix cells, foreign fallback,
+invalid targets/slots, capacity/index 255, helper rebinding, signed zero and
+NaN payloads. The broader native/boundary lanes pass 518 executions; normal and
+JIT checks and the all-feature Clippy command pass, with existing lint warnings.
+The component and accessors are `cfg(test)` and appended after production
+definitions; there is no release runtime activation or new performance claim.
+
+**Still required:** native-facing pointer/lifetime exposure, compiler lowering,
+source/tag/bounds/dirty-state and exit verification, helper/exit synchronization,
+statistics and exact PC/fuel integration, runtime resource admission, complete
+GC/panic/differential validation and both frozen benchmark profiles. The GC
+backward barrier can borrow and grow its marking queue, so closed-cell commits
+must not be casually treated as infallible across a native C boundary. The
+foundation tests are not acceptance evidence for those remaining items.
 
 **Current conclusion:** these changes are valid correctness experiments, not
 accepted regression fixes. The runtime still uses the baseline randomized
