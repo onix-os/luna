@@ -1,5 +1,11 @@
 # Native JIT: experimental scalar and heap tier
 
+The direct-callee activation trial now executes native scalar kernels outside
+the general VM prelude in test builds, while retaining canonical Lua frames,
+Return behavior and executor fuel boundaries. GNU/musl differential cases and
+GNU all-feature tests pass; it is not enabled in production or benchmarked yet.
+The original performance regressions remain open.
+
 The transition-entry bypass trial also failed the unchanged paired gates and
 was removed. Its 24 blocks / 144 commands produced no upvalue or callback
 acceleration; new empty-function and variadic-tailcall canonical-slice cases

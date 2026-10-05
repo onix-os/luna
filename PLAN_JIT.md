@@ -11,6 +11,46 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Direct native callee activation checkpoint — 2026-10-05
+
+`102cab7` adds a test-only executor activation path, not another entry-routing
+check inside `run_vm`. For an installed source-bound four-operation integer
+leaf at PC zero, it leases the original/optional code owner, packs at most eight
+canonical scalar slots, checks a scoped upper/current-register binding and
+integer operands, invokes the existing helper-free native kernel, then performs
+the original canonical Return. Physical Lua frames remain present throughout
+the activation; Return and executor instruction/step fuel charges are unchanged.
+No Lua call is recursively executed on a suspended native stack, no descriptor
+survives the activation, and no new unsafe block or GC-layout access was added.
+
+Counters assert real direct native entry counts, not mere preparation. Sixteen
+source cases cover register/constant operands, Add/Sub/Mul wraparound, held
+reference arguments, tail calls, hooks, closed/foreign cells, floats and
+reference-producing arithmetic metamethods. Each compares exact public-step
+frame/stack/fuel/dispatch/result traces against Off with full GC after every
+step at budgets 0, 1, 17 and 4096. Guarded cases preserve the ordinary path.
+The subsequent source-shape oracle confirms that `n=n+n` and returning a
+reference parameter compile to more than four operations; they are explicitly
+fallback cases, not claimed as direct-entry coverage.
+
+GNU focused validation passes 5 activation and 25 leaf tests. The extended
+baseline/GNU/musl/native and GNU Auto all-feature run passes 1,149 repeated
+executions across 85 suites, with four existing ignores; formatting and GNU
+baseline/JIT checks pass. The additional source-shape oracle run passes 4
+baseline and 6 activation tests on each native target (16 executions).
+Rust-only Miri passes 10 leaf tests each under Stacked seed one and Tree seed
+two. It covers the pure integer/alias preflight and existing scoped bindings,
+not generated code or the direct activation path. All owned jobs are terminal.
+
+Evidence prefix `scalar-activation` under
+`target/jit-evidence/short-slice-performance/` records draft, expanded,
+retained, source-shape and Miri logs plus the design checkpoint. The trial
+remains behind `cfg(test)`: release runtime behavior is unchanged and no speedup
+is claimed. Next promote a bounded candidate, retain ordinary native fallback
+and optional admission recovery, and run the complete immutable speed/shipping
+comparison before retaining any production optimization. Upvalue/callback and
+compiled-Off acceptance is still incomplete.
+
 #### Transition-entry bypass rejected — 2026-10-05
 
 A bounded dispatch trial decoded Call/TailCall/Return before `Runtime::run`
