@@ -242,6 +242,10 @@ jit-cost-profile-run:
 jit-profile-build:
 	@CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_STRIP=false $(CARGO) build --release --example jit_bench --features jit
 
+.PHONY: jit-clean-release-package
+jit-clean-release-package:
+	@$(CARGO) clean --release -p luna $(TARGET_ARG)
+
 jit-profile: jit-profile-build
 	@mkdir -p target/jit-evidence
 	@perf record -g -o target/jit-evidence/perf.data -- target/release/examples/jit_bench --mode auto --samples 1000 --case closure_upvalue
@@ -284,6 +288,20 @@ jit-projection:
 
 jit-projection-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::projection:: -- --test-threads=1
+
+.PHONY: jit-projection-runtime-miri
+.PHONY: jit-projection-helper-miri
+jit-projection-helper-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::projection::lowering::tests::helper_grammar -- --test-threads=1
+
+.PHONY: jit-runtime-projection
+jit-runtime-projection:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::runtime_projection_tests $(ARGS)
+
+jit-projection-runtime-miri:
+	@set -e; for filter in jit::projection::native::tests jit::projection::tests jit::helpers::tests jit::abi::tests::original_scratch_entry; do \
+		$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' "$$filter" -- --test-threads=1; \
+	done
 
 jit-registry:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::registry::tests
@@ -986,6 +1004,7 @@ help:
 	@echo "  jit-cost-native-run Verify existing native probes without rebuilding"
 	@echo "  jit-cost-profile Compare VM instruction/cache/branch counts (PROFILE_CASE=...)"
 	@echo "  jit-profile  Profile the short-function workload (requires perf permission)"
+	@echo "  jit-clean-release-package Clean only luna's release cache (TARGET=...)"
 	@echo "  jit-rust-assembly Inspect symbol-retained Rust dispatch/helper assembly"
 	@echo "  publish      Publish $(PROJECT_NAME)-derive, $(PROJECT_NAME), then $(PROJECT_NAME)-util"
 	@echo "  release      Release a new version"

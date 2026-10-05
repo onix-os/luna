@@ -256,9 +256,10 @@ projection ABI, rather than another helper-shim placement variation. The
 current helpers still cross into Rust for each get/set; moving the unwind
 boundary does not remove that transition. A projection could let verified
 native code operate on scalar slots without reading Rust `Value` or GC layouts.
-The Rust projection model and scoped descriptor are implemented and test-gated;
-native lowering and the live host ABI are not implemented or accepted. Before native use it
-requires:
+The Rust projection model, scoped descriptor, standalone get/set lowering and
+runtime-boundary plumbing are implemented. The integrated native get/set
+candidate failed its frozen benchmarks and is disabled in default compilation.
+Its test-only compiler selector retains full integrated coverage. Acceptance requires:
 
 - Fresh cell resolution and alias deduplication at entry, with current-frame
   aliases linked to existing scratch slots; foreign stacks retain helpers.
@@ -287,8 +288,9 @@ duplicate/upper/current-frame aliases, outside-prefix cells, foreign fallback,
 invalid targets/slots, capacity/index 255, helper rebinding, signed zero and
 NaN payloads. The broader native/boundary lanes pass 518 executions; normal and
 JIT checks and the all-feature Clippy command pass, with existing lint warnings.
-The component and accessors are `cfg(test)` and appended after production
-definitions; there is no release runtime activation or new performance claim.
+The initial component/accessors were `cfg(test)` and appended after production
+definitions. The runtime-boundary stage below promotes the required storage
+and accessors; compiler admission and performance acceptance remain open.
 
 **Scoped descriptor:** `src/jit/projection/native.rs` lends a versioned, 64-byte
 C-layout descriptor on 64-bit targets. It contains bounded binding/cell/scratch
@@ -304,20 +306,204 @@ Nine new tests using Rust `extern "C"` probes exercise this descriptor, bringing
 the focused suite to twenty tests. All twenty pass under both Miri Stacked
 Borrows (seed one) and Tree Borrows (seed two). Native/boundary lanes pass 529
 executions with four ignored tests. These are Rust-boundary tests, not generated-machine-code
-coverage or proof that the fast path is active. The live `Host` layout and v3
-helper symbols are unchanged.
+coverage or proof that the fast path is active. This descriptor has a version
+independent of the host/helper ABI; the runtime-boundary stage uses host v4.
 
-**Still required:** compiler lowering and live host integration,
-source/tag/bounds/dirty-state and exit verification, helper/exit synchronization,
-statistics and exact PC/fuel integration, runtime resource admission, complete
-GC/panic/differential validation and both frozen benchmark profiles. The GC
+**Standalone lowering:** `src/jit/projection/lowering.rs` emits scalar get/set
+IR from the source opcode using fixed storage (192 steps and 96 values). The
+verifier regenerates the grammar from that opcode and checks every instruction,
+operand, type, memory offset, flag, guard and branch target; it does not trust
+emitter records. Binding/cell/register bounds and pointer presence precede
+dereferences. Detached-or-linked validation precedes alias-aware pointer
+selection. Scalar tag/payload and counter-overflow guards precede every store.
+Set operations mark the resolved cell dirty; get operations use existing
+scratch slots, including captured-register aliases.
+
+The focused suite passes 24 tests. Index boundaries 0/1/127/255 are covered,
+and structurally valid mutations to every emitted instruction in both fixtures
+are rejected. Changed source operands/direction and additional stores are also
+rejected. A standalone compiled-code probe passes closed/current-frame alias,
+refresh, signed-zero/NaN, reference fallback and malformed-boolean checks. It
+uses the existing bounded backend mapping provider; mappings and provider
+ledger usage return to zero afterward. GNU and musl each pass all 24 focused
+tests and 533 native/boundary executions, with four ignored boundary tests.
+All 23 Rust-boundary/IR tests pass Miri Stacked Borrows (seed one) and Tree
+Borrows (seed two); the compiled-execution test is excluded under Miri.
+Normal/JIT checks, formatting and the all-feature Clippy command pass, with
+141 inherited lint warnings and no projection diagnostics. This does not
+establish live runtime resource admission or whole-function source/exit ownership.
+
+**Runtime boundary:** the v4 host has an opaque projection pointer; all fixed
+Rust helper symbols use the v4 suffix. Native entry accepts the original scratch
+pointer instead of exporting a new mutable-slice child while the projection
+descriptor remains live. Fixed stack factories use capacities 0/1/2/4/8/.../256
+without per-invocation heap allocation. Live closure bindings contain mutable
+`Lock<UpValue>` entries; construction and refresh resolve those locks freshly.
+Typed GC targets remain outside the native descriptor.
+
+Rust helpers flush pending/projected and scratch-linked writes inside their
+existing unwind boundary, create the operation scratch borrow afterward, end
+that borrow before refreshing, and preserve completion/decline/panic PC rules.
+The runtime materializes scratch, synchronizes projected exit writes and
+merges direct projection counts with actual helper counts before publishing
+exit statistics or resuming a panic. Closed commits retain `UpValue::set` and
+its GC barrier.
+
+At `7671e15`, the compiler initialized `Code::projected_upvalues` to **false**.
+A test-only forced admission ran the real compiled entry through the runtime factory,
+checking PC, helper/native counts and scalar/reference results on GNU and musl.
+Two additional tests call the real Rust helpers with staged native writes,
+checking pre-flush, closure rebinding, refresh and panic materialization.
+The focused projection suite passes 26 tests. The broader GNU boundary suite
+passes 519 with four ignored tests; the full Auto workspace run passes. Musl
+passes the projection/helper/native/boundary lanes and forced-runtime test.
+The focused runtime Miri target passes 32 tests under Stacked Borrows (seed one)
+and Tree Borrows (seed two). It does not rerun the unchanged exhaustive IR
+mutation tests or execute machine code. Normal/JIT checks, formatting and
+all-feature Clippy pass, with 141 inherited lint warnings and no projection
+diagnostics. No benchmark acceptance or production fast-path activation follows
+from those historical results.
+
+**Compiler candidate (`65296db`, rejected):** the compiler creates at most two anonymous native
+thunks, one per used get/set kind, with the fixed six-argument v4 helper ABI.
+The fast path checks the host/view, version, bounds, original scratch-pointer
+agreement, resolved binding/link, scalar tag/payload and counter capacity before
+any store. Every failed guard calls the original fixed Rust helper with all six
+original arguments and returns its status unchanged. Main helper-flow proofs
+still bind the kind, source operands, PC and completion/panic/exit behavior.
+The thunk verifier independently regenerates the complete dynamic grammar and
+checks its signature, instructions, blocks, stores and fallback call/return.
+
+Additional signature copies and relocation staging/copies are charged, aggregate
+IR/block/relocation bounds are checked before image installation, and the original
+memory provider owns every function image through the existing lease lifetime.
+Generated get/set admission is enabled only for source kinds with verified
+thunks. Scalar runtime tests require zero Rust-helper calls; reference results
+retain the original fallback. Per-slice closed writes and full-module allocation/
+partial-protection rollback are covered. The existing upvalue integration test
+now checks native instruction coverage rather than requiring the removed Rust
+transitions; its exact 200 reads/100 writes and per-slice GC comparison are unchanged.
+Initial GNU boundary gates pass 520 tests and the subsequent musl boundary suite
+passes 522, both with four ignored tests. Final full-workspace, platform, Miri and
+unchanged paired benchmark results are recorded separately below when complete.
+The full GNU Auto workspace plus runtime-preface run records 1,027 passing
+executions and four ignored tests. After the final error-translation cleanup,
+GNU focused runtime/boundary gates pass (3/522) and all-feature Clippy retains
+141 inherited library-test warnings, with no new projection diagnostic. Musl
+upvalue integration/runtime gates pass 7/3 after the coverage-assertion update.
+The new helper-grammar test plus scoped runtime/model/helper/original-pointer
+tests pass 33 under each Miri model (Stacked seed one, Tree seed two). Exhaustive
+dynamic-grammar instruction mutation passes natively; that longer mutation loop
+was not rerun under Miri. Machine-code tests are excluded from Miri.
+
+**Frozen candidate comparison:** all 24 blocks across three windows completed:
+96 native and 48 feature-cost commands, 11 paired samples per native workload,
+11 feature-cost pairs of 20 iterations, unchanged speed/shipping profiles and
+thresholds. Variant/profile order alternated; windows had 30-second pauses.
+Per-block binary/source hashes and final hashes passed. Both no-feature binaries
+matched the immutable controls byte-for-byte. `vmstat` and process snapshots
+retain contention evidence; unrelated host applications were not stopped.
+
+| Workload | Direct Auto baseline/candidate, speed | Shipping | Result |
+|---|---:|---:|---|
+| Upvalues | 0.808984 | 0.792549 | About 24%/26% slower than baseline |
+| Rust callbacks | 0.952857 | 0.953974 | About 5% slower than baseline |
+
+Direct ratios above use original Auto timings, not a candidate's own Off
+denominator. Upvalue own-Off/Auto ratios are 0.549/0.4725 and callback ratios
+0.77665/0.73725 (speed/shipping), failing their unchanged thresholds. Shipping
+compiled-Off median overhead is 18.94% integer, 13.00% float, 14.66% table and
+17.99% upvalues, above the frozen 5% limit. Some other gates pass; they do not
+override these failures. Collection exit zero means complete evidence, not acceptance.
+
+Default `compile_in` therefore selects the original Rust-helper path with
+`projected_upvalues == false`. The explicit projected selector exists only under
+`cfg(test)`, including native execution and allocation/protection rollback tests.
+After disabling, GNU runtime/boundary/upvalue gates pass 4/523/7 with four
+ignored boundary tests, and musl runtime/upvalue gates pass 4/7. All-feature
+Clippy retains 141 inherited library-test warnings. These post-disable gates do
+not relabel the rejected candidate benchmark as a measurement of current code.
+The frozen rejected source is archived and verified against its original hash
+manifest before this default-admission change. Evidence is retained under
+`target/jit-evidence/short-slice-performance/projection-timing/`,
+`projection-summary.tsv`, `projection-source-archive/` and `projection-source.patch`.
+No projection performance fix, release acceptance or original-regression closure
+is claimed. Further work must profile complete runtime setup/refresh/commit
+costs and short-call execution rather than repeat already rejected helper placement.
+
+**Still required:** complete current-revision GC/panic/differential validation,
+review closed-write panic behavior and pass both frozen benchmark profiles. The GC
 backward barrier can borrow and grow its marking queue, so closed-cell commits
 must not be casually treated as infallible across a native C boundary. The
 foundation tests are not acceptance evidence for those remaining items.
 
+**Whole-executor attribution and ordinary-boundary repair (`f244788`):** fresh
+speed/symbol profiles compare the original `d054ba8`, rejected projected
+`65296db`, default-disabled `6903e1d` and the repaired ordinary native boundary.
+All use the same worker, two warmups, three iterations and `*Executor>::step`
+collection. Native coverage remains 298,428 upvalue instructions / 99,375
+callback instructions. No-feature controls execute exactly 91,575,447 /
+42,538,855 instructions in every comparison.
+
+| Revision/path | Upvalue instructions | Callback instructions |
+|---|---:|---:|
+| Original `d054ba8` | 125,507,182 | 48,156,109 |
+| Projected `65296db` | 149,906,878 | 50,790,934 |
+| Default-disabled `6903e1d` | 136,254,722 | 50,790,853 |
+| Static ordinary boundary `f244788` | 128,743,331 | 48,828,414 |
+
+The rejected candidate spends 7,099,092 instructions in projection flushing.
+Callbacks do not use scalar projection, but still pay the shared runtime-boundary
+overhead. `invoke_frame<PROJECTED>` now statically omits projection-only view,
+flush and counter work on ordinary native calls. Inlining and passing the exact
+initialized register prefix preserve small-frame specialization. The original
+scratch pointer, v4 helper/host ABI, canonical materialization, helper panic
+transport, exit PC/fuel and statistics contracts remain unchanged. The real
+native entry test exercises both boundary modes, signed zero, scalar/reference
+results and exact counters. Projection admission is still default-disabled.
+
+Full GNU Auto/runtime/native-preface validation records 1,047 passing executions
+and four ignored tests. Musl runtime/upvalue lanes pass 4/7. Scoped Rust runtime
+Miri tests pass 32 under both Stacked seed one and Tree seed two; these do not
+execute generated machine code. Miri reports an unused test-only projected
+compiler selector, alongside existing compiler warnings. All-feature Clippy
+retains 141 inherited library-test warnings.
+
+The repair's full unchanged 24-block/144-command speed/shipping comparison is
+complete, with per-block hashes, both byte-identical no-feature controls,
+alternating orders, three windows and contention telemetry. Direct original
+Auto baseline/candidate medians are 0.980711/1.008009 for upvalues and
+0.982477/0.991721 for callbacks (speed/shipping): roughly baseline performance,
+not the requested acceleration. Own-Off/Auto ratios remain 0.6918/0.61185 for
+upvalues and 0.7718/0.7669 for callbacks. Compiled-Off median overhead still fails:
+speed integer 8.69%, float 5.19%, upvalue 5.01%, callback 5.685%; shipping integer
+8.865%, table 9.165%, upvalue 6.62%, callback 7.205%. Frozen thresholds are unchanged.
+This recovers introduced boundary work but does not close original regression
+acceptance. The instruction reductions are not substituted for wall-clock gates.
+
+**Artifact provenance discovery:** sharing a Cargo target between the frozen
+worktree and the main checkout initially reused a stale release binary despite
+different source. That default-profile attempt is explicitly invalid and retained
+under `projection-default-*-stale*`; it is not used in the table above. A scoped
+package clean and fresh builds establish the valid default profiles. Use
+`make jit-clean-release-package TARGET=...` when switching source worktrees with
+a shared release cache. It cleans only Luna package release artifacts, not the
+evidence directory or all dependency caches. A binary hash proves immutability,
+not correspondence to the current source. Never use blanket `make clean` to
+resolve this while retaining evidence.
+
+Profiles and comparisons are retained under
+`target/jit-evidence/short-slice-performance/{projection-executor-profile,projection-default-executor-profile,static-boundary-executor-profile,static-boundary-timing}/`
+and `static-boundary-summary.tsv`. The remaining performance gap requires
+cost-supported work on short-function/call/source-lookup execution, not another
+projection/helper-placement variation. Physical Lua frames, hooks, fresh bindings,
+canonical roots, panic/PC/fuel, native coverage and all resource/lease proofs
+remain required for that work.
+
 **Current conclusion:** these changes are valid correctness experiments, not
-accepted regression fixes. The runtime still uses the baseline randomized
-lookup, original counter layout and original interpreter dispatch. A default
+accepted regression fixes. The runtime keeps the baseline randomized lookup
+and original interpreter dispatch; the rejected scalar projection is disabled in
+default compilation and retained only as an integrated test candidate. A default
 optimizer-selected small-map accessor is now also rejected after the same
 24-block comparison. It passes the focused checks and nine owner/Miri tests
 (seed one), but shipping upvalue, float and callback Off overheads reach

@@ -199,6 +199,7 @@ pub(super) struct Code {
     relocations: usize,
     pub registers: usize,
     pub entries: BudgetVec<bool, BudgetAllocator>,
+    pub projected_upvalues: bool,
 }
 
 impl Code {
@@ -211,6 +212,7 @@ impl Code {
     ///
     /// # Safety
     /// `host` must be null or carry a live, exclusively borrowed helper frame for this call.
+    #[cfg(test)]
     pub unsafe fn invoke_host(
         &self,
         slots: &mut [Slot],
@@ -219,17 +221,22 @@ impl Code {
         host: *mut abi::Host,
     ) -> Exit {
         assert!(slots.len() >= self.registers);
-        let mut exit = Exit::default();
-        unsafe {
-            (self.entry)(
-                slots.as_mut_ptr(),
-                pc as u64,
-                budget.min(64),
-                &mut exit,
-                host,
-            )
-        };
-        exit
+        unsafe { self.invoke_raw(slots.as_mut_ptr(), pc, budget, host) }
+    }
+
+    /// Invokes pinned code using the original pointer to its scalar register prefix.
+    ///
+    /// # Safety
+    /// `slots` covers `self.registers` initialized slots. Host data and any projection
+    /// refer to live, exclusively accessible frame buffers for the call.
+    pub unsafe fn invoke_raw(
+        &self,
+        slots: *mut Slot,
+        pc: usize,
+        budget: u32,
+        host: *mut abi::Host,
+    ) -> Exit {
+        unsafe { abi::invoke(self.entry, slots, pc, budget, host) }
     }
 }
 
@@ -313,6 +320,58 @@ pub(super) fn compile_in(
     work: super::work::Limits,
     #[cfg(test)] failure: Failure,
 ) -> Result<Code, JitError> {
+    compile_selected(
+        snapshot,
+        total,
+        limit,
+        metadata,
+        work,
+        Selection {
+            projected: false,
+            #[cfg(test)]
+            failure,
+        },
+    )
+}
+
+#[cfg(test)]
+pub(super) fn compile_projected_in(
+    snapshot: &Snapshot,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    work: super::work::Limits,
+    failure: Failure,
+) -> Result<Code, JitError> {
+    compile_selected(
+        snapshot,
+        total,
+        limit,
+        metadata,
+        work,
+        Selection {
+            projected: true,
+            failure,
+        },
+    )
+}
+
+struct Selection {
+    projected: bool,
+    #[cfg(test)]
+    failure: Failure,
+}
+
+fn compile_selected(
+    snapshot: &Snapshot,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    work: super::work::Limits,
+    selection: Selection,
+) -> Result<Code, JitError> {
+    #[cfg(test)]
+    let failure = selection.failure;
     let expansion = super::work::Expansion::admit(snapshot, work)?;
     let graph = super::flow::FlowGraph::new(snapshot)?;
     let mut stores = super::tags::Stores::new(&graph, snapshot)?;
@@ -387,17 +446,31 @@ pub(super) fn compile_in(
     }
     jit.memory_provider(provider);
     let relocation_copy_charge;
+    let mut projection_copy_charges = [None, None];
+    #[cfg(test)]
+    let mut projection_copy_bytes = 0;
     let signature_charge;
     let mut module = JITModule::new(jit);
     let ptr = module.target_config().pointer_type();
     let entry_types = [ptr, types::I64, types::I32, ptr, ptr];
     let helper_types = [ptr, ptr, types::I32, types::I32, types::I32, types::I32];
     let helper_returns = [types::I32];
+    let projected_kinds = [abi::HELPER_GET_UPVALUE, abi::HELPER_SET_UPVALUE].map(|kind| {
+        selection.projected
+            && snapshot.operations.iter().any(|operation| {
+                matches!(
+                    (kind, operation),
+                    (abi::HELPER_GET_UPVALUE, Operation::GetUpValue { .. })
+                        | (abi::HELPER_SET_UPVALUE, Operation::SetUpValue { .. })
+                )
+            })
+    });
+    let projection_count = projected_kinds.iter().filter(|&&needed| needed).count();
     let signature_bytes = signature_storage_bytes(
         entry_types.len(),
         helper_types.len(),
         helper_returns.len(),
-        helpers::SYMBOLS.len(),
+        helpers::SYMBOLS.len() + 2 * projection_count,
     )?;
     #[cfg(test)]
     if failure == Failure::RefuseSignatures {
@@ -428,6 +501,16 @@ pub(super) fn compile_in(
             .map(|id| (kind, id))
     })
     .map_err(fail)?;
+    let projection_ids = super::arrays::try_array::<_, _, 2>(|index| {
+        if projected_kinds[index] {
+            module
+                .declare_anonymous_function(&helper_signature)
+                .map(Some)
+                .map_err(fail)
+        } else {
+            Ok(None)
+        }
+    })?;
     drop(helper_signature);
     let mut context = module.make_context();
     context.func.signature = signature;
@@ -465,6 +548,11 @@ pub(super) fn compile_in(
         {
             helper_refs = std::array::from_fn::<_, { helpers::SYMBOLS.len() }, _>(|index| {
                 let (kind, id) = helper_ids[index];
+                let id = match kind {
+                    abi::HELPER_GET_UPVALUE => projection_ids[0].unwrap_or(id),
+                    abi::HELPER_SET_UPVALUE => projection_ids[1].unwrap_or(id),
+                    _ => id,
+                };
                 (kind, module.declare_func_in_func(id, builder.func))
             });
             let mut emitter = Emitter {
@@ -702,6 +790,50 @@ pub(super) fn compile_in(
     }
     stores.verify_bindings(&context.func, parameters[0], &paths, &graph)?;
     drop((stores, paths, graph, blocks));
+    let mut projection_contexts = [None, None];
+    let mut projection_instructions = 0;
+    let mut projection_blocks = 0;
+    for (index, id) in projection_ids.iter().copied().enumerate() {
+        let Some(id) = id else { continue };
+        let kind = [abi::HELPER_GET_UPVALUE, abi::HELPER_SET_UPVALUE][index];
+        let fallback_id = helper_ids
+            .iter()
+            .find(|&&(candidate, _)| candidate == kind)
+            .unwrap()
+            .1;
+        let mut projection = module.make_context();
+        projection.func.signature = module
+            .declarations()
+            .get_function_decl(id)
+            .signature
+            .clone();
+        let fallback_ref = module.declare_func_in_func(fallback_id, &mut projection.func);
+        let mut frontend = FunctionBuilderContext::new();
+        {
+            let mut builder = FunctionBuilder::new(&mut projection.func, &mut frontend);
+            super::projection::lowering::emit_helper(&mut builder, kind, fallback_ref)?;
+            builder.seal_all_blocks();
+            builder.finalize(module.isa().frontend_config());
+        }
+        if projection.func.signature != module.declarations().get_function_decl(id).signature {
+            return Err(JitError::Compilation(
+                "invalid projection helper signature".into(),
+            ));
+        }
+        super::projection::lowering::verify_helper(&projection.func, kind, fallback_ref)?;
+        projection_instructions += projection
+            .func
+            .layout
+            .blocks()
+            .map(|block| projection.func.layout.block_insts(block).count())
+            .sum::<usize>();
+        projection_blocks += projection.func.layout.blocks().count();
+        projection_contexts[index] = Some(projection);
+    }
+    expansion.verify_actual(
+        instructions + projection_instructions,
+        block_count + projection_blocks,
+    )?;
     #[cfg(test)]
     if let Failure::RequireReleasedWorkspace(baseline) | Failure::RequireSignatures(baseline) =
         failure
@@ -715,7 +847,15 @@ pub(super) fn compile_in(
         .compile(module.isa(), &mut Default::default())
         .map_err(|error| fail(error.into()))?;
     let compiled = context.compiled_code().unwrap();
-    let relocations = compiled.buffer.relocs().len();
+    let mut relocations = compiled.buffer.relocs().len();
+    for projection in projection_contexts.iter_mut().flatten() {
+        projection
+            .compile(module.isa(), &mut Default::default())
+            .map_err(|error| fail(error.into()))?;
+        relocations = relocations
+            .checked_add(projection.compiled_code().unwrap().buffer.relocs().len())
+            .ok_or(JitError::ResourceLimit("native relocations"))?;
+    }
     if relocations > work.relocations {
         return Err(JitError::ResourceLimit("native relocations"));
     }
@@ -730,7 +870,7 @@ pub(super) fn compile_in(
     }
     let mut module_relocations = BudgetVec::new_in(snapshot.operations.allocator().clone());
     module_relocations
-        .try_reserve_exact(relocations)
+        .try_reserve_exact(compiled.buffer.relocs().len())
         .map_err(|_| JitError::ResourceLimit("native relocation staging"))?;
     module_relocations.extend(
         compiled
@@ -739,7 +879,7 @@ pub(super) fn compile_in(
             .iter()
             .map(|relocation| ModuleReloc::from_mach_reloc(relocation, &context.func, function)),
     );
-    let relocation_copy_bytes = Layout::array::<ModuleReloc>(relocations)
+    let relocation_copy_bytes = Layout::array::<ModuleReloc>(compiled.buffer.relocs().len())
         .map_err(|_| JitError::ResourceLimit("native relocation copy size"))?
         .size();
     #[cfg(test)]
@@ -780,13 +920,59 @@ pub(super) fn compile_in(
         );
     }
     #[cfg(test)]
-    let byte_len = compiled.code_buffer().len();
+    let mut byte_len = compiled.code_buffer().len();
     drop(context);
+    for (index, projection) in projection_contexts.into_iter().enumerate() {
+        let Some(projection) = projection else {
+            continue;
+        };
+        let id = projection_ids[index].unwrap();
+        let compiled = projection.compiled_code().unwrap();
+        #[cfg(test)]
+        {
+            byte_len += compiled.code_buffer().len();
+        }
+        let count = compiled.buffer.relocs().len();
+        let mut relocations = BudgetVec::new_in(snapshot.operations.allocator().clone());
+        relocations
+            .try_reserve_exact(count)
+            .map_err(|_| JitError::ResourceLimit("projection relocation staging"))?;
+        relocations.extend(
+            compiled
+                .buffer
+                .relocs()
+                .iter()
+                .map(|relocation| ModuleReloc::from_mach_reloc(relocation, &projection.func, id)),
+        );
+        let bytes = Layout::array::<ModuleReloc>(count)
+            .map_err(|_| JitError::ResourceLimit("projection relocation copy size"))?
+            .size();
+        let charge = Reservation::new(snapshot.operations.allocator().0.clone(), bytes)
+            .map_err(|_| JitError::ResourceLimit("projection relocation copy"))?;
+        #[cfg(test)]
+        {
+            projection_copy_bytes += bytes;
+        }
+        module
+            .define_function_bytes(
+                id,
+                u64::from(compiled.buffer.alignment),
+                compiled.code_buffer(),
+                &relocations,
+            )
+            .map_err(fail)?;
+        drop((relocations, projection));
+        projection_copy_charges[index] = Some(charge);
+    }
     #[cfg(test)]
     if let Failure::RequireSignatures(baseline) = failure {
         assert_eq!(
             snapshot.operations.allocator().0.current(),
-            baseline + signature_bytes + symbol_bytes + relocation_copy_bytes
+            baseline
+                + signature_bytes
+                + symbol_bytes
+                + relocation_copy_bytes
+                + projection_copy_bytes
         );
     }
     module.finalize_definitions().map_err(fail)?;
@@ -799,6 +985,7 @@ pub(super) fn compile_in(
     drop(signature_charge);
     drop(symbol_charge);
     drop(relocation_copy_charge);
+    drop(projection_copy_charges);
     #[cfg(test)]
     if let Failure::RequireRelocationCopy(baseline) | Failure::RequireSignatures(baseline) = failure
     {
@@ -815,6 +1002,7 @@ pub(super) fn compile_in(
         relocations,
         registers: snapshot.registers,
         entries,
+        projected_upvalues: projection_count != 0,
     })
 }
 
@@ -5488,3 +5676,6 @@ mod memory_tests {
         }
     }
 }
+
+#[cfg(all(test, not(miri)))]
+pub(super) mod projection_probe;

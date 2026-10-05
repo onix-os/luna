@@ -1098,6 +1098,54 @@ impl Runtime {
         let slots = unsafe {
             std::slice::from_raw_parts_mut(scratch.as_mut_ptr().cast::<abi::Slot>(), register_count)
         };
+        if code.projected_upvalues {
+            projection::with_frame(
+                registers,
+                closure.upvalues(),
+                slots,
+                |registers, pointer, projection| {
+                    self.invoke_frame::<true>(
+                        code,
+                        ctx,
+                        closure,
+                        registers,
+                        (pointer, projection, register_count),
+                        budget,
+                    )
+                },
+            )
+        } else {
+            self.invoke_frame::<false>(
+                code,
+                ctx,
+                closure,
+                registers,
+                (slots.as_mut_ptr(), None, register_count),
+                budget,
+            )
+        }
+    }
+
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[inline(always)]
+    fn invoke_frame<'gc, const PROJECTED: bool>(
+        &self,
+        code: &backend::Code,
+        ctx: crate::Context<'gc>,
+        closure: crate::Closure<'gc>,
+        registers: &mut crate::thread::LuaRegisters<'gc, '_>,
+        binding: (
+            *mut abi::Slot,
+            Option<&mut dyn projection::Bridge<'gc>>,
+            usize,
+        ),
+        budget: u32,
+    ) -> u32 {
+        let (slots, projection, register_count) = binding;
+        debug_assert!(PROJECTED || projection.is_none());
         let mut frame = helpers::Frame {
             ctx,
             closure,
@@ -1105,11 +1153,23 @@ impl Runtime {
             count: helpers::Counts::default(),
             slot_count: register_count,
             panic: None,
+            projection,
+        };
+        let pc = *frame.registers.pc;
+        let projection = if PROJECTED {
+            frame
+                .projection
+                .as_deref()
+                .map_or(std::ptr::null_mut(), |projection| projection.view_pointer())
+        } else {
+            std::ptr::null_mut()
         };
         let mut host = abi::Host {
-            data: (&mut frame as *mut helpers::Frame<'_, '_, '_>).cast(),
+            data: (&mut frame as *mut helpers::Frame<'_, '_, '_, '_>).cast(),
+            projection,
         };
-        let exit = unsafe { code.invoke_host(slots, *frame.registers.pc, budget, &mut host) };
+        let exit = unsafe { code.invoke_raw(slots, pc, budget, &mut host) };
+        let slots = unsafe { std::slice::from_raw_parts(slots, register_count) };
         for (slot, dest) in slots
             .iter()
             .copied()
@@ -1119,6 +1179,34 @@ impl Runtime {
         }
         if frame.panic.is_none() {
             *frame.registers.pc = usize::try_from(exit.pc).expect("native PC exceeds host range");
+            if PROJECTED {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    if let Some(projection) = frame.projection.as_deref_mut() {
+                        projection
+                            .flush(ctx, frame.registers)
+                            .expect("invalid exiting projection");
+                    }
+                }));
+                if let Err(payload) = result {
+                    frame.panic = Some(payload);
+                }
+            }
+        }
+        if PROJECTED {
+            let projected = frame
+                .projection
+                .as_deref()
+                .map_or(projection::Counts::default(), |projection| {
+                    projection.counts()
+                });
+            frame.count.upvalue_reads = frame
+                .count
+                .upvalue_reads
+                .saturating_add(u64::from(projected.reads));
+            frame.count.upvalue_writes = frame
+                .count
+                .upvalue_writes
+                .saturating_add(u64::from(projected.writes));
         }
         let mut manager = self.0.borrow_mut();
         let counts = frame.count;
@@ -2108,5 +2196,221 @@ mod eviction_tests {
     }
 }
 
-#[cfg(test)]
 pub(crate) mod projection;
+
+#[cfg(all(
+    test,
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod runtime_projection_tests {
+    use super::*;
+    use crate::{
+        closure::{UpValue, UpValueState},
+        thread::LuaRegisters,
+        Closure, Value,
+    };
+
+    fn projected_code(snapshot: &ir::Snapshot, total: resources::MappingCounter) -> backend::Code {
+        backend::compile_projected_in(
+            snapshot,
+            total,
+            128 * 1024,
+            resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
+            work::Limits::from(&JitConfig::default()),
+            backend::Failure::None,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn default_admission_keeps_rejected_projection_disabled() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = Closure::load(ctx, None, b"_ENV = 42; return _ENV").unwrap();
+            let snapshot = ir::Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
+            let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
+            let code = backend::compile(&snapshot, total.clone(), 128 * 1024).unwrap();
+            assert!(!code.projected_upvalues);
+            drop(code);
+            assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 0);
+        });
+    }
+
+    #[test]
+    fn projected_module_failures_release_all_images_and_preserve_peer() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = Closure::load(ctx, None, b"_ENV = 42; return _ENV").unwrap();
+            let snapshot = ir::Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
+            let metadata_ledger = resources::Ledger::new(2 * 1024 * 1024);
+            let metadata = resources::BudgetAllocator(metadata_ledger.clone());
+            let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
+            let limits = work::Limits::from(&JitConfig::default());
+            let peer = backend::compile_projected_in(
+                &snapshot,
+                total.clone(),
+                128 * 1024,
+                metadata.clone(),
+                limits,
+                backend::Failure::None,
+            )
+            .unwrap();
+            let snapshot_baseline = snapshot.operations.allocator().0.current();
+            let metadata_baseline = metadata_ledger.current();
+            let mapped_baseline = total.load(std::sync::atomic::Ordering::Relaxed);
+            for failure in [
+                backend::Failure::Allocate,
+                backend::Failure::Protect,
+                backend::Failure::ProtectAfterFirst,
+                backend::Failure::RequireReleasedWorkspace(snapshot_baseline),
+                backend::Failure::RequireSignatures(snapshot_baseline),
+                backend::Failure::RequireRelocationCopy(snapshot_baseline),
+            ] {
+                let result = backend::compile_projected_in(
+                    &snapshot,
+                    total.clone(),
+                    128 * 1024,
+                    metadata.clone(),
+                    limits,
+                    failure,
+                );
+                if matches!(
+                    failure,
+                    backend::Failure::Allocate
+                        | backend::Failure::Protect
+                        | backend::Failure::ProtectAfterFirst
+                ) {
+                    assert!(result.is_err());
+                } else {
+                    assert!(result.is_ok());
+                }
+                drop(result);
+                assert_eq!(
+                    snapshot.operations.allocator().0.current(),
+                    snapshot_baseline
+                );
+                assert_eq!(metadata_ledger.current(), metadata_baseline);
+                assert_eq!(
+                    total.load(std::sync::atomic::Ordering::Relaxed),
+                    mapped_baseline
+                );
+                let mut slots = vec![abi::Slot::from_value(Value::Nil); peer.registers];
+                assert_eq!(peer.invoke(&mut slots, 0, 1).instructions, 1);
+            }
+            drop(peer);
+            assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 0);
+            assert_eq!(metadata_ledger.current(), 0);
+        });
+    }
+
+    #[test]
+    fn admitted_scalar_write_and_read_preserve_each_slice_and_closed_cell() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = Closure::load(ctx, None, b"_ENV = 42; return _ENV").unwrap();
+            let snapshot = ir::Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
+            let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
+            let code = projected_code(&snapshot, total.clone());
+            assert!(code.projected_upvalues);
+            let cell = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(7)));
+            closure.set_upvalue(&ctx, 0, cell);
+            let runtime = Runtime::new();
+            let mut canonical = vec![Value::Nil; code.registers];
+            let mut pc = 0;
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+                for (index, operation) in snapshot.operations.iter().enumerate() {
+                    if matches!(operation, crate::opcode::Operation::Return { .. }) {
+                        break;
+                    }
+                    assert_eq!(*registers.pc, index);
+                    assert_eq!(
+                        runtime.invoke::<256, false>(&code, ctx, closure, &mut registers, 1),
+                        1
+                    );
+                    assert_eq!(*registers.pc, index + 1);
+                    if matches!(operation, crate::opcode::Operation::SetUpValue { .. }) {
+                        assert!(matches!(
+                            cell.get(),
+                            UpValueState::Closed(Value::Integer(42))
+                        ));
+                    }
+                }
+                assert!(matches!(registers.stack_frame[0], Value::Integer(42)));
+            });
+            let stats = runtime.0.borrow().stats;
+            assert_eq!(
+                (stats.native_upvalue_reads, stats.native_upvalue_writes),
+                (1, 1)
+            );
+            assert_eq!((stats.helper_calls, stats.helper_instructions), (0, 0));
+            drop(code);
+            assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 0);
+        });
+    }
+
+    #[test]
+    fn both_boundary_modes_preserve_real_entry_pc_counts_and_reference_results() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = Closure::load(ctx, None, b"return _ENV").unwrap();
+            let snapshot = ir::Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
+            let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
+            for projected in [false, true] {
+                let code = if projected {
+                    projected_code(&snapshot, total.clone())
+                } else {
+                    backend::compile(&snapshot, total.clone(), 128 * 1024).unwrap()
+                };
+                assert_eq!(code.projected_upvalues, projected);
+                for value in [
+                    Value::Integer(41),
+                    Value::Number(-0.0),
+                    Value::Table(crate::Table::new(&ctx)),
+                ] {
+                    let cell = UpValue::new(&ctx, UpValueState::Closed(value));
+                    closure.set_upvalue(&ctx, 0, cell);
+                    let runtime = Runtime::new();
+                    let mut canonical = vec![Value::Nil; code.registers];
+                    let mut pc = 0;
+                    LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+                        assert_eq!(
+                            runtime.invoke::<256, false>(&code, ctx, closure, &mut registers, 1),
+                            1
+                        );
+                        assert_eq!(*registers.pc, 1);
+                        let actual = registers.stack_frame[0];
+                        let expected = abi::Slot::from_value(value);
+                        let encoded = abi::Slot::from_value(actual);
+                        assert_eq!((encoded.tag, encoded.bits), (expected.tag, expected.bits));
+                        if let Value::Table(table) = value {
+                            let Value::Table(result) = actual else {
+                                panic!("reference result lost");
+                            };
+                            assert_eq!(result, table);
+                        }
+                    });
+                    let stats = runtime.0.borrow().stats;
+                    assert_eq!(
+                        (
+                            stats.native_instructions,
+                            stats.helper_calls,
+                            stats.helper_instructions,
+                            stats.native_upvalue_reads
+                        ),
+                        (
+                            1,
+                            u64::from(!projected || matches!(value, Value::Table(_))),
+                            u64::from(!projected || matches!(value, Value::Table(_))),
+                            1
+                        )
+                    );
+                    assert_eq!(stats.native_upvalue_writes, 0);
+                }
+                drop(code);
+                assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 0);
+            }
+        });
+    }
+}

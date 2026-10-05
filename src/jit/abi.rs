@@ -84,19 +84,72 @@ pub(super) type HelperEntry = unsafe extern "C" fn(*mut Host, *mut Slot, u32, u3
 #[repr(C)]
 pub(super) struct Host {
     pub data: *mut std::ffi::c_void,
+    pub projection: *mut std::ffi::c_void,
 }
 
 pub(super) type Entry = unsafe extern "C" fn(*mut Slot, u64, u32, *mut Exit, *mut Host);
+
+/// Invokes an entry with the original scratch pointer and a bounded instruction budget.
+///
+/// # Safety
+/// `slots` covers the entry's initialized register prefix; host data and code remain live
+/// and exclusively accessible for the call. Entry retains no pointers.
+pub(super) unsafe fn invoke(
+    entry: Entry,
+    slots: *mut Slot,
+    pc: usize,
+    budget: u32,
+    host: *mut Host,
+) -> Exit {
+    let mut exit = Exit::default();
+    unsafe { entry(slots, pc as u64, budget.min(64), &mut exit, host) };
+    exit
+}
 
 const _: () = assert!(std::mem::size_of::<Slot>() == 16);
 const _: () = assert!(std::mem::offset_of!(Slot, bits) == 8);
 const _: () = assert!(std::mem::size_of::<Exit>() == 16);
 const _: () = assert!(std::mem::offset_of!(Exit, instructions) == 8);
 const _: () = assert!(std::mem::offset_of!(Exit, reason) == 12);
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(std::mem::size_of::<Host>() == 16);
+    assert!(std::mem::offset_of!(Host, projection) == 8);
+};
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn original_scratch_entry_preserves_pointer_pc_and_budget_domains() {
+        unsafe extern "C" fn entry(
+            slots: *mut Slot,
+            pc: u64,
+            budget: u32,
+            exit: *mut Exit,
+            host: *mut Host,
+        ) {
+            unsafe {
+                (*slots).bits = pc;
+                (*exit).pc = pc;
+                (*exit).instructions = budget;
+                (*exit).reason = u32::from(host.is_null());
+            }
+        }
+        let mut slots = [Slot {
+            tag: INTEGER,
+            bits: 0,
+        }];
+        let pointer = slots.as_mut_ptr();
+        for budget in [0, 1, 63, 64, 65, u32::MAX] {
+            let exit = unsafe { invoke(entry, pointer, 255, budget, std::ptr::null_mut()) };
+            assert_eq!(exit.pc, 255);
+            assert_eq!(exit.instructions, budget.min(64));
+            assert_eq!(exit.reason, 1);
+            assert_eq!(unsafe { pointer.read().bits }, 255);
+        }
+    }
 
     #[test]
     fn call_transitions_preserve_register_and_count_domains() {
