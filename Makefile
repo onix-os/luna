@@ -304,6 +304,10 @@ jit-call-plans:
 jit-call-plans-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::calls::tests -- --test-threads=1 $(ARGS)
 
+.PHONY: jit-call-native
+jit-call-native:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::calls::tests $(ARGS)
+
 jit-integer:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::integer::tests $(ARGS)
 

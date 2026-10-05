@@ -40,6 +40,10 @@ pub(super) struct Program {
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 impl Plan<'_> {
+    pub fn allocator(&self) -> super::resources::BudgetAllocator {
+        self.caller.operations.allocator().clone()
+    }
+
     pub fn program(
         &self,
         config: cranelift_codegen::isa::TargetFrontendConfig,
