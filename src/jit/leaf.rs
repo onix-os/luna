@@ -919,6 +919,7 @@ mod tests {
             result: String,
             slices: Vec<(bool, crate::ExecutorMode, i32, u64)>,
             stats: crate::JitStats,
+            scalar_native_counts: (u64, u64),
         }
 
         fn executor_run(source: &str, native: bool, budget: i32) -> ExecutorRun {
@@ -968,12 +969,15 @@ mod tests {
                         .try_enter(|ctx| ctx.fetch(&executor).take_result::<String>(ctx)?)
                         .unwrap();
                     let stats = lua.jit_stats();
+                    let scalar_native_counts =
+                        lua.enter(|ctx| ctx.jit().0.borrow().scalar_native_counts);
                     lua.clear_jit_cache();
                     assert_eq!(lua.jit_stats().code_bytes, 0);
                     return ExecutorRun {
                         result,
                         slices,
                         stats,
+                        scalar_native_counts,
                     };
                 }
             }
@@ -984,10 +988,15 @@ mod tests {
         fn executor_leaf_preserves_fuel_gc_errors_closed_cells_and_hooks() {
             for (source, fast_writes) in [
                 ("local sum=0 local function add(v) sum=sum+v end for i=1,200 do add(i) end return tostring(sum)", Some(200)),
+                ("local sum=0 local function sub(v) sum=sum-v end for i=1,200 do sub(i) end return tostring(sum)", Some(200)),
+                ("local sum=1 local function mul(v) sum=sum*v end for i=1,200 do mul(1) end return tostring(sum)", Some(200)),
                 ("local sum=0.0 local function add(v) sum=sum+v end for i=1,200 do add(0.5) end return tostring(sum)", Some(200)),
                 ("local sum=0 local function add(v) sum=sum+1 end for i=1,200 do add(i) end return tostring(sum)", Some(200)),
                 ("local sum=7 local function add(v) sum=sum+v end local ok=pcall(add,{}) return tostring(sum)..':'..tostring(ok)", Some(0)),
-                ("local function factory() local sum=0 return function(v) sum=sum+v end end local add=factory() for i=1,200 do add(i) end return 'closed'", None),
+                ("local function factory() local sum=0 return function(v) sum=sum+v end end local add=factory() for i=1,200 do add(i) end return 'closed'", Some(0)),
+                ("local sum=0 local function add(v) sum=sum+v end for i=1,20 do add(i) end debug.setupvalue(add,1,1000) for i=1,20 do add(i) end return tostring(sum)", Some(40)),
+                ("local sum=0 local other=1000 local function add(v) sum=sum+v end local function second(v) other=other+v end add(1) debug.upvaluejoin(add,1,second,1) for i=1,20 do add(i) end return tostring(sum)..':'..tostring(other)", Some(21)),
+                ("local sum=0 local function add(v) sum=sum+v end add(1) debug.setupvalue(add,1,{}) local ok=pcall(add,1) return type(sum)..':'..tostring(ok)", Some(1)),
                 ("local sum=0 local function add(v) sum=sum+v end local events=0 debug.sethook(function() events=events+1 end,'',7) for i=1,20 do add(i) end debug.sethook() return tostring(sum)..':'..tostring(events)", None),
             ] {
                 for budget in [1, 17, 4096] {
@@ -997,11 +1006,13 @@ mod tests {
                     assert_eq!(native.slices, reference.slices, "slices/fuel/dispatches: {source}, budget={budget}");
                     assert_eq!(native.stats.compilation_failures, 0);
                     if let Some(writes) = fast_writes {
-                        assert_eq!(native.stats.native_upvalue_writes, writes);
+                        assert_eq!(native.scalar_native_counts.1, writes);
+                        assert!(native.stats.native_upvalue_writes >= writes);
                     } else {
                         assert!(native.stats.helper_instructions > 0);
                     }
                     assert_eq!(reference.stats.native_entries, 0);
+                    assert_eq!(reference.scalar_native_counts, (0, 0));
                 }
             }
         }

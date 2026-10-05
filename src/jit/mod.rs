@@ -488,6 +488,8 @@ pub(crate) struct Manager {
     before_compile: Option<Box<dyn FnOnce()>>,
     #[cfg(test)]
     scalar_leaves: bool,
+    #[cfg(test)]
+    scalar_native_counts: (u64, u64),
     pub(crate) config: JitConfig,
     pub(crate) stats: JitStats,
     pub(crate) next_id: u64,
@@ -535,6 +537,8 @@ impl Default for Manager {
             before_compile: None,
             #[cfg(test)]
             scalar_leaves: false,
+            #[cfg(test)]
+            scalar_native_counts: (0, 0),
             config,
             stats: JitStats::default(),
             next_id: 0,
@@ -1256,7 +1260,7 @@ impl Runtime {
                 .saturating_add(u64::from(projected.writes));
         }
         #[cfg(test)]
-        if let Some(delta) = scalar_delta {
+        if let Some(delta) = &scalar_delta {
             frame.count.upvalue_reads = frame
                 .count
                 .upvalue_reads
@@ -1267,6 +1271,17 @@ impl Runtime {
                 .saturating_add(u64::from(delta.writes));
         }
         let mut manager = self.0.borrow_mut();
+        #[cfg(test)]
+        if let Some(delta) = scalar_delta {
+            manager.scalar_native_counts.0 = manager
+                .scalar_native_counts
+                .0
+                .saturating_add(u64::from(delta.reads));
+            manager.scalar_native_counts.1 = manager
+                .scalar_native_counts
+                .1
+                .saturating_add(u64::from(delta.writes));
+        }
         let counts = frame.count;
         manager.stats.helper_calls = manager.stats.helper_calls.saturating_add(counts.calls);
         manager.stats.helper_instructions = manager
