@@ -984,3 +984,205 @@ pub struct UpperLuaFrame<'gc> {
     /// the allocator reuses registers between blocks.
     pub pc: usize,
 }
+
+#[cfg(test)]
+mod activation_tests {
+    use super::*;
+    use crate::{Callback, Lua, Value};
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct Slice {
+        done: bool,
+        mode: ExecutorMode,
+        fuel: i32,
+        interrupted: bool,
+        frames: Vec<Vec<std::string::String>>,
+        stacks: Vec<Vec<std::string::String>>,
+        dispatches: u64,
+    }
+
+    fn value(value: Value<'_>) -> std::string::String {
+        match value {
+            Value::Number(number) => format!("number:{:016x}", number.to_bits()),
+            Value::String(string) => format!("string:{:?}", string.as_bytes()),
+            Value::Nil | Value::Boolean(_) | Value::Integer(_) => {
+                format!("{}:{}", value.type_name(), value.display())
+            }
+            _ => value.type_name().to_owned(),
+        }
+    }
+
+    fn run(
+        source: &str,
+        budget: i32,
+        native: bool,
+    ) -> (Vec<Slice>, Result<i64, std::string::String>) {
+        let mut lua = Lua::core();
+        lua.load_debug();
+        let _ = native;
+        #[cfg(feature = "jit")]
+        let native = native && !cfg!(miri) && lua.jit_capabilities().supported_target;
+        #[cfg(feature = "jit")]
+        lua.set_jit_config(crate::JitConfig {
+            mode: if native {
+                crate::JitMode::Auto
+            } else {
+                crate::JitMode::Off
+            },
+            hot_threshold: u32::MAX,
+            ..Default::default()
+        })
+        .unwrap();
+        let executor = lua.enter(|ctx| {
+            ctx.set_global(
+                "nested_boundary",
+                Callback::from_fn(&ctx, |ctx, _, mut stack| {
+                    let function = ctx.get_global::<Function>("read")?;
+                    let nested = Executor::start(ctx, function, ());
+                    while !nested.step(ctx, &mut Fuel::with(4096)).unwrap() {}
+                    let number = nested.take_result::<i64>(ctx).unwrap()?;
+                    stack.replace(ctx, number + 1);
+                    Ok(CallbackReturn::Return)
+                }),
+            );
+            ctx.set_global(
+                "boundary",
+                Callback::from_fn(&ctx, |ctx, mut execution, mut stack| {
+                    let number = stack.consume::<i64>(ctx)?;
+                    execution.fuel().interrupt();
+                    stack.replace(ctx, number + 1);
+                    Ok(CallbackReturn::Return)
+                }),
+            );
+            let closure = Closure::load(ctx, Some("lua-batch"), source.as_bytes()).unwrap();
+            ctx.stash(Executor::start(ctx, closure.into(), ()))
+        });
+        #[cfg(feature = "jit")]
+        if native {
+            while lua.prepare_jit().unwrap() != 0 {}
+        }
+        let mut trace = Vec::new();
+        for _ in 0..10_000 {
+            let slice = lua.enter(|ctx| {
+                let executor = ctx.fetch(&executor);
+                let mut fuel = Fuel::with(budget);
+                let done = executor.step(ctx, &mut fuel).unwrap();
+                let state = executor.0.borrow();
+                let mut frames = Vec::new();
+                let mut stacks = Vec::new();
+                for thread in &state.thread_stack {
+                    let thread = thread.into_inner().borrow();
+                    frames.push(
+                        thread
+                            .frames
+                            .iter()
+                            .map(|frame| match frame {
+                                Frame::Lua {
+                                    pc,
+                                    base,
+                                    bottom,
+                                    stack_size,
+                                    is_variable,
+                                    ..
+                                } => {
+                                    format!("lua:{pc}:{base}:{bottom}:{stack_size}:{is_variable}")
+                                }
+                                Frame::Callback { bottom, .. } => format!("callback:{bottom}"),
+                                Frame::Sequence {
+                                    bottom,
+                                    pending_error,
+                                    ..
+                                } => {
+                                    format!("sequence:{bottom}:{}", pending_error.is_some())
+                                }
+                                Frame::Close {
+                                    bottom,
+                                    pending_error,
+                                    ..
+                                } => {
+                                    format!("close:{bottom}:{}", pending_error.is_some())
+                                }
+                                Frame::Start(_) => "start".to_owned(),
+                                Frame::Yielded => "yielded".to_owned(),
+                                Frame::WaitThread => "wait".to_owned(),
+                                Frame::Result { bottom } => format!("result:{bottom}"),
+                                Frame::Error(error) => format!("error:{error}"),
+                            })
+                            .collect(),
+                    );
+                    stacks.push(thread.stack.borrow().iter().copied().map(value).collect());
+                }
+                #[cfg(feature = "jit")]
+                let dispatches = ctx.jit().0.borrow().stats.total_dispatches;
+                #[cfg(not(feature = "jit"))]
+                let dispatches = 0;
+                Slice {
+                    done,
+                    mode: executor.mode(),
+                    fuel: fuel.remaining(),
+                    interrupted: fuel.is_interrupted(),
+                    frames,
+                    stacks,
+                    dispatches,
+                }
+            });
+            let done = slice.done;
+            trace.push(slice);
+            lua.gc_collect();
+            if done {
+                let result = lua.enter(|ctx| {
+                    ctx.fetch(&executor)
+                        .take_result::<i64>(ctx)
+                        .unwrap()
+                        .map_err(|error| format!("{error}"))
+                });
+                return (trace, result);
+            }
+        }
+        panic!("Lua activation batch did not finish");
+    }
+
+    #[test]
+    fn native_and_interpreted_activations_have_identical_canonical_slices() {
+        for source in [
+            "local function f(x) return x+1 end local n=0 for i=1,100 do n=f(n) end return n",
+            "local n=0 local function f(x) n=n+x end for i=1,100 do f(1) end return n",
+            "local function f(n) if n==0 then return 100 end return f(n-1) end return f(100)",
+            "local n=0 for i=1,100 do local ok=pcall(function() return i.x end) if not ok then n=n+1 end end return n",
+            "local t=coroutine.create(function() coroutine.yield(1) return 100 end) assert(coroutine.resume(t)) local ok,n=coroutine.resume(t) assert(ok) return n",
+            "local n=0 local function f() local x <close> = setmetatable({}, {__close=function() n=n+1 end}) end for i=1,100 do f() end return n",
+            "local n=0 debug.sethook(function() n=n+1 end,'',9) local function f(x) return x+1 end local result=0 for i=1,100 do result=f(result) end debug.sethook() return result",
+            "local function f() return 1+{} end return f()",
+        ] {
+            for budget in [0, 1, 17, 4096] {
+                let reference = run(source, budget, false);
+                if source.contains("1+{}") {
+                    assert!(reference.1.is_err());
+                } else {
+                    assert_eq!(reference.1, Ok(100));
+                }
+                assert_eq!(reference, run(source, budget, true), "{source}, {budget}");
+            }
+        }
+    }
+
+    #[test]
+    fn native_and_interpreted_callbacks_match_interrupted_slices() {
+        for budget in [1, 17, 4096] {
+            let source = "local n=0 for i=1,100 do n=boundary(n) end return n";
+            let reference = run(source, budget, false);
+            assert_eq!(reference.1, Ok(100));
+            assert!(reference.0.iter().any(|slice| slice.interrupted));
+            assert_eq!(reference, run(source, budget, true));
+        }
+    }
+
+    #[test]
+    fn native_and_interpreted_nested_executors_preserve_open_upvalues() {
+        let source =
+            "local n=96 read=function() return n end for i=1,4 do n=nested_boundary() end return n";
+        let reference = run(source, 4096, false);
+        assert_eq!(reference.1, Ok(100));
+        assert_eq!(reference, run(source, 4096, true));
+    }
+}

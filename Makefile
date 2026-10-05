@@ -305,6 +305,16 @@ jit-projection-helper-miri:
 jit-runtime-projection:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::runtime_projection_tests $(ARGS)
 
+.PHONY: vm-activation-tests jit-activation-tests vm-activation-miri
+vm-activation-tests:
+	@$(CARGO) test --locked -p luna --lib $(TARGET_ARG) thread::executor::activation_tests $(ARGS)
+
+jit-activation-tests:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::executor::activation_tests $(ARGS)
+
+vm-activation-miri:
+	@$(CARGO) miri test --locked -p luna --lib --target '$(MIRI_TARGET)' thread::executor::activation_tests::native_and_interpreted_nested_executors_preserve_open_upvalues -- --exact --test-threads=1
+
 jit-projection-runtime-miri:
 	@set -e; for filter in jit::projection::native::tests jit::projection::tests jit::helpers::tests jit::abi::tests::original_scratch_entry; do \
 		$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' "$$filter" -- --test-threads=1; \
