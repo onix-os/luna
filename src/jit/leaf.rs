@@ -27,6 +27,15 @@ pub(super) struct Pattern {
 }
 
 impl Pattern {
+    #[cfg(not(miri))]
+    pub(super) fn permits_cell_entry(self, pc: usize, slots: &[abi::Slot]) -> bool {
+        pc != 2
+            || slots
+                .get(usize::from(self.result.0))
+                .copied()
+                .is_some_and(scalar)
+    }
+
     pub(super) fn recognize(snapshot: &Snapshot) -> Option<Self> {
         use crate::opcode::RCIndex;
         use Operation::*;
@@ -195,6 +204,7 @@ impl Delta {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(super) fn apply_upper(&self, upper: &mut [Value<'_>]) -> Result<(), Error> {
         if let Some((index, value)) = self.upper {
             let target = upper.get_mut(index).ok_or(Error::TargetRange)?;
@@ -626,7 +636,7 @@ mod tests {
         fn paired_kernel_owners_charge_both_entries_and_reclaim_failed_second_entries() {
             use crate::jit::{backend, resources, work, JitConfig};
             use std::sync::atomic::Ordering;
-            with_closure(|_ctx, closure| {
+            with_closure(|ctx, closure| {
                 let snapshot = Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
                 let metadata = resources::Ledger::new(2 * 1024 * 1024);
                 let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
@@ -641,6 +651,10 @@ mod tests {
                 )
                 .unwrap();
                 let ordinary_bytes = total.load(Ordering::Relaxed);
+                let ordinary_metadata_limit = metadata.peak().max(
+                    metadata.current()
+                        + crate::jit::owner::Shared::<backend::Code>::allocation_bytes(),
+                );
                 drop(ordinary);
                 let compile = |failure, limits, image_limit| {
                     backend::compile_leaf_pair_in(
@@ -653,7 +667,10 @@ mod tests {
                     )
                 };
                 let initial_snapshot = snapshot.operations.allocator().0.current();
-                assert!(compile(backend::Failure::None, limits, ordinary_bytes).is_err());
+                let fallback = compile(backend::Failure::None, limits, ordinary_bytes).unwrap();
+                assert!(fallback.scalar_kernel.is_none());
+                assert_ordinary_cell_execution(ctx, closure, &fallback);
+                drop(fallback);
                 assert_eq!(metadata.current(), 0);
                 assert_eq!(total.load(Ordering::Relaxed), 0);
                 assert_eq!(total.requested(), 0);
@@ -661,6 +678,20 @@ mod tests {
                     snapshot.operations.allocator().0.current(),
                     initial_snapshot
                 );
+                metadata.set_limit(ordinary_metadata_limit);
+                let fallback = compile(backend::Failure::None, limits, 128 * 1024).unwrap();
+                assert!(fallback.scalar_kernel.is_none());
+                let fallback = crate::jit::owner::Shared::try_new(
+                    fallback,
+                    resources::BudgetAllocator(metadata.clone()),
+                )
+                .unwrap();
+                assert_ordinary_cell_execution(ctx, closure, &fallback);
+                drop(fallback);
+                assert_eq!(metadata.current(), 0);
+                assert_eq!(total.load(Ordering::Relaxed), 0);
+                assert_eq!(total.requested(), 0);
+                metadata.set_limit(2 * 1024 * 1024);
                 let peer = compile(backend::Failure::None, limits, 128 * 1024).unwrap();
                 assert!(peer.scalar_leaf.is_none());
                 let kernel = peer.scalar_kernel.as_ref().unwrap();
@@ -679,7 +710,19 @@ mod tests {
                     backend::Failure::RefuseScalarOwnerStorage,
                     backend::Failure::RefuseScalarOwnerAllocation,
                 ] {
-                    assert!(compile(failure, limits, 128 * 1024).is_err());
+                    let fallback = compile(failure, limits, 128 * 1024).unwrap();
+                    assert!(fallback.scalar_kernel.is_none());
+                    let owned = crate::jit::owner::Shared::try_new(
+                        fallback,
+                        resources::BudgetAllocator(metadata.clone()),
+                    )
+                    .unwrap();
+                    assert_ordinary_cell_execution(ctx, closure, &owned);
+                    let mut slots = vec![abi::Slot::from_value(Value::Nil); owned.registers];
+                    let exit =
+                        unsafe { owned.invoke_raw(slots.as_mut_ptr(), 0, 0, std::ptr::null_mut()) };
+                    assert_eq!((exit.pc, exit.instructions), (0, 0));
+                    drop(owned);
                     metadata.set_limit(2 * 1024 * 1024);
                     metadata.fail_after(usize::MAX);
                     assert_eq!(
@@ -706,6 +749,18 @@ mod tests {
                 let expansion = work::Expansion::admit(&snapshot, limits).unwrap();
                 for limited in [
                     work::Limits {
+                        instructions: expansion.instructions,
+                        ..limits
+                    },
+                    work::Limits {
+                        blocks: expansion.blocks,
+                        ..limits
+                    },
+                    work::Limits {
+                        relocations: peer.relocations,
+                        ..limits
+                    },
+                    work::Limits {
                         instructions: expansion.instructions * 2 - 1,
                         ..limits
                     },
@@ -714,7 +769,12 @@ mod tests {
                         ..limits
                     },
                 ] {
-                    assert!(compile(backend::Failure::None, limited, 128 * 1024).is_err());
+                    let fallback = compile(backend::Failure::None, limited, 128 * 1024).unwrap();
+                    if limited.relocations != peer.relocations {
+                        assert!(fallback.scalar_kernel.is_none());
+                    }
+                    assert_ordinary_cell_execution(ctx, closure, &fallback);
+                    drop(fallback);
                     assert_eq!(
                         (
                             metadata.current(),
@@ -725,9 +785,117 @@ mod tests {
                     );
                 }
                 drop(peer);
+                let pair = compile(backend::Failure::None, limits, 128 * 1024).unwrap();
+                assert!(pair.scalar_kernel.is_some());
+                metadata.set_limit(
+                    metadata.current()
+                        + crate::jit::owner::Shared::<backend::Code>::allocation_bytes()
+                        - 1,
+                );
+                let fallback = pair
+                    .into_shared(resources::BudgetAllocator(metadata.clone()))
+                    .unwrap();
+                assert!(fallback.scalar_kernel.is_none());
+                assert_ordinary_cell_execution(ctx, closure, &fallback);
+                drop(fallback);
                 assert_eq!(metadata.current(), 0);
                 assert_eq!(total.load(Ordering::Relaxed), 0);
                 assert_eq!(total.requested(), 0);
+            });
+        }
+
+        fn assert_ordinary_cell_execution<'gc>(
+            ctx: crate::Context<'gc>,
+            closure: crate::Closure<'gc>,
+            code: &crate::jit::backend::Code,
+        ) {
+            use crate::{
+                closure::{UpValue, UpValueState},
+                jit::helpers,
+                thread::LuaRegisters,
+            };
+            let cell = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(7)));
+            closure.set_upvalue(&ctx, 0, cell);
+            let mut pc = 0;
+            let mut canonical = vec![Value::Nil; code.registers];
+            canonical[0] = Value::Integer(2);
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+                let mut scratch: Vec<_> = registers
+                    .stack_frame
+                    .iter()
+                    .copied()
+                    .map(abi::Slot::from_value)
+                    .collect();
+                let mut frame = helpers::Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: code.registers,
+                    panic: None,
+                    projection: None,
+                };
+                let mut host = abi::Host {
+                    data: std::ptr::addr_of_mut!(frame).cast(),
+                    projection: std::ptr::null_mut(),
+                };
+                let exit = unsafe { code.invoke_host(&mut scratch, 0, 64, &mut host) };
+                assert_eq!((exit.pc, exit.instructions), (3, 3));
+                assert_eq!(
+                    (frame.count.upvalue_reads, frame.count.upvalue_writes),
+                    (1, 1)
+                );
+                assert!(frame.panic.is_none());
+                assert!(matches!(
+                    cell.get(),
+                    UpValueState::Closed(Value::Integer(9))
+                ));
+            });
+        }
+
+        #[test]
+        fn optional_installation_refusals_keep_original_entries_and_live_peer_leases() {
+            use crate::jit::{backend, owner, JitConfig, JitMode, Runtime};
+            with_closure(|ctx, closure| {
+                for failure in [
+                    backend::Failure::RefuseOwnerStorage,
+                    backend::Failure::RefuseScalarCacheStorage,
+                ] {
+                    let runtime = Runtime::new();
+                    runtime.0.borrow_mut().configure(JitConfig {
+                        mode: JitMode::Auto,
+                        ..Default::default()
+                    });
+                    let snapshot = || Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
+                    let mut id = 0;
+                    loop {
+                        id += 1;
+                        runtime.0.borrow_mut().tracked.entry(id).or_default();
+                        runtime.compile(id, snapshot()).unwrap();
+                        let manager = runtime.0.borrow();
+                        if manager.code.len() == manager.code.capacity() {
+                            break;
+                        }
+                    }
+                    let peer = runtime.lookup(1).unwrap();
+                    runtime.test_scalar_kernels(true);
+                    runtime.0.borrow_mut().memory_failure = failure;
+                    id += 1;
+                    runtime.0.borrow_mut().tracked.entry(id).or_default();
+                    runtime.compile(id, snapshot()).unwrap();
+                    let installed = runtime.lookup(id).unwrap();
+                    assert!(installed.code.scalar_kernel.is_none());
+                    assert_ordinary_cell_execution(ctx, closure, &installed.code);
+                    assert_ordinary_cell_execution(ctx, closure, &peer.code);
+                    assert!(owner::Shared::ptr_eq(
+                        &peer.code,
+                        &runtime.lookup(1).unwrap().code
+                    ));
+                    let manager = runtime.0.borrow();
+                    assert_eq!(manager.code.len() as u64, id);
+                    assert_eq!(manager.stats.installed_regions, id);
+                    assert_eq!(manager.stats.compilation_failures, 0);
+                }
             });
         }
 
@@ -1342,6 +1510,22 @@ mod tests {
         #[test]
         fn executor_kernel_preserves_fuel_gc_errors_closed_cells_and_hooks() {
             compare_executor_leaves(true);
+        }
+
+        #[test]
+        fn executor_kernel_keeps_reference_results_on_the_original_native_set_entry() {
+            let source = "local sum=1 local function add(v) sum=sum+v end local t=setmetatable({}, {__add=function() return {} end}) add(t) return type(sum)";
+            for budget in [1, 17, 4096] {
+                let reference = executor_run(source, false, budget, true);
+                let native = executor_run(source, true, budget, true);
+                assert_eq!(native.result, "table");
+                assert_eq!(native.result, reference.result);
+                assert_eq!(native.slices, reference.slices);
+                assert_eq!(native.stats.native_upvalue_reads, 3);
+                assert_eq!(native.scalar_native_counts.0, 1);
+                assert_eq!(native.stats.native_upvalue_writes, 1);
+                assert_eq!(native.scalar_native_counts.1, 0);
+            }
         }
 
         fn compare_executor_leaves(kernels: bool) {

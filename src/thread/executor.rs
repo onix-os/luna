@@ -1172,6 +1172,8 @@ mod activation_tests {
     fn compare_canonical_slices(kernels: bool) {
         for source in [
             "local function f(x) return x+1 end local n=0 for i=1,100 do n=f(n) end return n",
+            "local function f() end local n=0 for i=1,100 do f() n=n+1 end return n",
+            "local function f(...) return ... end local function g(...) return f(...) end local n=0 for i=1,100 do n=g(n+1) end return n",
             "local n=0 local function f(x) n=n+x end for i=1,100 do f(1) end return n",
             "local function f(n) if n==0 then return 100 end return f(n-1) end return f(100)",
             "local n=0 for i=1,100 do local ok=pcall(function() return i.x end) if not ok then n=n+1 end end return n",

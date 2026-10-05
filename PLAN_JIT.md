@@ -11,6 +11,124 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Transition-entry bypass rejected — 2026-10-05
+
+A bounded dispatch trial decoded Call/TailCall/Return before `Runtime::run`
+and used the existing canonical transition path directly. The native entry
+bitmap already excludes these operations: this bypass removes a Rust dispatch
+check, not a generated-code invocation. GNU activation/native tests passed
+(4 and 18 tests). New empty-function and variadic-tailcall cases additionally
+compare physical frames, stacks, exact fuel, dispatches and results against Off
+at budgets 0, 1, 17 and 4096 with collection after every public executor step.
+These cases are retained in `86f83b6`; the production bypass is removed.
+
+The full unchanged comparison collected 24 interleaved blocks in three windows,
+144 timing commands, both profiles, all nine workloads and eleven paired samples.
+Source and artifact hashes were checked around every block. A source archive
+is independently verified after rollback. No owned build/test ran during timing.
+The separate no-feature controls were built independently; original controls
+were retained for comparison. Collection exit 0 is not acceptance.
+
+| Direct original Auto / trial Auto | Speed | Shipping |
+| --- | ---: | ---: |
+| Upvalues | 0.991437x | 0.973863x |
+| Callbacks | 0.978836x | 0.975294x |
+
+Own-Off/Auto upvalue medians were 0.676850/0.623550 (speed/shipping), callbacks
+0.761200/0.773200: every upvalue and callback gate failed (0/24 each profile).
+Speed disabled-cost medians also failed for upvalues (7.915%), callbacks
+(7.53%), float (12.845%), integer (9.085%) and cold (5.4%). Shipping callback
+median overhead was 5.09%; integer and table controls retained intermittent
+failures. No ceiling, workload, native-coverage or fuel requirement changed.
+
+Evidence is under `target/jit-evidence/short-slice-performance/` with prefix
+`transition-bypass`: source manifest/commit/patch/archive, build environments,
+immutable binaries, full `-timing/` logs and telemetry, `-summary.tsv`, and
+`-archive-after-rollback.log`. The source manifest is based on `aa1a755` plus
+its archived patch. This is a rejected optimization, not a regression fix.
+Small entry-routing changes have not removed repeated short-function costs;
+the original native-upvalue/callback and disabled-cost acceptance remains open.
+
+After removal, baseline canonical activation (3 tests), GNU/musl canonical
+activation (4 each) and GNU/musl native integration (18 each) passed: 47
+executions across five suites, zero failures. Formatting and GNU baseline/JIT
+workspace checks passed. This validates the retained source and new tests,
+not a completed performance fix. Both independently rebuilt no-feature binary
+hashes differ from the frozen original; that difference is retained in the
+build log rather than represented as byte-identical control provenance.
+
+#### Frame-free entry comparison rejected — 2026-10-05
+
+The production scalar-entry candidate is disabled again. Its complete frozen
+comparison collected 24 interleaved blocks in three windows, 144 commands, both
+profiles, all nine workloads and eleven paired samples. Candidate and original
+binaries and candidate source hashes verify before and after every block; the
+archived candidate source independently verifies after rollback. Independently
+built no-feature controls are byte-identical to the original controls. The
+driver's zero exit means collection completed, not that performance gates passed.
+
+| Profile | Direct Auto upvalues / callbacks | Native upvalue / callback ratio | Upvalue Off overhead |
+| --- | --- | --- | --- |
+| Speed | 1.012215x / 0.963945x | 0.698350x / 0.784900x | 5.265% |
+| Shipping | 0.972175x / 0.974665x | 0.559350x / 0.730700x | 12.64% |
+
+Direct gains mean original Auto time divided by candidate Auto time. Native
+ratios mean the candidate's own Off time divided by Auto time. Both upvalue and
+callback gates pass zero of 24 batches in each profile. Shipping array, float
+and integer disabled costs also miss the unchanged 5% limit. Wide integer/float
+interference, all failed gates and contention telemetry remain recorded; no
+outlier, threshold or workload was discarded to turn this into acceptance.
+
+The test-only scalar kernels, ordinary native fallback, optional work/owner/cache
+admission, reference-result preflight and canonical executor comparisons remain.
+After rollback GNU/musl each pass 82 focused executions; GNU Auto all-features
+passes 1078/80 with four existing ignores, and baseline plus doctests passes
+393/79 with two existing ignores. Check/JIT check and GNU Clippy pass with the
+existing warning count. Safe recoverable owner allocation remains in use; the
+production scalar selector, kernel fields and hot invocation branch do not.
+
+Evidence is `target/jit-evidence/short-slice-performance/cell-kernel-*`, including
+immutable candidate binaries, source archive/manifests, raw exits, summaries and
+post-rollback verification. This rules out a standalone frame-free scalar entry
+as the regression fix. Further work must remove real cross-call boundaries
+while preserving physical frames, canonical roots, source identity/leases and
+exact VM/fuel transitions; do not repeat helper/cache/counter/packing placement
+variations. Upvalue/callback/compiled-Off acceptance remains incomplete.
+
+#### Historical production scalar-entry candidate — 2026-10-05
+
+`d700429` and `5718928` replace the prototype's refuse-both admission with an
+optional kernel policy. The ordinary entry retains its original work limits;
+the kernel uses remaining conservative IR/block bounds and actual relocation
+capacity. Its mappings and owner remain charged. Ordinary-owner headroom is
+reserved before attempting it; an unavailable reservation skips the optional
+entry. Kernel/work/mapping/owner refusal preserves ordinary code. Late cache-map
+or root-owner refusal discards the optional entry and retries ordinary admission.
+Recoverable owner allocation uses allocator-api2's safe uninitialized Box/write
+API, returning an intact input on refusal without adding unsafe allocation code.
+Tests execute ordinary native upvalue reads/writes after these refusals and retain
+live peer leases through actual manager insertion with a full cache map.
+
+`711ae8a` enables the verified frame-free entry for matching sources in supported
+production builds. Unsupported cell bindings retain the ordinary native entry.
+Reference results after arithmetic metamethods also select the ordinary native
+SetUpValue entry at PC 2; exact slice and native-write-count tests prevent a
+silent reduction to interpreted reference writes. Physical frames, fresh source
+identity validation, leases, GC materialization and fuel boundaries are retained.
+
+GNU/musl each pass 82 focused owner/eviction/leaf/projection/activation executions.
+GNU Auto all-features passes 1078/80 with four existing ignores; musl Auto with
+the JIT feature passes 1057/79 with four existing ignores. GNU baseline plus
+doctests passes 393/79 with two existing ignores. Check/JIT check pass on both
+targets; GNU Clippy reports 141 library-test warnings. Nine owner and nine scalar
+binding cases pass under each Miri borrow model; generated code is not run in
+Miri. Logs use `cell-kernel-production-*` and `cell-kernel-late-owner-*` in the
+existing evidence directory.
+
+At this revision it was a production candidate, not a performance acceptance
+result. The subsequent frozen comparison rejected it and `3e24ca2` disabled the
+production entry again, as recorded above. The original acceptance scope remains.
+
 #### Frame-free scalar kernel proof — 2026-10-05
 
 `1daca00` adds a **test-only**, separately typed scalar entry. Its fifth argument

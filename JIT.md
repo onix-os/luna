@@ -1,14 +1,20 @@
 # Native JIT: experimental scalar and heap tier
 
+The transition-entry bypass trial also failed the unchanged paired gates and
+was removed. Its 24 blocks / 144 commands produced no upvalue or callback
+acceleration; new empty-function and variadic-tailcall canonical-slice cases
+remain. See the dated trial below in `PLAN_JIT.md` for evidence and limits.
+
 This branch implements the first native execution tier described in [PLAN_JIT.md](PLAN_JIT.md). It is **not the finished plan** and is not the LuaJIT runtime or its FFI. Constructors still default to interpreted execution. Do not use these results to claim production readiness or hostile-code isolation.
 
-The 2026-10-05 frame-free scalar-kernel work (`1daca00`, `9a8b076`) is test-only.
-It removes general helper-frame construction and Rust helper calls for supported
-scalar upvalue leaves in the test executor, retaining the original native entry
-for other bindings. GNU/musl correctness and resource checks pass, including
-canonical per-slice comparisons. Production admission and performance evidence
-remain outstanding; the upvalue, callback and compiled-Off regressions are not
-claimed fixed. See the current proof and acceptance limits in `PLAN_JIT.md`.
+The 2026-10-05 frame-free scalar candidate (`711ae8a`) was measured and disabled:
+the full 24-block comparison fails the unchanged upvalue, callback and disabled
+cost gates. Direct Auto upvalue gains are only 1.012215x speed and 0.972175x
+shipping; callbacks worsen. Test-only kernels, ordinary native fallback,
+optional admission/late-refusal recovery and reference-result coverage checks
+remain. GNU/musl correctness checks pass after rollback. The upvalue, callback
+and compiled-Off regressions are still open; `PLAN_JIT.md` records the rejected
+candidate, immutable evidence and remaining structural work.
 
 As checked on 2026-10-04, all seven hosted jobs pass at `d054ba8`
 ([run 37168811569](https://github.com/onix-os/luna/actions/runs/37168811569)):
