@@ -486,6 +486,8 @@ pub(crate) struct Manager {
     mock: Option<mock::Mock>,
     #[cfg(test)]
     before_compile: Option<Box<dyn FnOnce()>>,
+    #[cfg(test)]
+    scalar_leaves: bool,
     pub(crate) config: JitConfig,
     pub(crate) stats: JitStats,
     pub(crate) next_id: u64,
@@ -531,6 +533,8 @@ impl Default for Manager {
             mock: None,
             #[cfg(test)]
             before_compile: None,
+            #[cfg(test)]
+            scalar_leaves: false,
             config,
             stats: JitStats::default(),
             next_id: 0,
@@ -899,6 +903,17 @@ impl Runtime {
             #[cfg(test)]
             let failure = self.0.borrow().memory_failure;
             let compile = || {
+                #[cfg(test)]
+                if self.0.borrow().scalar_leaves && leaf::Pattern::recognize(&snapshot).is_some() {
+                    return backend::compile_leaf_in(
+                        &snapshot,
+                        memory.clone(),
+                        limit,
+                        metadata.clone(),
+                        work,
+                        failure,
+                    );
+                }
                 backend::compile_in(
                     &snapshot,
                     memory.clone(),
@@ -1170,6 +1185,30 @@ impl Runtime {
             data: (&mut frame as *mut helpers::Frame<'_, '_, '_, '_>).cast(),
             projection,
         };
+        #[cfg(test)]
+        let scalar_binding = code.scalar_leaf.and_then(|pattern| {
+            let cell = closure.upvalues().get(usize::from(pattern.upvalue))?.get();
+            let origin = frame.registers.projection_origin(cell)?;
+            let scratch = unsafe { std::slice::from_raw_parts(slots, register_count) };
+            leaf::Binding::from_origin(origin, scratch)
+        });
+        #[cfg(test)]
+        let (exit, scalar_delta) = if let Some(binding) = scalar_binding {
+            let scratch = unsafe { std::slice::from_raw_parts_mut(slots, register_count) };
+            let (exit, delta) = binding
+                .with_native(scratch, |pointer, view| {
+                    host.projection = view.cast();
+                    unsafe { code.invoke_raw(pointer, pc, budget, &mut host) }
+                })
+                .expect("invalid exiting scalar-cell leaf");
+            (exit, Some(delta))
+        } else {
+            (
+                unsafe { code.invoke_raw(slots, pc, budget, &mut host) },
+                None,
+            )
+        };
+        #[cfg(not(test))]
         let exit = unsafe { code.invoke_raw(slots, pc, budget, &mut host) };
         let slots = unsafe { std::slice::from_raw_parts(slots, register_count) };
         for (slot, dest) in slots
@@ -1181,6 +1220,12 @@ impl Runtime {
         }
         if frame.panic.is_none() {
             *frame.registers.pc = usize::try_from(exit.pc).expect("native PC exceeds host range");
+            #[cfg(test)]
+            if let Some(delta) = &scalar_delta {
+                delta
+                    .apply_registers(frame.registers)
+                    .expect("invalid scalar-cell commit target");
+            }
             if PROJECTED {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     if let Some(projection) = frame.projection.as_deref_mut() {
@@ -1209,6 +1254,17 @@ impl Runtime {
                 .count
                 .upvalue_writes
                 .saturating_add(u64::from(projected.writes));
+        }
+        #[cfg(test)]
+        if let Some(delta) = scalar_delta {
+            frame.count.upvalue_reads = frame
+                .count
+                .upvalue_reads
+                .saturating_add(u64::from(delta.reads));
+            frame.count.upvalue_writes = frame
+                .count
+                .upvalue_writes
+                .saturating_add(u64::from(delta.writes));
         }
         let mut manager = self.0.borrow_mut();
         let counts = frame.count;

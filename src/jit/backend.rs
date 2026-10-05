@@ -200,6 +200,8 @@ pub(super) struct Code {
     pub registers: usize,
     pub entries: BudgetVec<bool, BudgetAllocator>,
     pub projected_upvalues: bool,
+    #[cfg(test)]
+    pub scalar_leaf: Option<super::leaf::Pattern>,
 }
 
 impl Code {
@@ -1068,6 +1070,8 @@ fn compile_selected(
         registers: snapshot.registers,
         entries,
         projected_upvalues: selection.projected && projection_count != 0,
+        #[cfg(test)]
+        scalar_leaf: leaf_pattern,
     })
 }
 
