@@ -1,5 +1,10 @@
 # Native JIT: experimental scalar and heap tier
 
+The transition-entry bypass trial also failed the unchanged paired gates and
+was removed. Its 24 blocks / 144 commands produced no upvalue or callback
+acceleration; new empty-function and variadic-tailcall canonical-slice cases
+remain. See the dated trial below in `PLAN_JIT.md` for evidence and limits.
+
 This branch implements the first native execution tier described in [PLAN_JIT.md](PLAN_JIT.md). It is **not the finished plan** and is not the LuaJIT runtime or its FFI. Constructors still default to interpreted execution. Do not use these results to claim production readiness or hostile-code isolation.
 
 The 2026-10-05 frame-free scalar candidate (`711ae8a`) was measured and disabled:

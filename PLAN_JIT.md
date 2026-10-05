@@ -11,6 +11,52 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Transition-entry bypass rejected — 2026-10-05
+
+A bounded dispatch trial decoded Call/TailCall/Return before `Runtime::run`
+and used the existing canonical transition path directly. The native entry
+bitmap already excludes these operations: this bypass removes a Rust dispatch
+check, not a generated-code invocation. GNU activation/native tests passed
+(4 and 18 tests). New empty-function and variadic-tailcall cases additionally
+compare physical frames, stacks, exact fuel, dispatches and results against Off
+at budgets 0, 1, 17 and 4096 with collection after every public executor step.
+These cases are retained in `86f83b6`; the production bypass is removed.
+
+The full unchanged comparison collected 24 interleaved blocks in three windows,
+144 timing commands, both profiles, all nine workloads and eleven paired samples.
+Source and artifact hashes were checked around every block. A source archive
+is independently verified after rollback. No owned build/test ran during timing.
+The separate no-feature controls were built independently; original controls
+were retained for comparison. Collection exit 0 is not acceptance.
+
+| Direct original Auto / trial Auto | Speed | Shipping |
+| --- | ---: | ---: |
+| Upvalues | 0.991437x | 0.973863x |
+| Callbacks | 0.978836x | 0.975294x |
+
+Own-Off/Auto upvalue medians were 0.676850/0.623550 (speed/shipping), callbacks
+0.761200/0.773200: every upvalue and callback gate failed (0/24 each profile).
+Speed disabled-cost medians also failed for upvalues (7.915%), callbacks
+(7.53%), float (12.845%), integer (9.085%) and cold (5.4%). Shipping callback
+median overhead was 5.09%; integer and table controls retained intermittent
+failures. No ceiling, workload, native-coverage or fuel requirement changed.
+
+Evidence is under `target/jit-evidence/short-slice-performance/` with prefix
+`transition-bypass`: source manifest/commit/patch/archive, build environments,
+immutable binaries, full `-timing/` logs and telemetry, `-summary.tsv`, and
+`-archive-after-rollback.log`. The source manifest is based on `aa1a755` plus
+its archived patch. This is a rejected optimization, not a regression fix.
+Small entry-routing changes have not removed repeated short-function costs;
+the original native-upvalue/callback and disabled-cost acceptance remains open.
+
+After removal, baseline canonical activation (3 tests), GNU/musl canonical
+activation (4 each) and GNU/musl native integration (18 each) passed: 47
+executions across five suites, zero failures. Formatting and GNU baseline/JIT
+workspace checks passed. This validates the retained source and new tests,
+not a completed performance fix. Both independently rebuilt no-feature binary
+hashes differ from the frozen original; that difference is retained in the
+build log rather than represented as byte-identical control provenance.
+
 #### Frame-free entry comparison rejected — 2026-10-05
 
 The production scalar-entry candidate is disabled again. Its complete frozen
