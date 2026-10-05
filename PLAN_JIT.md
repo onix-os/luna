@@ -60,6 +60,63 @@ and call/return costs without replaying these rejected dispatch restructurings.
 
 #### Short-slice regression investigation — 2026-10-05
 
+##### Grouped statistics rejection and scalar-cell groundwork
+
+A single OR guard around the eight helper-counter merges was tested separately
+from the previously rejected per-field branches. It preserves all saturating
+updates whenever any field is nonzero, including projection-only counts. Full
+GNU Auto verification passes 1027 executions across 79 suites (four existing
+ignores), including 4096 independent mask/base/increment combinations; focused
+musl helper/native/upvalue/projection checks pass 38 tests.
+
+The complete 24-block, three-window comparison still rejects it: direct Auto
+gains are 0.9814x upvalues / 0.9716x callbacks in speed and 1.0025x / 0.9807x in
+shipping. Upvalue compiled-Off overhead remains 10.99% / 8.08%; callback overhead
+is 6.62% / 4.90%, with only seven of twelve shipping callback batches passing.
+Both no-feature controls are byte-identical to the immutable baseline. All 144
+timing commands, failures, profiles, source hashes and verified source archive
+remain under `target/jit-evidence/short-slice-performance/grouped-counts*`.
+The entire production counter change and its implementation test were removed.
+
+The next approach must remove actual hot helper work. `src/jit/leaf.rs` contains
+**test-only groundwork**, not a production optimization: a verified-source
+classifier for four-opcode GetUpValue/add-or-sub-or-mul/SetUpValue/Return leaves,
+and a 32-byte scalar-cell view. Get/set target the same capture; arithmetic
+consumes the fetched register. Register and constant right operands are retained.
+Extra instructions, mismatched destinations, reversed operands and malformed
+snapshots are rejected. Recognition is based on bytecode, not workload names.
+
+Only same-thread open upper/current-frame scalar bindings are intended for this
+path. Closed and foreign-thread cells retain the existing helper path, including
+barrier/panic behavior. The cell exposes scalar scratch, never GC layout. Current
+aliases derive from the original scratch pointer; upper writes become a typed
+commit only after validating version, pointer identity, counts and scalar payload.
+Bindings are consumed per invocation. Read-only/partial/helper-only exits do not
+overwrite upper values. Each admitted straight-line leaf has at most one get and
+one set per invocation; entry PCs and fuel cuts still require generated-code proof.
+
+`make jit-leaf` and `make jit-leaf-miri` validate this groundwork. Eight tests pass
+on GNU/musl and under both default Stacked Borrows and Tree Borrows. They cover
+real parsed bytecode, pending current aliases, NaN/negative-zero/int-extreme
+payloads, invalid view/target refusals, and reference-helper fallback effects.
+**These are Rust binding/model tests, not native execution or performance proof.**
+
+Remaining implementation gates:
+
+1. Emit the native getter/arithmetic/setter and exact per-op budget/entry/exit
+   paths; retain ordinary helpers on every unsupported binding or value.
+2. Independently verify the complete cell/slot-store grammar, opcode operands,
+   guard dominance, helper ABI, exits and bounded counters. Charge all signatures,
+   IR, blocks, relocations, module copies and code images before installation.
+3. Bind from fresh closure cells only after existing identity/lease checks;
+   materialize locals and validated upper writes before call/return transitions.
+   Preserve closed-cell panic behavior, hooks, GC roots and exact fuel/counters.
+4. Run real native slice/alias/error/GC/debug/quota/eviction tests and full platform
+   gates. Rust/Miri groundwork cannot replace generated-code validation.
+5. Keep admission disabled until the unchanged nine-workload speed, shipping,
+   cold and compiled-Off comparisons support it. Neither original regressions
+   nor full plan acceptance are resolved by this groundwork.
+
 Five runtime experiments were rejected. Their patches, immutable binaries,
 profiles, raw timings and summaries remain under
 `target/jit-evidence/short-slice-performance/`; the interpreter dispatch source
