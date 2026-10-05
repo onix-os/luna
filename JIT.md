@@ -2,6 +2,14 @@
 
 This branch implements the first native execution tier described in [PLAN_JIT.md](PLAN_JIT.md). It is **not the finished plan** and is not the LuaJIT runtime or its FFI. Constructors still default to interpreted execution. Do not use these results to claim production readiness or hostile-code isolation.
 
+The 2026-10-05 frame-free scalar-kernel work (`1daca00`, `9a8b076`) is test-only.
+It removes general helper-frame construction and Rust helper calls for supported
+scalar upvalue leaves in the test executor, retaining the original native entry
+for other bindings. GNU/musl correctness and resource checks pass, including
+canonical per-slice comparisons. Production admission and performance evidence
+remain outstanding; the upvalue, callback and compiled-Off regressions are not
+claimed fixed. See the current proof and acceptance limits in `PLAN_JIT.md`.
+
 As checked on 2026-10-04, all seven hosted jobs pass at `d054ba8`
 ([run 37168811569](https://github.com/onix-os/luna/actions/runs/37168811569)):
 native Linux x86-64 GNU/musl and ARM64 GNU, two Rust-only Miri seeds, baseline

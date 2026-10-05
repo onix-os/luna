@@ -11,6 +11,53 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Frame-free scalar kernel proof — 2026-10-05
+
+`1daca00` adds a **test-only**, separately typed scalar entry. Its fifth argument
+is a scoped cell view rather than a general helper host. Get/set bodies use that
+view directly, decline malformed inputs without a Rust fallback, and are checked
+against their independent source-bound grammar before inlining. The finalized
+IR rejects direct, indirect and tail calls. No fake helper frame or private
+Rust/GC layout is exposed to generated code.
+
+`9a8b076` exercises this entry through the actual executor before constructing a
+general helper frame. Each source retains its original native entry as well;
+closed, reference and foreign-stack bindings select that entry rather than
+silently dropping native coverage. Supported bindings are resolved afresh from
+the live closure. Canonical registers, pending upper-cell writes, PC and counts
+are materialized at every native return, under the existing prepared-code lease.
+Physical Lua frames, VM granularity and fuel boundaries are unchanged.
+
+Both entries and the second entry's owner are charged. Failure tests cover a
+second mapping or owner refusal, aggregate mapping limits, work admission,
+unchanged live peer entries and complete cleanup. The test prototype divides
+IR/block/relocation limits between entries and fails pair construction atomically.
+**That is not a production admission policy:** optional-kernel refusal must retain
+the original admitted entry, and work for the second entry must fit the remaining
+aggregate budget. This remains to be implemented before production benchmarking.
+
+GNU/musl each pass 22 leaf, 29 projection, four JIT activation and three baseline
+activation checks. The executor comparisons include exact canonical frame/stack
+slices, fuel and dispatches, GC between slices, errors, rebinding, closed cells
+and hooks. GNU Auto all-features passes 1075 executions across 80 suites, with
+four existing ignores; baseline plus doctests passes 393/79, with two existing
+ignores. Check/JIT check pass on both targets; GNU Clippy retains the existing
+141 library-test warnings. Evidence uses the `cell-kernel-*` prefix under
+`target/jit-evidence/short-slice-performance/`.
+
+Rust-only Miri passes nine leaf-binding and 27 projection/grammar checks under
+each of Stacked Borrows and Tree Borrows. These include the new cell grammar,
+but do not execute generated native code. The exhaustive CLIF operand-mutation
+test passes on GNU/musl; its broad Miri invocation was interrupted after more
+than fifteen minutes and remains recorded as interrupted, not a full Miri pass.
+The subsequent bounded matrix skips only that test via `make jit-projection-miri
+ARGS='--skip jit::projection::lowering::tests::every_emitted_instruction_rejects_an_operand_or_control_flow_mutation'`.
+
+These commits do **not** enable the kernel in library builds, establish a speedup,
+fix callbacks or compiled-Off cost, or satisfy the frozen performance gates.
+Production dual-entry admission and a new hash-verified comparison are still
+required. The full original acceptance scope is unchanged.
+
 #### Native-entry continuation trials — 2026-10-05
 
 Two further native-entry candidates were measured and rejected. Both move the
@@ -129,9 +176,11 @@ prove 200 actual fast writes; debug mutation/join cases prove 40/21; closed cell
 prove zero fast writes rather than being silently included in native coverage.
 
 Nine Rust-only binding/typed-commit tests pass under both Miri borrow models.
-The exhaustive projection grammar run passes under Stacked Borrows; its separate
-Tree Borrows run is still pending. These tests are correctness evidence, not
-performance acceptance. Logs and source manifests are retained under
+The 27-test exhaustive projection grammar/binding run passes under both borrow
+models. Final GNU Auto validation passes 1065 executions across 80 suite runs,
+with four existing ignores. Baseline/JIT checks and Clippy pass with existing
+warnings. These tests are correctness evidence, not performance acceptance.
+Logs and source manifests are retained under
 `target/jit-evidence/short-slice-performance/leaf-native*` and `leaf-runtime*`.
 
 The full i686 fallback gate also caught an older guard fixture unconditionally
@@ -139,6 +188,127 @@ unwrapping unsupported native preparation. It now asserts `Unavailable`, still
 executes the interpreter failure and checks zero native activity plus the same
 dispatch count. `make jit-fallback` passes 2013 executions across 319 suite runs,
 with two existing ignores; the original failure is retained.
+
+##### Production scalar-cell trials — 2026-10-05
+
+Both production candidates were measured and rejected. The first automatically
+admitted the test-validated scalar-cell getter/setter thunks. The second used
+Cranelift's IR inliner to embed those verified native helper bodies into the
+entry; it did not inline Lua calls or remove executor activations.
+
+Each completed 24 interleaved blocks in three windows, 144 timing commands,
+both speed/shipping profiles, all nine workloads and unchanged frozen gates.
+Source and binary hashes passed before and after every block. Both independently
+built no-feature controls were byte-identical to the immutable baseline.
+
+| Candidate | Speed Auto upvalues / callbacks | Shipping Auto upvalues / callbacks | Upvalue Off overhead speed / shipping | Callback Off overhead speed / shipping |
+| --- | --- | --- | --- | --- |
+| Scalar-cell thunks | 0.970x / 0.952x | 0.858x / 0.970x | 6.065% / 14.850% | 6.120% / 3.530% |
+| Inlined native helpers | 0.961x / 0.968x | 0.866x / 0.989x | 6.440% / 13.045% | 12.005% / 8.265% |
+
+Auto gains compare baseline Auto time with candidate Auto time, not candidate
+Off/Auto. Neither candidate passes any of its 24 native upvalue or callback
+gate batches. The inlined candidate fails all twelve matched disabled-cost
+batches for both workloads at both profiles. Fewer helper instructions are not
+evidence of a speedup: the first speed sample reduced upvalue helper instructions
+from 389110 to 129822 while whole-workload Auto performance regressed.
+
+Both production promotions were removed. Only test-only compiler groundwork
+remains: exact native callee name/signature matching, independently verified
+helper bodies, signature-copy reservations, pre/post-inline expansion checks,
+and name/signature corruption cases that refuse installation and preserve a
+live cached peer. The production selector and runtime scalar-cell binding remain
+unchanged and disabled. This is not a shipped performance fix.
+
+Final candidate GNU all-features Auto runs each passed 1065 executions in 80
+suite runs with four existing ignores. The retained test-only code passes both
+GNU Auto runs: JIT-feature 1044 executions in 79 suite runs, all-features 1065
+executions in 80 suite runs; each has four existing ignores.
+GNU/musl focused runs each passed 49 tests; checks and Clippy passed with existing
+warnings. Correctness does not satisfy performance
+acceptance. Complete binaries, source archives/patches, telemetry and timing
+results are retained under `target/jit-evidence/short-slice-performance/` with
+`leaf-production` and `leaf-inline` prefixes. Pre-final inliner binaries built
+while test sources changed are separately marked unbenchmarked and unusable
+for acceptance; all quoted results use the final manifest-verified binaries.
+
+Profiling the first candidate attributes substantial remaining work to
+`run_vm`, native invocation and Lua frame transitions. Removing a Lua activation
+would also remove its four-fuel step charge unless explicitly modeled. Any
+future native call integration must preserve those charges, slice boundaries,
+canonical frames, errors, roots and resumable exits; helper inlining alone does
+not solve the original tiny-call regression.
+
+##### Bounded executor activation trials — 2026-10-05
+
+A new candidate reuses the canonical thread/stack borrow across at most 64
+Lua-only activations. It preserves physical Lua frames, the 64-operation VM
+granularity and the four-fuel charge after every activation. It releases both
+borrows before callbacks, sequences, close handlers, errors and host returns.
+No Lua call is fused or recursively executed on a generated native stack.
+
+Batch sizes 1, 2 and 64 produce identical per-step completion, mode, fuel,
+interruption, Lua frame PCs/bases/sizes, scalar stack values and dispatch counts.
+Cases include ordinary/upvalue/tail calls, caught errors, coroutine yield/resume,
+close handlers, hooks and interrupted callbacks. A nested executor reads an
+open upvalue in the suspended caller, proving the stack borrow was released.
+GC runs after every compared host slice.
+
+GNU/musl each pass six focused executions. GNU all-features Auto passes 1068
+executions in 80 suite runs with four existing ignores. Baseline tests/doc tests
+pass 393 executions in 79 suite runs with two existing ignores. The nested
+executor/open-upvalue smoke passes under both Miri borrow models; it does not
+execute generated code. Generic batch64 introduced four unused-mut warnings;
+the subsequent candidate removes those, restoring the inherited Clippy count.
+
+Generic batching completed the same 24-block, three-window, 144-command paired
+comparison with both profiles and all nine workloads. All source/artifact
+hashes and its source archive verify. Direct Auto upvalue gains are 1.066x speed
+and 1.057x shipping; callbacks are 0.983x and 0.995x. Own Off/Auto upvalue ratios
+are 0.6402x and 0.51885x, with zero of 24 native gate batches passing. Callback
+ratios are 0.77545x and 0.7544x, with one and three of 24 batches passing.
+Disabled upvalue overhead is 4.94%/10.33%; callback overhead is 2.86%/10.53%.
+Other frozen cost failures remain. Wide observed ranges and retained telemetry
+show interference; no failing measurements are discarded.
+
+Generic batching also changes the interpreter-only control. Its freshly built
+candidate no-feature binaries therefore differ from the immutable original
+controls; both control sets remain separate and face the unchanged comparisons.
+Small absolute upvalue gains are not native-tier acceptance: accelerating the
+interpreter too makes its relative native speedup worse. Generic batching is
+not retained as a production regression fix.
+
+The second candidate selected batch64 once per host step only in active Auto
+mode; Off and interpreter-only builds kept single-activation cadence. It also
+completed all 24 blocks and 144 commands with verified hashes. Direct Auto
+upvalue gains are 1.081x speed and 1.072x shipping, but callbacks are 0.985x and
+0.986x. Own Off/Auto ratios are 0.7425x/0.62045x for upvalues and
+0.7593x/0.7898x for callbacks: zero of 24 frozen native gate batches pass for
+either workload/profile. Disabled upvalue overhead is 5.645%/7.795%; callbacks
+are 8.94%/3.845%. Multiple other cost gates fail too. Its source/archive/binary
+provenance, correctness reruns and unchanged comparison use `lua-native-batch`;
+the generic trial uses `lua-batch`, under
+`target/jit-evidence/short-slice-performance/`.
+
+Both production batching variants and the borrowed `LuaFrame` layout were
+removed. No native coverage, threshold or workload changed. The production
+executor, interpreter and native runtime remain unchanged. The retained
+`activation_tests` call the real public `Executor::step` and compare prepared
+Auto against Off, rather than maintaining an alternate test-only executor.
+They capture canonical frames/scalar stacks, exact per-step fuel/dispatches,
+callback interruption, nested open-upvalue access and collection after each
+slice. Make targets `vm-activation-tests`, `jit-activation-tests` and
+`vm-activation-miri` run these functional comparisons. Original performance
+regressions and full plan acceptance remain unresolved.
+
+Final retained-code GNU/musl runs each pass six focused executions and
+baseline/JIT checks/Clippy with the existing 141 library-test warnings. GNU
+all-features Auto passes 1068 executions across 80 suite runs (four existing
+ignores); baseline tests/doc tests pass 393 across 79 suites (two existing
+ignores). The retained nested-executor smoke passes under both Miri models.
+These final results use `activation-retained` logs, not discarded candidate
+tests. The production executor body was independently compared with HEAD and
+matches exactly; only the test module was appended.
 
 Remaining implementation gates:
 

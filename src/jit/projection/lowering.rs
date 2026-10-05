@@ -34,6 +34,7 @@ struct Program {
     steps: [Step; STEPS],
     length: usize,
     values: u8,
+    parameters: u8,
     fallback: Option<FuncRef>,
 }
 
@@ -102,6 +103,21 @@ impl Program {
         fallback: FuncRef,
         pattern: crate::jit::leaf::Pattern,
     ) -> Result<Self, JitError> {
+        Self::leaf_program(kind, Some(fallback), pattern, false)
+    }
+
+    #[cfg(test)]
+    fn leaf_cell_helper(kind: u32, pattern: crate::jit::leaf::Pattern) -> Result<Self, JitError> {
+        Self::leaf_program(kind, None, pattern, true)
+    }
+
+    #[cfg(test)]
+    fn leaf_program(
+        kind: u32,
+        fallback: Option<FuncRef>,
+        pattern: crate::jit::leaf::Pattern,
+        direct_view: bool,
+    ) -> Result<Self, JitError> {
         let (write, a, b, pc) = match kind {
             abi::HELPER_GET_UPVALUE => (false, pattern.read.0, pattern.upvalue, 0),
             abi::HELPER_SET_UPVALUE => (true, pattern.upvalue, pattern.result.0, 2),
@@ -111,7 +127,8 @@ impl Program {
             steps: [Step::Guard(0); STEPS],
             length: 0,
             values: 6,
-            fallback: Some(fallback),
+            parameters: 6,
+            fallback,
         };
         let zero = p.constant(0);
         let one = p.constant(1);
@@ -124,7 +141,7 @@ impl Program {
         }
         p.guard(IntCC::NotEqual, 0, zero);
         p.guard(IntCC::NotEqual, 1, zero);
-        let view = p.load(0, 8);
+        let view = if direct_view { 0 } else { p.load(0, 8) };
         p.guard(IntCC::NotEqual, view, zero);
         let version = p.load(view, 0);
         let expected = p.constant(crate::jit::leaf::VERSION as i64);
@@ -192,6 +209,7 @@ impl Program {
             steps: [Step::Guard(0); STEPS],
             length: 0,
             values: if fallback.is_some() { 6 } else { 1 },
+            parameters: if fallback.is_some() { 6 } else { 1 },
             fallback,
         };
         let zero = p.constant(0);
@@ -371,7 +389,7 @@ impl Program {
     fn verify(&self, function: &Function) -> Result<(), JitError> {
         let entry = function.layout.entry_block().ok_or_else(invalid)?;
         let declined = function.layout.blocks().last().ok_or_else(invalid)?;
-        let parameters: &[Type] = if self.fallback.is_some() {
+        let parameters: &[Type] = if self.parameters == 6 {
             &[
                 types::I64,
                 types::I64,
@@ -571,6 +589,25 @@ pub(crate) fn verify_leaf_helper(
 }
 
 #[cfg(test)]
+pub(crate) fn emit_leaf_cell_helper(
+    builder: &mut FunctionBuilder<'_>,
+    kind: u32,
+    pattern: crate::jit::leaf::Pattern,
+) -> Result<(), JitError> {
+    Program::leaf_cell_helper(kind, pattern)?.emit(builder);
+    Ok(())
+}
+
+#[cfg(test)]
+pub(crate) fn verify_leaf_cell_helper(
+    function: &Function,
+    kind: u32,
+    pattern: crate::jit::leaf::Pattern,
+) -> Result<(), JitError> {
+    Program::leaf_cell_helper(kind, pattern)?.verify(function)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::{RegisterIndex as R, UpValueIndex as U};
@@ -619,6 +656,14 @@ mod tests {
         kind: u32,
         pattern: Option<crate::jit::leaf::Pattern>,
     ) -> (Function, FuncRef) {
+        helper_fixture_mode(kind, pattern, false)
+    }
+
+    fn helper_fixture_mode(
+        kind: u32,
+        pattern: Option<crate::jit::leaf::Pattern>,
+        cell_only: bool,
+    ) -> (Function, FuncRef) {
         let isa = cranelift_codegen::isa::lookup_by_name(std::env::consts::ARCH)
             .unwrap()
             .finish(settings::Flags::new(settings::builder()))
@@ -649,7 +694,11 @@ mod tests {
         {
             let mut builder = FunctionBuilder::new(&mut function, &mut context);
             if let Some(pattern) = pattern {
-                emit_leaf_helper(&mut builder, kind, fallback, pattern).unwrap();
+                if cell_only {
+                    emit_leaf_cell_helper(&mut builder, kind, pattern).unwrap();
+                } else {
+                    emit_leaf_helper(&mut builder, kind, fallback, pattern).unwrap();
+                }
             } else {
                 emit_helper(&mut builder, kind, fallback).unwrap();
             }
@@ -767,6 +816,8 @@ mod tests {
                 function,
                 Program::leaf_helper(kind, fallback, pattern).unwrap(),
             ));
+            let (function, _) = helper_fixture_mode(kind, Some(pattern), true);
+            fixtures.push((function, Program::leaf_cell_helper(kind, pattern).unwrap()));
         }
         for (original, program) in fixtures {
             for inst in original
@@ -838,6 +889,29 @@ mod tests {
                     "accepted mutation at {inst}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn cell_helper_grammar_has_no_calls_and_rejects_host_abi_bodies() {
+        let pattern = leaf_pattern();
+        for kind in [abi::HELPER_GET_UPVALUE, abi::HELPER_SET_UPVALUE] {
+            let (cell, fallback) = helper_fixture_mode(kind, Some(pattern), true);
+            verify_leaf_cell_helper(&cell, kind, pattern).unwrap();
+            assert!(!cell.layout.blocks().any(|block| {
+                cell.layout
+                    .block_insts(block)
+                    .any(|inst| cell.dfg.insts[inst].opcode() == Opcode::Call)
+            }));
+            assert!(verify_leaf_helper(&cell, kind, fallback, pattern).is_err());
+            let (host, _) = selected_helper_fixture(kind, Some(pattern));
+            assert!(verify_leaf_cell_helper(&host, kind, pattern).is_err());
+            let mut wrong = pattern;
+            wrong.upvalue += 1;
+            assert!(verify_leaf_cell_helper(&cell, kind, wrong).is_err());
+            let mut invalid = cell.clone();
+            invalid.signature.params[2].extension = cranelift_codegen::ir::ArgumentExtension::Sext;
+            assert!(verify_leaf_cell_helper(&invalid, kind, pattern).is_err());
         }
     }
 
