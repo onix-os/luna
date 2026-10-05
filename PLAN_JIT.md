@@ -11,6 +11,64 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Production callee activation comparisons rejected — 2026-10-05
+
+The direct activation was promoted in `7b6743f`; `6a11d99` proves through the
+public API that an integer leaf executes one native upvalue read/write with
+fewer than two helper calls. The general production VM retained its ordinary
+native entry on every declined activation. Optional owner/admission recovery
+and source leases were preserved. Full GNU Auto and repository all-feature
+testing, musl focused/native and public execution checks passed 2,215 repeated
+executions across 164 suites with eight existing ignores. These checks did not
+establish a performance improvement.
+
+The first production form moved `LuaFrame` into preflight and returned it on
+decline. The second (`d8877f6`) borrows the frame and returns only completed work
+and canonical Return operands; the executor consumes the frame once. Focused
+GNU/musl/baseline checks passed 54 executions/five suites, followed by GNU
+baseline/JIT checks and another public helper-free execution proof. Removing
+the owned-frame result is a concrete interface change; its effect on timings
+must be measured rather than assumed.
+
+Each form completed the unchanged 24-block/144-command comparison: three
+windows, both profiles, all nine workloads, eleven paired samples, alternating
+variant/profile order, original immutable controls, source/artifact hashes
+around every block and contention telemetry. No owned build/test ran during
+timing. Independently rebuilt no-feature hashes differ from the original;
+that difference is retained rather than claimed as byte-identical provenance.
+Both source archives verify independently after rollback. Collection exit zero
+means all commands were collected, not that gates passed.
+
+| Form / direct original Auto over candidate Auto | Speed | Shipping |
+| --- | ---: | ---: |
+| Owned-frame upvalues | 0.876628x | 0.885634x |
+| Owned-frame callbacks | 0.880737x | 0.885864x |
+| Borrowed-frame upvalues | 0.910367x | 0.971594x |
+| Borrowed-frame callbacks | 0.977749x | 0.982579x |
+
+Upvalue gates passed 0/24 in each profile for both forms; borrowed callback
+gates passed only 0/24 speed and 1/24 shipping. Owned upvalue disabled overhead
+was 33.825% speed / 26.57% shipping; borrowed was 9.7% / 24.145%. Borrowed
+shipping table (7.28%), float (6.81%), integer (12.95%), metamethod (5.225%) and
+callback (6.03%) medians also fail. Broad integer variation and every failed
+window/control remain visible; no threshold, coverage or workload was changed.
+
+Both production forms are disabled again. Borrowed preflight and canonical
+Return bookkeeping remain behind `cfg(test)`. The public fixture is preserved
+as a test-selector fixture that also asserts one actual direct activation.
+After rollback, GNU/musl activation/native/leaf and baseline activation pass
+104 executions/seven suites without failures, plus formatting and GNU
+baseline/JIT workspace checks. This is not full performance acceptance.
+
+Evidence prefixes `direct-callee` and `borrowed-callee` under
+`target/jit-evidence/short-slice-performance/` include immutable source/binaries,
+full timing logs, `-summary.tsv`, build settings, telemetry, exit records,
+post-rollback archive verification and the restored-source validation log.
+The two archives identify `6a11d99` and `d8877f6` respectively. Next change actual
+short-kernel code generation or cross-call structure rather than relocating the
+same generic helper-inlined kernel again. Original callback and compiled-Off
+acceptance remain independent required work.
+
 #### Direct native callee activation checkpoint — 2026-10-05
 
 `102cab7` adds a test-only executor activation path, not another entry-routing
