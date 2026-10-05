@@ -66,13 +66,7 @@ mod handoff;
 mod helper_flow;
 mod helpers;
 pub(crate) mod ir;
-#[cfg(any(
-    test,
-    all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )
-))]
+#[cfg(test)]
 mod leaf;
 #[cfg(all(
     target_os = "linux",
@@ -922,16 +916,6 @@ impl Runtime {
             #[cfg(test)]
             let failure = self.0.borrow().memory_failure;
             let compile = || {
-                #[cfg(all(not(test), not(miri)))]
-                if leaf::Pattern::recognize(&snapshot).is_some() {
-                    return backend::compile_leaf_pair_in(
-                        &snapshot,
-                        memory.clone(),
-                        limit,
-                        metadata.clone(),
-                        work,
-                    );
-                }
                 #[cfg(all(test, not(miri)))]
                 if self.0.borrow().scalar_kernels && leaf::Pattern::recognize(&snapshot).is_some() {
                     return backend::compile_leaf_pair_in(
@@ -994,6 +978,7 @@ impl Runtime {
                             manager.metadata.0.set_limit(manager.metadata.0.current());
                         }
                         let reserved = manager.code.try_reserve(1);
+                        #[cfg(all(test, not(miri)))]
                         let (code, reserved) = if reserved.is_err() {
                             let mut code = code;
                             if code.discard_scalar_kernel() {
@@ -1019,7 +1004,10 @@ impl Runtime {
                             }
                             _ => {}
                         }
+                        #[cfg(all(test, not(miri)))]
                         let owner = code.into_shared(manager.metadata.clone());
+                        #[cfg(not(all(test, not(miri))))]
+                        let owner = owner::Shared::try_new(code, manager.metadata.clone());
                         let code = match owner {
                             Ok(code) => code,
                             Err(_) => {
@@ -1173,7 +1161,7 @@ impl Runtime {
         let slots = unsafe {
             std::slice::from_raw_parts_mut(scratch.as_mut_ptr().cast::<abi::Slot>(), register_count)
         };
-        #[cfg(not(miri))]
+        #[cfg(all(test, not(miri)))]
         if let Some(kernel) = &code.scalar_kernel {
             let pattern = kernel.scalar_leaf.expect("scalar kernel has no pattern");
             let binding = if pattern.permits_cell_entry(*registers.pc, slots) {
@@ -1218,6 +1206,7 @@ impl Runtime {
     }
 
     #[cfg(all(
+        test,
         not(miri),
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")

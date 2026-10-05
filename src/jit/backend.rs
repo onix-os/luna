@@ -195,20 +195,26 @@ pub(super) struct Code {
     entry: Entry,
     #[cfg(test)]
     byte_len: usize,
+    #[cfg(test)]
     pub(super) relocations: usize,
     pub registers: usize,
     pub entries: BudgetVec<bool, BudgetAllocator>,
     pub projected_upvalues: bool,
+    #[cfg(test)]
     pub scalar_leaf: Option<super::leaf::Pattern>,
+    #[cfg(test)]
     cell_kernel: bool,
+    #[cfg(all(test, not(miri)))]
     pub scalar_kernel: Option<super::owner::Shared<Code>>,
 }
 
 impl Code {
+    #[cfg(all(test, not(miri)))]
     pub fn discard_scalar_kernel(&mut self) -> bool {
         self.scalar_kernel.take().is_some()
     }
 
+    #[cfg(all(test, not(miri)))]
     pub fn into_shared(
         self,
         allocator: BudgetAllocator,
@@ -258,6 +264,7 @@ impl Code {
         budget: u32,
         host: *mut abi::Host,
     ) -> Exit {
+        #[cfg(test)]
         assert!(!self.cell_kernel, "scalar kernel requires a cell view");
         unsafe { abi::invoke(self.entry, slots, pc, budget, host) }
     }
@@ -267,7 +274,7 @@ impl Code {
     /// # Safety
     /// Slots cover the register prefix. A non-null view and its non-null cell must
     /// be live and exclusive; the view cannot overlap slots or cell storage.
-    #[cfg(not(miri))]
+    #[cfg(all(test, not(miri)))]
     pub unsafe fn invoke_cell_raw(
         &self,
         slots: *mut Slot,
@@ -381,6 +388,7 @@ pub(super) fn compile_in(
             projected: false,
             #[cfg(test)]
             leaf: false,
+            #[cfg(test)]
             cell_kernel: false,
             #[cfg(test)]
             failure,
@@ -436,14 +444,14 @@ pub(super) fn compile_leaf_in(
     )
 }
 
-#[cfg(not(miri))]
+#[cfg(all(test, not(miri)))]
 pub(super) fn compile_leaf_kernel_in(
     snapshot: &Snapshot,
     total: MappingCounter,
     limit: usize,
     metadata: BudgetAllocator,
     work: super::work::Limits,
-    #[cfg(test)] failure: Failure,
+    failure: Failure,
 ) -> Result<Code, JitError> {
     compile_selected(
         snapshot,
@@ -453,23 +461,21 @@ pub(super) fn compile_leaf_kernel_in(
         work,
         Selection {
             projected: false,
-            #[cfg(test)]
             leaf: true,
             cell_kernel: true,
-            #[cfg(test)]
             failure,
         },
     )
 }
 
-#[cfg(not(miri))]
+#[cfg(all(test, not(miri)))]
 pub(super) fn compile_leaf_pair_in(
     snapshot: &Snapshot,
     total: MappingCounter,
     limit: usize,
     metadata: BudgetAllocator,
     work: super::work::Limits,
-    #[cfg(test)] failure: Failure,
+    failure: Failure,
 ) -> Result<Code, JitError> {
     let expansion = super::work::Expansion::admit(snapshot, work)?;
     let mut ordinary = compile_in(
@@ -478,7 +484,6 @@ pub(super) fn compile_leaf_pair_in(
         limit,
         metadata.clone(),
         work,
-        #[cfg(test)]
         failure,
     )?;
     let Ok(_ordinary_owner) = Reservation::new(
@@ -492,27 +497,18 @@ pub(super) fn compile_leaf_pair_in(
         blocks: work.blocks.saturating_sub(expansion.blocks),
         relocations: work.relocations.saturating_sub(ordinary.relocations),
     };
-    let Ok(kernel) = compile_leaf_kernel_in(
-        snapshot,
-        total,
-        limit,
-        metadata.clone(),
-        remaining,
-        #[cfg(test)]
-        failure,
-    ) else {
+    let Ok(kernel) =
+        compile_leaf_kernel_in(snapshot, total, limit, metadata.clone(), remaining, failure)
+    else {
         return Ok(ordinary);
     };
-    #[cfg(all(test, not(miri)))]
     let previous_limit = metadata.0.limit();
-    #[cfg(all(test, not(miri)))]
     match failure {
         Failure::RefuseScalarOwnerStorage => metadata.0.set_limit(metadata.0.current()),
         Failure::RefuseScalarOwnerAllocation => metadata.0.fail_after(0),
         _ => {}
     }
     ordinary.scalar_kernel = super::owner::Shared::try_new(kernel, metadata.clone()).ok();
-    #[cfg(all(test, not(miri)))]
     match failure {
         Failure::RefuseScalarOwnerStorage => metadata.0.set_limit(previous_limit),
         Failure::RefuseScalarOwnerAllocation => metadata.0.fail_after(usize::MAX),
@@ -525,6 +521,7 @@ struct Selection {
     projected: bool,
     #[cfg(test)]
     leaf: bool,
+    #[cfg(test)]
     cell_kernel: bool,
     #[cfg(test)]
     failure: Failure,
@@ -541,10 +538,7 @@ fn compile_selected(
     #[cfg(test)]
     let failure = selection.failure;
     #[cfg(test)]
-    let selected_leaf = selection.leaf || selection.cell_kernel;
-    #[cfg(not(test))]
-    let selected_leaf = selection.cell_kernel;
-    let leaf_pattern = if selected_leaf {
+    let leaf_pattern = if selection.leaf {
         Some(
             super::leaf::Pattern::recognize(snapshot)
                 .ok_or_else(|| JitError::Compilation("invalid scalar-cell leaf".into()))?,
@@ -636,7 +630,10 @@ fn compile_selected(
     let helper_types = [ptr, ptr, types::I32, types::I32, types::I32, types::I32];
     let helper_returns = [types::I32];
     let projected_kinds = [abi::HELPER_GET_UPVALUE, abi::HELPER_SET_UPVALUE].map(|kind| {
+        #[cfg(test)]
         let selected = selection.projected || leaf_pattern.is_some();
+        #[cfg(not(test))]
+        let selected = selection.projected;
         selected
             && snapshot.operations.iter().any(|operation| {
                 matches!(
@@ -653,6 +650,7 @@ fn compile_selected(
         helper_returns.len(),
         helpers::SYMBOLS.len() + 2 * projection_count,
     )?;
+    #[cfg(test)]
     let signature_bytes = signature_bytes
         .checked_add(if leaf_pattern.is_some() {
             Layout::array::<AbiParam>(
@@ -994,7 +992,10 @@ fn compile_selected(
             .unwrap()
             .1;
         let mut projection = module.make_context();
-        projection.func.name = cranelift_codegen::ir::UserFuncName::user(0, id.as_u32());
+        #[cfg(test)]
+        {
+            projection.func.name = cranelift_codegen::ir::UserFuncName::user(0, id.as_u32());
+        }
         projection.func.signature = module
             .declarations()
             .get_function_decl(id)
@@ -1004,6 +1005,7 @@ fn compile_selected(
         let mut frontend = FunctionBuilderContext::new();
         {
             let mut builder = FunctionBuilder::new(&mut projection.func, &mut frontend);
+            #[cfg(test)]
             if let Some(pattern) = leaf_pattern {
                 if selection.cell_kernel {
                     super::projection::lowering::emit_leaf_cell_helper(
@@ -1022,6 +1024,8 @@ fn compile_selected(
             } else {
                 super::projection::lowering::emit_helper(&mut builder, kind, fallback_ref)?;
             }
+            #[cfg(not(test))]
+            super::projection::lowering::emit_helper(&mut builder, kind, fallback_ref)?;
             builder.seal_all_blocks();
             builder.finalize(module.isa().frontend_config());
         }
@@ -1030,6 +1034,7 @@ fn compile_selected(
                 "invalid projection helper signature".into(),
             ));
         }
+        #[cfg(test)]
         if let Some(pattern) = leaf_pattern {
             if selection.cell_kernel {
                 super::projection::lowering::verify_leaf_cell_helper(
@@ -1048,6 +1053,9 @@ fn compile_selected(
         } else {
             super::projection::lowering::verify_helper(&projection.func, kind, fallback_ref)?;
         }
+        #[cfg(not(test))]
+        super::projection::lowering::verify_helper(&projection.func, kind, fallback_ref)?;
+        #[cfg(test)]
         cranelift_codegen::verify_function(&projection.func, module.isa())
             .map_err(|error| JitError::Compilation(error.to_string()))?;
         projection_instructions += projection
@@ -1063,17 +1071,16 @@ fn compile_selected(
         instructions + projection_instructions,
         block_count + projection_blocks,
     )?;
+    #[cfg(test)]
     if leaf_pattern.is_some() {
         expansion.verify_actual(
             instructions + projection_instructions + 32,
             block_count + projection_blocks + 16,
         )?;
-        #[cfg(test)]
         if failure == Failure::CorruptInlineName {
             let name = projection_contexts[1].as_ref().unwrap().func.name.clone();
             projection_contexts[0].as_mut().unwrap().func.name = name;
         }
-        #[cfg(test)]
         if failure == Failure::CorruptInlineSignature {
             projection_contexts[0]
                 .as_mut()
@@ -1294,16 +1301,21 @@ fn compile_selected(
         entry,
         #[cfg(test)]
         byte_len,
+        #[cfg(test)]
         relocations,
         registers: snapshot.registers,
         entries,
         projected_upvalues: selection.projected && projection_count != 0,
+        #[cfg(test)]
         scalar_leaf: leaf_pattern,
+        #[cfg(test)]
         cell_kernel: selection.cell_kernel,
+        #[cfg(all(test, not(miri)))]
         scalar_kernel: None,
     })
 }
 
+#[cfg(test)]
 struct LeafInliner<'a> {
     functions: [(
         cranelift_codegen::ir::FuncRef,
@@ -1312,6 +1324,7 @@ struct LeafInliner<'a> {
     counts: [u8; 2],
 }
 
+#[cfg(test)]
 impl cranelift_codegen::inline::Inline for LeafInliner<'_> {
     fn inline(
         &mut self,
