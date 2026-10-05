@@ -256,9 +256,9 @@ projection ABI, rather than another helper-shim placement variation. The
 current helpers still cross into Rust for each get/set; moving the unwind
 boundary does not remove that transition. A projection could let verified
 native code operate on scalar slots without reading Rust `Value` or GC layouts.
-The Rust projection model, scoped descriptor and standalone get/set lowering
-are implemented and test-gated. The generated fast path is not integrated with
-the live host or accepted for release. Runtime activation requires:
+The Rust projection model, scoped descriptor, standalone get/set lowering and
+runtime-boundary plumbing are implemented. The compiler does not yet admit
+the projected fast path, and it is not accepted for release. Activation requires:
 
 - Fresh cell resolution and alias deduplication at entry, with current-frame
   aliases linked to existing scratch slots; foreign stacks retain helpers.
@@ -287,8 +287,9 @@ duplicate/upper/current-frame aliases, outside-prefix cells, foreign fallback,
 invalid targets/slots, capacity/index 255, helper rebinding, signed zero and
 NaN payloads. The broader native/boundary lanes pass 518 executions; normal and
 JIT checks and the all-feature Clippy command pass, with existing lint warnings.
-The component and accessors are `cfg(test)` and appended after production
-definitions; there is no release runtime activation or new performance claim.
+The initial component/accessors were `cfg(test)` and appended after production
+definitions. The runtime-boundary stage below promotes the required storage
+and accessors; compiler admission and performance acceptance remain open.
 
 **Scoped descriptor:** `src/jit/projection/native.rs` lends a versioned, 64-byte
 C-layout descriptor on 64-bit targets. It contains bounded binding/cell/scratch
@@ -304,8 +305,8 @@ Nine new tests using Rust `extern "C"` probes exercise this descriptor, bringing
 the focused suite to twenty tests. All twenty pass under both Miri Stacked
 Borrows (seed one) and Tree Borrows (seed two). Native/boundary lanes pass 529
 executions with four ignored tests. These are Rust-boundary tests, not generated-machine-code
-coverage or proof that the fast path is active. The live `Host` layout and v3
-helper symbols are unchanged.
+coverage or proof that the fast path is active. This descriptor has a version
+independent of the host/helper ABI; the runtime-boundary stage uses host v4.
 
 **Standalone lowering:** `src/jit/projection/lowering.rs` emits scalar get/set
 IR from the source opcode using fixed storage (192 steps and 96 values). The
@@ -331,7 +332,38 @@ Normal/JIT checks, formatting and the all-feature Clippy command pass, with
 141 inherited lint warnings and no projection diagnostics. This does not
 establish live runtime resource admission or whole-function source/exit ownership.
 
-**Still required:** embed the lowering in the runtime compiler and live host,
+**Runtime boundary:** the v4 host has an opaque projection pointer; all fixed
+Rust helper symbols use the v4 suffix. Native entry accepts the original scratch
+pointer instead of exporting a new mutable-slice child while the projection
+descriptor remains live. Fixed stack factories use capacities 0/1/2/4/8/.../256
+without per-invocation heap allocation. Live closure bindings contain mutable
+`Lock<UpValue>` entries; construction and refresh resolve those locks freshly.
+Typed GC targets remain outside the native descriptor.
+
+Rust helpers flush pending/projected and scratch-linked writes inside their
+existing unwind boundary, create the operation scratch borrow afterward, end
+that borrow before refreshing, and preserve completion/decline/panic PC rules.
+The runtime materializes scratch, synchronizes projected exit writes and
+merges direct projection counts with actual helper counts before publishing
+exit statistics or resuming a panic. Closed commits retain `UpValue::set` and
+its GC barrier.
+
+The compiler initializes `Code::projected_upvalues` to **false**. A test-only
+forced admission runs the real compiled entry through the runtime factory,
+checking PC, helper/native counts and scalar/reference results on GNU and musl.
+Two additional tests call the real Rust helpers with staged native writes,
+checking pre-flush, closure rebinding, refresh and panic materialization.
+The focused projection suite passes 26 tests. The broader GNU boundary suite
+passes 519 with four ignored tests; the full Auto workspace run passes. Musl
+passes the projection/helper/native/boundary lanes and forced-runtime test.
+The focused runtime Miri target passes 32 tests under Stacked Borrows (seed one)
+and Tree Borrows (seed two). It does not rerun the unchanged exhaustive IR
+mutation tests or execute machine code. Normal/JIT checks, formatting and
+all-feature Clippy pass, with 141 inherited lint warnings and no projection
+diagnostics. No benchmark acceptance or production fast-path activation follows
+from these results.
+
+**Still required:** compile and admit verified native get/set thunks with Rust fallback,
 whole-function source/tag/bounds/dirty-state and exit verification, helper/exit synchronization,
 statistics and exact PC/fuel integration, runtime resource admission, complete
 GC/panic/differential validation and both frozen benchmark profiles. The GC
@@ -340,8 +372,9 @@ must not be casually treated as infallible across a native C boundary. The
 foundation tests are not acceptance evidence for those remaining items.
 
 **Current conclusion:** these changes are valid correctness experiments, not
-accepted regression fixes. The runtime still uses the baseline randomized
-lookup, original counter layout and original interpreter dispatch. A default
+accepted regression fixes. The runtime keeps the baseline randomized lookup
+and original interpreter dispatch; the v4 boundary is staged without compiler
+admission of scalar upvalue projection. A default
 optimizer-selected small-map accessor is now also rejected after the same
 24-block comparison. It passes the focused checks and nine owner/Miri tests
 (seed one), but shipping upvalue, float and callback Off overheads reach
