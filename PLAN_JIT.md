@@ -11,6 +11,41 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Production scalar-entry candidate — 2026-10-05
+
+`d700429` and `5718928` replace the prototype's refuse-both admission with an
+optional kernel policy. The ordinary entry retains its original work limits;
+the kernel uses remaining conservative IR/block bounds and actual relocation
+capacity. Its mappings and owner remain charged. Ordinary-owner headroom is
+reserved before attempting it; an unavailable reservation skips the optional
+entry. Kernel/work/mapping/owner refusal preserves ordinary code. Late cache-map
+or root-owner refusal discards the optional entry and retries ordinary admission.
+Recoverable owner allocation uses allocator-api2's safe uninitialized Box/write
+API, returning an intact input on refusal without adding unsafe allocation code.
+Tests execute ordinary native upvalue reads/writes after these refusals and retain
+live peer leases through actual manager insertion with a full cache map.
+
+`711ae8a` enables the verified frame-free entry for matching sources in supported
+production builds. Unsupported cell bindings retain the ordinary native entry.
+Reference results after arithmetic metamethods also select the ordinary native
+SetUpValue entry at PC 2; exact slice and native-write-count tests prevent a
+silent reduction to interpreted reference writes. Physical frames, fresh source
+identity validation, leases, GC materialization and fuel boundaries are retained.
+
+GNU/musl each pass 82 focused owner/eviction/leaf/projection/activation executions.
+GNU Auto all-features passes 1078/80 with four existing ignores; musl Auto with
+the JIT feature passes 1057/79 with four existing ignores. GNU baseline plus
+doctests passes 393/79 with two existing ignores. Check/JIT check pass on both
+targets; GNU Clippy reports 141 library-test warnings. Nine owner and nine scalar
+binding cases pass under each Miri borrow model; generated code is not run in
+Miri. Logs use `cell-kernel-production-*` and `cell-kernel-late-owner-*` in the
+existing evidence directory.
+
+This is a **production candidate, not a performance acceptance result**. The
+hash-verified speed/shipping comparison against immutable original controls is
+next. Upvalue speed, callback regression and compiled-Off costs remain unproven;
+no thresholds, controls or native coverage requirements are relaxed.
+
 #### Frame-free scalar kernel proof — 2026-10-05
 
 `1daca00` adds a **test-only**, separately typed scalar entry. Its fifth argument
