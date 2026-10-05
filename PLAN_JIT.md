@@ -11,6 +11,39 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Aggregate call-program IR — 2026-10-05
+
+`cfaed82` adds **test-only compiler IR**, not a production call tier. A plan
+borrows immutable caller/callee snapshots, admits a fixed zero-result Call into
+an integer scalar-cell leaf, and charges both source expansion bounds together.
+The emitted two-function program requests entry with the source PC/function/
+argument operands, directly calls the source-verified integer body, then
+requests leave with the callee's Return operands. A refused enter branches out
+before reading the callee frame. Combined actual IR counts must fit the admitted
+bound; three call imports require relocation headroom. Finalized target-specific
+relocations still need the ordinary backend's accounting and refusal handling.
+
+Cranelift structural checks and rooted template verification cover both
+functions. Mutation tests reject immediates, pointer offsets, branches, call
+targets, import names, callee signatures and forged plan fields. Parsed corpus
+tests distinguish arguments/constants from floating and value-return declines.
+Real `n=n+n` has two capture reads and declines the four-opcode template; a
+separate one-read model tests post-read aliasing without claiming parsed coverage.
+
+Final GNU/musl focused plus GNU Auto all-feature validation passes 1,116
+repeated executions/82 suites, four existing ignores and zero failures.
+Formatting and GNU baseline/JIT checks pass. Six pure plan tests pass under each
+of Stacked seed one and Tree seed two in the pinned Miri shell (12 executions);
+IR/ISA tests are excluded there. Logs, including draft failures, are retained in
+`target/jit-evidence/short-slice-performance/call-plans/`.
+
+The imports are still symbolic, not linked runtime helpers. Snapshot roots do
+not authorize an actual callee closure. Next implement budgeted native linking,
+actual-callee weak-source/lease guards and scoped canonical physical-frame/fuel/
+statistics transitions, with ordinary fallback on all declines. No machine-code
+execution, ARM64 certification, new timing result or performance fix is claimed.
+The original upvalue, callback and compiled-Off gates remain unresolved.
+
 #### Scoped activation-host groundwork — 2026-10-05
 
 The new **test-only** host retains the canonical whole-stack/thread borrow and

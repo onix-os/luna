@@ -75,6 +75,11 @@ the original performance regressions remain unresolved.
 
 ## Enable and prepare
 
+`make jit-call-plans` validates test-only aggregate caller/callee admission and
+two-function Cranelift IR; `nix develop .#miri -c make jit-call-plans-miri` checks
+the pure source plans. The enter/leave imports are not linked runtime helpers,
+so this does not execute generated cross-function calls or prove a speedup.
+
 The scoped activation host and source-owned call-transition tables are currently
 test-only groundwork. They preserve canonical frames, fuel and callback release
 boundaries; they do not enable generated Lua-to-Lua calls or fix the measured
