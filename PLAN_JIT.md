@@ -257,9 +257,9 @@ current helpers still cross into Rust for each get/set; moving the unwind
 boundary does not remove that transition. A projection could let verified
 native code operate on scalar slots without reading Rust `Value` or GC layouts.
 The Rust projection model, scoped descriptor, standalone get/set lowering and
-runtime-boundary plumbing are implemented. The compiler now admits verified
-native scalar get/set thunks as a performance candidate, not a release-accepted
-regression fix. Acceptance requires:
+runtime-boundary plumbing are implemented. The integrated native get/set
+candidate failed its frozen benchmarks and is disabled in default compilation.
+Its test-only compiler selector retains full integrated coverage. Acceptance requires:
 
 - Fresh cell resolution and alias deduplication at entry, with current-frame
   aliases linked to existing scratch slots; foreign stacks retain helpers.
@@ -364,7 +364,7 @@ all-feature Clippy pass, with 141 inherited lint warnings and no projection
 diagnostics. No benchmark acceptance or production fast-path activation follows
 from those historical results.
 
-**Compiler candidate:** the compiler now creates at most two anonymous native
+**Compiler candidate (`65296db`, rejected):** the compiler creates at most two anonymous native
 thunks, one per used get/set kind, with the fixed six-argument v4 helper ABI.
 The fast path checks the host/view, version, bounds, original scratch-pointer
 agreement, resolved binding/link, scalar tag/payload and counter capacity before
@@ -396,6 +396,41 @@ tests pass 33 under each Miri model (Stacked seed one, Tree seed two). Exhaustiv
 dynamic-grammar instruction mutation passes natively; that longer mutation loop
 was not rerun under Miri. Machine-code tests are excluded from Miri.
 
+**Frozen candidate comparison:** all 24 blocks across three windows completed:
+96 native and 48 feature-cost commands, 11 paired samples per native workload,
+11 feature-cost pairs of 20 iterations, unchanged speed/shipping profiles and
+thresholds. Variant/profile order alternated; windows had 30-second pauses.
+Per-block binary/source hashes and final hashes passed. Both no-feature binaries
+matched the immutable controls byte-for-byte. `vmstat` and process snapshots
+retain contention evidence; unrelated host applications were not stopped.
+
+| Workload | Direct Auto baseline/candidate, speed | Shipping | Result |
+|---|---:|---:|---|
+| Upvalues | 0.808984 | 0.792549 | About 24%/26% slower than baseline |
+| Rust callbacks | 0.952857 | 0.953974 | About 5% slower than baseline |
+
+Direct ratios above use original Auto timings, not a candidate's own Off
+denominator. Upvalue own-Off/Auto ratios are 0.549/0.4725 and callback ratios
+0.77665/0.73725 (speed/shipping), failing their unchanged thresholds. Shipping
+compiled-Off median overhead is 18.94% integer, 13.00% float, 14.66% table and
+17.99% upvalues, above the frozen 5% limit. Some other gates pass; they do not
+override these failures. Collection exit zero means complete evidence, not acceptance.
+
+Default `compile_in` therefore selects the original Rust-helper path with
+`projected_upvalues == false`. The explicit projected selector exists only under
+`cfg(test)`, including native execution and allocation/protection rollback tests.
+After disabling, GNU runtime/boundary/upvalue gates pass 4/523/7 with four
+ignored boundary tests, and musl runtime/upvalue gates pass 4/7. All-feature
+Clippy retains 141 inherited library-test warnings. These post-disable gates do
+not relabel the rejected candidate benchmark as a measurement of current code.
+The frozen rejected source is archived and verified against its original hash
+manifest before this default-admission change. Evidence is retained under
+`target/jit-evidence/short-slice-performance/projection-timing/`,
+`projection-summary.tsv`, `projection-source-archive/` and `projection-source.patch`.
+No projection performance fix, release acceptance or original-regression closure
+is claimed. Further work must profile complete runtime setup/refresh/commit
+costs and short-call execution rather than repeat already rejected helper placement.
+
 **Still required:** complete current-revision GC/panic/differential validation,
 review closed-write panic behavior and pass both frozen benchmark profiles. The GC
 backward barrier can borrow and grow its marking queue, so closed-cell commits
@@ -404,8 +439,8 @@ foundation tests are not acceptance evidence for those remaining items.
 
 **Current conclusion:** these changes are valid correctness experiments, not
 accepted regression fixes. The runtime keeps the baseline randomized lookup
-and original interpreter dispatch; compiler admission of scalar upvalue projection
-is a measured candidate, not accepted performance evidence. A default
+and original interpreter dispatch; the rejected scalar projection is disabled in
+default compilation and retained only as an integrated test candidate. A default
 optimizer-selected small-map accessor is now also rejected after the same
 24-block comparison. It passes the focused checks and nine owner/Miri tests
 (seed one), but shipping upvalue, float and callback Off overheads reach
