@@ -64,10 +64,46 @@ inlining and avoids nested collection toggles. Its baseline collection check
 passes for both binaries. These whole-executor instruction totals must not be
 compared directly with the older VM-only totals; compare identical scopes.
 
-The next isolated candidate skips zero-valued saturating helper-counter updates
-inside the already outlined invocation routine. It changes neither the VM loop,
-scratch layout nor helper ABI. Profiling and timing are still pending; no new
-runtime optimization is accepted yet.
+Additional counter and cache experiments were also rejected:
+
+| Experiment | Speed Auto upvalues / callbacks | Shipping Auto upvalues / callbacks | Upvalue Off overhead speed / shipping |
+| --- | --- | --- | --- |
+| Skip zero helper-counter merges | 1.033x / 1.005x | 1.024x / 0.988x | 5.24% / 7.66% |
+| Two-entry inline code index | 1.111x / 1.074x | 1.129x / 1.043x | 9.39% / 7.76% |
+| Inline index, outlined lookup | 1.120x / 1.083x | 1.104x / 1.035x | 13.58% / 11.68% |
+
+These use the same 24-block comparison protocol. The inline index produces the
+first sustained double-digit native upvalue gains, but its compiled-Off cost
+and shipping callback overhead fail the unchanged limits. Outlining its lookup
+does not repair that trade-off. Both indexes and the zero-merge patch were
+removed; their source copies and measurements are retained. The randomized
+metadata maps, original VM loop and source identity checks remain authoritative.
+
+Matched whole-executor Off instruction profiles execute exactly 98,375,383
+upvalue instructions with either the baseline or inline index, although the
+feature-cost binary gets slower. The no-feature binaries are byte-identical.
+Meanwhile the separate native benchmark's Off control gets faster. These are
+different consuming executables: their optimizer/layout behavior must not be
+pooled, and native Off/Auto ratios cannot substitute for direct Auto timings
+or the feature-cost gate. Code placement is a possible cause, not a proven
+hardware explanation; Callgrind branch simulation is not hardware telemetry.
+
+Deriving interpreter dispatch counts from completed instructions rather than
+an independent accumulator also fails to reduce bookkeeping: the matched Off
+upvalue profile adds 400,045 instructions/reads, and native work changes
+negligibly. It was removed without claiming a wall-time improvement or running
+a full timing acceptance. The retained error tests (`cfc97f7`) now compare
+dispatch totals after every step through guard/helper errors, pcall/xpcall and
+typed callback catch/rethrow under three fuel budgets.
+
+The current candidate keeps cumulative saturating helper counters beside the
+manager in its already charged runtime-owner allocation. Helpers update only
+the counters they use, without borrowing the manager during native execution;
+public statistics copy the same eight cumulative fields. This removes the
+per-entry zeroed counter payload and unconditional counter merges. No VM,
+source identity, native coverage, scratch-slot or helper ABI change is included.
+It remains uncommitted and unaccepted pending focused tests, matched profiles,
+native timings and compiled-Off controls in both consuming binaries.
 
 #### Repeated under-load estimates — five windows
 
