@@ -1,4 +1,6 @@
 use super::*;
+#[path = "../../../examples/jit_support/workloads.rs"]
+mod workloads;
 use crate::{
     opcode::Operation, thread::activation::with_test_thread, Closure, Fuel, Lua, StashedClosure,
 };
@@ -611,4 +613,33 @@ fn variable_stack_protocol_errors_preserve_unsuccessful_slice_fuel_accounting() 
     };
     assert_eq!(run(&mut lua, true), run(&mut lua, false));
     assert_eq!(lua.enter(|ctx| ctx.jit().test_pair_executions()), (0, 0));
+}
+
+#[test]
+fn frozen_upvalue_corpus_executes_selected_pairs_and_keeps_its_expected_result() {
+    assert!(!workloads::COLD_SOURCE.is_empty() && !workloads::PREDICATE_SOURCE.is_empty());
+    let workload = workloads::WORKLOADS
+        .iter()
+        .find(|case| case.name == "closure_upvalue")
+        .unwrap();
+    let (mut lua, closure, key) = fixture_source(workload.source);
+    lua.enter(|ctx| {
+        ctx.jit().test_activation_host(64);
+        ctx.jit().0.borrow_mut().enqueue(key.caller, true);
+        ctx.jit().0.borrow_mut().enqueue(key.callee, true);
+        ctx.jit().observe_pair(key);
+    });
+    for _ in 0..3 {
+        assert_eq!(lua.service_jit().unwrap(), 1);
+    }
+    lua.enter(|ctx| {
+        let executor = crate::Executor::start(ctx, ctx.fetch(&closure).into(), ());
+        let mut fuel = Fuel::with(1_000_000);
+        while !executor.step(ctx, &mut fuel).unwrap() {}
+        assert_eq!(
+            executor.take_result::<i64>(ctx).unwrap().unwrap(),
+            workload.expected
+        );
+        assert!(ctx.jit().test_pair_executions().1 > 0);
+    });
 }
