@@ -2193,15 +2193,126 @@ mod runtime_projection_tests {
     };
 
     #[test]
+    fn projected_module_failures_release_all_images_and_preserve_peer() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = Closure::load(ctx, None, b"_ENV = 42; return _ENV").unwrap();
+            let snapshot = ir::Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
+            let metadata_ledger = resources::Ledger::new(2 * 1024 * 1024);
+            let metadata = resources::BudgetAllocator(metadata_ledger.clone());
+            let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
+            let limits = work::Limits::from(&JitConfig::default());
+            let peer = backend::compile_in(
+                &snapshot,
+                total.clone(),
+                128 * 1024,
+                metadata.clone(),
+                limits,
+                backend::Failure::None,
+            )
+            .unwrap();
+            let snapshot_baseline = snapshot.operations.allocator().0.current();
+            let metadata_baseline = metadata_ledger.current();
+            let mapped_baseline = total.load(std::sync::atomic::Ordering::Relaxed);
+            for failure in [
+                backend::Failure::Allocate,
+                backend::Failure::Protect,
+                backend::Failure::ProtectAfterFirst,
+                backend::Failure::RequireReleasedWorkspace(snapshot_baseline),
+                backend::Failure::RequireSignatures(snapshot_baseline),
+                backend::Failure::RequireRelocationCopy(snapshot_baseline),
+            ] {
+                let result = backend::compile_in(
+                    &snapshot,
+                    total.clone(),
+                    128 * 1024,
+                    metadata.clone(),
+                    limits,
+                    failure,
+                );
+                if matches!(
+                    failure,
+                    backend::Failure::Allocate
+                        | backend::Failure::Protect
+                        | backend::Failure::ProtectAfterFirst
+                ) {
+                    assert!(result.is_err());
+                } else {
+                    assert!(result.is_ok());
+                }
+                drop(result);
+                assert_eq!(
+                    snapshot.operations.allocator().0.current(),
+                    snapshot_baseline
+                );
+                assert_eq!(metadata_ledger.current(), metadata_baseline);
+                assert_eq!(
+                    total.load(std::sync::atomic::Ordering::Relaxed),
+                    mapped_baseline
+                );
+                let mut slots = vec![abi::Slot::from_value(Value::Nil); peer.registers];
+                assert_eq!(peer.invoke(&mut slots, 0, 1).instructions, 1);
+            }
+            drop(peer);
+            assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 0);
+            assert_eq!(metadata_ledger.current(), 0);
+        });
+    }
+
+    #[test]
+    fn admitted_scalar_write_and_read_preserve_each_slice_and_closed_cell() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = Closure::load(ctx, None, b"_ENV = 42; return _ENV").unwrap();
+            let snapshot = ir::Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
+            let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
+            let code = backend::compile(&snapshot, total.clone(), 128 * 1024).unwrap();
+            assert!(code.projected_upvalues);
+            let cell = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(7)));
+            closure.set_upvalue(&ctx, 0, cell);
+            let runtime = Runtime::new();
+            let mut canonical = vec![Value::Nil; code.registers];
+            let mut pc = 0;
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+                for (index, operation) in snapshot.operations.iter().enumerate() {
+                    if matches!(operation, crate::opcode::Operation::Return { .. }) {
+                        break;
+                    }
+                    assert_eq!(*registers.pc, index);
+                    assert_eq!(
+                        runtime.invoke::<256, false>(&code, ctx, closure, &mut registers, 1),
+                        1
+                    );
+                    assert_eq!(*registers.pc, index + 1);
+                    if matches!(operation, crate::opcode::Operation::SetUpValue { .. }) {
+                        assert!(matches!(
+                            cell.get(),
+                            UpValueState::Closed(Value::Integer(42))
+                        ));
+                    }
+                }
+                assert!(matches!(registers.stack_frame[0], Value::Integer(42)));
+            });
+            let stats = runtime.0.borrow().stats;
+            assert_eq!(
+                (stats.native_upvalue_reads, stats.native_upvalue_writes),
+                (1, 1)
+            );
+            assert_eq!((stats.helper_calls, stats.helper_instructions), (0, 0));
+            drop(code);
+            assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 0);
+        });
+    }
+
+    #[test]
     fn admitted_bridge_preserves_real_entry_pc_counts_and_reference_results() {
         let mut lua = crate::Lua::empty();
         lua.enter(|ctx| {
             let closure = Closure::load(ctx, None, b"return _ENV").unwrap();
             let snapshot = ir::Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
             let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
-            let mut code = backend::compile(&snapshot, total.clone(), 128 * 1024).unwrap();
-            assert!(!code.projected_upvalues);
-            code.projected_upvalues = true;
+            let code = backend::compile(&snapshot, total.clone(), 128 * 1024).unwrap();
+            assert!(code.projected_upvalues);
             for value in [
                 Value::Integer(41),
                 Value::Number(-0.0),
@@ -2237,7 +2348,12 @@ mod runtime_projection_tests {
                         stats.helper_instructions,
                         stats.native_upvalue_reads
                     ),
-                    (1, 1, 1, 1)
+                    (
+                        1,
+                        u64::from(matches!(value, Value::Table(_))),
+                        u64::from(matches!(value, Value::Table(_))),
+                        1
+                    )
                 );
                 assert_eq!(stats.native_upvalue_writes, 0);
             }

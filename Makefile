@@ -286,6 +286,10 @@ jit-projection-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::projection:: -- --test-threads=1
 
 .PHONY: jit-projection-runtime-miri
+.PHONY: jit-projection-helper-miri
+jit-projection-helper-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::projection::lowering::tests::helper_grammar -- --test-threads=1
+
 .PHONY: jit-runtime-projection
 jit-runtime-projection:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::runtime_projection_tests $(ARGS)

@@ -1,10 +1,13 @@
 use cranelift_codegen::ir::{
-    condcodes::IntCC, types, Function, InstBuilder, InstructionData, MemFlagsData, Opcode, Type,
+    condcodes::IntCC, types, AbiParam, FuncRef, Function, InstBuilder, InstructionData,
+    MemFlagsData, Opcode, Type,
 };
 use cranelift_frontend::FunctionBuilder;
 
 use super::{native::VERSION, *};
-use crate::{jit::JitError, opcode::Operation};
+use crate::jit::JitError;
+#[cfg(test)]
+use crate::opcode::Operation;
 
 const STEPS: usize = 192;
 const VALUES: usize = 96;
@@ -31,6 +34,7 @@ struct Program {
     steps: [Step; STEPS],
     length: usize,
     values: u8,
+    fallback: Option<FuncRef>,
 }
 
 fn invalid() -> JitError {
@@ -73,16 +77,35 @@ impl Program {
         self.push(Step::Guard(value));
     }
 
+    #[cfg(test)]
     fn new(operation: Operation) -> Result<Self, JitError> {
         let (write, register, binding) = match operation {
             Operation::GetUpValue { dest, source } => (false, dest.0, source.0),
             Operation::SetUpValue { dest, source } => (true, source.0, dest.0),
             _ => return Err(invalid()),
         };
+        Self::build(write, Some((register, binding)), None)
+    }
+
+    fn helper(kind: u32, fallback: FuncRef) -> Result<Self, JitError> {
+        let write = match kind {
+            abi::HELPER_GET_UPVALUE => false,
+            abi::HELPER_SET_UPVALUE => true,
+            _ => return Err(invalid()),
+        };
+        Self::build(write, None, Some(fallback))
+    }
+
+    fn build(
+        write: bool,
+        indices: Option<(u8, u8)>,
+        fallback: Option<FuncRef>,
+    ) -> Result<Self, JitError> {
         let mut p = Self {
             steps: [Step::Guard(0); STEPS],
             length: 0,
-            values: 1,
+            values: if fallback.is_some() { 6 } else { 1 },
+            fallback,
         };
         let zero = p.constant(0);
         let one = p.constant(1);
@@ -93,26 +116,49 @@ impl Program {
         let detached_marker = p.constant(DETACHED as i64);
         let limit = p.constant(LIMIT as i64);
         let expected_version = p.constant(VERSION as i64);
-        let binding = p.constant(i64::from(binding));
-        let register = p.constant(i64::from(register));
+        let (register, binding) = match indices {
+            Some((register, binding)) => (
+                p.constant(i64::from(register)),
+                p.constant(i64::from(binding)),
+            ),
+            None => {
+                let a = p.value(Expression::Extend(2));
+                let b = p.value(Expression::Extend(3));
+                if write {
+                    (b, a)
+                } else {
+                    (a, b)
+                }
+            }
+        };
         p.guard(IntCC::NotEqual, 0, zero);
-        let version = p.load(0, 0);
+        let view = if fallback.is_some() {
+            let view = p.load(0, 8);
+            p.guard(IntCC::NotEqual, view, zero);
+            view
+        } else {
+            0
+        };
+        let version = p.load(view, 0);
         p.guard(IntCC::Equal, version, expected_version);
-        let binding_count = p.load(0, 16);
+        let binding_count = p.load(view, 16);
         p.guard(IntCC::UnsignedLessThanOrEqual, binding_count, limit);
         p.guard(IntCC::UnsignedLessThan, binding, binding_count);
-        let cell_count = p.load(0, 32);
+        let cell_count = p.load(view, 32);
         p.guard(IntCC::UnsignedLessThanOrEqual, cell_count, limit);
-        let slot_count = p.load(0, 48);
+        let slot_count = p.load(view, 48);
         p.guard(IntCC::UnsignedLessThanOrEqual, slot_count, limit);
         p.guard(IntCC::UnsignedLessThan, register, slot_count);
-        let bindings = p.load(0, 8);
+        let bindings = p.load(view, 8);
         p.guard(IntCC::NotEqual, bindings, zero);
-        let cells = p.load(0, 24);
+        let cells = p.load(view, 24);
         p.guard(IntCC::NotEqual, cells, zero);
-        let slots = p.load(0, 40);
+        let slots = p.load(view, 40);
         p.guard(IntCC::NotEqual, slots, zero);
-        let counts = p.load(0, 56);
+        if fallback.is_some() {
+            p.guard(IntCC::Equal, slots, 1);
+        }
+        let counts = p.load(view, 56);
         p.guard(IntCC::NotEqual, counts, zero);
         let shift = p.constant(2);
         let binding_offset = p.binary(Opcode::Ishl, binding, shift);
@@ -176,7 +222,9 @@ impl Program {
         builder.append_block_params_for_function_params(entry);
         builder.switch_to_block(entry);
         let mut values = [None; VALUES];
-        values[0] = Some(builder.block_params(entry)[0]);
+        for (id, &value) in builder.block_params(entry).iter().enumerate() {
+            values[id] = Some(value);
+        }
         for &step in &self.steps[..self.length] {
             let get = |id: u8| values[usize::from(id)].unwrap();
             match step {
@@ -221,21 +269,47 @@ impl Program {
             }
         }
         builder.switch_to_block(declined);
-        let declined = builder
-            .ins()
-            .iconst(types::I32, i64::from(abi::HELPER_DECLINED));
+        let declined = if let Some(fallback) = self.fallback {
+            let arguments: [_; 6] = builder.block_params(entry).try_into().unwrap();
+            let call = builder.ins().call(fallback, &arguments);
+            builder.inst_results(call)[0]
+        } else {
+            builder
+                .ins()
+                .iconst(types::I32, i64::from(abi::HELPER_DECLINED))
+        };
         builder.ins().return_(&[declined]);
     }
 
     fn verify(&self, function: &Function) -> Result<(), JitError> {
         let entry = function.layout.entry_block().ok_or_else(invalid)?;
         let declined = function.layout.blocks().last().ok_or_else(invalid)?;
-        if function.signature.params.len() != 1
-            || function.signature.params[0].value_type != types::I64
-            || function.signature.returns.len() != 1
-            || function.signature.returns[0].value_type != types::I32
-            || function.dfg.block_params(entry).len() != 1
-            || function.dfg.value_type(function.dfg.block_params(entry)[0]) != types::I64
+        let parameters: &[Type] = if self.fallback.is_some() {
+            &[
+                types::I64,
+                types::I64,
+                types::I32,
+                types::I32,
+                types::I32,
+                types::I32,
+            ]
+        } else {
+            &[types::I64]
+        };
+        if !function
+            .signature
+            .params
+            .iter()
+            .copied()
+            .eq(parameters.iter().copied().map(AbiParam::new))
+            || function.signature.returns != [AbiParam::new(types::I32)]
+            || function.dfg.block_params(entry).len() != parameters.len()
+            || !function
+                .dfg
+                .block_params(entry)
+                .iter()
+                .map(|&v| function.dfg.value_type(v))
+                .eq(parameters.iter().copied())
             || function
                 .layout
                 .blocks()
@@ -244,12 +318,20 @@ impl Program {
         {
             return Err(invalid());
         }
+        if let Some(fallback) = self.fallback {
+            let reference = function.dfg.ext_funcs.get(fallback).ok_or_else(invalid)?;
+            if function.dfg.signatures.get(reference.signature) != Some(&function.signature) {
+                return Err(invalid());
+            }
+        }
         let mut instructions = function
             .layout
             .blocks()
             .flat_map(|block| function.layout.block_insts(block));
         let mut values = [None; VALUES];
-        values[0] = Some(function.dfg.block_params(entry)[0]);
+        for (id, &value) in function.dfg.block_params(entry).iter().enumerate() {
+            values[id] = Some(value);
+        }
         let mut block = entry;
         for &step in &self.steps[..self.length] {
             let inst = instructions.next().ok_or_else(invalid)?;
@@ -339,7 +421,15 @@ impl Program {
         if function.layout.next_block(block) != Some(declined)
             || function.layout.inst_block(constant) != Some(declined)
             || function.layout.inst_block(returns) != Some(declined)
-            || !matches!(function.dfg.insts[constant], InstructionData::UnaryImm { opcode: Opcode::Iconst, imm } if imm.bits() == i64::from(abi::HELPER_DECLINED))
+            || match self.fallback {
+                Some(fallback) => {
+                    !matches!(function.dfg.insts[constant], InstructionData::Call { opcode: Opcode::Call, func_ref, .. } if func_ref == fallback)
+                        || function.dfg.inst_args(constant) != function.dfg.block_params(entry)
+                }
+                None => {
+                    !matches!(function.dfg.insts[constant], InstructionData::UnaryImm { opcode: Opcode::Iconst, imm } if imm.bits() == i64::from(abi::HELPER_DECLINED))
+                }
+            }
             || function.dfg.inst_results(constant).len() != 1
             || function
                 .dfg
@@ -353,6 +443,23 @@ impl Program {
         }
         Ok(())
     }
+}
+
+pub(crate) fn emit_helper(
+    builder: &mut FunctionBuilder<'_>,
+    kind: u32,
+    fallback: FuncRef,
+) -> Result<(), JitError> {
+    Program::helper(kind, fallback)?.emit(builder);
+    Ok(())
+}
+
+pub(crate) fn verify_helper(
+    function: &Function,
+    kind: u32,
+    fallback: FuncRef,
+) -> Result<(), JitError> {
+    Program::helper(kind, fallback)?.verify(function)
 }
 
 #[cfg(test)]
@@ -386,6 +493,72 @@ mod tests {
         function
     }
 
+    fn helper_fixture(kind: u32) -> (Function, FuncRef) {
+        let isa = cranelift_codegen::isa::lookup_by_name(std::env::consts::ARCH)
+            .unwrap()
+            .finish(settings::Flags::new(settings::builder()))
+            .unwrap();
+        let mut signature = Signature::new(isa.default_call_conv());
+        signature.params.extend(
+            [
+                types::I64,
+                types::I64,
+                types::I32,
+                types::I32,
+                types::I32,
+                types::I32,
+            ]
+            .map(AbiParam::new),
+        );
+        signature.returns.push(AbiParam::new(types::I32));
+        let mut function = Function::new();
+        function.signature = signature.clone();
+        let signature = function.import_signature(signature);
+        let fallback = function.import_function(cranelift_codegen::ir::ExtFuncData {
+            name: cranelift_codegen::ir::ExternalName::testcase("projection_fallback"),
+            signature,
+            colocated: false,
+            patchable: false,
+        });
+        let mut context = FunctionBuilderContext::new();
+        {
+            let mut builder = FunctionBuilder::new(&mut function, &mut context);
+            emit_helper(&mut builder, kind, fallback).unwrap();
+            builder.seal_all_blocks();
+            builder.finalize(isa.frontend_config());
+        }
+        cranelift_codegen::verify_function(&function, isa.flags()).unwrap();
+        (function, fallback)
+    }
+
+    #[test]
+    fn helper_grammar_binds_signature_kind_fallback_and_arguments() {
+        for kind in [abi::HELPER_GET_UPVALUE, abi::HELPER_SET_UPVALUE] {
+            let (function, fallback) = helper_fixture(kind);
+            verify_helper(&function, kind, fallback).unwrap();
+            assert!(verify_helper(&function, 17 - kind, fallback).is_err());
+            assert!(verify_helper(&function, abi::HELPER_MOVE, fallback).is_err());
+            let mut bad = function.clone();
+            bad.signature.params[2].extension = cranelift_codegen::ir::ArgumentExtension::Sext;
+            assert!(verify_helper(&bad, kind, fallback).is_err());
+            let mut bad = function.clone();
+            let call = bad
+                .layout
+                .blocks()
+                .flat_map(|b| bad.layout.block_insts(b))
+                .find(|&i| bad.dfg.insts[i].opcode() == Opcode::Call)
+                .unwrap();
+            bad.dfg.inst_args_mut(call).swap(2, 3);
+            cranelift_codegen::verify_function(&bad, &settings::Flags::new(settings::builder()))
+                .unwrap();
+            assert!(verify_helper(&bad, kind, fallback).is_err());
+            let mut bad = function.clone();
+            let signature = bad.dfg.ext_funcs[fallback].signature;
+            bad.dfg.signatures[signature].call_conv = cranelift_codegen::isa::CallConv::Fast;
+            assert!(verify_helper(&bad, kind, fallback).is_err());
+        }
+    }
+
     #[test]
     fn source_bound_get_and_set_ir_cover_index_boundaries() {
         for index in [0, 1, 127, 255] {
@@ -416,6 +589,7 @@ mod tests {
             cursor::{Cursor, FuncCursor},
             ir::ValueList,
         };
+        let mut fixtures = Vec::new();
         for operation in [
             Operation::GetUpValue {
                 dest: R(3),
@@ -426,8 +600,13 @@ mod tests {
                 source: R(3),
             },
         ] {
-            let original = fixture(operation);
-            let program = Program::new(operation).unwrap();
+            fixtures.push((fixture(operation), Program::new(operation).unwrap()));
+        }
+        for kind in [abi::HELPER_GET_UPVALUE, abi::HELPER_SET_UPVALUE] {
+            let (function, fallback) = helper_fixture(kind);
+            fixtures.push((function, Program::helper(kind, fallback).unwrap()));
+        }
+        for (original, program) in fixtures {
             for inst in original
                 .layout
                 .blocks()
@@ -465,6 +644,7 @@ mod tests {
                         args,
                     } => args.swap(1, 2),
                     InstructionData::Brif { blocks, .. } => blocks.swap(0, 1),
+                    InstructionData::Call { .. } => {}
                     InstructionData::MultiAry {
                         opcode: Opcode::Return,
                         ..
@@ -482,6 +662,9 @@ mod tests {
                         *args = list;
                     }
                     _ => panic!("uncovered projection instruction"),
+                }
+                if corrupted.dfg.insts[inst].opcode() == Opcode::Call {
+                    corrupted.dfg.inst_args_mut(inst).swap(2, 3);
                 }
                 cranelift_codegen::verify_function(
                     &corrupted,

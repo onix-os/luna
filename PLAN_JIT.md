@@ -257,8 +257,9 @@ current helpers still cross into Rust for each get/set; moving the unwind
 boundary does not remove that transition. A projection could let verified
 native code operate on scalar slots without reading Rust `Value` or GC layouts.
 The Rust projection model, scoped descriptor, standalone get/set lowering and
-runtime-boundary plumbing are implemented. The compiler does not yet admit
-the projected fast path, and it is not accepted for release. Activation requires:
+runtime-boundary plumbing are implemented. The compiler now admits verified
+native scalar get/set thunks as a performance candidate, not a release-accepted
+regression fix. Acceptance requires:
 
 - Fresh cell resolution and alias deduplication at entry, with current-frame
   aliases linked to existing scratch slots; foreign stacks retain helpers.
@@ -348,8 +349,8 @@ merges direct projection counts with actual helper counts before publishing
 exit statistics or resuming a panic. Closed commits retain `UpValue::set` and
 its GC barrier.
 
-The compiler initializes `Code::projected_upvalues` to **false**. A test-only
-forced admission runs the real compiled entry through the runtime factory,
+At `7671e15`, the compiler initialized `Code::projected_upvalues` to **false**.
+A test-only forced admission ran the real compiled entry through the runtime factory,
 checking PC, helper/native counts and scalar/reference results on GNU and musl.
 Two additional tests call the real Rust helpers with staged native writes,
 checking pre-flush, closure rebinding, refresh and panic materialization.
@@ -361,20 +362,50 @@ and Tree Borrows (seed two). It does not rerun the unchanged exhaustive IR
 mutation tests or execute machine code. Normal/JIT checks, formatting and
 all-feature Clippy pass, with 141 inherited lint warnings and no projection
 diagnostics. No benchmark acceptance or production fast-path activation follows
-from these results.
+from those historical results.
 
-**Still required:** compile and admit verified native get/set thunks with Rust fallback,
-whole-function source/tag/bounds/dirty-state and exit verification, helper/exit synchronization,
-statistics and exact PC/fuel integration, runtime resource admission, complete
-GC/panic/differential validation and both frozen benchmark profiles. The GC
+**Compiler candidate:** the compiler now creates at most two anonymous native
+thunks, one per used get/set kind, with the fixed six-argument v4 helper ABI.
+The fast path checks the host/view, version, bounds, original scratch-pointer
+agreement, resolved binding/link, scalar tag/payload and counter capacity before
+any store. Every failed guard calls the original fixed Rust helper with all six
+original arguments and returns its status unchanged. Main helper-flow proofs
+still bind the kind, source operands, PC and completion/panic/exit behavior.
+The thunk verifier independently regenerates the complete dynamic grammar and
+checks its signature, instructions, blocks, stores and fallback call/return.
+
+Additional signature copies and relocation staging/copies are charged, aggregate
+IR/block/relocation bounds are checked before image installation, and the original
+memory provider owns every function image through the existing lease lifetime.
+Generated get/set admission is enabled only for source kinds with verified
+thunks. Scalar runtime tests require zero Rust-helper calls; reference results
+retain the original fallback. Per-slice closed writes and full-module allocation/
+partial-protection rollback are covered. The existing upvalue integration test
+now checks native instruction coverage rather than requiring the removed Rust
+transitions; its exact 200 reads/100 writes and per-slice GC comparison are unchanged.
+Initial GNU boundary gates pass 520 tests and the subsequent musl boundary suite
+passes 522, both with four ignored tests. Final full-workspace, platform, Miri and
+unchanged paired benchmark results are recorded separately below when complete.
+The full GNU Auto workspace plus runtime-preface run records 1,027 passing
+executions and four ignored tests. After the final error-translation cleanup,
+GNU focused runtime/boundary gates pass (3/522) and all-feature Clippy retains
+141 inherited library-test warnings, with no new projection diagnostic. Musl
+upvalue integration/runtime gates pass 7/3 after the coverage-assertion update.
+The new helper-grammar test plus scoped runtime/model/helper/original-pointer
+tests pass 33 under each Miri model (Stacked seed one, Tree seed two). Exhaustive
+dynamic-grammar instruction mutation passes natively; that longer mutation loop
+was not rerun under Miri. Machine-code tests are excluded from Miri.
+
+**Still required:** complete current-revision GC/panic/differential validation,
+review closed-write panic behavior and pass both frozen benchmark profiles. The GC
 backward barrier can borrow and grow its marking queue, so closed-cell commits
 must not be casually treated as infallible across a native C boundary. The
 foundation tests are not acceptance evidence for those remaining items.
 
 **Current conclusion:** these changes are valid correctness experiments, not
 accepted regression fixes. The runtime keeps the baseline randomized lookup
-and original interpreter dispatch; the v4 boundary is staged without compiler
-admission of scalar upvalue projection. A default
+and original interpreter dispatch; compiler admission of scalar upvalue projection
+is a measured candidate, not accepted performance evidence. A default
 optimizer-selected small-map accessor is now also rejected after the same
 24-block comparison. It passes the focused checks and nine owner/Miri tests
 (seed one), but shipping upvalue, float and callback Off overheads reach

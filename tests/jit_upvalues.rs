@@ -166,7 +166,7 @@ fn closed_and_open_cells_materialize_between_slices_and_gc() -> Result<(), Exter
         let stats = native.jit_stats();
         assert_eq!(stats.native_upvalue_reads, 200);
         assert_eq!(stats.native_upvalue_writes, 100);
-        assert!(stats.helper_instructions >= 300);
+        assert!(stats.native_instructions >= 300);
     }
     Ok(())
 }
