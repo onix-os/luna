@@ -873,7 +873,7 @@ mod tests {
                     data: std::ptr::addr_of_mut!(frame).cast(),
                     projection: std::ptr::null_mut(),
                 };
-                let exit = unsafe { code.invoke_host(&mut scratch, 0, 64, &mut host) };
+                let exit = unsafe { code.invoke_host(&mut scratch, 0, 3, &mut host) };
                 assert_eq!((exit.pc, exit.instructions), (3, 3));
                 assert_eq!(
                     (frame.count.upvalue_reads, frame.count.upvalue_writes),
@@ -891,16 +891,34 @@ mod tests {
         fn optional_installation_refusals_keep_original_entries_and_live_peer_leases() {
             use crate::jit::{backend, owner, JitConfig, JitMode, Runtime};
             with_closure(|ctx, closure| {
-                for failure in [
-                    backend::Failure::RefuseOwnerStorage,
-                    backend::Failure::RefuseScalarCacheStorage,
+                for (failure, host_limit) in [
+                    (backend::Failure::RefuseOwnerStorage, 0),
+                    (backend::Failure::RefuseScalarCacheStorage, 0),
+                    (backend::Failure::RefuseOwnerStorage, 64),
+                    (backend::Failure::RefuseContinuationCacheStorage, 64),
                 ] {
+                    let closure = if host_limit > 0 {
+                        let source = format!(
+                            "local sum=0 return function(v) sum=sum+v local a=0 {} end",
+                            "a=a+1 ".repeat(128)
+                        );
+                        let builder = crate::Closure::load(ctx, None, source.as_bytes()).unwrap();
+                        let executor = crate::Executor::start(ctx, builder.into(), ());
+                        while !executor.step(ctx, &mut crate::Fuel::with(4096)).unwrap() {}
+                        executor
+                            .take_result::<crate::Closure>(ctx)
+                            .unwrap()
+                            .unwrap()
+                    } else {
+                        closure
+                    };
                     let runtime = Runtime::new();
                     runtime.0.borrow_mut().configure(JitConfig {
                         mode: JitMode::Auto,
                         ..Default::default()
                     });
-                    let snapshot = || Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
+                    let snapshot =
+                        || Snapshot::new(&closure.prototype(), 512, 1024 * 1024).unwrap();
                     let mut id = 0;
                     loop {
                         id += 1;
@@ -913,12 +931,17 @@ mod tests {
                     }
                     let peer = runtime.lookup(1).unwrap();
                     runtime.test_scalar_kernels(true);
+                    runtime.test_activation_host(host_limit);
                     runtime.0.borrow_mut().memory_failure = failure;
+                    let refusals = runtime.0.borrow().metadata.0.refusals();
                     id += 1;
                     runtime.0.borrow_mut().tracked.entry(id).or_default();
-                    runtime.compile(id, snapshot()).unwrap();
+                    runtime
+                        .compile(id, snapshot())
+                        .unwrap_or_else(|error| panic!("host_limit={host_limit}: {error}"));
                     let installed = runtime.lookup(id).unwrap();
                     assert!(installed.code.scalar_kernel.is_none());
+                    assert!(installed.code.continuations.is_none());
                     assert_ordinary_cell_execution(ctx, closure, &installed.code);
                     assert_ordinary_cell_execution(ctx, closure, &peer.code);
                     assert!(owner::Shared::ptr_eq(
@@ -926,6 +949,7 @@ mod tests {
                         &runtime.lookup(1).unwrap().code
                     ));
                     let manager = runtime.0.borrow();
+                    assert!(manager.metadata.0.refusals() > refusals);
                     assert_eq!(manager.code.len() as u64, id);
                     assert_eq!(manager.stats.installed_regions, id);
                     assert_eq!(manager.stats.compilation_failures, 0);

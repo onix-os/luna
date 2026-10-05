@@ -326,6 +326,10 @@ vm-activation-tests:
 jit-activation-tests:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::executor::activation_tests $(ARGS)
 
+.PHONY: jit-activation-host-miri
+jit-activation-host-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::executor::activation_tests::scoped_activation_host_releases_before_nested_executor_callbacks -- --exact --test-threads=1
+
 vm-activation-miri:
 	@$(CARGO) miri test --locked -p luna --lib --target '$(MIRI_TARGET)' thread::executor::activation_tests::native_and_interpreted_nested_executors_preserve_open_upvalues -- --exact --test-threads=1
 

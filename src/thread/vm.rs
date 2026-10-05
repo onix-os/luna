@@ -170,7 +170,14 @@ pub(super) fn run_vm<'gc>(
             if instructions_run >= max_instructions {
                 break;
             }
-            if let Some(transition) = current_prototype.opcodes[*registers.pc].call_transition() {
+            #[cfg(test)]
+            let transition = ctx
+                .jit()
+                .call_transition(code, *registers.pc)
+                .or_else(|| current_prototype.opcodes[*registers.pc].call_transition());
+            #[cfg(not(test))]
+            let transition = current_prototype.opcodes[*registers.pc].call_transition();
+            if let Some(transition) = transition {
                 *registers.pc += 1;
                 interpreter_stats.dispatches += 1;
                 match transition {

@@ -219,6 +219,13 @@ impl Code {
     }
 
     #[cfg(all(test, not(miri)))]
+    pub fn discard_optional_entries(&mut self) -> bool {
+        let scalar = self.discard_scalar_kernel();
+        let continuations = self.continuations.take().is_some();
+        scalar || continuations
+    }
+
+    #[cfg(all(test, not(miri)))]
     pub fn into_shared(
         self,
         allocator: BudgetAllocator,
@@ -226,9 +233,7 @@ impl Code {
         match super::owner::Shared::try_new_recover(self, allocator.clone()) {
             Ok(owner) => Ok(owner),
             Err((mut code, error)) => {
-                let scalar = code.discard_scalar_kernel();
-                let continuations = code.continuations.take().is_some();
-                if scalar || continuations {
+                if code.discard_optional_entries() {
                     super::owner::Shared::try_new(code, allocator)
                 } else {
                     Err(error)
@@ -316,6 +321,8 @@ pub(super) enum Failure {
     RefuseContinuationStorage,
     #[cfg(not(miri))]
     RefuseContinuationAllocation,
+    #[cfg(not(miri))]
+    RefuseContinuationCacheStorage,
     RefusePredecessors,
     RefuseDominanceStorage,
     RefuseDominanceWork,

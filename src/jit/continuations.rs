@@ -73,6 +73,10 @@ impl Continuations {
             return None;
         }
         let pc = usize::try_from(exit.pc).ok()?;
+        self.at(pc)
+    }
+
+    pub fn at(&self, pc: usize) -> Option<Request<'_>> {
         Some(Request {
             pc,
             transition: self.records.get(pc).copied().flatten()?,

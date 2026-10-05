@@ -1,3 +1,5 @@
+#[cfg(all(test, feature = "jit"))]
+mod activation;
 mod close;
 mod executor;
 mod thread;

@@ -347,6 +347,8 @@ impl<'gc> Executor<'gc> {
                 drop(res_state);
             }
 
+            #[cfg(all(test, feature = "jit"))]
+            let mut step_charged = false;
             if top_thread.mode() == ThreadMode::Normal {
                 fn do_yield<'gc>(
                     ctx: Context<'gc>,
@@ -625,52 +627,79 @@ impl<'gc> Executor<'gc> {
 
                         // One borrow of the stack for the whole VM slice, not one per opcode.
                         let stack = top_state.stack;
-                        let lua_frame = LuaFrame {
-                            state: top_state,
-                            stack: stack.borrow_mut(&ctx),
-                            fuel,
-                        };
-                        #[cfg(all(
-                            test,
-                            feature = "jit",
-                            not(miri),
-                            target_os = "linux",
-                            any(target_arch = "x86_64", target_arch = "aarch64")
-                        ))]
-                        let mut lua_frame = lua_frame;
-                        #[cfg(all(
-                            test,
-                            feature = "jit",
-                            not(miri),
-                            target_os = "linux",
-                            any(target_arch = "x86_64", target_arch = "aarch64")
-                        ))]
-                        let result = if let Some((completed, start, count)) =
-                            super::vm::try_scalar_activation(
-                                ctx,
-                                &mut lua_frame,
-                                Self::VM_GRANULARITY,
-                            ) {
-                            let mut stats = ctx.jit().interpreter_stats();
-                            stats.dispatches = 1;
-                            let result = lua_frame
-                                .return_upper(&ctx, start, count)
-                                .map(|()| completed);
-                            if result.is_ok() {
-                                stats.reported_instructions = Some(0);
-                            }
+                        let ordinary = |top_state: &mut ThreadState<'gc>, fuel: &mut Fuel| {
+                            let lua_frame = LuaFrame {
+                                state: top_state,
+                                stack: stack.borrow_mut(&ctx).into(),
+                                fuel,
+                            };
+                            #[cfg(all(
+                                test,
+                                feature = "jit",
+                                not(miri),
+                                target_os = "linux",
+                                any(target_arch = "x86_64", target_arch = "aarch64")
+                            ))]
+                            let mut lua_frame = lua_frame;
+                            #[cfg(all(
+                                test,
+                                feature = "jit",
+                                not(miri),
+                                target_os = "linux",
+                                any(target_arch = "x86_64", target_arch = "aarch64")
+                            ))]
+                            let result = if let Some((completed, start, count)) =
+                                super::vm::try_scalar_activation(
+                                    ctx,
+                                    &mut lua_frame,
+                                    Self::VM_GRANULARITY,
+                                ) {
+                                let mut stats = ctx.jit().interpreter_stats();
+                                stats.dispatches = 1;
+                                let result = lua_frame
+                                    .return_upper(&ctx, start, count)
+                                    .map(|()| completed);
+                                if result.is_ok() {
+                                    stats.reported_instructions = Some(0);
+                                }
+                                result
+                            } else {
+                                run_vm(ctx, lua_frame, Self::VM_GRANULARITY)
+                            };
+                            #[cfg(not(all(
+                                test,
+                                feature = "jit",
+                                not(miri),
+                                target_os = "linux",
+                                any(target_arch = "x86_64", target_arch = "aarch64")
+                            )))]
+                            let result = run_vm(ctx, lua_frame, Self::VM_GRANULARITY);
                             result
-                        } else {
-                            run_vm(ctx, lua_frame, Self::VM_GRANULARITY)
                         };
-                        #[cfg(not(all(
-                            test,
-                            feature = "jit",
-                            not(miri),
-                            target_os = "linux",
-                            any(target_arch = "x86_64", target_arch = "aarch64")
-                        )))]
-                        let result = run_vm(ctx, lua_frame, Self::VM_GRANULARITY);
+                        #[cfg(all(test, feature = "jit"))]
+                        let result = if ctx.jit().activation_limit() > 0 {
+                            let outcome = {
+                                let mut host = super::activation::ActivationHost::new(
+                                    top_state,
+                                    stack.borrow_mut(&ctx),
+                                    fuel,
+                                );
+                                host.run(
+                                    ctx,
+                                    ctx.jit().activation_limit(),
+                                    Self::VM_GRANULARITY,
+                                    Self::FUEL_PER_STEP,
+                                )
+                            };
+                            ctx.jit()
+                                .record_activations(outcome.activations, outcome.stack_growths);
+                            step_charged = true;
+                            outcome.result.map(|()| 0)
+                        } else {
+                            ordinary(top_state, fuel)
+                        };
+                        #[cfg(not(all(test, feature = "jit")))]
+                        let result = ordinary(top_state, fuel);
                         match result {
                             Err(err) => {
                                 // Give the error a `chunk:line:` prefix while the frame that raised
@@ -763,6 +792,11 @@ impl<'gc> Executor<'gc> {
                 }
             }
 
+            #[cfg(all(test, feature = "jit"))]
+            if !step_charged {
+                fuel.consume(Self::FUEL_PER_STEP);
+            }
+            #[cfg(not(all(test, feature = "jit")))]
             fuel.consume(Self::FUEL_PER_STEP);
 
             if !fuel.should_continue() {
@@ -1088,9 +1122,21 @@ mod activation_tests {
         activations: Option<u64>,
         integer: bool,
     ) -> (Vec<Slice>, Result<i64, std::string::String>) {
+        run_mode_scoped(source, budget, native, kernels, activations, integer, 0)
+    }
+
+    fn run_mode_scoped(
+        source: &str,
+        budget: i32,
+        native: bool,
+        kernels: bool,
+        activations: Option<u64>,
+        integer: bool,
+        host_limit: usize,
+    ) -> (Vec<Slice>, Result<i64, std::string::String>) {
         let mut lua = Lua::core();
         lua.load_debug();
-        let _ = (native, kernels, activations, integer);
+        let _ = (native, kernels, activations, integer, host_limit);
         #[cfg(feature = "jit")]
         let native = native && !cfg!(miri) && lua.jit_capabilities().supported_target;
         #[cfg(feature = "jit")]
@@ -1105,6 +1151,8 @@ mod activation_tests {
         })
         .unwrap();
         let executor = lua.enter(|ctx| {
+            #[cfg(feature = "jit")]
+            ctx.jit().test_activation_host(host_limit);
             #[cfg(all(feature = "jit", not(miri)))]
             if integer {
                 ctx.jit().test_integer_activations(native && kernels);
@@ -1207,6 +1255,23 @@ mod activation_tests {
             trace.push(slice);
             lua.gc_collect();
             if done {
+                #[cfg(feature = "jit")]
+                if host_limit > 0 {
+                    let (scopes, steps, _) = lua.enter(|ctx| ctx.jit().test_activation_counts());
+                    assert!(scopes > 0 && steps >= scopes);
+                    if host_limit == 1 {
+                        assert_eq!(steps, scopes);
+                    }
+                    if source.contains("local n=0 local function f(x) n=n+x end")
+                        && budget == 4096
+                        && host_limit > 1
+                    {
+                        assert!(steps > scopes, "host never crossed an activation");
+                        if native {
+                            assert!(lua.jit_stats().native_instructions > 0);
+                        }
+                    }
+                }
                 #[cfg(all(feature = "jit", not(miri)))]
                 if let Some(expected) = activations {
                     assert_eq!(
@@ -1225,6 +1290,67 @@ mod activation_tests {
             }
         }
         panic!("Lua activation batch did not finish");
+    }
+
+    #[cfg(feature = "jit")]
+    #[test]
+    fn scoped_activation_hosts_preserve_canonical_frames_fuel_and_boundaries() {
+        for source in [
+            "local n=0 local function f(x) n=n+x end for i=1,20 do f(1) end return n",
+            "local function f(...) return ... end local function g(...) return f(...) end local n=0 for i=1,20 do n=g(n+1) end return n",
+            "local n=0 for i=1,20 do local ok=pcall(function() return i.x end) if not ok then n=n+1 end end return n",
+            "local function f() return 1+{} end return f()",
+            "local n=0 local function f() local x <close> = setmetatable({}, {__close=function() n=n+1 end}) end for i=1,20 do f() end return n",
+            "local co=coroutine.create(function() for i=1,20 do coroutine.yield(i) end end) local n=0 for i=1,20 do local ok,x=coroutine.resume(co) assert(ok) n=x end return n",
+            "local function f(x) return boundary(x) end local n=0 for i=1,20 do n=f(n) end return n",
+            "local n=0 local function read() return n end _ENV.read=read local function f() n=nested_boundary() end for i=1,20 do f() end return n",
+            "local ticks=0 debug.sethook(function() ticks=ticks+1 end,'',7) local n=0 local function f(x) return x+1 end for i=1,20 do n=f(n) end debug.sethook() return n",
+        ] {
+            for budget in [0, 1, 17, 4096] {
+                let reference = run_mode(source, budget, false, false);
+                for limit in [1, 2, 64] {
+                    for native in [false, true] {
+                        assert_eq!(reference, run_mode_scoped(source, budget, native, false, None, false, limit), "{source}, {budget}, {limit}, {native}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "jit")]
+    #[test]
+    fn scoped_activation_host_releases_before_nested_executor_callbacks() {
+        let source = "local n=0 local function read() return n end _ENV.read=read local function f() n=nested_boundary() end for i=1,5 do f() end return n";
+        let reference = run_mode(source, 17, false, false);
+        assert_eq!(reference.1, Ok(5));
+        for limit in [2, 64] {
+            assert_eq!(
+                reference,
+                run_mode_scoped(source, 17, false, false, None, false, limit)
+            );
+        }
+    }
+
+    #[cfg(feature = "jit")]
+    #[test]
+    fn scoped_activation_host_rebuilds_registers_after_stack_growth() {
+        let locals = (1..=160)
+            .map(|i| format!("local x{i}={i} "))
+            .collect::<std::string::String>();
+        let sum = (1..=160)
+            .map(|i| format!("x{i}"))
+            .collect::<Vec<_>>()
+            .join("+");
+        let source = format!("local function f() {locals} return {sum} end return f()");
+        let mut lua = Lua::empty();
+        let executor = lua.enter(|ctx| {
+            ctx.jit().test_activation_host(64);
+            let closure = Closure::load(ctx, None, source.as_bytes()).unwrap();
+            ctx.stash(Executor::start(ctx, closure.into(), ()))
+        });
+        assert_eq!(lua.execute::<i64>(&executor).unwrap(), 12880);
+        let (scopes, steps, growths) = lua.enter(|ctx| ctx.jit().test_activation_counts());
+        assert!(scopes > 0 && steps > scopes && growths > 0);
     }
 
     #[test]
