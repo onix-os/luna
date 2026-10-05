@@ -308,6 +308,10 @@ jit-call-plans-miri:
 jit-call-native:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::calls::tests $(ARGS)
 
+.PHONY: jit-call-canonical
+jit-call-canonical:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical::tests $(ARGS)
+
 jit-integer:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::integer::tests $(ARGS)
 
