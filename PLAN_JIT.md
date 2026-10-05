@@ -129,9 +129,11 @@ prove 200 actual fast writes; debug mutation/join cases prove 40/21; closed cell
 prove zero fast writes rather than being silently included in native coverage.
 
 Nine Rust-only binding/typed-commit tests pass under both Miri borrow models.
-The exhaustive projection grammar run passes under Stacked Borrows; its separate
-Tree Borrows run is still pending. These tests are correctness evidence, not
-performance acceptance. Logs and source manifests are retained under
+The 27-test exhaustive projection grammar/binding run passes under both borrow
+models. Final GNU Auto validation passes 1065 executions across 80 suite runs,
+with four existing ignores. Baseline/JIT checks and Clippy pass with existing
+warnings. These tests are correctness evidence, not performance acceptance.
+Logs and source manifests are retained under
 `target/jit-evidence/short-slice-performance/leaf-native*` and `leaf-runtime*`.
 
 The full i686 fallback gate also caught an older guard fixture unconditionally
