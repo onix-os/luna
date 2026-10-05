@@ -196,12 +196,14 @@ pub(super) struct Code {
     #[cfg(test)]
     byte_len: usize,
     #[cfg(test)]
-    relocations: usize,
+    pub(super) relocations: usize,
     pub registers: usize,
     pub entries: BudgetVec<bool, BudgetAllocator>,
     pub projected_upvalues: bool,
     #[cfg(test)]
     pub scalar_leaf: Option<super::leaf::Pattern>,
+    #[cfg(test)]
+    cell_kernel: bool,
 }
 
 impl Code {
@@ -238,7 +240,29 @@ impl Code {
         budget: u32,
         host: *mut abi::Host,
     ) -> Exit {
+        #[cfg(test)]
+        assert!(!self.cell_kernel, "scalar kernel requires a cell view");
         unsafe { abi::invoke(self.entry, slots, pc, budget, host) }
+    }
+
+    /// Invokes scalar code with initialized slots and an optional scoped cell view.
+    ///
+    /// # Safety
+    /// Slots cover the register prefix. A non-null view and its non-null cell must
+    /// be live and exclusive; the view cannot overlap slots or cell storage.
+    #[cfg(all(test, not(miri)))]
+    pub unsafe fn invoke_cell_raw(
+        &self,
+        slots: *mut Slot,
+        pc: usize,
+        budget: u32,
+        view: *mut super::leaf::View,
+    ) -> Exit {
+        assert!(self.cell_kernel, "ordinary entry requires a helper host");
+        let entry: super::leaf::CellEntry = unsafe { std::mem::transmute(self.entry) };
+        let mut exit = Exit::default();
+        unsafe { entry(slots, pc as u64, budget.min(64), &mut exit, view) };
+        exit
     }
 }
 
@@ -335,6 +359,8 @@ pub(super) fn compile_in(
             #[cfg(test)]
             leaf: false,
             #[cfg(test)]
+            cell_kernel: false,
+            #[cfg(test)]
             failure,
         },
     )
@@ -358,6 +384,7 @@ pub(super) fn compile_projected_in(
         Selection {
             projected: true,
             leaf: false,
+            cell_kernel: false,
             failure,
         },
     )
@@ -381,6 +408,31 @@ pub(super) fn compile_leaf_in(
         Selection {
             projected: false,
             leaf: true,
+            cell_kernel: false,
+            failure,
+        },
+    )
+}
+
+#[cfg(all(test, not(miri)))]
+pub(super) fn compile_leaf_kernel_in(
+    snapshot: &Snapshot,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    work: super::work::Limits,
+    failure: Failure,
+) -> Result<Code, JitError> {
+    compile_selected(
+        snapshot,
+        total,
+        limit,
+        metadata,
+        work,
+        Selection {
+            projected: false,
+            leaf: true,
+            cell_kernel: true,
             failure,
         },
     )
@@ -390,6 +442,8 @@ struct Selection {
     projected: bool,
     #[cfg(test)]
     leaf: bool,
+    #[cfg(test)]
+    cell_kernel: bool,
     #[cfg(test)]
     failure: Failure,
 }
@@ -874,12 +928,20 @@ fn compile_selected(
             let mut builder = FunctionBuilder::new(&mut projection.func, &mut frontend);
             #[cfg(test)]
             if let Some(pattern) = leaf_pattern {
-                super::projection::lowering::emit_leaf_helper(
-                    &mut builder,
-                    kind,
-                    fallback_ref,
-                    pattern,
-                )?;
+                if selection.cell_kernel {
+                    super::projection::lowering::emit_leaf_cell_helper(
+                        &mut builder,
+                        kind,
+                        pattern,
+                    )?;
+                } else {
+                    super::projection::lowering::emit_leaf_helper(
+                        &mut builder,
+                        kind,
+                        fallback_ref,
+                        pattern,
+                    )?;
+                }
             } else {
                 super::projection::lowering::emit_helper(&mut builder, kind, fallback_ref)?;
             }
@@ -895,12 +957,20 @@ fn compile_selected(
         }
         #[cfg(test)]
         if let Some(pattern) = leaf_pattern {
-            super::projection::lowering::verify_leaf_helper(
-                &projection.func,
-                kind,
-                fallback_ref,
-                pattern,
-            )?;
+            if selection.cell_kernel {
+                super::projection::lowering::verify_leaf_cell_helper(
+                    &projection.func,
+                    kind,
+                    pattern,
+                )?;
+            } else {
+                super::projection::lowering::verify_leaf_helper(
+                    &projection.func,
+                    kind,
+                    fallback_ref,
+                    pattern,
+                )?;
+            }
         } else {
             super::projection::lowering::verify_helper(&projection.func, kind, fallback_ref)?;
         }
@@ -960,6 +1030,23 @@ fn compile_selected(
         }
         cranelift_codegen::verify_function(&context.func, module.isa())
             .map_err(|error| JitError::Compilation(error.to_string()))?;
+        if selection.cell_kernel
+            && context.func.layout.blocks().any(|block| {
+                context.func.layout.block_insts(block).any(|inst| {
+                    matches!(
+                        context.func.dfg.insts[inst].opcode(),
+                        cranelift_codegen::ir::Opcode::Call
+                            | cranelift_codegen::ir::Opcode::CallIndirect
+                            | cranelift_codegen::ir::Opcode::ReturnCall
+                            | cranelift_codegen::ir::Opcode::ReturnCallIndirect
+                    )
+                })
+            })
+        {
+            return Err(JitError::Compilation(
+                "scalar kernel contains a call".into(),
+            ));
+        }
         let instructions = context
             .func
             .layout
@@ -1142,6 +1229,8 @@ fn compile_selected(
         projected_upvalues: selection.projected && projection_count != 0,
         #[cfg(test)]
         scalar_leaf: leaf_pattern,
+        #[cfg(test)]
+        cell_kernel: selection.cell_kernel,
     })
 }
 

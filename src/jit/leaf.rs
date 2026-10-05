@@ -76,6 +76,14 @@ pub(super) struct View {
     pub dirty: u64,
 }
 
+#[cfg(all(
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+pub(super) type CellEntry =
+    unsafe extern "C" fn(*mut abi::Slot, u64, u32, *mut abi::Exit, *mut View);
+
 #[derive(Clone, Copy)]
 enum Target {
     Upper(usize),
@@ -379,6 +387,238 @@ mod tests {
                 drop(code);
                 assert_eq!(total.load(Ordering::Relaxed), 0);
                 assert_eq!(metadata_ledger.current(), 0);
+            });
+        }
+
+        #[test]
+        fn scalar_kernel_uses_only_cell_views_at_every_budget_and_entry() {
+            use crate::jit::{backend, resources, work, JitConfig};
+            use std::sync::atomic::Ordering;
+            with_closure(|_ctx, closure| {
+                let snapshot = Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
+                let pattern = Pattern::recognize(&snapshot).unwrap();
+                let ledger = resources::Ledger::new(2 * 1024 * 1024);
+                let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
+                let code = backend::compile_leaf_kernel_in(
+                    &snapshot,
+                    total.clone(),
+                    128 * 1024,
+                    resources::BudgetAllocator(ledger.clone()),
+                    work::Limits::from(&JitConfig::default()),
+                    backend::Failure::None,
+                )
+                .unwrap();
+                assert!(!code.projected_upvalues);
+                for entry in 0..=3 {
+                    for budget in [0, 1, 2, 3, 64, u32::MAX] {
+                        for current in [false, true] {
+                            let mut scratch =
+                                vec![abi::Slot::from_value(Value::Nil); code.registers];
+                            scratch[0] = abi::Slot::from_value(Value::Integer(2));
+                            if entry != 0 {
+                                scratch[usize::from(pattern.read.0)] =
+                                    abi::Slot::from_value(Value::Integer(if entry == 1 {
+                                        2
+                                    } else {
+                                        4
+                                    }));
+                            }
+                            let binding = Binding::from_origin(
+                                if current {
+                                    Origin::Register(0, Value::Integer(2))
+                                } else {
+                                    Origin::Upper(0, Value::Integer(2))
+                                },
+                                &scratch,
+                            )
+                            .unwrap();
+                            let (exit, delta) = binding
+                                .with_native(&mut scratch, |slots, view| unsafe {
+                                    code.invoke_cell_raw(slots, entry, budget, view)
+                                })
+                                .unwrap();
+                            let completed = budget.min(3 - entry as u32);
+                            assert_eq!(
+                                (exit.pc, exit.instructions),
+                                (entry as u64 + u64::from(completed), completed)
+                            );
+                            let read = u32::from(entry == 0 && completed >= 1);
+                            let write = u32::from(entry <= 2 && entry as u32 + completed >= 3);
+                            assert_eq!((delta.reads, delta.writes), (read, write));
+                            let mut upper = [Value::Integer(2)];
+                            delta.apply_upper(&mut upper).unwrap();
+                            assert!(
+                                matches!(upper[0], Value::Integer(value) if value == if !current && write != 0 { 4 } else { 2 })
+                            );
+                            assert_eq!(scratch[0].bits, if current && write != 0 { 4 } else { 2 });
+                        }
+                    }
+                }
+                drop(code);
+                assert_eq!(total.load(Ordering::Relaxed), 0);
+                assert_eq!(ledger.current(), 0);
+            });
+        }
+
+        #[test]
+        fn scalar_kernel_declines_bad_views_and_reference_cells_without_a_host() {
+            use crate::jit::{backend, resources, work, JitConfig};
+            with_closure(|_ctx, closure| {
+                let snapshot = Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
+                let code = backend::compile_leaf_kernel_in(
+                    &snapshot,
+                    resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024)),
+                    128 * 1024,
+                    resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
+                    work::Limits::from(&JitConfig::default()),
+                    backend::Failure::None,
+                )
+                .unwrap();
+                for fault in 0..7 {
+                    let mut scratch =
+                        vec![abi::Slot::from_value(Value::Integer(2)); code.registers];
+                    let before = scratch.clone();
+                    let mut cell = abi::Slot::from_value(Value::Integer(7));
+                    let mut view = View {
+                        version: VERSION,
+                        cell: &mut cell,
+                        reads: 0,
+                        writes: 0,
+                        dirty: 0,
+                    };
+                    match fault {
+                        1 => view.version ^= 1,
+                        2 => view.cell = std::ptr::null_mut(),
+                        3 => view.reads = 1,
+                        4 => view.writes = 1,
+                        5 => view.dirty = 1,
+                        6 => cell.tag = abi::REFERENCE,
+                        _ => {}
+                    }
+                    let pointer = if fault == 0 {
+                        std::ptr::null_mut()
+                    } else {
+                        &mut view
+                    };
+                    let exit =
+                        unsafe { code.invoke_cell_raw(scratch.as_mut_ptr(), 0, 64, pointer) };
+                    assert_eq!(
+                        (exit.pc, exit.instructions, exit.reason),
+                        (0, 0, crate::jit::exits::Kind::Interpreter as u32)
+                    );
+                    for (actual, expected) in scratch.iter().zip(&before) {
+                        assert_eq!((actual.tag, actual.bits), (expected.tag, expected.bits));
+                    }
+                    assert_eq!(cell.bits, 7);
+                }
+            });
+        }
+
+        #[test]
+        fn scalar_kernel_failures_release_resources_and_preserve_live_code() {
+            use crate::jit::{backend, resources, work, JitConfig};
+            use std::sync::atomic::Ordering;
+            with_closure(|_ctx, closure| {
+                let snapshot = Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
+                let metadata = resources::Ledger::new(2 * 1024 * 1024);
+                let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
+                let limits = work::Limits::from(&JitConfig::default());
+                let compile = |failure, limits, image_limit| {
+                    backend::compile_leaf_kernel_in(
+                        &snapshot,
+                        total.clone(),
+                        image_limit,
+                        resources::BudgetAllocator(metadata.clone()),
+                        limits,
+                        failure,
+                    )
+                };
+                let peer = compile(backend::Failure::None, limits, 128 * 1024).unwrap();
+                let before = (
+                    metadata.current(),
+                    total.load(Ordering::Relaxed),
+                    snapshot.operations.allocator().0.current(),
+                );
+                for (index, failure) in [
+                    backend::Failure::Allocate,
+                    backend::Failure::Protect,
+                    backend::Failure::ProtectAfterFirst,
+                    backend::Failure::RefuseSignatures,
+                    backend::Failure::RefuseRelocationStorage(false),
+                    backend::Failure::RefuseRelocationStorage(true),
+                    backend::Failure::RefuseRelocationCopy,
+                    backend::Failure::CorruptInlineName,
+                    backend::Failure::CorruptInlineSignature,
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    let result = compile(failure, limits, 128 * 1024);
+                    assert_eq!(
+                        result.is_ok(),
+                        peer.relocations == 0
+                            && matches!(failure, backend::Failure::RefuseRelocationStorage(_)),
+                        "injection {index}: {:?}",
+                        result.as_ref().err()
+                    );
+                    drop(result);
+                    snapshot.operations.allocator().0.set_limit(1024 * 1024);
+                    snapshot.operations.allocator().0.fail_after(usize::MAX);
+                    assert_eq!(
+                        (
+                            metadata.current(),
+                            total.load(Ordering::Relaxed),
+                            snapshot.operations.allocator().0.current()
+                        ),
+                        before
+                    );
+                    let mut scratch = vec![abi::Slot::from_value(Value::Nil); peer.registers];
+                    let exit = unsafe {
+                        peer.invoke_cell_raw(scratch.as_mut_ptr(), 0, 0, std::ptr::null_mut())
+                    };
+                    assert_eq!((exit.pc, exit.instructions), (0, 0));
+                }
+                for limited in [
+                    work::Limits {
+                        instructions: 0,
+                        ..limits
+                    },
+                    work::Limits {
+                        blocks: 0,
+                        ..limits
+                    },
+                    work::Limits {
+                        relocations: 0,
+                        ..limits
+                    },
+                ] {
+                    let result = compile(backend::Failure::None, limited, 128 * 1024);
+                    assert_eq!(
+                        result.is_ok(),
+                        limited.relocations == 0 && peer.relocations == 0
+                    );
+                    drop(result);
+                    assert_eq!(
+                        (
+                            metadata.current(),
+                            total.load(Ordering::Relaxed),
+                            snapshot.operations.allocator().0.current()
+                        ),
+                        before
+                    );
+                }
+                assert!(compile(backend::Failure::None, limits, 0).is_err());
+                assert_eq!(
+                    (
+                        metadata.current(),
+                        total.load(Ordering::Relaxed),
+                        snapshot.operations.allocator().0.current()
+                    ),
+                    before
+                );
+                drop(peer);
+                assert_eq!(metadata.current(), 0);
+                assert_eq!(total.load(Ordering::Relaxed), 0);
             });
         }
 
