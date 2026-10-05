@@ -11,7 +11,45 @@
 
 ### Progress snapshot — 2026-10-04
 
-#### Production scalar-entry candidate — 2026-10-05
+#### Frame-free entry comparison rejected — 2026-10-05
+
+The production scalar-entry candidate is disabled again. Its complete frozen
+comparison collected 24 interleaved blocks in three windows, 144 commands, both
+profiles, all nine workloads and eleven paired samples. Candidate and original
+binaries and candidate source hashes verify before and after every block; the
+archived candidate source independently verifies after rollback. Independently
+built no-feature controls are byte-identical to the original controls. The
+driver's zero exit means collection completed, not that performance gates passed.
+
+| Profile | Direct Auto upvalues / callbacks | Native upvalue / callback ratio | Upvalue Off overhead |
+| --- | --- | --- | --- |
+| Speed | 1.012215x / 0.963945x | 0.698350x / 0.784900x | 5.265% |
+| Shipping | 0.972175x / 0.974665x | 0.559350x / 0.730700x | 12.64% |
+
+Direct gains mean original Auto time divided by candidate Auto time. Native
+ratios mean the candidate's own Off time divided by Auto time. Both upvalue and
+callback gates pass zero of 24 batches in each profile. Shipping array, float
+and integer disabled costs also miss the unchanged 5% limit. Wide integer/float
+interference, all failed gates and contention telemetry remain recorded; no
+outlier, threshold or workload was discarded to turn this into acceptance.
+
+The test-only scalar kernels, ordinary native fallback, optional work/owner/cache
+admission, reference-result preflight and canonical executor comparisons remain.
+After rollback GNU/musl each pass 82 focused executions; GNU Auto all-features
+passes 1078/80 with four existing ignores, and baseline plus doctests passes
+393/79 with two existing ignores. Check/JIT check and GNU Clippy pass with the
+existing warning count. Safe recoverable owner allocation remains in use; the
+production scalar selector, kernel fields and hot invocation branch do not.
+
+Evidence is `target/jit-evidence/short-slice-performance/cell-kernel-*`, including
+immutable candidate binaries, source archive/manifests, raw exits, summaries and
+post-rollback verification. This rules out a standalone frame-free scalar entry
+as the regression fix. Further work must remove real cross-call boundaries
+while preserving physical frames, canonical roots, source identity/leases and
+exact VM/fuel transitions; do not repeat helper/cache/counter/packing placement
+variations. Upvalue/callback/compiled-Off acceptance remains incomplete.
+
+#### Historical production scalar-entry candidate — 2026-10-05
 
 `d700429` and `5718928` replace the prototype's refuse-both admission with an
 optional kernel policy. The ordinary entry retains its original work limits;
@@ -41,10 +79,9 @@ binding cases pass under each Miri borrow model; generated code is not run in
 Miri. Logs use `cell-kernel-production-*` and `cell-kernel-late-owner-*` in the
 existing evidence directory.
 
-This is a **production candidate, not a performance acceptance result**. The
-hash-verified speed/shipping comparison against immutable original controls is
-next. Upvalue speed, callback regression and compiled-Off costs remain unproven;
-no thresholds, controls or native coverage requirements are relaxed.
+At this revision it was a production candidate, not a performance acceptance
+result. The subsequent frozen comparison rejected it and `3e24ca2` disabled the
+production entry again, as recorded above. The original acceptance scope remains.
 
 #### Frame-free scalar kernel proof — 2026-10-05
 
