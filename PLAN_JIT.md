@@ -75,6 +75,12 @@ Additional counter and cache experiments were also rejected:
 | Cumulative execution/helper cells | 1.081x / 1.028x | 1.077x / 1.021x | 10.07% / 7.86% |
 | Scan small existing maps, outlined | 1.132x / 1.073x | 1.091x / 1.042x | 6.42% / 5.98% |
 | Scan small existing maps, forced inline | 1.116x / 1.071x | 1.117x / 1.048x | 5.52% / 14.06% |
+| Scan small existing maps, default inlining | 1.119x / 1.074x | 1.118x / 1.040x | 5.64% / 14.41% |
+| Batch interpreter statistics across VM slices | 1.018x / 0.998x | 1.037x / 0.998x | 4.22% / 5.85% |
+| Reuse the move helper's source scalar slot | 0.995x / 1.002x | 0.999x / 0.974x | 8.57% / 20.10% |
+| Continue Lua frames inside the executor | 1.106x / 1.005x | 1.066x / 0.996x | 7.97% / 7.85% |
+| Outlined native Lua-frame continuation | 1.105x / 0.995x | 1.083x / 0.981x | 6.88% / 9.82% |
+| Outlined continuation, fresh mode query | 1.112x / 1.002x | 1.072x / 0.985x | 8.46% / 15.20% |
 
 These use the same 24-block comparison protocol. The inline index produces the
 first sustained double-digit native upvalue gains, but its compiled-Off cost
@@ -131,11 +137,107 @@ callback and upvalue Off costs worsen substantially. Each variant has the same
 24-block, 144-command comparison, with both no-feature binaries byte-identical
 to baseline. The source and property test are restored, not shipped.
 
+Batching interpreter statistics in a stack-owned three-counter accumulator
+is also rejected. It preserves saturating totals, flushes before callbacks,
+sequences and step exits, and passes focused error, dispatch, heap and sequence
+tests plus seven statistics tests under Miri (seed one). The same 24-block
+comparison improves float Off overhead but raises callback Off overhead to
+6.30% speed and 13.28% shipping, versus 2.15% and 2.09% baseline. Native callback
+time does not improve. Both no-feature `.text` sections remain byte-identical
+to baseline; full-file differences are retained. This is not a shipped change.
+The retained statistics test checks publication before reentrant callbacks
+and nested executor steps in Off and Auto, with a dedicated Make Miri target.
+
+Reusing a move helper's source slot instead of decoding and re-encoding it is
+also rejected after the same complete comparison. It passes 54 focused
+executions across ten suites and eight helper tests under Miri (seed one),
+but native upvalue time is unchanged and shipping callbacks get slower.
+Shipping compiled-Off integer, table and upvalue overhead reaches 23.72%,
+19.41% and 20.10%, respectively. The no-feature binaries are byte-identical
+to baseline. The helper implementation is restored; only expanded tests for
+nil, both booleans, integer extremes, signed zero and NaN payloads are retained.
+This smaller helper body is not evidence of lower integrated execution cost.
+
+Three Lua-frame continuation designs are also rejected. They retain canonical
+call frames, VM slice sizes, fuel charges, fresh source checks and per-slice
+leases, but avoid general executor dispatch between successive Lua frames.
+The second outlines that native-only loop; the third removes its step-wide
+mode flag and queries the current mode at each general Lua-frame entry.
+Neither resolves the feature-Off trade-off. The outlined version raises speed
+integer Off overhead to 15.59%; the fresh-query version raises shipping
+upvalue overhead to 15.20%. Callback execution does not improve materially.
+Each final comparison has 24 blocks, 144 commands and verified source/binary
+hashes before and after every block. No frame driver is committed.
+
+The retained differential test (`f69ad10`) covers 64 scenarios: ordinary and
+tail calls, protected errors and close handlers; eight initial fuel budgets
+through `i32::MAX`; and pre-interrupted or uninterrupted steps. It compares
+completion, executor mode, remaining fuel, interrupt state and dispatch totals
+after every step, then checks results and native exit partitions. Both outlined
+drivers pass 91 focused executions across 13 suites and five Rust-only
+statistics/Miri tests (seed one), including nested executor callbacks.
+
+A diagnostic artifact incident was also corrected. `objcopy --dump-section`
+without an explicit output ELF rewrites its input file. The dumped text was
+unchanged, but section-header metadata moved and full-file hashes changed.
+Program headers remained identical; byte differences within loaded segments
+were confined to the ELF section-header-offset field. Original hash-verified
+files were restored from retained copies. The first frame comparison is kept
+as invalid for immutable-artifact acceptance, then repeated in full. Earlier
+estimates using rewritten controls describe equivalent runtime images, not
+release artifact certification. Future extraction must specify an explicit
+output ELF, never rewrite an input implicitly.
+
+`make jit-size-run` now checks its artifact manifest before native proof,
+before timing and after timing, including when a performance gate fails.
+Verification uses the current directory's binaries even if a copied manifest
+names an earlier directory. Focused shell tests cover relocation, mutations
+before execution and during proof/comparison, malformed manifests, successful
+runs and preservation of failed gates. This repairs evidence integrity; it
+does not fix native upvalue or callback performance.
+
+Two register-marshaling candidates are also rejected, each after a complete
+hash-verified 24-block, 144-command comparison. A static writeback set derived
+from verified native operations materializes fewer registers on normal exits
+and preserves full materialization on panic. It passes 554 focused executions,
+46 additional executions and 16 Rust-only helper/owner Miri tests. Nevertheless,
+its direct Auto upvalue speedups versus baseline are 0.9564x speed and 0.9988x
+shipping; callbacks are 0.8901x and 0.9658x. The set iterator is not shipped.
+
+The second candidate avoids classifying register zero's incoming value when
+entry PC zero immediately overwrites it without reading it. A reference marker
+keeps the canonical old value available for budget-zero, helper declines and
+panic; all other entries use original packing. It passes 558 focused executions,
+46 additional executions and six ABI tests under Miri. Direct Auto upvalue gains
+are only 1.0016x speed and 1.0153x shipping, while callbacks do not improve.
+Shipping compiled-Off integer, upvalue, float and callback overhead reaches
+31.04%, 17.08%, 12.96% and 12.34%. Neither candidate passes any of the 24 native
+upvalue or callback batches in either profile. Both runtime changes are restored.
+Their no-feature controls are byte-identical to baseline, and all failed gates,
+source patches, manifests and timing observations remain in the evidence tree.
+
+The independent retained ABI test (`9454c2a`) confirms that a reference marker
+preserves canonical scalar values, including integer extremes, signed zero,
+subnormal and NaN payloads. This contract test does not enable packing elision.
+
+**Next investigation:** the canonical call/return bridge and source-bound
+interprocedural execution, not another counter, cache, frame-driver or packing
+placement variation. Whole-executor profiles and the rejected marshaling runs
+point to repeated boundaries around tiny native callees; this is a direction
+for structural work, not proof that a specific implementation will pass.
+Cross-call execution must retain physical Lua frames, fresh weak identity
+validation for every callee, leases, exact VM/fuel boundaries, canonical GC
+roots and callback/hook/error visibility. No such implementation is claimed.
+
 **Current conclusion:** these changes are valid correctness experiments, not
 accepted regression fixes. The runtime still uses the baseline randomized
 lookup, original counter layout and original interpreter dispatch. A default
-optimizer-selected small-map accessor has not been tested; the two forced
-inlining choices do not exhaust that design. Further work must address the
+optimizer-selected small-map accessor is now also rejected after the same
+24-block comparison. It passes the focused checks and nine owner/Miri tests
+(seed one), but shipping upvalue, float and callback Off overheads reach
+14.41%, 8.27% and 6.86%, respectively. Both no-feature binaries match baseline
+byte for byte. This exhausts the planned small-map inlining variations.
+Further work must address the
 remaining short-call/source-lookup costs without introducing new Off or
 shipping regressions. No workload, threshold or native coverage was weakened,
 and CPU contention is not treated as a blocker.

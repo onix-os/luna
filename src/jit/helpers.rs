@@ -284,6 +284,13 @@ mod tests {
         lua.enter(|ctx| {
             let closure = Closure::load(ctx, None, b"return 42").unwrap();
             let values = [
+                Value::Nil,
+                Value::Boolean(false),
+                Value::Boolean(true),
+                Value::Integer(i64::MIN),
+                Value::Integer(i64::MAX),
+                Value::Number(-0.0),
+                Value::Number(f64::from_bits(0x7ff8_0000_0000_1234)),
                 Value::String(crate::String::from_slice(&ctx, b"move")),
                 Value::Table(Table::new(&ctx)),
                 Value::Function(closure.into()),
@@ -325,8 +332,9 @@ mod tests {
                             frame.registers.stack_frame[destination as usize],
                             original,
                         );
-                        assert_eq!(slots[destination as usize].tag, abi::REFERENCE);
-                        assert_eq!(slots[destination as usize].bits, 0);
+                        let expected = Slot::from_value(original);
+                        assert_eq!(slots[destination as usize].tag, expected.tag);
+                        assert_eq!(slots[destination as usize].bits, expected.bits);
                         assert_eq!(*frame.registers.pc, 8);
                     }
                     let bits = 0x7ff8_0000_0000_1234;

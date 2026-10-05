@@ -97,6 +97,70 @@ fn native_call_and_fallback_slices_preserve_step_boundaries() -> Result<(), Exte
 }
 
 #[test]
+fn consecutive_lua_frames_preserve_large_and_interrupted_step_boundaries() -> Result<(), ExternError>
+{
+    let programs: &[&[u8]] = &[
+        b"local n=0 local function f(i) n=n+i return i end for i=1,200 do f(i) end return n",
+        b"local function f(n) if n==0 then return 42 end return f(n-1) end return f(200)",
+        b"local n=0 for i=1,200 do local ok=pcall(function() local a=1 return a.x end) if not ok then n=n+1 end end return n",
+        b"local n=0 local mt={__close=function() n=n+1 end} local function f(i) local x <close> =setmetatable({},mt) return i end for i=1,200 do n=n+f(i) end return n",
+    ];
+    for &program in programs {
+        for initial in [-1, 0, 1, 63, 64, 65, 65536, i32::MAX] {
+            for interrupted in [false, true] {
+                let mut reference = Lua::core();
+                let mut candidate = native();
+                let left = source(&mut reference, program)?;
+                let right = source(&mut candidate, program)?;
+                while candidate.prepare_jit().unwrap() != 0 {}
+                let step = |lua: &mut Lua, executor: &StashedExecutor, budget, interrupt| {
+                    let state = lua.enter(|ctx| {
+                        let mut fuel = Fuel::with(budget);
+                        if interrupt {
+                            fuel.interrupt();
+                        }
+                        let executor = ctx.fetch(executor);
+                        (
+                            executor.step(ctx, &mut fuel).unwrap(),
+                            executor.mode(),
+                            fuel.remaining(),
+                            fuel.is_interrupted(),
+                        )
+                    });
+                    (state, lua.jit_stats().total_dispatches)
+                };
+                let mut finished = false;
+                for index in 0..2000 {
+                    let budget = if index == 0 { initial } else { 65536 };
+                    let interrupt = index == 0 && interrupted;
+                    let expected = step(&mut reference, &left, budget, interrupt);
+                    let actual = step(&mut candidate, &right, budget, interrupt);
+                    assert_eq!(
+                        actual,
+                        expected,
+                        "{} at step {index}, fuel {initial}, interrupt {interrupted}",
+                        String::from_utf8_lossy(program)
+                    );
+                    assert_exit_partition(candidate.jit_stats());
+                    if actual.0 .0 {
+                        finished = true;
+                        break;
+                    }
+                    candidate.prepare_jit().unwrap();
+                }
+                assert!(finished);
+                assert_eq!(
+                    candidate.execute::<i64>(&right)?,
+                    reference.execute::<i64>(&left)?
+                );
+                assert!(candidate.jit_stats().native_instructions > 0);
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn native_exit_reasons_distinguish_budget_and_interpreter_handoff() -> Result<(), ExternError> {
     let mut lua = native_empty();
     let executor = source(
