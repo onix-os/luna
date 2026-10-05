@@ -176,6 +176,14 @@ jit-shipping:
 jit-cost-tests:
 	@$(CARGO) test --example jit_feature_cost --no-default-features $(TARGET_ARG)
 	@$(CARGO) test --example jit_feature_cost --no-default-features --features jit $(TARGET_ARG)
+	@$(MAKE) --no-print-directory jit-artifact-tests
+
+.PHONY: jit-cost-verify jit-artifact-tests
+jit-cost-verify:
+	@bash examples/jit_support/verify_artifacts.sh '$(COST_DIR)'
+
+jit-artifact-tests:
+	@bash tests/test-jit-artifacts.sh
 
 jit-size-build:
 	@case '$(SIZE_PROFILE)' in shipping|speed) ;; *) echo 'SIZE_PROFILE must be shipping|speed' >&2; exit 2;; esac
@@ -206,8 +214,10 @@ jit-size: jit-size-build
 jit-size-run:
 	@test -x '$(COST_DIR)/jit-off'
 	@test -x '$(COST_DIR)/no-jit'
+	@$(MAKE) --no-print-directory jit-cost-verify
 	@$(MAKE) --no-print-directory jit-cost-native-run
-	@set -o pipefail; $(COST_DIR)/no-jit --compare $(COST_DIR)/no-jit $(COST_DIR)/jit-off --samples $(COST_SAMPLES) --iterations $(COST_ITERATIONS) --check 2>&1 | tee $(COST_DIR)/cost.log
+	@$(MAKE) --no-print-directory jit-cost-verify
+	@set -o pipefail; $(COST_DIR)/no-jit --compare $(COST_DIR)/no-jit $(COST_DIR)/jit-off --samples $(COST_SAMPLES) --iterations $(COST_ITERATIONS) --check 2>&1 | tee $(COST_DIR)/cost.log; result=$$?; $(MAKE) --no-print-directory jit-cost-verify || exit $$?; exit $$result
 
 jit-cost-profile:
 	@$(MAKE) --no-print-directory jit-size-build SIZE_PROFILE=speed COST_STRIP=false
