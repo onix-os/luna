@@ -278,7 +278,9 @@ pub(super) enum Failure {
     ProtectAfterFirst,
     RefuseOwnerStorage,
     RefuseOwnerAllocation,
+    #[cfg(not(miri))]
     RefuseScalarOwnerStorage,
+    #[cfg(not(miri))]
     RefuseScalarOwnerAllocation,
     RefusePredecessors,
     RefuseDominanceStorage,
