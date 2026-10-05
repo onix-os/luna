@@ -54,13 +54,13 @@ fn positioned_error<'gc>(
 }
 
 #[cfg(all(
-    test,
     feature = "jit",
     not(miri),
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 #[inline(always)]
+#[cfg(test)]
 pub(super) fn try_scalar_activation<'gc>(
     ctx: Context<'gc>,
     frame: &mut LuaFrame<'gc, '_>,
@@ -105,7 +105,6 @@ pub(super) fn run_vm<'gc>(
     // always-false branch in the loop, which is what Phase 3 set out to measure.
     let hook_enabled = ctx.hook_enabled();
     #[cfg(all(
-        test,
         feature = "jit",
         not(miri),
         target_os = "linux",
@@ -138,7 +137,6 @@ pub(super) fn run_vm<'gc>(
     }
 
     #[cfg(all(
-        test,
         feature = "jit",
         not(miri),
         target_os = "linux",
@@ -196,7 +194,6 @@ pub(super) fn run_vm<'gc>(
             let transition = current_prototype.opcodes[*registers.pc].call_transition();
             if let Some(transition) = transition {
                 #[cfg(all(
-                    test,
                     feature = "jit",
                     not(miri),
                     target_os = "linux",
@@ -222,6 +219,22 @@ pub(super) fn run_vm<'gc>(
                         args,
                         returns,
                     } => {
+                        #[cfg(all(
+                            feature = "jit",
+                            not(miri),
+                            target_os = "linux",
+                            any(target_arch = "x86_64", target_arch = "aarch64")
+                        ))]
+                        if observe_pairs {
+                            ctx.jit().observe_call(
+                                ctx,
+                                current_function,
+                                &registers,
+                                func,
+                                args,
+                                returns,
+                            );
+                        }
                         lua_frame.call_function(ctx, func, args, returns)?;
                     }
                     crate::opcode::CallTransition::TailCall { func, args } => {
@@ -263,7 +276,6 @@ pub(super) fn run_vm<'gc>(
 
         let op = current_prototype.opcodes[*registers.pc].decode();
         #[cfg(all(
-            test,
             feature = "jit",
             not(miri),
             target_os = "linux",
@@ -404,7 +416,6 @@ pub(super) fn run_vm<'gc>(
                 returns,
             } => {
                 #[cfg(all(
-                    test,
                     feature = "jit",
                     not(miri),
                     target_os = "linux",

@@ -347,7 +347,17 @@ impl<'gc> Executor<'gc> {
                 drop(res_state);
             }
 
-            #[cfg(all(test, feature = "jit"))]
+            #[cfg(all(
+                feature = "jit",
+                any(
+                    test,
+                    all(
+                        not(miri),
+                        target_os = "linux",
+                        any(target_arch = "x86_64", target_arch = "aarch64")
+                    )
+                )
+            ))]
             let mut step_charged = false;
             if top_thread.mode() == ThreadMode::Normal {
                 fn do_yield<'gc>(
@@ -628,9 +638,11 @@ impl<'gc> Executor<'gc> {
                         // One borrow of the stack for the whole VM slice, not one per opcode.
                         let stack = top_state.stack;
                         let ordinary = |top_state: &mut ThreadState<'gc>, fuel: &mut Fuel| {
+                            let frame_stack = stack.borrow_mut(&ctx);
+                            #[cfg(feature = "jit")]
+                            let mut frame_stack = frame_stack;
                             let lua_frame = LuaFrame {
                                 #[cfg(all(
-                                    test,
                                     feature = "jit",
                                     not(miri),
                                     target_os = "linux",
@@ -638,7 +650,10 @@ impl<'gc> Executor<'gc> {
                                 ))]
                                 pair_handoff: None,
                                 state: top_state,
-                                stack: stack.borrow_mut(&ctx).into(),
+                                #[cfg(feature = "jit")]
+                                stack: &mut frame_stack,
+                                #[cfg(not(feature = "jit"))]
+                                stack: frame_stack,
                                 fuel,
                             };
                             #[cfg(all(
@@ -684,8 +699,20 @@ impl<'gc> Executor<'gc> {
                             let result = run_vm(ctx, lua_frame, Self::VM_GRANULARITY);
                             result
                         };
-                        #[cfg(all(test, feature = "jit"))]
-                        let result = if ctx.jit().activation_limit() > 0 {
+                        #[cfg(all(
+                            feature = "jit",
+                            any(
+                                test,
+                                all(
+                                    not(miri),
+                                    target_os = "linux",
+                                    any(target_arch = "x86_64", target_arch = "aarch64")
+                                )
+                            )
+                        ))]
+                        let result = if let Some(limit) =
+                            std::num::NonZeroUsize::new(ctx.jit().scoped_activation_limit())
+                        {
                             let outcome = {
                                 let mut host = super::activation::ActivationHost::new(
                                     top_state,
@@ -694,11 +721,12 @@ impl<'gc> Executor<'gc> {
                                 );
                                 host.run(
                                     ctx,
-                                    ctx.jit().activation_limit(),
+                                    limit.get(),
                                     Self::VM_GRANULARITY,
                                     Self::FUEL_PER_STEP,
                                 )
                             };
+                            #[cfg(test)]
                             ctx.jit()
                                 .record_activations(outcome.activations, outcome.stack_growths);
                             step_charged = true;
@@ -706,7 +734,17 @@ impl<'gc> Executor<'gc> {
                         } else {
                             ordinary(top_state, fuel)
                         };
-                        #[cfg(not(all(test, feature = "jit")))]
+                        #[cfg(not(all(
+                            feature = "jit",
+                            any(
+                                test,
+                                all(
+                                    not(miri),
+                                    target_os = "linux",
+                                    any(target_arch = "x86_64", target_arch = "aarch64")
+                                )
+                            )
+                        )))]
                         let result = ordinary(top_state, fuel);
                         match result {
                             Err(err) => {
@@ -800,11 +838,31 @@ impl<'gc> Executor<'gc> {
                 }
             }
 
-            #[cfg(all(test, feature = "jit"))]
+            #[cfg(all(
+                feature = "jit",
+                any(
+                    test,
+                    all(
+                        not(miri),
+                        target_os = "linux",
+                        any(target_arch = "x86_64", target_arch = "aarch64")
+                    )
+                )
+            ))]
             if !step_charged {
                 fuel.consume(Self::FUEL_PER_STEP);
             }
-            #[cfg(not(all(test, feature = "jit")))]
+            #[cfg(not(all(
+                feature = "jit",
+                any(
+                    test,
+                    all(
+                        not(miri),
+                        target_os = "linux",
+                        any(target_arch = "x86_64", target_arch = "aarch64")
+                    )
+                )
+            )))]
             fuel.consume(Self::FUEL_PER_STEP);
 
             if !fuel.should_continue() {

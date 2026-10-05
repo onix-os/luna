@@ -27,6 +27,7 @@ pub(super) struct Site {
     pattern: Pattern,
     registers: usize,
     start: RegisterIndex,
+    returns: u8,
 }
 
 pub(super) struct Program {
@@ -44,7 +45,7 @@ impl Program {
         limit: usize,
         metadata: super::resources::BudgetAllocator,
         limits: super::work::Limits,
-        failure: super::backend::Failure,
+        #[cfg(test)] failure: super::backend::Failure,
     ) -> Result<Self, super::JitError> {
         if !super::resources::LedgerRef::ptr_eq(
             &caller.operations.allocator().0,
@@ -58,7 +59,7 @@ impl Program {
             ));
         }
         let plan = super::calls::Plan::new(caller, callee, key.pc, limits)?;
-        let Operation::Return { start, .. } = callee.operations[3] else {
+        let Operation::Return { start, count } = callee.operations[3] else {
             unreachable!()
         };
         let site = Site {
@@ -70,6 +71,7 @@ impl Program {
             pattern: plan.pattern,
             registers: callee.registers,
             start,
+            returns: count.to_constant().unwrap(),
         };
         let origin = memory.clone();
         let code = super::backend::calls::compile(
@@ -79,7 +81,9 @@ impl Program {
             limit,
             metadata,
             limits,
+            #[cfg(test)]
             failure,
+            #[cfg(test)]
             super::backend::calls::LinkFault::None,
         )?;
         Ok(Self { site, code, origin })
@@ -395,9 +399,12 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             return 1;
         }
         self.returns = 1;
-        let result = self
-            .host
-            .return_zero(ctx, self.site.start, self.frame.exit.instructions);
+        let result = self.host.return_fixed(
+            ctx,
+            self.site.start,
+            self.site.returns,
+            self.frame.exit.instructions,
+        );
         let mut stats = ctx.jit().interpreter_stats();
         stats.dispatches = 1;
         stats.reported_instructions = result.as_ref().ok().map(|_| 0);

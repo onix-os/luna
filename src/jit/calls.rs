@@ -225,6 +225,12 @@ impl<'a> Plan<'a> {
         }
         let pattern = leaf::Pattern::recognize(callee)
             .ok_or_else(|| JitError::Compilation("invalid aggregate callee".into()))?;
+        let Operation::Return { count, .. } = callee.operations[3] else {
+            unreachable!()
+        };
+        if count.to_constant().is_none() {
+            return Err(JitError::Compilation("variable aggregate return".into()));
+        }
         match pattern.right {
             leaf::Operand::Constant(index) => {
                 if callee.constants[usize::from(index)].tag != abi::INTEGER {
@@ -397,6 +403,16 @@ mod tests {
                 assert!(Plan::new(&caller, &callee, pc, limits).is_err());
             }
             caller.operations[pc] = original;
+            let original_return = callee.operations[3];
+            let Operation::Return { start, .. } = original_return else {
+                unreachable!()
+            };
+            callee.operations[3] = Operation::Return {
+                start,
+                count: VarCount::variable(),
+            };
+            assert!(Plan::new(&caller, &callee, pc, limits).is_err());
+            callee.operations[3] = original_return;
             let original = callee.operations[1];
             if let Operation::Add { dest, left, .. } = original {
                 callee.operations[1] = Operation::Add {

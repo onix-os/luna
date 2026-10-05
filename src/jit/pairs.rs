@@ -26,6 +26,7 @@ struct Entry {
 }
 
 pub(super) struct State {
+    #[cfg(test)]
     executions: (usize, usize),
     entries: MetadataMap<Key, Entry>,
     queue: Vec<Key, BudgetAllocator>,
@@ -35,8 +36,9 @@ pub(super) struct State {
 }
 
 impl State {
-    fn new(allocator: BudgetAllocator) -> Self {
+    pub(super) fn new(allocator: BudgetAllocator) -> Self {
         Self {
+            #[cfg(test)]
             executions: (0, 0),
             entries: metadata_map(allocator.clone()),
             queue: Vec::new_in(allocator.clone()),
@@ -156,12 +158,21 @@ impl State {
 
 impl Runtime {
     pub(crate) fn record_pair_execution(&self, calls: usize, returns: usize) {
-        if let Some(pairs) = &mut self.0.borrow_mut().pairs {
+        let mut manager = self.0.borrow_mut();
+        manager.stats.native_pair_calls =
+            manager.stats.native_pair_calls.saturating_add(calls as u64);
+        manager.stats.native_pair_returns = manager
+            .stats
+            .native_pair_returns
+            .saturating_add(returns as u64);
+        #[cfg(test)]
+        if let Some(pairs) = &mut manager.pairs {
             pairs.executions.0 = pairs.executions.0.saturating_add(calls);
             pairs.executions.1 = pairs.executions.1.saturating_add(returns);
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn test_pair_executions(&self) -> (usize, usize) {
         self.0
             .borrow()
@@ -241,6 +252,7 @@ impl Runtime {
         self.observe_pair(Key { caller, callee, pc });
     }
 
+    #[cfg(test)]
     pub(crate) fn test_call_pairs(&self, enabled: bool) {
         let mut manager = self.0.borrow_mut();
         manager.pairs = enabled.then(|| State::new(manager.metadata.clone()));
@@ -296,20 +308,23 @@ impl Runtime {
         caller: Snapshot,
         callee: Snapshot,
     ) -> Result<(), JitError> {
+        #[cfg(test)]
         let hook = self.0.borrow_mut().before_compile.take();
+        #[cfg(test)]
         if let Some(hook) = hook {
             hook();
         }
-        let (memory, limit, metadata, limits, failure) = {
+        let (memory, limit, metadata, limits) = {
             let manager = self.0.borrow();
             (
                 manager.memory.clone(),
                 manager.config.max_code_bytes,
                 manager.metadata.clone(),
                 super::work::Limits::from(&manager.config),
-                manager.memory_failure,
             )
         };
+        #[cfg(test)]
+        let failure = self.0.borrow().memory_failure;
         let compile = || {
             Program::new(
                 key,
@@ -319,6 +334,7 @@ impl Runtime {
                 limit,
                 metadata.clone(),
                 limits,
+                #[cfg(test)]
                 failure,
             )
         };
@@ -363,6 +379,7 @@ impl Runtime {
             {
                 return Ok(());
             }
+            #[cfg(test)]
             match failure {
                 super::backend::Failure::RefuseOwnerStorage => {
                     manager.metadata.0.set_limit(manager.metadata.0.current())

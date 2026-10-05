@@ -3,7 +3,7 @@ use std::cell::RefMut;
 use crate::{Context, Fuel, ThreadMode};
 
 use super::{
-    thread::{Frame, FrameStack, LuaFrame, StackVec, ThreadState},
+    thread::{Frame, LuaFrame, StackVec, ThreadState},
     vm::run_vm,
     VMError,
 };
@@ -26,6 +26,7 @@ pub(crate) struct ActivationHost<'gc, 'a> {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
+    #[cfg(test)]
     decline_pairs: bool,
     state: &'a mut ThreadState<'gc>,
     stack: RefMut<'a, StackVec<'gc>>,
@@ -34,7 +35,9 @@ pub(crate) struct ActivationHost<'gc, 'a> {
 
 pub(crate) struct Outcome {
     pub result: Result<(), VMError>,
+    #[cfg(test)]
     pub activations: usize,
+    #[cfg(test)]
     pub stack_growths: usize,
 }
 
@@ -65,6 +68,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                 target_os = "linux",
                 any(target_arch = "x86_64", target_arch = "aarch64")
             ))]
+            #[cfg(test)]
             decline_pairs: false,
         }
     }
@@ -78,7 +82,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
             ))]
             pair_handoff: self.select_pairs.then_some(&mut self.handoff),
             state: self.state,
-            stack: FrameStack::Borrowed(&mut self.stack),
+            stack: &mut self.stack,
             fuel: self.fuel,
         })
     }
@@ -144,15 +148,16 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         result
     }
 
-    pub(crate) fn return_zero(
+    pub(crate) fn return_fixed(
         &mut self,
         ctx: Context<'gc>,
         start: crate::types::RegisterIndex,
+        count: u8,
         instructions: u32,
     ) -> Result<(), VMError> {
         let result = self.with_frame(|mut frame| {
             *frame.registers().pc += 1;
-            frame.return_upper(&ctx, start, crate::types::VarCount::constant(0))
+            frame.return_upper(&ctx, start, crate::types::VarCount::constant(count))
         });
         if result.is_ok() {
             self.fuel.consume(instructions.try_into().unwrap());
@@ -166,6 +171,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
+    #[cfg(test)]
     pub(crate) fn test_trace(&self) -> (Vec<String>, Vec<crate::Value<'gc>>, usize, i32) {
         let frames = self
             .state
@@ -197,18 +203,22 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
+    #[cfg(test)]
     pub(crate) fn test_fuel(&mut self, fuel: Fuel) {
         *self.fuel = fuel;
     }
 
+    #[cfg(test)]
     pub(crate) fn test_capacity(&self) -> usize {
         self.stack.capacity()
     }
 
+    #[cfg(test)]
     pub(crate) fn test_pair_selection(&mut self, enabled: bool) {
         self.decline_pairs = !enabled;
     }
 
+    #[cfg(test)]
     pub(crate) fn test_variable_stack(&mut self) {
         let Some(Frame::Lua { is_variable, .. }) = self.state.frames.last_mut() else {
             panic!();
@@ -221,9 +231,11 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
     pub fn run(&mut self, ctx: Context<'gc>, limit: usize, budget: u32, step_fuel: i32) -> Outcome {
         assert!(limit > 0);
         let mut activations = 0;
+        #[cfg(test)]
         let mut stack_growths = 0;
         loop {
             assert!(matches!(self.state.frames.last(), Some(Frame::Lua { .. })));
+            #[cfg(test)]
             let capacity = self.stack.capacity();
             #[cfg(all(
                 not(miri),
@@ -232,11 +244,14 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
             ))]
             {
                 assert!(self.handoff.is_none());
-                self.select_pairs = !self.decline_pairs
-                    && limit - activations >= 2
+                self.select_pairs = limit - activations >= 2
                     && budget >= 4
                     && step_fuel == 4
                     && ctx.jit().call_pairs_enabled();
+                #[cfg(test)]
+                {
+                    self.select_pairs &= !self.decline_pairs;
+                }
             }
             let result = self.with_frame(|frame| run_vm(ctx, frame, budget));
             activations += 1;
@@ -262,7 +277,10 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
             } else {
                 (result, false)
             };
-            stack_growths += usize::from(self.stack.capacity() > capacity);
+            #[cfg(test)]
+            {
+                stack_growths += usize::from(self.stack.capacity() > capacity);
+            }
             let result =
                 result.map(|instructions| self.fuel.consume(instructions.try_into().unwrap()));
             #[cfg(all(
@@ -287,7 +305,9 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
             {
                 return Outcome {
                     result,
+                    #[cfg(test)]
                     activations,
+                    #[cfg(test)]
                     stack_growths,
                 };
             }
@@ -300,6 +320,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
+#[cfg(test)]
 pub(crate) fn with_test_thread<'gc, R>(
     ctx: Context<'gc>,
     closure: crate::Closure<'gc>,
@@ -316,6 +337,7 @@ pub(crate) fn with_test_thread<'gc, R>(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
+#[cfg(test)]
 pub(crate) fn with_test_existing_thread<'gc, R>(
     ctx: Context<'gc>,
     thread: crate::Thread<'gc>,

@@ -22,9 +22,42 @@ fn fixture_hooks(
     hooks: Hooks,
     test: impl FnOnce(&mut Lua, crate::StashedClosure, Site, CallCode),
 ) {
+    fixture_return_count(source, hooks, None, test);
+}
+
+fn fixture_return_count(
+    source: &[u8],
+    hooks: Hooks,
+    returns: Option<u8>,
+    test: impl FnOnce(&mut Lua, crate::StashedClosure, Site, CallCode),
+) {
     let mut lua = Lua::empty();
     let (closure, caller, callee, caller_id, callee_id) = lua.enter(|ctx| {
-        let closure = Closure::load(ctx, None, source).unwrap();
+        let closure = if let Some(count) = returns {
+            let mut interner = crate::compiler::interning::BasicInterner::default();
+            let chunk = crate::compiler::parse_chunk(source, &mut interner).unwrap();
+            let mut compiled = crate::compiler::compile_chunk(&chunk, &mut interner).unwrap();
+            let child = &mut compiled.prototypes[0];
+            assert_eq!(child.opcodes.len(), 4);
+            child.opcodes[3] = crate::opcode::OpCode::encode(Operation::Return {
+                start: RegisterIndex(0),
+                count: crate::types::VarCount::constant(count),
+            });
+            let prototype = crate::FunctionPrototype::from_compiled_map_strings(
+                &ctx,
+                ctx.intern(b"fixed-return"),
+                &compiled,
+                false,
+                |string| ctx.intern(string.as_ref()),
+            );
+            let closure = Closure::new(&ctx, prototype, Some(ctx.globals())).unwrap();
+            ctx.jit_registry()
+                .borrow_mut(&ctx)
+                .register(ctx, closure.prototype());
+            closure
+        } else {
+            Closure::load(ctx, None, source).unwrap()
+        };
         let prototype = closure.prototype();
         let registry = ctx.jit_registry().borrow();
         (
@@ -52,6 +85,10 @@ fn fixture_hooks(
         registers: callee.registers,
         start: match callee.operations[3] {
             Operation::Return { start, .. } => start,
+            _ => unreachable!(),
+        },
+        returns: match callee.operations[3] {
+            Operation::Return { count, .. } => count.to_constant().unwrap(),
             _ => unreachable!(),
         },
     };
@@ -183,6 +220,44 @@ fn declined_source_and_budget_requests_preserve_caller_state() {
             });
         });
     });
+}
+
+#[test]
+fn fixed_callee_result_counts_preserve_canonical_return_effects_and_fuel() {
+    for count in [1, 2] {
+        fixture_return_count(
+            b"local n=7 local function f(v,w) n=n+v end f(2,3) return n",
+            Hooks { enter, leave },
+            Some(count),
+            |lua, closure, site, code| {
+                for available in [10, 11, 20, 21, 1000] {
+                    let run = |lua: &mut Lua, native: bool| {
+                        lua.enter(|ctx| {
+                            with_test_thread(
+                                ctx,
+                                ctx.fetch(&closure),
+                                &mut Fuel::with(10000),
+                                |host| {
+                                    position(host, ctx, site.pc);
+                                    host.test_fuel(Fuel::with(available));
+                                    let before = stats(ctx);
+                                    if !native || invoke(ctx, host, &site, &code, 64).is_none() {
+                                        assert!(host.run(ctx, 2, 64, 4).result.is_ok());
+                                    }
+                                    trace(ctx, host, before)
+                                },
+                            )
+                        })
+                    };
+                    assert_eq!(
+                        run(lua, true),
+                        run(lua, false),
+                        "count={count}, fuel={available}"
+                    );
+                }
+            },
+        );
+    }
 }
 
 #[test]
