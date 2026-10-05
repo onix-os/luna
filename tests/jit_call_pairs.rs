@@ -269,6 +269,7 @@ fn production_pair_fallbacks_preserve_noninteger_upvalues_and_arguments() {
     for source in [
         &b"local n=7.5 local function f(v) n=n+v end for i=1,100 do f(2) end return n==207.5 and 42 or -1"[..],
         &b"local n=7 local function f(v) n=n+v end for i=1,100 do f(2.5) end return n==257.0 and 42 or -1"[..],
+        &b"local n=7 local function f() n=n+0.5 end for i=1,100 do f() end return n==57.0 and 42 or -1"[..],
     ] {
         for prepare in [false, true] {
             let reference = run(source, JitMode::Off, prepare, 64);
@@ -276,6 +277,7 @@ fn production_pair_fallbacks_preserve_noninteger_upvalues_and_arguments() {
             assert_eq!((native.0, &native.1), (reference.0, &reference.1));
             assert_eq!(native.0, 42);
             assert_eq!(native.2.native_pair_returns, 0);
+            assert_eq!(native.2.compilation_failures, 0);
         }
     }
 }

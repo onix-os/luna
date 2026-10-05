@@ -243,6 +243,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
                 Operand::Register(register) if register == site.pattern.read => true,
                 Operand::Register(register) => {
                     usize::from(register.0) < usize::from(site.arguments)
+                        && register.0 < callee.prototype().fixed_params
                         && matches!(
                             registers
                                 .stack_frame

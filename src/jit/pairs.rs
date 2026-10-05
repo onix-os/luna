@@ -239,6 +239,35 @@ impl Runtime {
         if callee.prototype().opcodes.len() != 4 {
             return;
         }
+        let prototype = callee.prototype();
+        let operations: [_; 4] = std::array::from_fn(|index| prototype.opcodes[index].decode());
+        let Some(pattern) = super::leaf::Pattern::from_operations(&operations) else {
+            return;
+        };
+        let crate::opcode::Operation::Return { count, .. } = operations[3] else {
+            return;
+        };
+        if count.to_constant().is_none() {
+            return;
+        }
+        match pattern.right {
+            super::leaf::Operand::Constant(index) => {
+                if !matches!(
+                    prototype.constants.get(usize::from(index)),
+                    Some(crate::Constant::Integer(_))
+                ) {
+                    return;
+                }
+            }
+            super::leaf::Operand::Register(register) if register != pattern.read => {
+                if register.0 >= arguments.to_constant().unwrap()
+                    || register.0 >= prototype.fixed_params
+                {
+                    return;
+                }
+            }
+            _ => {}
+        }
         let registry = ctx.jit_registry().borrow();
         let Some(caller) = registry.identity(ctx, caller.prototype()) else {
             return;

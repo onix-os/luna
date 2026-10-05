@@ -41,17 +41,21 @@ impl Pattern {
     }
 
     pub(super) fn recognize(snapshot: &Snapshot) -> Option<Self> {
+        snapshot.verify().ok()?;
+        Self::from_operations(&snapshot.operations)
+    }
+
+    pub(super) fn from_operations(operations: &[Operation]) -> Option<Self> {
         use crate::opcode::RCIndex;
         use Operation::*;
 
-        snapshot.verify().ok()?;
         let [GetUpValue {
             dest: read,
             source: upvalue,
         }, math, SetUpValue {
             dest: write,
             source,
-        }, Return { .. }] = snapshot.operations.as_slice()
+        }, Return { .. }] = operations
         else {
             return None;
         };
