@@ -971,7 +971,25 @@ impl Runtime {
                         assert_eq!(manager.snapshots.0.current(), 0);
                     }
                     if manager.tracked.contains_key(&id) && manager.config.mode == JitMode::Auto {
-                        if manager.code.try_reserve(1).is_err() {
+                        #[cfg(all(test, not(miri)))]
+                        if failure == backend::Failure::RefuseScalarCacheStorage
+                            && code.scalar_kernel.is_some()
+                        {
+                            manager.metadata.0.set_limit(manager.metadata.0.current());
+                        }
+                        let reserved = manager.code.try_reserve(1);
+                        #[cfg(all(test, not(miri)))]
+                        let (code, reserved) = if reserved.is_err() {
+                            let mut code = code;
+                            if code.discard_scalar_kernel() {
+                                (code, manager.code.try_reserve(1))
+                            } else {
+                                (code, reserved)
+                            }
+                        } else {
+                            (code, reserved)
+                        };
+                        if reserved.is_err() {
                             manager.stats.compilation_failures =
                                 manager.stats.compilation_failures.saturating_add(1);
                             return Err(JitError::ResourceLimit("JIT metadata"));
@@ -986,7 +1004,11 @@ impl Runtime {
                             }
                             _ => {}
                         }
-                        let code = match owner::Shared::try_new(code, manager.metadata.clone()) {
+                        #[cfg(all(test, not(miri)))]
+                        let owner = code.into_shared(manager.metadata.clone());
+                        #[cfg(not(all(test, not(miri))))]
+                        let owner = owner::Shared::try_new(code, manager.metadata.clone());
+                        let code = match owner {
                             Ok(code) => code,
                             Err(_) => {
                                 manager.stats.compilation_failures =

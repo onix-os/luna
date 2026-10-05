@@ -204,7 +204,7 @@ impl Ledger {
         self.limit.store(limit, Ordering::Relaxed);
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(miri)))]
     pub(super) fn limit(&self) -> usize {
         self.limit.load(Ordering::Relaxed)
     }

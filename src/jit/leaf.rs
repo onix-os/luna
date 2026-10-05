@@ -775,6 +775,19 @@ mod tests {
                     );
                 }
                 drop(peer);
+                let pair = compile(backend::Failure::None, limits, 128 * 1024).unwrap();
+                assert!(pair.scalar_kernel.is_some());
+                metadata.set_limit(
+                    metadata.current()
+                        + crate::jit::owner::Shared::<backend::Code>::allocation_bytes()
+                        - 1,
+                );
+                let fallback = pair
+                    .into_shared(resources::BudgetAllocator(metadata.clone()))
+                    .unwrap();
+                assert!(fallback.scalar_kernel.is_none());
+                assert_ordinary_cell_execution(ctx, closure, &fallback);
+                drop(fallback);
                 assert_eq!(metadata.current(), 0);
                 assert_eq!(total.load(Ordering::Relaxed), 0);
                 assert_eq!(total.requested(), 0);
@@ -827,6 +840,52 @@ mod tests {
                     cell.get(),
                     UpValueState::Closed(Value::Integer(9))
                 ));
+            });
+        }
+
+        #[test]
+        fn optional_installation_refusals_keep_original_entries_and_live_peer_leases() {
+            use crate::jit::{backend, owner, JitConfig, JitMode, Runtime};
+            with_closure(|ctx, closure| {
+                for failure in [
+                    backend::Failure::RefuseOwnerStorage,
+                    backend::Failure::RefuseScalarCacheStorage,
+                ] {
+                    let runtime = Runtime::new();
+                    runtime.0.borrow_mut().configure(JitConfig {
+                        mode: JitMode::Auto,
+                        ..Default::default()
+                    });
+                    let snapshot = || Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
+                    let mut id = 0;
+                    loop {
+                        id += 1;
+                        runtime.0.borrow_mut().tracked.entry(id).or_default();
+                        runtime.compile(id, snapshot()).unwrap();
+                        let manager = runtime.0.borrow();
+                        if manager.code.len() == manager.code.capacity() {
+                            break;
+                        }
+                    }
+                    let peer = runtime.lookup(1).unwrap();
+                    runtime.test_scalar_kernels(true);
+                    runtime.0.borrow_mut().memory_failure = failure;
+                    id += 1;
+                    runtime.0.borrow_mut().tracked.entry(id).or_default();
+                    runtime.compile(id, snapshot()).unwrap();
+                    let installed = runtime.lookup(id).unwrap();
+                    assert!(installed.code.scalar_kernel.is_none());
+                    assert_ordinary_cell_execution(ctx, closure, &installed.code);
+                    assert_ordinary_cell_execution(ctx, closure, &peer.code);
+                    assert!(owner::Shared::ptr_eq(
+                        &peer.code,
+                        &runtime.lookup(1).unwrap().code
+                    ));
+                    let manager = runtime.0.borrow();
+                    assert_eq!(manager.code.len() as u64, id);
+                    assert_eq!(manager.stats.installed_regions, id);
+                    assert_eq!(manager.stats.compilation_failures, 0);
+                }
             });
         }
 

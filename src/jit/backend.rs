@@ -209,6 +209,28 @@ pub(super) struct Code {
 }
 
 impl Code {
+    #[cfg(all(test, not(miri)))]
+    pub fn discard_scalar_kernel(&mut self) -> bool {
+        self.scalar_kernel.take().is_some()
+    }
+
+    #[cfg(all(test, not(miri)))]
+    pub fn into_shared(
+        self,
+        allocator: BudgetAllocator,
+    ) -> Result<super::owner::Shared<Code>, allocator_api2::alloc::AllocError> {
+        match super::owner::Shared::try_new_recover(self, allocator.clone()) {
+            Ok(owner) => Ok(owner),
+            Err((mut code, error)) => {
+                if code.discard_scalar_kernel() {
+                    super::owner::Shared::try_new(code, allocator)
+                } else {
+                    Err(error)
+                }
+            }
+        }
+    }
+
     #[cfg(test)]
     pub fn invoke(&self, slots: &mut [Slot], pc: usize, budget: u32) -> Exit {
         unsafe { self.invoke_host(slots, pc, budget, std::ptr::null_mut()) }
@@ -282,6 +304,8 @@ pub(super) enum Failure {
     RefuseScalarOwnerStorage,
     #[cfg(not(miri))]
     RefuseScalarOwnerAllocation,
+    #[cfg(not(miri))]
+    RefuseScalarCacheStorage,
     RefusePredecessors,
     RefuseDominanceStorage,
     RefuseDominanceWork,

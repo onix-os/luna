@@ -37,14 +37,26 @@ impl<T> Shared<T> {
         value: T,
         allocator: BudgetAllocator,
     ) -> Result<Self, allocator_api2::alloc::AllocError> {
-        let inner = Box::try_new_in(
+        Self::try_new_recover(value, allocator).map_err(|(_, error)| error)
+    }
+
+    pub fn try_new_recover(
+        value: T,
+        allocator: BudgetAllocator,
+    ) -> Result<Self, (T, allocator_api2::alloc::AllocError)> {
+        let stored_allocator = allocator.clone();
+        let allocation = match Box::<Inner<T>, _>::try_new_uninit_in(allocator) {
+            Ok(allocation) => allocation,
+            Err(error) => return Err((value, error)),
+        };
+        let inner = Box::write(
+            allocation,
             Inner {
                 strong: Cell::new(1),
-                allocator: allocator.clone(),
+                allocator: stored_allocator,
                 value,
             },
-            allocator,
-        )?;
+        );
         let (pointer, allocator) = Box::into_raw_with_allocator(inner);
         drop(allocator);
         Ok(Self {
@@ -168,6 +180,39 @@ mod tests {
                 (dropped.get(), ledger.current(), ledger.refusals()),
                 (1, 0, 1)
             );
+        }
+    }
+
+    #[test]
+    fn recoverable_refusal_retains_input_for_exact_limit_retry() {
+        for underlying in [false, true] {
+            let bytes = Shared::<Probe>::allocation_bytes();
+            let ledger = Ledger::new(if underlying { bytes } else { bytes - 1 });
+            if underlying {
+                ledger.fail_after(0);
+            }
+            let dropped = Rc::new(Cell::new(0));
+            let value = match Shared::try_new_recover(
+                Probe(dropped.clone()),
+                BudgetAllocator(ledger.clone()),
+            ) {
+                Ok(_) => panic!("owner unexpectedly admitted"),
+                Err((value, _)) => value,
+            };
+            assert_eq!(
+                (dropped.get(), ledger.current(), ledger.refusals()),
+                (0, 0, 1)
+            );
+            ledger.set_limit(bytes);
+            ledger.fail_after(usize::MAX);
+            let owner = Shared::try_new_recover(value, BudgetAllocator(ledger.clone()))
+                .unwrap_or_else(|_| panic!("owner retry refused"));
+            assert_eq!((dropped.get(), ledger.current()), (0, bytes));
+            let peer = owner.clone();
+            drop(owner);
+            assert_eq!(dropped.get(), 0);
+            drop(peer);
+            assert_eq!((dropped.get(), ledger.current()), (1, 0));
         }
     }
 
