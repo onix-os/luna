@@ -93,7 +93,7 @@ aliases derive from the original scratch pointer; upper writes become a typed
 commit only after validating version, pointer identity, counts and scalar payload.
 Bindings are consumed per invocation. Read-only/partial/helper-only exits do not
 overwrite upper values. Each admitted straight-line leaf has at most one get and
-one set per invocation; entry PCs and fuel cuts still require generated-code proof.
+one set per invocation. This initial stage did not include generated-code proof.
 
 `make jit-leaf` and `make jit-leaf-miri` validate this groundwork. Eight tests pass
 on GNU/musl and under both default Stacked Borrows and Tree Borrows. They cover
@@ -101,21 +101,57 @@ real parsed bytecode, pending current aliases, NaN/negative-zero/int-extreme
 payloads, invalid view/target refusals, and reference-helper fallback effects.
 **These are Rust binding/model tests, not native execution or performance proof.**
 
+##### Test-only native scalar-cell execution — 2026-10-05
+
+The next stage executes generated getter/setter thunks through the existing
+owned compiler/module pipeline, with the existing arithmetic emitter between
+them. An independent IR walk checks every guard, cell/register store, counter,
+signature and exact six-argument original-helper fallback. Mutation tests reject
+changes to every emitted instruction. Aggregate signatures, IR, blocks,
+relocations, copies and mappings use the existing accounting; failed allocation,
+partial protection and quota tests preserve a live peer and release all charges.
+
+The runtime binding is also **test-only**, not enabled in production. Each entry
+resolves the current closure cell after the ordinary identity/lease path. Current
+aliases use the original scratch base; upper writes commit through checked typed
+register access. Native delta counts merge into the existing runtime statistics.
+Separate test-only fast-path counters distinguish actual cell instructions from
+the public upvalue counters, which also include Rust helpers.
+
+GNU and musl pass 17 leaf, 28 projection and four runtime-projection tests each.
+Native tests cover budgets 0/1/2/3/64, resumed entry PCs, current aliases, upper
+payload bits, reference/descriptor fallback and closed-cell ordinary helpers.
+Whole-executor comparisons cover add/sub/mul, constants, floats, arithmetic
+errors, closed closures, debug capture mutation/join and hooks at fuel 1/17/4096.
+They require identical result and per-slice completion/mode/fuel/dispatch traces,
+collect GC after every slice and verify cache reclamation. Open arithmetic cases
+prove 200 actual fast writes; debug mutation/join cases prove 40/21; closed cells
+prove zero fast writes rather than being silently included in native coverage.
+
+Nine Rust-only binding/typed-commit tests pass under both Miri borrow models.
+The exhaustive projection grammar run passes under Stacked Borrows; its separate
+Tree Borrows run is still pending. These tests are correctness evidence, not
+performance acceptance. Logs and source manifests are retained under
+`target/jit-evidence/short-slice-performance/leaf-native*` and `leaf-runtime*`.
+
+The full i686 fallback gate also caught an older guard fixture unconditionally
+unwrapping unsupported native preparation. It now asserts `Unavailable`, still
+executes the interpreter failure and checks zero native activity plus the same
+dispatch count. `make jit-fallback` passes 2013 executions across 319 suite runs,
+with two existing ignores; the original failure is retained.
+
 Remaining implementation gates:
 
-1. Emit the native getter/arithmetic/setter and exact per-op budget/entry/exit
-   paths; retain ordinary helpers on every unsupported binding or value.
-2. Independently verify the complete cell/slot-store grammar, opcode operands,
-   guard dominance, helper ABI, exits and bounded counters. Charge all signatures,
-   IR, blocks, relocations, module copies and code images before installation.
-3. Bind from fresh closure cells only after existing identity/lease checks;
-   materialize locals and validated upper writes before call/return transitions.
-   Preserve closed-cell panic behavior, hooks, GC roots and exact fuel/counters.
-4. Run real native slice/alias/error/GC/debug/quota/eviction tests and full platform
-   gates. Rust/Miri groundwork cannot replace generated-code validation.
-5. Keep admission disabled until the unchanged nine-workload speed, shipping,
-   cold and compiled-Off comparisons support it. Neither original regressions
-   nor full plan acceptance are resolved by this groundwork.
+1. Review and enable a production candidate only after the complete leaf-specific
+   panic/GC/debug/lease/eviction and platform gates; do not replace these with
+   Rust-only model evidence or disable the existing helper fallback.
+2. Measure that candidate with the unchanged nine-workload speed/shipping,
+   cold and compiled-Off comparisons, retaining paired controls and contention.
+   Test-only binaries cannot establish release performance.
+3. Fix the original callback and compiled-Off costs as well as upvalue speed.
+   This leaf stage does not resolve either of those independent regressions.
+4. Retain production admission disabled until all frozen acceptance gates pass.
+   Neither original regressions nor full plan acceptance are resolved yet.
 
 Five runtime experiments were rejected. Their patches, immutable binaries,
 profiles, raw timings and summaries remain under
