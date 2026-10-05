@@ -196,6 +196,39 @@ before execution and during proof/comparison, malformed manifests, successful
 runs and preservation of failed gates. This repairs evidence integrity; it
 does not fix native upvalue or callback performance.
 
+Two register-marshaling candidates are also rejected, each after a complete
+hash-verified 24-block, 144-command comparison. A static writeback set derived
+from verified native operations materializes fewer registers on normal exits
+and preserves full materialization on panic. It passes 554 focused executions,
+46 additional executions and 16 Rust-only helper/owner Miri tests. Nevertheless,
+its direct Auto upvalue speedups versus baseline are 0.9564x speed and 0.9988x
+shipping; callbacks are 0.8901x and 0.9658x. The set iterator is not shipped.
+
+The second candidate avoids classifying register zero's incoming value when
+entry PC zero immediately overwrites it without reading it. A reference marker
+keeps the canonical old value available for budget-zero, helper declines and
+panic; all other entries use original packing. It passes 558 focused executions,
+46 additional executions and six ABI tests under Miri. Direct Auto upvalue gains
+are only 1.0016x speed and 1.0153x shipping, while callbacks do not improve.
+Shipping compiled-Off integer, upvalue, float and callback overhead reaches
+31.04%, 17.08%, 12.96% and 12.34%. Neither candidate passes any of the 24 native
+upvalue or callback batches in either profile. Both runtime changes are restored.
+Their no-feature controls are byte-identical to baseline, and all failed gates,
+source patches, manifests and timing observations remain in the evidence tree.
+
+The independent retained ABI test (`9454c2a`) confirms that a reference marker
+preserves canonical scalar values, including integer extremes, signed zero,
+subnormal and NaN payloads. This contract test does not enable packing elision.
+
+**Next investigation:** the canonical call/return bridge and source-bound
+interprocedural execution, not another counter, cache, frame-driver or packing
+placement variation. Whole-executor profiles and the rejected marshaling runs
+point to repeated boundaries around tiny native callees; this is a direction
+for structural work, not proof that a specific implementation will pass.
+Cross-call execution must retain physical Lua frames, fresh weak identity
+validation for every callee, leases, exact VM/fuel boundaries, canonical GC
+roots and callback/hook/error visibility. No such implementation is claimed.
+
 **Current conclusion:** these changes are valid correctness experiments, not
 accepted regression fixes. The runtime still uses the baseline randomized
 lookup, original counter layout and original interpreter dispatch. A default
