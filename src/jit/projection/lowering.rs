@@ -96,6 +96,93 @@ impl Program {
         Self::build(write, None, Some(fallback))
     }
 
+    #[cfg(test)]
+    fn leaf_helper(
+        kind: u32,
+        fallback: FuncRef,
+        pattern: crate::jit::leaf::Pattern,
+    ) -> Result<Self, JitError> {
+        let (write, a, b, pc) = match kind {
+            abi::HELPER_GET_UPVALUE => (false, pattern.read.0, pattern.upvalue, 0),
+            abi::HELPER_SET_UPVALUE => (true, pattern.upvalue, pattern.result.0, 2),
+            _ => return Err(invalid()),
+        };
+        let mut p = Self {
+            steps: [Step::Guard(0); STEPS],
+            length: 0,
+            values: 6,
+            fallback: Some(fallback),
+        };
+        let zero = p.constant(0);
+        let one = p.constant(1);
+        let two = p.constant(2);
+        let three = p.constant(3);
+        for (parameter, expected) in [(2, a), (3, b), (4, 0), (5, pc)] {
+            let actual = p.value(Expression::Extend(parameter));
+            let expected = p.constant(i64::from(expected));
+            p.guard(IntCC::Equal, actual, expected);
+        }
+        p.guard(IntCC::NotEqual, 0, zero);
+        p.guard(IntCC::NotEqual, 1, zero);
+        let view = p.load(0, 8);
+        p.guard(IntCC::NotEqual, view, zero);
+        let version = p.load(view, 0);
+        let expected = p.constant(crate::jit::leaf::VERSION as i64);
+        p.guard(IntCC::Equal, version, expected);
+        let cell = p.load(view, 8);
+        p.guard(IntCC::NotEqual, cell, zero);
+        let reads = p.value(Expression::Load(types::I32, view, 16));
+        let writes = p.value(Expression::Load(types::I32, view, 20));
+        let zero32 = p.value(Expression::Constant(types::I32, 0));
+        let one32 = p.value(Expression::Constant(types::I32, 1));
+        p.guard(
+            if write {
+                IntCC::UnsignedLessThanOrEqual
+            } else {
+                IntCC::Equal
+            },
+            reads,
+            if write { one32 } else { zero32 },
+        );
+        p.guard(IntCC::Equal, writes, zero32);
+        let dirty = p.load(view, 24);
+        p.guard(IntCC::Equal, dirty, zero);
+        let offset = p.constant(
+            i64::from(if write {
+                pattern.result.0
+            } else {
+                pattern.read.0
+            }) * 16,
+        );
+        let register = p.binary(Opcode::Iadd, 1, offset);
+        let (source, destination) = if write {
+            (register, cell)
+        } else {
+            (cell, register)
+        };
+        let tag = p.load(source, 0);
+        let bits = p.load(source, 8);
+        p.guard(IntCC::UnsignedLessThanOrEqual, tag, three);
+        let numeric = p.compare(IntCC::UnsignedGreaterThanOrEqual, tag, two);
+        let nil = p.compare(IntCC::Equal, tag, zero);
+        let empty = p.compare(IntCC::Equal, bits, zero);
+        let nil = p.binary(Opcode::Band, nil, empty);
+        let boolean = p.compare(IntCC::Equal, tag, one);
+        let boolean_bits = p.compare(IntCC::UnsignedLessThanOrEqual, bits, one);
+        let boolean = p.binary(Opcode::Band, boolean, boolean_bits);
+        let valid = p.binary(Opcode::Bor, nil, boolean);
+        let valid = p.binary(Opcode::Bor, numeric, valid);
+        p.push(Step::Guard(valid));
+        p.push(Step::Store(tag, destination, 0));
+        p.push(Step::Store(bits, destination, 8));
+        p.push(Step::Store(one32, view, if write { 20 } else { 16 }));
+        if write {
+            p.push(Step::Store(one, view, 24));
+        }
+        p.push(Step::Return(one32));
+        Ok(p)
+    }
+
     fn build(
         write: bool,
         indices: Option<(u8, u8)>,
@@ -463,6 +550,27 @@ pub(crate) fn verify_helper(
 }
 
 #[cfg(test)]
+pub(crate) fn emit_leaf_helper(
+    builder: &mut FunctionBuilder<'_>,
+    kind: u32,
+    fallback: FuncRef,
+    pattern: crate::jit::leaf::Pattern,
+) -> Result<(), JitError> {
+    Program::leaf_helper(kind, fallback, pattern)?.emit(builder);
+    Ok(())
+}
+
+#[cfg(test)]
+pub(crate) fn verify_leaf_helper(
+    function: &Function,
+    kind: u32,
+    fallback: FuncRef,
+    pattern: crate::jit::leaf::Pattern,
+) -> Result<(), JitError> {
+    Program::leaf_helper(kind, fallback, pattern)?.verify(function)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::{RegisterIndex as R, UpValueIndex as U};
@@ -494,6 +602,23 @@ mod tests {
     }
 
     fn helper_fixture(kind: u32) -> (Function, FuncRef) {
+        selected_helper_fixture(kind, None)
+    }
+
+    fn leaf_pattern() -> crate::jit::leaf::Pattern {
+        crate::jit::leaf::Pattern {
+            read: R(3),
+            result: R(4),
+            upvalue: 7,
+            arithmetic: crate::jit::leaf::Arithmetic::Add,
+            right: crate::jit::leaf::Operand::Register(R(0)),
+        }
+    }
+
+    fn selected_helper_fixture(
+        kind: u32,
+        pattern: Option<crate::jit::leaf::Pattern>,
+    ) -> (Function, FuncRef) {
         let isa = cranelift_codegen::isa::lookup_by_name(std::env::consts::ARCH)
             .unwrap()
             .finish(settings::Flags::new(settings::builder()))
@@ -523,7 +648,11 @@ mod tests {
         let mut context = FunctionBuilderContext::new();
         {
             let mut builder = FunctionBuilder::new(&mut function, &mut context);
-            emit_helper(&mut builder, kind, fallback).unwrap();
+            if let Some(pattern) = pattern {
+                emit_leaf_helper(&mut builder, kind, fallback, pattern).unwrap();
+            } else {
+                emit_helper(&mut builder, kind, fallback).unwrap();
+            }
             builder.seal_all_blocks();
             builder.finalize(isa.frontend_config());
         }
@@ -556,6 +685,33 @@ mod tests {
             let signature = bad.dfg.ext_funcs[fallback].signature;
             bad.dfg.signatures[signature].call_conv = cranelift_codegen::isa::CallConv::Fast;
             assert!(verify_helper(&bad, kind, fallback).is_err());
+        }
+    }
+
+    #[test]
+    fn leaf_helper_grammar_binds_operands_signature_and_fallback() {
+        let pattern = leaf_pattern();
+        for kind in [abi::HELPER_GET_UPVALUE, abi::HELPER_SET_UPVALUE] {
+            let (function, fallback) = selected_helper_fixture(kind, Some(pattern));
+            verify_leaf_helper(&function, kind, fallback, pattern).unwrap();
+            assert!(verify_leaf_helper(&function, 17 - kind, fallback, pattern).is_err());
+            let mut wrong = pattern;
+            wrong.upvalue += 1;
+            assert!(verify_leaf_helper(&function, kind, fallback, wrong).is_err());
+            let mut wrong = pattern;
+            if kind == abi::HELPER_GET_UPVALUE {
+                wrong.read.0 += 1;
+            } else {
+                wrong.result.0 += 1;
+            }
+            assert!(verify_leaf_helper(&function, kind, fallback, wrong).is_err());
+            let mut bad = function.clone();
+            bad.signature.params[2].extension = cranelift_codegen::ir::ArgumentExtension::Sext;
+            assert!(verify_leaf_helper(&bad, kind, fallback, pattern).is_err());
+            let mut bad = function.clone();
+            let signature = bad.dfg.ext_funcs[fallback].signature;
+            bad.dfg.signatures[signature].call_conv = cranelift_codegen::isa::CallConv::Fast;
+            assert!(verify_leaf_helper(&bad, kind, fallback, pattern).is_err());
         }
     }
 
@@ -605,6 +761,12 @@ mod tests {
         for kind in [abi::HELPER_GET_UPVALUE, abi::HELPER_SET_UPVALUE] {
             let (function, fallback) = helper_fixture(kind);
             fixtures.push((function, Program::helper(kind, fallback).unwrap()));
+            let pattern = leaf_pattern();
+            let (function, fallback) = selected_helper_fixture(kind, Some(pattern));
+            fixtures.push((
+                function,
+                Program::leaf_helper(kind, fallback, pattern).unwrap(),
+            ));
         }
         for (original, program) in fixtures {
             for inst in original

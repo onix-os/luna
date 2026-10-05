@@ -40,6 +40,13 @@ controls also remain unmet; repeated measurements do not erase systematic
 host bias or substitute for passing the frozen gates. This is not full-plan
 acceptance.
 
+The 2026-10-05 native-entry continuation trials were also rejected after 288
+interleaved timing commands: small direct Auto gains did not fix upvalues, and
+disabled execution worsened. Neither runtime change is retained. The new
+guard-fallback test requires one lookup, native entry and guard exit without
+replaying the attempt. `PLAN_JIT.md` records both candidates and their controls;
+the original performance regressions remain unresolved.
+
 ## Enable and prepare
 
 Enable the optional `jit` Cargo feature and set `JitConfig.mode` to `JitMode::Auto`. See `examples/jit.rs`; run it with `nix develop -c make jit-example`.

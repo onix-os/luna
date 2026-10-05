@@ -11,7 +11,147 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Native-entry continuation trials — 2026-10-05
+
+Two further native-entry candidates were measured and rejected. Both move the
+first native attempt ahead of the interpreter loop, retain the prepared-code
+lease on fallback, and skip a duplicate first native attempt. One carries the
+continuation by value in `LuaFrame`; the other borrows a short-lived continuation.
+Off delegates directly to the interpreter in both. Neither runtime change is
+retained. The guard-fallback regression test is retained separately (`ee59936`).
+
+Each candidate completed 24 interleaved blocks in three windows: 144 timing
+commands, both optimization profiles, all nine workloads, eleven paired samples,
+and twelve matched feature-cost batches per profile. Direct gains below mean
+baseline Auto time divided by candidate Auto time, not candidate Off/Auto ratios.
+
+| Continuation | Speed Auto upvalues / callbacks | Shipping Auto upvalues / callbacks | Upvalue Off overhead speed / shipping | Callback Off overhead speed / shipping |
+| --- | --- | --- | --- | --- |
+| By value | 0.987x / 1.002x | 1.028x / 1.010x | 34.23% / 26.64% | 18.34% / 13.78% |
+| Borrowed | 1.036x / 1.006x | 1.046x / 1.011x | 47.12% / 22.81% | 21.40% / 13.29% |
+
+Both fail the unchanged upvalue gate and 5% disabled-cost controls. The borrowed
+variant's apparent speed-profile upvalue Off/Auto ratio reaches 0.987x chiefly
+because Off slows, not because the original native regression was fixed. Even
+the by-value candidate's modest instruction-profile reduction is not timing
+acceptance. No native coverage requirement, threshold or workload was changed.
+
+Each candidate passes GNU Auto correctness (1026 executions in 79 suites, four
+existing ignores), GNU check/JIT check/Clippy with existing warnings, and musl
+native/upvalue/boundary tests (548 passes, four existing ignores). Five statistics
+tests also pass under Miri for the by-value candidate. These are correctness
+results, not performance or complete platform certification.
+
+Evidence is retained under `target/jit-evidence/short-slice-performance/` with
+`native-head` and `native-head-thin` prefixes: immutable binaries, all timing
+results and contention telemetry, summary TSVs, patches, and source archives.
+All artifact/source hashes pass before and after every timing block. The source
+archives independently verify against the original source manifests after the
+experiments are removed. Independently built no-feature controls have identical
+`.text` and `.rodata` to the baseline at both profiles; `.data.rel.ro` differs,
+including changed source-location line metadata. Original binaries were never
+rewritten or substituted, and candidate controls still face the frozen gates.
+
+The retained test calls a prepared arithmetic closure with a table argument and
+requires exactly one native entry, lookup and guard exit, followed by exactly one
+interpreted dispatch before the type error. Further work must address invocation
+and call/return costs without replaying these rejected dispatch restructurings.
+**The original performance regressions remain unresolved.**
+
 #### Short-slice regression investigation — 2026-10-05
+
+##### Grouped statistics rejection and scalar-cell groundwork
+
+A single OR guard around the eight helper-counter merges was tested separately
+from the previously rejected per-field branches. It preserves all saturating
+updates whenever any field is nonzero, including projection-only counts. Full
+GNU Auto verification passes 1027 executions across 79 suites (four existing
+ignores), including 4096 independent mask/base/increment combinations; focused
+musl helper/native/upvalue/projection checks pass 38 tests.
+
+The complete 24-block, three-window comparison still rejects it: direct Auto
+gains are 0.9814x upvalues / 0.9716x callbacks in speed and 1.0025x / 0.9807x in
+shipping. Upvalue compiled-Off overhead remains 10.99% / 8.08%; callback overhead
+is 6.62% / 4.90%, with only seven of twelve shipping callback batches passing.
+Both no-feature controls are byte-identical to the immutable baseline. All 144
+timing commands, failures, profiles, source hashes and verified source archive
+remain under `target/jit-evidence/short-slice-performance/grouped-counts*`.
+The entire production counter change and its implementation test were removed.
+
+The next approach must remove actual hot helper work. `src/jit/leaf.rs` contains
+**test-only groundwork**, not a production optimization: a verified-source
+classifier for four-opcode GetUpValue/add-or-sub-or-mul/SetUpValue/Return leaves,
+and a 32-byte scalar-cell view. Get/set target the same capture; arithmetic
+consumes the fetched register. Register and constant right operands are retained.
+Extra instructions, mismatched destinations, reversed operands and malformed
+snapshots are rejected. Recognition is based on bytecode, not workload names.
+
+Only same-thread open upper/current-frame scalar bindings are intended for this
+path. Closed and foreign-thread cells retain the existing helper path, including
+barrier/panic behavior. The cell exposes scalar scratch, never GC layout. Current
+aliases derive from the original scratch pointer; upper writes become a typed
+commit only after validating version, pointer identity, counts and scalar payload.
+Bindings are consumed per invocation. Read-only/partial/helper-only exits do not
+overwrite upper values. Each admitted straight-line leaf has at most one get and
+one set per invocation. This initial stage did not include generated-code proof.
+
+`make jit-leaf` and `make jit-leaf-miri` validate this groundwork. Eight tests pass
+on GNU/musl and under both default Stacked Borrows and Tree Borrows. They cover
+real parsed bytecode, pending current aliases, NaN/negative-zero/int-extreme
+payloads, invalid view/target refusals, and reference-helper fallback effects.
+**These are Rust binding/model tests, not native execution or performance proof.**
+
+##### Test-only native scalar-cell execution — 2026-10-05
+
+The next stage executes generated getter/setter thunks through the existing
+owned compiler/module pipeline, with the existing arithmetic emitter between
+them. An independent IR walk checks every guard, cell/register store, counter,
+signature and exact six-argument original-helper fallback. Mutation tests reject
+changes to every emitted instruction. Aggregate signatures, IR, blocks,
+relocations, copies and mappings use the existing accounting; failed allocation,
+partial protection and quota tests preserve a live peer and release all charges.
+
+The runtime binding is also **test-only**, not enabled in production. Each entry
+resolves the current closure cell after the ordinary identity/lease path. Current
+aliases use the original scratch base; upper writes commit through checked typed
+register access. Native delta counts merge into the existing runtime statistics.
+Separate test-only fast-path counters distinguish actual cell instructions from
+the public upvalue counters, which also include Rust helpers.
+
+GNU and musl pass 17 leaf, 28 projection and four runtime-projection tests each.
+Native tests cover budgets 0/1/2/3/64, resumed entry PCs, current aliases, upper
+payload bits, reference/descriptor fallback and closed-cell ordinary helpers.
+Whole-executor comparisons cover add/sub/mul, constants, floats, arithmetic
+errors, closed closures, debug capture mutation/join and hooks at fuel 1/17/4096.
+They require identical result and per-slice completion/mode/fuel/dispatch traces,
+collect GC after every slice and verify cache reclamation. Open arithmetic cases
+prove 200 actual fast writes; debug mutation/join cases prove 40/21; closed cells
+prove zero fast writes rather than being silently included in native coverage.
+
+Nine Rust-only binding/typed-commit tests pass under both Miri borrow models.
+The exhaustive projection grammar run passes under Stacked Borrows; its separate
+Tree Borrows run is still pending. These tests are correctness evidence, not
+performance acceptance. Logs and source manifests are retained under
+`target/jit-evidence/short-slice-performance/leaf-native*` and `leaf-runtime*`.
+
+The full i686 fallback gate also caught an older guard fixture unconditionally
+unwrapping unsupported native preparation. It now asserts `Unavailable`, still
+executes the interpreter failure and checks zero native activity plus the same
+dispatch count. `make jit-fallback` passes 2013 executions across 319 suite runs,
+with two existing ignores; the original failure is retained.
+
+Remaining implementation gates:
+
+1. Review and enable a production candidate only after the complete leaf-specific
+   panic/GC/debug/lease/eviction and platform gates; do not replace these with
+   Rust-only model evidence or disable the existing helper fallback.
+2. Measure that candidate with the unchanged nine-workload speed/shipping,
+   cold and compiled-Off comparisons, retaining paired controls and contention.
+   Test-only binaries cannot establish release performance.
+3. Fix the original callback and compiled-Off costs as well as upvalue speed.
+   This leaf stage does not resolve either of those independent regressions.
+4. Retain production admission disabled until all frozen acceptance gates pass.
+   Neither original regressions nor full plan acceptance are resolved yet.
 
 Five runtime experiments were rejected. Their patches, immutable binaries,
 profiles, raw timings and summaries remain under
