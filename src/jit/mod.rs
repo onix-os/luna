@@ -66,7 +66,13 @@ mod handoff;
 mod helper_flow;
 mod helpers;
 pub(crate) mod ir;
-#[cfg(test)]
+#[cfg(any(
+    test,
+    all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )
+))]
 mod leaf;
 #[cfg(all(
     target_os = "linux",
@@ -916,6 +922,16 @@ impl Runtime {
             #[cfg(test)]
             let failure = self.0.borrow().memory_failure;
             let compile = || {
+                #[cfg(all(not(test), not(miri)))]
+                if leaf::Pattern::recognize(&snapshot).is_some() {
+                    return backend::compile_leaf_pair_in(
+                        &snapshot,
+                        memory.clone(),
+                        limit,
+                        metadata.clone(),
+                        work,
+                    );
+                }
                 #[cfg(all(test, not(miri)))]
                 if self.0.borrow().scalar_kernels && leaf::Pattern::recognize(&snapshot).is_some() {
                     return backend::compile_leaf_pair_in(
@@ -978,7 +994,6 @@ impl Runtime {
                             manager.metadata.0.set_limit(manager.metadata.0.current());
                         }
                         let reserved = manager.code.try_reserve(1);
-                        #[cfg(all(test, not(miri)))]
                         let (code, reserved) = if reserved.is_err() {
                             let mut code = code;
                             if code.discard_scalar_kernel() {
@@ -1004,10 +1019,7 @@ impl Runtime {
                             }
                             _ => {}
                         }
-                        #[cfg(all(test, not(miri)))]
                         let owner = code.into_shared(manager.metadata.clone());
-                        #[cfg(not(all(test, not(miri))))]
-                        let owner = owner::Shared::try_new(code, manager.metadata.clone());
                         let code = match owner {
                             Ok(code) => code,
                             Err(_) => {
@@ -1161,14 +1173,18 @@ impl Runtime {
         let slots = unsafe {
             std::slice::from_raw_parts_mut(scratch.as_mut_ptr().cast::<abi::Slot>(), register_count)
         };
-        #[cfg(all(test, not(miri)))]
+        #[cfg(not(miri))]
         if let Some(kernel) = &code.scalar_kernel {
             let pattern = kernel.scalar_leaf.expect("scalar kernel has no pattern");
-            let binding = closure
-                .upvalues()
-                .get(usize::from(pattern.upvalue))
-                .and_then(|cell| registers.projection_origin(cell.get()))
-                .and_then(|origin| leaf::Binding::from_origin(origin, slots));
+            let binding = if pattern.permits_cell_entry(*registers.pc, slots) {
+                closure
+                    .upvalues()
+                    .get(usize::from(pattern.upvalue))
+                    .and_then(|cell| registers.projection_origin(cell.get()))
+                    .and_then(|origin| leaf::Binding::from_origin(origin, slots))
+            } else {
+                None
+            };
             if let Some(binding) = binding {
                 return self.invoke_scalar_kernel(kernel, registers, slots, binding, budget);
             }
@@ -1202,7 +1218,6 @@ impl Runtime {
     }
 
     #[cfg(all(
-        test,
         not(miri),
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
@@ -1229,14 +1244,17 @@ impl Runtime {
             .apply_registers(registers)
             .expect("invalid scalar kernel commit target");
         let mut manager = self.0.borrow_mut();
-        manager.scalar_native_counts.0 = manager
-            .scalar_native_counts
-            .0
-            .saturating_add(u64::from(delta.reads));
-        manager.scalar_native_counts.1 = manager
-            .scalar_native_counts
-            .1
-            .saturating_add(u64::from(delta.writes));
+        #[cfg(test)]
+        {
+            manager.scalar_native_counts.0 = manager
+                .scalar_native_counts
+                .0
+                .saturating_add(u64::from(delta.reads));
+            manager.scalar_native_counts.1 = manager
+                .scalar_native_counts
+                .1
+                .saturating_add(u64::from(delta.writes));
+        }
         manager.stats.native_upvalue_reads = manager
             .stats
             .native_upvalue_reads

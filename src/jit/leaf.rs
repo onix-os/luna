@@ -27,6 +27,15 @@ pub(super) struct Pattern {
 }
 
 impl Pattern {
+    #[cfg(not(miri))]
+    pub(super) fn permits_cell_entry(self, pc: usize, slots: &[abi::Slot]) -> bool {
+        pc != 2
+            || slots
+                .get(usize::from(self.result.0))
+                .copied()
+                .is_some_and(scalar)
+    }
+
     pub(super) fn recognize(snapshot: &Snapshot) -> Option<Self> {
         use crate::opcode::RCIndex;
         use Operation::*;
@@ -195,6 +204,7 @@ impl Delta {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(super) fn apply_upper(&self, upper: &mut [Value<'_>]) -> Result<(), Error> {
         if let Some((index, value)) = self.upper {
             let target = upper.get_mut(index).ok_or(Error::TargetRange)?;
@@ -1500,6 +1510,22 @@ mod tests {
         #[test]
         fn executor_kernel_preserves_fuel_gc_errors_closed_cells_and_hooks() {
             compare_executor_leaves(true);
+        }
+
+        #[test]
+        fn executor_kernel_keeps_reference_results_on_the_original_native_set_entry() {
+            let source = "local sum=1 local function add(v) sum=sum+v end local t=setmetatable({}, {__add=function() return {} end}) add(t) return type(sum)";
+            for budget in [1, 17, 4096] {
+                let reference = executor_run(source, false, budget, true);
+                let native = executor_run(source, true, budget, true);
+                assert_eq!(native.result, "table");
+                assert_eq!(native.result, reference.result);
+                assert_eq!(native.slices, reference.slices);
+                assert_eq!(native.stats.native_upvalue_reads, 3);
+                assert_eq!(native.scalar_native_counts.0, 1);
+                assert_eq!(native.stats.native_upvalue_writes, 1);
+                assert_eq!(native.scalar_native_counts.1, 0);
+            }
         }
 
         fn compare_executor_leaves(kernels: bool) {

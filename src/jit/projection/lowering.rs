@@ -97,7 +97,6 @@ impl Program {
         Self::build(write, None, Some(fallback))
     }
 
-    #[cfg(test)]
     fn leaf_helper(
         kind: u32,
         fallback: FuncRef,
@@ -106,12 +105,10 @@ impl Program {
         Self::leaf_program(kind, Some(fallback), pattern, false)
     }
 
-    #[cfg(test)]
     fn leaf_cell_helper(kind: u32, pattern: crate::jit::leaf::Pattern) -> Result<Self, JitError> {
         Self::leaf_program(kind, None, pattern, true)
     }
 
-    #[cfg(test)]
     fn leaf_program(
         kind: u32,
         fallback: Option<FuncRef>,
@@ -567,7 +564,6 @@ pub(crate) fn verify_helper(
     Program::helper(kind, fallback)?.verify(function)
 }
 
-#[cfg(test)]
 pub(crate) fn emit_leaf_helper(
     builder: &mut FunctionBuilder<'_>,
     kind: u32,
@@ -578,7 +574,6 @@ pub(crate) fn emit_leaf_helper(
     Ok(())
 }
 
-#[cfg(test)]
 pub(crate) fn verify_leaf_helper(
     function: &Function,
     kind: u32,
@@ -588,7 +583,6 @@ pub(crate) fn verify_leaf_helper(
     Program::leaf_helper(kind, fallback, pattern)?.verify(function)
 }
 
-#[cfg(test)]
 pub(crate) fn emit_leaf_cell_helper(
     builder: &mut FunctionBuilder<'_>,
     kind: u32,
@@ -598,7 +592,6 @@ pub(crate) fn emit_leaf_cell_helper(
     Ok(())
 }
 
-#[cfg(test)]
 pub(crate) fn verify_leaf_cell_helper(
     function: &Function,
     kind: u32,
