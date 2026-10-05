@@ -11,6 +11,63 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Source-bound continuation groundwork — 2026-10-05
+
+Fresh symbol-retained GNU speed-profile Callgrind pairs at `7b3ad9e` confirm
+remaining work outside the scalar kernel. Both workloads ran three measured
+iterations after two warmups, collecting only executor steps with the existing
+Make profiler target. These are simulated instruction counts, not speedups,
+hardware cache measurements or frozen performance acceptance.
+
+| Workload | No-feature instructions | Compiled-Off | Auto |
+| --- | ---: | ---: | ---: |
+| Upvalues | 91,575,447 | 98,775,408 | 128,942,572 |
+| Callbacks | 42,538,855 | 44,589,445 | 48,878,096 |
+
+Upvalue Auto's flat counts include 38,411,276 instructions in `run_vm`,
+16,394,642 in the eight-register invocation and 9,035,208 in the two-register
+invocation. The original/compiled-Off controls and Auto profile each use their
+own verified binaries; the archived `7b3ad9e` source independently verifies.
+No claim of byte-identical equivalence to the original frozen control is made.
+
+`src/jit/continuations.rs` adds **test-only groundwork** for a native call driver:
+immutable, metadata-charged Call/TailCall/Return records built during the existing
+source-verified compiler/owner pipeline. An independent opcode-encoding walk
+checks record cardinality, PCs and every operand. Requests borrow the verified
+table, keeping its owning code borrow alive. Guard, budget, panic, unknown-reason
+and invalid-PC exits cannot resolve as call requests. The records describe an
+exit; they do not themselves authorize fuel, hooks, a callee source or execution.
+
+Actual generated-code tests reach all three transition classes, including
+constant/variable argument and result counts, and preserve native budget exits.
+Optional table storage/allocation and late owner refusals retain ordinary code,
+live peer leases and exact resource reclamation. Mutation cases reject every
+transition operand/kind, missing/moved records and incorrect cardinality.
+The table remains usable after temporary snapshots are dropped; no GC pointer,
+recursive native call or new unsafe block was introduced.
+
+GNU/musl focused and GNU Auto all-feature validation passes 1,168 repeated
+executions/86 suites, four existing ignores, zero failures; formatting and GNU
+baseline/JIT checks pass. Expanded GNU/musl cases pass ten executions/two suites.
+The expanded three pure tests pass under each of Stacked seed one and Tree seed
+two (six executions/two suites); Miri excludes machine-code tests. Current ARM64
+execution evidence has not been collected for this groundwork.
+
+Evidence under `target/jit-evidence/short-slice-performance/cross-call-current/`
+includes matched profiling binaries/manifests, four profiling pairs, source
+archive/verification and continuation validation logs. No production dispatch
+change or performance fix is enabled. Original callback, upvalue and compiled-Off
+gates remain required and unmet.
+
+Next implement a scoped activation host that owns the canonical thread/stack
+borrow, not persistent register slices: materialize caller state, validate the
+actual callee source/lease, enter a physical frame, execute a bounded generated
+region and perform canonical Return/fuel/statistics transitions. Release register
+views before frame changes or vector growth, and release the host before user
+callbacks, sequences, collection and host returns. Aggregate source/exit proof,
+quota/late-refusal recovery and exact interrupted public-step comparisons are
+required before any generated call integration or performance acceptance.
+
 #### Integer activation production candidate — 2026-10-05
 
 **Rejected and disabled in `56f4f8e`; results below supersede the candidate
