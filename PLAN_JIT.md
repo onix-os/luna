@@ -78,6 +78,9 @@ Additional counter and cache experiments were also rejected:
 | Scan small existing maps, default inlining | 1.119x / 1.074x | 1.118x / 1.040x | 5.64% / 14.41% |
 | Batch interpreter statistics across VM slices | 1.018x / 0.998x | 1.037x / 0.998x | 4.22% / 5.85% |
 | Reuse the move helper's source scalar slot | 0.995x / 1.002x | 0.999x / 0.974x | 8.57% / 20.10% |
+| Continue Lua frames inside the executor | 1.106x / 1.005x | 1.066x / 0.996x | 7.97% / 7.85% |
+| Outlined native Lua-frame continuation | 1.105x / 0.995x | 1.083x / 0.981x | 6.88% / 9.82% |
+| Outlined continuation, fresh mode query | 1.112x / 1.002x | 1.072x / 0.985x | 8.46% / 15.20% |
 
 These use the same 24-block comparison protocol. The inline index produces the
 first sustained double-digit native upvalue gains, but its compiled-Off cost
@@ -154,6 +157,44 @@ Shipping compiled-Off integer, table and upvalue overhead reaches 23.72%,
 to baseline. The helper implementation is restored; only expanded tests for
 nil, both booleans, integer extremes, signed zero and NaN payloads are retained.
 This smaller helper body is not evidence of lower integrated execution cost.
+
+Three Lua-frame continuation designs are also rejected. They retain canonical
+call frames, VM slice sizes, fuel charges, fresh source checks and per-slice
+leases, but avoid general executor dispatch between successive Lua frames.
+The second outlines that native-only loop; the third removes its step-wide
+mode flag and queries the current mode at each general Lua-frame entry.
+Neither resolves the feature-Off trade-off. The outlined version raises speed
+integer Off overhead to 15.59%; the fresh-query version raises shipping
+upvalue overhead to 15.20%. Callback execution does not improve materially.
+Each final comparison has 24 blocks, 144 commands and verified source/binary
+hashes before and after every block. No frame driver is committed.
+
+The retained differential test (`f69ad10`) covers 64 scenarios: ordinary and
+tail calls, protected errors and close handlers; eight initial fuel budgets
+through `i32::MAX`; and pre-interrupted or uninterrupted steps. It compares
+completion, executor mode, remaining fuel, interrupt state and dispatch totals
+after every step, then checks results and native exit partitions. Both outlined
+drivers pass 91 focused executions across 13 suites and five Rust-only
+statistics/Miri tests (seed one), including nested executor callbacks.
+
+A diagnostic artifact incident was also corrected. `objcopy --dump-section`
+without an explicit output ELF rewrites its input file. The dumped text was
+unchanged, but section-header metadata moved and full-file hashes changed.
+Program headers remained identical; byte differences within loaded segments
+were confined to the ELF section-header-offset field. Original hash-verified
+files were restored from retained copies. The first frame comparison is kept
+as invalid for immutable-artifact acceptance, then repeated in full. Earlier
+estimates using rewritten controls describe equivalent runtime images, not
+release artifact certification. Future extraction must specify an explicit
+output ELF, never rewrite an input implicitly.
+
+`make jit-size-run` now checks its artifact manifest before native proof,
+before timing and after timing, including when a performance gate fails.
+Verification uses the current directory's binaries even if a copied manifest
+names an earlier directory. Focused shell tests cover relocation, mutations
+before execution and during proof/comparison, malformed manifests, successful
+runs and preservation of failed gates. This repairs evidence integrity; it
+does not fix native upvalue or callback performance.
 
 **Current conclusion:** these changes are valid correctness experiments, not
 accepted regression fixes. The runtime still uses the baseline randomized
