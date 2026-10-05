@@ -11,6 +11,38 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Scoped activation-host groundwork — 2026-10-05
+
+The new **test-only** host retains the canonical whole-stack/thread borrow and
+creates a fresh, lifetime-scoped register view for each VM activation. It drops
+the host before callbacks, sequences, error handling and public host returns.
+Physical frames, per-activation instruction/step fuel and immediate statistics
+publication remain canonical. This is not generated cross-function execution,
+a production optimization or a verified performance fix.
+
+Exact public-step comparisons cover nine cases, four fuel budgets, three scope
+limits and Off/Auto, including hooks, errors, closes, varargs, coroutines,
+interrupting callbacks and nested executors reading a caller capture. Additional
+tests require actual stack-capacity growth and native work in multi-activation
+scopes. Optional continuation metadata now joins scalar kernels in cache/owner
+allocation fallback; refusal tests execute ordinary native entries and preserve
+live peer leases. Small-table cases cannot guarantee enough space for cache
+growth plus ordinary ownership; the successful recovery fixture uses a longer
+real Lua body, and the failed short fixtures are retained.
+
+Runtime commit `64ddb6d` passes GNU/musl focused plus GNU Auto all-feature
+validation: 1,177 repeated
+executions across 86 suites, with four existing ignores and zero failures.
+Formatting and GNU baseline/JIT checks pass. The bounded scoped-host nested
+executor test also passes under Stacked Borrows seed one and Tree Borrows seed
+two in the pinned Miri shell (two executions/two suites); machine code is not
+executed by Miri. Logs, including failed fixture and
+tool invocations, are retained in
+`target/jit-evidence/short-slice-performance/activation-host/`.
+No new ARM64 execution or performance acceptance is claimed. The next required
+work is a source/lease-verified generated call tier, followed by unchanged paired
+performance gates; upvalue, callback and compiled-Off regressions remain open.
+
 #### Source-bound continuation groundwork — 2026-10-05
 
 Fresh symbol-retained GNU speed-profile Callgrind pairs at `7b3ad9e` confirm

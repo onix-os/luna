@@ -75,6 +75,13 @@ the original performance regressions remain unresolved.
 
 ## Enable and prepare
 
+The scoped activation host and source-owned call-transition tables are currently
+test-only groundwork. They preserve canonical frames, fuel and callback release
+boundaries; they do not enable generated Lua-to-Lua calls or fix the measured
+performance regressions. `make jit-activation-tests` exercises the private path;
+`nix develop .#miri -c make jit-activation-host-miri` checks the bounded nested
+executor fixture without executing machine code.
+
 Enable the optional `jit` Cargo feature and set `JitConfig.mode` to `JitMode::Auto`. See `examples/jit.rs`; run it with `nix develop -c make jit-example`.
 
 The native dependency set uses Rust 1.97.1 in the Nix shell and CI; the pinned
