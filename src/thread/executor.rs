@@ -1248,6 +1248,22 @@ mod activation_tests {
         }
     }
 
+    #[test]
+    fn scalar_activation_refusals_match_compiled_shapes() {
+        let mut lua = Lua::empty();
+        for source in [
+            "local n=1 local function f() n=n+n end return f",
+            "local n=0 local function f(x,t) n=n+x return t end return f",
+        ] {
+            lua.enter(|ctx| {
+                let closure = Closure::load(ctx, None, source.as_bytes()).unwrap();
+                let prototype = closure.prototype().prototypes[0];
+                let operations: Vec<_> = prototype.opcodes.iter().map(|op| op.decode()).collect();
+                assert!(operations.len() > 4, "{source}: {operations:?}");
+            });
+        }
+    }
+
     fn compare_canonical_slices(kernels: bool) {
         for source in [
             "local function f(x) return x+1 end local n=0 for i=1,100 do n=f(n) end return n",
