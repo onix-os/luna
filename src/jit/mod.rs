@@ -26,6 +26,8 @@ mod atomic_owner;
 ))]
 mod backend;
 #[cfg(test)]
+mod calls;
+#[cfg(test)]
 mod continuations;
 #[cfg(all(
     target_os = "linux",
