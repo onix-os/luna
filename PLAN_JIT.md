@@ -75,6 +75,7 @@ Additional counter and cache experiments were also rejected:
 | Cumulative execution/helper cells | 1.081x / 1.028x | 1.077x / 1.021x | 10.07% / 7.86% |
 | Scan small existing maps, outlined | 1.132x / 1.073x | 1.091x / 1.042x | 6.42% / 5.98% |
 | Scan small existing maps, forced inline | 1.116x / 1.071x | 1.117x / 1.048x | 5.52% / 14.06% |
+| Scan small existing maps, default inlining | 1.119x / 1.074x | 1.118x / 1.040x | 5.64% / 14.41% |
 
 These use the same 24-block comparison protocol. The inline index produces the
 first sustained double-digit native upvalue gains, but its compiled-Off cost
@@ -134,8 +135,12 @@ to baseline. The source and property test are restored, not shipped.
 **Current conclusion:** these changes are valid correctness experiments, not
 accepted regression fixes. The runtime still uses the baseline randomized
 lookup, original counter layout and original interpreter dispatch. A default
-optimizer-selected small-map accessor has not been tested; the two forced
-inlining choices do not exhaust that design. Further work must address the
+optimizer-selected small-map accessor is now also rejected after the same
+24-block comparison. It passes the focused checks and nine owner/Miri tests
+(seed one), but shipping upvalue, float and callback Off overheads reach
+14.41%, 8.27% and 6.86%, respectively. Both no-feature binaries match baseline
+byte for byte. This exhausts the planned small-map inlining variations.
+Further work must address the
 remaining short-call/source-lookup costs without introducing new Off or
 shipping regressions. No workload, threshold or native coverage was weakened,
 and CPU contention is not treated as a blocker.
