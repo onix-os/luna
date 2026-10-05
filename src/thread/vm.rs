@@ -54,6 +54,7 @@ fn positioned_error<'gc>(
 }
 
 #[cfg(all(
+    test,
     feature = "jit",
     not(miri),
     target_os = "linux",

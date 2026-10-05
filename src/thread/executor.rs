@@ -631,6 +631,7 @@ impl<'gc> Executor<'gc> {
                             fuel,
                         };
                         #[cfg(all(
+                            test,
                             feature = "jit",
                             not(miri),
                             target_os = "linux",
@@ -638,6 +639,7 @@ impl<'gc> Executor<'gc> {
                         ))]
                         let mut lua_frame = lua_frame;
                         #[cfg(all(
+                            test,
                             feature = "jit",
                             not(miri),
                             target_os = "linux",
@@ -662,6 +664,7 @@ impl<'gc> Executor<'gc> {
                             run_vm(ctx, lua_frame, Self::VM_GRANULARITY)
                         };
                         #[cfg(not(all(
+                            test,
                             feature = "jit",
                             not(miri),
                             target_os = "linux",
@@ -1277,6 +1280,43 @@ mod activation_tests {
                 assert!(operations.len() > 4, "{source}: {operations:?}");
             });
         }
+    }
+
+    #[cfg(all(
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[test]
+    fn scalar_activation_executes_without_upvalue_helpers() {
+        let mut lua = Lua::empty();
+        lua.set_jit_config(crate::JitConfig {
+            mode: crate::JitMode::Auto,
+            hot_threshold: 1,
+            ..Default::default()
+        })
+        .unwrap();
+        let executor = lua.enter(|ctx| {
+            ctx.jit().test_scalar_kernels(true);
+            let closure = Closure::load(
+                ctx,
+                None,
+                b"local sum=1 local function add(v) sum=sum+v end add(2) return sum",
+            )
+            .unwrap();
+            ctx.stash(Executor::start(ctx, closure.into(), ()))
+        });
+        assert_eq!(lua.prepare_jit().unwrap(), 2);
+        assert_eq!(lua.execute::<i64>(&executor).unwrap(), 3);
+        let stats = lua.jit_stats();
+        assert_eq!(stats.native_upvalue_reads, 1);
+        assert_eq!(stats.native_upvalue_writes, 1);
+        assert!(stats.helper_calls < 2, "{stats:?}");
+        assert_eq!(
+            lua.enter(|ctx| ctx.jit().test_scalar_activation_entries()),
+            1
+        );
     }
 
     fn compare_canonical_slices(kernels: bool) {
