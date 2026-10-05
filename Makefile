@@ -439,6 +439,10 @@ jit-stats:
 	@$(CARGO) test --locked -p luna --features jit --test jit_fallback $(TARGET_ARG)
 	@$(MAKE) --no-print-directory jit-native jit-heap
 
+.PHONY: jit-stats-miri
+jit-stats-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::stats_tests -- --test-threads=1
+
 .PHONY: stdlib-portability jit-fallback
 stdlib-portability:
 	@$(CARGO) test --locked -p luna --lib $(TARGET_ARG) string::tests

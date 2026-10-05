@@ -410,6 +410,60 @@ mod stats_tests {
             assert_eq!(stats.interpreted_instructions, 2);
         }
     }
+    #[test]
+    fn interpreter_counts_are_published_before_reentrant_callbacks() {
+        use crate::{Callback, CallbackReturn, Closure, Executor, Fuel, Lua};
+        use std::{cell::RefCell, rc::Rc};
+
+        let run = |mode| {
+            let mut lua = Lua::empty();
+            lua.set_gc_pacing(false);
+            lua.set_jit_config(JitConfig {
+                mode,
+                hot_threshold: u32::MAX,
+                ..Default::default()
+            })
+            .unwrap();
+            let observed = Rc::new(RefCell::new(Vec::new()));
+            let snapshots = observed.clone();
+            let executor = lua.enter(|ctx| {
+                let child =
+                    Closure::load(ctx, None, b"local n=0 for i=1,7 do n=n+i end return n").unwrap();
+                let callback =
+                    Callback::from_fn_with(&ctx, child, move |child, ctx, _, mut stack| {
+                        let before = ctx.jit().0.borrow().stats.total_dispatches;
+                        assert!(before > 0);
+                        let nested = Executor::start(ctx, (*child).into(), ());
+                        let mut fuel = Fuel::with(65536);
+                        while !nested.step(ctx, &mut fuel).unwrap() {}
+                        assert_eq!(nested.take_result::<i64>(ctx).unwrap().unwrap(), 28);
+                        let after = ctx.jit().0.borrow().stats.total_dispatches;
+                        assert!(after > before);
+                        snapshots.borrow_mut().push((before, after));
+                        stack.clear();
+                        Ok(CallbackReturn::Return)
+                    });
+                ctx.globals().set(ctx, "inspect", callback).unwrap();
+                let parent = Closure::load(
+                    ctx,
+                    None,
+                    b"local n=0 for i=1,5 do n=n+i end inspect() return n",
+                )
+                .unwrap();
+                ctx.stash(Executor::start(ctx, parent.into(), ()))
+            });
+            if !cfg!(miri) && mode == JitMode::Auto && lua.jit_capabilities().supported_target {
+                assert_eq!(lua.prepare_jit().unwrap(), 2);
+            }
+            assert_eq!(lua.execute::<i64>(&executor).unwrap(), 15);
+            let stats = lua.jit_stats();
+            let snapshots = observed.borrow().clone();
+            assert_eq!(snapshots.len(), 1);
+            assert!(stats.total_dispatches > snapshots[0].1);
+            (snapshots, stats.total_dispatches)
+        };
+        assert_eq!(run(JitMode::Off), run(JitMode::Auto));
+    }
 }
 
 /// Configuration, admission, or native compilation failure.
