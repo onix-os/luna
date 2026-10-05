@@ -1,5 +1,11 @@
 # Native JIT: experimental scalar and heap tier
 
+The test-only aggregate call bridge now executes against canonical Lua frames
+(`d361c6e`, `make jit-call-canonical`), with source guards, fresh capture views
+after Call, canonical Return/fuel and callback/collection lifetime checks.
+Production selection and queued pair preparation remain unimplemented; this
+does not establish an upvalue, callback or compiled-Off performance fix.
+
 The straight-line integer leaf production candidate also failed the complete
 frozen comparison and is disabled. The emitter and real helper-free execution
 proofs remain test-only, including integer overflow and canonical public steps.

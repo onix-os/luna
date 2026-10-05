@@ -11,6 +11,45 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Canonical aggregate call bridge — 2026-10-05
+
+`d361c6e` connects the linked program to **real Lua frames in tests**. Entry
+validates both live weak-registry source identities, current Call operands,
+fixed arguments, an integer same-thread capture and the fuel boundary before
+mutating the caller. Canonical Call advances the PC, shifts arguments and
+charges its ordinary transition and executor-step fuel. A fresh callee view
+then resolves the capture again; late refusal retains the consumed Call.
+
+Native pointers refer only to session-owned scalar scratch and mirrors, not
+GC objects or borrowed register slices. Leave materializes through a fresh
+typed frame view and uses canonical Return only for the completed leaf exit.
+Declined leaf budgets retain the callee at PC zero. Both C hooks contain
+unwinding; dispatch and native counters publish before returning to callbacks.
+Hook suppression is cleared at the physical frame depth before native entry.
+
+`make jit-call-canonical` runs eleven tests covering add/sub/mul and wrapping,
+exact frame/stack/fuel/dispatch traces across fuel cutoffs and interrupts,
+argument-shift aliases, late capture refusal, callee stack growth, source and
+budget mismatches, closed/foreign captures, callbacks/tables/hooks, call-depth
+refusal, contained hook panic, collection and nested executor callbacks after
+the host borrow is released. Compiler snapshots are dropped before execution.
+Logs, including failed draft assumptions, are retained under
+`target/jit-evidence/short-slice-performance/call-canonical/`.
+
+Committed-source GNU/musl focused tests and GNU Auto all-feature validation
+pass 1,194 repeated executions across 90 suites, four existing ignores and
+zero failures. Formatting and GNU baseline/JIT checks pass without new compiler
+warnings. These counts are correctness evidence, not acceptance timing.
+The existing Rust-only scoped-host nested-callback smoke passes pinned Miri
+Stacked seed one and Tree seed two (two executions). The new machine-code
+bridge is excluded from Miri; the smoke does not certify its C hooks.
+
+This is **not production integration or a measured regression fix**. The pair
+must still join out-of-arena queued preparation with weak-source cancellation,
+resource admission, owned code leases and a private executor selector before
+promotion. No new ARM64 or native-code Miri evidence is claimed. The original
+upvalue, callback and compiled-Off acceptance gates remain unchanged and open.
+
 #### Linked aggregate native execution — 2026-10-05
 
 `2d869b6` adds **test-only native linking and execution** for the two-function
@@ -37,7 +76,7 @@ Formatting and GNU baseline/JIT checks pass. Evidence and retained draft/fixture
 failures are in `target/jit-evidence/short-slice-performance/call-native/`.
 Machine-code tests are not Miri evidence; no new ARM64 execution is claimed.
 
-The hooks still operate on scalar models, **not canonical Lua frames**. Actual
+At this earlier checkpoint the hooks operate on scalar models, **not canonical Lua frames**. Actual
 callee weak-source/lease guards and scoped physical-frame/fuel/statistics
 integration remain next. No production selector or performance improvement is
 enabled, and the original upvalue/callback/compiled-Off gates remain unresolved.
