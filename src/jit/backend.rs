@@ -320,6 +320,58 @@ pub(super) fn compile_in(
     work: super::work::Limits,
     #[cfg(test)] failure: Failure,
 ) -> Result<Code, JitError> {
+    compile_selected(
+        snapshot,
+        total,
+        limit,
+        metadata,
+        work,
+        Selection {
+            projected: false,
+            #[cfg(test)]
+            failure,
+        },
+    )
+}
+
+#[cfg(test)]
+pub(super) fn compile_projected_in(
+    snapshot: &Snapshot,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    work: super::work::Limits,
+    failure: Failure,
+) -> Result<Code, JitError> {
+    compile_selected(
+        snapshot,
+        total,
+        limit,
+        metadata,
+        work,
+        Selection {
+            projected: true,
+            failure,
+        },
+    )
+}
+
+struct Selection {
+    projected: bool,
+    #[cfg(test)]
+    failure: Failure,
+}
+
+fn compile_selected(
+    snapshot: &Snapshot,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    work: super::work::Limits,
+    selection: Selection,
+) -> Result<Code, JitError> {
+    #[cfg(test)]
+    let failure = selection.failure;
     let expansion = super::work::Expansion::admit(snapshot, work)?;
     let graph = super::flow::FlowGraph::new(snapshot)?;
     let mut stores = super::tags::Stores::new(&graph, snapshot)?;
@@ -404,13 +456,14 @@ pub(super) fn compile_in(
     let helper_types = [ptr, ptr, types::I32, types::I32, types::I32, types::I32];
     let helper_returns = [types::I32];
     let projected_kinds = [abi::HELPER_GET_UPVALUE, abi::HELPER_SET_UPVALUE].map(|kind| {
-        snapshot.operations.iter().any(|operation| {
-            matches!(
-                (kind, operation),
-                (abi::HELPER_GET_UPVALUE, Operation::GetUpValue { .. })
-                    | (abi::HELPER_SET_UPVALUE, Operation::SetUpValue { .. })
-            )
-        })
+        selection.projected
+            && snapshot.operations.iter().any(|operation| {
+                matches!(
+                    (kind, operation),
+                    (abi::HELPER_GET_UPVALUE, Operation::GetUpValue { .. })
+                        | (abi::HELPER_SET_UPVALUE, Operation::SetUpValue { .. })
+                )
+            })
     });
     let projection_count = projected_kinds.iter().filter(|&&needed| needed).count();
     let signature_bytes = signature_storage_bytes(

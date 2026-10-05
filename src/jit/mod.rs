@@ -2192,6 +2192,32 @@ mod runtime_projection_tests {
         Closure, Value,
     };
 
+    fn projected_code(snapshot: &ir::Snapshot, total: resources::MappingCounter) -> backend::Code {
+        backend::compile_projected_in(
+            snapshot,
+            total,
+            128 * 1024,
+            resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
+            work::Limits::from(&JitConfig::default()),
+            backend::Failure::None,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn default_admission_keeps_rejected_projection_disabled() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = Closure::load(ctx, None, b"_ENV = 42; return _ENV").unwrap();
+            let snapshot = ir::Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
+            let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
+            let code = backend::compile(&snapshot, total.clone(), 128 * 1024).unwrap();
+            assert!(!code.projected_upvalues);
+            drop(code);
+            assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 0);
+        });
+    }
+
     #[test]
     fn projected_module_failures_release_all_images_and_preserve_peer() {
         let mut lua = crate::Lua::empty();
@@ -2202,7 +2228,7 @@ mod runtime_projection_tests {
             let metadata = resources::BudgetAllocator(metadata_ledger.clone());
             let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
             let limits = work::Limits::from(&JitConfig::default());
-            let peer = backend::compile_in(
+            let peer = backend::compile_projected_in(
                 &snapshot,
                 total.clone(),
                 128 * 1024,
@@ -2222,7 +2248,7 @@ mod runtime_projection_tests {
                 backend::Failure::RequireSignatures(snapshot_baseline),
                 backend::Failure::RequireRelocationCopy(snapshot_baseline),
             ] {
-                let result = backend::compile_in(
+                let result = backend::compile_projected_in(
                     &snapshot,
                     total.clone(),
                     128 * 1024,
@@ -2266,7 +2292,7 @@ mod runtime_projection_tests {
             let closure = Closure::load(ctx, None, b"_ENV = 42; return _ENV").unwrap();
             let snapshot = ir::Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
             let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
-            let code = backend::compile(&snapshot, total.clone(), 128 * 1024).unwrap();
+            let code = projected_code(&snapshot, total.clone());
             assert!(code.projected_upvalues);
             let cell = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(7)));
             closure.set_upvalue(&ctx, 0, cell);
@@ -2311,7 +2337,7 @@ mod runtime_projection_tests {
             let closure = Closure::load(ctx, None, b"return _ENV").unwrap();
             let snapshot = ir::Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
             let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
-            let code = backend::compile(&snapshot, total.clone(), 128 * 1024).unwrap();
+            let code = projected_code(&snapshot, total.clone());
             assert!(code.projected_upvalues);
             for value in [
                 Value::Integer(41),
