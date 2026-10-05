@@ -256,8 +256,8 @@ projection ABI, rather than another helper-shim placement variation. The
 current helpers still cross into Rust for each get/set; moving the unwind
 boundary does not remove that transition. A projection could let verified
 native code operate on scalar slots without reading Rust `Value` or GC layouts.
-The Rust projection model is implemented and test-gated; native lowering and
-the live projection ABI are not implemented or accepted. Before native use it
+The Rust projection model and scoped descriptor are implemented and test-gated;
+native lowering and the live host ABI are not implemented or accepted. Before native use it
 requires:
 
 - Fresh cell resolution and alias deduplication at entry, with current-frame
@@ -290,7 +290,24 @@ JIT checks and the all-feature Clippy command pass, with existing lint warnings.
 The component and accessors are `cfg(test)` and appended after production
 definitions; there is no release runtime activation or new performance claim.
 
-**Still required:** native-facing pointer/lifetime exposure, compiler lowering,
+**Scoped descriptor:** `src/jit/projection/native.rs` lends a versioned, 64-byte
+C-layout descriptor on 64-bit targets. It contains bounded binding/cell/scratch
+pointers and operation counters; typed GC targets remain Rust-only. Native
+access, Rust synchronization and in-place refresh reuse the original buffer
+pointers, and the header remains outside the mutable session. The scope rejects
+a scratch prefix different from the one used to construct the projection.
+Refresh preserves counters and rejects pending writes or oversized bindings
+without changing descriptor identity. Unwinding the Rust scope leaves pending
+writes available for explicit materialization; it does not flush in `Drop`.
+
+Nine new tests using Rust `extern "C"` probes exercise this descriptor, bringing
+the focused suite to twenty tests. All twenty pass under both Miri Stacked
+Borrows (seed one) and Tree Borrows (seed two). Native/boundary lanes pass 529
+executions with four ignored tests. These are Rust-boundary tests, not generated-machine-code
+coverage or proof that the fast path is active. The live `Host` layout and v3
+helper symbols are unchanged.
+
+**Still required:** compiler lowering and live host integration,
 source/tag/bounds/dirty-state and exit verification, helper/exit synchronization,
 statistics and exact PC/fuel integration, runtime resource admission, complete
 GC/panic/differential validation and both frozen benchmark profiles. The GC
