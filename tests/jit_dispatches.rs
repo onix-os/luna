@@ -29,7 +29,14 @@ fn native_head_guard_fallback_does_not_retry_the_first_native_attempt() {
             .unwrap();
         ctx.stash(function)
     });
-    lua.prepare_jit().unwrap();
+    if lua.jit_capabilities().supported_target {
+        lua.prepare_jit().unwrap();
+    } else {
+        assert!(matches!(
+            lua.prepare_jit(),
+            Err(luna::JitError::Unavailable(_))
+        ));
+    }
     let before = lua.jit_stats();
     let executor = lua.enter(|ctx| {
         let value = luna::Table::new(&ctx);
@@ -41,6 +48,10 @@ fn native_head_guard_fallback_does_not_retry_the_first_native_attempt() {
         assert_eq!(after.guard_exits - before.guard_exits, 1);
         assert_eq!(after.code_lookups - before.code_lookups, 1);
         assert_eq!(after.native_entries - before.native_entries, 1);
+    } else {
+        assert_eq!(after.guard_exits - before.guard_exits, 0);
+        assert_eq!(after.code_lookups - before.code_lookups, 0);
+        assert_eq!(after.native_entries - before.native_entries, 0);
     }
     assert_eq!(after.total_dispatches - before.total_dispatches, 1);
 }
