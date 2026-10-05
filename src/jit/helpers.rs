@@ -5,22 +5,25 @@ use std::{
 
 use crate::{table::RawTable, thread::LuaRegisters, Closure, Context, MetaMethod, Table, Value};
 
-use super::abi::{self, Slot};
+use super::{
+    abi::{self, Slot},
+    projection,
+};
 
 const fn symbol<const KIND: u32>(name: &'static str) -> (u32, &'static str, abi::HelperEntry) {
     (KIND, name, call::<KIND>)
 }
 
 pub(super) const SYMBOLS: [(u32, &str, abi::HelperEntry); 9] = [
-    symbol::<{ abi::HELPER_MOVE }>("luna_move_v3"),
-    symbol::<{ abi::HELPER_CONSTANT }>("luna_constant_v3"),
-    symbol::<{ abi::HELPER_NEW_TABLE }>("luna_new_table_v3"),
-    symbol::<{ abi::HELPER_GET_TABLE }>("luna_get_table_v3"),
-    symbol::<{ abi::HELPER_SET_TABLE }>("luna_set_table_v3"),
-    symbol::<{ abi::HELPER_GET_UP_TABLE }>("luna_get_up_table_v3"),
-    symbol::<{ abi::HELPER_SET_UP_TABLE }>("luna_set_up_table_v3"),
-    symbol::<{ abi::HELPER_GET_UPVALUE }>("luna_get_upvalue_v3"),
-    symbol::<{ abi::HELPER_SET_UPVALUE }>("luna_set_upvalue_v3"),
+    symbol::<{ abi::HELPER_MOVE }>("luna_move_v4"),
+    symbol::<{ abi::HELPER_CONSTANT }>("luna_constant_v4"),
+    symbol::<{ abi::HELPER_NEW_TABLE }>("luna_new_table_v4"),
+    symbol::<{ abi::HELPER_GET_TABLE }>("luna_get_table_v4"),
+    symbol::<{ abi::HELPER_SET_TABLE }>("luna_set_table_v4"),
+    symbol::<{ abi::HELPER_GET_UP_TABLE }>("luna_get_up_table_v4"),
+    symbol::<{ abi::HELPER_SET_UP_TABLE }>("luna_set_up_table_v4"),
+    symbol::<{ abi::HELPER_GET_UPVALUE }>("luna_get_upvalue_v4"),
+    symbol::<{ abi::HELPER_SET_UPVALUE }>("luna_set_upvalue_v4"),
 ];
 
 #[derive(Default)]
@@ -35,16 +38,17 @@ pub(super) struct Counts {
     pub allocations: u64,
 }
 
-pub(super) struct Frame<'gc, 'a, 'b> {
+pub(super) struct Frame<'gc, 'a, 'b, 'p> {
     pub ctx: Context<'gc>,
     pub closure: Closure<'gc>,
     pub registers: &'a mut LuaRegisters<'gc, 'b>,
     pub count: Counts,
     pub slot_count: usize,
     pub panic: Option<Box<dyn Any + Send>>,
+    pub projection: Option<&'p mut dyn projection::Bridge<'gc>>,
 }
 
-impl<'gc> Frame<'gc, '_, '_> {
+impl<'gc> Frame<'gc, '_, '_, '_> {
     fn register(&self, slots: &[Slot], index: u32) -> Value<'gc> {
         slots[index as usize].value(self.registers.stack_frame[index as usize])
     }
@@ -204,12 +208,25 @@ unsafe extern "C" fn call<const KIND: u32>(
         return abi::HELPER_DECLINED;
     }
     let data = unsafe { (*host).data };
-    let frame = unsafe { &mut *data.cast::<Frame<'_, '_, '_>>() };
-    let slots = unsafe { std::slice::from_raw_parts_mut(slots, frame.slot_count) };
+    let frame = unsafe { &mut *data.cast::<Frame<'_, '_, '_, '_>>() };
     frame.count.calls += 1;
     let result = catch_unwind(AssertUnwindSafe(|| {
         *frame.registers.pc = pc as usize + 1;
-        if !frame.operation::<KIND>(slots, a, b, c) {
+        if let Some(projection) = frame.projection.as_deref_mut() {
+            projection
+                .flush(frame.ctx, frame.registers)
+                .expect("invalid pending projection");
+        }
+        let completed = {
+            let slots = unsafe { std::slice::from_raw_parts_mut(slots, frame.slot_count) };
+            frame.operation::<KIND>(slots, a, b, c)
+        };
+        if let Some(projection) = frame.projection.as_deref_mut() {
+            projection
+                .refresh(frame.registers, frame.closure.upvalues())
+                .expect("invalid refreshed projection");
+        }
+        if !completed {
             *frame.registers.pc = pc as usize;
             return abi::HELPER_DECLINED;
         }
@@ -226,6 +243,7 @@ unsafe extern "C" fn call<const KIND: u32>(
             abi::HELPER_DECLINED
         }
         Err(payload) => {
+            let slots = unsafe { std::slice::from_raw_parts_mut(slots, frame.slot_count) };
             for (slot, dest) in slots
                 .iter()
                 .copied()
@@ -264,7 +282,7 @@ mod tests {
     }
 
     fn invoke<const KIND: u32>(
-        frame: &mut Frame<'_, '_, '_>,
+        frame: &mut Frame<'_, '_, '_, '_>,
         slots: &mut [Slot],
         a: u32,
         b: u32,
@@ -273,7 +291,8 @@ mod tests {
     ) -> u32 {
         assert!(slots.len() >= frame.slot_count);
         let mut host = abi::Host {
-            data: (frame as *mut Frame<'_, '_, '_>).cast(),
+            data: (frame as *mut Frame<'_, '_, '_, '_>).cast(),
+            projection: std::ptr::null_mut(),
         };
         unsafe { call::<KIND>(&mut host, slots.as_mut_ptr(), a, b, c, pc) }
     }
@@ -314,6 +333,7 @@ mod tests {
                         registers: &mut registers,
                         count: Counts::default(),
                         slot_count: 4,
+                        projection: None,
                         panic: None,
                     };
                     for destination in [0, 1] {
@@ -409,6 +429,7 @@ mod tests {
                     registers: &mut registers,
                     count: Counts::default(),
                     slot_count: 2,
+                    projection: None,
                     panic: None,
                 };
                 assert_eq!(
@@ -471,6 +492,7 @@ mod tests {
                     registers: &mut registers,
                     count: Counts::default(),
                     slot_count: 3,
+                    projection: None,
                     panic: None,
                 };
                 assert_eq!(
@@ -537,6 +559,7 @@ mod tests {
                     registers: &mut registers,
                     count: Counts::default(),
                     slot_count: 2,
+                    projection: None,
                     panic: None,
                 };
                 assert_eq!(
@@ -589,7 +612,8 @@ mod tests {
                     closure,
                     registers: &mut registers,
                     count: Counts::default(),
-                    slot_count: slots.len(),
+slot_count: slots.len(),
+                    projection: None,
                     panic: None,
                 };
                 macro_rules! complete {
@@ -657,6 +681,7 @@ mod tests {
                     registers: &mut registers,
                     count: Counts::default(),
                     slot_count: 8,
+                    projection: None,
                     panic: None,
                 };
                 assert_eq!(
@@ -728,6 +753,7 @@ mod tests {
                         registers: &mut registers,
                         count: Counts::default(),
                         slot_count: slots.len(),
+                        projection: None,
                         panic: None,
                     };
                     let status = if kind == abi::HELPER_GET_UPVALUE {
@@ -806,6 +832,7 @@ mod tests {
                                         registers: &mut registers,
                                         count: Counts::default(),
                                         slot_count: slots.len(),
+                                        projection: None,
                                         panic: None,
                                     };
                                     assert_eq!(

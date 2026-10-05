@@ -199,6 +199,7 @@ pub(super) struct Code {
     relocations: usize,
     pub registers: usize,
     pub entries: BudgetVec<bool, BudgetAllocator>,
+    pub projected_upvalues: bool,
 }
 
 impl Code {
@@ -211,6 +212,7 @@ impl Code {
     ///
     /// # Safety
     /// `host` must be null or carry a live, exclusively borrowed helper frame for this call.
+    #[cfg(test)]
     pub unsafe fn invoke_host(
         &self,
         slots: &mut [Slot],
@@ -219,17 +221,22 @@ impl Code {
         host: *mut abi::Host,
     ) -> Exit {
         assert!(slots.len() >= self.registers);
-        let mut exit = Exit::default();
-        unsafe {
-            (self.entry)(
-                slots.as_mut_ptr(),
-                pc as u64,
-                budget.min(64),
-                &mut exit,
-                host,
-            )
-        };
-        exit
+        unsafe { self.invoke_raw(slots.as_mut_ptr(), pc, budget, host) }
+    }
+
+    /// Invokes pinned code using the original pointer to its scalar register prefix.
+    ///
+    /// # Safety
+    /// `slots` covers `self.registers` initialized slots. Host data and any projection
+    /// refer to live, exclusively accessible frame buffers for the call.
+    pub unsafe fn invoke_raw(
+        &self,
+        slots: *mut Slot,
+        pc: usize,
+        budget: u32,
+        host: *mut abi::Host,
+    ) -> Exit {
+        unsafe { abi::invoke(self.entry, slots, pc, budget, host) }
     }
 }
 
@@ -815,6 +822,7 @@ pub(super) fn compile_in(
         relocations,
         registers: snapshot.registers,
         entries,
+        projected_upvalues: false,
     })
 }
 

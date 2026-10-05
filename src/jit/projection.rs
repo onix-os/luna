@@ -1,4 +1,4 @@
-use ottavino_gc_arena::Gc;
+use ottavino_gc_arena::{lock::Lock, Gc};
 
 use crate::{
     closure::{UpValue, UpValueState},
@@ -8,12 +8,16 @@ use crate::{
 
 use super::abi::{self, Slot};
 
+mod bridge;
 #[cfg(all(
+    test,
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod lowering;
 mod native;
+
+pub(super) use bridge::{with_frame, Bridge};
 
 const LIMIT: usize = 256;
 const FALLBACK: u32 = u32::MAX;
@@ -36,11 +40,12 @@ struct Cell {
 
 #[repr(C)]
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
-struct Counts {
-    reads: u32,
-    writes: u32,
+pub(crate) struct Counts {
+    pub reads: u32,
+    pub writes: u32,
 }
 
+#[cfg(test)]
 fn scalar(slot: Slot) -> bool {
     match slot.tag {
         abi::NIL => slot.bits == 0,
@@ -68,7 +73,7 @@ impl Target<'_> {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum Error {
+pub(crate) enum Error {
     Capacity,
     PendingWrites,
     ChangedTarget,
@@ -86,13 +91,33 @@ struct Projection<'gc, const CAPACITY: usize> {
 }
 
 impl<'gc, const CAPACITY: usize> Projection<'gc, CAPACITY> {
+    #[cfg(test)]
     fn new(
         registers: &LuaRegisters<'gc, '_>,
         upvalues: &[UpValue<'gc>],
         scratch: &[Slot],
     ) -> Result<Self, Error> {
+        Self::from_bindings(registers, upvalues.len(), scratch, |index| upvalues[index])
+    }
+
+    fn from_closure(
+        registers: &LuaRegisters<'gc, '_>,
+        upvalues: &[Lock<UpValue<'gc>>],
+        scratch: &[Slot],
+    ) -> Result<Self, Error> {
+        Self::from_bindings(registers, upvalues.len(), scratch, |index| {
+            upvalues[index].get()
+        })
+    }
+
+    fn from_bindings(
+        registers: &LuaRegisters<'gc, '_>,
+        binding_count: usize,
+        scratch: &[Slot],
+        mut binding: impl FnMut(usize) -> UpValue<'gc>,
+    ) -> Result<Self, Error> {
         if CAPACITY > LIMIT
-            || upvalues.len() > CAPACITY
+            || binding_count > CAPACITY
             || scratch.len() > LIMIT
             || scratch.len() > registers.stack_frame.len()
         {
@@ -109,12 +134,13 @@ impl<'gc, const CAPACITY: usize> Projection<'gc, CAPACITY> {
                 dirty: 0,
             }; CAPACITY],
             targets: [None; CAPACITY],
-            binding_count: upvalues.len(),
+            binding_count,
             cell_count: 0,
             slot_count: scratch.len(),
             counts: Counts::default(),
         };
-        for (binding, upvalue) in upvalues.iter().copied().enumerate() {
+        for binding_index in 0..binding_count {
+            let upvalue = binding(binding_index);
             let Some(origin) = registers.projection_origin(upvalue) else {
                 continue;
             };
@@ -144,16 +170,18 @@ impl<'gc, const CAPACITY: usize> Projection<'gc, CAPACITY> {
                 projection.targets[index] = Some(target);
                 projection.cell_count += 1;
             }
-            projection.bindings[binding] = index as u32;
+            projection.bindings[binding_index] = index as u32;
         }
         Ok(projection)
     }
 
+    #[cfg(test)]
     fn cell(&self, binding: usize) -> Option<usize> {
         let index = *self.bindings.get(binding)? as usize;
         (binding < self.binding_count && index < self.cell_count).then_some(index)
     }
 
+    #[cfg(test)]
     fn read(&mut self, binding: usize, scratch: &[Slot]) -> Option<Slot> {
         let cell = self.cells[self.cell(binding)?];
         let value = if cell.register == DETACHED {
@@ -168,6 +196,7 @@ impl<'gc, const CAPACITY: usize> Projection<'gc, CAPACITY> {
         Some(value)
     }
 
+    #[cfg(test)]
     fn write(&mut self, binding: usize, scratch: &mut [Slot], value: Slot) -> Option<()> {
         if !scalar(value) {
             return None;
@@ -184,6 +213,7 @@ impl<'gc, const CAPACITY: usize> Projection<'gc, CAPACITY> {
         Some(())
     }
 
+    #[cfg(test)]
     fn flush(
         &mut self,
         ctx: Context<'gc>,
@@ -211,6 +241,7 @@ impl<'gc, const CAPACITY: usize> Projection<'gc, CAPACITY> {
         Ok(())
     }
 
+    #[cfg(test)]
     fn pending(
         &self,
         registers: &LuaRegisters<'gc, '_>,
@@ -220,6 +251,7 @@ impl<'gc, const CAPACITY: usize> Projection<'gc, CAPACITY> {
         pending(registers, self.targets[index], self.cells[index], scratch)
     }
 
+    #[cfg(test)]
     fn refresh(
         &mut self,
         registers: &LuaRegisters<'gc, '_>,

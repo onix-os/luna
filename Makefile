@@ -285,6 +285,16 @@ jit-projection:
 jit-projection-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::projection:: -- --test-threads=1
 
+.PHONY: jit-projection-runtime-miri
+.PHONY: jit-runtime-projection
+jit-runtime-projection:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::runtime_projection_tests $(ARGS)
+
+jit-projection-runtime-miri:
+	@set -e; for filter in jit::projection::native::tests jit::projection::tests jit::helpers::tests jit::abi::tests::original_scratch_entry; do \
+		$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' "$$filter" -- --test-threads=1; \
+	done
+
 jit-registry:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::registry::tests
 

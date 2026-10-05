@@ -1440,7 +1440,7 @@ fn open_upvalue_ind<'gc>(u: UpValue<'gc>) -> usize {
     }
 }
 
-#[cfg(all(test, feature = "jit"))]
+#[cfg(feature = "jit")]
 impl<'gc, 'a> LuaRegisters<'gc, 'a> {
     pub(crate) fn projection_origin(
         &self,
@@ -1479,7 +1479,10 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
             self.stack_frame[index] = value;
         }
     }
+}
 
+#[cfg(all(test, feature = "jit"))]
+impl<'gc, 'a> LuaRegisters<'gc, 'a> {
     pub(crate) fn projection_split_frame<R>(
         ctx: Context<'gc>,
         pc: &mut usize,

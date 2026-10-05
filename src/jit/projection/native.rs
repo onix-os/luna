@@ -17,6 +17,7 @@ struct View {
     counts: *mut Counts,
 }
 
+#[cfg(test)]
 type Entry = unsafe extern "C" fn(*mut View, u32, u32) -> u32;
 
 pub(super) struct Session<'a, 'gc, const CAPACITY: usize> {
@@ -61,12 +62,13 @@ impl<'gc, const CAPACITY: usize> Projection<'gc, CAPACITY> {
 
 impl<'gc, const CAPACITY: usize> Session<'_, 'gc, CAPACITY> {
     /// Entry preserves descriptor pointers/lengths, accesses only its buffers, and retains no pointers.
+    #[cfg(test)]
     unsafe fn invoke(&mut self, entry: Entry, a: u32, b: u32) -> u32 {
         unsafe { entry(self.view, a, b) }
     }
 
     /// Entry preserves the descriptor, accesses only its buffers, and retains no pointers.
-    #[cfg(not(miri))]
+    #[cfg(all(test, not(miri)))]
     pub(super) unsafe fn invoke_scalar(
         &mut self,
         entry: unsafe extern "C" fn(*mut std::ffi::c_void) -> u32,
@@ -76,6 +78,14 @@ impl<'gc, const CAPACITY: usize> Session<'_, 'gc, CAPACITY> {
 
     fn view(&self) -> View {
         unsafe { self.view.read() }
+    }
+
+    pub(super) fn view_pointer(&self) -> *mut std::ffi::c_void {
+        self.view.cast()
+    }
+
+    pub(super) fn slot_pointer(&self) -> *mut Slot {
+        self.view().slots
     }
 
     pub(super) fn flush(
@@ -107,10 +117,28 @@ impl<'gc, const CAPACITY: usize> Session<'_, 'gc, CAPACITY> {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(super) fn refresh(
         &mut self,
         registers: &LuaRegisters<'gc, '_>,
         upvalues: &[UpValue<'gc>],
+    ) -> Result<(), Error> {
+        self.refresh_bindings(registers, upvalues.len(), |index| upvalues[index])
+    }
+
+    pub(super) fn refresh_closure(
+        &mut self,
+        registers: &LuaRegisters<'gc, '_>,
+        upvalues: &[Lock<UpValue<'gc>>],
+    ) -> Result<(), Error> {
+        self.refresh_bindings(registers, upvalues.len(), |index| upvalues[index].get())
+    }
+
+    fn refresh_bindings(
+        &mut self,
+        registers: &LuaRegisters<'gc, '_>,
+        binding_count: usize,
+        binding: impl FnMut(usize) -> UpValue<'gc>,
     ) -> Result<(), Error> {
         let view = self.view();
         for index in 0..*self.cell_count {
@@ -119,7 +147,8 @@ impl<'gc, const CAPACITY: usize> Session<'_, 'gc, CAPACITY> {
             }
         }
         let scratch = unsafe { std::slice::from_raw_parts(view.slots, view.slot_count as usize) };
-        let refreshed = Projection::<CAPACITY>::new(registers, upvalues, scratch)?;
+        let refreshed =
+            Projection::<CAPACITY>::from_bindings(registers, binding_count, scratch, binding)?;
         unsafe {
             ptr::copy_nonoverlapping(refreshed.bindings.as_ptr(), view.bindings, CAPACITY);
             ptr::copy_nonoverlapping(refreshed.cells.as_ptr(), view.cells, CAPACITY);
@@ -138,11 +167,13 @@ impl<'gc, const CAPACITY: usize> Session<'_, 'gc, CAPACITY> {
         unsafe { self.view().counts.read() }
     }
 
+    #[cfg(test)]
     pub(super) fn slot(&self, index: usize) -> Option<Slot> {
         let view = self.view();
         (index < view.slot_count as usize).then(|| unsafe { view.slots.add(index).read() })
     }
 
+    #[cfg(test)]
     pub(super) fn store(&mut self, index: usize, value: Slot) -> Option<()> {
         let view = self.view();
         if index >= view.slot_count as usize {
@@ -758,6 +789,176 @@ mod tests {
                         ));
                     })
                     .unwrap();
+            });
+        });
+    }
+
+    #[test]
+    fn live_helper_bridge_flushes_pending_writes_and_refreshes_rebound_locks() {
+        use crate::{jit::helpers, Closure};
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = Closure::load(ctx, None, b"return _ENV").unwrap();
+            let cell = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(7)));
+            let replacement = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(99)));
+            closure.set_upvalue(&ctx, 0, cell);
+            let mut canonical = [Value::Nil, Value::Nil];
+            let mut pc = 0;
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+                let mut scratch = [
+                    Slot::from_value(Value::Integer(42)),
+                    Slot::from_value(Value::Nil),
+                ];
+                super::super::with_frame(
+                    &mut registers,
+                    closure.upvalues(),
+                    &mut scratch,
+                    |registers, slots, bridge| {
+                        let bridge = bridge.unwrap();
+                        let view = bridge.view_pointer().cast::<View>();
+                        let mut frame = helpers::Frame {
+                            ctx,
+                            closure,
+                            registers,
+                            count: helpers::Counts::default(),
+                            slot_count: 2,
+                            panic: None,
+                            projection: Some(bridge),
+                        };
+                        let frame_pointer = ptr::from_mut(&mut frame);
+                        let mut host = abi::Host {
+                            data: frame_pointer.cast(),
+                            projection: view.cast(),
+                        };
+                        let host_pointer = ptr::from_mut(&mut host);
+                        let helper = |kind| {
+                            helpers::SYMBOLS
+                                .iter()
+                                .find(|(k, _, _)| *k == kind)
+                                .unwrap()
+                                .2
+                        };
+                        unsafe {
+                            assert_eq!(set(view, 0, 0), abi::HELPER_COMPLETED);
+                            assert_eq!(
+                                helper(abi::HELPER_GET_UPVALUE)(host_pointer, slots, 1, 0, 0, 7),
+                                abi::HELPER_COMPLETED
+                            );
+                        }
+                        assert!(matches!(
+                            cell.get(),
+                            UpValueState::Closed(Value::Integer(42))
+                        ));
+                        closure.set_upvalue(&ctx, 0, replacement);
+                        unsafe {
+                            assert_eq!(
+                                helper(abi::HELPER_GET_UPVALUE)(host_pointer, slots, 1, 0, 0, 8),
+                                abi::HELPER_COMPLETED
+                            );
+                            assert_eq!(get(view, 0, 0), abi::HELPER_COMPLETED);
+                            assert_eq!(slots.read().bits, 99);
+                            assert_eq!(set(view, 0, 0), abi::HELPER_COMPLETED);
+                            assert_eq!(
+                                helper(abi::HELPER_MOVE)(host_pointer, slots, 1, 0, 0, 11),
+                                abi::HELPER_COMPLETED
+                            );
+                        }
+                        assert_eq!(*frame.registers.pc, 12);
+                        assert_eq!(
+                            (
+                                frame.count.calls,
+                                frame.count.completed,
+                                frame.count.upvalue_reads
+                            ),
+                            (3, 3, 2)
+                        );
+                        assert!(frame.panic.is_none());
+                        assert_eq!(
+                            frame.projection.as_deref().unwrap().counts(),
+                            Counts {
+                                reads: 1,
+                                writes: 2
+                            }
+                        );
+                        assert!(matches!(frame.registers.stack_frame[1], Value::Integer(99)));
+                    },
+                );
+            });
+        });
+    }
+
+    #[test]
+    fn live_helper_panic_preserves_projected_prefix_pc_and_scratch_materialization() {
+        use crate::{jit::helpers, Closure};
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = Closure::load(ctx, None, b"return _ENV").unwrap();
+            let cell = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(7)));
+            closure.set_upvalue(&ctx, 0, cell);
+            let mut canonical = [Value::Nil, Value::Nil];
+            let mut pc = 0;
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+                let mut scratch = [
+                    Slot::from_value(Value::Integer(42)),
+                    Slot::from_value(Value::Number(-0.0)),
+                ];
+                super::super::with_frame(
+                    &mut registers,
+                    closure.upvalues(),
+                    &mut scratch,
+                    |registers, slots, bridge| {
+                        let bridge = bridge.unwrap();
+                        let view = bridge.view_pointer().cast::<View>();
+                        let mut frame = helpers::Frame {
+                            ctx,
+                            closure,
+                            registers,
+                            count: helpers::Counts::default(),
+                            slot_count: 2,
+                            panic: None,
+                            projection: Some(bridge),
+                        };
+                        let mut host = abi::Host {
+                            data: ptr::from_mut(&mut frame).cast(),
+                            projection: view.cast(),
+                        };
+                        let helper = helpers::SYMBOLS
+                            .iter()
+                            .find(|(k, _, _)| *k == abi::HELPER_MOVE)
+                            .unwrap()
+                            .2;
+                        unsafe {
+                            assert_eq!(set(view, 0, 0), abi::HELPER_COMPLETED);
+                            assert_eq!(helper(&mut host, slots, 2, 1, 0, 17), abi::HELPER_PANICKED);
+                        }
+                        assert!(matches!(
+                            cell.get(),
+                            UpValueState::Closed(Value::Integer(42))
+                        ));
+                        assert!(matches!(frame.registers.stack_frame[0], Value::Integer(42)));
+                        let Value::Number(number) = frame.registers.stack_frame[1] else {
+                            panic!("pending number not materialized");
+                        };
+                        assert_eq!(number.to_bits(), (-0.0f64).to_bits());
+                        assert_eq!(*frame.registers.pc, 18);
+                        assert_eq!(
+                            (
+                                frame.count.calls,
+                                frame.count.completed,
+                                frame.count.declined
+                            ),
+                            (1, 0, 0)
+                        );
+                        assert!(frame.panic.is_some());
+                        assert_eq!(
+                            frame.projection.as_deref().unwrap().counts(),
+                            Counts {
+                                reads: 0,
+                                writes: 1
+                            }
+                        );
+                    },
+                );
             });
         });
     }
