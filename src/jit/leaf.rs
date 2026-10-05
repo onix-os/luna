@@ -626,7 +626,7 @@ mod tests {
         fn paired_kernel_owners_charge_both_entries_and_reclaim_failed_second_entries() {
             use crate::jit::{backend, resources, work, JitConfig};
             use std::sync::atomic::Ordering;
-            with_closure(|_ctx, closure| {
+            with_closure(|ctx, closure| {
                 let snapshot = Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
                 let metadata = resources::Ledger::new(2 * 1024 * 1024);
                 let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
@@ -641,6 +641,10 @@ mod tests {
                 )
                 .unwrap();
                 let ordinary_bytes = total.load(Ordering::Relaxed);
+                let ordinary_metadata_limit = metadata.peak().max(
+                    metadata.current()
+                        + crate::jit::owner::Shared::<backend::Code>::allocation_bytes(),
+                );
                 drop(ordinary);
                 let compile = |failure, limits, image_limit| {
                     backend::compile_leaf_pair_in(
@@ -653,7 +657,10 @@ mod tests {
                     )
                 };
                 let initial_snapshot = snapshot.operations.allocator().0.current();
-                assert!(compile(backend::Failure::None, limits, ordinary_bytes).is_err());
+                let fallback = compile(backend::Failure::None, limits, ordinary_bytes).unwrap();
+                assert!(fallback.scalar_kernel.is_none());
+                assert_ordinary_cell_execution(ctx, closure, &fallback);
+                drop(fallback);
                 assert_eq!(metadata.current(), 0);
                 assert_eq!(total.load(Ordering::Relaxed), 0);
                 assert_eq!(total.requested(), 0);
@@ -661,6 +668,20 @@ mod tests {
                     snapshot.operations.allocator().0.current(),
                     initial_snapshot
                 );
+                metadata.set_limit(ordinary_metadata_limit);
+                let fallback = compile(backend::Failure::None, limits, 128 * 1024).unwrap();
+                assert!(fallback.scalar_kernel.is_none());
+                let fallback = crate::jit::owner::Shared::try_new(
+                    fallback,
+                    resources::BudgetAllocator(metadata.clone()),
+                )
+                .unwrap();
+                assert_ordinary_cell_execution(ctx, closure, &fallback);
+                drop(fallback);
+                assert_eq!(metadata.current(), 0);
+                assert_eq!(total.load(Ordering::Relaxed), 0);
+                assert_eq!(total.requested(), 0);
+                metadata.set_limit(2 * 1024 * 1024);
                 let peer = compile(backend::Failure::None, limits, 128 * 1024).unwrap();
                 assert!(peer.scalar_leaf.is_none());
                 let kernel = peer.scalar_kernel.as_ref().unwrap();
@@ -679,7 +700,19 @@ mod tests {
                     backend::Failure::RefuseScalarOwnerStorage,
                     backend::Failure::RefuseScalarOwnerAllocation,
                 ] {
-                    assert!(compile(failure, limits, 128 * 1024).is_err());
+                    let fallback = compile(failure, limits, 128 * 1024).unwrap();
+                    assert!(fallback.scalar_kernel.is_none());
+                    let owned = crate::jit::owner::Shared::try_new(
+                        fallback,
+                        resources::BudgetAllocator(metadata.clone()),
+                    )
+                    .unwrap();
+                    assert_ordinary_cell_execution(ctx, closure, &owned);
+                    let mut slots = vec![abi::Slot::from_value(Value::Nil); owned.registers];
+                    let exit =
+                        unsafe { owned.invoke_raw(slots.as_mut_ptr(), 0, 0, std::ptr::null_mut()) };
+                    assert_eq!((exit.pc, exit.instructions), (0, 0));
+                    drop(owned);
                     metadata.set_limit(2 * 1024 * 1024);
                     metadata.fail_after(usize::MAX);
                     assert_eq!(
@@ -706,6 +739,18 @@ mod tests {
                 let expansion = work::Expansion::admit(&snapshot, limits).unwrap();
                 for limited in [
                     work::Limits {
+                        instructions: expansion.instructions,
+                        ..limits
+                    },
+                    work::Limits {
+                        blocks: expansion.blocks,
+                        ..limits
+                    },
+                    work::Limits {
+                        relocations: peer.relocations,
+                        ..limits
+                    },
+                    work::Limits {
                         instructions: expansion.instructions * 2 - 1,
                         ..limits
                     },
@@ -714,7 +759,12 @@ mod tests {
                         ..limits
                     },
                 ] {
-                    assert!(compile(backend::Failure::None, limited, 128 * 1024).is_err());
+                    let fallback = compile(backend::Failure::None, limited, 128 * 1024).unwrap();
+                    if limited.relocations != peer.relocations {
+                        assert!(fallback.scalar_kernel.is_none());
+                    }
+                    assert_ordinary_cell_execution(ctx, closure, &fallback);
+                    drop(fallback);
                     assert_eq!(
                         (
                             metadata.current(),
@@ -728,6 +778,55 @@ mod tests {
                 assert_eq!(metadata.current(), 0);
                 assert_eq!(total.load(Ordering::Relaxed), 0);
                 assert_eq!(total.requested(), 0);
+            });
+        }
+
+        fn assert_ordinary_cell_execution<'gc>(
+            ctx: crate::Context<'gc>,
+            closure: crate::Closure<'gc>,
+            code: &crate::jit::backend::Code,
+        ) {
+            use crate::{
+                closure::{UpValue, UpValueState},
+                jit::helpers,
+                thread::LuaRegisters,
+            };
+            let cell = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(7)));
+            closure.set_upvalue(&ctx, 0, cell);
+            let mut pc = 0;
+            let mut canonical = vec![Value::Nil; code.registers];
+            canonical[0] = Value::Integer(2);
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+                let mut scratch: Vec<_> = registers
+                    .stack_frame
+                    .iter()
+                    .copied()
+                    .map(abi::Slot::from_value)
+                    .collect();
+                let mut frame = helpers::Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: code.registers,
+                    panic: None,
+                    projection: None,
+                };
+                let mut host = abi::Host {
+                    data: std::ptr::addr_of_mut!(frame).cast(),
+                    projection: std::ptr::null_mut(),
+                };
+                let exit = unsafe { code.invoke_host(&mut scratch, 0, 64, &mut host) };
+                assert_eq!((exit.pc, exit.instructions), (3, 3));
+                assert_eq!(
+                    (frame.count.upvalue_reads, frame.count.upvalue_writes),
+                    (1, 1)
+                );
+                assert!(frame.panic.is_none());
+                assert!(matches!(
+                    cell.get(),
+                    UpValueState::Closed(Value::Integer(9))
+                ));
             });
         }
 

@@ -453,30 +453,42 @@ pub(super) fn compile_leaf_pair_in(
     work: super::work::Limits,
     failure: Failure,
 ) -> Result<Code, JitError> {
-    let per_entry = super::work::Limits {
-        instructions: work.instructions / 2,
-        blocks: work.blocks / 2,
-        relocations: work.relocations / 2,
-    };
+    let expansion = super::work::Expansion::admit(snapshot, work)?;
     let mut ordinary = compile_in(
         snapshot,
         total.clone(),
         limit,
         metadata.clone(),
-        per_entry,
+        work,
         failure,
     )?;
-    let kernel =
-        compile_leaf_kernel_in(snapshot, total, limit, metadata.clone(), per_entry, failure)?;
+    let _ordinary_owner = Reservation::new(
+        metadata.0.clone(),
+        super::owner::Shared::<Code>::allocation_bytes(),
+    )
+    .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
+    let remaining = super::work::Limits {
+        instructions: work.instructions.saturating_sub(expansion.instructions),
+        blocks: work.blocks.saturating_sub(expansion.blocks),
+        relocations: work.relocations.saturating_sub(ordinary.relocations),
+    };
+    let Ok(kernel) =
+        compile_leaf_kernel_in(snapshot, total, limit, metadata.clone(), remaining, failure)
+    else {
+        return Ok(ordinary);
+    };
+    let previous_limit = metadata.0.limit();
     match failure {
         Failure::RefuseScalarOwnerStorage => metadata.0.set_limit(metadata.0.current()),
         Failure::RefuseScalarOwnerAllocation => metadata.0.fail_after(0),
         _ => {}
     }
-    ordinary.scalar_kernel = Some(
-        super::owner::Shared::try_new(kernel, metadata)
-            .map_err(|_| JitError::ResourceLimit("scalar kernel owner"))?,
-    );
+    ordinary.scalar_kernel = super::owner::Shared::try_new(kernel, metadata.clone()).ok();
+    match failure {
+        Failure::RefuseScalarOwnerStorage => metadata.0.set_limit(previous_limit),
+        Failure::RefuseScalarOwnerAllocation => metadata.0.fail_after(usize::MAX),
+        _ => {}
+    }
     Ok(ordinary)
 }
 

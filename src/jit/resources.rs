@@ -203,6 +203,11 @@ impl Ledger {
     pub fn set_limit(&self, limit: usize) {
         self.limit.store(limit, Ordering::Relaxed);
     }
+
+    #[cfg(test)]
+    pub(super) fn limit(&self) -> usize {
+        self.limit.load(Ordering::Relaxed)
+    }
     pub fn fits(&self, bytes: usize) -> bool {
         (if self.enforce_bootstrap {
             self.accounted()
