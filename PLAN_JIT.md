@@ -256,9 +256,9 @@ projection ABI, rather than another helper-shim placement variation. The
 current helpers still cross into Rust for each get/set; moving the unwind
 boundary does not remove that transition. A projection could let verified
 native code operate on scalar slots without reading Rust `Value` or GC layouts.
-The Rust projection model and scoped descriptor are implemented and test-gated;
-native lowering and the live host ABI are not implemented or accepted. Before native use it
-requires:
+The Rust projection model, scoped descriptor and standalone get/set lowering
+are implemented and test-gated. The generated fast path is not integrated with
+the live host or accepted for release. Runtime activation requires:
 
 - Fresh cell resolution and alias deduplication at entry, with current-frame
   aliases linked to existing scratch slots; foreign stacks retain helpers.
@@ -307,8 +307,32 @@ executions with four ignored tests. These are Rust-boundary tests, not generated
 coverage or proof that the fast path is active. The live `Host` layout and v3
 helper symbols are unchanged.
 
-**Still required:** compiler lowering and live host integration,
-source/tag/bounds/dirty-state and exit verification, helper/exit synchronization,
+**Standalone lowering:** `src/jit/projection/lowering.rs` emits scalar get/set
+IR from the source opcode using fixed storage (192 steps and 96 values). The
+verifier regenerates the grammar from that opcode and checks every instruction,
+operand, type, memory offset, flag, guard and branch target; it does not trust
+emitter records. Binding/cell/register bounds and pointer presence precede
+dereferences. Detached-or-linked validation precedes alias-aware pointer
+selection. Scalar tag/payload and counter-overflow guards precede every store.
+Set operations mark the resolved cell dirty; get operations use existing
+scratch slots, including captured-register aliases.
+
+The focused suite passes 24 tests. Index boundaries 0/1/127/255 are covered,
+and structurally valid mutations to every emitted instruction in both fixtures
+are rejected. Changed source operands/direction and additional stores are also
+rejected. A standalone compiled-code probe passes closed/current-frame alias,
+refresh, signed-zero/NaN, reference fallback and malformed-boolean checks. It
+uses the existing bounded backend mapping provider; mappings and provider
+ledger usage return to zero afterward. GNU and musl each pass all 24 focused
+tests and 533 native/boundary executions, with four ignored boundary tests.
+All 23 Rust-boundary/IR tests pass Miri Stacked Borrows (seed one) and Tree
+Borrows (seed two); the compiled-execution test is excluded under Miri.
+Normal/JIT checks, formatting and the all-feature Clippy command pass, with
+141 inherited lint warnings and no projection diagnostics. This does not
+establish live runtime resource admission or whole-function source/exit ownership.
+
+**Still required:** embed the lowering in the runtime compiler and live host,
+whole-function source/tag/bounds/dirty-state and exit verification, helper/exit synchronization,
 statistics and exact PC/fuel integration, runtime resource admission, complete
 GC/panic/differential validation and both frozen benchmark profiles. The GC
 backward barrier can borrow and grow its marking queue, so closed-cell commits
