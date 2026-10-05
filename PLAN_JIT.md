@@ -192,6 +192,53 @@ future native call integration must preserve those charges, slice boundaries,
 canonical frames, errors, roots and resumable exits; helper inlining alone does
 not solve the original tiny-call regression.
 
+##### Bounded executor activation trials — 2026-10-05
+
+A new candidate reuses the canonical thread/stack borrow across at most 64
+Lua-only activations. It preserves physical Lua frames, the 64-operation VM
+granularity and the four-fuel charge after every activation. It releases both
+borrows before callbacks, sequences, close handlers, errors and host returns.
+No Lua call is fused or recursively executed on a generated native stack.
+
+Batch sizes 1, 2 and 64 produce identical per-step completion, mode, fuel,
+interruption, Lua frame PCs/bases/sizes, scalar stack values and dispatch counts.
+Cases include ordinary/upvalue/tail calls, caught errors, coroutine yield/resume,
+close handlers, hooks and interrupted callbacks. A nested executor reads an
+open upvalue in the suspended caller, proving the stack borrow was released.
+GC runs after every compared host slice.
+
+GNU/musl each pass six focused executions. GNU all-features Auto passes 1068
+executions in 80 suite runs with four existing ignores. Baseline tests/doc tests
+pass 393 executions in 79 suite runs with two existing ignores. The nested
+executor/open-upvalue smoke passes under both Miri borrow models; it does not
+execute generated code. Generic batch64 introduced four unused-mut warnings;
+the subsequent candidate removes those, restoring the inherited Clippy count.
+
+Generic batching completed the same 24-block, three-window, 144-command paired
+comparison with both profiles and all nine workloads. All source/artifact
+hashes and its source archive verify. Direct Auto upvalue gains are 1.066x speed
+and 1.057x shipping; callbacks are 0.983x and 0.995x. Own Off/Auto upvalue ratios
+are 0.6402x and 0.51885x, with zero of 24 native gate batches passing. Callback
+ratios are 0.77545x and 0.7544x, with one and three of 24 batches passing.
+Disabled upvalue overhead is 4.94%/10.33%; callback overhead is 2.86%/10.53%.
+Other frozen cost failures remain. Wide observed ranges and retained telemetry
+show interference; no failing measurements are discarded.
+
+Generic batching also changes the interpreter-only control. Its freshly built
+candidate no-feature binaries therefore differ from the immutable original
+controls; both control sets remain separate and face the unchanged comparisons.
+Small absolute upvalue gains are not native-tier acceptance: accelerating the
+interpreter too makes its relative native speedup worse. Generic batching is
+not retained as a production regression fix.
+
+The next uncommitted candidate selects batch64 once per host step only in active
+Auto mode. Off and interpreter-only builds use the original single-activation
+cadence. This does not remove any native workload, coverage, logical frame or
+fuel charge. Its independent source/archive/binary provenance, correctness
+reruns and frozen timing comparison use the `lua-native-batch` prefix; acceptance
+is still pending. Generic trial evidence uses `lua-batch`, under
+`target/jit-evidence/short-slice-performance/`.
+
 Remaining implementation gates:
 
 1. Review and enable a production candidate only after the complete leaf-specific
