@@ -25,6 +25,9 @@ use super::{
 };
 use crate::opcode::{Operation, RCIndex};
 
+#[cfg(all(test, not(miri)))]
+pub(super) mod calls;
+
 struct Memory {
     allocations: BudgetVec<Segment, BudgetAllocator>,
     total: MappingCounter,

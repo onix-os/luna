@@ -434,7 +434,22 @@ impl Lua {
                 .sweep(state.ctx(mc), maintain);
         });
         let request = self.jit.0.borrow_mut().next_request();
-        let Some(id) = request else { return Ok(0) };
+        let Some(id) = request else {
+            #[cfg(all(
+                test,
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))]
+            return self.service_jit_pair();
+            #[cfg(not(all(
+                test,
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            )))]
+            return Ok(0);
+        };
         let snapshot = self.arena.mutate(|mc, state| {
             let ctx = state.ctx(mc);
             let mut registry = state.jit_registry.borrow_mut(mc);
@@ -461,6 +476,57 @@ impl Lua {
             }
         };
         self.jit.compile(id, snapshot)?;
+        Ok(1)
+    }
+
+    #[cfg(all(
+        test,
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    fn service_jit_pair(&mut self) -> Result<usize, crate::jit::JitError> {
+        let Some(key) = self.jit.next_pair_request() else {
+            return Ok(0);
+        };
+        let (config, allocator) = {
+            let manager = self.jit.0.borrow();
+            (manager.config.clone(), manager.snapshots.clone())
+        };
+        let snapshots = self.arena.mutate(|mc, state| {
+            let ctx = state.ctx(mc);
+            let registry = state.jit_registry.borrow();
+            let caller = registry.resolve(ctx, key.caller)?;
+            let callee = registry.resolve(ctx, key.callee)?;
+            Some(
+                crate::jit::ir::Snapshot::new_in(
+                    &caller,
+                    config.max_prototype_instructions,
+                    allocator.clone(),
+                )
+                .and_then(|caller| {
+                    crate::jit::ir::Snapshot::new_in(
+                        &callee,
+                        config.max_prototype_instructions,
+                        allocator,
+                    )
+                    .map(|callee| (caller, callee))
+                }),
+            )
+        });
+        let Some(snapshots) = snapshots else {
+            return Ok(0);
+        };
+        match snapshots {
+            Ok((caller, callee)) => self.jit.compile_pair(key, caller, callee)?,
+            Err(error) => {
+                let mut manager = self.jit.0.borrow_mut();
+                manager.stats.compilation_failures =
+                    manager.stats.compilation_failures.saturating_add(1);
+                return Err(error);
+            }
+        }
         Ok(1)
     }
 

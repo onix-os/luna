@@ -297,6 +297,25 @@ jit-continuations:
 jit-continuations-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::continuations::tests -- --test-threads=1 $(ARGS)
 
+.PHONY: jit-call-plans jit-call-plans-miri
+jit-call-plans:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::calls::tests $(ARGS)
+
+jit-call-plans-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::calls::tests -- --test-threads=1 $(ARGS)
+
+.PHONY: jit-call-native
+jit-call-native:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::calls::tests $(ARGS)
+
+.PHONY: jit-call-canonical
+jit-call-canonical:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical::tests $(ARGS)
+
+.PHONY: jit-call-pairs
+jit-call-pairs:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::pairs::tests $(ARGS)
+
 jit-integer:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::integer::tests $(ARGS)
 

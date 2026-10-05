@@ -11,6 +11,152 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Queued caller/callee preparation — 2026-10-05
+
+`511ee89` adds **test-only pair preparation observed from real VM Calls**.
+Fixed zero-result calls to four-opcode Lua closures record both weak-registry
+source IDs and the source PC. Hotness, duplicate suppression and bounded
+attempts apply to each pair. Ordinary and pair requests share one queue limit;
+ordinary requests retain service priority. No code is compiled during a VM step.
+
+`service_jit()` resolves both weak sources and builds snapshots inside the
+arena, then constructs and links the pair only after that mutation returns.
+Both snapshots use the same charged workspace ledger. Workspace, metadata and
+mapping accounting share the originating state's host root; provenance checks
+reject mismatched ledgers. Snapshot/IR/relocation/mapping admission is unchanged.
+Snapshot storage is dropped before fallible cache-owner allocation.
+
+Source retirement cancels pairs involving either ID. Cache clearing, Off mode
+and shrinking limits release queued/cache ownership without revoking existing
+code leases. Pair metadata joins the existing compaction lane. A program also
+checks its originating accounting root before execution: numeric source IDs
+alone are not global identities, and another Lua state can reuse those numbers.
+Off mode rejects a fresh invocation even if its old lease remains mapped.
+
+`make jit-call-pairs` runs twelve tests covering real VM observation and deferred
+service, leased canonical execution after cache clearing, dead caller/callee
+cancellation, shared queue capacity/hotness/shrinking, both snapshot refusal
+points, bounded retries, metadata recovery, allocation/protection/partial
+protection and late owner refusal, retirement during compilation, cross-state
+ID collisions, and mapping pressure with a still-executable peer lease.
+Evidence is retained in `target/jit-evidence/short-slice-performance/call-pairs/`.
+
+Committed-source GNU/musl focused and GNU Auto all-feature validation passes
+1,231 repeated executions across 93 suites, four existing ignores and zero
+failures. Formatting and GNU baseline/JIT checks pass without new compiler
+warnings. These are correctness and ownership checks, not timing acceptance.
+
+Pair programs are **not yet selected automatically for execution**. The scoped
+host still needs a private selector and a verified before-Call handoff that
+preserves the caller's partially consumed VM budget, immediate statistics,
+step fuel and exact fallback accounting. Pair-cache pressure/eviction behavior
+and runtime error handoff also need integration before production promotion.
+There is no new performance, ARM64 or native-code Miri acceptance. The original
+upvalue, callback and compiled-Off regressions remain open.
+
+#### Canonical aggregate call bridge — 2026-10-05
+
+`d361c6e` connects the linked program to **real Lua frames in tests**. Entry
+validates both live weak-registry source identities, current Call operands,
+fixed arguments, an integer same-thread capture and the fuel boundary before
+mutating the caller. Canonical Call advances the PC, shifts arguments and
+charges its ordinary transition and executor-step fuel. A fresh callee view
+then resolves the capture again; late refusal retains the consumed Call.
+
+Native pointers refer only to session-owned scalar scratch and mirrors, not
+GC objects or borrowed register slices. Leave materializes through a fresh
+typed frame view and uses canonical Return only for the completed leaf exit.
+Declined leaf budgets retain the callee at PC zero. Both C hooks contain
+unwinding; dispatch and native counters publish before returning to callbacks.
+Hook suppression is cleared at the physical frame depth before native entry.
+
+`make jit-call-canonical` runs eleven tests covering add/sub/mul and wrapping,
+exact frame/stack/fuel/dispatch traces across fuel cutoffs and interrupts,
+argument-shift aliases, late capture refusal, callee stack growth, source and
+budget mismatches, closed/foreign captures, callbacks/tables/hooks, call-depth
+refusal, contained hook panic, collection and nested executor callbacks after
+the host borrow is released. Compiler snapshots are dropped before execution.
+Logs, including failed draft assumptions, are retained under
+`target/jit-evidence/short-slice-performance/call-canonical/`.
+
+Committed-source GNU/musl focused tests and GNU Auto all-feature validation
+pass 1,194 repeated executions across 90 suites, four existing ignores and
+zero failures. Formatting and GNU baseline/JIT checks pass without new compiler
+warnings. These counts are correctness evidence, not acceptance timing.
+The existing Rust-only scoped-host nested-callback smoke passes pinned Miri
+Stacked seed one and Tree seed two (two executions). The new machine-code
+bridge is excluded from Miri; the smoke does not certify its C hooks.
+
+This is **not production integration or a measured regression fix**. The pair
+must still join out-of-arena queued preparation with weak-source cancellation,
+resource admission, owned code leases and a private executor selector before
+promotion. No new ARM64 or native-code Miri evidence is claimed. The original
+upvalue, callback and compiled-Off acceptance gates remain unchanged and open.
+
+#### Linked aggregate native execution — 2026-10-05
+
+`2d869b6` adds **test-only native linking and execution** for the two-function
+program. The three symbolic imports bind to the actual owned callee and typed
+enter/leave hooks. The linked source template is reverified before codegen;
+wrong callee/enter/leave targets and signatures are rejected. Both functions
+compile before aggregate finalized relocation admission and native mappings.
+Existing fallible Memory/Provider/Handoff machinery owns and reclaims mappings.
+Known signature/symbol/template workspace, relocation staging and module copies
+are reserved; the signature workspace is conservative, not a claim that every
+internal Cranelift allocation is individually charged.
+
+Actual generated code executes add/sub/mul through both hooks against POD
+scalar buffers. It preserves buffers on refused entry, bad view version, float
+operand and insufficient budget. Alias/wrapping cases compare every scratch
+slot using source-derived read/result indices. Owned code remains executable
+after both compiler snapshots are dropped. Allocation, partial/full protection,
+signature/symbol/copy, mapping/relocation quota and late shared-owner refusals
+preserve an executable peer lease and restore resource counters completely.
+
+Final GNU/musl focused plus GNU Auto all-feature validation passes 1,131
+repeated executions/84 suites, four existing ignores and zero failures.
+Formatting and GNU baseline/JIT checks pass. Evidence and retained draft/fixture
+failures are in `target/jit-evidence/short-slice-performance/call-native/`.
+Machine-code tests are not Miri evidence; no new ARM64 execution is claimed.
+
+At this earlier checkpoint the hooks operate on scalar models, **not canonical Lua frames**. Actual
+callee weak-source/lease guards and scoped physical-frame/fuel/statistics
+integration remain next. No production selector or performance improvement is
+enabled, and the original upvalue/callback/compiled-Off gates remain unresolved.
+
+#### Aggregate call-program IR — 2026-10-05
+
+`cfaed82` adds **test-only compiler IR**, not a production call tier. A plan
+borrows immutable caller/callee snapshots, admits a fixed zero-result Call into
+an integer scalar-cell leaf, and charges both source expansion bounds together.
+The emitted two-function program requests entry with the source PC/function/
+argument operands, directly calls the source-verified integer body, then
+requests leave with the callee's Return operands. A refused enter branches out
+before reading the callee frame. Combined actual IR counts must fit the admitted
+bound; three call imports require relocation headroom. Finalized target-specific
+relocations still need the ordinary backend's accounting and refusal handling.
+
+Cranelift structural checks and rooted template verification cover both
+functions. Mutation tests reject immediates, pointer offsets, branches, call
+targets, import names, callee signatures and forged plan fields. Parsed corpus
+tests distinguish arguments/constants from floating and value-return declines.
+Real `n=n+n` has two capture reads and declines the four-opcode template; a
+separate one-read model tests post-read aliasing without claiming parsed coverage.
+
+Final GNU/musl focused plus GNU Auto all-feature validation passes 1,116
+repeated executions/82 suites, four existing ignores and zero failures.
+Formatting and GNU baseline/JIT checks pass. Six pure plan tests pass under each
+of Stacked seed one and Tree seed two in the pinned Miri shell (12 executions);
+IR/ISA tests are excluded there. Logs, including draft failures, are retained in
+`target/jit-evidence/short-slice-performance/call-plans/`.
+
+The imports are still symbolic, not linked runtime helpers. Snapshot roots do
+not authorize an actual callee closure. Next implement budgeted native linking,
+actual-callee weak-source/lease guards and scoped canonical physical-frame/fuel/
+statistics transitions, with ordinary fallback on all declines. No machine-code
+execution, ARM64 certification, new timing result or performance fix is claimed.
+The original upvalue, callback and compiled-Off gates remain unresolved.
+
 #### Scoped activation-host groundwork — 2026-10-05
 
 The new **test-only** host retains the canonical whole-stack/thread borrow and

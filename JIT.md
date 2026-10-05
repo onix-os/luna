@@ -1,5 +1,16 @@
 # Native JIT: experimental scalar and heap tier
 
+Test-only caller/callee programs are now queued from real VM Calls and prepared
+outside the arena (`511ee89`, `make jit-call-pairs`). They share state resource
+limits, cancel dead sources and retain safe code leases. Automatic execution
+selection is still pending; the performance regressions remain unresolved.
+
+The test-only aggregate call bridge now executes against canonical Lua frames
+(`d361c6e`, `make jit-call-canonical`), with source guards, fresh capture views
+after Call, canonical Return/fuel and callback/collection lifetime checks.
+Production selection remains unimplemented; this
+does not establish an upvalue, callback or compiled-Off performance fix.
+
 The straight-line integer leaf production candidate also failed the complete
 frozen comparison and is disabled. The emitter and real helper-free execution
 proofs remain test-only, including integer overflow and canonical public steps.
@@ -74,6 +85,16 @@ replaying the attempt. `PLAN_JIT.md` records both candidates and their controls;
 the original performance regressions remain unresolved.
 
 ## Enable and prepare
+
+`make jit-call-native` links and executes the test-only aggregate program with
+typed scalar-buffer hooks, including guards, quotas, lease retention and rollback.
+This is native execution, but not canonical Lua-frame integration or performance
+acceptance; the production selector remains disabled.
+
+`make jit-call-plans` validates test-only aggregate caller/callee admission and
+two-function Cranelift IR; `nix develop .#miri -c make jit-call-plans-miri` checks
+the pure source plans. The enter/leave imports are not linked runtime helpers,
+so this does not execute generated cross-function calls or prove a speedup.
 
 The scoped activation host and source-owned call-transition tables are currently
 test-only groundwork. They preserve canonical frames, fuel and callback release
