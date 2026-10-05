@@ -77,6 +77,7 @@ Additional counter and cache experiments were also rejected:
 | Scan small existing maps, forced inline | 1.116x / 1.071x | 1.117x / 1.048x | 5.52% / 14.06% |
 | Scan small existing maps, default inlining | 1.119x / 1.074x | 1.118x / 1.040x | 5.64% / 14.41% |
 | Batch interpreter statistics across VM slices | 1.018x / 0.998x | 1.037x / 0.998x | 4.22% / 5.85% |
+| Reuse the move helper's source scalar slot | 0.995x / 1.002x | 0.999x / 0.974x | 8.57% / 20.10% |
 
 These use the same 24-block comparison protocol. The inline index produces the
 first sustained double-digit native upvalue gains, but its compiled-Off cost
@@ -143,6 +144,16 @@ time does not improve. Both no-feature `.text` sections remain byte-identical
 to baseline; full-file differences are retained. This is not a shipped change.
 The retained statistics test checks publication before reentrant callbacks
 and nested executor steps in Off and Auto, with a dedicated Make Miri target.
+
+Reusing a move helper's source slot instead of decoding and re-encoding it is
+also rejected after the same complete comparison. It passes 54 focused
+executions across ten suites and eight helper tests under Miri (seed one),
+but native upvalue time is unchanged and shipping callbacks get slower.
+Shipping compiled-Off integer, table and upvalue overhead reaches 23.72%,
+19.41% and 20.10%, respectively. The no-feature binaries are byte-identical
+to baseline. The helper implementation is restored; only expanded tests for
+nil, both booleans, integer extremes, signed zero and NaN payloads are retained.
+This smaller helper body is not evidence of lower integrated execution cost.
 
 **Current conclusion:** these changes are valid correctness experiments, not
 accepted regression fixes. The runtime still uses the baseline randomized
