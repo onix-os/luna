@@ -11,6 +11,53 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Frame-free scalar kernel proof — 2026-10-05
+
+`1daca00` adds a **test-only**, separately typed scalar entry. Its fifth argument
+is a scoped cell view rather than a general helper host. Get/set bodies use that
+view directly, decline malformed inputs without a Rust fallback, and are checked
+against their independent source-bound grammar before inlining. The finalized
+IR rejects direct, indirect and tail calls. No fake helper frame or private
+Rust/GC layout is exposed to generated code.
+
+`9a8b076` exercises this entry through the actual executor before constructing a
+general helper frame. Each source retains its original native entry as well;
+closed, reference and foreign-stack bindings select that entry rather than
+silently dropping native coverage. Supported bindings are resolved afresh from
+the live closure. Canonical registers, pending upper-cell writes, PC and counts
+are materialized at every native return, under the existing prepared-code lease.
+Physical Lua frames, VM granularity and fuel boundaries are unchanged.
+
+Both entries and the second entry's owner are charged. Failure tests cover a
+second mapping or owner refusal, aggregate mapping limits, work admission,
+unchanged live peer entries and complete cleanup. The test prototype divides
+IR/block/relocation limits between entries and fails pair construction atomically.
+**That is not a production admission policy:** optional-kernel refusal must retain
+the original admitted entry, and work for the second entry must fit the remaining
+aggregate budget. This remains to be implemented before production benchmarking.
+
+GNU/musl each pass 22 leaf, 29 projection, four JIT activation and three baseline
+activation checks. The executor comparisons include exact canonical frame/stack
+slices, fuel and dispatches, GC between slices, errors, rebinding, closed cells
+and hooks. GNU Auto all-features passes 1075 executions across 80 suites, with
+four existing ignores; baseline plus doctests passes 393/79, with two existing
+ignores. Check/JIT check pass on both targets; GNU Clippy retains the existing
+141 library-test warnings. Evidence uses the `cell-kernel-*` prefix under
+`target/jit-evidence/short-slice-performance/`.
+
+Rust-only Miri passes nine leaf-binding and 27 projection/grammar checks under
+each of Stacked Borrows and Tree Borrows. These include the new cell grammar,
+but do not execute generated native code. The exhaustive CLIF operand-mutation
+test passes on GNU/musl; its broad Miri invocation was interrupted after more
+than fifteen minutes and remains recorded as interrupted, not a full Miri pass.
+The subsequent bounded matrix skips only that test via `make jit-projection-miri
+ARGS='--skip jit::projection::lowering::tests::every_emitted_instruction_rejects_an_operand_or_control_flow_mutation'`.
+
+These commits do **not** enable the kernel in library builds, establish a speedup,
+fix callbacks or compiled-Off cost, or satisfy the frozen performance gates.
+Production dual-entry admission and a new hash-verified comparison are still
+required. The full original acceptance scope is unchanged.
+
 #### Native-entry continuation trials — 2026-10-05
 
 Two further native-entry candidates were measured and rejected. Both move the
