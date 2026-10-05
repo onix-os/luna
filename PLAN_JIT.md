@@ -11,6 +11,42 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Shared paired-program cache pressure — 2026-10-06
+
+`6f0c9dc` integrates the test-only pair cache with ordinary executable-cache
+pressure handling. Installation and successful lease acquisition update one
+shared saturating recency clock. Mapping pressure chooses the oldest unpinned
+program across both caches, excluding the requested program. Ties use cache
+kind and source identity/Call PC. A victim loses code ownership and hotness,
+not its consumed compile attempts. Live leases are never pressure-evicted.
+
+Pair compilation retries at most once after a mapping refusal, consuming the
+same pair's remaining attempt budget and retaining the two charged snapshots
+until both attempts finish. Exhausted attempts, pinned peers and non-mapping
+refusals do not bypass admission limits. Snapshots are released before cache
+owner allocation; a late owner refusal releases the newly compiled mappings.
+Ordinary compilation uses the same victim selector and its existing retry
+accounting. Production builds still have no pair cache or pair selector.
+
+Forty-nine focused pair/owner/eviction tests pass, including real compiled
+pair-to-scalar and scalar-to-pair pressure, LRU hits, saturated-clock ties,
+exhausted budgets, pinned lease execution and late retry-owner refusal.
+The initial recovery fixture accidentally serviced an ordinary request queued
+by its positioning slice; the failed log is retained, and fixture helpers now
+verify the requested cache entry was installed rather than trusting a count.
+Evidence: `target/jit-evidence/short-slice-performance/pair-pressure/`.
+
+Committed-source GNU all-feature Off/Auto/Force and focused musl validation
+passes 3,525 test executions across 247 suites, with zero failures and four
+existing ignores repeated in each full mode. Formatting and GNU baseline/JIT
+checks pass without compiler warnings. All validation jobs are terminal;
+the source archive and hashes are retained with the logs. No new ARM64 or
+native-code Miri acceptance is claimed.
+
+This addresses the pressure-integration prerequisite, not production promotion
+or performance acceptance. The original upvalue, callback and compiled-Off
+regressions and production semantic/platform gates remain open.
+
 #### Paired-call error and panic transport — 2026-10-06
 
 `5423f42` replaces the test-only paired bridge's error assertions with a typed
