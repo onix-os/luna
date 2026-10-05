@@ -2,7 +2,7 @@ use std::{marker::PhantomData, ptr};
 
 use super::*;
 
-const VERSION: u64 = 1;
+pub(super) const VERSION: u64 = 1;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -19,7 +19,7 @@ struct View {
 
 type Entry = unsafe extern "C" fn(*mut View, u32, u32) -> u32;
 
-struct Session<'a, 'gc, const CAPACITY: usize> {
+pub(super) struct Session<'a, 'gc, const CAPACITY: usize> {
     view: *mut View,
     targets: &'a mut [Option<Target<'gc>>; CAPACITY],
     binding_count: &'a mut usize,
@@ -29,7 +29,7 @@ struct Session<'a, 'gc, const CAPACITY: usize> {
 }
 
 impl<'gc, const CAPACITY: usize> Projection<'gc, CAPACITY> {
-    fn with_native<R>(
+    pub(super) fn with_native<R>(
         &mut self,
         scratch: &mut [Slot],
         call: impl FnOnce(&mut Session<'_, 'gc, CAPACITY>) -> R,
@@ -65,11 +65,20 @@ impl<'gc, const CAPACITY: usize> Session<'_, 'gc, CAPACITY> {
         unsafe { entry(self.view, a, b) }
     }
 
+    /// Entry preserves the descriptor, accesses only its buffers, and retains no pointers.
+    #[cfg(not(miri))]
+    pub(super) unsafe fn invoke_scalar(
+        &mut self,
+        entry: unsafe extern "C" fn(*mut std::ffi::c_void) -> u32,
+    ) -> u32 {
+        unsafe { entry(self.view.cast()) }
+    }
+
     fn view(&self) -> View {
         unsafe { self.view.read() }
     }
 
-    fn flush(
+    pub(super) fn flush(
         &mut self,
         ctx: Context<'gc>,
         registers: &mut LuaRegisters<'gc, '_>,
@@ -98,7 +107,7 @@ impl<'gc, const CAPACITY: usize> Session<'_, 'gc, CAPACITY> {
         Ok(())
     }
 
-    fn refresh(
+    pub(super) fn refresh(
         &mut self,
         registers: &LuaRegisters<'gc, '_>,
         upvalues: &[UpValue<'gc>],
@@ -125,16 +134,16 @@ impl<'gc, const CAPACITY: usize> Session<'_, 'gc, CAPACITY> {
         Ok(())
     }
 
-    fn counts(&self) -> Counts {
+    pub(super) fn counts(&self) -> Counts {
         unsafe { self.view().counts.read() }
     }
 
-    fn slot(&self, index: usize) -> Option<Slot> {
+    pub(super) fn slot(&self, index: usize) -> Option<Slot> {
         let view = self.view();
         (index < view.slot_count as usize).then(|| unsafe { view.slots.add(index).read() })
     }
 
-    fn store(&mut self, index: usize, value: Slot) -> Option<()> {
+    pub(super) fn store(&mut self, index: usize, value: Slot) -> Option<()> {
         let view = self.view();
         if index >= view.slot_count as usize {
             return None;

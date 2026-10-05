@@ -8,6 +8,11 @@ use crate::{
 
 use super::abi::{self, Slot};
 
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod lowering;
 mod native;
 
 const LIMIT: usize = 256;
