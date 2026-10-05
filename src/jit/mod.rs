@@ -492,6 +492,8 @@ pub(crate) struct Manager {
     scalar_kernels: bool,
     #[cfg(test)]
     scalar_native_counts: (u64, u64),
+    #[cfg(all(test, not(miri)))]
+    scalar_activation_entries: u64,
     pub(crate) config: JitConfig,
     pub(crate) stats: JitStats,
     pub(crate) next_id: u64,
@@ -543,6 +545,8 @@ impl Default for Manager {
             scalar_kernels: false,
             #[cfg(test)]
             scalar_native_counts: (0, 0),
+            #[cfg(all(test, not(miri)))]
+            scalar_activation_entries: 0,
             config,
             stats: JitStats::default(),
             next_id: 0,
@@ -862,6 +866,11 @@ impl Runtime {
         self.0.borrow_mut().scalar_kernels = enabled;
     }
 
+    #[cfg(all(test, not(miri)))]
+    pub(crate) fn test_scalar_activation_entries(&self) -> u64 {
+        self.0.borrow().scalar_activation_entries
+    }
+
     pub(crate) fn new() -> Self {
         Self::try_new(Manager::default())
             .unwrap_or_else(|_| std::alloc::handle_alloc_error(RuntimeOwner::allocation_layout()))
@@ -885,6 +894,66 @@ impl Runtime {
 
     pub(crate) fn active(&self) -> bool {
         self.0.borrow().config.mode == JitMode::Auto
+    }
+
+    #[cfg(all(
+        test,
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    pub(crate) fn try_scalar_activation<'gc>(
+        &self,
+        ctx: crate::Context<'gc>,
+        closure: crate::Closure<'gc>,
+        registers: &mut crate::thread::LuaRegisters<'gc, '_>,
+        budget: u32,
+    ) -> Option<u32> {
+        if *registers.pc != 0 || budget <= 3 {
+            return None;
+        }
+        {
+            let manager = self.0.borrow();
+            if !manager.scalar_kernels || manager.config.mode != JitMode::Auto {
+                return None;
+            }
+        }
+        let id = ctx
+            .jit_registry()
+            .borrow()
+            .identity(ctx, closure.prototype())?;
+        let code = self.lookup(id)?;
+        let kernel = code.code.scalar_kernel.as_ref()?;
+        let pattern = kernel.scalar_leaf?;
+        let count = kernel.registers;
+        if count > 8 || registers.stack_frame.len() < count {
+            return None;
+        }
+        let mut scratch = [abi::Slot {
+            tag: abi::NIL,
+            bits: 0,
+        }; 8];
+        let slots = &mut scratch[..count];
+        for (slot, value) in slots.iter_mut().zip(registers.stack_frame.iter().copied()) {
+            *slot = abi::Slot::from_value(value);
+        }
+        let cell = closure.upvalues().get(usize::from(pattern.upvalue))?.get();
+        let binding = leaf::Binding::from_origin(registers.projection_origin(cell)?, slots)?;
+        let right = match pattern.right {
+            leaf::Operand::Register(index) => *slots.get(usize::from(index.0))?,
+            leaf::Operand::Constant(index) => {
+                abi::Slot::from_constant(*closure.prototype().constants.get(usize::from(index))?)
+            }
+        };
+        if !binding.integer_activation(pattern, right) {
+            return None;
+        }
+        let completed = self.invoke_scalar_kernel(kernel, registers, slots, binding, budget);
+        assert_eq!(completed, 3);
+        assert_eq!(*registers.pc, 3);
+        let mut manager = self.0.borrow_mut();
+        manager.scalar_activation_entries = manager.scalar_activation_entries.saturating_add(1);
+        Some(completed)
     }
 
     pub(crate) fn usage(&self) -> usize {

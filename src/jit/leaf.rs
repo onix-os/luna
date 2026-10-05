@@ -127,6 +127,16 @@ fn scalar(slot: abi::Slot) -> bool {
 }
 
 impl Binding {
+    #[cfg(test)]
+    pub(super) fn integer_activation(&self, pattern: Pattern, right: abi::Slot) -> bool {
+        let right = if matches!(pattern.right, Operand::Register(index) if index == pattern.read) {
+            self.value
+        } else {
+            right
+        };
+        self.value.tag == abi::INTEGER && right.tag == abi::INTEGER
+    }
+
     pub(super) fn from_origin(origin: Origin<'_>, scratch: &[abi::Slot]) -> Option<Self> {
         let (target, value) = match origin {
             Origin::Upper(index, value) => (Target::Upper(index), abi::Slot::from_value(value)),
@@ -226,6 +236,30 @@ const _: () = {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn integer_activation_uses_post_read_alias_and_rejects_other_tags() {
+        let slots = [abi::Slot {
+            tag: abi::NIL,
+            bits: 0,
+        }];
+        let binding = Binding::from_origin(Origin::Upper(0, Value::Integer(2)), &slots).unwrap();
+        let mut pattern = Pattern {
+            read: RegisterIndex(0),
+            result: RegisterIndex(0),
+            upvalue: 0,
+            arithmetic: Arithmetic::Add,
+            right: Operand::Register(RegisterIndex(0)),
+        };
+        assert!(binding.integer_activation(pattern, slots[0]));
+        pattern.right = Operand::Register(RegisterIndex(1));
+        for value in [Value::Nil, Value::Boolean(true), Value::Number(2.0)] {
+            assert!(!binding.integer_activation(pattern, abi::Slot::from_value(value)));
+        }
+        assert!(binding.integer_activation(pattern, abi::Slot::from_value(Value::Integer(2))));
+        let floating = Binding::from_origin(Origin::Upper(0, Value::Number(2.0)), &slots).unwrap();
+        assert!(!floating.integer_activation(pattern, abi::Slot::from_value(Value::Integer(2))));
+    }
 
     #[cfg(all(
         not(miri),

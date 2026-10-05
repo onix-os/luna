@@ -1,5 +1,12 @@
 # Native JIT: experimental scalar and heap tier
 
+Two production direct-callee forms failed the complete frozen comparison and
+are disabled again. Owned and borrowed frame preflights collected 48 blocks /
+288 timing commands; neither accelerates upvalues or callbacks, and disabled
+costs still fail. Borrowed preflight, canonical Return/fuel behavior and actual
+helper-free execution proofs remain test-only. Restored GNU/musl focused checks
+pass. The original performance regressions remain open.
+
 The transition-entry bypass trial also failed the unchanged paired gates and
 was removed. Its 24 blocks / 144 commands produced no upvalue or callback
 acceleration; new empty-function and variadic-tailcall canonical-slice cases

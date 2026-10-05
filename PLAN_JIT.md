@@ -11,6 +11,104 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Production callee activation comparisons rejected — 2026-10-05
+
+The direct activation was promoted in `7b6743f`; `6a11d99` proves through the
+public API that an integer leaf executes one native upvalue read/write with
+fewer than two helper calls. The general production VM retained its ordinary
+native entry on every declined activation. Optional owner/admission recovery
+and source leases were preserved. Full GNU Auto and repository all-feature
+testing, musl focused/native and public execution checks passed 2,215 repeated
+executions across 164 suites with eight existing ignores. These checks did not
+establish a performance improvement.
+
+The first production form moved `LuaFrame` into preflight and returned it on
+decline. The second (`d8877f6`) borrows the frame and returns only completed work
+and canonical Return operands; the executor consumes the frame once. Focused
+GNU/musl/baseline checks passed 54 executions/five suites, followed by GNU
+baseline/JIT checks and another public helper-free execution proof. Removing
+the owned-frame result is a concrete interface change; its effect on timings
+must be measured rather than assumed.
+
+Each form completed the unchanged 24-block/144-command comparison: three
+windows, both profiles, all nine workloads, eleven paired samples, alternating
+variant/profile order, original immutable controls, source/artifact hashes
+around every block and contention telemetry. No owned build/test ran during
+timing. Independently rebuilt no-feature hashes differ from the original;
+that difference is retained rather than claimed as byte-identical provenance.
+Both source archives verify independently after rollback. Collection exit zero
+means all commands were collected, not that gates passed.
+
+| Form / direct original Auto over candidate Auto | Speed | Shipping |
+| --- | ---: | ---: |
+| Owned-frame upvalues | 0.876628x | 0.885634x |
+| Owned-frame callbacks | 0.880737x | 0.885864x |
+| Borrowed-frame upvalues | 0.910367x | 0.971594x |
+| Borrowed-frame callbacks | 0.977749x | 0.982579x |
+
+Upvalue gates passed 0/24 in each profile for both forms; borrowed callback
+gates passed only 0/24 speed and 1/24 shipping. Owned upvalue disabled overhead
+was 33.825% speed / 26.57% shipping; borrowed was 9.7% / 24.145%. Borrowed
+shipping table (7.28%), float (6.81%), integer (12.95%), metamethod (5.225%) and
+callback (6.03%) medians also fail. Broad integer variation and every failed
+window/control remain visible; no threshold, coverage or workload was changed.
+
+Both production forms are disabled again. Borrowed preflight and canonical
+Return bookkeeping remain behind `cfg(test)`. The public fixture is preserved
+as a test-selector fixture that also asserts one actual direct activation.
+After rollback, GNU/musl activation/native/leaf and baseline activation pass
+104 executions/seven suites without failures, plus formatting and GNU
+baseline/JIT workspace checks. This is not full performance acceptance.
+
+Evidence prefixes `direct-callee` and `borrowed-callee` under
+`target/jit-evidence/short-slice-performance/` include immutable source/binaries,
+full timing logs, `-summary.tsv`, build settings, telemetry, exit records,
+post-rollback archive verification and the restored-source validation log.
+The two archives identify `6a11d99` and `d8877f6` respectively. Next change actual
+short-kernel code generation or cross-call structure rather than relocating the
+same generic helper-inlined kernel again. Original callback and compiled-Off
+acceptance remain independent required work.
+
+#### Direct native callee activation checkpoint — 2026-10-05
+
+`102cab7` adds a test-only executor activation path, not another entry-routing
+check inside `run_vm`. For an installed source-bound four-operation integer
+leaf at PC zero, it leases the original/optional code owner, packs at most eight
+canonical scalar slots, checks a scoped upper/current-register binding and
+integer operands, invokes the existing helper-free native kernel, then performs
+the original canonical Return. Physical Lua frames remain present throughout
+the activation; Return and executor instruction/step fuel charges are unchanged.
+No Lua call is recursively executed on a suspended native stack, no descriptor
+survives the activation, and no new unsafe block or GC-layout access was added.
+
+Counters assert real direct native entry counts, not mere preparation. Sixteen
+source cases cover register/constant operands, Add/Sub/Mul wraparound, held
+reference arguments, tail calls, hooks, closed/foreign cells, floats and
+reference-producing arithmetic metamethods. Each compares exact public-step
+frame/stack/fuel/dispatch/result traces against Off with full GC after every
+step at budgets 0, 1, 17 and 4096. Guarded cases preserve the ordinary path.
+The subsequent source-shape oracle confirms that `n=n+n` and returning a
+reference parameter compile to more than four operations; they are explicitly
+fallback cases, not claimed as direct-entry coverage.
+
+GNU focused validation passes 5 activation and 25 leaf tests. The extended
+baseline/GNU/musl/native and GNU Auto all-feature run passes 1,149 repeated
+executions across 85 suites, with four existing ignores; formatting and GNU
+baseline/JIT checks pass. The additional source-shape oracle run passes 4
+baseline and 6 activation tests on each native target (16 executions).
+Rust-only Miri passes 10 leaf tests each under Stacked seed one and Tree seed
+two. It covers the pure integer/alias preflight and existing scoped bindings,
+not generated code or the direct activation path. All owned jobs are terminal.
+
+Evidence prefix `scalar-activation` under
+`target/jit-evidence/short-slice-performance/` records draft, expanded,
+retained, source-shape and Miri logs plus the design checkpoint. The trial
+remains behind `cfg(test)`: release runtime behavior is unchanged and no speedup
+is claimed. Next promote a bounded candidate, retain ordinary native fallback
+and optional admission recovery, and run the complete immutable speed/shipping
+comparison before retaining any production optimization. Upvalue/callback and
+compiled-Off acceptance is still incomplete.
+
 #### Transition-entry bypass rejected — 2026-10-05
 
 A bounded dispatch trial decoded Call/TailCall/Return before `Runtime::run`

@@ -53,6 +53,38 @@ fn positioned_error<'gc>(
     crate::RuntimeError::new(anyhow::anyhow!(message).context(at)).into()
 }
 
+#[cfg(all(
+    test,
+    feature = "jit",
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[inline(always)]
+pub(super) fn try_scalar_activation<'gc>(
+    ctx: Context<'gc>,
+    frame: &mut LuaFrame<'gc, '_>,
+    budget: u32,
+) -> Option<(u32, crate::types::RegisterIndex, crate::types::VarCount)> {
+    let closure = frame.closure();
+    let prototype = closure.prototype();
+    if prototype.opcodes.len() != 4 {
+        return None;
+    }
+    ctx.clear_hook_at(frame.frame_depth());
+    if ctx.hook_enabled() {
+        return None;
+    }
+    let completed =
+        ctx.jit()
+            .try_scalar_activation(ctx, closure, &mut frame.registers(), budget)?;
+    let Operation::Return { start, count } = prototype.opcodes[3].decode() else {
+        panic!("scalar activation has no canonical return");
+    };
+    *frame.registers().pc += 1;
+    Some((completed, start, count))
+}
+
 pub(super) fn run_vm<'gc>(
     ctx: Context<'gc>,
     mut lua_frame: LuaFrame<'gc, '_>,
