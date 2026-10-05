@@ -702,6 +702,72 @@ mod tests {
     }
 
     #[test]
+    fn upvalue_bounds_panics_preserve_cells_pc_and_materialize_pending_values() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = Closure::load(ctx, None, b"return _ENV").unwrap();
+            let original = closure.upvalues()[0].get().get();
+            for (kind, a, b) in [
+                (abi::HELPER_GET_UPVALUE, u32::MAX, 0),
+                (abi::HELPER_GET_UPVALUE, 0, u32::MAX),
+                (abi::HELPER_SET_UPVALUE, u32::MAX, 0),
+                (abi::HELPER_SET_UPVALUE, 0, u32::MAX),
+            ] {
+                let mut canonical = [Value::Nil; 3];
+                let mut pc = 17;
+                LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+                    let pending = [
+                        Value::Integer(91),
+                        Value::Number(-0.0),
+                        Value::Boolean(false),
+                    ];
+                    let mut slots = pending.map(Slot::from_value);
+                    let mut frame = Frame {
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: Counts::default(),
+                        slot_count: slots.len(),
+                        panic: None,
+                    };
+                    let status = if kind == abi::HELPER_GET_UPVALUE {
+                        invoke::<{ abi::HELPER_GET_UPVALUE }>(&mut frame, &mut slots, a, b, 0, 17)
+                    } else {
+                        invoke::<{ abi::HELPER_SET_UPVALUE }>(&mut frame, &mut slots, a, b, 0, 17)
+                    };
+                    assert_eq!(status, abi::HELPER_PANICKED);
+                    assert_eq!(*frame.registers.pc, 18);
+                    assert_eq!(
+                        (
+                            frame.count.calls,
+                            frame.count.completed,
+                            frame.count.declined
+                        ),
+                        (1, 0, 0)
+                    );
+                    assert_eq!(
+                        (frame.count.upvalue_reads, frame.count.upvalue_writes),
+                        (0, 0)
+                    );
+                    assert!(frame.panic.is_some());
+                    for (actual, expected) in
+                        frame.registers.stack_frame.iter().copied().zip(pending)
+                    {
+                        assert_identical(actual, expected);
+                    }
+                    match (original, closure.upvalues()[0].get().get()) {
+                        (
+                            crate::closure::UpValueState::Closed(a),
+                            crate::closure::UpValueState::Closed(b),
+                        ) => assert_identical(a, b),
+                        _ => panic!("closed upvalue changed state"),
+                    }
+                });
+            }
+        });
+    }
+
+    #[test]
     fn table_store_guards_preserve_metatable_and_interception_combinations() {
         let mut lua = crate::Lua::empty();
         lua.enter(|ctx| {

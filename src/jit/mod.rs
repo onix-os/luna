@@ -2107,3 +2107,6 @@ mod eviction_tests {
         assert_eq!(ledger.current(), 0);
     }
 }
+
+#[cfg(test)]
+pub(crate) mod projection;

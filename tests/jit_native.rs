@@ -49,6 +49,8 @@ fn native_call_and_fallback_slices_preserve_step_boundaries() -> Result<(), Exte
         b"local n=0 for i=1,120 do local x='1' n=n+x end return n",
         b"local t=setmetatable({}, {__index=function() return 1 end}) local n=0 for i=1,120 do n=n+t.x end return n",
         b"local n=0 for i=1,120 do n=n+1 if i%2==0 then n=n+1 end end return n",
+        b"local function f(a,b,c) a=a+0 return a,b,c,nil,99 end local a,b,c,d,e=f(7) assert(a==7 and b==nil and c==nil and d==nil and e==99) local t={} a,b,c,d,e=f(7,nil,t,123) assert(a==7 and b==nil and c==t and d==nil and e==99) return 42",
+        b"local function f(a,b,c) a=a+0 return a,b,c,nil,99 end local function g(...) return f(...) end local a,b,c,d,e=g(7,nil,13,123) assert(a==7 and b==nil and c==13 and d==nil and e==99) local function discard() f(7,8,9) return 41 end return discard()+1",
     ];
     for &program in programs {
         let mut reference = Lua::core();

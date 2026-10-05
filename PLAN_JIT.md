@@ -229,6 +229,92 @@ Cross-call execution must retain physical Lua frames, fresh weak identity
 validation for every callee, leases, exact VM/fuel boundaries, canonical GC
 roots and callback/hook/error visibility. No such implementation is claimed.
 
+Two further boundary experiments are rejected. Borrowing `LuaFrame` instead
+of moving it into call, tail-call and return functions passes 560 focused
+executions and five statistics/Miri tests. Its complete 24-block comparison
+improves native upvalues only 1.0115x speed and 1.0250x shipping; callbacks do
+not improve. Speed compiled-Off integer, float and upvalue overhead rises to
+13.07%, 10.16% and 5.75%. The original ownership signatures are restored.
+The retained test (`1581390`) adds missing/extra arguments, reference identity,
+nil padding, variable-argument tail calls and discarded multiple returns to
+the existing per-step Off/Auto comparison.
+
+A specialized upvalue helper services closed reads and current-stack reads/
+writes through checked indices before the general unwind shim. Foreign-stack
+access and closed writes keep their original panic transport and GC barriers.
+It passes 570 focused executions and thirteen helper/statistics Miri executions,
+but its full 24-block comparison yields only 1.0451x/1.0192x native upvalue gains
+(speed/shipping), without callback gains. Speed compiled-Off float, integer,
+upvalue and callback overhead reaches 19.64%, 10.52%, 7.64% and 5.67%; shipping
+integer overhead reaches 6.98%. The helper and thread changes are restored.
+Both experiments retain all 144 commands, failed gates and immutable artifacts.
+The independent helper bounds test preserves PC, pending scalar materialization,
+unchanged upvalue cells and panic transport for invalid source/destination indices.
+
+**Next implementation direction:** an explicit per-invocation scalar upvalue
+projection ABI, rather than another helper-shim placement variation. The
+current helpers still cross into Rust for each get/set; moving the unwind
+boundary does not remove that transition. A projection could let verified
+native code operate on scalar slots without reading Rust `Value` or GC layouts.
+The Rust projection model and scoped descriptor are implemented and test-gated;
+native lowering and the live host ABI are not implemented or accepted. Before native use it
+requires:
+
+- Fresh cell resolution and alias deduplication at entry, with current-frame
+  aliases linked to existing scratch slots; foreign stacks retain helpers.
+- Canonical roots retained throughout; every pending write synchronized before
+  helpers, interpreter transitions, callbacks, collection, panic and exit;
+  projections refreshed after helpers that can change the represented cells.
+- Existing GC barriers for closed writes; no native stores into Rust values.
+- Explicit bounded ABI layout, ownership/resource accounting, and verification
+  of projection bounds, tags, dirty state, source opcode bindings and exits.
+- Exact dispatch/fuel/statistics behavior, differential alias/rebinding/error/
+  GC tests, Miri for the Rust boundary, and unchanged paired performance gates.
+
+**Projection foundation:** `src/jit/projection.rs` uses fixed-capacity arrays
+bounded to 256 bindings, 32-byte C-layout scalar cells and eight-byte counters.
+Closed cells group by cell identity; open cells group by location on the active
+stack. Current-frame cells link to scratch slots, including writes made by
+ordinary native arithmetic rather than an upvalue setter. Cells outside the
+scratch prefix use detached scalar storage. Foreign stacks and reference
+payloads retain helper fallback. Closed-cell commit uses `UpValue::set` and its
+existing GC barrier; invalid targets/slots are preflighted before any commit.
+Refresh rejects outstanding projected writes and rebuilds alias groups after
+helper mutation/rebinding while retaining counts.
+
+`make jit-projection` and `make jit-projection-miri` pass eleven tests, including
+duplicate/upper/current-frame aliases, outside-prefix cells, foreign fallback,
+invalid targets/slots, capacity/index 255, helper rebinding, signed zero and
+NaN payloads. The broader native/boundary lanes pass 518 executions; normal and
+JIT checks and the all-feature Clippy command pass, with existing lint warnings.
+The component and accessors are `cfg(test)` and appended after production
+definitions; there is no release runtime activation or new performance claim.
+
+**Scoped descriptor:** `src/jit/projection/native.rs` lends a versioned, 64-byte
+C-layout descriptor on 64-bit targets. It contains bounded binding/cell/scratch
+pointers and operation counters; typed GC targets remain Rust-only. Native
+access, Rust synchronization and in-place refresh reuse the original buffer
+pointers, and the header remains outside the mutable session. The scope rejects
+a scratch prefix different from the one used to construct the projection.
+Refresh preserves counters and rejects pending writes or oversized bindings
+without changing descriptor identity. Unwinding the Rust scope leaves pending
+writes available for explicit materialization; it does not flush in `Drop`.
+
+Nine new tests using Rust `extern "C"` probes exercise this descriptor, bringing
+the focused suite to twenty tests. All twenty pass under both Miri Stacked
+Borrows (seed one) and Tree Borrows (seed two). Native/boundary lanes pass 529
+executions with four ignored tests. These are Rust-boundary tests, not generated-machine-code
+coverage or proof that the fast path is active. The live `Host` layout and v3
+helper symbols are unchanged.
+
+**Still required:** compiler lowering and live host integration,
+source/tag/bounds/dirty-state and exit verification, helper/exit synchronization,
+statistics and exact PC/fuel integration, runtime resource admission, complete
+GC/panic/differential validation and both frozen benchmark profiles. The GC
+backward barrier can borrow and grow its marking queue, so closed-cell commits
+must not be casually treated as infallible across a native C boundary. The
+foundation tests are not acceptance evidence for those remaining items.
+
 **Current conclusion:** these changes are valid correctness experiments, not
 accepted regression fixes. The runtime still uses the baseline randomized
 lookup, original counter layout and original interpreter dispatch. A default
