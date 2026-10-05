@@ -116,6 +116,10 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         self.fuel
     }
 
+    pub(crate) fn charge_instructions(&mut self, instructions: u32) {
+        self.fuel.consume(instructions.try_into().unwrap());
+    }
+
     pub(crate) fn charge_native_slice(&mut self, instructions: u32) {
         self.fuel.consume(instructions.try_into().unwrap());
         self.fuel.consume(4);
@@ -244,15 +248,14 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
             let (result, step_charged) = if let Some(pair) = self.handoff.take() {
                 let prefix = result.expect("pair handoff with VM error");
                 assert!(prefix < budget);
-                self.fuel.consume(prefix.try_into().unwrap());
                 self.select_pairs = false;
-                if let Some((calls, returns)) = pair.invoke(ctx, self, budget) {
-                    assert_eq!(calls, 1);
-                    activations += returns;
-                    (Ok(0), true)
+                if let Some(outcome) = pair.invoke(ctx, self, budget, prefix) {
+                    activations += outcome.returns;
+                    (outcome.result.map(|()| 0), true)
                 } else {
                     (
-                        self.with_frame(|frame| run_vm(ctx, frame, budget - prefix)),
+                        self.with_frame(|frame| run_vm(ctx, frame, budget - prefix))
+                            .map(|instructions| prefix + instructions),
                         false,
                     )
                 }

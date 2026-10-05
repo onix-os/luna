@@ -968,16 +968,36 @@ pub(crate) struct PreparedPair {
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
+pub(crate) struct PairOutcome {
+    pub calls: usize,
+    pub returns: usize,
+    pub result: Result<(), crate::thread::VMError>,
+}
+
+#[cfg(all(
+    test,
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 impl PreparedPair {
     pub(crate) fn invoke<'gc>(
         &self,
         ctx: crate::Context<'gc>,
         host: &mut crate::thread::activation::ActivationHost<'gc, '_>,
         budget: u32,
-    ) -> Option<(usize, usize)> {
-        let outcome = self.program.invoke(ctx, host, budget);
-        if let Some((calls, returns)) = outcome {
-            ctx.jit().record_pair_execution(calls, returns);
+        prefix: u32,
+    ) -> Option<PairOutcome> {
+        let outcome = self.program.invoke_result(ctx, host, budget, prefix);
+        if let Some(outcome) = &outcome {
+            ctx.jit().record_pair_execution(
+                outcome.calls,
+                if outcome.result.is_ok() {
+                    outcome.returns
+                } else {
+                    0
+                },
+            );
         }
         outcome
     }

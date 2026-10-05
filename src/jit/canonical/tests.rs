@@ -14,6 +14,14 @@ use crate::{thread::activation::with_test_thread, Closure, Fuel, JitConfig, Lua}
 const ADD: &[u8] = b"local n=7 local function f(v) n=n+v end f(2) return n";
 
 fn fixture(source: &[u8], test: impl FnOnce(&mut Lua, crate::StashedClosure, Site, CallCode)) {
+    fixture_hooks(source, Hooks { enter, leave }, test);
+}
+
+fn fixture_hooks(
+    source: &[u8],
+    hooks: Hooks,
+    test: impl FnOnce(&mut Lua, crate::StashedClosure, Site, CallCode),
+) {
     let mut lua = Lua::empty();
     let (closure, caller, callee, caller_id, callee_id) = lua.enter(|ctx| {
         let closure = Closure::load(ctx, None, source).unwrap();
@@ -50,7 +58,7 @@ fn fixture(source: &[u8], test: impl FnOnce(&mut Lua, crate::StashedClosure, Sit
     let root = Ledger::new(8 * 1024 * 1024);
     let code = compile(
         &plan,
-        Hooks { enter, leave },
+        hooks,
         MappingCounter::new(Ledger::child(2 * 1024 * 1024, root.clone())),
         2 * 1024 * 1024,
         BudgetAllocator(Ledger::child(2 * 1024 * 1024, root)),
@@ -220,7 +228,7 @@ fn native_budget_declines_keep_the_callee_frame_for_interpreter_resume() {
                         unsafe { code.invoke(std::ptr::addr_of_mut!(session).cast(), budget) };
                     assert_eq!(returned, 1);
                     assert_eq!(
-                        (session.calls, session.returns, session.panicked),
+                        (session.calls, session.returns, session.panic.is_some()),
                         (1, 0, false)
                     );
                     assert!(session.error.is_none());
@@ -462,7 +470,7 @@ fn mismatched_leave_is_caught_before_canonical_return_or_materialization() {
                     unsafe { leave(data, frame, 999, u32::from(site.start.0)) },
                     0
                 );
-                assert!(session.panicked);
+                assert!(session.panic.is_some());
                 assert_eq!(session.returns, 0);
                 assert_eq!(trace(ctx, session.host, stats(ctx)), original);
             });
@@ -522,4 +530,165 @@ fn argument_shifting_rebinds_current_frame_aliases_and_preserves_late_declines()
             assert_eq!(run(lua, true), run(lua, false));
         });
     }
+}
+
+#[test]
+fn panic_payload_resumes_after_session_borrow_release() {
+    use std::panic::{catch_unwind, panic_any, AssertUnwindSafe};
+
+    #[derive(Debug, PartialEq)]
+    struct Payload(u64);
+
+    fixture(ADD, |lua, closure, site, _code| {
+        lua.enter(|ctx| {
+            with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                position(host, ctx, site.pc);
+                let mut session = Session::new(ctx, host, &site);
+                session.panic = catch_unwind(AssertUnwindSafe(|| panic_any(Payload(731)))).err();
+                let payload = match catch_unwind(AssertUnwindSafe(|| session.finish())) {
+                    Err(payload) => payload,
+                    Ok(_) => panic!("session swallowed panic payload"),
+                };
+                assert_eq!(*payload.downcast::<Payload>().unwrap(), Payload(731));
+                host.with_registers(|_, registers| assert_eq!(*registers.pc, site.pc));
+                assert!(ctx.jit().0.try_borrow_mut().is_ok());
+            });
+        });
+    });
+}
+
+#[test]
+fn consumed_call_vm_error_is_returned_without_charging_an_unsuccessful_prefix() {
+    unsafe extern "C" fn faulty_enter(
+        data: *mut c_void,
+        pc: u64,
+        function: u32,
+        arguments: u32,
+    ) -> *mut NativeFrame {
+        unsafe { &mut *data.cast::<Session<'_, '_, '_>>() }
+            .host
+            .test_variable_stack();
+        unsafe { enter(data, pc, function, arguments) }
+    }
+
+    fixture_hooks(
+        ADD,
+        Hooks {
+            enter: faulty_enter,
+            leave,
+        },
+        |lua, closure, site, code| {
+            lua.enter(|ctx| {
+                with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                    position(host, ctx, site.pc);
+                    let fuel = host.fuel().remaining();
+                    let outcome = invoke_result(ctx, host, &site, &code, 64, 4).unwrap();
+                    assert_eq!((outcome.calls, outcome.returns), (1, 0));
+                    assert!(matches!(
+                        outcome.result,
+                        Err(crate::thread::VMError::ExpectedVariableStack(false))
+                    ));
+                    assert_eq!(host.fuel().remaining(), fuel - 4);
+                    host.with_registers(|_, registers| assert_eq!(*registers.pc, site.pc + 1));
+                });
+            });
+        },
+    );
+}
+
+#[test]
+fn generated_return_vm_error_preserves_canonical_effects_and_fuel() {
+    unsafe extern "C" fn faulty_enter(
+        data: *mut c_void,
+        pc: u64,
+        function: u32,
+        arguments: u32,
+    ) -> *mut NativeFrame {
+        let frame = unsafe { enter(data, pc, function, arguments) };
+        if !frame.is_null() {
+            unsafe { &mut *data.cast::<Session<'_, '_, '_>>() }
+                .host
+                .test_variable_stack();
+        }
+        frame
+    }
+
+    fixture_hooks(
+        ADD,
+        Hooks {
+            enter: faulty_enter,
+            leave,
+        },
+        |lua, closure, site, code| {
+            let run = |lua: &mut Lua, native| {
+                lua.enter(|ctx| {
+                    with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                        position(host, ctx, site.pc);
+                        let before = stats(ctx);
+                        let result = if native {
+                            let outcome = invoke_result(ctx, host, &site, &code, 64, 0).unwrap();
+                            assert_eq!((outcome.calls, outcome.returns), (1, 1));
+                            outcome.result
+                        } else {
+                            assert!(host.run(ctx, 1, 64, 4).result.is_ok());
+                            host.test_variable_stack();
+                            host.run(ctx, 1, 64, 4).result
+                        };
+                        assert!(matches!(
+                            result,
+                            Err(crate::thread::VMError::ExpectedVariableStack(false))
+                        ));
+                        let trace = trace(ctx, host, before);
+                        (
+                            trace.frames,
+                            trace.slots,
+                            trace.open,
+                            trace.fuel,
+                            trace.dispatches,
+                        )
+                    })
+                })
+            };
+            assert_eq!(run(lua, true), run(lua, false));
+        },
+    );
+}
+
+#[test]
+fn generated_hook_panic_resumes_only_after_native_return() {
+    unsafe extern "C" fn faulty_leave(
+        data: *mut c_void,
+        frame: *mut NativeFrame,
+        pc: u64,
+        start: u32,
+    ) -> u32 {
+        unsafe { leave(data, frame, pc + 1, start) }
+    }
+
+    fixture_hooks(
+        ADD,
+        Hooks {
+            enter,
+            leave: faulty_leave,
+        },
+        |lua, closure, site, code| {
+            lua.enter(|ctx| {
+                with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                    position(host, ctx, site.pc);
+                    let payload = match catch_unwind(AssertUnwindSafe(|| {
+                        invoke_result(ctx, host, &site, &code, 64, 0)
+                    })) {
+                        Err(payload) => payload,
+                        Ok(_) => panic!("generated hook swallowed panic"),
+                    };
+                    assert!(payload
+                        .downcast::<String>()
+                        .unwrap()
+                        .contains("assertion `left == right` failed"));
+                    host.with_registers(|_, registers| assert_eq!(*registers.pc, 0));
+                    assert!(ctx.jit().0.try_borrow_mut().is_ok());
+                });
+            });
+        },
+    );
 }
