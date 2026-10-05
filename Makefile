@@ -289,6 +289,20 @@ jit-leaf:
 jit-leaf-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::leaf::tests -- --test-threads=1
 
+.PHONY: jit-integer jit-integer-miri
+.PHONY: jit-continuations jit-continuations-miri
+jit-continuations:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::continuations::tests $(ARGS)
+
+jit-continuations-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::continuations::tests -- --test-threads=1 $(ARGS)
+
+jit-integer:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::integer::tests $(ARGS)
+
+jit-integer-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::integer::tests -- --test-threads=1 $(ARGS)
+
 .PHONY: jit-projection jit-projection-miri
 jit-projection:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::projection:: $(ARGS)
@@ -311,6 +325,10 @@ vm-activation-tests:
 
 jit-activation-tests:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::executor::activation_tests $(ARGS)
+
+.PHONY: jit-activation-host-miri
+jit-activation-host-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::executor::activation_tests::scoped_activation_host_releases_before_nested_executor_callbacks -- --exact --test-threads=1
 
 vm-activation-miri:
 	@$(CARGO) miri test --locked -p luna --lib --target '$(MIRI_TARGET)' thread::executor::activation_tests::native_and_interpreted_nested_executors_preserve_open_upvalues -- --exact --test-threads=1

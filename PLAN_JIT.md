@@ -11,6 +11,198 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Scoped activation-host groundwork — 2026-10-05
+
+The new **test-only** host retains the canonical whole-stack/thread borrow and
+creates a fresh, lifetime-scoped register view for each VM activation. It drops
+the host before callbacks, sequences, error handling and public host returns.
+Physical frames, per-activation instruction/step fuel and immediate statistics
+publication remain canonical. This is not generated cross-function execution,
+a production optimization or a verified performance fix.
+
+Exact public-step comparisons cover nine cases, four fuel budgets, three scope
+limits and Off/Auto, including hooks, errors, closes, varargs, coroutines,
+interrupting callbacks and nested executors reading a caller capture. Additional
+tests require actual stack-capacity growth and native work in multi-activation
+scopes. Optional continuation metadata now joins scalar kernels in cache/owner
+allocation fallback; refusal tests execute ordinary native entries and preserve
+live peer leases. Small-table cases cannot guarantee enough space for cache
+growth plus ordinary ownership; the successful recovery fixture uses a longer
+real Lua body, and the failed short fixtures are retained.
+
+Runtime commit `64ddb6d` passes GNU/musl focused plus GNU Auto all-feature
+validation: 1,177 repeated
+executions across 86 suites, with four existing ignores and zero failures.
+Formatting and GNU baseline/JIT checks pass. The bounded scoped-host nested
+executor test also passes under Stacked Borrows seed one and Tree Borrows seed
+two in the pinned Miri shell (two executions/two suites); machine code is not
+executed by Miri. Logs, including failed fixture and
+tool invocations, are retained in
+`target/jit-evidence/short-slice-performance/activation-host/`.
+No new ARM64 execution or performance acceptance is claimed. The next required
+work is a source/lease-verified generated call tier, followed by unchanged paired
+performance gates; upvalue, callback and compiled-Off regressions remain open.
+
+#### Source-bound continuation groundwork — 2026-10-05
+
+Fresh symbol-retained GNU speed-profile Callgrind pairs at `7b3ad9e` confirm
+remaining work outside the scalar kernel. Both workloads ran three measured
+iterations after two warmups, collecting only executor steps with the existing
+Make profiler target. These are simulated instruction counts, not speedups,
+hardware cache measurements or frozen performance acceptance.
+
+| Workload | No-feature instructions | Compiled-Off | Auto |
+| --- | ---: | ---: | ---: |
+| Upvalues | 91,575,447 | 98,775,408 | 128,942,572 |
+| Callbacks | 42,538,855 | 44,589,445 | 48,878,096 |
+
+Upvalue Auto's flat counts include 38,411,276 instructions in `run_vm`,
+16,394,642 in the eight-register invocation and 9,035,208 in the two-register
+invocation. The original/compiled-Off controls and Auto profile each use their
+own verified binaries; the archived `7b3ad9e` source independently verifies.
+No claim of byte-identical equivalence to the original frozen control is made.
+
+`src/jit/continuations.rs` adds **test-only groundwork** for a native call driver:
+immutable, metadata-charged Call/TailCall/Return records built during the existing
+source-verified compiler/owner pipeline. An independent opcode-encoding walk
+checks record cardinality, PCs and every operand. Requests borrow the verified
+table, keeping its owning code borrow alive. Guard, budget, panic, unknown-reason
+and invalid-PC exits cannot resolve as call requests. The records describe an
+exit; they do not themselves authorize fuel, hooks, a callee source or execution.
+
+Actual generated-code tests reach all three transition classes, including
+constant/variable argument and result counts, and preserve native budget exits.
+Optional table storage/allocation and late owner refusals retain ordinary code,
+live peer leases and exact resource reclamation. Mutation cases reject every
+transition operand/kind, missing/moved records and incorrect cardinality.
+The table remains usable after temporary snapshots are dropped; no GC pointer,
+recursive native call or new unsafe block was introduced.
+
+GNU/musl focused and GNU Auto all-feature validation passes 1,168 repeated
+executions/86 suites, four existing ignores, zero failures; formatting and GNU
+baseline/JIT checks pass. Expanded GNU/musl cases pass ten executions/two suites.
+The expanded three pure tests pass under each of Stacked seed one and Tree seed
+two (six executions/two suites); Miri excludes machine-code tests. Current ARM64
+execution evidence has not been collected for this groundwork.
+
+Evidence under `target/jit-evidence/short-slice-performance/cross-call-current/`
+includes matched profiling binaries/manifests, four profiling pairs, source
+archive/verification and continuation validation logs. No production dispatch
+change or performance fix is enabled. Original callback, upvalue and compiled-Off
+gates remain required and unmet.
+
+Next implement a scoped activation host that owns the canonical thread/stack
+borrow, not persistent register slices: materialize caller state, validate the
+actual callee source/lease, enter a physical frame, execute a bounded generated
+region and perform canonical Return/fuel/statistics transitions. Release register
+views before frame changes or vector growth, and release the host before user
+callbacks, sequences, collection and host returns. Aggregate source/exit proof,
+quota/late-refusal recovery and exact interrupted public-step comparisons are
+required before any generated call integration or performance acceptance.
+
+#### Integer activation production candidate — 2026-10-05
+
+**Rejected and disabled in `56f4f8e`; results below supersede the candidate
+enablement checkpoint.**
+
+The straight-line integer emitter from `8a84bd4` was enabled for source-bound
+integer leaves. Ordinary native entries remain installed for partial fuel,
+other PCs, floats, references, hooks, closed/foreign bindings and optional
+child resource refusals. No generic scalar kernel is selected in production.
+Physical frames, canonical Return and executor fuel accounting are unchanged.
+
+Public integration tests execute Add/Sub/Mul and wrapping overflow cases,
+requiring one native upvalue read/write with fewer than two helper calls. They
+do not use unit-test selectors. GNU/musl focused and GNU Auto all-feature
+validation passes 1,175 repeated executions/88 suites, four existing ignores,
+zero failures, plus GNU baseline/JIT checks. Miri passes 22 executions/four
+suites under the two documented models/seeds for scoped bindings and pure
+source verification; it does not execute generated machine code. A final
+GNU/musl integration rerun passes 16 executions/two suites after making two
+diagnostic-only items test-only; GNU JIT checks and formatting also pass.
+
+Evidence prefixes `integer-production-full-validation`,
+`integer-production-miri-validation` and `integer-production-final-validation`
+are retained under `target/jit-evidence/short-slice-performance/`. The initial
+overflow fixture failure is retained separately: Lua's positive numeral for
+2^63 parses as a float, so the minimum integer fixture now uses integer
+subtraction. Interpreter parity caught this before candidate acceptance.
+
+The unchanged comparison completed at `1dd7bfd`: 24 blocks, three windows,
+144 timing commands, both profiles, all nine workloads, eleven paired samples,
+twelve feature-cost batches per profile and alternating variant/profile order.
+Source/artifact hashes verify before and after every block. No owned builds,
+tests or profiles ran during timing; contention telemetry and failed samples
+are retained. Independently rebuilt no-feature hashes differ from the original
+controls; no byte-identical equivalence or clean-host acceptance is claimed.
+
+| Direct original Auto / candidate Auto | Speed | Shipping |
+| --- | ---: | ---: |
+| Upvalues | 0.956213x | 0.977633x |
+| Callbacks | 0.977330x | 0.983496x |
+
+Upvalue and callback gates pass 0/24 in each profile. Candidate Off/Auto upvalue
+ratios are 0.705700x speed and 0.601750x shipping, below the unchanged 1.25x gate.
+Compiled-Off upvalue overhead is 11.345% speed / 19.185% shipping, passing 0/12
+cost batches in either profile. Speed integer overhead is 20.420% (0/12 passes)
+and float 5.545% (2/12); shipping integer is 8.030% (2/12) and callback 7.830%
+(0/12). Shipping table's 3.995% median still has one failing cost batch. Broad
+float/integer timing variation and baseline failures remain in the summary;
+none were discarded or used to relax gates.
+
+Collection exit zero means collection completed, not performance acceptance.
+The failed production changes are removed. The emitter and the six-case real
+helper-free integration proof remain private-selector tests, additionally
+requiring one actual direct activation. Restored GNU/musl integer, activation,
+upvalue and leaf tests pass 88 executions/eight suites without failures;
+formatting and GNU baseline/JIT checks pass. The archived production source
+independently verifies after rollback.
+
+Evidence prefix `integer-entry` beneath
+`target/jit-evidence/short-slice-performance/` includes immutable binaries,
+source archive/commit, manifests, build settings, comparison telemetry/logs,
+summary TSV, exit records and post-rollback validation. Original callback,
+upvalue and compiled-Off acceptance remain open. This measured form shows that
+changing the four-op kernel alone is insufficient; the next investigation must
+address cross-call execution structure without repeating rejected entry routing
+or weakening per-slice/callback-visible statistics.
+
+#### Straight-line integer emitter checkpoint — 2026-10-05
+
+The experimental four-operation integer leaf now has a dedicated CLIF body:
+guard PC zero, sufficient fuel, descriptor identity/freshness and integer
+operands; execute wrapping Add/Sub/Mul; commit scalar registers and the scoped
+cell; exit at canonical Return. It contains no helper calls or GC pointers.
+All other entries retain ordinary native execution. The emitter remains
+test-only at this checkpoint; callback and compiled-Off acceptance are still
+independent open work.
+
+Source recognition and the existing generic source/flow/helper verifiers run
+before replacement. An independently regenerated canonical template must
+match the entire CLIF function, followed by Cranelift verification. Work
+accounting includes the original body, emitted body, regenerated verifier
+body and existing helper bodies; template workspace has a bounded reservation.
+Optional child admission retains the ordinary owner on refusal.
+
+GNU/musl native tests execute 1,152 alias/PC/budget combinations per target
+and nine invalid descriptor/operand refusals. The mutation test changes
+constants, comparisons, branch targets, memory offsets, operands and the
+signature. Sixteen source cases compare both experimental routes against Off
+at four public fuel budgets with GC after every public step.
+
+The full focused GNU/musl and GNU Auto all-feature run passes 1,158 repeated
+executions across 86 suites, four existing ignores, zero failures; formatting
+and GNU baseline/JIT checks pass. Subsequent expanded mutation runs pass eight
+executions/two suites. Rust-only Miri passes the pure source/constant refusal
+test under Stacked seed one and Tree seed two; native tests are excluded and
+the exhaustive mutation test is explicitly filtered. This does not establish
+native ARM64 evidence or performance improvement.
+
+Evidence: `integer-entry-full-validation`, `integer-entry-mutation-validation`
+and `integer-entry-miri-validation` logs and exit files beneath
+`target/jit-evidence/short-slice-performance/`. Next promote one bounded
+candidate, prove real integrated execution and repeat the frozen comparison.
+
 #### Production callee activation comparisons rejected — 2026-10-05
 
 The direct activation was promoted in `7b6743f`; `6a11d99` proves through the

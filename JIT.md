@@ -1,5 +1,10 @@
 # Native JIT: experimental scalar and heap tier
 
+The straight-line integer leaf production candidate also failed the complete
+frozen comparison and is disabled. The emitter and real helper-free execution
+proofs remain test-only, including integer overflow and canonical public steps.
+This is not a performance fix; the original regressions remain open.
+
 Two production direct-callee forms failed the complete frozen comparison and
 are disabled again. Owned and borrowed frame preflights collected 48 blocks /
 288 timing commands; neither accelerates upvalues or callbacks, and disabled
@@ -69,6 +74,13 @@ replaying the attempt. `PLAN_JIT.md` records both candidates and their controls;
 the original performance regressions remain unresolved.
 
 ## Enable and prepare
+
+The scoped activation host and source-owned call-transition tables are currently
+test-only groundwork. They preserve canonical frames, fuel and callback release
+boundaries; they do not enable generated Lua-to-Lua calls or fix the measured
+performance regressions. `make jit-activation-tests` exercises the private path;
+`nix develop .#miri -c make jit-activation-host-miri` checks the bounded nested
+executor fixture without executing machine code.
 
 Enable the optional `jit` Cargo feature and set `JitConfig.mode` to `JitMode::Auto`. See `examples/jit.rs`; run it with `nix develop -c make jit-example`.
 

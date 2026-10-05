@@ -25,6 +25,8 @@ mod atomic_owner;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod backend;
+#[cfg(test)]
+mod continuations;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -65,6 +67,12 @@ mod handoff;
 ))]
 mod helper_flow;
 mod helpers;
+#[cfg(all(
+    test,
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod integer;
 pub(crate) mod ir;
 #[cfg(test)]
 mod leaf;
@@ -487,9 +495,15 @@ pub(crate) struct Manager {
     #[cfg(test)]
     before_compile: Option<Box<dyn FnOnce()>>,
     #[cfg(test)]
+    activation_limit: usize,
+    #[cfg(test)]
+    activation_counts: (usize, usize, usize),
+    #[cfg(test)]
     scalar_leaves: bool,
     #[cfg(all(test, not(miri)))]
     scalar_kernels: bool,
+    #[cfg(all(test, not(miri)))]
+    integer_activations: bool,
     #[cfg(test)]
     scalar_native_counts: (u64, u64),
     #[cfg(all(test, not(miri)))]
@@ -540,9 +554,15 @@ impl Default for Manager {
             #[cfg(test)]
             before_compile: None,
             #[cfg(test)]
+            activation_limit: 0,
+            #[cfg(test)]
+            activation_counts: (0, 0, 0),
+            #[cfg(test)]
             scalar_leaves: false,
             #[cfg(all(test, not(miri)))]
             scalar_kernels: false,
+            #[cfg(all(test, not(miri)))]
+            integer_activations: false,
             #[cfg(test)]
             scalar_native_counts: (0, 0),
             #[cfg(all(test, not(miri)))]
@@ -861,6 +881,57 @@ impl Drop for InterpreterStats<'_> {
 }
 
 impl Runtime {
+    #[cfg(test)]
+    pub(crate) fn test_activation_host(&self, limit: usize) {
+        self.0.borrow_mut().activation_limit = limit;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn activation_limit(&self) -> usize {
+        self.0.borrow().activation_limit
+    }
+
+    #[cfg(test)]
+    pub(crate) fn record_activations(&self, count: usize, growths: usize) {
+        let mut manager = self.0.borrow_mut();
+        manager.activation_counts.0 += 1;
+        manager.activation_counts.1 += count;
+        manager.activation_counts.2 += growths;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_activation_counts(&self) -> (usize, usize, usize) {
+        self.0.borrow().activation_counts
+    }
+
+    #[cfg(test)]
+    pub(crate) fn call_transition(
+        &self,
+        prepared: &Prepared,
+        pc: usize,
+    ) -> Option<crate::opcode::CallTransition> {
+        #[cfg(all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ))]
+        {
+            prepared
+                .code
+                .continuations
+                .as_ref()?
+                .at(pc)
+                .map(|request| request.transition)
+        }
+        #[cfg(not(all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )))]
+        {
+            let _ = (prepared, pc);
+            None
+        }
+    }
+
     #[cfg(all(test, not(miri)))]
     pub(crate) fn test_scalar_kernels(&self, enabled: bool) {
         self.0.borrow_mut().scalar_kernels = enabled;
@@ -869,6 +940,13 @@ impl Runtime {
     #[cfg(all(test, not(miri)))]
     pub(crate) fn test_scalar_activation_entries(&self) -> u64 {
         self.0.borrow().scalar_activation_entries
+    }
+
+    #[cfg(all(test, not(miri)))]
+    pub(crate) fn test_integer_activations(&self, enabled: bool) {
+        let mut manager = self.0.borrow_mut();
+        manager.scalar_kernels = enabled;
+        manager.integer_activations = enabled;
     }
 
     pub(crate) fn new() -> Self {
@@ -986,6 +1064,30 @@ impl Runtime {
             let failure = self.0.borrow().memory_failure;
             let compile = || {
                 #[cfg(all(test, not(miri)))]
+                if self.activation_limit() > 0 {
+                    return backend::compile_continuations_in(
+                        &snapshot,
+                        memory.clone(),
+                        limit,
+                        metadata.clone(),
+                        work,
+                        failure,
+                    );
+                }
+                #[cfg(all(test, not(miri)))]
+                if self.0.borrow().integer_activations
+                    && leaf::Pattern::recognize(&snapshot).is_some()
+                {
+                    return backend::compile_integer_leaf_pair_in(
+                        &snapshot,
+                        memory.clone(),
+                        limit,
+                        metadata.clone(),
+                        work,
+                        failure,
+                    );
+                }
+                #[cfg(all(test, not(miri)))]
                 if self.0.borrow().scalar_kernels && leaf::Pattern::recognize(&snapshot).is_some() {
                     return backend::compile_leaf_pair_in(
                         &snapshot,
@@ -1041,8 +1143,10 @@ impl Runtime {
                     }
                     if manager.tracked.contains_key(&id) && manager.config.mode == JitMode::Auto {
                         #[cfg(all(test, not(miri)))]
-                        if failure == backend::Failure::RefuseScalarCacheStorage
-                            && code.scalar_kernel.is_some()
+                        if (failure == backend::Failure::RefuseScalarCacheStorage
+                            && code.scalar_kernel.is_some())
+                            || (failure == backend::Failure::RefuseContinuationCacheStorage
+                                && code.continuations.is_some())
                         {
                             manager.metadata.0.set_limit(manager.metadata.0.current());
                         }
@@ -1050,7 +1154,7 @@ impl Runtime {
                         #[cfg(all(test, not(miri)))]
                         let (code, reserved) = if reserved.is_err() {
                             let mut code = code;
-                            if code.discard_scalar_kernel() {
+                            if code.discard_optional_entries() {
                                 (code, manager.code.try_reserve(1))
                             } else {
                                 (code, reserved)
@@ -1231,7 +1335,11 @@ impl Runtime {
             std::slice::from_raw_parts_mut(scratch.as_mut_ptr().cast::<abi::Slot>(), register_count)
         };
         #[cfg(all(test, not(miri)))]
-        if let Some(kernel) = &code.scalar_kernel {
+        if let Some(kernel) = code
+            .scalar_kernel
+            .as_ref()
+            .filter(|kernel| !kernel.integer_activation)
+        {
             let pattern = kernel.scalar_leaf.expect("scalar kernel has no pattern");
             let binding = if pattern.permits_cell_entry(*registers.pc, slots) {
                 closure
