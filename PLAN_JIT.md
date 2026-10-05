@@ -76,6 +76,7 @@ Additional counter and cache experiments were also rejected:
 | Scan small existing maps, outlined | 1.132x / 1.073x | 1.091x / 1.042x | 6.42% / 5.98% |
 | Scan small existing maps, forced inline | 1.116x / 1.071x | 1.117x / 1.048x | 5.52% / 14.06% |
 | Scan small existing maps, default inlining | 1.119x / 1.074x | 1.118x / 1.040x | 5.64% / 14.41% |
+| Batch interpreter statistics across VM slices | 1.018x / 0.998x | 1.037x / 0.998x | 4.22% / 5.85% |
 
 These use the same 24-block comparison protocol. The inline index produces the
 first sustained double-digit native upvalue gains, but its compiled-Off cost
@@ -131,6 +132,17 @@ and passes speed callback attribution in all 24 batches, but shipping float,
 callback and upvalue Off costs worsen substantially. Each variant has the same
 24-block, 144-command comparison, with both no-feature binaries byte-identical
 to baseline. The source and property test are restored, not shipped.
+
+Batching interpreter statistics in a stack-owned three-counter accumulator
+is also rejected. It preserves saturating totals, flushes before callbacks,
+sequences and step exits, and passes focused error, dispatch, heap and sequence
+tests plus seven statistics tests under Miri (seed one). The same 24-block
+comparison improves float Off overhead but raises callback Off overhead to
+6.30% speed and 13.28% shipping, versus 2.15% and 2.09% baseline. Native callback
+time does not improve. Both no-feature `.text` sections remain byte-identical
+to baseline; full-file differences are retained. This is not a shipped change.
+The retained statistics test checks publication before reentrant callbacks
+and nested executor steps in Off and Auto, with a dedicated Make Miri target.
 
 **Current conclusion:** these changes are valid correctness experiments, not
 accepted regression fixes. The runtime still uses the baseline randomized
