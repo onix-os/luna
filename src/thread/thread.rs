@@ -1439,3 +1439,44 @@ fn open_upvalue_ind<'gc>(u: UpValue<'gc>) -> usize {
         UpValueState::Closed(_) => panic!("upvalue is not open"),
     }
 }
+
+#[cfg(all(test, feature = "jit"))]
+impl<'gc, 'a> LuaRegisters<'gc, 'a> {
+    pub(crate) fn projection_origin(
+        &self,
+        upvalue: UpValue<'gc>,
+    ) -> Option<crate::jit::projection::Origin<'gc>> {
+        use crate::jit::projection::Origin;
+        match upvalue.get() {
+            UpValueState::Closed(value) => Some(Origin::Closed(value)),
+            UpValueState::Open(open) if open.stack.as_ptr() == Gc::as_ptr(self.stack) => {
+                if open.stack_index < self.base {
+                    Some(Origin::Upper(
+                        open.stack_index,
+                        *self.upper_stack.get(open.stack_index)?,
+                    ))
+                } else {
+                    let index = open.stack_index - self.base;
+                    Some(Origin::Register(index, *self.stack_frame.get(index)?))
+                }
+            }
+            UpValueState::Open(_) => None,
+        }
+    }
+
+    pub(crate) fn projection_read(&self, upper: bool, index: usize) -> Option<Value<'gc>> {
+        if upper {
+            self.upper_stack.get(index).copied()
+        } else {
+            self.stack_frame.get(index).copied()
+        }
+    }
+
+    pub(crate) fn projection_write(&mut self, upper: bool, index: usize, value: Value<'gc>) {
+        if upper {
+            self.upper_stack[index] = value;
+        } else {
+            self.stack_frame[index] = value;
+        }
+    }
+}
