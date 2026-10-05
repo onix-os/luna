@@ -1,9 +1,14 @@
 # Native JIT: experimental scalar and heap tier
 
+Test-only caller/callee programs are now queued from real VM Calls and prepared
+outside the arena (`511ee89`, `make jit-call-pairs`). They share state resource
+limits, cancel dead sources and retain safe code leases. Automatic execution
+selection is still pending; the performance regressions remain unresolved.
+
 The test-only aggregate call bridge now executes against canonical Lua frames
 (`d361c6e`, `make jit-call-canonical`), with source guards, fresh capture views
 after Call, canonical Return/fuel and callback/collection lifetime checks.
-Production selection and queued pair preparation remain unimplemented; this
+Production selection remains unimplemented; this
 does not establish an upvalue, callback or compiled-Off performance fix.
 
 The straight-line integer leaf production candidate also failed the complete

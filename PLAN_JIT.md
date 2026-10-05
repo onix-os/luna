@@ -11,6 +11,49 @@
 
 ### Progress snapshot — 2026-10-04
 
+#### Queued caller/callee preparation — 2026-10-05
+
+`511ee89` adds **test-only pair preparation observed from real VM Calls**.
+Fixed zero-result calls to four-opcode Lua closures record both weak-registry
+source IDs and the source PC. Hotness, duplicate suppression and bounded
+attempts apply to each pair. Ordinary and pair requests share one queue limit;
+ordinary requests retain service priority. No code is compiled during a VM step.
+
+`service_jit()` resolves both weak sources and builds snapshots inside the
+arena, then constructs and links the pair only after that mutation returns.
+Both snapshots use the same charged workspace ledger. Workspace, metadata and
+mapping accounting share the originating state's host root; provenance checks
+reject mismatched ledgers. Snapshot/IR/relocation/mapping admission is unchanged.
+Snapshot storage is dropped before fallible cache-owner allocation.
+
+Source retirement cancels pairs involving either ID. Cache clearing, Off mode
+and shrinking limits release queued/cache ownership without revoking existing
+code leases. Pair metadata joins the existing compaction lane. A program also
+checks its originating accounting root before execution: numeric source IDs
+alone are not global identities, and another Lua state can reuse those numbers.
+Off mode rejects a fresh invocation even if its old lease remains mapped.
+
+`make jit-call-pairs` runs twelve tests covering real VM observation and deferred
+service, leased canonical execution after cache clearing, dead caller/callee
+cancellation, shared queue capacity/hotness/shrinking, both snapshot refusal
+points, bounded retries, metadata recovery, allocation/protection/partial
+protection and late owner refusal, retirement during compilation, cross-state
+ID collisions, and mapping pressure with a still-executable peer lease.
+Evidence is retained in `target/jit-evidence/short-slice-performance/call-pairs/`.
+
+Committed-source GNU/musl focused and GNU Auto all-feature validation passes
+1,231 repeated executions across 93 suites, four existing ignores and zero
+failures. Formatting and GNU baseline/JIT checks pass without new compiler
+warnings. These are correctness and ownership checks, not timing acceptance.
+
+Pair programs are **not yet selected automatically for execution**. The scoped
+host still needs a private selector and a verified before-Call handoff that
+preserves the caller's partially consumed VM budget, immediate statistics,
+step fuel and exact fallback accounting. Pair-cache pressure/eviction behavior
+and runtime error handoff also need integration before production promotion.
+There is no new performance, ARM64 or native-code Miri acceptance. The original
+upvalue, callback and compiled-Off regressions remain open.
+
 #### Canonical aggregate call bridge — 2026-10-05
 
 `d361c6e` connects the linked program to **real Lua frames in tests**. Entry
