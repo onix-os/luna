@@ -59,37 +59,29 @@ fn positioned_error<'gc>(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
-pub(super) fn try_scalar_activation<'gc, 'a>(
+#[inline(always)]
+pub(super) fn try_scalar_activation<'gc>(
     ctx: Context<'gc>,
-    mut frame: LuaFrame<'gc, 'a>,
+    frame: &mut LuaFrame<'gc, '_>,
     budget: u32,
-) -> Result<Result<u32, VMError>, LuaFrame<'gc, 'a>> {
+) -> Option<(u32, crate::types::RegisterIndex, crate::types::VarCount)> {
     let closure = frame.closure();
     let prototype = closure.prototype();
     if prototype.opcodes.len() != 4 {
-        return Err(frame);
+        return None;
     }
     ctx.clear_hook_at(frame.frame_depth());
     if ctx.hook_enabled() {
-        return Err(frame);
+        return None;
     }
-    let Some(completed) =
+    let completed =
         ctx.jit()
-            .try_scalar_activation(ctx, closure, &mut frame.registers(), budget)
-    else {
-        return Err(frame);
-    };
+            .try_scalar_activation(ctx, closure, &mut frame.registers(), budget)?;
     let Operation::Return { start, count } = prototype.opcodes[3].decode() else {
         panic!("scalar activation has no canonical return");
     };
     *frame.registers().pc += 1;
-    let mut stats = ctx.jit().interpreter_stats();
-    stats.dispatches = 1;
-    let result = frame.return_upper(&ctx, start, count).map(|()| completed);
-    if result.is_ok() {
-        stats.reported_instructions = Some(0);
-    }
-    Ok(result)
+    Some((completed, start, count))
 }
 
 pub(super) fn run_vm<'gc>(

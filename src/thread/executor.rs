@@ -636,13 +636,30 @@ impl<'gc> Executor<'gc> {
                             target_os = "linux",
                             any(target_arch = "x86_64", target_arch = "aarch64")
                         ))]
-                        let result = match super::vm::try_scalar_activation(
-                            ctx,
-                            lua_frame,
-                            Self::VM_GRANULARITY,
-                        ) {
-                            Ok(result) => result,
-                            Err(frame) => run_vm(ctx, frame, Self::VM_GRANULARITY),
+                        let mut lua_frame = lua_frame;
+                        #[cfg(all(
+                            feature = "jit",
+                            not(miri),
+                            target_os = "linux",
+                            any(target_arch = "x86_64", target_arch = "aarch64")
+                        ))]
+                        let result = if let Some((completed, start, count)) =
+                            super::vm::try_scalar_activation(
+                                ctx,
+                                &mut lua_frame,
+                                Self::VM_GRANULARITY,
+                            ) {
+                            let mut stats = ctx.jit().interpreter_stats();
+                            stats.dispatches = 1;
+                            let result = lua_frame
+                                .return_upper(&ctx, start, count)
+                                .map(|()| completed);
+                            if result.is_ok() {
+                                stats.reported_instructions = Some(0);
+                            }
+                            result
+                        } else {
+                            run_vm(ctx, lua_frame, Self::VM_GRANULARITY)
                         };
                         #[cfg(not(all(
                             feature = "jit",
