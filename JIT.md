@@ -879,6 +879,13 @@ timings improve, but speed numeric feature costs worsen; it is not accepted
 as a regression fix. Details and contention limitations are in `PLAN_JIT.md`.
 Instruction counts are not a claim that the original performance gates pass.
 
+The subsequent production-isolation candidate restricts the resume token,
+optional VM parameter, ownership validation and lease-selection branch to unit
+tests, alongside the already test-only driver. Production keeps the same opcode
+loop and canonical activation routing without unused prototype entry state.
+GNU/musl focused unit and production-linked integration checks pass 95
+executions; full validation and measured performance acceptance remain pending.
+
 `make jit-chain` tests a source-bound direct-native caller-continuation prototype
 that avoids VM reentry for admitted caller prefixes while retaining physical
 Call/Return. Unsupported prefixes now resume through the shared VM slice without

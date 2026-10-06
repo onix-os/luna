@@ -11,6 +11,22 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Production isolation candidate — 2026-10-06
+
+`NativeResume`, the optional shared-VM resume parameter, its validation and
+lease-selection branch now compile only for unit tests, matching the already
+withdrawn driver and resume entry. Production retains canonical activation
+routing, the same opcode loop, native lookup and all accounting. The complete
+resume/continuation prototype remains under test; no unsupported prefix,
+callback, fuel or ownership check is removed from that path.
+
+GNU checking and GNU/musl continuation/public-pair/accounting/fuel tests pass
+95 executions in ten suites, zero failures/ignores and no Rust warnings.
+Public-pair integration tests link the non-test production entry, while unit
+continuation tests exercise the resume entry. Full validation, native Memcheck,
+pinned Miri, unsupported checking and new immutable comparisons remain pending.
+This candidate is not a performance fix or original-plan acceptance yet.
+
 #### Thin-entry elapsed-time evidence — 2026-10-06
 
 The thin candidate's immutable source/archive revision is `f45026f` (executable
