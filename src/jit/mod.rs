@@ -1286,7 +1286,12 @@ impl Runtime {
             target_os = "linux",
             any(target_arch = "x86_64", target_arch = "aarch64")
         ))]
-        if manager.config.mode == JitMode::Auto && manager.pairs.is_some() {
+        if manager.config.mode == JitMode::Auto
+            && manager
+                .pairs
+                .as_ref()
+                .is_some_and(pairs::State::has_installed)
+        {
             return 64;
         }
         0

@@ -59,6 +59,105 @@ fn cached_lease(lua: &mut Lua, _closure: &StashedClosure, key: Key) -> super::su
     })
 }
 
+fn assert_eligibility(lua: &mut Lua, installed: usize) {
+    lua.enter(|ctx| {
+        let manager = ctx.jit().0.borrow();
+        let pairs = manager.pairs.as_ref().unwrap();
+        assert_eq!(pairs.installed, installed);
+        assert_eq!(
+            pairs.installed,
+            pairs
+                .entries
+                .values()
+                .filter(|entry| entry.program.is_some())
+                .count()
+        );
+        assert_eq!(pairs.has_installed(), installed != 0);
+        drop(manager);
+        assert_eq!(
+            ctx.jit().scoped_activation_limit(),
+            if installed == 0 { 0 } else { 64 }
+        );
+    });
+}
+
+#[test]
+fn unpaired_callbacks_keep_native_execution_without_scoped_scheduling() {
+    let mut lua = Lua::empty();
+    lua.set_jit_config(JitConfig {
+        mode: JitMode::Auto,
+        hot_threshold: 1,
+        ..Default::default()
+    })
+    .unwrap();
+    let executor = lua.enter(|ctx| {
+        let closure = Closure::load(
+            ctx,
+            None,
+            &b"local cb=... local n=0 for i=1,200 do n=n+cb(i) end return n"[..],
+        )
+        .unwrap();
+        let callback = crate::Callback::from_fn(&ctx, |_, _, _| Ok(crate::CallbackReturn::Return));
+        ctx.stash(crate::Executor::start(ctx, closure.into(), (callback,)))
+    });
+    lua.prepare_jit().unwrap();
+    assert_eligibility(&mut lua, 0);
+    assert_eq!(lua.execute::<i64>(&executor).unwrap(), 20100);
+    assert_eligibility(&mut lua, 0);
+    assert!(lua.jit_stats().native_instructions > 0);
+    assert_eq!(lua.jit_stats().native_pair_calls, 0);
+}
+
+#[test]
+fn installed_pair_eligibility_tracks_eviction_retirement_and_clear() {
+    let (mut lua, first, key) = fixture();
+    let (_second, other) = load_pair(&mut lua, SOURCE);
+    assert_eligibility(&mut lua, 0);
+    lua.enter(|ctx| ctx.jit().observe_pair(key));
+    assert_eligibility(&mut lua, 0);
+    assert_eq!(lua.service_jit().unwrap(), 1);
+    assert_eligibility(&mut lua, 1);
+    compile_pair(&mut lua, other);
+    assert_eligibility(&mut lua, 2);
+    lua.enter(|ctx| {
+        let mut manager = ctx.jit().0.borrow_mut();
+        let pairs = manager.pairs.as_mut().unwrap();
+        pairs.evict(key);
+        pairs.evict(key);
+    });
+    assert_eligibility(&mut lua, 1);
+    compile_pair(&mut lua, key);
+    assert_eligibility(&mut lua, 2);
+    let lease = cached_lease(&mut lua, &first, key);
+    lua.enter(|ctx| {
+        ctx.jit()
+            .0
+            .borrow_mut()
+            .pairs
+            .as_mut()
+            .unwrap()
+            .retire(key.caller)
+    });
+    assert_eligibility(&mut lua, 1);
+    lua.enter(|ctx| {
+        ctx.jit()
+            .0
+            .borrow_mut()
+            .pairs
+            .as_mut()
+            .unwrap()
+            .retire(other.callee)
+    });
+    assert_eligibility(&mut lua, 0);
+    assert!(lua.jit_stats().code_bytes > 0);
+    drop(lease);
+    let (_third, third) = load_pair(&mut lua, SOURCE);
+    compile_pair(&mut lua, third);
+    assert_eligibility(&mut lua, 1);
+    lua.enter(|ctx| ctx.jit().0.borrow_mut().pairs.as_mut().unwrap().clear());
+    assert_eligibility(&mut lua, 0);
+}
+
 #[test]
 fn scoped_cached_lease_updates_shared_recency_without_cloning() {
     let (mut lua, closure, key) = fixture();
@@ -461,6 +560,7 @@ fn dead_sources_cancel_pair_requests_and_retire_code_without_revoking_a_lease() 
     lua.gc_collect();
     assert!(lua.enter(|ctx| ctx.jit().pair_lease(key).is_none()));
     assert_eq!(lua.jit_stats().registered_prototypes, 0);
+    assert_eligibility(&mut lua, 0);
     assert!(lua.jit_stats().code_bytes > 0);
     drop(lease);
     assert_eq!(lua.jit_stats().code_bytes, 0);
@@ -572,6 +672,7 @@ fn snapshot_mapping_and_late_owner_refusals_reclaim_resources_and_bound_retries(
         assert_eq!(lua.jit_stats().code_requested_bytes, 0);
         assert!(lua.enter(|ctx| ctx.jit().pair_lease(key).is_none()));
         assert_eq!(lua.jit_stats().compilation_failures, 1);
+        assert_eligibility(&mut lua, 0);
     }
     let (mut lua, _closure, key) = fixture();
     let mut config = lua.jit_config();
@@ -618,6 +719,7 @@ fn retirement_during_compile_prevents_late_installation() {
     });
     assert_eq!(lua.service_jit().unwrap(), 1);
     assert!(lua.enter(|ctx| ctx.jit().pair_lease(key).is_none()));
+    assert_eligibility(&mut lua, 0);
     assert_eq!(lua.jit_stats().code_bytes, 0);
     assert_eq!(lua.jit_stats().code_requested_bytes, 0);
     assert_eq!(lua.jit_stats().snapshot_bytes, 0);

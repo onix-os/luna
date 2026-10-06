@@ -29,6 +29,7 @@ pub(super) struct State {
     #[cfg(test)]
     executions: (usize, usize),
     entries: MetadataMap<Key, Entry>,
+    installed: usize,
     queue: Vec<Key, BudgetAllocator>,
     entry_compactor: Compactor,
     queue_compactor: Compactor,
@@ -41,6 +42,7 @@ impl State {
             #[cfg(test)]
             executions: (0, 0),
             entries: metadata_map(allocator.clone()),
+            installed: 0,
             queue: Vec::new_in(allocator.clone()),
             entry_compactor: Compactor::default(),
             queue_compactor: Compactor::default(),
@@ -50,6 +52,10 @@ impl State {
 
     pub fn queued(&self) -> usize {
         self.queue.len()
+    }
+
+    pub fn has_installed(&self) -> bool {
+        self.installed != 0
     }
 
     pub fn clear(&mut self) {
@@ -72,7 +78,7 @@ impl State {
 
     pub fn evict(&mut self, key: Key) {
         let entry = self.entries.get_mut(&key).unwrap();
-        entry.program = None;
+        self.installed -= usize::from(entry.program.take().is_some());
         entry.hotness = 0;
     }
 
@@ -94,8 +100,13 @@ impl State {
     pub fn retire(&mut self, id: u64) {
         self.queue
             .retain(|key| key.caller != id && key.callee != id);
-        self.entries
-            .retain(|key, _| key.caller != id && key.callee != id);
+        self.entries.retain(|key, entry| {
+            let keep = key.caller != id && key.callee != id;
+            if !keep {
+                self.installed -= usize::from(entry.program.is_some());
+            }
+            keep
+        });
         if self.queue.is_empty() {
             self.queue = Vec::new_in(self.allocator.clone());
         }
@@ -462,14 +473,9 @@ impl Runtime {
             let program = Shared::try_new(program, manager.metadata.clone())
                 .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
             let last_used = manager.clock.saturating_add(1);
-            let entry = manager
-                .pairs
-                .as_mut()
-                .unwrap()
-                .entries
-                .get_mut(&key)
-                .unwrap();
-            entry.program = Some(program);
+            let pairs = manager.pairs.as_mut().unwrap();
+            let entry = pairs.entries.get_mut(&key).unwrap();
+            pairs.installed += usize::from(entry.program.replace(program).is_none());
             entry.last_used = last_used;
             manager.clock = last_used;
             manager.stats.installed_regions = manager.stats.installed_regions.saturating_add(1);
