@@ -11,6 +11,81 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Scoped paired fallback and secondary call sites — 2026-10-06
+
+Source commits **`651bbc3`** and **`d685d49`** preserve paired native calls
+across scoped fallback. This remains a **test-only region integration**, not
+production routing or performance acceptance. The original plan is incomplete.
+
+The activation adapter passes a lexical `PairScope` into ordinary `run_vm`,
+without changing the VM, `LuaFrame`, `PairScope` or activation-host layout.
+Pending handoff/legacy-resume scopes are rejected before VM effects. The token
+passes only the remaining budget to the VM, but returns the original completed
+prefix plus a successful remainder. Its runtime marker is gone before native
+pair invocation, physical callbacks or a caller-visible panic.
+
+The region consumes handoff with the original total budget and completed prefix,
+counts physical slices/returns and avoids double fuel charges. Declined pairing
+runs the canonical remainder; failed slices do not charge a successful prefix.
+Successful fallback can reenter generated caller code only after the existing
+frame, closure, width, PC, fuel and slice-limit checks. A local, non-inlined
+fallback keeps the temporary scope out of the resident session layout.
+Direct secondary Call sites also use scoped selection rather than forcing the
+callee into interpretation. Direct primary calls now honor the host's explicit
+pair-selection refusal, which the new bounded matrix exposed as missing.
+
+Coverage includes modulo and string-comparison prefixes, original budgets,
+exhausted/small fuel, disabled pairing, multiple native call sites, canonical
+frame/value/open-capture/work traces, callback boundaries, Return errors and
+panics before entry, before return and after committed return. Runtime markers
+and pair leases are checked after unwind. A returned unsupported PC still ends
+the region normally; production selection must preserve canonical fallback
+there instead of assuming every caller PC can reenter generated code.
+
+Final GNU focused checks pass **148 executions**; musl focused checks pass
+**122**, each with zero failures and two ignored diagnostics. GNU all-target
+checking and the full Auto workspace pass **1,247 executions in eighty suites**,
+zero failures and six ignores. Final-source native Memcheck passes **50**
+executions, zero memory errors or definite/indirect loss; the unsuppressed
+possible 48-byte harness TLS allocations remain visible. Source hashes verify
+the final code. Initial failures and pre-final validation logs are retained,
+not substituted for final-source results.
+
+Diagnostic commit **`72721d5`** adds an explicit
+`LUNA_REGION_CASE=closure_upvalue_modulo` case, so paired fallback is measured
+rather than inferred from the pure upvalue loop. The immutable release binary,
+source archive/hashes, Callgrind profiles, raw timing and contention evidence
+are under `target/jit-evidence/short-slice-performance/native-region-paired-*`.
+The earlier control binary's complete source manifest matches `3d1dc30`.
+Collected instruction counts for three verified iterations per mode:
+
+| Diagnostic | Off | Auto | Region |
+|---|---:|---:|---:|
+| Pure upvalue, control | 51,691,809 | 100,570,527 | 74,197,326 |
+| Pure upvalue, candidate | 51,691,809 | 100,570,527 | 74,706,462 |
+| Modulo prefix, candidate | 57,061,809 | 124,540,809 | 142,260,063 |
+
+Every profile preserves exact results, frame/work/fuel traces and the frozen
+native-work count; Region retains 10,000 paired returns and 10,001 fragments.
+The pure Region instruction cost increases about **0.69%**. Modulo fallback
+costs more than ordinary Auto; this is coverage preservation, not a speedup.
+Its profile also includes disabled promotion-observation overhead, which is
+still test-only and must not be presented as a production result.
+
+Three alternating control/candidate timing windows each collect 21 samples
+of eight iterations per mode, plus the same sampling of the modulo case.
+No owned compilation, tests or profiling overlaps timing; external contention
+is retained. Median pure Region batches are **7.063–7.083 ms control** versus
+**7.164–7.170 ms candidate**. Off also slows between binaries, from
+4.599–4.624 ms to 4.830–4.853 ms: the apparently better Region/Off ratio
+(1.532–1.537 to 1.476–1.484) is not evidence of faster native execution.
+Modulo Region takes **16.659–16.714 ms**, **1.195–1.207x Auto** and
+**3.057–3.074x Off**. Neither diagnostic establishes original performance
+acceptance, and neither replaces an original workload or lowers a threshold.
+
+Indexed production entry/service integration, compiled-Off overhead, original
+performance thresholds and platform/resource/release acceptance remain open.
+
 #### Runtime-scoped region fallback candidate — 2026-10-06
 
 Source commit **`3d1dc30`** replaces the region's test fallback with a scoped
@@ -58,12 +133,12 @@ from 1.502–1.514 to 1.528–1.534. These are diagnostic timings, not a claimed
 fallback speedup: the fixed upvalue workload does not exercise the new fallback
 path, and the region remains slower than Off. Original thresholds are unchanged.
 
-The candidate is retained only as a validated isolation prototype. It currently
-resumes without a paired-Call handoff, matching the previous region fallback;
+This checkpoint was retained only as a validated isolation prototype. It
+resumed without a paired-Call handoff, matching the previous region fallback;
 production integration must preserve later paired-call coverage as well as the
-ordinary compiled-Off path. Indexed production entry selection, paired fallback
-integration, current platform/release gates and original performance acceptance
-remain open.
+ordinary compiled-Off path. Paired fallback is addressed by the later checkpoint
+above. Indexed production entry selection, current platform/release gates and
+original performance acceptance remain open.
 
 #### Bounded region promotion and service — 2026-10-06
 
