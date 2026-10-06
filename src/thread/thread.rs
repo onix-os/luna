@@ -1286,17 +1286,7 @@ pub(crate) struct LuaRegisters<'gc, 'a> {
 }
 
 impl<'gc, 'a> LuaRegisters<'gc, 'a> {
-    #[cfg(all(
-        feature = "jit",
-        any(
-            test,
-            all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            )
-        )
-    ))]
+    #[cfg(all(test, feature = "jit"))]
     pub(crate) fn shadow_key(&self) -> (usize, usize) {
         (Gc::as_ptr(self.stack) as usize, self.base)
     }

@@ -2,19 +2,23 @@ use crate::{opcode::CallTransition, thread::activation::ActivationHost, Context}
 
 use super::PairScope;
 
-type CallerShadow<'gc> = super::caller_shadow::Shadow<'gc, 256>;
+type CallerShadow<'gc, const N: usize> = super::caller_shadow::Shadow<'gc, N>;
 
-fn flush_shadow<'gc>(host: &mut ActivationHost<'gc, '_>, shadow: &mut Option<CallerShadow<'gc>>) {
-    if let Some(shadow) = shadow.take() {
+fn flush_shadow<'gc, const N: usize>(
+    host: &mut ActivationHost<'gc, '_>,
+    shadow: &mut Option<CallerShadow<'gc, N>>,
+) {
+    if let Some(shadow) = shadow.as_ref() {
         assert!(host.with_registers(|closure, mut registers| shadow.flush(closure, &mut registers)));
     }
+    *shadow = None;
 }
 
-fn shadow_prefix<'gc>(
+fn shadow_prefix<'gc, const N: usize>(
     ctx: Context<'gc>,
     host: &mut ActivationHost<'gc, '_>,
     budget: u32,
-    shadow: &mut Option<CallerShadow<'gc>>,
+    shadow: &mut Option<CallerShadow<'gc, N>>,
 ) -> Option<Prefix<'gc>> {
     if budget == 0 || !host.lua_ready() || !ctx.jit().active() {
         return None;
@@ -56,11 +60,11 @@ fn shadow_prefix<'gc>(
     })
 }
 
-fn shadow_pair<'gc>(
+fn shadow_pair<'gc, const N: usize>(
     ctx: Context<'gc>,
     host: &mut ActivationHost<'gc, '_>,
     pair: &super::PreparedPair,
-    shadow: &mut Option<CallerShadow<'gc>>,
+    shadow: &mut Option<CallerShadow<'gc, N>>,
     budget: u32,
     prefix: u32,
     #[cfg(test)] recoveries: &mut usize,
@@ -150,6 +154,8 @@ pub(crate) struct Outcome {
     #[cfg(test)]
     shadow_recoveries: usize,
     #[cfg(test)]
+    shadow_capacity: usize,
+    #[cfg(test)]
     pairs: usize,
     #[cfg(test)]
     pub stack_growths: usize,
@@ -185,15 +191,43 @@ impl Driver {
         limit: usize,
         budget: u32,
     ) -> Outcome {
+        if !DEFER {
+            return self.run_sized::<false, 0>(ctx, host, limit, budget);
+        }
+        let width = if host.lua_ready() {
+            host.with_registers(|_, registers| registers.stack_frame.len())
+        } else {
+            0
+        };
+        match width {
+            0..=8 => self.run_sized::<true, 8>(ctx, host, limit, budget),
+            9..=16 => self.run_sized::<true, 16>(ctx, host, limit, budget),
+            17..=32 => self.run_sized::<true, 32>(ctx, host, limit, budget),
+            33..=64 => self.run_sized::<true, 64>(ctx, host, limit, budget),
+            65..=128 => self.run_sized::<true, 128>(ctx, host, limit, budget),
+            _ => self.run_sized::<true, 256>(ctx, host, limit, budget),
+        }
+    }
+
+    #[inline(never)]
+    fn run_sized<'gc, const DEFER: bool, const N: usize>(
+        &mut self,
+        ctx: Context<'gc>,
+        host: &mut ActivationHost<'gc, '_>,
+        limit: usize,
+        budget: u32,
+    ) -> Outcome {
         assert!(limit > 0);
         let mut scope = PairScope::default();
-        let mut shadow = None;
+        let mut shadow: Option<CallerShadow<'gc, N>> = None;
         let mut outcome = Outcome {
             slices: 0,
             #[cfg(test)]
             shadow_captures: 0,
             #[cfg(test)]
             shadow_recoveries: 0,
+            #[cfg(test)]
+            shadow_capacity: N,
             #[cfg(test)]
             pairs: 0,
             #[cfg(test)]
@@ -338,6 +372,90 @@ mod tests {
 
     const SOURCE: &[u8] =
         b"local sum=0 local function add(v) sum=sum+v end for i=1,10000 do add(i) end return sum";
+
+    #[test]
+    fn resident_capacity_classes_preserve_canonical_slices() {
+        let mut capacities = std::collections::BTreeSet::new();
+        for locals in [0, 8, 24, 56, 120, 180] {
+            let mut source = String::from("local sum=0 ");
+            for index in 0..locals {
+                source.push_str(&format!("local p{index}={index} "));
+            }
+            source.push_str(
+                "local function add(v) sum=sum+v end for i=1,200 do add(i) end return sum",
+            );
+            for budget in [8, 64] {
+                let mut traces = Vec::new();
+                for mode in [JitMode::Off, JitMode::Auto] {
+                    let (mut lua, closure) = state(mode, source.as_bytes());
+                    lua.enter(|ctx| {
+                        crate::thread::activation::with_test_thread(
+                            ctx,
+                            ctx.fetch(&closure),
+                            &mut Fuel::with(4096),
+                            |host| {
+                                ctx.jit().0.borrow_mut().stats = Default::default();
+                                if mode == JitMode::Auto {
+                                    let width = host.with_registers(|_, r| r.stack_frame.len());
+                                    let outcome =
+                                        Driver::default().run_shadow(ctx, host, 16, budget);
+                                    outcome.result.unwrap();
+                                    assert_eq!(
+                                        outcome.shadow_capacity,
+                                        width.next_power_of_two().max(8)
+                                    );
+                                    assert!(outcome.shadow_captures > 0);
+                                    capacities.insert(outcome.shadow_capacity);
+                                } else {
+                                    host.run_canonical(ctx, 16, budget, 4).result.unwrap();
+                                }
+                                traces.push(trace(ctx, host));
+                            },
+                        );
+                    });
+                }
+                assert_eq!(traces[0], traces[1], "locals={locals}, budget={budget}");
+            }
+        }
+        assert_eq!(
+            capacities.into_iter().collect::<Vec<_>>(),
+            [8, 16, 32, 64, 128, 256]
+        );
+    }
+
+    #[test]
+    fn resident_small_capacity_falls_back_for_wider_callee() {
+        let mut source = String::from("local function f(v) ");
+        for index in 0..40 {
+            source.push_str(&format!("local p{index}={index} "));
+        }
+        source.push_str("return v+p39 end local sum=0 for i=1,200 do sum=sum+f(i) end return sum");
+        let mut traces = Vec::new();
+        for mode in [JitMode::Off, JitMode::Auto] {
+            let (mut lua, closure) = state(mode, source.as_bytes());
+            lua.enter(|ctx| {
+                crate::thread::activation::with_test_thread(
+                    ctx,
+                    ctx.fetch(&closure),
+                    &mut Fuel::with(4096),
+                    |host| {
+                        ctx.jit().0.borrow_mut().stats = Default::default();
+                        if mode == JitMode::Auto {
+                            let outcome =
+                                Driver::default().run_sized::<true, 16>(ctx, host, 16, 64);
+                            outcome.result.unwrap();
+                            assert_eq!(outcome.shadow_captures, 1);
+                            assert!(ctx.jit().0.borrow().stats.native_instructions > 0);
+                        } else {
+                            host.run_canonical(ctx, 16, 64, 4).result.unwrap();
+                        }
+                        traces.push(trace(ctx, host));
+                    },
+                );
+            });
+        }
+        assert_eq!(traces[0], traces[1]);
+    }
 
     #[test]
     fn scoped_resume_rejection_consumes_token_and_releases_lease() {

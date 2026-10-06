@@ -11,10 +11,87 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Installed-pair scheduling eligibility candidate — 2026-10-06
+
+`63f5966` routes execution through the scoped activation host only when at
+least one native call-pair program is installed, rather than whenever the Auto
+pair-state container exists. An inline installed count tracks installation,
+eviction (including repeated eviction), source retirement and clear; it avoids
+scanning the callsite map on the hot path. Ordinary VM execution still observes
+calls and executes native regions while no pair is installed. Explicit test
+activation overrides are unchanged; the rejected resident scheduler stays
+test-only.
+
+New tests prove lifecycle/count agreement, queued-but-uncompiled ineligibility,
+pinned lease retirement, and actual native callback execution with zero scoped
+eligibility. Existing failure/GC/late-installation tests now assert ineligibility
+as well. GNU/musl focused checks pass one hundred executions. Full GNU
+Off/Auto/Force, musl Auto and baseline/docs pass **5,129 executions in 403 suites**,
+zero failures, twenty existing/repeated ignores and no Rust warnings. Memcheck
+passes 37 pair/public-runtime executions with zero errors or definite/indirect
+losses, retaining the possible 48-byte harness TLS loss. Fourteen Miri model
+executions and i686-musl checking pass (71 library/ten library-test warnings).
+The native pair manager itself is not Miri-covered.
+
+Candidate and immediate-parent `99c57f7` controls have separately built immutable
+speed/shipping binaries, independent no-feature binaries and verified source
+archives. Release artifact builds were serialized; the detached control checkout
+is retained under `pair-eligibility-control-worktree`. Original-control and
+immediate-parent paired timing series are required before retaining this
+candidate as a performance improvement. All original gates remain unchanged.
+
+#### Frame-width resident scratch candidate — 2026-10-06
+
+**Production route rejected again in `4169436`; width-sized machinery retained
+test-only.** GNU checking and seventy focused GNU/musl chain/public-pair
+executions pass after rollback, with zero failures. Production source outside
+the test-only chain module matches the pre-candidate checkpoint.
+The completed `resident-width-timing` run has 24 native rounds per profile,
+twelve compiled-Off rounds per profile, paired eleven-sample invocations,
+alternating control order and verified hashes. Speed/shipping Auto-Off median
+ratios are upvalue **0.49355/0.48375**, callback **0.5789/0.5181**, metamethod
+**0.7003/0.66805**, table **1.2209/1.3824** and allocation **0.94035/0.76145**.
+Upvalue/callback/metamethod gates fail all 24 rounds in both profiles. Direct
+original-Auto/candidate-Auto ratios are upvalue **0.661799/0.724849** and callback
+**0.698648/0.637712**. Scratch sizing fixes measured waste but does not make the
+resident scheduler competitive with the original production control.
+Compiled-Off/no-feature costs also fail: upvalue **1.1302/1.2313**, callback
+**1.1094/1.10385** against the unchanged 1.05 limit. Neither successful evidence
+collection nor lower Callgrind instruction counts constitute acceptance.
+
+`5d4155e` reintroduces scoped production resident execution with scratch classes
+8/16/32/64/128/256 selected from actual frame width. Flush reads the shadow in
+place before clearing it instead of taking an owned snapshot. The VM remains
+one function; the bounded scheduler has capacity-specialized entries. A later
+wider frame falls back canonically rather than indexing past the selected
+capacity. Tests cover all six classes at two budgets and a wider callee with
+full canonical trace equality and actual native work.
+
+GNU/musl focused checks pass 102 executions. GNU Off/Auto/Force, musl Auto and
+baseline/docs pass **5,121 executions in 403 suites**, zero failures, twenty
+existing/repeated ignores and no Rust warnings. Native Memcheck passes 67
+executions with zero errors or definite/indirect losses, retaining the possible
+48-byte TLS loss per harness. Fourteen Miri model executions and i686-musl
+checking pass (71 library/nine library-test warnings). Source manifests match;
+immutable speed/shipping artifacts and independent no-feature controls built.
+
+Eight `resident-width-profile-v2` Callgrind runs completed with verified source
+and binary archives. Callback Auto collected instructions fall from 200,835,860
+in the rejected fixed-capacity candidate to **70,221,629**; upvalue Auto falls
+from 192,609,796 to **181,698,997**. Callback memcpy is now 0.39% of collected
+instructions and memset is absent from the 99%-coverage annotation. These are
+instruction observations, not wall-clock acceptance. Original thresholds and
+native coverage remain unchanged; the repeated timing results above reject the
+candidate despite its reduced scratch cost.
+The initial profile-v1 process was deliberately stopped while awaiting its
+first Cargo lock, before compilation: release artifact build scripts share
+post-build copy paths and must run serially. Its terminal143 evidence is retained;
+only the subsequently serialized v2 profile is accepted as a profile capture.
+
 #### Production resident-caller candidate — 2026-10-06
 
-**Rejected by performance measurements; production rollback pending profile
-capture.** The complete `resident-production-timing` comparison contains 24
+**Rejected by performance measurements; production routing restored in
+`1ba3f2e`.** The complete `resident-production-timing` comparison contains 24
 native rounds per profile and twelve compiled-Off rounds per profile, alternating
 candidate/original order with eleven samples per native invocation. Binary and
 source hashes passed before and after every block; external contention telemetry
@@ -31,6 +108,24 @@ speedup target. Compiled-Off/no-feature upvalue costs are **1.09905/1.2387** and
 callback costs **1.0722/1.0865**, all above the unchanged 1.05 limit. Profiling
 must guide a different implementation; correctness acceptance does not justify
 leaving this production candidate enabled.
+
+The terminal `resident-production-profile-v1` capture retains eight Callgrind
+runs (upvalue/callback, Auto/Off, paired no-feature controls), source archive and
+hash checks. In callback Auto, memset accounts for **50.90%** and memcpy for
+**15.59%** of 200,835,860 collected instructions. Upvalue Auto records
+192,609,796 instructions: executor 27.72%, canonical leave 10.21%, pair invoke
+9.38%, memset 6.07%, and shadow transfer preparation 4.10%. These are profiling
+instruction shares, not wall-clock attribution. They identify full-capacity
+shadow initialization/copying as a concrete next target, especially at callback
+boundaries; they do not prove that reducing it will satisfy the upvalue gate.
+
+The rollback preserves `f68b572` scoped transport and all resident regression
+fixtures, but returns production to canonical routing. Its GNU checking and
+66 focused GNU/musl chain/public-pair executions pass with zero failures; the
+executable source diff against `f68b572` is empty. Next candidate work
+should remove the measured 256-slot scratch overhead using bounded storage
+appropriate to actual frame width, then repeat unchanged acceptance gates;
+do not repeat the unrestricted fixed-capacity promotion or duplicate the VM.
 
 `f68b572` moves scoped resume transport into the existing pair handoff without
 adding a VM argument. GNU/musl focused validation passes 116 executions; fourteen

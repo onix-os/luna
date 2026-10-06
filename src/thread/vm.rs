@@ -85,12 +85,7 @@ pub(super) fn try_scalar_activation<'gc>(
     Some((completed, start, count))
 }
 
-#[cfg(all(
-    feature = "jit",
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
+#[cfg(all(test, feature = "jit"))]
 pub(crate) struct NativeResume<'gc> {
     runtime: crate::jit::Runtime,
     closure: crate::Closure<'gc>,
@@ -99,10 +94,16 @@ pub(crate) struct NativeResume<'gc> {
     pc: usize,
     instructions: u32,
     code: Option<crate::jit::Prepared>,
+    #[cfg(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
     paired: bool,
 }
 
 #[cfg(all(
+    test,
     feature = "jit",
     not(miri),
     target_os = "linux",
@@ -141,6 +142,7 @@ pub(super) fn run_vm<'gc>(
 }
 
 #[cfg(all(
+    test,
     feature = "jit",
     not(miri),
     target_os = "linux",
@@ -176,6 +178,7 @@ fn run_vm_slice<'gc>(
     max_instructions: u32,
 ) -> Result<u32, VMError> {
     #[cfg(all(
+        test,
         feature = "jit",
         not(miri),
         target_os = "linux",
@@ -192,11 +195,16 @@ fn run_vm_slice<'gc>(
         resume
     };
     #[cfg(all(
+        test,
         feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
+        not(all(
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ))
     ))]
+    let resume: Option<NativeResume<'gc>> = None;
+    #[cfg(all(test, feature = "jit"))]
     assert!(resume
         .as_ref()
         .is_none_or(|resume| resume.instructions < max_instructions));
@@ -207,12 +215,7 @@ fn run_vm_slice<'gc>(
     let current_function = lua_frame.closure();
     let current_prototype = current_function.prototype();
     let current_upvalues = current_function.upvalues();
-    #[cfg(all(
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(test, feature = "jit"))]
     let prefix_instructions = if let Some(resume) = &resume {
         assert!(crate::jit::RuntimeOwner::ptr_eq(
             &ctx.jit().0,
@@ -238,14 +241,7 @@ fn run_vm_slice<'gc>(
     } else {
         0
     };
-    #[cfg(all(
-        feature = "jit",
-        not(all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))
-    ))]
+    #[cfg(all(not(test), feature = "jit"))]
     let prefix_instructions = 0;
     // Suppression ends when execution returns to the depth that fired the hook, which is exactly
     // when the hook's own frames are gone. Checked once per slice, before the register borrow.
@@ -274,34 +270,31 @@ fn run_vm_slice<'gc>(
     } else {
         None
     };
-    #[cfg(all(
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(test, feature = "jit"))]
     let mut skip_native_first = resume.is_some();
-    #[cfg(all(
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(test, feature = "jit"))]
     let native_code = if let Some(mut resume) = resume {
-        ctx.jit()
-            .resume_lease(resume.source, resume.code.take().unwrap())
-            .filter(|_| !hook_enabled)
+        #[cfg(all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ))]
+        {
+            ctx.jit()
+                .resume_lease(resume.source, resume.code.take().unwrap())
+                .filter(|_| !hook_enabled)
+        }
+        #[cfg(not(all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )))]
+        {
+            let _ = resume.code.take();
+            None
+        }
     } else {
         native_id.and_then(|id| ctx.jit().lookup(id))
     };
-    #[cfg(all(
-        feature = "jit",
-        not(all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))
-    ))]
+    #[cfg(all(not(test), feature = "jit"))]
     let native_code = native_id.and_then(|id| ctx.jit().lookup(id));
     #[cfg(feature = "jit")]
     let mut native_instructions = prefix_instructions;
@@ -348,19 +341,11 @@ fn run_vm_slice<'gc>(
     loop {
         #[cfg(feature = "jit")]
         if {
-            #[cfg(all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            ))]
+            #[cfg(test)]
             {
                 !std::mem::replace(&mut skip_native_first, false)
             }
-            #[cfg(not(all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            )))]
+            #[cfg(not(test))]
             {
                 true
             }
