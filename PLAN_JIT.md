@@ -11,6 +11,37 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Production pair performance trial — 2026-10-06
+
+The immutable `4bca661` candidate completed the unchanged 24-block comparison:
+both profiles, all nine workloads, eleven paired samples per native command,
+twelve cost batches per profile and 144 commands across three windows. Source
+and binary hashes verified before/after every block. The zero driver exit means
+complete evidence, not acceptance: 96 command gates exited two and 48 exited
+zero. No workload, threshold or native-coverage requirement changed.
+
+| Median ratio | Original baseline | Production pair |
+| --- | ---: | ---: |
+| Speed upvalue Off/Auto | 0.74720 | 0.48725 |
+| Shipping upvalue Off/Auto | 0.61225 | 0.45620 |
+| Speed callbacks Off/Auto | 0.82675 | 0.72860 |
+| Speed upvalue compiled-Off/no-feature | 1.04650 | 1.12580 |
+| Speed callbacks compiled-Off/no-feature | 1.01780 | 1.20265 |
+
+This candidate fails performance acceptance and worsens the targeted regressions.
+Its physical-frame correctness is not sufficient justification to ship the
+promotion. External contention, substantial I/O wait and swapping were retained
+in process/vmstat logs rather than stopping unrelated work or discarding failed
+samples. Paired controls and raw ranges remain the basis for the next bounded
+profile-driven change; these numbers are host measurements, not uncontended
+speed estimates. Independently rebuilt no-feature controls differ from original
+artifacts; each feature-cost batch uses its own verified matched pair, while
+direct native comparisons retain the original baseline.
+
+Evidence: `target/jit-evidence/short-slice-performance/production-pair-summary.tsv`,
+`production-pair-timing/`, source archive and build logs. Upvalue, callback and
+compiled-Off gates remain open.
+
 #### Production Auto pair integration — 2026-10-06
 
 `4bd6b2e` promotes the source-bound pair queue, linked backend, canonical bridge,
