@@ -102,6 +102,26 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
             fuel: self.fuel,
         })
     }
+
+    #[cfg(any(
+        test,
+        all(
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )
+    ))]
+    pub(crate) fn with_registers<R>(
+        &mut self,
+        f: impl for<'frame> FnOnce(crate::Closure<'gc>, crate::thread::LuaRegisters<'gc, 'frame>) -> R,
+    ) -> R {
+        self.with_frame(|mut frame| f(frame.closure(), frame.registers()))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_capacity(&self) -> usize {
+        self.stack.capacity()
+    }
 }
 
 #[cfg(all(
@@ -112,13 +132,6 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
 impl<'gc, 'a> ActivationHost<'gc, 'a> {
     pub(crate) fn clear_hook(&mut self, ctx: Context<'gc>) {
         self.with_frame(|frame| ctx.clear_hook_at(frame.frame_depth()));
-    }
-
-    pub(crate) fn with_registers<R>(
-        &mut self,
-        f: impl for<'frame> FnOnce(crate::Closure<'gc>, crate::thread::LuaRegisters<'gc, 'frame>) -> R,
-    ) -> R {
-        self.with_frame(|mut frame| f(frame.closure(), frame.registers()))
     }
 
     #[cfg(test)]
@@ -320,11 +333,6 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
     #[cfg(test)]
     pub(crate) fn test_fuel(&mut self, fuel: Fuel) {
         *self.fuel = fuel;
-    }
-
-    #[cfg(test)]
-    pub(crate) fn test_capacity(&self) -> usize {
-        self.stack.capacity()
     }
 
     #[cfg(test)]
@@ -575,11 +583,10 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
 }
 
 #[cfg(all(
-    not(miri),
+    test,
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
-#[cfg(test)]
 pub(crate) fn with_test_thread<'gc, R>(
     ctx: Context<'gc>,
     closure: crate::Closure<'gc>,
@@ -592,11 +599,10 @@ pub(crate) fn with_test_thread<'gc, R>(
 }
 
 #[cfg(all(
-    not(miri),
+    test,
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
-#[cfg(test)]
 pub(crate) fn with_test_existing_thread<'gc, R>(
     ctx: Context<'gc>,
     thread: crate::Thread<'gc>,

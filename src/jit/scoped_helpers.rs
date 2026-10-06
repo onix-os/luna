@@ -3,9 +3,13 @@ use std::{
     panic::{catch_unwind, AssertUnwindSafe},
 };
 
-use crate::{thread::activation::ActivationHost, Closure, Context};
+#[cfg(not(miri))]
+use crate::Closure;
+use crate::{thread::activation::ActivationHost, Context};
 
-use super::{abi, backend, helpers, ir::Snapshot, resources::MappingCounter, work, JitError};
+use super::{abi, helpers};
+#[cfg(not(miri))]
+use super::{backend, ir::Snapshot, resources::MappingCounter, work, JitError};
 
 pub(super) const SYMBOLS: [(u32, &str, abi::HelperEntry); 9] = [
     (
@@ -55,12 +59,14 @@ pub(super) const SYMBOLS: [(u32, &str, abi::HelperEntry); 9] = [
     ),
 ];
 
+#[cfg(not(miri))]
 pub(super) struct Code<'gc> {
     code: backend::Code,
     source: Closure<'gc>,
     origin: MappingCounter,
 }
 
+#[cfg(not(miri))]
 impl<'gc> Code<'gc> {
     pub(super) fn new(ctx: Context<'gc>, source: Closure<'gc>) -> Result<Self, JitError> {
         let (memory, metadata, snapshots, limit, instructions, limits) = {

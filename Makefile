@@ -324,6 +324,10 @@ jit-call-canonical:
 jit-scoped-helpers:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::scoped_helpers::tests $(ARGS)
 
+.PHONY: jit-scoped-helpers-miri
+jit-scoped-helpers-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::scoped_helpers::tests -- --test-threads=1
+
 .PHONY: jit-call-pairs
 jit-call-pairs:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::pairs::tests $(ARGS)

@@ -1,5 +1,7 @@
 use super::*;
-use crate::{thread::activation::with_test_thread, Fuel, JitConfig, JitMode, Lua, Value};
+use crate::{thread::activation::with_test_thread, Closure, Fuel, Lua, Value};
+#[cfg(not(miri))]
+use crate::{JitConfig, JitMode};
 
 fn slots(host: &mut ActivationHost<'_, '_>) -> Vec<abi::Slot> {
     host.with_registers(|_, registers| {
@@ -12,6 +14,123 @@ fn slots(host: &mut ActivationHost<'_, '_>) -> Vec<abi::Slot> {
     })
 }
 
+#[test]
+fn scoped_symbols_are_distinct_and_decline_null_hosts() {
+    for (index, (kind, name, entry)) in SYMBOLS.into_iter().enumerate() {
+        assert_eq!(kind, helpers::SYMBOLS[index].0);
+        assert!(!helpers::SYMBOLS
+            .iter()
+            .any(|(_, ordinary, _)| ordinary == &name));
+        assert!(SYMBOLS[..index]
+            .iter()
+            .all(|(old_kind, old_name, _)| old_kind != &kind && old_name != &name));
+        assert_eq!(
+            unsafe { entry(std::ptr::null_mut(), std::ptr::null_mut(), 0, 0, 0, 0) },
+            abi::HELPER_DECLINED
+        );
+    }
+}
+
+#[test]
+fn scoped_gateway_model_reborrows_across_stack_reallocation() {
+    use crate::opcode::Operation;
+    let mut lua = Lua::empty();
+    lua.enter(|ctx| {
+        let mut interner = crate::compiler::interning::BasicInterner::default();
+        let chunk = crate::compiler::parse_chunk(
+            &b"local n=7 local function f(v) n=n+v end f(5) return n"[..],
+            &mut interner,
+        )
+        .unwrap();
+        let mut compiled = crate::compiler::compile_chunk(&chunk, &mut interner).unwrap();
+        compiled.prototypes[0].stack_size = 256;
+        let prototype = crate::FunctionPrototype::from_compiled_map_strings(
+            &ctx,
+            ctx.intern(b"scoped-model"),
+            &compiled,
+            false,
+            |s| ctx.intern(s.as_ref()),
+        );
+        let closure = Closure::new(&ctx, prototype, Some(ctx.globals())).unwrap();
+        let prototype = closure.prototype();
+        let start = prototype
+            .opcodes
+            .iter()
+            .position(|op| matches!(op.decode(), Operation::Closure { .. }))
+            .unwrap()
+            + 1;
+        with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+            host.run(ctx, 1, start as u32, 4).result.unwrap();
+            let capacity = host.test_capacity();
+            let mut frame = Frame::new(ctx, host);
+            for step in 0..3 {
+                let mut scratch = slots(frame.host);
+                let (pc, operation) = frame.host.with_registers(|closure, registers| {
+                    (
+                        *registers.pc as u32,
+                        closure.prototype().opcodes[*registers.pc].decode(),
+                    )
+                });
+                frame.slot_count = scratch.len();
+                let mut native = abi::Host {
+                    data: std::ptr::from_mut(&mut frame).cast(),
+                    projection: std::ptr::null_mut(),
+                };
+                let result = match operation {
+                    Operation::Move { dest, source } if step != 1 => unsafe {
+                        call::<{ abi::HELPER_MOVE }>(
+                            &mut native,
+                            scratch.as_mut_ptr(),
+                            dest.0.into(),
+                            source.0.into(),
+                            0,
+                            pc,
+                        )
+                    },
+                    Operation::GetUpValue { dest, source } if step == 1 => unsafe {
+                        call::<{ abi::HELPER_GET_UPVALUE }>(
+                            &mut native,
+                            scratch.as_mut_ptr(),
+                            dest.0.into(),
+                            source.0.into(),
+                            0,
+                            pc,
+                        )
+                    },
+                    _ => panic!("unexpected modeled operation: {operation:?}"),
+                };
+                assert_eq!(result, abi::HELPER_COMPLETED);
+                assert!(frame.panic.is_none());
+                frame.host.run(ctx, 1, 64, 4).result.unwrap();
+                if step == 0 {
+                    assert!(frame.host.test_capacity() > capacity);
+                    assert_eq!(
+                        frame
+                            .host
+                            .with_registers(|_, registers| registers.stack_frame.len()),
+                        256
+                    );
+                } else if step == 1 {
+                    frame.host.with_registers(|actual, registers| {
+                        assert_eq!(actual, closure);
+                        assert!(matches!(registers.stack_frame[0], Value::Integer(12)));
+                    });
+                }
+            }
+            assert_eq!(
+                (
+                    frame.count.calls,
+                    frame.count.completed,
+                    frame.count.declined
+                ),
+                (3, 3, 0)
+            );
+            assert_eq!(frame.count.upvalue_reads, 1);
+        });
+    });
+}
+
+#[cfg(not(miri))]
 fn transition(frame: &mut Frame<'_, '_, '_>, slots: &[abi::Slot], instructions: u32) {
     let transition = frame.host.with_registers(|closure, registers| {
         assert_eq!(slots.len(), registers.stack_frame.len());
@@ -29,6 +148,7 @@ fn transition(frame: &mut Frame<'_, '_, '_>, slots: &[abi::Slot], instructions: 
 }
 
 #[test]
+#[cfg(not(miri))]
 fn scoped_helpers_reborrow_after_physical_call_growth_and_return() {
     let mut lua = Lua::empty();
     lua.set_jit_config(JitConfig {
@@ -107,6 +227,7 @@ fn scoped_helpers_reborrow_after_physical_call_growth_and_return() {
 }
 
 #[test]
+#[cfg(not(miri))]
 fn generated_scoped_helpers_match_canonical_effects_and_release_register_borrows() {
     let mut lua = Lua::empty();
     let executor = lua.enter(|ctx| {
@@ -201,6 +322,7 @@ fn generated_scoped_helpers_match_canonical_effects_and_release_register_borrows
 }
 
 #[test]
+#[cfg(not(miri))]
 fn scoped_entry_rejects_wrong_source_owner_mode_hooks_and_slot_layout() {
     let mut lua = Lua::empty();
     lua.set_jit_config(JitConfig {
@@ -265,6 +387,7 @@ fn scoped_entry_rejects_wrong_source_owner_mode_hooks_and_slot_layout() {
 }
 
 #[test]
+#[cfg(not(miri))]
 fn generated_scoped_decline_preserves_pending_values_and_canonical_error() {
     let mut lua = Lua::empty();
     lua.set_jit_config(JitConfig {

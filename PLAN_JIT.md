@@ -39,6 +39,15 @@ new production scheduler or measured speedup. No production route selects the
 new symbols. Miri coverage for the new borrow boundary and native-region
 integration remain required before considering production promotion.
 
+The follow-up exposes the unchanged safe activation-host register access and
+test-thread fixture to Miri. A Rust-only model now holds the outer scoped helper
+host across real physical Call, proven stack reallocation, open-upvalue access
+and Return, rather than only testing detached slot arrays. Stacked Borrows seed
+1 and Tree Borrows seed 2 each pass three tests: the growth model, panic payload/
+materialization case, and distinct-symbol/null-host contract. Generated paths
+remain excluded from Miri. Native focused execution passes all seven scoped
+tests; broader platform and native memory checks are tracked separately.
+
 #### Resident failed-Return recovery — 2026-10-06
 
 A new generated-prefix/generated-callee regression reproduces a resume assertion
