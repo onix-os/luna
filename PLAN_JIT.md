@@ -11,6 +11,114 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Test-only direct native caller continuations — 2026-10-06
+
+`602881d` introduces `src/jit/chains.rs`, a test-only driver that executes
+admitted ordinary native caller prefixes directly instead of reentering the
+interpreter VM for each prefix. It resolves the current closure's weak source
+identity, leases currently installed ordinary code, and selects source-bound
+paired Calls through the existing cache/preflight. Real physical Call/Return,
+fresh capture projection, native helpers and original per-slice fuel/dispatch
+publication remain in use. This differs from the rejected Session reuse, which
+still executed every caller prefix through `run_vm`.
+
+`3452fe2` adds boundary tests. `f570425` makes the driver stateless and keeps
+pair leases lexical to each `run`, so both ordinary return and unwinding drop
+them before callbacks, collection or later arena entries. Its new native-panic
+test fails a helper after a completed cached pair, catches the transported
+panic, checks that the Program's exact baseline strong-owner count is restored,
+and successfully reuses the driver. This fixes prototype lease retention on a
+caught unwind, not the production performance regression.
+
+`make jit-chain` runs seven native tests. They compare Off physical-frame,
+scalar-slot, open-upvalue, fuel, dispatch and instruction traces at budgets
+4/8/64 and activation limits 1/2/3/8/16, require real native/paired work, and
+cover fuel -1/0/1/8/13/64. Thirty-two collection boundaries preserve live captures
+and a checked final result of 50005000. A callback test schedules but does not
+execute Rust while host borrows live, then completes all 5000 checked callbacks
+through the normal executor. Hooks and Off decline before native work.
+
+Final revision `f570425` passes 52 focused GNU/musl executions in five suites,
+including all seven chain tests on each target, plus seven native Memcheck
+executions with zero errors and no definite/indirect leaks. The existing
+48-byte possible test-harness TLS loss remains recorded without suppression.
+A fresh full GNU Auto, musl Auto and feature-disabled baseline run passes
+2,694 executions in 240 suites with ten repeated/preexisting ignores and
+zero failures. Earlier six-test/full runs remain separately revision-scoped;
+none of these correctness results is timing acceptance.
+
+**Promotion is not complete.** An unsupported prefix returns explicit partial
+progress: canonical effects and native counts are materialized, but fuel is not
+yet charged and the unsupported opcode remains pending. The regression test
+checks this state; it does not implement interpreter continuation. Production
+needs an exact resume path that neither replays completed effects nor retries a
+failed first native attempt, preserves original remaining budget and terminal
+instruction accounting, and charges fuel only at the original successful slice
+boundary. Unavailable/guard/error and actor boundaries must also be verified
+before routing real execution through this driver.
+
+The driver and transition adapter are excluded from library builds. Existing
+production VM, native invocation, pair selection and generated code are
+unchanged. No frozen benchmark, threshold or coverage assertion is altered.
+No performance gain or original acceptance is claimed. Prototype, failed
+fixture invocations and revision-scoped validation remain under
+`target/jit-evidence/short-slice-performance/native-chain*`.
+
+#### Rejected unified slice execution counter — 2026-10-06
+
+`f862a4e` combined the VM's completed-instruction and interpreter-dispatch
+counters without batching statistics or splitting the interpreter loop.
+Terminal transitions remained dispatched but excluded from successful fuel
+reports. Native exits already publish native dispatches, so the collector
+subtracted the native subtotal to avoid double counting. Physical frames,
+publication boundaries, source guards, native code and workloads were unchanged.
+
+GNU Off/Auto/Force, musl Auto, baseline and accounting gates passed 5,013
+executions across 406 suites with eighteen repeated/preexisting ignores and
+zero failures. The pinned Miri shell passed seven collector tests. Memcheck
+passed 76 executions in eight suites, all error summaries zero and no definite
+or indirect leaks; possible Rust test-harness TLS losses remain unsuppressed.
+Failed default-shell Miri and two-positional-filter Cargo invocations are
+retained as invocation failures, not runtime failures.
+
+Two complete comparisons used original and previous paired-cache controls:
+24 blocks/144 commands each, both profiles, all nine cases, eleven paired
+samples, three windows, twelve cost batches/profile and verified source/artifact
+hashes. No owned build, test or profile overlapped timing. External contention
+telemetry is retained. Both drivers completed zero, but each recorded 96 failed
+command gates and 48 successes. Direct previous/candidate elapsed-time ratios:
+
+| Previous paired cache / unified counter | Speed | Shipping |
+| --- | ---: | ---: |
+| Upvalue Auto | 0.970381 | 1.011444 |
+| Upvalue Off | 1.009461 | 0.908105 |
+| Callback Auto | 0.987188 | 1.002578 |
+| Callback Off | 1.017486 | 0.911048 |
+
+Shipping Off upvalues and callbacks slowed about 10.1 and 9.8 percent;
+speed Auto upvalues slowed about 3.1 percent. Shipping native upvalues gained
+only about 1.1 percent. Original-control candidate Auto/Off upvalue ratios
+were 0.561200/0.545200 (speed/shipping), below the unchanged 1.25 gate.
+Matched compiled-Off/no-feature upvalue ratios were 1.147100/1.166550 and
+callback ratios 1.119900/1.054100, above the unchanged 1.05 cost limit.
+Matched cost probes and direct benchmark times are separate measurements.
+
+`d8e2ef5` reverted the candidate. Production accounting again uses separate
+instruction and dispatch counters. Mixed native/interpreter saturation and
+unwind tests remain, adapted to that original representation; `make
+jit-accounting` runs the existing stats/native/heap gates plus exact JIT-feature
+fuel references. The restored state passed 140 focused executions in nineteen
+suites on GNU/musl, seven pinned-Miri collector tests, and a fresh full GNU
+Off/Auto/Force, musl Auto and baseline run: 4,966 executions in 400 suites,
+eighteen repeated/preexisting ignores and zero failures. Only tests and Make
+wrappers differ from the pre-candidate runtime. No acceptance threshold or
+accounting assertion was relaxed.
+Immutable binaries, source archive, rejected patch, complete timings and
+validation logs remain under
+`target/jit-evidence/short-slice-performance/single-counter*`.
+Original upvalue, callback and compiled-Off regressions remain unresolved;
+this experiment is not a performance fix or full-plan acceptance.
+
 #### Rejected scoped live-prototype binding — 2026-10-06
 
 `c35b6b4` bound the exact callee prototype only after all existing registry,
