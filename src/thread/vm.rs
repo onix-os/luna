@@ -127,6 +127,8 @@ pub(super) fn run_vm<'gc>(
     #[cfg(feature = "jit")]
     let native_code = native_id.and_then(|id| ctx.jit().lookup(id));
     #[cfg(feature = "jit")]
+    let mut native_instructions = 0;
+    #[cfg(feature = "jit")]
     let mut interpreter_stats = ctx.jit().interpreter_stats();
     #[cfg(feature = "jit")]
     if hook_enabled && ctx.jit().active() {
@@ -150,10 +152,7 @@ pub(super) fn run_vm<'gc>(
     ))]
     let mut pair_scope = lua_frame.pair_handoff.take();
     let mut registers = lua_frame.registers();
-    #[cfg(not(feature = "jit"))]
     let mut instructions_run = 0;
-    #[cfg(feature = "jit")]
-    let mut terminal_dispatch = false;
 
     fn get_rc<'gc>(
         stack_frame: &[Value<'gc>],
@@ -170,8 +169,9 @@ pub(super) fn run_vm<'gc>(
         #[cfg(all(test, feature = "jit"))]
         if let Some(snapshot) = &mock {
             let completed = ctx.jit().run_mock(snapshot, &mut registers);
-            interpreter_stats.executed += completed;
-            if interpreter_stats.executed >= max_instructions {
+            interpreter_stats.dispatches += completed;
+            instructions_run += completed;
+            if instructions_run >= max_instructions {
                 break;
             }
             if completed != 0 {
@@ -185,11 +185,11 @@ pub(super) fn run_vm<'gc>(
                 ctx,
                 current_function,
                 &mut registers,
-                max_instructions - interpreter_stats.executed,
+                max_instructions - instructions_run,
             );
-            interpreter_stats.executed += completed;
-            interpreter_stats.native_instructions += completed;
-            if interpreter_stats.executed >= max_instructions {
+            instructions_run += completed;
+            native_instructions += completed;
+            if instructions_run >= max_instructions {
                 break;
             }
             #[cfg(test)]
@@ -224,8 +224,7 @@ pub(super) fn run_vm<'gc>(
                     }
                 }
                 *registers.pc += 1;
-                interpreter_stats.executed += 1;
-                terminal_dispatch = true;
+                interpreter_stats.dispatches += 1;
                 match transition {
                     crate::opcode::CallTransition::Call {
                         func,
@@ -290,8 +289,7 @@ pub(super) fn run_vm<'gc>(
         let op = current_prototype.opcodes[*registers.pc].decode();
         #[cfg(feature = "jit")]
         {
-            interpreter_stats.executed += 1;
-            terminal_dispatch = true;
+            interpreter_stats.dispatches += 1;
         }
         *registers.pc += 1;
 
@@ -431,8 +429,7 @@ pub(super) fn run_vm<'gc>(
                         drop(registers);
                         if lua_frame.pair_fixed_stack() {
                             *lua_frame.registers().pc = pc;
-                            interpreter_stats.executed -= 1;
-                            terminal_dispatch = false;
+                            interpreter_stats.dispatches -= 1;
                             pair_scope.as_deref_mut().unwrap().handoff = Some(pair);
                             break;
                         }
@@ -1046,25 +1043,14 @@ pub(super) fn run_vm<'gc>(
             }
         }
 
-        #[cfg(not(feature = "jit"))]
-        {
-            instructions_run += 1;
-        }
-        #[cfg(feature = "jit")]
-        let instructions_run = {
-            terminal_dispatch = false;
-            interpreter_stats.executed
-        };
+        instructions_run += 1;
         if instructions_run >= max_instructions {
             break;
         }
     }
     #[cfg(feature = "jit")]
-    let instructions_run = interpreter_stats.executed - u32::from(terminal_dispatch);
-    #[cfg(feature = "jit")]
     {
-        interpreter_stats.reported_instructions =
-            Some(instructions_run - interpreter_stats.native_instructions);
+        interpreter_stats.reported_instructions = Some(instructions_run - native_instructions);
     }
     Ok(instructions_run)
 }
