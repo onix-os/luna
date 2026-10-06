@@ -11,6 +11,60 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Runtime-scoped region fallback candidate — 2026-10-06
+
+Source commit **`3d1dc30`** replaces the region's test fallback with a scoped
+runtime token rather than passing `NativeResume` through the VM or `PairScope`.
+The ordinary VM, `LuaFrame`, `PairScope` and activation-host implementation are
+unchanged. This candidate and its runtime hooks remain **test-only**; production
+integration and performance acceptance are not established.
+
+The GC-scoped token validates runtime, exact closure/source, thread/frame, PC
+and remaining budget before entering the existing canonical slice. Its scoped
+manager state contains only comparison identities and code ownership, no GC
+roots. Lookup transfers the captured lease only if it is still installed.
+The first matching owner/closure/stack-owner/base/PC native attempt is skipped;
+subsequent native work remains enabled. If the old lease was retired, the first
+cold-source observation is also skipped, matching the previous continuation's
+hotness behavior. Nested scopes restore prior state and release ownership on
+return or panic. Prefix instruction fuel is added only after successful remainder
+execution; failed slices retain their original charge.
+
+Five tests compare complete statistics and canonical/legacy/scoped traces for
+unsupported prefixes, guard errors and declined helpers; reject changed runtime,
+frame, PC and exhausted budgets before effects; preserve retired/replaced/Off
+behavior; bind one-shot skipping to exact ownership and stack identity; and
+verify nested/panic cleanup. GNU focused validation passes **109 executions**
+including chain controls; musl focused validation passes **83**. Each has zero
+failures, two ignored diagnostics and no Rust warnings. GNU all-target checking
+and full Auto workspace pass **1,242 executions in eighty suites**, zero failures,
+six ignores. Native Memcheck passes **45** checks, zero errors/definite/indirect
+loss; possible 48-byte harness TLS allocations remain unsuppressed.
+
+Matched immutable GNU speed-profile unit-test binaries retain source archives,
+hashes and Callgrind evidence under `native-region-resume-control` and
+`native-region-resume-candidate`. Collected instructions (control / candidate):
+Off **51,691,809 / 51,691,809**; Auto **100,210,503 / 100,570,527** (+0.36%);
+region **74,186,058 / 74,197,326** (+0.015%). The current Auto diagnostic includes
+test-only promotion-observation overhead introduced by the service prototype;
+it is not interchangeable with older Auto profiles or a production result.
+
+Three alternating-order timing windows each collect 21 samples of eight
+iterations per mode, with external contention telemetry and no overlapping
+owned compilation/tests/profiling. Median batch times span 7.253–7.264 ms for
+the control region and 7.063–7.079 ms for the candidate. Off also becomes faster:
+4.792–4.837 ms versus 4.603–4.632 ms. Consequently the region/Off ratio worsens
+from 1.502–1.514 to 1.528–1.534. These are diagnostic timings, not a claimed
+fallback speedup: the fixed upvalue workload does not exercise the new fallback
+path, and the region remains slower than Off. Original thresholds are unchanged.
+
+The candidate is retained only as a validated isolation prototype. It currently
+resumes without a paired-Call handoff, matching the previous region fallback;
+production integration must preserve later paired-call coverage as well as the
+ordinary compiled-Off path. Indexed production entry selection, paired fallback
+integration, current platform/release gates and original performance acceptance
+remain open.
+
 #### Bounded region promotion and service — 2026-10-06
 
 Source commit **`7b72705`** adds an explicitly enabled **test-only** promotion
@@ -53,9 +107,9 @@ harness TLS allocations remain visible and unsuppressed. Exact source hashes
 match after all gates. Logs, source manifest and archive use
 `native-region-service-*` under short-slice performance evidence.
 
-This does **not** enable production selection. The region fallback still uses
-the withdrawn test-only `NativeResume` path described below. Blindly lifting its
-gates would repeat the production layout/resume regressions already measured.
+This does **not** enable production selection. At this service milestone the
+region fallback still used the withdrawn test-only `NativeResume` path described
+below; the candidate above isolates it without lifting those production gates.
 Production entry/resume isolation and selection, complete platform/release
 validation and the original performance gates remain open. No speedup is
 claimed from this service milestone.
