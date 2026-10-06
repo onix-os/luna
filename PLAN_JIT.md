@@ -23,9 +23,50 @@ callback, fuel or ownership check is removed from that path.
 GNU checking and GNU/musl continuation/public-pair/accounting/fuel tests pass
 95 executions in ten suites, zero failures/ignores and no Rust warnings.
 Public-pair integration tests link the non-test production entry, while unit
-continuation tests exercise the resume entry. Full validation, native Memcheck,
-pinned Miri, unsupported checking and new immutable comparisons remain pending.
-This candidate is not a performance fix or original-plan acceptance yet.
+continuation tests exercise the resume entry. Executable/source archive revision
+`033c475` now passes the full GNU Off/Auto/Force, musl Auto, baseline and
+documentation matrix: 5,029 executions in 403 suites, twenty existing/repeated
+ignores, zero failures and no Rust warnings. Native Memcheck passes 24
+executions, zero errors or definite/indirect leaks; possible 48-byte TLS loss
+per Rust harness remains unsuppressed. Pinned Miri passes eleven stats/owner
+checks with warnings retained. Unsupported i686-musl all-target checking passes
+with 71 library and ten library-test warnings retained. An initial wrong-target
+i686-GNU missing-std failure is retained separately; the fallback shell declares
+musl, and no environment or dependency change was required.
+
+Immutable `native-resume-isolated-033c475-v1` speed/shipping binaries completed
+original, prior-cache and matched-thin comparisons: each twenty-four blocks and
+144 commands, all nine cases, eleven paired samples, twelve cost batches per
+profile, three windows and final source/binary hashes. Summary processing and
+all owned compilation/tests/profiling were sequential with respect to timing;
+external contention and all failed threshold commands remain evidence.
+
+Original candidate median gates (speed / shipping):
+
+| Case | Native Off/Auto | Required | Compiled-Off/no-feature | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Integer | 2.728800 / 2.946100 | >=2 | 1.110000 / 1.121150 | <=1.05 |
+| Float | 4.807900 / 5.793200 | >=2 | 1.099150 / 0.980150 | <=1.05 |
+| Array/table | 1.208450 / 1.249800 | >=1.25 | 1.020100 / 1.061950 | <=1.05 |
+| Upvalues | 0.586700 / 0.491550 | >=1.25 | 1.105550 / 1.111850 | <=1.05 |
+| Rust callbacks | 0.757450 / 0.710200 | >=0.833333 | 1.098050 / 1.058200 | <=1.05 |
+| Allocation/GC | 0.993050 / 0.818000 | >=0.833333 | 1.036200 / 1.051200 | <=1.05 |
+| Polymorphic metamethod | 0.839100 / 0.886650 | >=0.833333 | 1.042750 / 1.032100 | <=1.05 |
+| Cold config | 0.994050 / 0.994600 | >=0.869565 | 1.050450 / 1.032500 | <=1.05 |
+| Oslo predicate | 0.924100 / 0.925450 | unscored | 1.040050 / 1.015950 | <=1.05 |
+
+Matched-thin baseline/candidate direct median upvalue Off is
+1.003346 / 1.074720 and Auto 1.001273 / 0.990001. Callback Off is
+1.003624 / 1.009388 and Auto 0.994830 / 1.002654. Values above one favor
+the candidate; lower Off/Auto ratios can reflect a faster interpreter rather
+than a slower native path. Speed float Off direct ratio is 1.046813. Against
+the prior paired-cache control, upvalue/callback Off/Auto direct medians are
+approximately unchanged (0.995019 through 1.003157 for those four paths across
+profiles). The source-isolation cleanup is retained with its complete prototype
+tests; it is not accepted as a fix for native upvalue/callback or compiled-Off
+regressions. Original performance, platform/resource and release gates remain
+open. The next optimization must address measured native activation/call costs,
+not keep changing unused entry ABI or dilute the benchmark corpus.
 
 #### Thin-entry elapsed-time evidence — 2026-10-06
 

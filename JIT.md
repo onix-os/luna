@@ -883,8 +883,13 @@ The subsequent production-isolation candidate restricts the resume token,
 optional VM parameter, ownership validation and lease-selection branch to unit
 tests, alongside the already test-only driver. Production keeps the same opcode
 loop and canonical activation routing without unused prototype entry state.
-GNU/musl focused unit and production-linked integration checks pass 95
-executions; full validation and measured performance acceptance remain pending.
+GNU/musl full validation passes 5,029 executions in 403 suites, with twenty
+existing/repeated ignores and zero failures. Native Memcheck passes 24 and
+pinned Miri eleven; unsupported i686-musl checking passes with warnings
+retained. Three immutable comparisons complete another 432 commands. Matched
+shipping upvalue Off baseline/candidate ratio improves to 1.074720, while Auto
+remains approximately unchanged. Original upvalue/callback and compiled-Off
+gates still fail; this is retained prototype isolation, not release acceptance.
 
 `make jit-chain` tests a source-bound direct-native caller-continuation prototype
 that avoids VM reentry for admitted caller prefixes while retaining physical
