@@ -678,7 +678,7 @@ impl<'gc> Executor<'gc> {
                                     Self::VM_GRANULARITY,
                                 ) {
                                 let mut stats = ctx.jit().interpreter_stats();
-                                stats.dispatches = 1;
+                                stats.executed = 1;
                                 let result = lua_frame
                                     .return_upper(&ctx, start, count)
                                     .map(|()| completed);

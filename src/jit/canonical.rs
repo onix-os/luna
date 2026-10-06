@@ -284,7 +284,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
         self.calls = 1;
         let result = self.host.call(ctx, self.site.function, self.site.arguments);
         let mut stats = ctx.jit().interpreter_stats();
-        stats.dispatches = 1;
+        stats.executed = 1;
         stats.reported_instructions = result.as_ref().ok().map(|_| 0);
         drop(stats);
         if let Err(error) = result {
@@ -416,7 +416,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             self.frame.exit.instructions,
         );
         let mut stats = ctx.jit().interpreter_stats();
-        stats.dispatches = 1;
+        stats.executed = 1;
         stats.reported_instructions = result.as_ref().ok().map(|_| 0);
         drop(stats);
         if let Err(error) = result {

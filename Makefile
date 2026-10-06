@@ -276,6 +276,10 @@ jit-disassembly:
 jit-reference:
 	@$(CARGO) test -p luna --test fuel_reference $(TARGET_ARG)
 
+.PHONY: jit-accounting
+jit-accounting: jit-stats
+	@$(CARGO) test --locked -p luna --features jit --test fuel_reference $(TARGET_ARG) $(ARGS)
+
 jit-backend:
 	@$(CARGO) test -p luna --features jit --test jit_backend $(TARGET_ARG)
 
@@ -1029,6 +1033,7 @@ help:
 	@echo "  jit-abi      Test scalar and reference ABI conversions"
 	@echo "  jit-config   Test configuration and disabled-state collection"
 	@echo "  jit-stats    Verify native exit reasons and execution counters"
+	@echo "  jit-accounting Check mixed counters, dispatches and exact fuel"
 	@echo "  jit-test-modes Test Force preparation and explicit exclusions"
 	@echo "  jit-numeric-exits Check numeric fallbacks between native work"
 	@echo "  jit-registers Test register-255 and stack-256 boundaries"
