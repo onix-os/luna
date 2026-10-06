@@ -872,7 +872,11 @@ with eighteen existing/repeated ignores and zero failures. Native Memcheck
 passes 24 executions with zero errors/definite/indirect leaks and an unsuppressed
 possible 48-byte TLS leak in each Rust harness; pinned Miri passes eleven
 stats/owner checks. Unsupported i686 checking passes with warnings retained.
-Paired wall-clock acceptance is still pending.
+Three complete original/prior-cache/matched-restored comparisons now retain
+432 commands and verified hashes. The thin candidate fails original upvalue,
+callback and several compiled-Off gates. Matched shipping ordinary-entry
+timings improve, but speed numeric feature costs worsen; it is not accepted
+as a regression fix. Details and contention limitations are in `PLAN_JIT.md`.
 Instruction counts are not a claim that the original performance gates pass.
 
 `make jit-chain` tests a source-bound direct-native caller-continuation prototype

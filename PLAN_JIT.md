@@ -11,6 +11,49 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Thin-entry elapsed-time evidence — 2026-10-06
+
+The thin candidate's immutable source/archive revision is `f45026f` (executable
+change `2695050`), under `native-resume-thin-2695050-v1`. Original, prior paired
+cache and matched restored `2fc06b6` comparisons each completed twenty-four
+blocks/144 commands: both profiles, all nine cases, eleven paired samples,
+twelve feature-cost batches per profile and three observation windows. All
+three harnesses ended successfully; individual failed threshold commands,
+source/binary hashes and external swap/IO contention remain in the evidence.
+Summaries completed before the next comparison started; no owned compilation,
+tests or profiling overlapped timing. Contended results are not uncontended
+release certification.
+
+Original candidate median gates (speed / shipping):
+
+| Case | Native Off/Auto | Required | Compiled-Off/no-feature | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Integer | 2.761450 / 3.173350 | >=2 | 1.101650 / 1.114750 | <=1.05 |
+| Float | 4.930600 / 5.101200 | >=2 | 1.106200 / 0.986900 | <=1.05 |
+| Array/table | 1.222400 / 1.275500 | >=1.25 | 1.034750 / 1.057450 | <=1.05 |
+| Upvalues | 0.582300 / 0.536350 | >=1.25 | 1.144150 / 1.111250 | <=1.05 |
+| Rust callbacks | 0.750350 / 0.723550 | >=0.833333 | 1.077500 / 1.040200 | <=1.05 |
+| Allocation/GC | 0.999250 / 0.813000 | >=0.833333 | 1.053450 / 1.050850 | <=1.05 |
+
+Matched restored/candidate direct medians use a separate ratio: values above
+one mean the candidate is faster. Upvalue Off is 1.013400 / 1.091404 and callback
+Off 0.983508 / 1.062726; corresponding Auto ratios are 0.985629 / 1.003028 and
+1.003186 / 0.992313. Thus shipping ordinary-entry timings improve, but no
+meaningful native upvalue/callback acceleration is established. Speed numeric
+feature-cost ratios worsen versus the matched control: integer 1.037100 to
+1.104700 and float 1.039150 to 1.103850. The control uses a different absolute
+worktree path; that and contention remain limitations, not reasons to discard
+failed gates. Prior paired-cache shipping upvalue Off direct ratio is 0.935751.
+
+The thin candidate is not accepted as a regression fix. Its semantic prototype
+and instruction profiles remain useful evidence. Inspection identifies that
+the withdrawn, test-only resume entry still adds an optional parameter and
+resume-selection paths to the production shared VM. The next candidate will
+exclude that unused prototype machinery from production while retaining the
+same VM loop and all continuation tests; it must pass fresh production-linked
+integration tests and unchanged timing gates. This does not promote the
+withdrawn driver or complete the original plan.
+
 #### Profile-guided thin resume entry candidate — 2026-10-06
 
 Fresh restored routing GNU Auto/musl Auto/no-feature validation passes 2,710
