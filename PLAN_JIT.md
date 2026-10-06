@@ -11,6 +11,183 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### GC-free region compilation requests — 2026-10-06
+
+Region preparation now produces a **test-only**, GC-free `Request`: one charged
+caller snapshot, numeric source identity, full compilation configuration,
+allocator handles and exact ordinary/pair code leases. Preparation accepts a
+weak-registry-resolved prototype without constructing a closure. It retains
+neither a Lua closure nor a runtime owner. IR admission and scoped caller compilation reuse
+that snapshot; it is released before driver compilation. The new scoped-code
+compiler accepts the snapshot directly instead of taking another arena snapshot.
+
+Compilation takes a GC-free runtime reference and first checks the captured
+configuration, runtime provenance and installed dependency identities. A pending
+request cannot compile against obsolete limits after reconfiguration. Cache
+installation checks configuration again, as well as its existing exact-owner
+checks, before allocating a cache owner or advancing recency. Existing cache
+entries are not invalidated by an otherwise non-invalidating hotness change;
+the additional configuration check applies to pending installation.
+
+Six new tests exercise compilation and installation **outside `Lua::enter`**, an
+actual cached native run with exact Off trace/fuel/work parity, snapshot drop and
+allocation refusal, GC collection at both pending and compiled stages, stale
+configuration/retirement/clear/replaced dependencies, foreign runtime identity,
+and compiler resource failure cleanup. Failure cases include the driver's late
+relocation refusal after successful caller compilation; private mappings,
+metadata and snapshots are released while the original cache entry and its
+dependencies remain usable. Refused build/install admission does not advance
+cache recency or replace an unrelated live cache entry.
+
+Published source commit: **`93e0a96`**. Final GNU and musl focused runs each pass
+**70 executions**, zero failures, two ignored diagnostics and no Rust warnings.
+GNU all-target JIT checking and the complete Auto workspace suite pass:
+**1,229 executions in eighty suites**, zero failures and six ignores. Native
+Memcheck passes all **32** backend/region/failure checks with zero errors and
+zero definite/indirect loss; the possible 48-byte harness TLS allocation remains
+visible in each process, without suppression. Exact-revision logs, source hashes
+and archive are retained under `native-region-request-final-*` in short-slice
+performance evidence. All recorded source hashes match after these gates.
+
+The existing in-arena constructor remains a convenience wrapper for older
+test fixtures only. Production hotness/service scheduling, compilation retry and
+installation accounting, and Executor region selection are still unwired.
+This change does not establish a speedup or resolve original performance gates.
+
+#### Dependency-aware compiled-region cache — 2026-10-06
+
+A **test-only** region cache now participates in the existing runtime metadata
+budget and shared eviction order. Entries use charged `Shared<Region>` owners,
+the existing saturating recency clock and deterministic key tie-breaks. A cache
+hit checks runtime provenance and exact installed caller/pair owners before
+issuing an execution lease. Failed admission/allocation does not replace a live
+entry or advance the clock. Empty storage is released, and sparse storage joins
+existing metadata compaction.
+
+An unleased cached region is itself an eviction candidate. Removing it releases
+its private caller/driver mappings and its ordinary/pair dependency leases;
+those dependencies can then become ordinary eviction candidates. Active region
+leases refuse pressure eviction. This preserves the existing single-owner rules
+for ordinary and pair code rather than weakening them to compensate for cache
+pinning. GC retirement, clear/Off configuration and successful dependency
+replacement invalidate dependent cache ownership. Outstanding leases retain
+their mappings until final drop but cannot enter through retired/replaced
+installed owners.
+
+Nine integrated tests exercise cached native execution with exact Off trace
+parity; active-lease refusal and actual compilation retry after release; source
+collection without GC rooting; dependency replacement; foreign/stale admission;
+failed replacement preserving the old entry; owner/table allocation failures;
+exact metadata headroom versus one byte short; and recency/exclusion behavior
+including clock saturation. Lookup at the exact metadata ceiling allocates no
+new storage. Final collection/drop reclaims native mappings and metadata.
+
+The initial multi-region fixture reset pair State while constructing its second
+region, correctly invalidating the first plan. It now initializes pairs only
+when absent. A retained tuple borrow during lease acquisition was split into a
+separate local. The pressure fixture initially confused requested image bytes
+with page-rounded mapped bytes; it now uses the actual mapping quota unit and
+checks the unchanged ceiling after retry. All failed logs remain retained.
+
+GNU and musl focused runs each pass **64 executions**, zero failures, two
+ignored diagnostics and no Rust warnings. Native Memcheck passes all 26
+backend/region/failure checks with zero errors or definite/indirect losses;
+the possible 48-byte test-harness TLS allocation remains unsuppressed.
+Evidence and full source hashes/archive are retained as `native-region-cache-*`
+under short-slice performance evidence.
+GNU all-target JIT checking and the complete Auto workspace/all-target suite
+also pass: **1,223 executions in eighty suites**, zero failures, six ignores
+and no Rust warnings. The recorded source hashes still match after validation.
+
+Cache installation/lease acquisition is explicit in these tests. Production
+hotness/service scheduling, public installation accounting and Executor region
+selection are **not yet wired**. No cache speedup or production-performance
+acceptance is claimed; the original failed/open gates remain unchanged.
+At this cache milestone, the `Region::new`/`Code::new` constructors still compiled
+inside the test arena mutation. The request milestone above provides separated
+preparation/compilation/installation; moving the convenience constructors
+directly into an Executor step remains an unacceptable shortcut.
+
+#### GC-free compiled-region ownership — 2026-10-06
+
+The next production-integration prerequisite separates compiled ownership from
+execution bindings. `scoped_helpers::Code` now contains only native code, a
+numeric weak-registry source identity and its runtime ledger. `BoundCode`
+borrows that code and holds the exact live closure only during execution.
+`native_region::Region` similarly owns no GC lifetime or Lua closure; each run
+binds its current caller after checking the installed ordinary/pair owners.
+All continued boundaries still check the bound closure, physical frame, PC,
+register width and fuel, with unchanged full writeback/refresh and error paths.
+
+Binding requires both runtime-ledger provenance and a live weak registration
+whose ID matches the compiled source. Equal numeric IDs from another Lua state
+do not authorize code reuse. Registry reset/re-registration generates a new ID
+and refuses the old plan. Rebound closures sharing the actual prototype can
+use the same compiled region with their own environments and captured values.
+No cached GC pointer, lifetime cast, new unsafe operation or production routing
+is introduced by this split.
+
+New lifecycle tests move compiled code and a complete region out of `Lua::enter`
+and require their types to satisfy `'static`. Repeated collection between runs
+preserves matching live sources, and a single region executes two rebound
+callers with different environments while matching complete Off traces. After
+the last stashed closure is dropped, collection removes every source and its
+installed owners while retained compiled leases keep mappings live. Dropping
+the Lua state still leaves those leases valid for destruction; dropping the
+final code/region returns requested and mapped bytes to zero. Separate guards
+reject bytecode-identical foreign prototypes, colliding foreign-runtime IDs,
+collected/replaced sources and reset registrations.
+
+Focused GNU and musl validation each pass **sixty executions**. Native Memcheck
+passes 27 checks with zero errors or definite/indirect losses; the possible
+48-byte harness TLS allocation remains recorded. The unchanged scoped-pointer
+models pass four cases under both Stacked seed 1 and Tree seed 2 Miri, retaining
+21 warnings each; Miri does not execute the compiled lifecycle fixtures.
+The complete GNU Auto workspace/all-target gate passes **1,214 executions in
+eighty suites**, zero failures, six ignores and no Rust warnings.
+
+The source-verified `native-region-profile-v5` records **74,130,747** region
+instructions versus **74,110,893** in v2, an increase of **19,854 (0.027%)**.
+Off **51,691,809** and ordinary Auto **95,500,500** are unchanged. Each profile
+still checks all three complete traces and generated-work witnesses. The added
+binding is per bounded region entry, not per caller fragment. These instruction
+counts are diagnostic, not performance acceptance.
+
+The follow-up avoids retaining a duplicate caller/code binding in the execution
+Session: the existing scoped pair-admission token already holds that exact
+caller, and Region owns its compiled code. Continuing boundaries still check
+both exact caller equality and the compiled entry bitmap. This is not reuse of
+canonical Call/Return Sessions. The sixty focused GNU/musl checks, 27 Memcheck
+checks and 1,214-test GNU Auto gate all pass again for this refinement.
+Profile v6 records **74,186,058** region instructions, **0.101%** above v2;
+Off and ordinary Auto totals remain exact. No counter or coverage gate changed.
+
+Three alternating archived-binary comparisons (31 samples, sixteen iterations)
+show mixed timing rather than a speedup claim:
+
+| Region elapsed per sample | Original v2 | GC-free v5 | Deduplicated v6 |
+| --- | ---: | ---: | ---: |
+| Speed/symbol build | 14.386–14.402 ms | 15.109–15.210 ms | 15.133–15.163 ms |
+| Shipping build | 23.223–23.245 ms | 23.187–23.208 ms | 22.928–23.098 ms |
+
+The speed diagnostic is about 5% slower after the ownership split; shipping is
+slightly faster after deduplication. Off/ordinary Auto timings also shift despite
+identical instruction totals. All raw controls, source/binary archives and
+environment observations are retained under `native-region-binding-*` and
+`native-region-profile-v5`/`v6`. The architectural prerequisite is retained, not
+promoted as a performance fix; production code remains unchanged by these
+test-only modules. Original performance acceptance is still failed/open.
+
+This remains **test-only**. It removes a GC-ownership obstacle to cached plans;
+it does not install/select regions in the production executor, solve the
+performance regressions or complete the original acceptance gates.
+The next cache integration must preserve dependency eviction: ordinary and
+pair victims currently require a single Shared owner, while a retained Region
+leases both. Simply inserting Regions into a map would pin those dependencies.
+Retirement/clear and pressure handling must release dependent cache ownership
+without invalidating active execution leases, or acquire dependencies only for
+execution. This requirement precedes production cache selection.
+
 #### Bounded generated caller regions — 2026-10-06
 
 A **test-only** Cranelift dispatcher now invokes a leased scoped caller directly,

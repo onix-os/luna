@@ -88,35 +88,104 @@ pub(super) const SYMBOLS: [(u32, &str, abi::HelperEntry); 9] = [
 ];
 
 #[cfg(not(miri))]
-pub(super) struct Code<'gc> {
+pub(super) struct Code {
     code: backend::Code,
-    source: Closure<'gc>,
+    source: u64,
     origin: MappingCounter,
 }
 
 #[cfg(not(miri))]
-impl<'gc> Code<'gc> {
-    pub(super) fn new(ctx: Context<'gc>, source: Closure<'gc>) -> Result<Self, JitError> {
-        let (memory, metadata, snapshots, limit, instructions, limits) = {
+pub(super) struct BoundCode<'code, 'gc> {
+    code: &'code Code,
+    source: Closure<'gc>,
+}
+
+#[cfg(not(miri))]
+impl Code {
+    pub(super) fn new<'gc>(ctx: Context<'gc>, source: Closure<'gc>) -> Result<Self, JitError> {
+        let identity = ctx
+            .jit_registry()
+            .borrow()
+            .identity(ctx, source.prototype())
+            .ok_or_else(|| JitError::Compilation("unregistered scoped source".into()))?;
+        let (memory, metadata, snapshots, config) = {
             let manager = ctx.jit().0.borrow();
             (
                 manager.memory.clone(),
                 manager.metadata.clone(),
                 manager.snapshots.clone(),
-                manager.config.max_code_bytes,
-                manager.config.max_prototype_instructions,
-                work::Limits::from(&manager.config),
+                manager.config.clone(),
             )
         };
-        let snapshot = Snapshot::new_in(&source.prototype(), instructions, snapshots)?;
-        let code = backend::compile_scoped_in(&snapshot, memory.clone(), limit, metadata, limits)?;
+        let snapshot = Snapshot::new_in(
+            &source.prototype(),
+            config.max_prototype_instructions,
+            snapshots,
+        )?;
+        Self::compile(&snapshot, identity, memory, metadata, &config)
+    }
+
+    pub(super) fn compile(
+        snapshot: &Snapshot,
+        identity: u64,
+        memory: MappingCounter,
+        metadata: super::resources::BudgetAllocator,
+        config: &super::JitConfig,
+    ) -> Result<Self, JitError> {
+        let code = backend::compile_scoped_in(
+            snapshot,
+            memory.clone(),
+            config.max_code_bytes,
+            metadata,
+            work::Limits::from(config),
+        )?;
         Ok(Self {
             code,
-            source,
+            source: identity,
             origin: memory,
         })
     }
 
+    pub(super) fn bind<'gc>(
+        &self,
+        ctx: Context<'gc>,
+        source: Closure<'gc>,
+    ) -> Option<BoundCode<'_, 'gc>> {
+        if !self.origin.same_root(&ctx.jit().0.borrow().memory)
+            || ctx
+                .jit_registry()
+                .borrow()
+                .identity(ctx, source.prototype())
+                != Some(self.source)
+        {
+            return None;
+        }
+        Some(BoundCode { code: self, source })
+    }
+
+    pub(super) fn registers(&self) -> usize {
+        self.code.registers
+    }
+
+    pub(super) fn belongs_to(&self, memory: &MappingCounter) -> bool {
+        self.origin.same_root(memory)
+    }
+
+    pub(super) fn accepts_pc(&self, pc: usize) -> bool {
+        self.code.entries.get(pc).copied().unwrap_or(false)
+    }
+
+    pub(super) fn entry(&self) -> abi::Entry {
+        self.code.linked_entry()
+    }
+
+    pub(super) fn relocations(&self) -> usize {
+        self.code.relocations
+    }
+}
+
+#[cfg(not(miri))]
+impl<'gc> BoundCode<'_, 'gc> {
     pub(super) fn invoke(
         &self,
         frame: &mut Frame<'gc, '_, '_>,
@@ -125,7 +194,7 @@ impl<'gc> Code<'gc> {
     ) -> Option<abi::Exit> {
         let pc = self.prepare(frame, slots)?;
         let mut host = frame.publish(slots.len());
-        let exit = unsafe { self.code.invoke_host(slots, pc, budget, &mut host) };
+        let exit = unsafe { self.code.code.invoke_host(slots, pc, budget, &mut host) };
         if frame.panic.is_none() {
             frame
                 .host
@@ -138,20 +207,8 @@ impl<'gc> Code<'gc> {
         self.source
     }
 
-    pub(super) fn registers(&self) -> usize {
-        self.code.registers
-    }
-
-    pub(super) fn entry(&self) -> abi::Entry {
-        self.code.linked_entry()
-    }
-
-    pub(super) fn relocations(&self) -> usize {
-        self.code.relocations
-    }
-
     pub(super) fn accepts_entry(&self, source: Closure<'gc>, pc: usize) -> bool {
-        source == self.source && self.code.entries.get(pc).copied().unwrap_or(false)
+        source == self.source && self.code.accepts_pc(pc)
     }
 
     pub(super) fn prepare(
@@ -161,10 +218,10 @@ impl<'gc> Code<'gc> {
     ) -> Option<usize> {
         let manager = frame.ctx.jit().0.borrow();
         if manager.config.mode != super::JitMode::Auto
-            || !self.origin.same_root(&manager.memory)
+            || !self.code.origin.same_root(&manager.memory)
             || frame.panic.is_some()
             || !frame.host.lua_ready()
-            || slots.len() != self.code.registers
+            || slots.len() != self.code.registers()
             || slots.iter().any(|slot| slot.tag > abi::REFERENCE)
         {
             return None;

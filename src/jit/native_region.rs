@@ -15,12 +15,17 @@ use super::{
     helpers, scoped_helpers, JitError, Prepared, PreparedPair,
 };
 
-pub(super) struct Region<'gc> {
-    caller: scoped_helpers::Code<'gc>,
+pub(super) mod cache;
+mod request;
+pub(super) use request::Request;
+
+pub(super) struct Region {
+    caller: scoped_helpers::Code,
     ordinary: Prepared,
     pair: PreparedPair,
     driver: region::Driver,
     source: u64,
+    config: super::JitConfig,
 }
 
 #[derive(Debug)]
@@ -31,78 +36,28 @@ pub(super) struct Outcome {
     pub result: Result<(), VMError>,
 }
 
-impl<'gc> Region<'gc> {
-    pub(super) fn new(
+impl Region {
+    fn installed(&self, manager: &super::Manager) -> bool {
+        self.caller.belongs_to(&manager.memory)
+            && manager
+                .code
+                .get(&self.source)
+                .is_some_and(|code| super::owner::Shared::ptr_eq(&code.code, &self.ordinary.code))
+            && manager
+                .pairs
+                .as_ref()
+                .is_some_and(|pairs| pairs.contains(&self.pair))
+    }
+
+    pub(super) fn new<'gc>(
         ctx: Context<'gc>,
         caller: Closure<'gc>,
         pair: PreparedPair,
     ) -> Result<Self, JitError> {
-        let source = ctx
-            .jit_registry()
-            .borrow()
-            .identity(ctx, caller.prototype())
-            .ok_or_else(|| JitError::Compilation("unregistered region caller".into()))?;
-        if pair.program.key().caller != source {
-            return Err(JitError::Compilation("region pair caller".into()));
-        }
-        let ordinary = ctx
-            .jit()
-            .lookup(source)
-            .ok_or_else(|| JitError::Compilation("missing region fallback".into()))?;
-        let (memory, metadata, workspace, limit, limits) = {
-            let manager = ctx.jit().0.borrow();
-            (
-                manager.memory.clone(),
-                manager.metadata.clone(),
-                manager.snapshots.clone(),
-                manager.config.max_code_bytes,
-                super::work::Limits::from(&manager.config),
-            )
-        };
-        let snapshot = super::ir::Snapshot::new_in(
-            &caller.prototype(),
-            ctx.jit().0.borrow().config.max_prototype_instructions,
-            workspace.clone(),
-        )?;
-        let expansion = super::work::Expansion::admit(&snapshot, limits)?;
-        if expansion
-            .instructions
-            .checked_add(64)
-            .is_none_or(|count| count > limits.instructions)
-            || expansion
-                .blocks
-                .checked_add(4)
-                .is_none_or(|count| count > limits.blocks)
-        {
-            return Err(JitError::ResourceLimit("connected region IR"));
-        }
-        drop(snapshot);
-        let caller = scoped_helpers::Code::new(ctx, caller)?;
-        let remaining = super::work::Limits {
-            instructions: 64,
-            blocks: 4,
-            relocations: limits.relocations.saturating_sub(caller.relocations()),
-        };
-        let driver = region::compile(
-            caller.entry(),
-            boundary,
-            memory,
-            limit,
-            metadata,
-            workspace,
-            remaining,
-            region::Fault::None,
-        )?;
-        Ok(Self {
-            caller,
-            ordinary,
-            pair,
-            driver,
-            source,
-        })
+        Request::prepare(ctx, caller.prototype(), pair)?.compile(ctx.jit())
     }
 
-    pub(super) fn run(
+    pub(super) fn run<'gc>(
         &self,
         ctx: Context<'gc>,
         host: &mut ActivationHost<'gc, '_>,
@@ -131,6 +86,8 @@ impl<'gc> Region<'gc> {
                 return None;
             }
         }
+        let closure = host.with_registers(|closure, _| closure);
+        let caller = self.caller.bind(ctx, closure)?;
         let width = self.caller.registers();
         let mut storage = [MaybeUninit::<abi::Slot>::uninit(); 256];
         if width > storage.len() {
@@ -153,11 +110,11 @@ impl<'gc> Region<'gc> {
         };
         let identity = host.frame_identity();
         let mut frame = scoped_helpers::Frame::new(ctx, host);
-        let pc = self.caller.prepare(&mut frame, slots)?;
+        let pc = caller.prepare(&mut frame, slots)?;
         let admitted = super::canonical::admission::Admitted::new(
             &self.pair.program,
             ctx,
-            self.caller.source(),
+            caller.source(),
             identity,
         )?;
         let mut session = Session {
@@ -201,7 +158,7 @@ impl<'gc> Region<'gc> {
 }
 
 struct Session<'gc, 'host, 'borrow, 'region> {
-    region: &'region Region<'gc>,
+    region: &'region Region,
     admitted: super::canonical::admission::Admitted<'region, 'gc>,
     frame: scoped_helpers::Frame<'gc, 'host, 'borrow>,
     slots: &'borrow mut [abi::Slot],
@@ -222,7 +179,7 @@ impl Session<'_, '_, '_, '_> {
         let ctx = self.frame.ctx;
         self.outcome.fragments += 1;
         let transition = self.frame.host.with_registers(|closure, registers| {
-            assert_eq!(closure, self.region.caller.source());
+            assert_eq!(closure, self.admitted.caller());
             for (slot, value) in self.slots.iter().zip(registers.stack_frame.iter_mut()) {
                 slot.write_back(value);
             }
@@ -268,7 +225,7 @@ impl Session<'_, '_, '_, '_> {
         } else {
             let resume = NativeResume::new(
                 ctx,
-                self.region.caller.source(),
+                self.admitted.caller(),
                 self.region.source,
                 self.identity,
                 view.exit.pc as usize,
@@ -296,7 +253,8 @@ impl Session<'_, '_, '_, '_> {
         }
         let pc = self.frame.host.with_registers(|closure, registers| {
             if registers.stack_frame.len() < self.slots.len()
-                || !self.region.caller.accepts_entry(closure, *registers.pc)
+                || closure != self.admitted.caller()
+                || !self.region.caller.accepts_pc(*registers.pc)
             {
                 return None;
             }

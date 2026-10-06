@@ -116,7 +116,7 @@ fn paired_region_cost() {
 fn profile_body<'gc>(
     ctx: Context<'gc>,
     host: &mut ActivationHost<'gc, '_>,
-    region: &Region<'gc>,
+    region: &Region,
     mode: &str,
 ) -> [usize; 3] {
     let mut counts = [0; 3];
@@ -142,7 +142,7 @@ fn profile_body<'gc>(
 fn profile_region<'gc>(
     ctx: Context<'gc>,
     host: &mut ActivationHost<'gc, '_>,
-    region: &Region<'gc>,
+    region: &Region,
     mode: &str,
 ) -> [usize; 3] {
     black_box(profile_body(ctx, host, region, mode))

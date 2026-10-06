@@ -756,6 +756,8 @@ enum CacheKey {
     Prototype(u64),
     #[cfg(not(miri))]
     Pair(pairs::Key),
+    #[cfg(all(test, not(miri)))]
+    Region(pairs::Key),
 }
 
 impl Manager {
@@ -832,10 +834,14 @@ impl Manager {
             any(target_arch = "x86_64", target_arch = "aarch64")
         ))]
         if let Some(pairs) = &mut self.pairs {
+            #[cfg(test)]
+            let regions = pairs.regions.compact();
             let results = pairs.compact();
             for result in results {
                 self.record_compaction(result);
             }
+            #[cfg(test)]
+            self.record_compaction(regions);
         }
         let result = self.tracked_compactor.map(&mut self.tracked);
         self.record_compaction(result);
@@ -892,10 +898,26 @@ impl Manager {
                 let excluded = match exclude {
                     CacheKey::Pair(key) => Some(key),
                     CacheKey::Prototype(_) => None,
+                    #[cfg(test)]
+                    CacheKey::Region(_) => None,
                 };
                 pairs
                     .victim(excluded)
                     .map(|(clock, key)| (clock, CacheKey::Pair(key)))
+            }))
+            .min();
+        #[cfg(all(test, not(miri)))]
+        let victim = victim
+            .into_iter()
+            .chain(self.pairs.as_ref().and_then(|pairs| {
+                let excluded = match exclude {
+                    CacheKey::Region(key) => Some(key),
+                    _ => None,
+                };
+                pairs
+                    .regions
+                    .victim(excluded)
+                    .map(|(clock, key)| (clock, CacheKey::Region(key)))
             }))
             .min();
         let Some((_, victim)) = victim else {
@@ -912,6 +934,8 @@ impl Manager {
             }
             #[cfg(not(miri))]
             CacheKey::Pair(key) => self.pairs.as_mut().unwrap().evict(key),
+            #[cfg(all(test, not(miri)))]
+            CacheKey::Region(key) => self.pairs.as_mut().unwrap().regions.remove(key),
         }
         self.stats.cache_evictions = self.stats.cache_evictions.saturating_add(1);
         true
@@ -1527,6 +1551,10 @@ impl Runtime {
                         };
                         manager.clock = manager.clock.saturating_add(1);
                         let last_used = manager.clock;
+                        #[cfg(all(test, not(miri)))]
+                        if let Some(pairs) = &mut manager.pairs {
+                            pairs.regions.retire_caller(id);
+                        }
                         manager.code.insert(id, CachedCode { code, last_used });
                         manager.stats.installed_regions =
                             manager.stats.installed_regions.saturating_add(1);

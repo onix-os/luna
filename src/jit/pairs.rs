@@ -27,6 +27,8 @@ struct Entry {
 
 pub(super) struct State {
     #[cfg(test)]
+    pub(super) regions: super::native_region::cache::Cache,
+    #[cfg(test)]
     executions: (usize, usize),
     entries: MetadataMap<Key, Entry>,
     installed: usize,
@@ -39,6 +41,8 @@ pub(super) struct State {
 impl State {
     pub(super) fn new(allocator: BudgetAllocator) -> Self {
         Self {
+            #[cfg(test)]
+            regions: super::native_region::cache::Cache::new(allocator.clone()),
             #[cfg(test)]
             executions: (0, 0),
             entries: metadata_map(allocator.clone()),
@@ -77,6 +81,8 @@ impl State {
     }
 
     pub fn evict(&mut self, key: Key) {
+        #[cfg(test)]
+        self.regions.remove(key);
         let entry = self.entries.get_mut(&key).unwrap();
         self.installed -= usize::from(entry.program.take().is_some());
         entry.hotness = 0;
@@ -98,6 +104,8 @@ impl State {
     }
 
     pub fn retire(&mut self, id: u64) {
+        #[cfg(test)]
+        self.regions.retire(id);
         self.queue
             .retain(|key| key.caller != id && key.callee != id);
         self.entries.retain(|key, entry| {
@@ -152,11 +160,23 @@ impl State {
     }
 
     pub fn needs_compaction(&mut self) -> bool {
-        self.entry_compactor
+        let needed = self
+            .entry_compactor
             .needed(self.entries.len(), self.entries.capacity())
             | self
                 .queue_compactor
-                .needed(self.queue.len(), self.queue.capacity())
+                .needed(self.queue.len(), self.queue.capacity());
+        #[cfg(test)]
+        let needed = needed | self.regions.needs_compaction();
+        needed
+    }
+
+    #[cfg(test)]
+    pub(super) fn contains(&self, pair: &super::PreparedPair) -> bool {
+        self.entries
+            .get(&pair.program.key())
+            .and_then(|entry| entry.program.as_ref())
+            .is_some_and(|program| Shared::ptr_eq(program, &pair.program))
     }
 
     pub fn compact(&mut self) -> [super::resources::Compaction; 2] {
@@ -489,6 +509,8 @@ impl Runtime {
                 .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
             let last_used = manager.clock.saturating_add(1);
             let pairs = manager.pairs.as_mut().unwrap();
+            #[cfg(test)]
+            pairs.regions.remove(key);
             let entry = pairs.entries.get_mut(&key).unwrap();
             pairs.installed += usize::from(entry.program.replace(program).is_none());
             entry.last_used = last_used;

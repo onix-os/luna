@@ -204,6 +204,83 @@ fn transition(frame: &mut Frame<'_, '_, '_>, slots: &[abi::Slot], instructions: 
 
 #[test]
 #[cfg(not(miri))]
+fn compiled_scoped_code_does_not_root_sources_or_cross_runtime_identities() {
+    let mut lua = Lua::empty();
+    lua.set_gc_pacing(false);
+    let (code, memory, live) = lua.enter(|ctx| {
+        let closure = Closure::load(ctx, None, b"local n=41 return n+1").unwrap();
+        (
+            Code::new(ctx, closure).unwrap(),
+            ctx.jit().0.borrow().memory.clone(),
+            ctx.stash(closure),
+        )
+    });
+    fn gc_free<T: 'static>(_: &T) {}
+    gc_free(&code);
+    lua.gc_collect();
+    lua.gc_collect();
+    lua.enter(|ctx| {
+        assert!(code.bind(ctx, ctx.fetch(&live)).is_some());
+        let foreign = Closure::load(ctx, None, b"local n=41 return n+1").unwrap();
+        assert!(code.bind(ctx, foreign).is_none());
+    });
+    let mut foreign = Lua::empty();
+    foreign.enter(|ctx| {
+        let closure = Closure::load(ctx, None, b"local n=41 return n+1").unwrap();
+        assert_eq!(
+            ctx.jit_registry()
+                .borrow()
+                .identity(ctx, closure.prototype()),
+            Some(code.source)
+        );
+        assert!(code.bind(ctx, closure).is_none());
+    });
+    drop(live);
+    lua.gc_collect();
+    lua.gc_collect();
+    lua.enter(|ctx| {
+        assert!(ctx
+            .jit_registry()
+            .borrow()
+            .resolve(ctx, code.source)
+            .is_none());
+        assert_eq!(ctx.jit().0.borrow().stats.registered_prototypes, 0);
+        let replacement = Closure::load(ctx, None, b"local n=41 return n+1").unwrap();
+        assert!(code.bind(ctx, replacement).is_none());
+    });
+    assert!(memory.requested() > 0);
+    drop(lua);
+    assert!(memory.requested() > 0);
+    drop(code);
+    assert_eq!(memory.requested(), 0);
+    assert_eq!(memory.load(std::sync::atomic::Ordering::Relaxed), 0);
+}
+
+#[test]
+#[cfg(not(miri))]
+fn registry_reset_invalidates_fresh_scoped_bindings_without_reusing_ids() {
+    let mut lua = Lua::empty();
+    lua.enter(|ctx| {
+        let closure = Closure::load(ctx, None, b"return 42").unwrap();
+        let code = Code::new(ctx, closure).unwrap();
+        assert!(code.bind(ctx, closure).is_some());
+        ctx.jit_registry().borrow_mut(&ctx).reset(ctx);
+        assert!(code.bind(ctx, closure).is_none());
+        ctx.jit_registry()
+            .borrow_mut(&ctx)
+            .register(ctx, closure.prototype());
+        assert_ne!(
+            ctx.jit_registry()
+                .borrow()
+                .identity(ctx, closure.prototype()),
+            Some(code.source)
+        );
+        assert!(code.bind(ctx, closure).is_none());
+    });
+}
+
+#[test]
+#[cfg(not(miri))]
 fn scoped_helpers_reborrow_after_physical_call_growth_and_return() {
     let mut lua = Lua::empty();
     lua.set_jit_config(JitConfig {
@@ -230,7 +307,8 @@ fn scoped_helpers_reborrow_after_physical_call_growth_and_return() {
         let closure = Closure::new(&ctx, prototype, Some(ctx.globals())).unwrap();
         let prototype = closure.prototype();
         ctx.jit_registry().borrow_mut(&ctx).register(ctx, prototype);
-        let caller = Code::new(ctx, closure).unwrap();
+        let caller_code = Code::new(ctx, closure).unwrap();
+        let caller = caller_code.bind(ctx, closure).unwrap();
         let start = prototype
             .opcodes
             .iter()
@@ -252,7 +330,8 @@ fn scoped_helpers_reborrow_after_physical_call_growth_and_return() {
                     assert!(frame.host.test_capacity() > capacity);
                     assert!(caller.invoke(&mut frame, &mut caller_slots, 64).is_none());
                     let child_closure = frame.host.with_registers(|closure, _| closure);
-                    let child = Code::new(ctx, child_closure).unwrap();
+                    let child_code = Code::new(ctx, child_closure).unwrap();
+                    let child = child_code.bind(ctx, child_closure).unwrap();
                     let mut child_slots = slots(frame.host);
                     assert_eq!(child_slots.len(), 256);
                     let body = child.invoke(&mut frame, &mut child_slots, 64).unwrap();
@@ -301,7 +380,8 @@ fn generated_scoped_helpers_match_canonical_effects_and_release_register_borrows
             .take_result::<Closure>(ctx)
             .unwrap()
             .unwrap();
-        let code = Code::new(ctx, closure).unwrap();
+        let compiled = Code::new(ctx, closure).unwrap();
+        let code = compiled.bind(ctx, closure).unwrap();
         let run = |native| {
             with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
                 if native {
@@ -425,7 +505,9 @@ fn scoped_entry_rejects_wrong_source_owner_mode_hooks_and_slot_layout() {
                     }
                     let mut frame = Frame::new(ctx, host);
                     assert!(
-                        code.invoke(&mut frame, &mut slots, 64).is_none(),
+                        code.bind(ctx, closure)
+                            .and_then(|code| code.invoke(&mut frame, &mut slots, 64))
+                            .is_none(),
                         "case={case}"
                     );
                     assert_eq!(frame.count.calls, 0);
@@ -457,7 +539,8 @@ fn generated_scoped_decline_preserves_pending_values_and_canonical_error() {
             &b"local t=1 local p=9 local v=t.key return p,v"[..],
         )
         .unwrap();
-        let code = Code::new(ctx, closure).unwrap();
+        let compiled = Code::new(ctx, closure).unwrap();
+        let code = compiled.bind(ctx, closure).unwrap();
         let run = |native| {
             with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
                 if native {
