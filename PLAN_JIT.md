@@ -11,6 +11,56 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Full paired profiling and artifact matching — 2026-10-07
+
+`b47bd51` adds `make jit-bench-paired-profile-run`: a run-only profiler for the
+unchanged complete nine-case paired benchmark. It verifies eighteen ordered
+reports, nineteen dump parts, nine nonzero workload intervals, empty gaps,
+and all thirteen event sums against the profiler's collected totals. Intervals
+contain **both Off and Auto**. Input/output hashes, raw parts and exclusive
+annotations are retained; existing output directories are refused. No threshold
+is evaluated under the profiler and no runtime or benchmark source changes.
+
+An annotation error required an explicit correction. Callgrind 3.26.0 writes
+inclusive carry-over records with `calls=0` at these boundaries, but its
+annotation parser treats them as self cost, displaying a bogus **200% below-main
+hotspot**. Raw dumps remain untouched. Separate annotation copies zero only
+those inclusive cost vectors, preserving positions and symbols. An independent
+self-cost sum excludes every call record and must equal the original summary.
+Tests reject **27 malformed partitions and 11 malformed self-cost models**,
+plus runner lifecycle failures and binary mutation on successful/failed runs.
+Real profiles and raw hashes verify the correction. These checks run through
+`jit-verify`, already invoked by native CI; `8965ff7` removes a redundant direct
+workflow edit after the existing OAuth credential refused it. Ordinary push
+then succeeds without changing credentials or rewriting history.
+
+Full paired upvalue profiles retain the same principal native self costs:
+canonical leave **51,577,560** instructions, region boundary **49,828,164**, and
+admitted invocation **30,928,240**. Combined Off/Auto upvalue totals vary slightly
+between repeated captures; that variation is retained. Software cache/branch
+events are not hardware-cause evidence, and combined costs must not be reported
+as Auto-only costs.
+
+Most importantly, six alternating full-suite windows compare original and
+symbol-derived stripped artifacts for both control and the rejected table
+trial. All **24 original checked commands fail**, with all compared native,
+interpreter, entry and region counters identical. The original binaries again
+show the trial's upvalue slowdown: median direct control/candidate **0.9145**,
+all six below one. The symbol-matched pair instead gives **1.0120**, all six
+above one. The original candidate takes a median **1.0973 times** the Auto time
+of its symbol-derived counterpart, despite identical source; its Off-time
+ratio is only **1.0126**. Their `.text` sections differ and the ordinary native
+section is sixteen bytes shorter. Therefore these symbol profiles **do not
+explain the exact original binary's extra slowdown**, even when full-suite
+context is preserved. The failed disabled controls also remain unresolved;
+the rejected runtime change stays removed.
+
+Evidence is under `context-profile-*` in
+`target/jit-evidence/short-slice-performance/`, including the 648-row timing
+report. The next attribution must use a code-identical artifact that reproduces
+the regression; neither matching source nor convenient standalone results is
+enough. No runtime speedup, full CI run or release acceptance is claimed.
+
 #### Table-borrow consolidation rejected — 2026-10-07
 
 `a6ca9b5` adds a 16-combination regression test covering self/other metatables,
