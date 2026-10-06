@@ -89,13 +89,6 @@ pub(super) fn run_vm<'gc>(
     ctx: Context<'gc>,
     mut lua_frame: LuaFrame<'gc, '_>,
     max_instructions: u32,
-    #[cfg(all(
-        feature = "jit",
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
-    mut pair_scope: Option<&mut crate::jit::PairScope>,
 ) -> Result<u32, VMError> {
     if max_instructions == 0 {
         return Ok(0);
@@ -117,7 +110,7 @@ pub(super) fn run_vm<'gc>(
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    let pair_handoff = !hook_enabled && pair_scope.is_some();
+    let pair_handoff = !hook_enabled && lua_frame.pair_handoff.is_some();
     let frame_depth = lua_frame.frame_depth();
 
     #[cfg(all(test, feature = "jit"))]
@@ -151,6 +144,13 @@ pub(super) fn run_vm<'gc>(
     ))]
     let observe_pairs = !hook_enabled && ctx.jit().call_pairs_enabled();
 
+    #[cfg(all(
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    let mut pair_scope = lua_frame.pair_handoff.take();
     let mut registers = lua_frame.registers();
     let mut instructions_run = 0;
 
