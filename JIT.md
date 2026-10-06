@@ -861,6 +861,27 @@ paired trials and profile-driven scratch/Call-probe corrections are recorded
 in `PLAN_JIT.md`; upvalue, callback and compiled-Off regressions remain open.
 Do not treat this tier's correctness tests as release or performance acceptance.
 
+A source-bound numeric paired-call payload (`40de9c3`) was tested and reverted
+in `f69b33c`. Both full-profile comparisons retained the original thresholds.
+Shipping upvalue Auto gained about 2.3 percent against the previous paired cache,
+but shipping Off slowed about 5.2 percent; speed Auto did not improve. Production
+still uses tagged scratch. `PLAN_JIT.md` records the full validation and rejected
+timings; this experiment did not resolve the regressions.
+
+The explicit paired-handoff VM argument (`0c5e19e`) was also tested and reverted.
+It left native semantics unchanged but slowed shipping Off upvalues about ten
+percent against the prior paired cache. Ordinary frames retain their original
+handoff field. Complete original/previous-cache comparisons and rejection
+evidence are recorded in `PLAN_JIT.md`; performance acceptance remains open.
+
+Scoped live-prototype binding (`c35b6b4`) and its isolated invocation (`669fb41`)
+were measured and reverted in `0f3adab`. Initial native upvalues improved about
+eight percent in speed and 5.6 percent in shipping against the previous paired
+cache, but shipping Off slowed about 4.7 percent. Isolation worsened shipping
+Off about fifteen percent. Registry checks remain in place at all original
+boundaries; adversarial replacement/capture tests were retained. Neither trial
+resolves original native or compiled-Off acceptance; full evidence is in the plan.
+
 The scoped host reuses one paired-code lease within its activation batch. Numeric
 prototype hints select a possible hit; matching live cache ownership and all
 canonical entry guards still validate it. Retirement, replacement, foreign

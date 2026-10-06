@@ -225,6 +225,19 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         };
         *is_variable = true;
     }
+
+    #[cfg(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[cfg(test)]
+    pub(crate) fn test_replace_closure(&mut self, replacement: crate::Closure<'gc>) {
+        let Some(Frame::Lua { closure, .. }) = self.state.frames.last_mut() else {
+            panic!();
+        };
+        *closure = replacement;
+    }
 }
 
 impl<'gc, 'a> ActivationHost<'gc, 'a> {
