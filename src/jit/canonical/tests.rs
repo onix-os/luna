@@ -1350,6 +1350,18 @@ fn native_region_post_return_panic_preserves_committed_effects() {
     resident_failure(ResidentFailure::ReturnedPanic, true);
 }
 
+#[test]
+fn native_region_paired_fallback_preserves_errors_panics_and_leases() {
+    for failure in [
+        ResidentFailure::ReturnError,
+        ResidentFailure::EnterPanic,
+        ResidentFailure::LeavePanic,
+        ResidentFailure::ReturnedPanic,
+    ] {
+        resident_failure_path(failure, true, true);
+    }
+}
+
 #[derive(Clone, Copy)]
 enum ResidentFailure {
     ReturnError,
@@ -1359,6 +1371,10 @@ enum ResidentFailure {
 }
 
 fn resident_failure(failure: ResidentFailure, connected: bool) {
+    resident_failure_path(failure, connected, false);
+}
+
+fn resident_failure_path(failure: ResidentFailure, connected: bool, fallback: bool) {
     unsafe extern "C" fn faulty_enter(
         data: *mut c_void,
         pc: u64,
@@ -1425,7 +1441,11 @@ fn resident_failure(failure: ResidentFailure, connected: bool) {
     }
 
     fixture(
-        b"local n=7 local p=10 local function f(v) n=n+v end p=99 n=12 f(5) local a,b,c,d,e=1,2,3,4,5 p=p+n return n,p,a,b,c,d,e",
+        if fallback {
+            &b"local n=7 local p=10 local function f(v) n=n+v end p=99 n=12 local divisor=2 local q=n%divisor f(5) local a,b,c,d,e=1,2,3,4,5 p=p+n return n,p,a,b,c,d,e"[..]
+        } else {
+            &b"local n=7 local p=10 local function f(v) n=n+v end p=99 n=12 f(5) local a,b,c,d,e=1,2,3,4,5 p=p+n return n,p,a,b,c,d,e"[..]
+        },
         |lua, closure, site, code| {
             drop(code);
             lua.set_jit_config(JitConfig {
@@ -1462,24 +1482,43 @@ fn resident_failure(failure: ResidentFailure, connected: bool) {
                     Snapshot::new_in(&prototype.prototypes[0], 4096, metadata.clone()).unwrap();
                 let plan = Plan::new(&caller, &callee, site.pc, limits).unwrap();
                 if connected {
-                    let key = crate::jit::pairs::Key { caller: site.caller, callee: site.callee, pc: site.pc };
+                    let key = crate::jit::pairs::Key {
+                        caller: site.caller,
+                        callee: site.callee,
+                        pc: site.pc,
+                    };
                     ctx.jit().test_call_pairs(true);
                     ctx.jit().observe_pair(key);
-                    ctx.jit().compile_pair(
-                        key,
-                        Snapshot::new_in(&prototype, 4096, metadata.clone()).unwrap(),
-                        Snapshot::new_in(&prototype.prototypes[0], 4096, metadata.clone()).unwrap(),
-                    ).unwrap();
+                    ctx.jit()
+                        .compile_pair(
+                            key,
+                            Snapshot::new_in(&prototype, 4096, metadata.clone()).unwrap(),
+                            Snapshot::new_in(&prototype.prototypes[0], 4096, metadata.clone())
+                                .unwrap(),
+                        )
+                        .unwrap();
                 }
                 let mapped_before = memory.requested();
                 let metadata_before = metadata.0.current();
                 let code = compile(
                     &plan,
                     match failure {
-                        ResidentFailure::ReturnError => Hooks { enter: faulty_enter, leave },
-                        ResidentFailure::EnterPanic => Hooks { enter: panic_enter, leave },
-                        ResidentFailure::LeavePanic => Hooks { enter, leave: panic_leave },
-                        ResidentFailure::ReturnedPanic => Hooks { enter, leave: panic_returned },
+                        ResidentFailure::ReturnError => Hooks {
+                            enter: faulty_enter,
+                            leave,
+                        },
+                        ResidentFailure::EnterPanic => Hooks {
+                            enter: panic_enter,
+                            leave,
+                        },
+                        ResidentFailure::LeavePanic => Hooks {
+                            enter,
+                            leave: panic_leave,
+                        },
+                        ResidentFailure::ReturnedPanic => Hooks {
+                            enter,
+                            leave: panic_returned,
+                        },
                     },
                     memory.clone(),
                     limit,
@@ -1506,8 +1545,11 @@ fn resident_failure(failure: ResidentFailure, connected: bool) {
                     crate::jit::native_region::Region::new(
                         ctx,
                         ctx.fetch(&closure),
-                        crate::jit::PreparedPair { program: pair.program.clone() },
-                    ).unwrap()
+                        crate::jit::PreparedPair {
+                            program: pair.program.clone(),
+                        },
+                    )
+                    .unwrap()
                 });
                 assert!(start < site.pc);
                 let run = |native| {
@@ -1518,63 +1560,86 @@ fn resident_failure(failure: ResidentFailure, connected: bool) {
                         let native_before = ctx.jit().0.borrow().stats.native_instructions;
                         let result = if native {
                             ctx.jit().0.borrow_mut().config.mode = crate::JitMode::Auto;
-                            let mut shadow = (!connected).then(|| host.with_registers(|caller, registers| {
-                                crate::jit::caller_shadow::Shadow::<256>::capture(
-                                    caller, &registers,
-                                )
-                                .unwrap()
-                            }));
+                            let mut shadow = (!connected).then(|| {
+                                host.with_registers(|caller, registers| {
+                                    crate::jit::caller_shadow::Shadow::<256>::capture(
+                                        caller, &registers,
+                                    )
+                                    .unwrap()
+                                })
+                            });
                             let prefix = if let Some(shadow) = shadow.as_mut() {
                                 shadow.invoke(ctx, &caller_code, host, 64).unwrap()
-                            } else { (site.pc - start) as u32 };
+                            } else {
+                                (site.pc - start) as u32
+                            };
                             assert_eq!(prefix as usize, site.pc - start);
-                            if !connected { host.with_registers(|_, registers| {
-                                assert_eq!(*registers.pc, site.pc);
-                                assert!(matches!(registers.stack_frame[0], Value::Integer(7)));
-                                assert!(matches!(registers.stack_frame[1], Value::Integer(10)));
-                            }); }
+                            if !connected {
+                                host.with_registers(|_, registers| {
+                                    assert_eq!(*registers.pc, site.pc);
+                                    assert!(matches!(registers.stack_frame[0], Value::Integer(7)));
+                                    assert!(matches!(registers.stack_frame[1], Value::Integer(10)));
+                                });
+                            }
                             let leases = crate::jit::owner::Shared::strong_count(&pair.program);
                             let mut recoveries = 0;
                             let returned = catch_unwind(AssertUnwindSafe(|| {
                                 if let Some(region) = &region {
                                     let outcome = region.run(ctx, host, 64, 64).unwrap();
-                                    assert_eq!((outcome.fragments, outcome.pairs, outcome.slices), (1, 1, 2));
+                                    assert_eq!(
+                                        (outcome.fragments, outcome.pairs, outcome.slices),
+                                        (1, 1, 2)
+                                    );
                                     outcome.result
                                 } else {
-                                let outcome = crate::jit::chains::shadow_pair(
-                                    ctx,
-                                    host,
-                                    &pair,
-                                    &mut shadow,
-                                    64,
-                                    prefix,
-                                    &mut recoveries,
-                                ).unwrap();
-                                assert_eq!((outcome.calls, outcome.returns), (1, 1));
-                                outcome.result
+                                    let outcome = crate::jit::chains::shadow_pair(
+                                        ctx,
+                                        host,
+                                        &pair,
+                                        &mut shadow,
+                                        64,
+                                        prefix,
+                                        &mut recoveries,
+                                    )
+                                    .unwrap();
+                                    assert_eq!((outcome.calls, outcome.returns), (1, 1));
+                                    outcome.result
                                 }
                             }));
                             let result = match failure {
-                                ResidentFailure::ReturnError => {
-                                    returned.unwrap()
-                                }
+                                ResidentFailure::ReturnError => returned.unwrap(),
                                 _ => {
                                     let Err(payload) = returned else {
                                         panic!("resident driver swallowed panic");
                                     };
-                                    assert_eq!(*payload.downcast::<&str>().unwrap(), "resident injected panic");
+                                    assert_eq!(
+                                        *payload.downcast::<&str>().unwrap(),
+                                        "resident injected panic"
+                                    );
                                     Ok(())
                                 }
                             };
                             assert_eq!(recoveries, usize::from(!connected));
                             assert!(shadow.is_none());
+                            assert!(ctx.jit().0.borrow().resume_scope.is_none());
                             assert_eq!(
                                 crate::jit::owner::Shared::strong_count(&pair.program),
                                 leases
                             );
                             assert_eq!(
                                 ctx.jit().0.borrow().stats.native_instructions - native_before,
-                                u64::from(prefix + if matches!(failure, ResidentFailure::ReturnError | ResidentFailure::ReturnedPanic) { 3 } else { 0 })
+                                u64::from(
+                                    prefix - u32::from(fallback)
+                                        + if matches!(
+                                            failure,
+                                            ResidentFailure::ReturnError
+                                                | ResidentFailure::ReturnedPanic
+                                        ) {
+                                            3
+                                        } else {
+                                            0
+                                        }
+                                )
                             );
                             result
                         } else {
@@ -1607,7 +1672,10 @@ fn resident_failure(failure: ResidentFailure, connected: bool) {
                             ResidentFailure::ReturnError if native => 3,
                             _ => 0,
                         };
-                        assert_eq!(trace.instructions, (site.pc - start) as u64 + callee_instructions);
+                        assert_eq!(
+                            trace.instructions,
+                            (site.pc - start) as u64 + callee_instructions
+                        );
                         (
                             trace.frames,
                             trace.slots,
@@ -1619,7 +1687,9 @@ fn resident_failure(failure: ResidentFailure, connected: bool) {
                 };
                 assert_eq!(run(true), run(false));
                 drop(region);
-                if let Some(replaced) = replaced { drop(ctx.jit().test_replace_pair(replaced)); }
+                if let Some(replaced) = replaced {
+                    drop(ctx.jit().test_replace_pair(replaced));
+                }
                 drop(pair);
                 assert_eq!(memory.requested(), mapped_before);
                 assert_eq!(metadata.0.current(), metadata_before);

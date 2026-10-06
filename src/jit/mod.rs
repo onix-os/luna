@@ -607,6 +607,13 @@ pub enum JitError {
 
 pub(crate) struct Manager {
     #[cfg(all(
+        test,
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    resume_scope: Option<native_region::resume::State>,
+    #[cfg(all(
         not(miri),
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
@@ -679,6 +686,13 @@ impl Default for Manager {
             pairs: None,
             #[cfg(test)]
             mock: None,
+            #[cfg(all(
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))]
+            #[cfg(test)]
+            resume_scope: None,
             #[cfg(test)]
             before_compile: None,
             #[cfg(test)]
@@ -836,12 +850,18 @@ impl Manager {
         if let Some(pairs) = &mut self.pairs {
             #[cfg(test)]
             let regions = pairs.regions.compact();
+            #[cfg(test)]
+            let promotions = pairs.promotions.as_mut().map(|queue| queue.compact());
             let results = pairs.compact();
             for result in results {
                 self.record_compaction(result);
             }
             #[cfg(test)]
             self.record_compaction(regions);
+            #[cfg(test)]
+            for result in promotions.into_iter().flatten() {
+                self.record_compaction(result);
+            }
         }
         let result = self.tracked_compactor.map(&mut self.tracked);
         self.record_compaction(result);
@@ -928,6 +948,14 @@ impl Manager {
         match victim {
             CacheKey::Prototype(id) => {
                 self.code.remove(&id);
+                #[cfg(all(test, not(miri)))]
+                if let Some(queue) = self
+                    .pairs
+                    .as_mut()
+                    .and_then(|pairs| pairs.promotions.as_mut())
+                {
+                    queue.cancel_caller(id);
+                }
                 if let Some(tracking) = self.tracked.get_mut(&id) {
                     tracking.hotness = 0;
                 }
@@ -938,6 +966,10 @@ impl Manager {
             CacheKey::Region(key) => self.pairs.as_mut().unwrap().regions.remove(key),
         }
         self.stats.cache_evictions = self.stats.cache_evictions.saturating_add(1);
+        #[cfg(test)]
+        {
+            self.stats.queued_requests = self.queued_count();
+        }
         true
     }
 
@@ -1169,6 +1201,10 @@ impl PreparedPair {
     ) -> Option<PairOutcome> {
         let outcome = self.program.invoke_result(ctx, host, budget, prefix);
         if let Some(outcome) = &outcome {
+            #[cfg(test)]
+            if outcome.calls > 0 && outcome.result.is_ok() {
+                ctx.jit().observe_region(self.program.key());
+            }
             ctx.jit().record_pair_execution(
                 outcome.calls,
                 if outcome.result.is_ok() {
@@ -1554,10 +1590,17 @@ impl Runtime {
                         #[cfg(all(test, not(miri)))]
                         if let Some(pairs) = &mut manager.pairs {
                             pairs.regions.retire_caller(id);
+                            if let Some(queue) = &mut pairs.promotions {
+                                queue.cancel_caller(id);
+                            }
                         }
                         manager.code.insert(id, CachedCode { code, last_used });
                         manager.stats.installed_regions =
                             manager.stats.installed_regions.saturating_add(1);
+                        #[cfg(test)]
+                        {
+                            manager.stats.queued_requests = manager.queued_count();
+                        }
                     }
                     Ok(())
                 }
@@ -1589,6 +1632,10 @@ impl Runtime {
             let mut manager = self.0.borrow_mut();
             if manager.config.mode == JitMode::Off {
                 return None;
+            }
+            #[cfg(all(test, not(miri)))]
+            if let Some(prepared) = native_region::resume::lookup(&mut manager, id) {
+                return prepared;
             }
             manager.stats.code_lookups = manager.stats.code_lookups.saturating_add(1);
             let last_used = manager.clock.saturating_add(1);
@@ -1626,6 +1673,15 @@ impl Runtime {
 
     pub(crate) fn observe(&self, id: u64) {
         #[cfg(all(
+            test,
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ))]
+        if native_region::resume::skip_observation(&mut self.0.borrow_mut(), id) {
+            return;
+        }
+        #[cfg(all(
             target_os = "linux",
             any(target_arch = "x86_64", target_arch = "aarch64")
         ))]
@@ -1650,6 +1706,10 @@ impl Runtime {
             any(target_arch = "x86_64", target_arch = "aarch64")
         ))]
         {
+            #[cfg(all(test, not(miri)))]
+            if native_region::resume::skip(self, prepared, closure, registers) {
+                return 0;
+            }
             let code = &prepared.code;
             if !code.entries.get(*registers.pc).copied().unwrap_or(false) {
                 return 0;
