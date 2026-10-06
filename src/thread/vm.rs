@@ -93,7 +93,7 @@ pub(crate) struct NativeResume<'gc> {
     frame: (usize, usize),
     pc: usize,
     instructions: u32,
-    code: crate::jit::Prepared,
+    code: Option<crate::jit::Prepared>,
 }
 
 #[cfg(all(
@@ -120,7 +120,7 @@ impl<'gc> NativeResume<'gc> {
             frame,
             pc,
             instructions,
-            code,
+            code: Some(code),
         }
     }
 }
@@ -151,16 +151,16 @@ pub(super) fn resume_vm<'gc>(
     ctx: Context<'gc>,
     lua_frame: LuaFrame<'gc, '_>,
     max_instructions: u32,
-    resume: NativeResume<'gc>,
+    mut resume: NativeResume<'gc>,
 ) -> Result<u32, VMError> {
-    run_vm_slice(ctx, lua_frame, max_instructions, Some(resume))
+    run_vm_slice(ctx, lua_frame, max_instructions, Some(&mut resume))
 }
 
 fn run_vm_slice<'gc>(
     ctx: Context<'gc>,
     mut lua_frame: LuaFrame<'gc, '_>,
     max_instructions: u32,
-    #[cfg(feature = "jit")] resume: Option<NativeResume<'gc>>,
+    #[cfg(feature = "jit")] resume: Option<&mut NativeResume<'gc>>,
 ) -> Result<u32, VMError> {
     #[cfg(feature = "jit")]
     assert!(resume
@@ -236,7 +236,7 @@ fn run_vm_slice<'gc>(
         ))]
         {
             ctx.jit()
-                .resume_lease(resume.source, resume.code)
+                .resume_lease(resume.source, resume.code.take().unwrap())
                 .filter(|_| !hook_enabled)
         }
         #[cfg(not(all(
@@ -244,7 +244,7 @@ fn run_vm_slice<'gc>(
             any(target_arch = "x86_64", target_arch = "aarch64")
         )))]
         {
-            let _ = resume.code;
+            let _ = resume.code.take();
             None
         }
     } else {
