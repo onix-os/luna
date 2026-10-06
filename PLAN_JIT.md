@@ -11,6 +11,40 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Production resident-caller candidate — 2026-10-06
+
+`f68b572` moves scoped resume transport into the existing pair handoff without
+adding a VM argument. GNU/musl focused validation passes 116 executions; fourteen
+Miri model executions and i686-musl checking pass. A native Memcheck run passes
+24 chain tests with zero errors or definite/indirect losses, retaining the
+48-byte possible Rust harness TLS loss. The first portability run exposed an
+unused native-only field on fallback targets; its cfg was corrected and the
+checks rerun. Logs use `scoped-resume-handoff-v2`, `scoped-resume-portability-v2`
+and `scoped-resume-memcheck-v1` in the short-slice evidence directory.
+
+`4557a72` promotes the resident caller scheduler into production Auto scoped
+execution with the existing four-unit step charge. Other modes and unsupported
+targets retain canonical execution. Canonical fallback does not reenter the
+scheduler. Resume validation and native-entry skipping now use the existing
+handoff field in the single VM loop; the interpreter function signature remains
+unchanged. Shadow telemetry remains test-only, and fixed 256-slot storage is
+still an unproven performance choice.
+
+Current candidate evidence: GNU checking and 76 focused executions pass,
+including nine public-runtime tests against the production library, fourteen
+Miri synchronization-model executions pass, and i686-musl checking passes
+(71 library and nine library-test warnings). Full GNU Off/Auto/Force, musl Auto,
+baseline/docs, native Memcheck and immutable speed/shipping builds were started
+with `resident-production-*` logs; their terminal results must be checked before
+claiming those gates. Miri does not execute generated code or this scheduler.
+
+**This is a production candidate, not performance acceptance.** Upvalue,
+callback and compiled-Off regressions remain unresolved until measured against
+the unchanged original controls and thresholds. Combined partial-return and
+enter/leave-panic recovery coverage and current platform/release acceptance
+remain required. Earlier test-only checkpoints below describe their own
+revisions, not the current selector.
+
 #### Bounded resident-caller scheduler checkpoint — 2026-10-06
 
 `6b38a85` adds a **test-only** resident-shadow route to the bounded caller driver.
