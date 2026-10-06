@@ -1096,9 +1096,12 @@ pub(crate) struct PreparedPair {
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 #[derive(Default)]
-pub(crate) struct PairScope {
+pub(crate) struct PairScope<'gc> {
     pub handoff: Option<PreparedPair>,
     pub cache: Option<PreparedPair>,
+    #[cfg(test)]
+    pub resume: Option<crate::thread::NativeResume<'gc>>,
+    _scope: std::marker::PhantomData<crate::Closure<'gc>>,
     caller: usize,
     callee: usize,
 }

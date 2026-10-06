@@ -94,6 +94,12 @@ pub(crate) struct NativeResume<'gc> {
     pc: usize,
     instructions: u32,
     code: Option<crate::jit::Prepared>,
+    #[cfg(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    paired: bool,
 }
 
 #[cfg(all(
@@ -121,6 +127,7 @@ impl<'gc> NativeResume<'gc> {
             pc,
             instructions,
             code: Some(code),
+            paired: false,
         }
     }
 }
@@ -131,13 +138,7 @@ pub(super) fn run_vm<'gc>(
     lua_frame: LuaFrame<'gc, '_>,
     max_instructions: u32,
 ) -> Result<u32, VMError> {
-    run_vm_slice(
-        ctx,
-        lua_frame,
-        max_instructions,
-        #[cfg(all(test, feature = "jit"))]
-        None,
-    )
+    run_vm_slice(ctx, lua_frame, max_instructions)
 }
 
 #[cfg(all(
@@ -149,19 +150,60 @@ pub(super) fn run_vm<'gc>(
 ))]
 pub(super) fn resume_vm<'gc>(
     ctx: Context<'gc>,
-    lua_frame: LuaFrame<'gc, '_>,
+    mut lua_frame: LuaFrame<'gc, '_>,
     max_instructions: u32,
     mut resume: NativeResume<'gc>,
 ) -> Result<u32, VMError> {
-    run_vm_slice(ctx, lua_frame, max_instructions, Some(&mut resume))
+    let mut local = crate::jit::PairScope::default();
+    resume.paired = lua_frame.pair_handoff.is_some();
+    let scope = lua_frame.pair_handoff.take().unwrap_or(&mut local);
+    assert!(scope.resume.is_none());
+    assert!(scope.handoff.is_none());
+    scope.resume = Some(resume);
+    run_vm_slice(
+        ctx,
+        LuaFrame {
+            pair_handoff: Some(scope),
+            state: lua_frame.state,
+            stack: lua_frame.stack,
+            fuel: lua_frame.fuel,
+        },
+        max_instructions,
+    )
 }
 
 fn run_vm_slice<'gc>(
     ctx: Context<'gc>,
     mut lua_frame: LuaFrame<'gc, '_>,
     max_instructions: u32,
-    #[cfg(all(test, feature = "jit"))] resume: Option<&mut NativeResume<'gc>>,
 ) -> Result<u32, VMError> {
+    #[cfg(all(
+        test,
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    let resume = {
+        let resume = lua_frame
+            .pair_handoff
+            .as_mut()
+            .and_then(|scope| scope.resume.take());
+        if resume.as_ref().is_some_and(|resume| !resume.paired) {
+            lua_frame.pair_handoff = None;
+        }
+        resume
+    };
+    #[cfg(all(
+        test,
+        feature = "jit",
+        not(all(
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ))
+    ))]
+    let resume: Option<NativeResume<'gc>> = None;
     #[cfg(all(test, feature = "jit"))]
     assert!(resume
         .as_ref()
@@ -231,7 +273,7 @@ fn run_vm_slice<'gc>(
     #[cfg(all(test, feature = "jit"))]
     let mut skip_native_first = resume.is_some();
     #[cfg(all(test, feature = "jit"))]
-    let native_code = if let Some(resume) = resume {
+    let native_code = if let Some(mut resume) = resume {
         #[cfg(all(
             target_os = "linux",
             any(target_arch = "x86_64", target_arch = "aarch64")

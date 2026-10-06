@@ -327,6 +327,92 @@ mod tests {
         b"local sum=0 local function add(v) sum=sum+v end for i=1,10000 do add(i) end return sum";
 
     #[test]
+    fn scoped_resume_rejection_consumes_token_and_releases_lease() {
+        let (mut lua, closure) = state(JitMode::Auto, SOURCE);
+        lua.enter(|ctx| {
+            crate::thread::activation::with_test_thread(
+                ctx,
+                ctx.fetch(&closure),
+                &mut Fuel::with(4096),
+                |host| {
+                    let partial = prefix(ctx, host, 64).unwrap();
+                    let resume = partial.resume.unwrap();
+                    let id = ctx
+                        .jit_registry()
+                        .borrow()
+                        .identity(ctx, ctx.fetch(&closure).prototype())
+                        .unwrap();
+                    let owners = super::super::owner::Shared::strong_count(
+                        &ctx.jit().0.borrow().code[&id].code,
+                    );
+                    host.with_registers(|_, registers| *registers.pc += 1);
+                    let original = trace(ctx, host);
+                    let mut scope = PairScope::default();
+                    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        host.resume_native_paired(ctx, 64, resume, Some(&mut scope))
+                    }))
+                    .is_err());
+                    assert!(scope.resume.is_none() && scope.handoff.is_none());
+                    assert_eq!(trace(ctx, host), original);
+                    assert_eq!(
+                        super::super::owner::Shared::strong_count(
+                            &ctx.jit().0.borrow().code[&id].code
+                        ),
+                        owners - 1
+                    );
+                },
+            );
+        });
+    }
+
+    #[test]
+    fn scoped_resume_refuses_overwriting_pending_work() {
+        let (mut lua, closure) = state(JitMode::Auto, SOURCE);
+        lua.enter(|ctx| {
+            crate::thread::activation::with_test_thread(
+                ctx,
+                ctx.fetch(&closure),
+                &mut Fuel::with(4096),
+                |host| {
+                    let partial = prefix(ctx, host, 64).unwrap();
+                    let mut scope = PairScope::default();
+                    scope.resume = partial.resume;
+                    assert!(scope.resume.is_some());
+                    let frame = host.frame_identity();
+                    let replacement = host.with_registers(|closure, registers| {
+                        let id = ctx
+                            .jit_registry()
+                            .borrow()
+                            .identity(ctx, closure.prototype())
+                            .unwrap();
+                        crate::thread::NativeResume::new(
+                            ctx,
+                            closure,
+                            id,
+                            frame,
+                            *registers.pc,
+                            0,
+                            ctx.jit().lookup(id).unwrap(),
+                        )
+                    });
+                    let original = trace(ctx, host);
+                    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        host.resume_native_paired(ctx, 64, replacement, Some(&mut scope))
+                    }))
+                    .is_err());
+                    assert!(scope.resume.is_some());
+                    assert_eq!(trace(ctx, host), original);
+                    let original = scope.resume.take().unwrap();
+                    assert!(host
+                        .resume_native_paired(ctx, 64, original, Some(&mut scope))
+                        .is_ok());
+                    assert!(scope.resume.is_none());
+                },
+            );
+        });
+    }
+
+    #[test]
     fn shadow_driver_recovers_generated_prefix_after_call_depth_refusal() {
         let source = b"local sum=0 local p=10 local function add(v) sum=sum+v end for i=1,10000 do p=p+1 add(i) end return p";
         let mut traces = Vec::new();

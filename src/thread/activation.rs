@@ -14,7 +14,7 @@ pub(crate) struct ActivationHost<'gc, 'a> {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    pair: crate::jit::PairScope,
+    pair: crate::jit::PairScope<'gc>,
     #[cfg(all(
         not(miri),
         target_os = "linux",
@@ -430,7 +430,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         ctx: Context<'gc>,
         budget: u32,
         resume: super::vm::NativeResume<'gc>,
-        scope: Option<&mut crate::jit::PairScope>,
+        scope: Option<&mut crate::jit::PairScope<'gc>>,
     ) -> Result<u32, VMError> {
         assert!(self.pair.handoff.is_none());
         self.select_pairs = false;
