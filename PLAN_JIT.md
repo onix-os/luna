@@ -31,12 +31,17 @@ unchanged. Shadow telemetry remains test-only, and fixed 256-slot storage is
 still an unproven performance choice.
 
 Current candidate evidence: GNU checking and 76 focused executions pass,
-including nine public-runtime tests against the production library, fourteen
-Miri synchronization-model executions pass, and i686-musl checking passes
-(71 library and nine library-test warnings). Full GNU Off/Auto/Force, musl Auto,
-baseline/docs, native Memcheck and immutable speed/shipping builds were started
-with `resident-production-*` logs; their terminal results must be checked before
-claiming those gates. Miri does not execute generated code or this scheduler.
+including nine public-runtime tests against the production library. Full GNU
+Off/Auto/Force, musl Auto and baseline/docs pass **5,113 executions in 403 suites**,
+zero failures, twenty existing/repeated ignores and no Rust warnings. Native
+Memcheck passes 65 executions across chain/canonical/public-pair/shadow tests,
+zero errors or definite/indirect losses; each harness retains the possible
+48-byte TLS loss. Fourteen Miri synchronization-model executions and i686-musl
+checking pass (71 library and nine library-test warnings). Miri does not execute
+generated code or this scheduler. Immutable speed/shipping binaries, independent
+no-feature controls and the source archive built successfully; the validation
+source manifest still matches. All these `resident-production-*` validation and
+build logs have terminal zero exits. Timing acceptance remains separate.
 
 **This is a production candidate, not performance acceptance.** Upvalue,
 callback and compiled-Off regressions remain unresolved until measured against
