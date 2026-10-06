@@ -11,6 +11,32 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Rejected combined materialization/Return scope — 2026-10-06
+
+A bounded experiment combined scalar materialization and canonical Return in
+one ActivationHost LuaFrame scope. It retained physical frames, source/cell
+guards, native-exit metrics order, attempted-Return accounting, result counts,
+panic/error propagation and fuel charges. Canonical, public runtime, pair and
+activation tests passed; native Memcheck reported zero errors.
+
+The generated-code profile did not improve: Auto upvalue instructions increased
+from 158,659,528 to 159,681,304. A diagnostic on matched speed/symbol artifacts
+alternated eleven old/new worker pairs per workload, twenty iterations each,
+with artifact hashes and contention retained. Median paired old/new speedup was
+0.911514 for upvalues (p10/p90 0.879008/1.069133); callbacks were noisy at
+1.104570 (0.700023/1.507831). These narrow diagnostic observations are not the
+full performance protocol or acceptance evidence. The upvalue result contradicts
+the optimization hypothesis, so the source change was reverted.
+
+The restored source exactly matches the retained implementation; formatting,
+JIT checks, eighteen canonical and seven public runtime tests pass again.
+No slower combined-scope implementation was committed. Evidence is retained
+under `target/jit-evidence/short-slice-performance/pair-materialize-*`, including
+the rejected source patch, profiles, Memcheck and diagnostic raw logs. Do not
+retry this fusion without new evidence. Repeated source-bound pair lookup is a
+remaining measured target; any caching must preserve guard, lease, provenance,
+GC, retirement and pressure contracts rather than remove checks for speed.
+
 #### Profile-driven pair corrections — 2026-10-06
 
 Three incremental corrections retain the original admission, fuel, frame,
