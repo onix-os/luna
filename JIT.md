@@ -867,7 +867,12 @@ production driver remains withdrawn. Ninety-five GNU/musl continuation, pair,
 accounting and fuel checks pass. Source-verified Callgrind profiles report about
 4.1% fewer collected Off upvalue instructions and 2.5% fewer Off callback
 instructions; Auto instruction reductions are about one to one-and-a-half
-percent. Full validation and paired wall-clock acceptance are still pending.
+percent. Full GNU/musl/baseline validation passes 5,026 executions in 400 suites
+with eighteen existing/repeated ignores and zero failures. Native Memcheck
+passes 24 executions with zero errors/definite/indirect leaks and an unsuppressed
+possible 48-byte TLS leak in each Rust harness; pinned Miri passes eleven
+stats/owner checks. Unsupported i686 checking passes with warnings retained.
+Paired wall-clock acceptance is still pending.
 Instruction counts are not a claim that the original performance gates pass.
 
 `make jit-chain` tests a source-bound direct-native caller-continuation prototype

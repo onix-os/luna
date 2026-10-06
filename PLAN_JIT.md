@@ -46,8 +46,22 @@ upvalue conditional mispredictions in Callgrind fall from 160,546 to 539;
 simulated branch counts are not hardware certification. Candidate GNU/musl
 chain/public-pair/accounting/fuel checks pass 95 executions in ten suites, zero
 failures/ignores and no Rust warnings. Full GNU Off/Auto/Force, musl Auto,
-baseline and unsupported all-target checks are running. New immutable paired
-wall-clock comparisons are required before retaining it as a performance fix.
+baseline and documentation validation now passes 5,026 executions in 400 suites,
+with eighteen existing/repeated ignores, zero failures and no Rust warnings.
+Native Memcheck continuation/public-pair checks pass another 24 executions in
+two suites, with zero errors and zero definite/indirect leaks. Each Rust test
+harness retains an unsuppressed possible 48-byte TLS leak. Pinned Miri stats and
+runtime-owner checks pass eleven executions in two suites with existing
+warnings retained. Unsupported i686 all-target checking also passes, with ten
+warnings retained. Logs and terminal exit markers are in
+`target/jit-evidence/short-slice-performance/native-resume-thin-*`.
+
+The independently built restored `2fc06b6` speed/shipping benchmark and
+feature-cost controls have verified source archives and binary hashes under
+`thin-restored-2fc06b6-v1`. Its detached worktree has an independent build cache;
+workspace-path differences are recorded, not assumed byte-identical. New
+immutable paired wall-clock comparisons are required before retaining the
+thin candidate as a performance fix.
 Original upvalue/callback and compiled-Off gates remain open.
 
 #### Rejected production direct caller routing — 2026-10-06
