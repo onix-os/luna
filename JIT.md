@@ -1,6 +1,18 @@
 # Native JIT: experimental scalar and heap tier
 
-Current production Auto includes scoped paired-code execution and lease reuse.
+Current production Auto includes scoped paired-code execution, lease reuse and
+indexed caller-region execution. Successful hot pairs queue region promotion;
+`Lua::service_jit()` prepares and compiles it outside executor steps. The existing
+activation host selects a live caller and supported entry PC, then retains a
+scoped region lease through bounded execution. Unsupported entries keep the
+ordinary path. No VM, Lua-frame or activation-host layout change is required.
+`JitStats::native_region_entries` and `native_region_fragments` expose actual
+region execution; `make jit-regions` tests the non-test library with `jit` and
+`jit,async`, including interrupted fuel traces, GC, callbacks and unwind.
+This is implementation progress, **not performance or release acceptance**.
+
+### Earlier experiments
+
 The same-program Session reuse (`06040e9`) and isolated activation-entry
 revision (`6da1992`) passed correctness checks but failed full paired performance
 comparisons. Both were reverted; new owner/capture/costly-prefix continuation
@@ -15,21 +27,21 @@ remain unresolved. See the latest progress snapshot in
 `PLAN_JIT.md` for current evidence and open acceptance gates; earlier test-only
 milestones below are historical.
 
-The test-only scoped host now selects leased call programs before canonical
+The earlier test-only scoped host selected leased call programs before canonical
 Call dispatch (`7c5b5b7`). Cold/cached-native traces, fuel cutoffs, fallback
-errors and public executor callback/GC checks pass focused tests. Production
-promotion and unchanged performance acceptance remain pending.
+errors and public executor callback/GC checks passed focused tests. Production
+selection and promotion have since been connected; performance acceptance is open.
 
-Test-only caller/callee programs are now queued from real VM Calls and prepared
+The earlier test-only caller/callee programs were queued from real VM Calls and prepared
 outside the arena (`511ee89`, `make jit-call-pairs`). They share state resource
 limits, cancel dead sources and retain safe code leases. Production execution
-selection is still pending; the performance regressions remain unresolved.
+selection now uses this machinery; the performance regressions remain unresolved.
 
 The test-only aggregate call bridge now executes against canonical Lua frames
 (`d361c6e`, `make jit-call-canonical`), with source guards, fresh capture views
 after Call, canonical Return/fuel and callback/collection lifetime checks.
-Production selection remains unimplemented; this
-does not establish an upvalue, callback or compiled-Off performance fix.
+Production selection was still unimplemented at that checkpoint; the bridge
+alone did not establish an upvalue, callback or compiled-Off performance fix.
 
 The straight-line integer leaf production candidate also failed the complete
 frozen comparison and is disabled. The emitter and real helper-free execution
@@ -109,17 +121,17 @@ the original performance regressions remain unresolved.
 `make jit-call-native` links and executes the test-only aggregate program with
 typed scalar-buffer hooks, including guards, quotas, lease retention and rollback.
 This is native execution, but not canonical Lua-frame integration or performance
-acceptance; the production selector remains disabled.
+acceptance; this target alone does not exercise the production selector.
 
 `make jit-call-plans` validates test-only aggregate caller/callee admission and
 two-function Cranelift IR; `nix develop .#miri -c make jit-call-plans-miri` checks
 the pure source plans. The enter/leave imports are not linked runtime helpers,
 so this does not execute generated cross-function calls or prove a speedup.
 
-The scoped activation host and source-owned call-transition tables are currently
-test-only groundwork. They preserve canonical frames, fuel and callback release
-boundaries; they do not enable generated Lua-to-Lua calls or fix the measured
-performance regressions. `make jit-activation-tests` exercises the private path;
+The scoped activation host and source-owned call-transition tables preserve
+canonical frames, fuel and callback release boundaries. Production region
+execution uses them, but their correctness does not establish a performance fix.
+`make jit-activation-tests` exercises the private host path;
 `nix develop .#miri -c make jit-activation-host-miri` checks the bounded nested
 executor fixture without executing machine code.
 
