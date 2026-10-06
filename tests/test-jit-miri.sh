@@ -20,7 +20,7 @@ run_recipe() {
 
 run_recipe success
 logs=("$root/success/"*.log)
-test "${#logs[@]}" -eq 44
+test "${#logs[@]}" -eq 45
 for log in "${logs[@]}"; do
     [[ ${log##*/} =~ ^[a-z0-9_-]+\.log$ ]]
 done
@@ -28,8 +28,9 @@ grep -Fq 'jit::resources::tests -- --test-threads=1 --skip jit::resources::tests
     "$root/success/jit-resources-tests.log"
 grep -Fq 'finalizers::tests -- --test-threads=1' "$root/success/finalizers-tests.log"
 grep -Fq 'lua::memory_tests -- --test-threads=1' "$root/success/lua-memory_tests.log"
+grep -Fq 'jit::scoped_helpers::tests -- --test-threads=1' "$root/success/jit-scoped_helpers-tests.log"
 
-for filter in setup jit::resources::tests jit::handoff::tests; do
+for filter in setup jit::resources::tests jit::handoff::tests jit::scoped_helpers::tests; do
     export FAIL_FILTER="$filter"
     dir="failure-${filter//::/-}"
     if run_recipe "$dir"; then
@@ -39,4 +40,4 @@ for filter in setup jit::resources::tests jit::handoff::tests; do
     grep -Fq 'mock Miri failure' "$root/$dir.log"
     test ! -e "$root/$dir/lua-memory_tests.log"
 done
-echo 'Miri recipe checks passed: 44 portable logs; 3 failures propagated'
+echo 'Miri recipe checks passed: 45 portable logs; 4 failures propagated'

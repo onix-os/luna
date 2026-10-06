@@ -48,6 +48,19 @@ materialization case, and distinct-symbol/null-host contract. Generated paths
 remain excluded from Miri. Native focused execution passes all seven scoped
 tests; broader platform and native memory checks are tracked separately.
 
+At `13e5934`, GNU Auto workspace/all-target tests, musl focused checks and the
+no-JIT baseline/docs pass **1,659 executions in 164 suites**, zero failures, six
+existing/repeated ignores and no Rust warnings. Native Memcheck passes seven
+scoped tests with zero errors or definite/indirect losses; possible 48-byte
+harness TLS loss remains unsuppressed. i686-musl checking passes with 71 library
+and eleven library-test warnings (including the newly exposed test accessors).
+The scoped models are now included in the standard `jit-miri` recipe; wrapper
+tests verify 45 portable evidence logs and propagation of four injected failures,
+including the new filter. Runtime source hashes match the validation checkpoint;
+recipe changes are checked separately. Evidence uses `scoped-helper-*` in the
+short-slice directory. Connected native-region execution and all original
+performance/release gates remain open.
+
 #### Resident failed-Return recovery — 2026-10-06
 
 A new generated-prefix/generated-callee regression reproduces a resume assertion
