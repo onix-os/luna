@@ -136,6 +136,7 @@ struct Session<'gc, 'host, 'borrow> {
     cell: Slot,
     view: leaf::View,
     target: Option<(bool, usize)>,
+    prototype: Option<ottavino_gc_arena::Gc<'gc, crate::FunctionPrototype<'gc>>>,
     calls: usize,
     returns: usize,
     error: Option<crate::thread::VMError>,
@@ -170,6 +171,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
                 dirty: 0,
             },
             target: None,
+            prototype: None,
             calls: 0,
             returns: 0,
             error: None,
@@ -179,6 +181,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
     }
 
     fn preflight(&mut self, budget: u32) -> bool {
+        self.prototype = None;
         if !self.host.lua_ready() {
             return false;
         }
@@ -198,6 +201,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
         }
         let ctx = self.ctx;
         let site = self.site;
+        let binding = &mut self.prototype;
         self.host.with_registers(|caller, registers| {
             let registry = ctx.jit_registry().borrow();
             if *registers.pc != site.pc
@@ -249,7 +253,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             {
                 return false;
             }
-            match site.pattern.right {
+            let admitted = match site.pattern.right {
                 Operand::Register(register) if register == site.pattern.read => true,
                 Operand::Register(register) => {
                     usize::from(register.0) < usize::from(site.arguments)
@@ -265,7 +269,11 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
                     callee.prototype().constants.get(usize::from(constant)),
                     Some(crate::Constant::Integer(_))
                 ),
+            };
+            if admitted {
+                *binding = Some(callee.prototype());
             }
+            admitted
         })
     }
 
@@ -296,13 +304,12 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             return std::ptr::null_mut();
         }
         let site = self.site;
+        let prototype = self.prototype;
         let prepared = self.host.with_registers(|closure, registers| {
             if *registers.pc != 0
-                || ctx
-                    .jit_registry()
-                    .borrow()
-                    .identity(ctx, closure.prototype())
-                    != Some(site.callee)
+                || !prototype.is_some_and(|prototype| {
+                    ottavino_gc_arena::Gc::ptr_eq(prototype, closure.prototype())
+                })
                 || registers.stack_frame.len() < site.registers
             {
                 return None;
@@ -363,15 +370,13 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
         assert!(self.frame.exit.pc <= 3 && self.frame.exit.instructions <= 3);
         let ctx = self.ctx;
         let site = self.site;
+        let prototype = self.prototype;
         let cell = unsafe { cell.read() };
         assert_eq!(cell.tag, abi::INTEGER);
         self.host.with_registers(|closure, mut registers| {
-            assert_eq!(
-                ctx.jit_registry()
-                    .borrow()
-                    .identity(ctx, closure.prototype()),
-                Some(site.callee)
-            );
+            assert!(prototype.is_some_and(|prototype| {
+                ottavino_gc_arena::Gc::ptr_eq(prototype, closure.prototype())
+            }));
             assert_eq!(*registers.pc, 0);
             assert!(registers.projection_read(upper, index).is_some());
             // Enter initializes the entire prefix before publishing the native frame.
