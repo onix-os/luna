@@ -870,11 +870,11 @@ unsupported, guard-error and helper-decline paths, alongside exact frame, fuel
 and dispatch traces. Resume tokens bind runtime, source, closure, thread/frame,
 PC and remaining budget; retired or Off code cannot regain native authority.
 The suite also covers GC, callback release, caught-panic lease cleanup and
-stale pair selection after fuel-limited canonical execution. `68ce077` routes
-supported-platform Auto scoped activations through this driver with the normal
-step-fuel contract. Off, unsupported platforms, initially variable frames and
-nonstandard step fuel retain canonical routing. A separate canonical entry
-prevents recursive fallback and remains the explicit test reference.
+stale pair selection after fuel-limited canonical execution. A production
+routing attempt (`68ce077`) passed correctness but was withdrawn in `9a2f9ac`
+after two complete frozen comparisons. Production retains canonical scoped
+activation routing; the complete driver and resume constructors are test-only.
+The shared VM still implements the tested continuation path.
 
 Same-slice resume can hand a later paired Call to the driver's lexical scope;
 the driver consumes the handoff and preserves remaining budget and original
@@ -889,7 +889,13 @@ gap by exposing the platform-independent owner identity helper on all targets;
 real i686 fallback passes 2,074 executions, followed by 38 native owner/chain/
 public-pair/mock checks. Revision-scoped details and retained warnings are in
 the plan. These tests establish routing and local correctness, not a measured
-speedup or original regression acceptance.
+speedup or original regression acceptance. Against the previous paired cache,
+the candidate gained about three percent in speed upvalue Auto but slowed
+shipping callbacks Auto about twelve percent and shipping Off upvalues about
+eight percent. Original upvalue/callback and compiled-Off gates failed. The
+restored routing passes 48 GNU/musl chain/public-pair executions; the private
+owner identity fix and stronger continuation tests remain. Full timings and
+contended provenance are retained in the plan; this candidate is not a fix.
 
 A unified VM execution counter (`f862a4e`) passed correctness, Miri and native
 memory checks but was reverted in `d8e2ef5` after two complete comparisons.

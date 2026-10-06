@@ -11,6 +11,63 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Rejected production direct caller routing — 2026-10-06
+
+The `68ce077` driver is correct but uncompetitive. Immutable source/archive
+commit `634369c` (including owner fix `bb47264`) built separate speed/shipping
+native and matching feature-cost binaries under
+`target/jit-evidence/short-slice-performance/native-chain-production-bb47264-v1`.
+Each original/direct comparison completed 24 blocks/144 commands, both profiles,
+all nine cases, eleven paired samples, twelve cost batches/profile and final
+source/binary hash checks. Both harnesses ended successfully; failed threshold
+commands remain evidence. External swap/IO contention is retained. Original
+summary processing briefly overlapped the start of the direct run; no owned
+compilation, tests or profiling overlapped either timing run.
+
+Original candidate native median Off/Auto ratios (speed / shipping):
+
+| Case | Speed | Shipping | Required | Passing blocks |
+| --- | ---: | ---: | ---: | ---: |
+| Upvalues | 0.632350 | 0.541850 | >=1.25 | 0/24 each |
+| Rust callbacks | 0.738300 | 0.658600 | >=0.833333 | 0/24 each |
+
+Compiled-Off/no-feature cost medians:
+
+| Case | Speed | Shipping | Maximum |
+| --- | ---: | ---: | ---: |
+| Upvalues | 1.170100 | 1.244250 | 1.05 |
+| Rust callbacks | 1.112750 | 1.078750 | 1.05 |
+
+Direct previous paired-cache/candidate median time ratios (higher is faster
+candidate):
+
+| Case/mode | Speed | Shipping |
+| --- | ---: | ---: |
+| Upvalues Auto | 1.029639 | 1.014935 |
+| Upvalues Off | 0.958589 | 0.925411 |
+| Rust callbacks Auto | 0.992468 | 0.891196 |
+| Rust callbacks Off | 1.016068 | 0.961539 |
+
+A few-percent upvalue Auto gain does not offset roughly 12.2% longer shipping
+callback Auto time and 8.1% longer shipping Off upvalue time. Integer/float
+medians exceed two in both profiles but do not excuse other original failures.
+These are contended measurements, not uncontended certification; no gate or
+coverage assertion is changed.
+
+`9a2f9ac` removes production driver selection and production resume constructors,
+restoring canonical scoped activation routing. Complete same-slice resume,
+lexical paired handoffs, variable/cold fallback and panic cleanup fixtures remain
+test-only; owner identity fix `bb47264` remains in production. Restored GNU/musl
+chain/public-pair checks pass 48 executions in four suites, zero failures/ignores
+and no Rust warnings. An earlier restored check also passed activation fixtures
+but recorded a misplaced constructor cfg warning; its log is retained separately.
+The exact cfg block is corrected in the committed restoration.
+
+Next: validate the restored full matrix and establish immutable restored cost
+evidence, then use deterministic profiles before another production attempt.
+Original upvalue/callback and compiled-Off regressions remain unresolved.
+Earlier entries below document this now-rejected candidate's correctness gates.
+
 #### Production candidate validation and unsupported owner fix — 2026-10-06
 
 The `68ce077` production caller routing candidate completes its local GNU
