@@ -144,6 +144,13 @@ pub(super) fn run_vm<'gc>(
     ))]
     let observe_pairs = !hook_enabled && ctx.jit().call_pairs_enabled();
 
+    #[cfg(all(
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    let mut pair_scope = lua_frame.pair_handoff.take();
     let mut registers = lua_frame.registers();
     let mut instructions_run = 0;
 
@@ -201,11 +208,16 @@ pub(super) fn run_vm<'gc>(
                 ))]
                 if pair_handoff && matches!(transition, crate::opcode::CallTransition::Call { .. })
                 {
-                    if let Some(pair) = ctx.jit().prepare_call_at(ctx, current_function, &registers)
-                    {
+                    if let Some(pair) = ctx.jit().prepare_call_at(
+                        ctx,
+                        current_function,
+                        &registers,
+                        *registers.pc,
+                        pair_scope.as_deref_mut().unwrap(),
+                    ) {
                         drop(registers);
                         if lua_frame.pair_fixed_stack() {
-                            *lua_frame.pair_handoff.as_deref_mut().unwrap() = Some(pair);
+                            pair_scope.as_deref_mut().unwrap().handoff = Some(pair);
                             break;
                         }
                         registers = lua_frame.registers();
@@ -275,22 +287,6 @@ pub(super) fn run_vm<'gc>(
         }
 
         let op = current_prototype.opcodes[*registers.pc].decode();
-        #[cfg(all(
-            feature = "jit",
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
-        if pair_handoff && matches!(op, Operation::Call { .. }) {
-            if let Some(pair) = ctx.jit().prepare_call_at(ctx, current_function, &registers) {
-                drop(registers);
-                if lua_frame.pair_fixed_stack() {
-                    *lua_frame.pair_handoff.as_deref_mut().unwrap() = Some(pair);
-                    break;
-                }
-                registers = lua_frame.registers();
-            }
-        }
         #[cfg(feature = "jit")]
         {
             interpreter_stats.dispatches += 1;
@@ -415,6 +411,31 @@ pub(super) fn run_vm<'gc>(
                 args,
                 returns,
             } => {
+                #[cfg(all(
+                    feature = "jit",
+                    not(miri),
+                    target_os = "linux",
+                    any(target_arch = "x86_64", target_arch = "aarch64")
+                ))]
+                if pair_handoff {
+                    let pc = *registers.pc - 1;
+                    if let Some(pair) = ctx.jit().prepare_call_at(
+                        ctx,
+                        current_function,
+                        &registers,
+                        pc,
+                        pair_scope.as_deref_mut().unwrap(),
+                    ) {
+                        drop(registers);
+                        if lua_frame.pair_fixed_stack() {
+                            *lua_frame.registers().pc = pc;
+                            interpreter_stats.dispatches -= 1;
+                            pair_scope.as_deref_mut().unwrap().handoff = Some(pair);
+                            break;
+                        }
+                        registers = lua_frame.registers();
+                    }
+                }
                 #[cfg(all(
                     feature = "jit",
                     not(miri),

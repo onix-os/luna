@@ -31,18 +31,33 @@ fn fixture_return_count(
     returns: Option<u8>,
     test: impl FnOnce(&mut Lua, crate::StashedClosure, Site, CallCode),
 ) {
+    fixture_layout(source, hooks, returns, None, test);
+}
+
+fn fixture_layout(
+    source: &[u8],
+    hooks: Hooks,
+    returns: Option<u8>,
+    registers: Option<u16>,
+    test: impl FnOnce(&mut Lua, crate::StashedClosure, Site, CallCode),
+) {
     let mut lua = Lua::empty();
     let (closure, caller, callee, caller_id, callee_id) = lua.enter(|ctx| {
-        let closure = if let Some(count) = returns {
+        let closure = if returns.is_some() || registers.is_some() {
             let mut interner = crate::compiler::interning::BasicInterner::default();
             let chunk = crate::compiler::parse_chunk(source, &mut interner).unwrap();
             let mut compiled = crate::compiler::compile_chunk(&chunk, &mut interner).unwrap();
             let child = &mut compiled.prototypes[0];
             assert_eq!(child.opcodes.len(), 4);
-            child.opcodes[3] = crate::opcode::OpCode::encode(Operation::Return {
-                start: RegisterIndex(0),
-                count: crate::types::VarCount::constant(count),
-            });
+            if let Some(count) = returns {
+                child.opcodes[3] = crate::opcode::OpCode::encode(Operation::Return {
+                    start: RegisterIndex(0),
+                    count: crate::types::VarCount::constant(count),
+                });
+            }
+            if let Some(registers) = registers {
+                child.stack_size = registers;
+            }
             let prototype = crate::FunctionPrototype::from_compiled_map_strings(
                 &ctx,
                 ctx.intern(b"fixed-return"),
@@ -198,6 +213,56 @@ fn linked_native_calls_match_physical_frames_fuel_and_dispatches() {
 }
 
 #[test]
+fn largest_callee_scratch_prefix_matches_canonical_frames() {
+    fixture_layout(
+        ADD,
+        Hooks { enter, leave },
+        None,
+        Some(256),
+        |lua, closure, site, code| {
+            assert_eq!(site.registers, 256);
+            let interpreted = lua.enter(|ctx| {
+                with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                    position(host, ctx, site.pc);
+                    let before = stats(ctx);
+                    assert!(host.run(ctx, 2, 64, 4).result.is_ok());
+                    trace(ctx, host, before)
+                })
+            });
+            let native = lua.enter(|ctx| {
+                with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                    position(host, ctx, site.pc);
+                    let before = stats(ctx);
+                    assert_eq!(invoke(ctx, host, &site, &code, 64), Some((1, 1)));
+                    trace(ctx, host, before)
+                })
+            });
+            assert_eq!(native, interpreted);
+        },
+    );
+}
+
+#[test]
+fn leave_before_enter_is_caught_without_reading_scratch() {
+    fixture(ADD, |lua, closure, site, _code| {
+        lua.enter(|ctx| {
+            with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                position(host, ctx, site.pc);
+                let mut scratch = [MaybeUninit::uninit(); 256];
+                let mut session = Session::new(ctx, host, &site, &mut scratch);
+                let before = trace(ctx, session.host, stats(ctx));
+                let frame = std::ptr::addr_of_mut!(session.frame);
+                let data = std::ptr::addr_of_mut!(session).cast();
+                assert_eq!(unsafe { leave(data, frame, 3, u32::from(site.start.0)) }, 0);
+                assert!(session.panic.is_some());
+                assert_eq!(session.calls, 0);
+                assert_eq!(trace(ctx, session.host, stats(ctx)), before);
+            });
+        });
+    });
+}
+
+#[test]
 fn declined_source_and_budget_requests_preserve_caller_state() {
     fixture(ADD, |lua, closure, mut site, code| {
         lua.enter(|ctx| {
@@ -297,7 +362,8 @@ fn native_budget_declines_keep_the_callee_frame_for_interpreter_resume() {
                 with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
                     position(host, ctx, site.pc);
                     let before = stats(ctx);
-                    let mut session = Session::new(ctx, host, &site);
+                    let mut scratch = [MaybeUninit::uninit(); 256];
+                    let mut session = Session::new(ctx, host, &site, &mut scratch);
                     assert!(session.preflight(64));
                     let returned =
                         unsafe { code.invoke(std::ptr::addr_of_mut!(session).cast(), budget) };
@@ -528,7 +594,8 @@ fn mismatched_leave_is_caught_before_canonical_return_or_materialization() {
         lua.enter(|ctx| {
             with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
                 position(host, ctx, site.pc);
-                let mut session = Session::new(ctx, host, &site);
+                let mut scratch = [MaybeUninit::uninit(); 256];
+                let mut session = Session::new(ctx, host, &site, &mut scratch);
                 assert!(session.preflight(64));
                 let data = std::ptr::addr_of_mut!(session).cast();
                 let frame = unsafe {
@@ -618,7 +685,8 @@ fn panic_payload_resumes_after_session_borrow_release() {
         lua.enter(|ctx| {
             with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
                 position(host, ctx, site.pc);
-                let mut session = Session::new(ctx, host, &site);
+                let mut scratch = [MaybeUninit::uninit(); 256];
+                let mut session = Session::new(ctx, host, &site, &mut scratch);
                 session.panic = catch_unwind(AssertUnwindSafe(|| panic_any(Payload(731)))).err();
                 let payload = match catch_unwind(AssertUnwindSafe(|| session.finish())) {
                     Err(payload) => payload,

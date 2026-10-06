@@ -14,7 +14,7 @@ pub(crate) struct ActivationHost<'gc, 'a> {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    handoff: Option<crate::jit::PreparedPair>,
+    pair: crate::jit::PairScope,
     #[cfg(all(
         not(miri),
         target_os = "linux",
@@ -56,7 +56,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                 target_os = "linux",
                 any(target_arch = "x86_64", target_arch = "aarch64")
             ))]
-            handoff: None,
+            pair: crate::jit::PairScope::default(),
             #[cfg(all(
                 not(miri),
                 target_os = "linux",
@@ -80,7 +80,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                 target_os = "linux",
                 any(target_arch = "x86_64", target_arch = "aarch64")
             ))]
-            pair_handoff: self.select_pairs.then_some(&mut self.handoff),
+            pair_handoff: self.select_pairs.then_some(&mut self.pair),
             state: self.state,
             stack: &mut self.stack,
             fuel: self.fuel,
@@ -243,7 +243,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                 any(target_arch = "x86_64", target_arch = "aarch64")
             ))]
             {
-                assert!(self.handoff.is_none());
+                assert!(self.pair.handoff.is_none());
                 self.select_pairs = limit - activations >= 2
                     && budget >= 4
                     && step_fuel == 4
@@ -260,11 +260,13 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                 target_os = "linux",
                 any(target_arch = "x86_64", target_arch = "aarch64")
             ))]
-            let (result, step_charged) = if let Some(pair) = self.handoff.take() {
+            let (result, step_charged) = if let Some(pair) = self.pair.handoff.take() {
                 let prefix = result.expect("pair handoff with VM error");
                 assert!(prefix < budget);
                 self.select_pairs = false;
-                if let Some(outcome) = pair.invoke(ctx, self, budget, prefix) {
+                let outcome = pair.invoke(ctx, self, budget, prefix);
+                self.pair.cache = Some(pair);
+                if let Some(outcome) = outcome {
                     activations += outcome.returns;
                     (outcome.result.map(|()| 0), true)
                 } else {

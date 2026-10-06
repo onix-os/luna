@@ -11,6 +11,181 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Scoped paired-code lease reuse — 2026-10-06
+
+`c38d99c` adds a one-entry cache owned by the scoped activation host. It retains
+only a paired program lease and two numeric prototype address hints, not GC
+values. Immutable program metadata supplies the source IDs and Call PC. The
+ordinary LuaFrame still carries one optional scope pointer; Off gains neither
+an extra frame field nor unconditional cache maintenance branches.
+
+Hints do not authorize native execution. Cached selection verifies the current
+cache entry owns the identical Shared program, advances the common saturated
+LRU clock and retains the complete canonical identity/provenance, capture,
+argument, mode, hook, fuel and source guards. Retirement, replacement, foreign
+owners and Off refuse reuse. Fresh successful lookup clears the old cache before
+changing hints. All leases drop with the host before callbacks, suspension or
+collection. No source-admission or native-coverage rule changed.
+
+`native_pair_cache_hits` counts scoped lease reuse before native preflight,
+including a later preflight decline; it does not count completed native Calls.
+`code_leases` continues to count new Shared lease clones, not cache hits. Public
+tests prove hits on the unchanged upvalue corpus at sufficient fuel, zero Off
+hits, exact Off slice traces through GC, unchanged retirement counters and zero
+false hits when callees alternate at one Call site. Unit tests cover recency,
+no-clone ownership, saturation, retirement, replacement and foreign roots.
+
+GNU Off/Auto/Force and musl Auto pass 4,636 test executions across 324 suites,
+zero failures and sixteen repeated existing ignores. Native Memcheck passes
+all 26 pair and eight public runtime tests with zero memory errors. The initial
+consumed-frame compile error, extra-pointer cache layout and overstrong small-
+fuel assertion for the new alternating fixture remain in the evidence directory.
+The 24-fuel alternating case proves exact fallback; existing frozen native
+coverage assertions were not weakened.
+
+Two complete 24-block/144-command comparisons were executed, with both profiles,
+all nine workloads, eleven paired samples, twelve cost batches/profile, three
+windows, contention and verified hashes. One retains the original baseline;
+the other directly pairs this cache against the previous `c1ad478` candidate.
+The direct comparison also verifies the previous candidate's archived sources.
+
+| Median direct old/new elapsed-time ratio | Speed | Shipping |
+| --- | ---: | ---: |
+| Upvalue Auto | 1.07918 | 1.08235 |
+| Upvalue Off | 1.02419 | 1.11234 |
+| Callback Auto | 0.99100 | 0.99535 |
+
+Upvalue Auto is about eight percent faster than the previous candidate in both
+profiles, not eight percent faster than the original interpreter or baseline.
+Callbacks do not show a comparable improvement. Faster shipping Off also lowers
+the scored Off/Auto ratio; do not misreport that ratio as absolute Auto slowdown.
+Native instruction coverage is unchanged; a representative upvalue sample's
+new lease clones fall from 260,205 to 136,853.
+
+**Original performance acceptance still fails.** Against the original baseline,
+the cache candidate's median speed upvalue Off/Auto is 0.58610 versus 0.74820;
+callbacks are 0.75375 versus 0.82995. Speed compiled-Off/no-feature is 1.10205
+for upvalues and 1.10130 for callbacks, above the frozen 1.05 limit. Shipping
+native ratios are 0.49305 and 0.71090. Both comparison drivers return zero for
+complete evidence, while each records 96 failed command gates and 48 successes.
+
+Evidence: `target/jit-evidence/short-slice-performance/pair-cache-compact-summary.tsv`,
+`pair-cache-compact-vs-split-summary.tsv` and matching timing, profile, source
+archive, build and validation files. Earlier cache layouts and full failed
+trials remain retained. The candidate is not release-accepted; source-bound
+lookup savings alone do not solve canonical handoff/caller invocation overhead.
+
+#### Rejected combined materialization/Return scope — 2026-10-06
+
+A bounded experiment combined scalar materialization and canonical Return in
+one ActivationHost LuaFrame scope. It retained physical frames, source/cell
+guards, native-exit metrics order, attempted-Return accounting, result counts,
+panic/error propagation and fuel charges. Canonical, public runtime, pair and
+activation tests passed; native Memcheck reported zero errors.
+
+The generated-code profile did not improve: Auto upvalue instructions increased
+from 158,659,528 to 159,681,304. A diagnostic on matched speed/symbol artifacts
+alternated eleven old/new worker pairs per workload, twenty iterations each,
+with artifact hashes and contention retained. Median paired old/new speedup was
+0.911514 for upvalues (p10/p90 0.879008/1.069133); callbacks were noisy at
+1.104570 (0.700023/1.507831). These narrow diagnostic observations are not the
+full performance protocol or acceptance evidence. The upvalue result contradicts
+the optimization hypothesis, so the source change was reverted.
+
+The restored source exactly matches the retained implementation; formatting,
+JIT checks, eighteen canonical and seven public runtime tests pass again.
+No slower combined-scope implementation was committed. Evidence is retained
+under `target/jit-evidence/short-slice-performance/pair-materialize-*`, including
+the rejected source patch, profiles, Memcheck and diagnostic raw logs. Do not
+retry this fusion without new evidence. Repeated source-bound pair lookup is a
+remaining measured target; any caching must preserve guard, lease, provenance,
+GC, retirement and pressure contracts rather than remove checks for speed.
+
+#### Profile-driven pair corrections — 2026-10-06
+
+Three incremental corrections retain the original admission, fuel, frame,
+ownership and acceptance contracts:
+
+- `c3a778b` initializes only the exposed callee scratch prefix, using the
+  existing MaybeUninit pattern. New tests cover all 256 registers and refusal
+  of a Return hook before scratch initialization.
+- `e841903` selects interpreted pairs only in the Call arm, not before every
+  interpreted opcode. A selected handoff restores the pre-Call PC and dispatch
+  count; canonical execution remains responsible for consuming the Call.
+- `c1ad478` separates scratch storage from initialized Session metadata. The
+  first rewrite alone still generated a whole-session memset; the borrowed
+  buffer prevents that clearing while keeping storage live through native hooks.
+
+The generated-code profile confirms removal of the large clearing operation:
+Auto upvalue Callgrind instructions fall from 361,744,596 to 158,659,528.
+This simulated instruction reduction is not a wall-time speedup claim. Moving
+the Call probe reduces compiled-Off upvalue instructions from 104,029,798 to
+102,629,633; callback instructions fall from 45,866,990 to 45,491,850.
+
+The final source passed GNU Off/Auto/Force and musl Auto suites: 4,624 test
+executions across 324 suites, zero failures and sixteen repeated existing
+ignores. Formatting and baseline/JIT checks passed. All eighteen canonical
+native tests also passed Valgrind Memcheck with zero memory errors, including
+the maximum-prefix, early-Return, error, panic, growth and capture cases.
+
+The unchanged full timing trial also completed for `c1ad478`: 24 blocks,
+144 commands, both profiles, all nine workloads, eleven paired samples and
+twelve cost batches/profile. Hashes verified throughout. **Performance still
+fails**, despite improvement over the first production-pair candidate:
+
+| Final median ratio | Paired original baseline | Corrected pair |
+| --- | ---: | ---: |
+| Speed upvalue Off/Auto | 0.74745 | 0.55355 |
+| Shipping upvalue Off/Auto | 0.61530 | 0.50940 |
+| Speed callbacks Off/Auto | 0.83030 | 0.73730 |
+| Speed upvalue compiled-Off/no-feature | 1.05260 | 1.10490 |
+| Speed callbacks compiled-Off/no-feature | 1.02570 | 1.12650 |
+
+The corrected pair path remains slower than the original baseline on the
+targeted workloads. No original regression is marked accepted or resolved.
+The remaining measured Auto costs include canonical leave/materialization,
+ordinary caller invocation, fresh register views and source-bound pair lookup.
+They require further profile-driven work, not relaxed gates or an assertion
+that correctness implies speed. This branch remains a candidate, not a release.
+
+All three full trial outputs, including failed commands and contention, remain
+under `target/jit-evidence/short-slice-performance/` with prefixes
+`production-pair`, `production-pair-scratch` and `production-pair-split`.
+The final trial driver returned zero for complete evidence; 96 command gates
+returned two and 48 returned zero. Scratch-only timing and the initial retained
+Force eligibility failure are not superseded or discarded.
+
+#### Production pair performance trial — 2026-10-06
+
+The immutable `4bca661` candidate completed the unchanged 24-block comparison:
+both profiles, all nine workloads, eleven paired samples per native command,
+twelve cost batches per profile and 144 commands across three windows. Source
+and binary hashes verified before/after every block. The zero driver exit means
+complete evidence, not acceptance: 96 command gates exited two and 48 exited
+zero. No workload, threshold or native-coverage requirement changed.
+
+| Median ratio | Original baseline | Production pair |
+| --- | ---: | ---: |
+| Speed upvalue Off/Auto | 0.74720 | 0.48725 |
+| Shipping upvalue Off/Auto | 0.61225 | 0.45620 |
+| Speed callbacks Off/Auto | 0.82675 | 0.72860 |
+| Speed upvalue compiled-Off/no-feature | 1.04650 | 1.12580 |
+| Speed callbacks compiled-Off/no-feature | 1.01780 | 1.20265 |
+
+This candidate fails performance acceptance and worsens the targeted regressions.
+Its physical-frame correctness is not sufficient justification to ship the
+promotion. External contention, substantial I/O wait and swapping were retained
+in process/vmstat logs rather than stopping unrelated work or discarding failed
+samples. Paired controls and raw ranges remain the basis for the next bounded
+profile-driven change; these numbers are host measurements, not uncontended
+speed estimates. Independently rebuilt no-feature controls differ from original
+artifacts; each feature-cost batch uses its own verified matched pair, while
+direct native comparisons retain the original baseline.
+
+Evidence: `target/jit-evidence/short-slice-performance/production-pair-summary.tsv`,
+`production-pair-timing/`, source archive and build logs. Upvalue, callback and
+compiled-Off gates remain open.
+
 #### Production Auto pair integration — 2026-10-06
 
 `4bd6b2e` promotes the source-bound pair queue, linked backend, canonical bridge,

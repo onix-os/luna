@@ -53,6 +53,72 @@ fn compile_pair(lua: &mut Lua, key: Key) {
     ));
 }
 
+fn cached_lease(lua: &mut Lua, _closure: &StashedClosure, key: Key) -> super::super::PreparedPair {
+    lua.enter(|ctx| super::super::PreparedPair {
+        program: ctx.jit().pair_lease(key).unwrap(),
+    })
+}
+
+#[test]
+fn scoped_cached_lease_updates_shared_recency_without_cloning() {
+    let (mut lua, closure, key) = fixture();
+    compile_pair(&mut lua, key);
+    let cached = cached_lease(&mut lua, &closure, key);
+    lua.enter(|ctx| {
+        let before = ctx.jit().0.borrow().stats;
+        let clock = ctx.jit().0.borrow().clock;
+        let owners = Shared::strong_count(&cached.program);
+        assert!(ctx.jit().touch_pair(&cached));
+        assert_eq!(Shared::strong_count(&cached.program), owners);
+        let manager = ctx.jit().0.borrow();
+        assert_eq!(manager.clock, clock + 1);
+        assert_eq!(
+            manager.pairs.as_ref().unwrap().entries[&key].last_used,
+            manager.clock
+        );
+        assert_eq!(manager.stats.code_leases, before.code_leases);
+        assert_eq!(manager.stats.code_lookups, before.code_lookups + 1);
+        assert_eq!(
+            manager.stats.native_pair_cache_hits,
+            before.native_pair_cache_hits + 1
+        );
+        drop(manager);
+        let mut manager = ctx.jit().0.borrow_mut();
+        manager.clock = u64::MAX;
+        manager.stats.native_pair_cache_hits = u64::MAX;
+        drop(manager);
+        assert!(ctx.jit().touch_pair(&cached));
+        assert_eq!(ctx.jit().0.borrow().clock, u64::MAX);
+        assert_eq!(ctx.jit().0.borrow().stats.native_pair_cache_hits, u64::MAX);
+    });
+}
+
+#[test]
+fn scoped_cached_lease_refuses_retired_replaced_off_and_foreign_owners() {
+    let (mut lua, closure, key) = fixture();
+    compile_pair(&mut lua, key);
+    let cached = cached_lease(&mut lua, &closure, key);
+    lua.clear_jit_cache();
+    assert!(!lua.enter(|ctx| ctx.jit().touch_pair(&cached)));
+    compile_pair(&mut lua, key);
+    assert!(!lua.enter(|ctx| ctx.jit().touch_pair(&cached)));
+    let fresh = cached_lease(&mut lua, &closure, key);
+    assert!(lua.enter(|ctx| ctx.jit().touch_pair(&fresh)));
+    let (mut other, _closure, other_key) = fixture();
+    assert_eq!(key, other_key);
+    compile_pair(&mut other, other_key);
+    assert!(!other.enter(|ctx| ctx.jit().touch_pair(&fresh)));
+    let before = lua.jit_stats().native_pair_cache_hits;
+    let mut config = lua.jit_config();
+    config.mode = JitMode::Off;
+    lua.set_jit_config(config).unwrap();
+    assert!(!lua.enter(|ctx| ctx.jit().touch_pair(&fresh)));
+    assert_eq!(lua.jit_stats().native_pair_cache_hits, before);
+    drop(cached);
+    drop(fresh);
+    assert_eq!(lua.jit_stats().code_bytes, 0);
+}
+
 fn load_scalar(lua: &mut Lua) -> (StashedClosure, u64) {
     lua.enter(|ctx| {
         let closure = Closure::load(ctx, None, &b"return 42"[..]).unwrap();
