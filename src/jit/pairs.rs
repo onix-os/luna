@@ -385,6 +385,21 @@ impl Runtime {
         Some(lease)
     }
 
+    #[cfg(test)]
+    pub(super) fn test_replace_pair(&self, program: Shared<Program>) -> Shared<Program> {
+        self.0
+            .borrow_mut()
+            .pairs
+            .as_mut()
+            .unwrap()
+            .entries
+            .get_mut(&program.key())
+            .unwrap()
+            .program
+            .replace(program)
+            .unwrap()
+    }
+
     pub(crate) fn compile_pair(
         &self,
         key: Key,

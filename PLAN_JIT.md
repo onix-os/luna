@@ -62,8 +62,20 @@ losses; possible 48-byte harness TLS loss per process remains visible.
 The follow-up changes tests only; the preceding workspace results apply to the
 unchanged implementation, not an execution of this additional test.
 
-Generated-region panic and failed-Return integration still need explicit checks,
-followed by broader platform validation and actual regression measurements.
+The next failure-transport checkpoint reuses the resident scheduler's four
+fault-injection differentials through the actual connected generated dispatcher:
+failed physical Return, panic after Call, panic before callee writeback and panic
+after Return. Each preserves canonical frames/slots/open captures/fuel/dispatches,
+checks generated instruction counts and reclaims mappings/metadata. The runtime
+ledger-backed injected pair replaces an already installed owner through a
+test-only accessor; the region still enforces exact installed-owner identity.
+The previous resident tests retain their original checks. GNU and musl each pass
+44 executions across four focused suites, while GNU Memcheck passes all eleven
+region/backend/failure cases with zero errors or definite/indirect leaks (the
+48-byte possible harness TLS allocation remains visible). Evidence uses
+`native-region-failures-*`. These tests do not establish performance acceptance.
+
+Broader platform validation and actual regression measurements remain required.
 Once-per-region admission and production integration are not implemented here.
 All original performance, compiled-Off, resource-policy and release gates remain
 open; green prototype tests do not replace those gates.

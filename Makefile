@@ -328,6 +328,7 @@ jit-scoped-helpers:
 jit-native-region:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::region::tests $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::native_region::tests $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical::tests::native_region_ $(ARGS)
 
 .PHONY: jit-scoped-helpers-miri
 jit-scoped-helpers-miri:
