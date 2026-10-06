@@ -1,5 +1,6 @@
 use super::*;
 
+mod cache;
 mod cost;
 use crate::{
     opcode::Operation, thread::activation::with_test_thread, Fuel, JitConfig, JitMode, Lua, Value,
@@ -54,7 +55,9 @@ fn build_region<'gc>(ctx: Context<'gc>, closure: Closure<'gc>) -> (Region, usize
     let caller =
         || super::super::ir::Snapshot::new_in(&prototype, 4096, allocator.clone()).unwrap();
     ctx.jit().compile(key.caller, caller()).unwrap();
-    ctx.jit().test_call_pairs(true);
+    if ctx.jit().0.borrow().pairs.is_none() {
+        ctx.jit().test_call_pairs(true);
+    }
     ctx.jit().observe_pair(key);
     ctx.jit()
         .compile_pair(

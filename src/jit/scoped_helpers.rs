@@ -149,6 +149,10 @@ impl Code {
         self.code.registers
     }
 
+    pub(super) fn belongs_to(&self, memory: &MappingCounter) -> bool {
+        self.origin.same_root(memory)
+    }
+
     pub(super) fn accepts_pc(&self, pc: usize) -> bool {
         self.code.entries.get(pc).copied().unwrap_or(false)
     }

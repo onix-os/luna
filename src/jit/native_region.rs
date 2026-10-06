@@ -15,6 +15,8 @@ use super::{
     helpers, scoped_helpers, JitError, Prepared, PreparedPair,
 };
 
+pub(super) mod cache;
+
 pub(super) struct Region {
     caller: scoped_helpers::Code,
     ordinary: Prepared,
@@ -32,6 +34,18 @@ pub(super) struct Outcome {
 }
 
 impl Region {
+    fn installed(&self, manager: &super::Manager) -> bool {
+        self.caller.belongs_to(&manager.memory)
+            && manager
+                .code
+                .get(&self.source)
+                .is_some_and(|code| super::owner::Shared::ptr_eq(&code.code, &self.ordinary.code))
+            && manager
+                .pairs
+                .as_ref()
+                .is_some_and(|pairs| pairs.contains(&self.pair))
+    }
+
     pub(super) fn new<'gc>(
         ctx: Context<'gc>,
         caller: Closure<'gc>,
