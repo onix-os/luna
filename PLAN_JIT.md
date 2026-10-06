@@ -13,8 +13,8 @@
 
 #### Production resident-caller candidate — 2026-10-06
 
-**Rejected by performance measurements; production rollback pending profile
-capture.** The complete `resident-production-timing` comparison contains 24
+**Rejected by performance measurements; production routing restored in
+`1ba3f2e`.** The complete `resident-production-timing` comparison contains 24
 native rounds per profile and twelve compiled-Off rounds per profile, alternating
 candidate/original order with eleven samples per native invocation. Binary and
 source hashes passed before and after every block; external contention telemetry
@@ -31,6 +31,24 @@ speedup target. Compiled-Off/no-feature upvalue costs are **1.09905/1.2387** and
 callback costs **1.0722/1.0865**, all above the unchanged 1.05 limit. Profiling
 must guide a different implementation; correctness acceptance does not justify
 leaving this production candidate enabled.
+
+The terminal `resident-production-profile-v1` capture retains eight Callgrind
+runs (upvalue/callback, Auto/Off, paired no-feature controls), source archive and
+hash checks. In callback Auto, memset accounts for **50.90%** and memcpy for
+**15.59%** of 200,835,860 collected instructions. Upvalue Auto records
+192,609,796 instructions: executor 27.72%, canonical leave 10.21%, pair invoke
+9.38%, memset 6.07%, and shadow transfer preparation 4.10%. These are profiling
+instruction shares, not wall-clock attribution. They identify full-capacity
+shadow initialization/copying as a concrete next target, especially at callback
+boundaries; they do not prove that reducing it will satisfy the upvalue gate.
+
+The rollback preserves `f68b572` scoped transport and all resident regression
+fixtures, but returns production to canonical routing. Its GNU checking and
+66 focused GNU/musl chain/public-pair executions pass with zero failures; the
+executable source diff against `f68b572` is empty. Next candidate work
+should remove the measured 256-slot scratch overhead using bounded storage
+appropriate to actual frame width, then repeat unchanged acceptance gates;
+do not repeat the unrestricted fixed-capacity promotion or duplicate the VM.
 
 `f68b572` moves scoped resume transport into the existing pair handoff without
 adding a VM argument. GNU/musl focused validation passes 116 executions; fourteen
