@@ -462,9 +462,34 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         ctx: Context<'gc>,
         budget: u32,
     ) -> Result<u32, VMError> {
+        self.canonical_slice_paired(ctx, budget, None)
+    }
+
+    #[cfg(all(
+        test,
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    pub(crate) fn canonical_slice_paired(
+        &mut self,
+        ctx: Context<'gc>,
+        budget: u32,
+        scope: Option<&mut crate::jit::PairScope<'gc>>,
+    ) -> Result<u32, VMError> {
         assert!(self.pair.handoff.is_none());
+        if let Some(scope) = &scope {
+            assert!(scope.handoff.is_none());
+            assert!(scope.resume.is_none());
+        }
         self.select_pairs = false;
-        self.with_frame(|frame| run_vm(ctx, frame, budget))
+        let frame = LuaFrame {
+            pair_handoff: scope,
+            state: self.state,
+            stack: &mut self.stack,
+            fuel: self.fuel,
+        };
+        run_vm(ctx, frame, budget)
     }
 
     #[cfg(all(
