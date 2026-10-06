@@ -13,6 +13,15 @@ pub(super) struct Slot {
     pub bits: u64,
 }
 
+#[repr(C)]
+#[derive(Default)]
+pub(super) struct Numeric {
+    pub cell: i64,
+    pub right: i64,
+    pub read: i64,
+    pub result: i64,
+}
+
 impl Slot {
     pub fn from_value(value: Value<'_>) -> Self {
         match value {
@@ -108,6 +117,14 @@ pub(super) unsafe fn invoke(
 
 const _: () = assert!(std::mem::size_of::<Slot>() == 16);
 const _: () = assert!(std::mem::offset_of!(Slot, bits) == 8);
+const _: () = {
+    assert!(std::mem::size_of::<Numeric>() == 32);
+    assert!(std::mem::align_of::<Numeric>() == std::mem::align_of::<i64>());
+    assert!(std::mem::offset_of!(Numeric, cell) == 0);
+    assert!(std::mem::offset_of!(Numeric, right) == 8);
+    assert!(std::mem::offset_of!(Numeric, read) == 16);
+    assert!(std::mem::offset_of!(Numeric, result) == 24);
+};
 const _: () = assert!(std::mem::size_of::<Exit>() == 16);
 const _: () = assert!(std::mem::offset_of!(Exit, instructions) == 8);
 const _: () = assert!(std::mem::offset_of!(Exit, reason) == 12);

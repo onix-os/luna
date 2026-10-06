@@ -14,7 +14,14 @@ pub(crate) struct Hooks {
     pub leave: unsafe extern "C" fn(*mut c_void, *mut NativeFrame, u64, u32) -> u32,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FrameLayout {
+    Tagged,
+    Numeric,
+}
+
 pub(crate) struct CallCode {
+    pub layout: FrameLayout,
     _memory: Memory,
     entry: unsafe extern "C" fn(*mut c_void, u32) -> u32,
     #[cfg(test)]
@@ -27,8 +34,8 @@ impl CallCode {
     /// Invokes the linked aggregate entry.
     ///
     /// # Safety
-    /// Hook data, frames, slots, views and cells must remain valid and exclusive
-    /// for the call. The hooks must not unwind.
+    /// Hook data, frames, payloads and views must remain valid and exclusive.
+    /// Payloads must match `layout`; the hooks must not unwind.
     pub unsafe fn invoke(&self, data: *mut c_void, budget: u32) -> u32 {
         unsafe { (self.entry)(data, budget) }
     }
@@ -80,8 +87,13 @@ fn verify_bound(
     program: &Program,
     module: &JITModule,
     ids: [cranelift_module::FuncId; 3],
+    layout: FrameLayout,
 ) -> Result<(), JitError> {
-    let mut expected = plan.program(module.target_config(), module.isa().default_call_conv())?;
+    let mut expected = plan.program_for(
+        module.target_config(),
+        module.isa().default_call_conv(),
+        layout,
+    )?;
     bind(&mut expected.entry, ids)?;
     if program.entry != expected.entry || program.callee != expected.callee {
         return Err(JitError::Compilation(
@@ -91,6 +103,7 @@ fn verify_bound(
     Ok(())
 }
 
+#[cfg(test)]
 pub(crate) fn compile(
     plan: &Plan<'_>,
     hooks: Hooks,
@@ -98,6 +111,57 @@ pub(crate) fn compile(
     limit: usize,
     metadata: BudgetAllocator,
     limits: super::super::work::Limits,
+    #[cfg(test)] failure: Failure,
+    #[cfg(test)] fault: LinkFault,
+) -> Result<CallCode, JitError> {
+    compile_for(
+        plan,
+        hooks,
+        total,
+        limit,
+        metadata,
+        limits,
+        FrameLayout::Tagged,
+        #[cfg(test)]
+        failure,
+        #[cfg(test)]
+        fault,
+    )
+}
+
+pub(crate) fn compile_numeric(
+    plan: &Plan<'_>,
+    hooks: Hooks,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    limits: super::super::work::Limits,
+    #[cfg(test)] failure: Failure,
+    #[cfg(test)] fault: LinkFault,
+) -> Result<CallCode, JitError> {
+    compile_for(
+        plan,
+        hooks,
+        total,
+        limit,
+        metadata,
+        limits,
+        FrameLayout::Numeric,
+        #[cfg(test)]
+        failure,
+        #[cfg(test)]
+        fault,
+    )
+}
+
+fn compile_for(
+    plan: &Plan<'_>,
+    hooks: Hooks,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    limits: super::super::work::Limits,
+    layout: FrameLayout,
     #[cfg(test)] failure: Failure,
     #[cfg(test)] fault: LinkFault,
 ) -> Result<CallCode, JitError> {
@@ -159,11 +223,16 @@ pub(crate) fn compile(
     jit.symbol(owned_symbol("activation_leave")?, hooks.leave as *const u8);
     jit.memory_provider(provider);
     let mut module = JITModule::new(jit);
-    let mut program = plan.program(module.target_config(), module.isa().default_call_conv())?;
-    plan.verify_program(
+    let mut program = plan.program_for(
+        module.target_config(),
+        module.isa().default_call_conv(),
+        layout,
+    )?;
+    plan.verify_program_for(
         &program,
         module.target_config(),
         module.isa().default_call_conv(),
+        layout,
     )?;
     let entry = module
         .declare_anonymous_function(&program.entry.signature)
@@ -208,7 +277,7 @@ pub(crate) fn compile(
         }
         LinkFault::Signature => program.entry.signature.params[1].value_type = types::I64,
     }
-    verify_bound(plan, &program, &module, ids)?;
+    verify_bound(plan, &program, &module, ids, layout)?;
     cranelift_codegen::verify_function(&program.entry, module.isa())
         .map_err(|e| JitError::Compilation(e.to_string()))?;
     cranelift_codegen::verify_function(&program.callee, module.isa())
@@ -278,6 +347,7 @@ pub(crate) fn compile(
         std::mem::transmute::<*const u8, unsafe extern "C" fn(*mut c_void, u32) -> u32>(pointer)
     };
     Ok(CallCode {
+        layout,
         _memory: image,
         entry,
         #[cfg(test)]

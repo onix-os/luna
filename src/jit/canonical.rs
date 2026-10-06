@@ -83,7 +83,7 @@ impl Program {
             returns: count.to_constant().unwrap(),
         };
         let origin = memory.clone();
-        let code = super::backend::calls::compile(
+        let code = super::backend::calls::compile_numeric(
             &plan,
             Hooks { enter, leave },
             memory,
@@ -127,12 +127,17 @@ impl Program {
     }
 }
 
+enum Scratch<'a> {
+    Tagged(&'a mut [MaybeUninit<Slot>; 256]),
+    Numeric(abi::Numeric),
+}
+
 struct Session<'gc, 'host, 'borrow> {
     ctx: Context<'gc>,
     host: &'borrow mut ActivationHost<'gc, 'host>,
     site: &'borrow Site,
     frame: NativeFrame,
-    slots: &'borrow mut [MaybeUninit<Slot>; 256],
+    scratch: Scratch<'borrow>,
     cell: Slot,
     view: leaf::View,
     target: Option<(bool, usize)>,
@@ -144,11 +149,21 @@ struct Session<'gc, 'host, 'borrow> {
 }
 
 impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
+    #[cfg(test)]
     fn new(
         ctx: Context<'gc>,
         host: &'borrow mut ActivationHost<'gc, 'host>,
         site: &'borrow Site,
         slots: &'borrow mut [MaybeUninit<Slot>; 256],
+    ) -> Self {
+        Self::with_scratch(ctx, host, site, Scratch::Tagged(slots))
+    }
+
+    fn with_scratch(
+        ctx: Context<'gc>,
+        host: &'borrow mut ActivationHost<'gc, 'host>,
+        site: &'borrow Site,
+        scratch: Scratch<'borrow>,
     ) -> Self {
         let nil = Slot::from_value(Value::Nil);
         Self {
@@ -160,7 +175,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
                 view: std::ptr::null_mut(),
                 exit: Exit::default(),
             },
-            slots,
+            scratch,
             cell: nil,
             view: leaf::View {
                 version: leaf::VERSION,
@@ -320,11 +335,39 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             if !matches!(value, Value::Integer(_)) {
                 return None;
             }
-            for (slot, value) in self.slots[..site.registers]
-                .iter_mut()
-                .zip(registers.stack_frame.iter().copied())
-            {
-                slot.write(Slot::from_value(value));
+            match &mut self.scratch {
+                Scratch::Tagged(slots) => {
+                    for (slot, value) in slots[..site.registers]
+                        .iter_mut()
+                        .zip(registers.stack_frame.iter().copied())
+                    {
+                        slot.write(Slot::from_value(value));
+                    }
+                }
+                Scratch::Numeric(lanes) => {
+                    let Value::Integer(cell) = value else {
+                        return None;
+                    };
+                    let right = match site.pattern.right {
+                        Operand::Register(register) if register != site.pattern.read => {
+                            let Value::Integer(right) = registers
+                                .stack_frame
+                                .get(usize::from(register.0))
+                                .copied()?
+                            else {
+                                return None;
+                            };
+                            right
+                        }
+                        _ => cell,
+                    };
+                    *lanes = abi::Numeric {
+                        cell,
+                        right,
+                        read: 0,
+                        result: 0,
+                    };
+                }
             }
             Some((target, Slot::from_value(value)))
         });
@@ -333,12 +376,20 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
         };
         self.target = Some(target);
         self.cell = cell;
-        self.view.cell = if target.0 {
-            std::ptr::addr_of_mut!(self.cell)
-        } else {
-            self.slots[target.1].as_mut_ptr()
-        };
-        self.frame.slots = self.slots.as_mut_ptr().cast();
+        match &mut self.scratch {
+            Scratch::Tagged(slots) => {
+                self.view.cell = if target.0 {
+                    std::ptr::addr_of_mut!(self.cell)
+                } else {
+                    slots[target.1].as_mut_ptr()
+                };
+                self.frame.slots = slots.as_mut_ptr().cast();
+            }
+            Scratch::Numeric(lanes) => {
+                self.frame.slots = std::ptr::from_mut(lanes).cast();
+                self.view.cell = self.frame.slots;
+            }
+        }
         self.frame.view = std::ptr::addr_of_mut!(self.view);
         std::ptr::addr_of_mut!(self.frame)
     }
@@ -350,21 +401,28 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             (3, u32::from(self.site.start.0), 1, 0)
         );
         let (upper, index) = self.target.unwrap();
-        let cell = if upper {
-            std::ptr::addr_of_mut!(self.cell)
-        } else {
-            self.slots[index].as_mut_ptr()
+        let (cell, slots) = match &mut self.scratch {
+            Scratch::Tagged(slots) => {
+                let cell = if upper {
+                    std::ptr::addr_of_mut!(self.cell)
+                } else {
+                    slots[index].as_mut_ptr()
+                };
+                (cell, slots.as_mut_ptr().cast())
+            }
+            Scratch::Numeric(lanes) => {
+                let pointer = std::ptr::from_mut(lanes).cast();
+                (pointer, pointer)
+            }
         };
         assert_eq!(self.view.cell, cell);
         assert_eq!(self.view.version, leaf::VERSION);
         assert!(self.view.reads <= 1 && self.view.writes <= 1);
         assert_eq!(self.view.dirty, u64::from(self.view.writes));
-        assert_eq!(self.frame.slots, self.slots.as_mut_ptr().cast());
+        assert_eq!(self.frame.slots, slots);
         assert!(self.frame.exit.pc <= 3 && self.frame.exit.instructions <= 3);
         let ctx = self.ctx;
         let site = self.site;
-        let cell = unsafe { cell.read() };
-        assert_eq!(cell.tag, abi::INTEGER);
         self.host.with_registers(|closure, mut registers| {
             assert_eq!(
                 ctx.jit_registry()
@@ -374,16 +432,38 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             );
             assert_eq!(*registers.pc, 0);
             assert!(registers.projection_read(upper, index).is_some());
-            // Enter initializes the entire prefix before publishing the native frame.
-            let slots = unsafe {
-                std::slice::from_raw_parts(self.slots.as_ptr().cast::<Slot>(), site.registers)
-            };
-            assert!(slots.iter().all(|slot| slot.tag <= abi::REFERENCE));
-            for (slot, dest) in slots.iter().copied().zip(registers.stack_frame.iter_mut()) {
-                slot.write_back(dest);
-            }
-            if upper && self.view.writes != 0 {
-                registers.projection_write(true, index, cell.value(Value::Nil));
+            match &self.scratch {
+                Scratch::Tagged(slots) => {
+                    let cell = unsafe { cell.read() };
+                    assert_eq!(cell.tag, abi::INTEGER);
+                    // Enter initializes the prefix before publishing the native frame.
+                    let slots = unsafe {
+                        std::slice::from_raw_parts(slots.as_ptr().cast::<Slot>(), site.registers)
+                    };
+                    assert!(slots.iter().all(|slot| slot.tag <= abi::REFERENCE));
+                    for (slot, dest) in slots.iter().copied().zip(registers.stack_frame.iter_mut())
+                    {
+                        slot.write_back(dest);
+                    }
+                    if upper && self.view.writes != 0 {
+                        registers.projection_write(true, index, cell.value(Value::Nil));
+                    }
+                }
+                Scratch::Numeric(lanes) => {
+                    assert!(matches!(
+                        (self.frame.exit.pc, self.frame.exit.instructions),
+                        (0, 0) | (3, 3)
+                    ));
+                    let completed = u32::from(self.frame.exit.instructions == 3);
+                    assert_eq!((self.view.reads, self.view.writes), (completed, completed));
+                    if completed != 0 {
+                        registers.stack_frame[usize::from(site.pattern.read.0)] =
+                            Value::Integer(lanes.read);
+                        registers.stack_frame[usize::from(site.pattern.result.0)] =
+                            Value::Integer(lanes.result);
+                        registers.projection_write(upper, index, Value::Integer(lanes.cell));
+                    }
+                }
             }
             *registers.pc = self.frame.exit.pc as usize;
         });
@@ -489,8 +569,51 @@ fn invoke_result<'gc>(
     budget: u32,
     prefix: u32,
 ) -> Option<super::PairOutcome> {
+    if code.layout == super::backend::calls::FrameLayout::Numeric {
+        return invoke_scratch(
+            ctx,
+            host,
+            site,
+            code,
+            budget,
+            prefix,
+            Scratch::Numeric(abi::Numeric::default()),
+        );
+    }
+    invoke_tagged(ctx, host, site, code, budget, prefix)
+}
+
+#[inline(never)]
+fn invoke_tagged<'gc>(
+    ctx: Context<'gc>,
+    host: &mut ActivationHost<'gc, '_>,
+    site: &Site,
+    code: &CallCode,
+    budget: u32,
+    prefix: u32,
+) -> Option<super::PairOutcome> {
     let mut scratch = [MaybeUninit::uninit(); 256];
-    let mut session = Session::new(ctx, host, site, &mut scratch);
+    invoke_scratch(
+        ctx,
+        host,
+        site,
+        code,
+        budget,
+        prefix,
+        Scratch::Tagged(&mut scratch),
+    )
+}
+
+fn invoke_scratch<'gc>(
+    ctx: Context<'gc>,
+    host: &mut ActivationHost<'gc, '_>,
+    site: &Site,
+    code: &CallCode,
+    budget: u32,
+    prefix: u32,
+    scratch: Scratch<'_>,
+) -> Option<super::PairOutcome> {
+    let mut session = Session::with_scratch(ctx, host, site, scratch);
     session.prefix = prefix;
     if !session.preflight(budget) {
         return None;
