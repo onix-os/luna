@@ -27,7 +27,7 @@ use crate::opcode::{Operation, RCIndex};
 
 #[cfg(not(miri))]
 pub(super) mod calls;
-#[cfg(all(test, not(miri)))]
+#[cfg(not(miri))]
 pub(super) mod region;
 
 struct Memory {
@@ -200,7 +200,6 @@ pub(super) struct Code {
     entry: Entry,
     #[cfg(test)]
     byte_len: usize,
-    #[cfg(test)]
     pub(super) relocations: usize,
     pub registers: usize,
     pub entries: BudgetVec<bool, BudgetAllocator>,
@@ -218,7 +217,7 @@ pub(super) struct Code {
 }
 
 impl Code {
-    #[cfg(all(test, not(miri)))]
+    #[cfg(not(miri))]
     pub(super) fn linked_entry(&self) -> Entry {
         self.entry
     }
@@ -443,7 +442,7 @@ pub(super) fn compile_in(
         work,
         Selection {
             projected: false,
-            #[cfg(all(test, not(miri)))]
+            #[cfg(not(miri))]
             scoped_helpers: false,
             #[cfg(test)]
             leaf: false,
@@ -630,7 +629,7 @@ fn compile_leaf_pair_selected(
 
 struct Selection {
     projected: bool,
-    #[cfg(all(test, not(miri)))]
+    #[cfg(not(miri))]
     scoped_helpers: bool,
     #[cfg(test)]
     leaf: bool,
@@ -642,7 +641,7 @@ struct Selection {
     failure: Failure,
 }
 
-#[cfg(all(test, not(miri)))]
+#[cfg(not(miri))]
 pub(super) fn compile_scoped_in(
     snapshot: &Snapshot,
     total: MappingCounter,
@@ -659,9 +658,13 @@ pub(super) fn compile_scoped_in(
         Selection {
             projected: false,
             scoped_helpers: true,
+            #[cfg(test)]
             leaf: false,
+            #[cfg(test)]
             cell_kernel: false,
+            #[cfg(test)]
             integer_activation: false,
+            #[cfg(test)]
             failure: Failure::None,
         },
     )
@@ -739,7 +742,7 @@ fn compile_selected(
         ));
     }
     let helper_symbols = helpers::SYMBOLS;
-    #[cfg(all(test, not(miri)))]
+    #[cfg(not(miri))]
     let helper_symbols = if selection.scoped_helpers {
         super::scoped_helpers::SYMBOLS
     } else {
@@ -1501,7 +1504,6 @@ fn compile_selected(
         entry,
         #[cfg(test)]
         byte_len,
-        #[cfg(test)]
         relocations,
         registers: snapshot.registers,
         entries,

@@ -11,6 +11,337 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Operand conversion trial: native gains, disabled regressions — 2026-10-06
+
+The actual table profile identifies a separate `Frame::operand` conversion
+with a caller-provided `Value` return slot. Its assembly already loads canonical
+payloads only for reference operands, so a proposed lazy-load rewrite would
+not remove eager scalar loads. An isolated `#[inline(always)]` trial instead
+exposes the conversion to its helper callers without changing helpers, guards,
+ABI, ownership, panic handling, frame layout or accounting.
+
+Table instructions fall **53,169,450 → 51,384,542** (3.36%), reads by **7.93%**
+and writes by **6.54%**. Six alternating original-gate windows then demonstrate
+native gains: median direct control/candidate ratios **1.1403** for tables and
+**1.0962** for callbacks, with all six direct ratios above one. Table Off/Auto
+ratios improve from **1.0130–1.1120** to **1.2224–1.3143**, passing three of six
+original table checks. All compared execution counters remain identical.
+
+**This forced-inline revision is not accepted.** Shipping compiled-Off table
+ratios rise to **1.0570–1.0731**, failing all six controls; direct disabled
+table/upvalue median gains are **0.9768/0.9728** (less than one means slower).
+Speed disabled integer, float and callback costs also regress. Both no-feature
+binaries are byte-identical to production controls. All **36** aggregate native
+and disabled commands fail; collection success does not mean gate acceptance.
+
+GNU Auto checks pass **1,278 executions / 82 suites** (six ignores), focused
+GNU and musl each pass **35 executions**, and Miri passes **13 tests**. Frozen
+source/binaries, full profiles, raw windows, external-contention telemetry and
+the 540-row report remain under `helper-operand-inline-*` in
+`target/jit-evidence/short-slice-performance/`. Large numeric timing variation
+that also appears in Off is not claimed as a native gain.
+
+A separately frozen ordinary `#[inline]` hint is being evaluated to let the
+optimizer decline expansion in size-oriented builds. It is not yet retained,
+and does not add profile-specific cfg, a feature or a build script. Original
+thresholds and every open performance/resource/platform/release gate remain.
+
+#### Actual acceptance-workload profiling — 2026-10-06
+
+`7254b87` adds `make jit-bench-profile-run`, a run-only diagnostic for an
+immutable `JIT_BENCH_BINARY`. It collects `Executor::step` for eleven samples
+plus two warmups, validates the selected case/mode report and positive collected
+instructions, and verifies artifact hashes. Invalid cases/modes, missing
+binaries and unrelated executables are rejected. It does not run acceptance
+thresholds under the profiler or rebuild the input artifact.
+
+Six Off/Auto profiles use the actual `jit_bench` upvalue, callback and table
+workloads, not the feature-cost worker. Collected instruction totals are:
+
+| Case | Compiled Off | Auto |
+| --- | ---: | ---: |
+| Upvalue | 229,526,848 | 328,487,438 |
+| Rust callbacks | 107,551,301 | 135,344,264 |
+| Table | 57,620,951 | 53,169,450 |
+
+Upvalue exclusive self-cost is **15.70%** in canonical leave, **15.17%** in
+the region boundary and **9.42%** in admitted invocation. Callback costs differ:
+VM slice **16.91%**, executor **16.73%**, ordinary native invocation **14.61%**.
+Table profiles instead attribute **26.96%** to generated code and substantial
+work to table helpers and operand decoding. Function self-cost includes its
+body; generic host adapters must not be labelled pure adapter overhead.
+
+Decoded per-instruction costs reproduce both boundary-function annotation
+totals exactly, excluding inclusive call records. In this binary, the callee
+registry-validation range contributes **3.49%** of upvalue instructions,
+callee tag scan/materialization **2.09%**, and caller materialization **4.76%**.
+These binary-specific ranges include adjacent setup/checks. They are not
+hardware timings or justification to resurrect rejected cache/writeback trials.
+
+The symbol build and its derived stripped copy have byte-identical `.text`;
+the older production benchmark does not (its text is sixteen bytes shorter).
+Three alternating old/matched control windows preserve all compared execution
+counters, but all **18** original paired case checks still fail. Large table
+timing variation also appears in Off, so it is not a native-specific gain.
+A repeated upvalue profile records **328,540,243** instructions, retaining the
+small variation instead of asserting determinism. These diagnostic controls
+do not replace the full nine-case and speed/shipping acceptance campaigns.
+
+Evidence, hashes, exact assembly/counts, raw timings, telemetry and refusal
+checks are retained under
+`target/jit-evidence/short-slice-performance/acceptance-bench-profile/`.
+**No runtime change or fixed regression is claimed.** Original semantics,
+physical-frame/lifetime/resource requirements and every open acceptance gate
+remain in force.
+
+#### Rejected direct-helper ABI-hop removal — 2026-10-06
+
+The scoped helper bridge was experimentally changed to call a shared Rust
+implementation directly instead of constructing an opaque host and entering the
+ordinary C helper. Both panic boundaries, projection handling, materialization,
+counts and native coverage were preserved. **The experiment is removed**:
+the published runtime remains `7b92c98`, not this slower candidate.
+
+The symbol-bearing speed profile executes **127,755,818** upvalue instructions
+versus **126,645,129** for production; the compiler outlines the shared
+catch-unwind closure. Seven alternating diagnostic worker windows nevertheless
+show six apparent Auto gains. Those symbol-worker results do not transfer to
+the original benchmark executable or establish acceptance.
+
+Six alternating windows of the unchanged nine-case native gate and both
+speed/shipping compiled-Off gates then run **36 checked commands**, with eleven
+paired samples and twenty iterations for disabled controls. All aggregate gates
+fail. Upvalue Auto regresses in every window: direct control/candidate ratios
+**0.9829–0.9975**, median **0.9938**. Native work remains exactly **778,484**,
+with **259,491 entries**, **4,357 region entries** and **129,299 fragments**.
+The compared execution counters match for every native-harness workload.
+
+Shipping disabled direct median control/candidate gains are **0.9326** for
+integer, **0.9310** for float, **0.9470** for table and **0.9453** for upvalue
+(greater than one means faster). Candidate shipping upvalue/no-feature
+ratios are **1.1977–1.2164**, above the unchanged **1.05** limit. Native table,
+metamethod and allocation timings also regress. Narrow diagnostic gains are
+not a reason to retain a change that worsens the actual consumers.
+
+Candidate checks pass **1,278 GNU Auto executions / 82 suites** (six ignores),
+**394 GNU baseline executions / 81 suites** (two ignores), **81 focused musl
+executions / nine suites** (two ignores), another **81 focused GNU executions**
+(two ignores), **13 Miri tests**, and **577 real i686-musl all-feature Auto
+executions / 82 suites** (no ignores). Four native production integration
+executions pass Memcheck with zero errors or definite/indirect loss; each
+process's possible 48-byte harness TLS allocation remains visible. An initial
+i686-gnu check used the wrong shell/target and failed; the corrected fallback
+evidence uses the declared `.#fallback` shell and i686-musl target.
+
+Source patches/archives, immutable artifacts and hashes, profiles, raw windows,
+contention telemetry and the 540-row report remain under
+`target/jit-evidence/short-slice-performance/scoped-direct-helper-*`.
+No owned build, test or profile overlapped timings; unrelated applications
+were left running. Collection exit zero means collection/hash verification
+completed, not that its benchmark gates passed. Original performance,
+resource, platform and release acceptance remain open.
+Both helper files now match the published source exactly; restored checks pass
+**23 executions / four suites**, with no failures or ignores, plus formatting
+and all-target JIT checking.
+
+#### Rejected adapter and shared-accounting trials — 2026-10-06
+
+Two measured trials were removed; the production runtime remains the
+**`7b92c98`** implementation below. Neither trial fixes the original
+performance regressions or closes a plan gate.
+
+Forcing the activation host's `with_frame` and `with_registers` adapters to
+inline passes focused correctness checks but only reduces upvalue Auto
+Callgrind instructions from **126,645,129 to 126,137,225** (0.40%). Five
+alternating 100-iteration diagnostic batches give direct Auto ratios
+**0.9977, 0.9596, 0.9815, 0.9862, 1.0046** against the production control:
+four regress. Each Auto batch preserves **6,119,107 native instructions**;
+Off remains zero. Both attributes were removed. This screening diagnostic
+is not the original acceptance harness and does not substitute for it.
+Evidence is retained under `native-region-adapter-*` in
+`target/jit-evidence/short-slice-performance/`.
+
+The second trial shares the VM's logical-work accumulator with its unwind
+statistics, subtracting native work when publishing dispatch totals and
+excluding uncharged terminal opcodes only from successful fuel reports.
+It preserves prefix, hook, handoff, mock, error and panic accounting in the
+tested corpus, without splitting the VM or removing statistics. Candidate
+validation passes **1,764 GNU executions / 175 suites** (ten ignores),
+**111 focused musl executions / 13 suites** (two ignores), **2,101 real i686
+fallback executions / 327 suites** (two ignores), nine Miri statistics tests
+and four native production integration executions under Memcheck. All have
+zero failures; Memcheck has no errors or definite/indirect loss, while the
+possible 48-byte harness TLS allocations remain visible. An initial fixture
+compile error is retained separately, not counted as passing evidence.
+
+Six alternating windows then compare immutable control/candidate binaries
+using the unchanged nine-case opt3 native gate and both speed/shipping
+compiled-Off gates: eleven paired samples, twenty iterations for disabled
+controls, **36 checked commands** total. All aggregate commands fail. The
+median direct control/candidate timing ratios for selected disabled cases
+show why the candidate was rejected (greater than one means faster):
+
+| Compiled-Off case | Speed profile | Shipping profile |
+| --- | ---: | ---: |
+| Integer | 1.0457 | 0.8455 |
+| Float | 1.0345 | 0.9417 |
+| Table | 0.9985 | 0.9138 |
+| Upvalue | 0.9924 | 0.9214 |
+
+Shipping candidate/no-feature overhead ratios are **1.1673–1.1983** for
+integer, **1.1292–1.1476** for table and **1.2228–1.2415** for upvalue,
+all above the unchanged 1.05 limit. Upvalue Auto also becomes slightly slower
+in every native timing window (direct ratios **0.9871–0.9983**), with native
+coverage unchanged. Large early numeric timing variation moves with Off
+controls and is not claimed as a stable native gain.
+
+Exact-source symbol-bearing profiles, collecting two warmups plus three
+measured workloads, show that instruction reduction alone is insufficient:
+
+| Integer compiled-Off profile | Control instructions | Candidate instructions |
+| --- | ---: | ---: |
+| Speed | 26,890,710 | 26,487,505 |
+| Shipping | 29,796,900 | 29,500,015 |
+
+Shipping gets slower despite about 1% fewer instructions. Its data reads rise
+from **8,887,200 to 8,990,370**, while writes fall from **4,693,000 to
+4,486,710**. These software profiles do not establish a hardware root cause;
+do not equate instruction count with wall time or bypass shipping validation.
+
+The complete source archive/patch, hashes, candidate checks, raw samples,
+contention telemetry, all nonzero gate exits and 540-row `summary.json` remain
+under `vm-work-accounting-*`. No owned build/test/profile overlapped timing;
+unrelated applications were left alone. Both runtime files and the trial-only
+guard tests were restored. The source manifest matches the published runtime;
+restored GNU checks pass **51 executions / eight suites**, zero failures or
+ignores, plus formatting and all-target checking. Current production behavior
+and the original open performance/resource/platform/release obligations are
+unchanged. Subsequent work must explain the measured cost, not keep a narrow
+instruction-count win that regresses the shipped profile.
+
+#### Production caller regions and measured remaining costs — 2026-10-06
+
+**`302b2c3`** indexes installed regions by caller; **`7b92c98`** connects
+the region compiler/service and scoped execution path to production Auto.
+Both are committed and pushed. This supersedes the test-only integration
+status of the checkpoints below. **The full plan and performance acceptance
+remain incomplete.**
+
+Successful hot pairs queue optional promotions under the existing shared
+capacity, retry and allocation policies. Service prepares an owned snapshot
+inside the arena, compiles outside it and installs only against live matching
+dependencies. The activation host selects an indexed caller and supported
+entry PC before leasing. A scoped owner covers native execution, canonical
+fallback, physical calls/returns and unwind; no VM, Lua-frame, PairScope or
+activation-host layout changes are introduced. Unsupported entry PCs retain
+the ordinary path without a speculative lease or recency change.
+
+The new `make jit-regions` integration target executes the non-test library
+with both `jit` and `jit,async`. Five workload shapes compare exact Off/Auto
+results and interrupted fuel/dispatch traces at three fuel budgets; native
+pair coverage, compilation outside steps, collection and cache release are
+asserted. Nested callbacks and unwind release ownership and allow later
+execution. Public `native_region_entries` / `native_region_fragments`
+counters prove actual region execution. A callback fixture whose return PC
+is unsupported Mod correctly ends after one fragment; four other shapes
+require multi-fragment execution. This distinction is not a lowered native
+coverage threshold.
+
+Final-source validation:
+- GNU focused: **160** passing executions, two ignored diagnostics.
+- GNU full Auto workspace: **1,257** passing executions in **81** suites,
+  six ignores; all-target checking and formatting pass.
+- Musl focused: **134** passing executions, two ignores.
+- Real i686 unsupported-target fallback: **2,095** passing executions in
+  **327** repeated suites, two ignores, including baseline/Off/Auto/Force.
+- Focused Miri: four runtime-owner and four scoped-helper tests pass;
+  no generated machine code executes under Miri.
+- GNU native Memcheck: **62** passing executions in seven suites, two
+  ignores, zero memory errors or definite/indirect loss. Unsuppressed
+  possible 48-byte test-harness TLS allocations remain visible.
+
+Immutable controls from `302b2c3` and candidate source matching `7b92c98`
+are retained under
+`target/jit-evidence/short-slice-performance/native-region-production-{control,candidate}`.
+Source archives, manifests, build logs, binary hashes and source verification
+are retained. Three alternating control/candidate windows run all nine
+original opt-level-3 paired workloads with eleven samples. The six checked
+runs **all fail the original aggregate gate**:
+
+| Workload | Control Off/Auto range | Candidate Off/Auto range | Candidate passes |
+| --- | ---: | ---: | ---: |
+| integer_loop | 2.2186–2.6289 | 2.1591–2.2717 | 3/3 |
+| float_loop | 3.7951–4.4814 | 3.6986–4.2109 | 3/3 |
+| array_table | 1.0750–1.1426 | 1.0184–1.0614 | 0/3 |
+| closure_upvalue | 0.5429–0.5462 | 0.6613–0.6634 | 0/3 |
+| polymorphic_metamethod | 0.7829–0.7993 | 0.7800–0.7984 | 0/3 |
+| rust_callbacks | 0.6761–0.6940 | 0.6747–0.6896 | 0/3 |
+| allocation_gc | 0.8642–0.8821 | 0.8728–0.8826 | 3/3 |
+| oslo_predicate | 0.8882–0.9149 | 0.8807–0.8979 | unscored |
+| cold_config | 1.0046–1.0092 | 0.9614–1.0007 | 3/3 |
+
+Upvalue Auto takes **0.952–0.957 ms**, a direct **1.2009–1.2075x**
+speedup over the previous binary, while its Off control changes by less than
+about 1.4%. This is a measured improvement, but Auto remains slower than Off
+and well below the unchanged **1.25x** target. All three runs record
+**4,357 region entries**, **129,299 fragments** and **778,484 native
+instructions** for that workload, with no compilation failures or evictions.
+Callback direct Auto ratios are **0.9471–0.9890x**: this is not a callback
+fix. Early numeric cross-binary timings vary substantially along with Off,
+so their direct changes are not claimed as stable speedups.
+
+Twelve additional no-feature versus compiled-Off comparisons use the frozen
+speed/shipping artifacts, eleven samples and twenty iterations per workload.
+All twelve aggregate commands fail. Candidate compiled-Off/no-feature ranges
+and pass counts against the unchanged **1.05** maximum are:
+
+| Workload | Speed ratio | Passes | Shipping ratio | Passes |
+| --- | ---: | ---: | ---: | ---: |
+| integer_loop | 1.1440–1.1637 | 0/3 | 1.0010–1.0049 | 3/3 |
+| float_loop | 1.0327–1.0519 | 2/3 | 0.9719–0.9861 | 3/3 |
+| array_table | 1.0043–1.0124 | 3/3 | 1.0405–1.0494 | 3/3 |
+| closure_upvalue | 1.0191–1.0208 | 3/3 | 1.1421–1.1569 | 0/3 |
+| polymorphic_metamethod | 1.0850–1.0899 | 0/3 | 1.0401–1.0464 | 3/3 |
+| rust_callbacks | 1.0895–1.0988 | 0/3 | 1.0594–1.0622 | 0/3 |
+| allocation_gc | 1.0184–1.0193 | 3/3 | 1.0081–1.0134 | 3/3 |
+| oslo_predicate | 0.9999–1.0213 | 3/3 | 1.0308–1.0360 | 3/3 |
+| cold_config | 1.0257–1.0420 | 3/3 | 1.0324–1.0459 | 3/3 |
+
+This includes **14.21–15.69% shipping upvalue overhead** and persistent
+callback overhead. Adding production execution does not settle the disabled
+cost contract. Text size changes from **6,760,307 to 6,851,227 bytes** for
+speed and **4,353,787 to 4,423,755 bytes** for shipping JIT binaries;
+no-feature text remains unchanged. These are footprint observations, not
+size acceptance.
+
+The campaign retains all eighteen nonzero gate exits, full samples,
+before/after CPU pressure/process telemetry and hash verification in
+`native-region-production-timing/`; `summary.json` records all 270
+relevant report rows. No owned compilation, tests or profiling overlaps
+these timings, and unrelated applications are not stopped. A zero exit
+from the collection script means evidence collection completed, not that
+the individual acceptance gates passed.
+
+Subsequent Callgrind runs use separately built, exact-source unstripped opt3
+binaries, not the stripped timing artifacts. Collection covers **two warmups
+plus three measured iterations**, hence five executed workloads:
+
+| Profile | No-feature instructions | JIT instructions |
+| --- | ---: | ---: |
+| Upvalue Auto | 76,923,732 | 126,645,129 |
+| Callback Auto | 37,862,335 | 51,959,353 |
+| Integer Off | 25,235,860 | 26,890,710 |
+
+Canonical leave, the region boundary and admitted pair invocation account
+for about **15.56%, 15.00% and 9.31%** of upvalue Auto instructions.
+VM/executor/native invocation dominate callbacks; the VM slice accounts
+for **85.27%** of integer compiled-Off instructions. These locate the next
+work; they do not justify removing guards, physical frames, native coverage
+or fallback behavior. Callback/table/metamethod performance, compiled-Off
+overhead, current full-platform/resource/release acceptance and the original
+plan's remaining obligations stay open.
+
+
 #### Scoped paired fallback and secondary call sites — 2026-10-06
 
 Source commits **`651bbc3`** and **`d685d49`** preserve paired native calls

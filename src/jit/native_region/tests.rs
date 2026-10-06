@@ -32,7 +32,7 @@ pub(super) fn fixture_source(
     });
 }
 
-fn build_region<'gc>(ctx: Context<'gc>, closure: Closure<'gc>) -> (Region, usize) {
+pub(super) fn build_region<'gc>(ctx: Context<'gc>, closure: Closure<'gc>) -> (Region, usize) {
     let (pair, start) = build_dependencies(ctx, closure);
     (Region::new(ctx, closure, pair).unwrap(), start)
 }

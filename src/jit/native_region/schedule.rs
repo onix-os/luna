@@ -139,6 +139,7 @@ impl Schedule {
 }
 
 impl Runtime {
+    #[cfg(test)]
     pub(crate) fn test_region_promotions(&self, enabled: bool) {
         let mut manager = self.0.borrow_mut();
         let allocator = manager.metadata.clone();

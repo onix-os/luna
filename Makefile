@@ -25,6 +25,8 @@ CG_DIR ?= target/jit-evidence/coverage-guided
 CG_INPUT ?=
 JIT_BENCH_OPT ?= 3
 JIT_BENCH_BINARY ?= $(TOP_DIR)/target/$(if $(TARGET),$(TARGET)/,)release/examples/jit_bench
+JIT_ASSEMBLY_BINARY ?= target/release/examples/jit_bench
+JIT_ASSEMBLY_DIR ?= target/jit-evidence
 JIT_METRICS_BINARY ?= $(TOP_DIR)/target/$(if $(TARGET),$(TARGET)/,)release/examples/jit_metrics
 JIT_DUMP_DIR ?= target/jit-evidence/native/$(if $(TARGET),$(TARGET),host)
 SIZE_PROFILE ?= shipping
@@ -33,6 +35,7 @@ COST_ITERATIONS ?= 20
 COST_STRIP ?= true
 PROFILE_CASE ?= float_loop
 PROFILE_MODE ?= off
+BENCH_PROFILE_DIR ?= target/jit-evidence/bench-profile/$(PROFILE_CASE)/$(PROFILE_MODE)
 COST_DIR := target/jit-evidence/feature-cost/$(SIZE_PROFILE)$(if $(TARGET),-$(TARGET),)$(if $(filter false,$(COST_STRIP)),-symbols,)
 COST_PROFILE_DIR := $(COST_DIR)/callgrind/$(PROFILE_CASE)/$(PROFILE_MODE)
 COST_RELEASE_DIR := target/$(if $(TARGET),$(TARGET)/,)release/examples
@@ -144,6 +147,22 @@ jit-bench-run:
 jit-bench: jit-bench-build
 	@$(MAKE) --no-print-directory jit-bench-run
 
+.PHONY: jit-bench-profile-run
+jit-bench-profile-run:
+	@case '$(PROFILE_CASE)' in integer_loop|float_loop|array_table|closure_upvalue|polymorphic_metamethod|rust_callbacks|allocation_gc|oslo_predicate) ;; *) echo 'Unknown warm benchmark case' >&2; exit 2;; esac
+	@case '$(PROFILE_MODE)' in off|auto) ;; *) echo 'PROFILE_MODE must be off|auto' >&2; exit 2;; esac
+	@test -x '$(JIT_BENCH_BINARY)'
+	@mkdir -p '$(BENCH_PROFILE_DIR)'
+	@{ rustc -vV; $(CARGO) --version; uname -sm; } > '$(BENCH_PROFILE_DIR)/environment.log'
+	@sha256sum '$(JIT_BENCH_BINARY)' > '$(BENCH_PROFILE_DIR)/binary-sha256.log'
+	@valgrind --version > '$(BENCH_PROFILE_DIR)/profiler.log'
+	@printf 'case=%s\nmode=%s\nsamples=11\nwarmups=2\ncollection=*Executor>::step\n' '$(PROFILE_CASE)' '$(PROFILE_MODE)' >> '$(BENCH_PROFILE_DIR)/profiler.log'
+	@valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*Executor>::step' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file='$(BENCH_PROFILE_DIR)/profile.callgrind' '$(JIT_BENCH_BINARY)' --mode '$(PROFILE_MODE)' --case '$(PROFILE_CASE)' --samples 11 > '$(BENCH_PROFILE_DIR)/run.log' 2>&1
+	@grep -Eq '^summary: [1-9][0-9]*' '$(BENCH_PROFILE_DIR)/profile.callgrind'
+	@grep -Eq '^case=$(PROFILE_CASE) mode=$(PROFILE_MODE) samples=11 ' '$(BENCH_PROFILE_DIR)/run.log'
+	@callgrind_annotate --inclusive=no --threshold=99 '$(BENCH_PROFILE_DIR)/profile.callgrind' > '$(BENCH_PROFILE_DIR)/annotation.log'
+	@sha256sum --check '$(BENCH_PROFILE_DIR)/binary-sha256.log'
+
 jit-metrics-build:
 	@mkdir -p target/jit-evidence/metrics
 	@printf 'opt_level=3\nlto=true\ncodegen_units=1\nstrip=true\nfeatures=jit,async\nRUSTFLAGS=%s\nCARGO_ENCODED_RUSTFLAGS=%s\n' "$${RUSTFLAGS:-}" "$${CARGO_ENCODED_RUSTFLAGS:-}" > target/jit-evidence/metrics/build-configuration.log
@@ -252,10 +271,16 @@ jit-profile: jit-profile-build
 	@perf record -g -o target/jit-evidence/perf.data -- target/release/examples/jit_bench --mode auto --samples 1000 --case closure_upvalue
 	@perf report --stdio -i target/jit-evidence/perf.data > target/jit-evidence/perf-report.log
 
+.PHONY: jit-rust-assembly-run
 jit-rust-assembly: jit-profile-build
-	@mkdir -p target/jit-evidence
-	@set -o pipefail; objdump -Cd target/release/examples/jit_bench | awk '/<luna::jit::Runtime::(run|lookup)>:|<<luna::jit::Runtime>::invoke.*>:|<luna::jit::helpers::call.*>:|<luna::thread::vm::run_vm.*>:/ { emit=1 } emit { print } /^$$/ { emit=0 }' > target/jit-evidence/rust-assembly.log
-	@test -s target/jit-evidence/rust-assembly.log
+	@$(MAKE) --no-print-directory jit-rust-assembly-run
+
+jit-rust-assembly-run:
+	@test -x '$(JIT_ASSEMBLY_BINARY)'
+	@mkdir -p '$(JIT_ASSEMBLY_DIR)'
+	@sha256sum '$(JIT_ASSEMBLY_BINARY)' > '$(JIT_ASSEMBLY_DIR)/binary-sha256.log'
+	@set -o pipefail; objdump -Cd '$(JIT_ASSEMBLY_BINARY)' | awk '/<luna::jit::Runtime::(run|lookup)>:|<<luna::jit::Runtime>::invoke.*>:|<luna::jit::helpers::call.*>:|<luna::thread::vm::run_vm.*>:/ { emit=1 } emit { print } /^$$/ { emit=0 }' > '$(JIT_ASSEMBLY_DIR)/rust-assembly.log'
+	@test -s '$(JIT_ASSEMBLY_DIR)/rust-assembly.log'
 
 jit-disassembly:
 	@case "$$(uname -sm)" in 'Linux x86_64') ;; 'Linux aarch64') ;; *) echo 'Native diagnostics require supported Linux host'; exit 2;; esac
@@ -330,9 +355,15 @@ jit-native-region:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::region::tests $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::native_region::tests $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::native_region::resume::tests $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::native_region::cache::tests $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical::tests::native_region_ $(ARGS)
 
 .PHONY: jit-native-region-cost jit-native-region-cost-run
+.PHONY: jit-regions
+jit-regions:
+	@$(CARGO) test --locked -p luna --features jit --test jit_regions $(TARGET_ARG) $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit,async --test jit_regions $(TARGET_ARG) $(ARGS)
+
 jit-native-region-cost:
 	@CARGO_PROFILE_RELEASE_OPT_LEVEL=$(JIT_BENCH_OPT) $(CARGO) test --locked --release -p luna --features jit --lib $(TARGET_ARG) jit::native_region::tests::cost::paired_region_cost -- --ignored --exact --nocapture --test-threads=1
 
@@ -1103,6 +1134,7 @@ help:
 	@echo "  jit-bench    Measure checked workloads (ARGS='--mode off --samples 11')"
 	@echo "  jit-bench-build Build the benchmark without timing"
 	@echo "  jit-bench-run Time an existing artifact (JIT_BENCH_BINARY=path)"
+	@echo "  jit-bench-profile-run Profile a frozen warm benchmark (PROFILE_CASE=... PROFILE_MODE=off|auto)"
 	@echo "  jit-metrics  Observe cold compilation, coverage and host slice costs"
 	@echo "  jit-metrics-build Build the separate scheduling metrics artifact"
 	@echo "  jit-metrics-run Measure an existing artifact (JIT_METRICS_BINARY=path)"
