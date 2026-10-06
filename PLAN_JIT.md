@@ -11,6 +11,26 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Resident failed-Return recovery — 2026-10-06
+
+A new generated-prefix/generated-callee regression reproduces a resume assertion
+in the **test-only** resident scheduler: failed canonical Return pops the callee
+without restoring the caller's full stack width. Matching caller identity alone
+does not make the shadow resumable. Errors now recover only the witnessed caller
+prefix and discard the shadow; successful outcomes and untouched declines retain
+the existing resume path. Panic outcomes also take one-way recovery.
+
+The widened-caller fixture preserves pending `p=99` and the callee's captured
+`n=17`, with exact frames/slots/open-upvalues/fuel/dispatch parity against forced
+Off execution. Native instruction deltas prove generated prefix and callee work;
+the pair lease count is unchanged. Runtime-ledger-backed compilation is used for
+the injected Return error. The red assertion and green result are retained as
+`resident-return-red-wide.log` and `resident-return-green.log` in short-slice
+evidence. Formatting and canonical/chain/pair/public-runtime/shadow checks pass
+**96 executions in five suites**, zero failures or ignores
+(`resident-return-focused.log`). Combined panic fixtures remain next; production
+routing, original performance gates and release acceptance are unchanged.
+
 #### Typed decoder inlining candidate — 2026-10-06
 
 **Retained working improvement, not full performance acceptance.** Original and

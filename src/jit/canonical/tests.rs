@@ -1311,6 +1311,167 @@ fn consumed_call_vm_error_is_returned_without_charging_an_unsuccessful_prefix() 
 }
 
 #[test]
+fn resident_return_error_recovers_pending_values_and_callee_effects() {
+    unsafe extern "C" fn faulty_enter(
+        data: *mut c_void,
+        pc: u64,
+        function: u32,
+        arguments: u32,
+    ) -> *mut NativeFrame {
+        let frame = unsafe { enter(data, pc, function, arguments) };
+        if !frame.is_null() {
+            unsafe { &mut *data.cast::<Session<'_, '_, '_>>() }
+                .host
+                .test_variable_stack();
+        }
+        frame
+    }
+
+    fixture(
+        b"local n=7 local p=10 local function f(v) n=n+v end p=99 n=12 f(5) local a,b,c,d,e=1,2,3,4,5 p=p+n return n,p,a,b,c,d,e",
+        |lua, closure, site, code| {
+            drop(code);
+            lua.set_jit_config(JitConfig {
+                mode: crate::JitMode::Auto,
+                ..JitConfig::default()
+            })
+            .unwrap();
+            lua.enter(|ctx| {
+                let prototype = ctx.fetch(&closure).prototype();
+                let (memory, metadata, limit, limits) = {
+                    let manager = ctx.jit().0.borrow();
+                    (
+                        manager.memory.clone(),
+                        manager.metadata.clone(),
+                        manager.config.max_code_bytes,
+                        work::Limits::from(&manager.config),
+                    )
+                };
+                ctx.jit()
+                    .compile(
+                        site.caller,
+                        Snapshot::new_in(&prototype, 4096, metadata.clone()).unwrap(),
+                    )
+                    .unwrap();
+                let caller_code = ctx.jit().lookup(site.caller).unwrap();
+                let start = prototype
+                    .opcodes
+                    .iter()
+                    .position(|op| matches!(op.decode(), Operation::Closure { .. }))
+                    .unwrap()
+                    + 1;
+                let caller = Snapshot::new_in(&prototype, 4096, metadata.clone()).unwrap();
+                let callee =
+                    Snapshot::new_in(&prototype.prototypes[0], 4096, metadata.clone()).unwrap();
+                let plan = Plan::new(&caller, &callee, site.pc, limits).unwrap();
+                let code = compile(
+                    &plan,
+                    Hooks {
+                        enter: faulty_enter,
+                        leave,
+                    },
+                    memory.clone(),
+                    limit,
+                    metadata.clone(),
+                    limits,
+                    backend::Failure::None,
+                    LinkFault::None,
+                )
+                .unwrap();
+                let pair = crate::jit::PreparedPair {
+                    program: crate::jit::owner::Shared::try_new(
+                        Program {
+                            site,
+                            code,
+                            origin: memory,
+                        },
+                        metadata,
+                    )
+                    .unwrap(),
+                };
+                let site = &pair.program.site;
+                assert!(start < site.pc);
+                let run = |native| {
+                    ctx.jit().0.borrow_mut().config.mode = crate::JitMode::Off;
+                    with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                        position(host, ctx, start);
+                        let before = stats(ctx);
+                        let native_before = ctx.jit().0.borrow().stats.native_instructions;
+                        let result = if native {
+                            ctx.jit().0.borrow_mut().config.mode = crate::JitMode::Auto;
+                            let mut shadow = Some(host.with_registers(|caller, registers| {
+                                crate::jit::caller_shadow::Shadow::<256>::capture(
+                                    caller, &registers,
+                                )
+                                .unwrap()
+                            }));
+                            let prefix = shadow
+                                .as_mut()
+                                .unwrap()
+                                .invoke(ctx, &caller_code, host, 64)
+                                .unwrap();
+                            assert_eq!(prefix as usize, site.pc - start);
+                            host.with_registers(|_, registers| {
+                                assert_eq!(*registers.pc, site.pc);
+                                assert!(matches!(registers.stack_frame[0], Value::Integer(7)));
+                                assert!(matches!(registers.stack_frame[1], Value::Integer(10)));
+                            });
+                            let leases = crate::jit::owner::Shared::strong_count(&pair.program);
+                            let mut recoveries = 0;
+                            let outcome = crate::jit::chains::shadow_pair(
+                                ctx,
+                                host,
+                                &pair,
+                                &mut shadow,
+                                64,
+                                prefix,
+                                &mut recoveries,
+                            )
+                            .unwrap();
+                            assert_eq!((outcome.calls, outcome.returns), (1, 1));
+                            assert_eq!(recoveries, 1);
+                            assert!(shadow.is_none());
+                            assert_eq!(
+                                crate::jit::owner::Shared::strong_count(&pair.program),
+                                leases
+                            );
+                            assert_eq!(
+                                ctx.jit().0.borrow().stats.native_instructions - native_before,
+                                u64::from(prefix + 3)
+                            );
+                            outcome.result
+                        } else {
+                            host.run(ctx, 1, 64, 4).result.unwrap();
+                            host.test_variable_stack();
+                            let result = host.run(ctx, 1, 64, 4).result;
+                            assert_eq!(
+                                ctx.jit().0.borrow().stats.native_instructions,
+                                native_before
+                            );
+                            result
+                        };
+                        assert!(matches!(
+                            result,
+                            Err(crate::thread::VMError::ExpectedVariableStack(false))
+                        ));
+                        assert!(ctx.jit().0.try_borrow_mut().is_ok());
+                        let trace = trace(ctx, host, before);
+                        (
+                            trace.frames,
+                            trace.slots,
+                            trace.open,
+                            trace.fuel,
+                            trace.dispatches,
+                        )
+                    })
+                };
+                assert_eq!(run(true), run(false));
+            });
+        },
+    );
+}
+
+#[test]
 fn generated_return_vm_error_preserves_canonical_effects_and_fuel() {
     unsafe extern "C" fn faulty_enter(
         data: *mut c_void,
