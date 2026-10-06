@@ -11,6 +11,55 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Bounded region promotion and service — 2026-10-06
+
+Source commit **`7b72705`** adds an explicitly enabled **test-only** promotion
+lane. Successful real native-pair invocations record hotness for their exact
+caller/callee/site key. A charged weak-key map and FIFO queue retain bounded
+attempts and participate in the existing shared `max_queue_entries` limit.
+Ordinary and pair requests retain service priority; one `service_jit` call
+processes at most one region request after those queues are empty.
+
+Preparation resolves weak prototypes inside the Lua arena, compilation runs
+outside the arena and VM step, and installation revalidates configuration and
+installed dependency identities. The existing service host-memory ceiling also
+applies. Successful installation increments the ordinary installation counter;
+resource failures and queue changes update existing diagnostics. Mapping quota
+refusal may evict one eligible LRU entry and retry once, within the per-key
+attempt limit. Separate dependency leases span failure, eviction and snapshot
+reconstruction so a retry cannot evict its own ordinary fallback or pair code.
+Other resource refusals do not trigger eviction.
+
+GC retirement removes weak promotion state. Clear/Off resets it; successful
+dependency replacement and ordinary/pair eviction cancel pending work without
+resetting attempts. Queue contraction clears removed flags, and empty/sparse
+storage joins the existing metadata release/compaction mechanisms. Failed queue
+allocation remains optional and recovers when metadata headroom returns.
+
+Eight new tests exercise actual public `Executor::step` observation followed by
+public `service_jit` installation, with no compilation/mapping inside the step;
+the serviced region then executes with exact Off trace/fuel/work parity. Other
+tests cover three-way queue capacity and priority, hotness/deduplication/shrink,
+snapshot/metadata/host refusal, actual mapping-pressure retry with pinned and
+unpinned peers, exhausted attempts, GC/clear/Off/replacement cancellation,
+ordinary eviction/requeue, and optional promotion-allocation failure.
+
+Final GNU and musl focused runs each pass **78 executions**, zero failures,
+two ignored diagnostics and no Rust warnings. GNU all-target JIT checking and
+the complete Auto workspace suite pass: **1,237 executions in eighty suites**,
+zero failures and six ignores. Native Memcheck passes all **40** backend/region/
+failure checks with zero errors or definite/indirect loss; possible 48-byte
+harness TLS allocations remain visible and unsuppressed. Exact source hashes
+match after all gates. Logs, source manifest and archive use
+`native-region-service-*` under short-slice performance evidence.
+
+This does **not** enable production selection. The region fallback still uses
+the withdrawn test-only `NativeResume` path described below. Blindly lifting its
+gates would repeat the production layout/resume regressions already measured.
+Production entry/resume isolation and selection, complete platform/release
+validation and the original performance gates remain open. No speedup is
+claimed from this service milestone.
+
 #### GC-free region compilation requests — 2026-10-06
 
 Region preparation now produces a **test-only**, GC-free `Request`: one charged
