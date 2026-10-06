@@ -11,6 +11,49 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### GC-free region compilation requests — 2026-10-06
+
+Region preparation now produces a **test-only**, GC-free `Request`: one charged
+caller snapshot, numeric source identity, full compilation configuration,
+allocator handles and exact ordinary/pair code leases. Preparation accepts a
+weak-registry-resolved prototype without constructing a closure. It retains
+neither a Lua closure nor a runtime owner. IR admission and scoped caller compilation reuse
+that snapshot; it is released before driver compilation. The new scoped-code
+compiler accepts the snapshot directly instead of taking another arena snapshot.
+
+Compilation takes a GC-free runtime reference and first checks the captured
+configuration, runtime provenance and installed dependency identities. A pending
+request cannot compile against obsolete limits after reconfiguration. Cache
+installation checks configuration again, as well as its existing exact-owner
+checks, before allocating a cache owner or advancing recency. Existing cache
+entries are not invalidated by an otherwise non-invalidating hotness change;
+the additional configuration check applies to pending installation.
+
+Six new tests exercise compilation and installation **outside `Lua::enter`**, an
+actual cached native run with exact Off trace/fuel/work parity, snapshot drop and
+allocation refusal, GC collection at both pending and compiled stages, stale
+configuration/retirement/clear/replaced dependencies, foreign runtime identity,
+and compiler resource failure cleanup. Failure cases include the driver's late
+relocation refusal after successful caller compilation; private mappings,
+metadata and snapshots are released while the original cache entry and its
+dependencies remain usable. Refused build/install admission does not advance
+cache recency or replace an unrelated live cache entry.
+
+Published source commit: **`93e0a96`**. Final GNU and musl focused runs each pass
+**70 executions**, zero failures, two ignored diagnostics and no Rust warnings.
+GNU all-target JIT checking and the complete Auto workspace suite pass:
+**1,229 executions in eighty suites**, zero failures and six ignores. Native
+Memcheck passes all **32** backend/region/failure checks with zero errors and
+zero definite/indirect loss; the possible 48-byte harness TLS allocation remains
+visible in each process, without suppression. Exact-revision logs, source hashes
+and archive are retained under `native-region-request-final-*` in short-slice
+performance evidence. All recorded source hashes match after these gates.
+
+The existing in-arena constructor remains a convenience wrapper for older
+test fixtures only. Production hotness/service scheduling, compilation retry and
+installation accounting, and Executor region selection are still unwired.
+This change does not establish a speedup or resolve original performance gates.
+
 #### Dependency-aware compiled-region cache — 2026-10-06
 
 A **test-only** region cache now participates in the existing runtime metadata
@@ -60,11 +103,10 @@ Cache installation/lease acquisition is explicit in these tests. Production
 hotness/service scheduling, public installation accounting and Executor region
 selection are **not yet wired**. No cache speedup or production-performance
 acceptance is claimed; the original failed/open gates remain unchanged.
-The current `Region::new`/`Code::new` constructors still compile inside the test
-arena mutation. Production service wiring must first split snapshot/dependency
-admission from GC-free compilation outside the arena, then revalidate owners at
-installation; moving those constructors directly into an Executor step is not
-an acceptable shortcut.
+At this cache milestone, the `Region::new`/`Code::new` constructors still compiled
+inside the test arena mutation. The request milestone above provides separated
+preparation/compilation/installation; moving the convenience constructors
+directly into an Executor step remains an unacceptable shortcut.
 
 #### GC-free compiled-region ownership — 2026-10-06
 
