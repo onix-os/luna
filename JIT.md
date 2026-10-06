@@ -861,6 +861,15 @@ paired trials and profile-driven scratch/Call-probe corrections are recorded
 in `PLAN_JIT.md`; upvalue, callback and compiled-Off regressions remain open.
 Do not treat this tier's correctness tests as release or performance acceptance.
 
+A unified VM execution counter (`f862a4e`) passed correctness, Miri and native
+memory checks but was reverted in `d8e2ef5` after two complete comparisons.
+Shipping Off upvalues/callbacks slowed about ten percent against the previous
+paired cache; speed Auto upvalues slowed about three percent. Production retains
+separate dispatch and instruction counters. Mixed native/interpreter saturation
+and unwind fixtures remain. `make jit-accounting` runs stats, dispatch, fallback,
+native and heap fixtures plus JIT-feature exact fuel references. The plan records
+the rejected timings; original performance acceptance remains open.
+
 A source-bound numeric paired-call payload (`40de9c3`) was tested and reverted
 in `f69b33c`. Both full-profile comparisons retained the original thresholds.
 Shipping upvalue Auto gained about 2.3 percent against the previous paired cache,

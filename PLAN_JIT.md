@@ -11,6 +11,61 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Rejected unified slice execution counter — 2026-10-06
+
+`f862a4e` combined the VM's completed-instruction and interpreter-dispatch
+counters without batching statistics or splitting the interpreter loop.
+Terminal transitions remained dispatched but excluded from successful fuel
+reports. Native exits already publish native dispatches, so the collector
+subtracted the native subtotal to avoid double counting. Physical frames,
+publication boundaries, source guards, native code and workloads were unchanged.
+
+GNU Off/Auto/Force, musl Auto, baseline and accounting gates passed 5,013
+executions across 406 suites with eighteen repeated/preexisting ignores and
+zero failures. The pinned Miri shell passed seven collector tests. Memcheck
+passed 76 executions in eight suites, all error summaries zero and no definite
+or indirect leaks; possible Rust test-harness TLS losses remain unsuppressed.
+Failed default-shell Miri and two-positional-filter Cargo invocations are
+retained as invocation failures, not runtime failures.
+
+Two complete comparisons used original and previous paired-cache controls:
+24 blocks/144 commands each, both profiles, all nine cases, eleven paired
+samples, three windows, twelve cost batches/profile and verified source/artifact
+hashes. No owned build, test or profile overlapped timing. External contention
+telemetry is retained. Both drivers completed zero, but each recorded 96 failed
+command gates and 48 successes. Direct previous/candidate elapsed-time ratios:
+
+| Previous paired cache / unified counter | Speed | Shipping |
+| --- | ---: | ---: |
+| Upvalue Auto | 0.970381 | 1.011444 |
+| Upvalue Off | 1.009461 | 0.908105 |
+| Callback Auto | 0.987188 | 1.002578 |
+| Callback Off | 1.017486 | 0.911048 |
+
+Shipping Off upvalues and callbacks slowed about 10.1 and 9.8 percent;
+speed Auto upvalues slowed about 3.1 percent. Shipping native upvalues gained
+only about 1.1 percent. Original-control candidate Auto/Off upvalue ratios
+were 0.561200/0.545200 (speed/shipping), below the unchanged 1.25 gate.
+Matched compiled-Off/no-feature upvalue ratios were 1.147100/1.166550 and
+callback ratios 1.119900/1.054100, above the unchanged 1.05 cost limit.
+Matched cost probes and direct benchmark times are separate measurements.
+
+`d8e2ef5` reverted the candidate. Production accounting again uses separate
+instruction and dispatch counters. Mixed native/interpreter saturation and
+unwind tests remain, adapted to that original representation; `make
+jit-accounting` runs the existing stats/native/heap gates plus exact JIT-feature
+fuel references. The restored state passed 140 focused executions in nineteen
+suites on GNU/musl, seven pinned-Miri collector tests, and a fresh full GNU
+Off/Auto/Force, musl Auto and baseline run: 4,966 executions in 400 suites,
+eighteen repeated/preexisting ignores and zero failures. Only tests and Make
+wrappers differ from the pre-candidate runtime. No acceptance threshold or
+accounting assertion was relaxed.
+Immutable binaries, source archive, rejected patch, complete timings and
+validation logs remain under
+`target/jit-evidence/short-slice-performance/single-counter*`.
+Original upvalue, callback and compiled-Off regressions remain unresolved;
+this experiment is not a performance fix or full-plan acceptance.
+
 #### Rejected scoped live-prototype binding — 2026-10-06
 
 `c35b6b4` bound the exact callee prototype only after all existing registry,
