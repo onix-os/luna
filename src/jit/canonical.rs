@@ -1,6 +1,7 @@
 use std::{
     any::Any,
     ffi::c_void,
+    mem::MaybeUninit,
     panic::{catch_unwind, AssertUnwindSafe},
 };
 
@@ -123,7 +124,7 @@ struct Session<'gc, 'host, 'borrow> {
     host: &'borrow mut ActivationHost<'gc, 'host>,
     site: &'borrow Site,
     frame: NativeFrame,
-    slots: [Slot; 256],
+    slots: [MaybeUninit<Slot>; 256],
     cell: Slot,
     view: leaf::View,
     target: Option<(bool, usize)>,
@@ -150,7 +151,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
                 view: std::ptr::null_mut(),
                 exit: Exit::default(),
             },
-            slots: [nil; 256],
+            slots: [MaybeUninit::uninit(); 256],
             cell: nil,
             view: leaf::View {
                 version: leaf::VERSION,
@@ -314,7 +315,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
                 .iter_mut()
                 .zip(registers.stack_frame.iter().copied())
             {
-                *slot = Slot::from_value(value);
+                slot.write(Slot::from_value(value));
             }
             Some((target, Slot::from_value(value)))
         });
@@ -326,9 +327,9 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
         self.view.cell = if target.0 {
             std::ptr::addr_of_mut!(self.cell)
         } else {
-            std::ptr::addr_of_mut!(self.slots[target.1])
+            self.slots[target.1].as_mut_ptr()
         };
-        self.frame.slots = self.slots.as_mut_ptr();
+        self.frame.slots = self.slots.as_mut_ptr().cast();
         self.frame.view = std::ptr::addr_of_mut!(self.view);
         std::ptr::addr_of_mut!(self.frame)
     }
@@ -343,12 +344,13 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
         let cell = if upper {
             std::ptr::addr_of_mut!(self.cell)
         } else {
-            std::ptr::addr_of_mut!(self.slots[index])
+            self.slots[index].as_mut_ptr()
         };
         assert_eq!(self.view.cell, cell);
         assert_eq!(self.view.version, leaf::VERSION);
         assert!(self.view.reads <= 1 && self.view.writes <= 1);
         assert_eq!(self.view.dirty, u64::from(self.view.writes));
+        assert_eq!(self.frame.slots, self.slots.as_mut_ptr().cast());
         assert!(self.frame.exit.pc <= 3 && self.frame.exit.instructions <= 3);
         let ctx = self.ctx;
         let site = self.site;
@@ -363,14 +365,12 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             );
             assert_eq!(*registers.pc, 0);
             assert!(registers.projection_read(upper, index).is_some());
-            assert!(self.slots[..site.registers]
-                .iter()
-                .all(|slot| slot.tag <= abi::REFERENCE));
-            for (slot, dest) in self.slots[..site.registers]
-                .iter()
-                .copied()
-                .zip(registers.stack_frame.iter_mut())
-            {
+            // Enter initializes the entire prefix before publishing the native frame.
+            let slots = unsafe {
+                std::slice::from_raw_parts(self.slots.as_ptr().cast::<Slot>(), site.registers)
+            };
+            assert!(slots.iter().all(|slot| slot.tag <= abi::REFERENCE));
+            for (slot, dest) in slots.iter().copied().zip(registers.stack_frame.iter_mut()) {
                 slot.write_back(dest);
             }
             if upper && self.view.writes != 0 {
