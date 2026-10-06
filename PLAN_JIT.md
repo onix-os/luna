@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-06
 
-#### Current activation profile and cold-diagnostic candidate — 2026-10-06
+#### Current activation profiles and rejected cold diagnostics — 2026-10-06
 
 Fresh source/archive `09543dd` profiles, under
 `native-activation-isolated-profile-v1`, complete eight Callgrind runs with
@@ -40,8 +40,27 @@ leave differential fixture now covers all four comparisons and verifies no
 materialization, physical Return, state/statistics or fuel changes on failure.
 GNU/musl focused checks pass 120 executions in eleven suites, zero failures or
 ignores and no Rust warnings. A wrong Make target invocation is retained; the
-correct target is `jit-call-canonical`. Instruction evidence and full unchanged
-timing/semantic acceptance are required before retaining this new candidate.
+correct target is `jit-call-canonical`.
+
+The candidate (`8197115`, profile archive `9a16c5a`) then completes eight
+source-verified runs under `canonical-leave-cold-profile-v1`. Assembly confirms
+the diagnostic tuple stores move off the successful path. Canonical leave
+collects 19,559,712 instructions versus 19,705,680; total Auto upvalues collect
+151,826,741 versus 151,972,649, only about 0.10% fewer. Callback Auto is
+54,760,604 versus 54,760,685, effectively unchanged. Off upvalues collect
+101,780,271 versus 101,779,863 and callbacks remain exactly 45,316,930. These
+small instruction differences do not address the original performance gap.
+The cold-diagnostic runtime change is rejected at the diagnostic stage and
+restored before wall-clock promotion; no elapsed-time improvement or regression
+is claimed. The expanded four-case malformed-return fixture remains. All
+instruction profiles, source archives, hashes and assembly remain retained.
+Restored GNU/musl focused validation passes 120 executions in eleven suites;
+native Memcheck passes all twenty canonical tests, including the expanded
+malformed-return fixture, with zero errors and no definite/indirect leaks.
+The possible 48-byte Rust-harness TLS loss remains unsuppressed. Runtime source
+matches retained `09543dd` exactly; only the regression fixture is expanded.
+Next work must address activation/invocation structure rather than further
+entry-ABI, tuple-diagnostic or previously rejected writeback micro-changes.
 
 #### Production isolation candidate — 2026-10-06
 

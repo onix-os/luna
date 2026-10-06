@@ -891,6 +891,16 @@ shipping upvalue Off baseline/candidate ratio improves to 1.074720, while Auto
 remains approximately unchanged. Original upvalue/callback and compiled-Off
 gates still fail; this is retained prototype isolation, not release acceptance.
 
+Fresh profiles confirm unchanged compiled-Off instruction counts versus the
+thin entry and continuing native activation/invocation costs. A return-assertion
+diagnostic outlining experiment saved only about 0.10% of Auto upvalue
+instructions and was restored before wall-clock promotion. Canonical malformed
+return tests now cover PC, return start, call count and prior return count,
+checking failure before materialization, physical Return or fuel/state changes.
+Restored GNU/musl focused checks pass 120 executions; twenty canonical tests
+also pass native Memcheck with zero errors. This is regression coverage, not
+a claim that performance acceptance is complete.
+
 `make jit-chain` tests a source-bound direct-native caller-continuation prototype
 that avoids VM reentry for admitted caller prefixes while retaining physical
 Call/Return. Unsupported prefixes now resume through the shared VM slice without
