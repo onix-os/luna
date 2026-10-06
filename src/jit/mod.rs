@@ -25,14 +25,7 @@ mod atomic_owner;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod backend;
-#[cfg(any(
-    test,
-    all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )
-))]
+#[cfg(test)]
 mod caller_shadow;
 #[cfg(any(
     test,
@@ -50,6 +43,7 @@ mod calls;
 ))]
 mod canonical;
 #[cfg(all(
+    test,
     not(miri),
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -1105,6 +1099,7 @@ pub(crate) struct PreparedPair {
 pub(crate) struct PairScope<'gc> {
     pub handoff: Option<PreparedPair>,
     pub cache: Option<PreparedPair>,
+    #[cfg(test)]
     pub resume: Option<crate::thread::NativeResume<'gc>>,
     _scope: std::marker::PhantomData<crate::Closure<'gc>>,
     caller: usize,
@@ -1569,7 +1564,7 @@ impl Runtime {
     }
 
     #[cfg(all(
-        not(miri),
+        test,
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]

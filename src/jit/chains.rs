@@ -63,7 +63,7 @@ fn shadow_pair<'gc>(
     shadow: &mut Option<CallerShadow<'gc>>,
     budget: u32,
     prefix: u32,
-    #[cfg(test)] recoveries: &mut usize,
+    recoveries: &mut usize,
 ) -> Option<super::PairOutcome> {
     let frame = host.frame_identity();
     let caller = host.caller_frame()?;
@@ -75,10 +75,7 @@ fn shadow_pair<'gc>(
         assert!(host.with_registers(|closure, registers| transfer.resume(closure, &registers)));
     } else {
         assert!(transfer.recover(host, &caller));
-        #[cfg(test)]
-        {
-            *recoveries += 1;
-        }
+        *recoveries += 1;
         *shadow = None;
     }
     match result {
@@ -145,9 +142,7 @@ pub(crate) struct Driver {}
 
 pub(crate) struct Outcome {
     pub slices: usize,
-    #[cfg(test)]
     shadow_captures: usize,
-    #[cfg(test)]
     shadow_recoveries: usize,
     #[cfg(test)]
     pairs: usize,
@@ -157,7 +152,6 @@ pub(crate) struct Outcome {
 }
 
 impl Driver {
-    #[cfg(test)]
     pub(crate) fn run<'gc>(
         &mut self,
         ctx: Context<'gc>,
@@ -190,9 +184,7 @@ impl Driver {
         let mut shadow = None;
         let mut outcome = Outcome {
             slices: 0,
-            #[cfg(test)]
             shadow_captures: 0,
-            #[cfg(test)]
             shadow_recoveries: 0,
             #[cfg(test)]
             pairs: 0,
@@ -203,23 +195,19 @@ impl Driver {
         while outcome.slices < limit && host.lua_pending() {
             #[cfg(test)]
             let capacity = host.stack_capacity();
-            #[cfg(test)]
             let capture = DEFER && shadow.is_none();
             let prefix = if DEFER {
                 shadow_prefix(ctx, host, budget, &mut shadow)
             } else {
                 prefix(ctx, host, budget)
             };
-            #[cfg(test)]
-            {
-                outcome.shadow_captures += usize::from(capture && shadow.is_some());
-            }
+            outcome.shadow_captures += usize::from(capture && shadow.is_some());
             let Some(prefix) = prefix else {
                 flush_shadow(host, &mut shadow);
                 let fallback = host.run_canonical(ctx, limit - outcome.slices, budget, 4);
+                outcome.slices += fallback.activations;
                 #[cfg(test)]
                 {
-                    outcome.slices += fallback.activations;
                     outcome.stack_growths += fallback.stack_growths;
                 }
                 outcome.result = fallback.result;
@@ -255,7 +243,6 @@ impl Driver {
                             &mut shadow,
                             budget,
                             prefix.instructions,
-                            #[cfg(test)]
                             &mut outcome.shadow_recoveries,
                         )
                     } else {
