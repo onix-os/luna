@@ -25,6 +25,8 @@ CG_DIR ?= target/jit-evidence/coverage-guided
 CG_INPUT ?=
 JIT_BENCH_OPT ?= 3
 JIT_BENCH_BINARY ?= $(TOP_DIR)/target/$(if $(TARGET),$(TARGET)/,)release/examples/jit_bench
+JIT_ASSEMBLY_BINARY ?= target/release/examples/jit_bench
+JIT_ASSEMBLY_DIR ?= target/jit-evidence
 JIT_METRICS_BINARY ?= $(TOP_DIR)/target/$(if $(TARGET),$(TARGET)/,)release/examples/jit_metrics
 JIT_DUMP_DIR ?= target/jit-evidence/native/$(if $(TARGET),$(TARGET),host)
 SIZE_PROFILE ?= shipping
@@ -252,10 +254,16 @@ jit-profile: jit-profile-build
 	@perf record -g -o target/jit-evidence/perf.data -- target/release/examples/jit_bench --mode auto --samples 1000 --case closure_upvalue
 	@perf report --stdio -i target/jit-evidence/perf.data > target/jit-evidence/perf-report.log
 
+.PHONY: jit-rust-assembly-run
 jit-rust-assembly: jit-profile-build
-	@mkdir -p target/jit-evidence
-	@set -o pipefail; objdump -Cd target/release/examples/jit_bench | awk '/<luna::jit::Runtime::(run|lookup)>:|<<luna::jit::Runtime>::invoke.*>:|<luna::jit::helpers::call.*>:|<luna::thread::vm::run_vm.*>:/ { emit=1 } emit { print } /^$$/ { emit=0 }' > target/jit-evidence/rust-assembly.log
-	@test -s target/jit-evidence/rust-assembly.log
+	@$(MAKE) --no-print-directory jit-rust-assembly-run
+
+jit-rust-assembly-run:
+	@test -x '$(JIT_ASSEMBLY_BINARY)'
+	@mkdir -p '$(JIT_ASSEMBLY_DIR)'
+	@sha256sum '$(JIT_ASSEMBLY_BINARY)' > '$(JIT_ASSEMBLY_DIR)/binary-sha256.log'
+	@set -o pipefail; objdump -Cd '$(JIT_ASSEMBLY_BINARY)' | awk '/<luna::jit::Runtime::(run|lookup)>:|<<luna::jit::Runtime>::invoke.*>:|<luna::jit::helpers::call.*>:|<luna::thread::vm::run_vm.*>:/ { emit=1 } emit { print } /^$$/ { emit=0 }' > '$(JIT_ASSEMBLY_DIR)/rust-assembly.log'
+	@test -s '$(JIT_ASSEMBLY_DIR)/rust-assembly.log'
 
 jit-disassembly:
 	@case "$$(uname -sm)" in 'Linux x86_64') ;; 'Linux aarch64') ;; *) echo 'Native diagnostics require supported Linux host'; exit 2;; esac
