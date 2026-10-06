@@ -11,6 +11,42 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Production candidate validation and unsupported owner fix — 2026-10-06
+
+The `68ce077` production caller routing candidate completes its local GNU
+Off/Auto/Force, musl Auto, no-feature baseline/docs and native Memcheck matrix:
+5,050 passing executions in 402 suites, zero failures and eighteen existing/
+repeated ignores. The twenty-four native Memcheck executions report zero errors
+and no definite/indirect losses. Each Rust test process retains its existing
+48-byte possible TLS loss without suppression. Native compilation emits no
+Rust warnings. GNU all-features Auto separately passes 1,179 executions across
+81 suites with four existing ignores. Pinned nightly Miri passes seven collector
+tests; its twenty existing deprecation/excluded-helper warnings remain recorded.
+Miri does not establish native machine-code safety.
+
+Extra unsupported-target validation first failed because the default Nix shell
+lacks i686 std; the correct existing `.#fallback` shell exposed a real production
+compile failure. Shared VM resume validation calls `RuntimeOwner::ptr_eq`, but
+that private owner helper was gated to tests or supported native hardware.
+`bb47264` removes that gate on the platform-independent identity operation,
+leaving its implementation and all native-code platform gates unchanged.
+
+The corrected i686 all-target check and full repository fallback matrix pass
+2,074 executions in 323 suites, zero failures and two existing ignores. Native
+all-target, owner/bootstrap/runtime-owner, chain, public-pair and mock checks
+then pass 38 executions in six suites with zero failures/ignores. Unsupported
+target warnings and both failed invocations are preserved, not suppressed or
+misclassified as runtime failures. The primary native matrix completed before
+the helper gate was changed; its native cfg already included the identical
+identity operation. Per-revision logs remain under
+`target/jit-evidence/short-slice-performance/native-chain-production*`.
+
+All owned validation jobs are terminal. Next are clean immutable speed/shipping
+artifacts and the unchanged original/direct paired comparisons, with no owned
+compilation, tests or profiling during timing. No original performance gate is
+declared fixed from these correctness results. The earlier candidate snapshot
+below records its then-pending validation state.
+
 #### Production direct caller routing candidate — 2026-10-06
 
 `68ce077` promotes the completed direct-native caller driver into supported

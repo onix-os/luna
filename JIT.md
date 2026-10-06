@@ -881,8 +881,15 @@ the driver consumes the handoff and preserves remaining budget and original
 fuel on refusal. This preserves cold/dynamic paired coverage after interpreted
 arithmetic. Fifteen GNU/musl chain tests, public pair coverage, activation,
 accounting and fuel gates pass 106 focused executions across eleven suites.
-Broader production validation is pending. These tests establish actual
-production routing, not a measured speedup or original regression acceptance.
+The broader production matrix passes 5,050 executions in 402 suites, including
+24 native Memcheck executions with zero errors or definite/indirect losses.
+GNU all-features Auto also passes 1,179 executions, and pinned Miri passes seven
+Rust-only accounting tests. `bb47264` fixes an unsupported production compile
+gap by exposing the platform-independent owner identity helper on all targets;
+real i686 fallback passes 2,074 executions, followed by 38 native owner/chain/
+public-pair/mock checks. Revision-scoped details and retained warnings are in
+the plan. These tests establish routing and local correctness, not a measured
+speedup or original regression acceptance.
 
 A unified VM execution counter (`f862a4e`) passed correctness, Miri and native
 memory checks but was reverted in `d8e2ef5` after two complete comparisons.
