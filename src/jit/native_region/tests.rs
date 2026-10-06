@@ -5,7 +5,7 @@ use crate::{
     opcode::Operation, thread::activation::with_test_thread, Fuel, JitConfig, JitMode, Lua, Value,
 };
 
-fn fixture(test: impl for<'gc> FnOnce(Context<'gc>, Closure<'gc>, Region<'gc>, usize)) {
+fn fixture(test: impl for<'gc> FnOnce(Context<'gc>, Closure<'gc>, Region, usize)) {
     fixture_source(
         b"local n=0 local function f(v) n=n+v end for i=1,20 do f(i) end return n",
         test,
@@ -14,7 +14,7 @@ fn fixture(test: impl for<'gc> FnOnce(Context<'gc>, Closure<'gc>, Region<'gc>, u
 
 fn fixture_source(
     source: &[u8],
-    test: impl for<'gc> FnOnce(Context<'gc>, Closure<'gc>, Region<'gc>, usize),
+    test: impl for<'gc> FnOnce(Context<'gc>, Closure<'gc>, Region, usize),
 ) {
     let mut lua = Lua::empty();
     lua.set_jit_config(JitConfig {
@@ -29,7 +29,7 @@ fn fixture_source(
     });
 }
 
-fn build_region<'gc>(ctx: Context<'gc>, closure: Closure<'gc>) -> (Region<'gc>, usize) {
+fn build_region<'gc>(ctx: Context<'gc>, closure: Closure<'gc>) -> (Region, usize) {
     let prototype = closure.prototype();
     let start = prototype
         .opcodes
@@ -459,6 +459,105 @@ fn rejected_region_entry_preserves_frames_values_fuel_and_work() {
             });
         }
     });
+}
+
+#[test]
+fn cached_region_rebinds_live_callers_and_does_not_root_collected_sources() {
+    let mut lua = Lua::empty();
+    lua.set_gc_pacing(false);
+    lua.set_jit_config(JitConfig {
+        mode: JitMode::Auto,
+        ..JitConfig::default()
+    })
+    .unwrap();
+    let (region, start, first, second, memory) = lua.enter(|ctx| {
+        let closure = Closure::load(
+            ctx,
+            None,
+            b"local n=seed local function f(v) n=n+v end for i=1,20 do f(i) end return n",
+        )
+        .unwrap();
+        assert_eq!(closure.upvalues().len(), 1);
+        let rebind = |seed| {
+            let environment = crate::Table::new(&ctx);
+            environment.set(ctx, "seed", seed).unwrap();
+            let mut upvalues = allocator_api2::vec::Vec::new_in(
+                ottavino_gc_arena::allocator_api::MetricsAlloc::new(&ctx),
+            );
+            upvalues.push(ottavino_gc_arena::lock::Lock::new(
+                crate::closure::UpValue::new(
+                    &ctx,
+                    crate::closure::UpValueState::Closed(environment.into()),
+                ),
+            ));
+            Closure::from_parts(&ctx, closure.prototype(), upvalues)
+        };
+        let first = rebind(3);
+        let second = rebind(9);
+        let (region, start) = build_region(ctx, closure);
+        (
+            region,
+            start,
+            ctx.stash(first),
+            ctx.stash(second),
+            ctx.jit().0.borrow().memory.clone(),
+        )
+    });
+    fn gc_free<T: 'static>(_: &T) {}
+    gc_free(&region);
+    let requested = memory.requested();
+    assert!(requested > 0);
+    for (live, expected) in [(&first, 213), (&second, 219), (&first, 213)] {
+        lua.gc_collect();
+        lua.gc_collect();
+        lua.enter(|ctx| {
+            let closure = ctx.fetch(live);
+            let mut slices = 0;
+            let mut run = |native| {
+                with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+                    ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                    host.run(ctx, 1, start as u32, 4).result.unwrap();
+                    let before = stats(ctx);
+                    if native {
+                        ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+                        let outcome = region.run(ctx, host, 64, 64).unwrap();
+                        outcome.result.unwrap();
+                        assert_eq!(outcome.pairs, 20);
+                        slices = outcome.slices;
+                    } else {
+                        host.run(ctx, slices, 64, 4).result.unwrap();
+                    }
+                    let state = trace(ctx, host, before);
+                    assert_eq!(state.1, vec![(abi::INTEGER, expected)]);
+                    state
+                })
+            };
+            let native = run(true);
+            assert_eq!(native, run(false));
+            ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+        });
+        assert_eq!(memory.requested(), requested);
+    }
+    drop(first);
+    drop(second);
+    lua.gc_collect();
+    lua.gc_collect();
+    lua.enter(|ctx| {
+        assert!(ctx
+            .jit_registry()
+            .borrow()
+            .resolve(ctx, region.source)
+            .is_none());
+        assert!(ctx.jit().lookup(region.source).is_none());
+        assert!(ctx.jit().pair_lease(region.pair.program.key()).is_none());
+        assert_eq!(ctx.jit().0.borrow().stats.registered_prototypes, 0);
+    });
+    assert_eq!(memory.requested(), requested);
+    drop(lua);
+    assert_eq!(memory.requested(), requested);
+    drop(region);
+    assert_eq!(memory.requested(), 0);
+    assert_eq!(memory.load(std::sync::atomic::Ordering::Relaxed), 0);
 }
 
 #[test]

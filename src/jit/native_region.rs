@@ -15,8 +15,8 @@ use super::{
     helpers, scoped_helpers, JitError, Prepared, PreparedPair,
 };
 
-pub(super) struct Region<'gc> {
-    caller: scoped_helpers::Code<'gc>,
+pub(super) struct Region {
+    caller: scoped_helpers::Code,
     ordinary: Prepared,
     pair: PreparedPair,
     driver: region::Driver,
@@ -31,8 +31,8 @@ pub(super) struct Outcome {
     pub result: Result<(), VMError>,
 }
 
-impl<'gc> Region<'gc> {
-    pub(super) fn new(
+impl Region {
+    pub(super) fn new<'gc>(
         ctx: Context<'gc>,
         caller: Closure<'gc>,
         pair: PreparedPair,
@@ -102,7 +102,7 @@ impl<'gc> Region<'gc> {
         })
     }
 
-    pub(super) fn run(
+    pub(super) fn run<'gc>(
         &self,
         ctx: Context<'gc>,
         host: &mut ActivationHost<'gc, '_>,
@@ -131,6 +131,8 @@ impl<'gc> Region<'gc> {
                 return None;
             }
         }
+        let closure = host.with_registers(|closure, _| closure);
+        let caller = self.caller.bind(ctx, closure)?;
         let width = self.caller.registers();
         let mut storage = [MaybeUninit::<abi::Slot>::uninit(); 256];
         if width > storage.len() {
@@ -153,15 +155,16 @@ impl<'gc> Region<'gc> {
         };
         let identity = host.frame_identity();
         let mut frame = scoped_helpers::Frame::new(ctx, host);
-        let pc = self.caller.prepare(&mut frame, slots)?;
+        let pc = caller.prepare(&mut frame, slots)?;
         let admitted = super::canonical::admission::Admitted::new(
             &self.pair.program,
             ctx,
-            self.caller.source(),
+            caller.source(),
             identity,
         )?;
         let mut session = Session {
             region: self,
+            caller,
             admitted,
             frame,
             slots,
@@ -201,7 +204,8 @@ impl<'gc> Region<'gc> {
 }
 
 struct Session<'gc, 'host, 'borrow, 'region> {
-    region: &'region Region<'gc>,
+    region: &'region Region,
+    caller: scoped_helpers::BoundCode<'region, 'gc>,
     admitted: super::canonical::admission::Admitted<'region, 'gc>,
     frame: scoped_helpers::Frame<'gc, 'host, 'borrow>,
     slots: &'borrow mut [abi::Slot],
@@ -222,7 +226,7 @@ impl Session<'_, '_, '_, '_> {
         let ctx = self.frame.ctx;
         self.outcome.fragments += 1;
         let transition = self.frame.host.with_registers(|closure, registers| {
-            assert_eq!(closure, self.region.caller.source());
+            assert_eq!(closure, self.caller.source());
             for (slot, value) in self.slots.iter().zip(registers.stack_frame.iter_mut()) {
                 slot.write_back(value);
             }
@@ -268,7 +272,7 @@ impl Session<'_, '_, '_, '_> {
         } else {
             let resume = NativeResume::new(
                 ctx,
-                self.region.caller.source(),
+                self.caller.source(),
                 self.region.source,
                 self.identity,
                 view.exit.pc as usize,
@@ -296,7 +300,7 @@ impl Session<'_, '_, '_, '_> {
         }
         let pc = self.frame.host.with_registers(|closure, registers| {
             if registers.stack_frame.len() < self.slots.len()
-                || !self.region.caller.accepts_entry(closure, *registers.pc)
+                || !self.caller.accepts_entry(closure, *registers.pc)
             {
                 return None;
             }
