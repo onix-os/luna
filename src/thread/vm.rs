@@ -97,6 +97,7 @@ pub(crate) struct NativeResume<'gc> {
 }
 
 #[cfg(all(
+    test,
     feature = "jit",
     not(miri),
     target_os = "linux",
@@ -140,6 +141,7 @@ pub(super) fn run_vm<'gc>(
 }
 
 #[cfg(all(
+    test,
     feature = "jit",
     not(miri),
     target_os = "linux",
