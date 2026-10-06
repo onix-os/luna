@@ -9,7 +9,166 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Progress snapshot — 2026-10-06
+### Progress snapshot — 2026-10-07
+
+#### Exact-code symbols and launch-path controls — 2026-10-07
+
+The latest measurements supersede the causal interpretation of the extra
+native upvalue slowdown below. Scoped interception of the original GNU linker
+command recovers symbols without changing Rust compiler flags. Rebuilt stripped
+control and table-trial binaries match their frozen originals byte for byte;
+each symbol companion has identical program headers, thirty allocated-section
+metadata entries and all twenty-six nonempty file-backed allocated payloads.
+Only non-loaded symbol/section metadata differs. Changing the compiler profile
+to retain symbols did not provide this identity proof.
+
+Even these exact-code companions timed differently at different launch paths.
+A same-inode hardlink matrix tested six invocation lengths across six alternating
+windows, retaining all seventy-two failing full-suite checks and identical native
+coverage counters. Upvalue times changed roughly nine percent with launch-path
+context in both variants. At matched lengths, median direct control/candidate
+Auto time was **0.9985**, rather than the previously reported extra slowdown.
+This establishes a confound, not an argv-allocation or hardware-cache cause,
+and not a runtime improvement. Original absolute performance gates still fail.
+
+`37a2781` fixes the paired profiler's canonicalization of the executable path:
+it invokes the caller's original string, hashes the resolved artifact, and records
+both. Relative-path forwarding has regression coverage. A real complete profile
+finishes successfully with the relative invocation intact, nine combined Off/Auto
+intervals verified, and unchanged binary/raw hashes. These combined profiles are
+not Auto-only measurements or timing acceptance.
+
+The rejected table optimization remains removed. A separate balanced disabled-mode
+campaign uses the same frozen inodes at matching paths in two staging directories,
+both profiles and six alternating windows. All forty-eight original cost checks
+fail. Speed float direct control/candidate medians are **0.9788 / 0.9877** across
+the two stages; shipping upvalue medians are **0.9723 / 0.9697**. These remaining
+disabled regressions, including roughly three percent slower shipping upvalue,
+still reject the trial. External contention and outliers are retained. No thresholds,
+native coverage requirements, runtime safety contracts or release gates changed.
+
+Evidence: `target/jit-evidence/short-slice-performance/link-capture/`,
+`link-path-matrix/`, and `link-balanced-cost/`. Next optimization work must use
+matched/balanced invocation contexts and exact-code attribution, while preserving
+the full original native and compiled-Off checks. Performance and the remaining
+resource/platform/release acceptance audit are still open.
+
+#### Full paired profiling and artifact matching — 2026-10-07
+
+`b47bd51` adds `make jit-bench-paired-profile-run`: a run-only profiler for the
+unchanged complete nine-case paired benchmark. It verifies eighteen ordered
+reports, nineteen dump parts, nine nonzero workload intervals, empty gaps,
+and all thirteen event sums against the profiler's collected totals. Intervals
+contain **both Off and Auto**. Input/output hashes, raw parts and exclusive
+annotations are retained; existing output directories are refused. No threshold
+is evaluated under the profiler and no runtime or benchmark source changes.
+
+An annotation error required an explicit correction. Callgrind 3.26.0 writes
+inclusive carry-over records with `calls=0` at these boundaries, but its
+annotation parser treats them as self cost, displaying a bogus **200% below-main
+hotspot**. Raw dumps remain untouched. Separate annotation copies zero only
+those inclusive cost vectors, preserving positions and symbols. An independent
+self-cost sum excludes every call record and must equal the original summary.
+Tests reject **27 malformed partitions and 11 malformed self-cost models**,
+plus runner lifecycle failures and binary mutation on successful/failed runs.
+Real profiles and raw hashes verify the correction. These checks run through
+`jit-verify`, already invoked by native CI; `8965ff7` removes a redundant direct
+workflow edit after the existing OAuth credential refused it. Ordinary push
+then succeeds without changing credentials or rewriting history.
+
+Full paired upvalue profiles retain the same principal native self costs:
+canonical leave **51,577,560** instructions, region boundary **49,828,164**, and
+admitted invocation **30,928,240**. Combined Off/Auto upvalue totals vary slightly
+between repeated captures; that variation is retained. Software cache/branch
+events are not hardware-cause evidence, and combined costs must not be reported
+as Auto-only costs.
+
+Most importantly, six alternating full-suite windows compare original and
+symbol-derived stripped artifacts for both control and the rejected table
+trial. All **24 original checked commands fail**, with all compared native,
+interpreter, entry and region counters identical. The original binaries again
+show the trial's upvalue slowdown: median direct control/candidate **0.9145**,
+all six below one. The symbol-matched pair instead gives **1.0120**, all six
+above one. The original candidate takes a median **1.0973 times** the Auto time
+of its symbol-derived counterpart, despite identical source; its Off-time
+ratio is only **1.0126**. Their `.text` sections differ and the ordinary native
+section is sixteen bytes shorter. Therefore these symbol profiles **do not
+explain the exact original binary's extra slowdown**, even when full-suite
+context is preserved. The failed disabled controls also remain unresolved;
+the rejected runtime change stays removed.
+
+Evidence is under `context-profile-*` in
+`target/jit-evidence/short-slice-performance/`, including the 648-row timing
+report. The next attribution must use a code-identical artifact that reproduces
+the regression; neither matching source nor convenient standalone results is
+enough. No runtime speedup, full CI run or release acceptance is claimed.
+
+#### Table-borrow consolidation rejected — 2026-10-07
+
+`a6ca9b5` adds a 16-combination regression test covering self/other metatables,
+readonly guards, existing/missing keys and pending native scalar keys. It
+checks read/write decisions, unchanged declined destinations, canonical key
+authority, PC, effects and counters. The test passes on production before the
+trial and remains independently useful.
+
+The trial consolidates table-helper guard reads under one shared borrow, then
+uses the existing barrier-aware mutable borrow and `RawTable::set`. A local
+review confirms `Gc<RefLock<T>>::borrow_mut` calls `Gc::write`; shared guards
+end before mutation, and self-metatable reads remain shared. Weak upgrades,
+key/storage behavior, helper ABI, projection, physical frames and counters
+are unchanged. No public table API or compiler hint changes.
+
+Actual table benchmark instructions fall **53,169,450 → 51,780,386** (2.61%),
+reads by **4.78%** and writes by **4.49%**. That instruction reduction does
+**not** translate into meaningful table acceleration: six original-gate
+windows give median direct control/candidate Auto ratio **1.0044**, and both
+versions fail all six table thresholds. Large absolute timing shifts in some
+windows also affect Off and are not attributed to the optimization.
+
+More importantly, upvalue Auto regresses in **all six** windows: direct
+control/candidate ratios **0.9014–0.9266**, median **0.9120**. Its paired
+Off/Auto ratios fall from **0.6456–0.6596** to **0.6004–0.6100**. Speed-profile
+compiled-Off float ratios worsen to **1.0898–1.0990**, failing all six checks
+versus four control passes. Shipping disabled upvalue ratios rise from
+**1.1439–1.1479** to **1.1747–1.1857**. This is not an acceptable tradeoff.
+
+GNU full Auto passes **1,279 executions / 82 suites** (six ignores), focused
+GNU and musl each pass **36 executions**, and Miri passes **14 Rust model
+tests** with existing warnings. Both no-feature control binaries are
+byte-identical. All compared native/interpreter/helper/region counters match.
+All **36** aggregate native and disabled gate commands still fail; collection
+exit zero only confirms collection and final hash verification. No owned
+build, test or profiler overlaps timing; external contention remains recorded.
+
+**The runtime trial is removed; the regression test is retained.** Frozen
+source, artifacts, three workload profiles, safety review, raw windows,
+telemetry and the 540-row report remain under `table-borrow-*` in
+`target/jit-evidence/short-slice-performance/`. Local table instruction savings
+do not explain or excuse the unrelated upvalue slowdown; that discrepancy
+needs investigation rather than another unmeasured compiler hint. All original
+performance, resource, platform and release acceptance requirements remain open.
+
+A follow-up isolates an important measurement-context difference. Six
+interleaved full-suite/single-upvalue windows use the **same frozen original
+control and candidate binaries**, alternating both context and variant order.
+The upvalue direct control/candidate median ratio is **0.9182 in the full
+suite** (all six slower), but **1.0009 standalone** (mixed windows). Full-suite
+Off median ratio is **0.9972**; compared instruction/entry/region counters are
+identical. All 24 checked commands still fail the original upvalue or aggregate
+thresholds. Standalone success relative to the control does not rescue the
+failed full-suite candidate. External contention remains recorded.
+
+Another 24-command diagnostic compares original and symbol-matched stripped
+artifacts; all fail the upvalue gate and do not isolate a layout cause.
+Candidate symbol and ordinary stripped builds have different `.text` despite
+identical source. In symbol builds, three hot upvalue routines retain function
+sizes and normalized instruction streams apart from RIP-relative data
+annotations; neither that observation nor software cache counts proves the
+hardware cause. Evidence is in `table-borrow-layout-*` and
+`table-borrow-context-*`. The next investigation must preserve paired
+**full-suite** context instead of treating standalone Auto profiles as exact
+attribution for the measured regression. Production remains restored and
+passes the 36 focused GNU checks plus formatting/all-target compilation.
 
 #### Operand conversion trial: native gains, disabled regressions — 2026-10-06
 
@@ -41,10 +200,23 @@ the 540-row report remain under `helper-operand-inline-*` in
 `target/jit-evidence/short-slice-performance/`. Large numeric timing variation
 that also appears in Off is not claimed as a native gain.
 
-A separately frozen ordinary `#[inline]` hint is being evaluated to let the
-optimizer decline expansion in size-oriented builds. It is not yet retained,
-and does not add profile-specific cfg, a feature or a build script. Original
-thresholds and every open performance/resource/platform/release gate remain.
+A separately frozen ordinary `#[inline]` hint does not solve the tradeoff:
+its entire shipping JIT binary is **byte-identical** to the forced-inline
+variant (SHA-256 `c3a790f94f7b2cfd0b29256899e7efacf180c204715b8f925f5c458a4640da3f`).
+Its table profile also loses the instruction saving, recording **53,245,227**
+instructions versus **53,169,450** for production. Its 35 focused GNU checks,
+formatting, compilation and all artifact builds pass, but no second timing
+campaign or full correctness suite is claimed. There is no reason to rerun the
+same shipping binary as though it were a different performance fix.
+
+**Both annotations are removed; production runtime source is unchanged.**
+Ordinary-hint evidence remains under `helper-operand-hint-candidate/` alongside
+the forced trial. Neither adds profile-specific cfg, a feature or a build
+script. Original thresholds and all open performance/resource/platform/release
+gates remain. The measured native gain identifies a useful conversion cost;
+it does not justify retaining newly failing disabled controls.
+Restored production source passes **35 focused executions**, with no failures
+or ignores, plus formatting and all-target JIT checks.
 
 #### Actual acceptance-workload profiling — 2026-10-06
 
