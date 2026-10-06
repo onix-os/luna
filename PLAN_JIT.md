@@ -11,6 +11,62 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Rejected scoped live-prototype binding — 2026-10-06
+
+`c35b6b4` bound the exact callee prototype only after all existing registry,
+Call, capture and operand preflight checks succeeded. Post-Call entry and leave
+compared fresh physical prototypes to that scoped binding instead of repeating
+weak-registry lookups. The binding did not survive the canonical invocation;
+callbacks, collection, source/root/owner checks and capture refresh were unchanged.
+Failed preflight cleared the binding. Same-prototype closures remained allowed.
+
+Focused gates passed 67 executions, including three new canonical tests. Full
+GNU Off/Auto/Force and musl Auto passed 4,568 executions in 320 suites with
+sixteen existing ignores and zero failures. Native Memcheck passed 21 canonical
+and nine public tests, zero errors and no definite/indirect leaks. Initial new
+fixture failures (allocator import and aggregate late-decline return expectation)
+are retained separately; correcting them did not alter runtime behavior.
+
+`669fb41` then isolated only canonical `invoke_result` behind a non-inlined
+boundary, leaving the binding and native code unchanged. Focused/full GNU/musl
+gates passed 4,635 executions in 324 suites, sixteen existing ignores and zero
+failures. Native Memcheck again passed all thirty selected tests with zero errors
+and no definite/indirect leaks. This is not whole-host outlining or Session reuse.
+
+Each revision completed two full comparisons, original and previous paired-cache
+controls: 24 blocks/144 commands per comparison, both profiles, nine cases,
+eleven paired samples, three windows, twelve cost batches/profile, verified
+source/artifact hashes and external contention. Four comparisons total 576
+timing commands. Each driver completed zero but each recorded 96 failed command
+gates and 48 successes. Direct previous/candidate elapsed-time ratios:
+
+| Previous paired cache / candidate | Initial speed | Initial shipping | Isolated speed | Isolated shipping |
+| --- | ---: | ---: | ---: | ---: |
+| Upvalue Auto | 1.080034 | 1.056031 | 1.097201 | 1.041621 |
+| Upvalue Off | 1.023442 | 0.955066 | 0.976783 | 0.869231 |
+| Callback Auto | 1.017442 | 1.005310 | 1.017782 | 0.974363 |
+| Callback Off | 1.032480 | 0.985623 | 1.020232 | 0.983291 |
+
+Initial native upvalues gained about eight/five-point-six percent (speed/shipping)
+but shipping Off slowed about 4.7 percent. Isolation gained about 9.7 percent in
+speed Auto, but shipping Off slowed about fifteen percent and shipping callbacks
+about 2.6 percent. Neither is accepted. Against original controls, isolated
+compiled-Off/no-feature ratios were 1.13785/1.08255 for upvalues and
+1.04245/1.09590 for callbacks (speed/shipping); original native and cost gates
+remain unresolved. Matched cost-probe ratios and direct benchmark Off times
+come from different binaries/workloads and must not be substituted for each other.
+
+Both revisions were reverted in `0f3adab`. Useful adversarial tests remain:
+same-prototype/different-closure replacement, identical-bytecode/new-prototype
+refusal, newly closed capture refusal after preflight, and changed physical
+prototype rejection before leave materialization or Return. Only the binding-
+specific field-reset fixture was removed with the rejected implementation.
+No frozen workload, threshold, source guard or accounting assertion was weakened.
+All source archives, immutable binaries, failed/successful tests, memory checks,
+rejected patches and four full trials remain under
+`target/jit-evidence/short-slice-performance/prototype-binding-*` and
+`prototype-binding-outlined-*`.
+
 #### Rejected explicit paired handoff argument — 2026-10-06
 
 `0c5e19e` removed the optional paired-handoff reference from `LuaFrame` and

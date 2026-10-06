@@ -874,6 +874,14 @@ percent against the prior paired cache. Ordinary frames retain their original
 handoff field. Complete original/previous-cache comparisons and rejection
 evidence are recorded in `PLAN_JIT.md`; performance acceptance remains open.
 
+Scoped live-prototype binding (`c35b6b4`) and its isolated invocation (`669fb41`)
+were measured and reverted in `0f3adab`. Initial native upvalues improved about
+eight percent in speed and 5.6 percent in shipping against the previous paired
+cache, but shipping Off slowed about 4.7 percent. Isolation worsened shipping
+Off about fifteen percent. Registry checks remain in place at all original
+boundaries; adversarial replacement/capture tests were retained. Neither trial
+resolves original native or compiled-Off acceptance; full evidence is in the plan.
+
 The scoped host reuses one paired-code lease within its activation batch. Numeric
 prototype hints select a possible hit; matching live cache ownership and all
 canonical entry guards still validate it. Retirement, replacement, foreign
