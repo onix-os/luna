@@ -11,6 +11,252 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Production isolation candidate — 2026-10-06
+
+`NativeResume`, the optional shared-VM resume parameter, its validation and
+lease-selection branch now compile only for unit tests, matching the already
+withdrawn driver and resume entry. Production retains canonical activation
+routing, the same opcode loop, native lookup and all accounting. The complete
+resume/continuation prototype remains under test; no unsupported prefix,
+callback, fuel or ownership check is removed from that path.
+
+GNU checking and GNU/musl continuation/public-pair/accounting/fuel tests pass
+95 executions in ten suites, zero failures/ignores and no Rust warnings.
+Public-pair integration tests link the non-test production entry, while unit
+continuation tests exercise the resume entry. Executable/source archive revision
+`033c475` now passes the full GNU Off/Auto/Force, musl Auto, baseline and
+documentation matrix: 5,029 executions in 403 suites, twenty existing/repeated
+ignores, zero failures and no Rust warnings. Native Memcheck passes 24
+executions, zero errors or definite/indirect leaks; possible 48-byte TLS loss
+per Rust harness remains unsuppressed. Pinned Miri passes eleven stats/owner
+checks with warnings retained. Unsupported i686-musl all-target checking passes
+with 71 library and ten library-test warnings retained. An initial wrong-target
+i686-GNU missing-std failure is retained separately; the fallback shell declares
+musl, and no environment or dependency change was required.
+
+Immutable `native-resume-isolated-033c475-v1` speed/shipping binaries completed
+original, prior-cache and matched-thin comparisons: each twenty-four blocks and
+144 commands, all nine cases, eleven paired samples, twelve cost batches per
+profile, three windows and final source/binary hashes. Summary processing and
+all owned compilation/tests/profiling were sequential with respect to timing;
+external contention and all failed threshold commands remain evidence.
+
+Original candidate median gates (speed / shipping):
+
+| Case | Native Off/Auto | Required | Compiled-Off/no-feature | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Integer | 2.728800 / 2.946100 | >=2 | 1.110000 / 1.121150 | <=1.05 |
+| Float | 4.807900 / 5.793200 | >=2 | 1.099150 / 0.980150 | <=1.05 |
+| Array/table | 1.208450 / 1.249800 | >=1.25 | 1.020100 / 1.061950 | <=1.05 |
+| Upvalues | 0.586700 / 0.491550 | >=1.25 | 1.105550 / 1.111850 | <=1.05 |
+| Rust callbacks | 0.757450 / 0.710200 | >=0.833333 | 1.098050 / 1.058200 | <=1.05 |
+| Allocation/GC | 0.993050 / 0.818000 | >=0.833333 | 1.036200 / 1.051200 | <=1.05 |
+| Polymorphic metamethod | 0.839100 / 0.886650 | >=0.833333 | 1.042750 / 1.032100 | <=1.05 |
+| Cold config | 0.994050 / 0.994600 | >=0.869565 | 1.050450 / 1.032500 | <=1.05 |
+| Oslo predicate | 0.924100 / 0.925450 | unscored | 1.040050 / 1.015950 | <=1.05 |
+
+Matched-thin baseline/candidate direct median upvalue Off is
+1.003346 / 1.074720 and Auto 1.001273 / 0.990001. Callback Off is
+1.003624 / 1.009388 and Auto 0.994830 / 1.002654. Values above one favor
+the candidate; lower Off/Auto ratios can reflect a faster interpreter rather
+than a slower native path. Speed float Off direct ratio is 1.046813. Against
+the prior paired-cache control, upvalue/callback Off/Auto direct medians are
+approximately unchanged (0.995019 through 1.003157 for those four paths across
+profiles). The source-isolation cleanup is retained with its complete prototype
+tests; it is not accepted as a fix for native upvalue/callback or compiled-Off
+regressions. Original performance, platform/resource and release gates remain
+open. The next optimization must address measured native activation/call costs,
+not keep changing unused entry ABI or dilute the benchmark corpus.
+
+#### Thin-entry elapsed-time evidence — 2026-10-06
+
+The thin candidate's immutable source/archive revision is `f45026f` (executable
+change `2695050`), under `native-resume-thin-2695050-v1`. Original, prior paired
+cache and matched restored `2fc06b6` comparisons each completed twenty-four
+blocks/144 commands: both profiles, all nine cases, eleven paired samples,
+twelve feature-cost batches per profile and three observation windows. All
+three harnesses ended successfully; individual failed threshold commands,
+source/binary hashes and external swap/IO contention remain in the evidence.
+Summaries completed before the next comparison started; no owned compilation,
+tests or profiling overlapped timing. Contended results are not uncontended
+release certification.
+
+Original candidate median gates (speed / shipping):
+
+| Case | Native Off/Auto | Required | Compiled-Off/no-feature | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Integer | 2.761450 / 3.173350 | >=2 | 1.101650 / 1.114750 | <=1.05 |
+| Float | 4.930600 / 5.101200 | >=2 | 1.106200 / 0.986900 | <=1.05 |
+| Array/table | 1.222400 / 1.275500 | >=1.25 | 1.034750 / 1.057450 | <=1.05 |
+| Upvalues | 0.582300 / 0.536350 | >=1.25 | 1.144150 / 1.111250 | <=1.05 |
+| Rust callbacks | 0.750350 / 0.723550 | >=0.833333 | 1.077500 / 1.040200 | <=1.05 |
+| Allocation/GC | 0.999250 / 0.813000 | >=0.833333 | 1.053450 / 1.050850 | <=1.05 |
+
+Matched restored/candidate direct medians use a separate ratio: values above
+one mean the candidate is faster. Upvalue Off is 1.013400 / 1.091404 and callback
+Off 0.983508 / 1.062726; corresponding Auto ratios are 0.985629 / 1.003028 and
+1.003186 / 0.992313. Thus shipping ordinary-entry timings improve, but no
+meaningful native upvalue/callback acceleration is established. Speed numeric
+feature-cost ratios worsen versus the matched control: integer 1.037100 to
+1.104700 and float 1.039150 to 1.103850. The control uses a different absolute
+worktree path; that and contention remain limitations, not reasons to discard
+failed gates. Prior paired-cache shipping upvalue Off direct ratio is 0.935751.
+
+The thin candidate is not accepted as a regression fix. Its semantic prototype
+and instruction profiles remain useful evidence. Inspection identifies that
+the withdrawn, test-only resume entry still adds an optional parameter and
+resume-selection paths to the production shared VM. The next candidate will
+exclude that unused prototype machinery from production while retaining the
+same VM loop and all continuation tests; it must pass fresh production-linked
+integration tests and unchanged timing gates. This does not promote the
+withdrawn driver or complete the original plan.
+
+#### Profile-guided thin resume entry candidate — 2026-10-06
+
+Fresh restored routing GNU Auto/musl Auto/no-feature validation passes 2,710
+executions in 240 suites with ten existing/repeated ignores and zero failures.
+Source-verified speed symbol controls at `2fc06b6` then complete eight Callgrind
+profiles: two workloads, Off/Auto, no-feature/JIT controls, three measured worker
+iterations and two warmups. These instrument execution rather than wall time.
+
+Compiled-Off upvalues collect 106,130,223 instructions versus 91,575,447 without
+the feature; callbacks collect 46,467,240 versus 42,538,855. Most of this excess
+is in the shared VM. Auto upvalues collect 153,778,362 instructions. Canonical
+leave contributes 12.8%, ordinary native invocation 10.7%, prepare_call_at 4.8%
+and enter-with-register preflight about 6%. These locate costs but do not prove
+a single causal bottleneck or justify removing semantic checks.
+
+`2695050` changes the shared VM's optional resume ABI to a mutable reference,
+keeping the token privately owned by its entry and taking its prepared lease
+exactly once. There is no new interpreter, counter batching, mode snapshot or
+production driver promotion. Runtime/closure lifetime extends to entry return;
+callbacks/GC still follow release of the entry's host borrows.
+
+Separate source-verified candidate profiles collect:
+
+| Workload/mode | Restored instructions | Thin instructions |
+| --- | ---: | ---: |
+| Upvalues Off | 106130223 | 101779863 |
+| Callbacks Off | 46467240 | 45316930 |
+| Upvalues Auto | 153778362 | 152217316 |
+| Callbacks Auto | 55688232 | 54860009 |
+
+The no-feature upvalue control remains exactly 91,575,447 instructions. Off
+upvalue conditional mispredictions in Callgrind fall from 160,546 to 539;
+simulated branch counts are not hardware certification. Candidate GNU/musl
+chain/public-pair/accounting/fuel checks pass 95 executions in ten suites, zero
+failures/ignores and no Rust warnings. Full GNU Off/Auto/Force, musl Auto,
+baseline and documentation validation now passes 5,026 executions in 400 suites,
+with eighteen existing/repeated ignores, zero failures and no Rust warnings.
+Native Memcheck continuation/public-pair checks pass another 24 executions in
+two suites, with zero errors and zero definite/indirect leaks. Each Rust test
+harness retains an unsuppressed possible 48-byte TLS leak. Pinned Miri stats and
+runtime-owner checks pass eleven executions in two suites with existing
+warnings retained. Unsupported i686 all-target checking also passes, with ten
+warnings retained. Logs and terminal exit markers are in
+`target/jit-evidence/short-slice-performance/native-resume-thin-*`.
+
+The independently built restored `2fc06b6` speed/shipping benchmark and
+feature-cost controls have verified source archives and binary hashes under
+`thin-restored-2fc06b6-v1`. Its detached worktree has an independent build cache;
+workspace-path differences are recorded, not assumed byte-identical. New
+immutable paired wall-clock comparisons are required before retaining the
+thin candidate as a performance fix.
+Original upvalue/callback and compiled-Off gates remain open.
+
+#### Rejected production direct caller routing — 2026-10-06
+
+The `68ce077` driver is correct but uncompetitive. Immutable source/archive
+commit `634369c` (including owner fix `bb47264`) built separate speed/shipping
+native and matching feature-cost binaries under
+`target/jit-evidence/short-slice-performance/native-chain-production-bb47264-v1`.
+Each original/direct comparison completed 24 blocks/144 commands, both profiles,
+all nine cases, eleven paired samples, twelve cost batches/profile and final
+source/binary hash checks. Both harnesses ended successfully; failed threshold
+commands remain evidence. External swap/IO contention is retained. Original
+summary processing briefly overlapped the start of the direct run; no owned
+compilation, tests or profiling overlapped either timing run.
+
+Original candidate native median Off/Auto ratios (speed / shipping):
+
+| Case | Speed | Shipping | Required | Passing blocks |
+| --- | ---: | ---: | ---: | ---: |
+| Upvalues | 0.632350 | 0.541850 | >=1.25 | 0/24 each |
+| Rust callbacks | 0.738300 | 0.658600 | >=0.833333 | 0/24 each |
+
+Compiled-Off/no-feature cost medians:
+
+| Case | Speed | Shipping | Maximum |
+| --- | ---: | ---: | ---: |
+| Upvalues | 1.170100 | 1.244250 | 1.05 |
+| Rust callbacks | 1.112750 | 1.078750 | 1.05 |
+
+Direct previous paired-cache/candidate median time ratios (higher is faster
+candidate):
+
+| Case/mode | Speed | Shipping |
+| --- | ---: | ---: |
+| Upvalues Auto | 1.029639 | 1.014935 |
+| Upvalues Off | 0.958589 | 0.925411 |
+| Rust callbacks Auto | 0.992468 | 0.891196 |
+| Rust callbacks Off | 1.016068 | 0.961539 |
+
+A few-percent upvalue Auto gain does not offset roughly 12.2% longer shipping
+callback Auto time and 8.1% longer shipping Off upvalue time. Integer/float
+medians exceed two in both profiles but do not excuse other original failures.
+These are contended measurements, not uncontended certification; no gate or
+coverage assertion is changed.
+
+`9a2f9ac` removes production driver selection and production resume constructors,
+restoring canonical scoped activation routing. Complete same-slice resume,
+lexical paired handoffs, variable/cold fallback and panic cleanup fixtures remain
+test-only; owner identity fix `bb47264` remains in production. Restored GNU/musl
+chain/public-pair checks pass 48 executions in four suites, zero failures/ignores
+and no Rust warnings. An earlier restored check also passed activation fixtures
+but recorded a misplaced constructor cfg warning; its log is retained separately.
+The exact cfg block is corrected in the committed restoration.
+
+Next: validate the restored full matrix and establish immutable restored cost
+evidence, then use deterministic profiles before another production attempt.
+Original upvalue/callback and compiled-Off regressions remain unresolved.
+Earlier entries below document this now-rejected candidate's correctness gates.
+
+#### Production candidate validation and unsupported owner fix — 2026-10-06
+
+The `68ce077` production caller routing candidate completes its local GNU
+Off/Auto/Force, musl Auto, no-feature baseline/docs and native Memcheck matrix:
+5,050 passing executions in 402 suites, zero failures and eighteen existing/
+repeated ignores. The twenty-four native Memcheck executions report zero errors
+and no definite/indirect losses. Each Rust test process retains its existing
+48-byte possible TLS loss without suppression. Native compilation emits no
+Rust warnings. GNU all-features Auto separately passes 1,179 executions across
+81 suites with four existing ignores. Pinned nightly Miri passes seven collector
+tests; its twenty existing deprecation/excluded-helper warnings remain recorded.
+Miri does not establish native machine-code safety.
+
+Extra unsupported-target validation first failed because the default Nix shell
+lacks i686 std; the correct existing `.#fallback` shell exposed a real production
+compile failure. Shared VM resume validation calls `RuntimeOwner::ptr_eq`, but
+that private owner helper was gated to tests or supported native hardware.
+`bb47264` removes that gate on the platform-independent identity operation,
+leaving its implementation and all native-code platform gates unchanged.
+
+The corrected i686 all-target check and full repository fallback matrix pass
+2,074 executions in 323 suites, zero failures and two existing ignores. Native
+all-target, owner/bootstrap/runtime-owner, chain, public-pair and mock checks
+then pass 38 executions in six suites with zero failures/ignores. Unsupported
+target warnings and both failed invocations are preserved, not suppressed or
+misclassified as runtime failures. The primary native matrix completed before
+the helper gate was changed; its native cfg already included the identical
+identity operation. Per-revision logs remain under
+`target/jit-evidence/short-slice-performance/native-chain-production*`.
+
+All owned validation jobs are terminal. Next are clean immutable speed/shipping
+artifacts and the unchanged original/direct paired comparisons, with no owned
+compilation, tests or profiling during timing. No original performance gate is
+declared fixed from these correctness results. The earlier candidate snapshot
+below records its then-pending validation state.
+
 #### Production direct caller routing candidate — 2026-10-06
 
 `68ce077` promotes the completed direct-native caller driver into supported

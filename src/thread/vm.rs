@@ -85,7 +85,7 @@ pub(super) fn try_scalar_activation<'gc>(
     Some((completed, start, count))
 }
 
-#[cfg(feature = "jit")]
+#[cfg(all(test, feature = "jit"))]
 pub(crate) struct NativeResume<'gc> {
     runtime: crate::jit::Runtime,
     closure: crate::Closure<'gc>,
@@ -93,10 +93,11 @@ pub(crate) struct NativeResume<'gc> {
     frame: (usize, usize),
     pc: usize,
     instructions: u32,
-    code: crate::jit::Prepared,
+    code: Option<crate::jit::Prepared>,
 }
 
 #[cfg(all(
+    test,
     feature = "jit",
     not(miri),
     target_os = "linux",
@@ -119,7 +120,7 @@ impl<'gc> NativeResume<'gc> {
             frame,
             pc,
             instructions,
-            code,
+            code: Some(code),
         }
     }
 }
@@ -134,12 +135,13 @@ pub(super) fn run_vm<'gc>(
         ctx,
         lua_frame,
         max_instructions,
-        #[cfg(feature = "jit")]
+        #[cfg(all(test, feature = "jit"))]
         None,
     )
 }
 
 #[cfg(all(
+    test,
     feature = "jit",
     not(miri),
     target_os = "linux",
@@ -149,18 +151,18 @@ pub(super) fn resume_vm<'gc>(
     ctx: Context<'gc>,
     lua_frame: LuaFrame<'gc, '_>,
     max_instructions: u32,
-    resume: NativeResume<'gc>,
+    mut resume: NativeResume<'gc>,
 ) -> Result<u32, VMError> {
-    run_vm_slice(ctx, lua_frame, max_instructions, Some(resume))
+    run_vm_slice(ctx, lua_frame, max_instructions, Some(&mut resume))
 }
 
 fn run_vm_slice<'gc>(
     ctx: Context<'gc>,
     mut lua_frame: LuaFrame<'gc, '_>,
     max_instructions: u32,
-    #[cfg(feature = "jit")] resume: Option<NativeResume<'gc>>,
+    #[cfg(all(test, feature = "jit"))] resume: Option<&mut NativeResume<'gc>>,
 ) -> Result<u32, VMError> {
-    #[cfg(feature = "jit")]
+    #[cfg(all(test, feature = "jit"))]
     assert!(resume
         .as_ref()
         .is_none_or(|resume| resume.instructions < max_instructions));
@@ -171,7 +173,7 @@ fn run_vm_slice<'gc>(
     let current_function = lua_frame.closure();
     let current_prototype = current_function.prototype();
     let current_upvalues = current_function.upvalues();
-    #[cfg(feature = "jit")]
+    #[cfg(all(test, feature = "jit"))]
     let prefix_instructions = if let Some(resume) = &resume {
         assert!(crate::jit::RuntimeOwner::ptr_eq(
             &ctx.jit().0,
@@ -197,6 +199,8 @@ fn run_vm_slice<'gc>(
     } else {
         0
     };
+    #[cfg(all(not(test), feature = "jit"))]
+    let prefix_instructions = 0;
     // Suppression ends when execution returns to the depth that fired the hook, which is exactly
     // when the hook's own frames are gone. Checked once per slice, before the register borrow.
     ctx.clear_hook_at(lua_frame.frame_depth());
@@ -224,9 +228,9 @@ fn run_vm_slice<'gc>(
     } else {
         None
     };
-    #[cfg(feature = "jit")]
+    #[cfg(all(test, feature = "jit"))]
     let mut skip_native_first = resume.is_some();
-    #[cfg(feature = "jit")]
+    #[cfg(all(test, feature = "jit"))]
     let native_code = if let Some(resume) = resume {
         #[cfg(all(
             target_os = "linux",
@@ -234,7 +238,7 @@ fn run_vm_slice<'gc>(
         ))]
         {
             ctx.jit()
-                .resume_lease(resume.source, resume.code)
+                .resume_lease(resume.source, resume.code.take().unwrap())
                 .filter(|_| !hook_enabled)
         }
         #[cfg(not(all(
@@ -242,12 +246,14 @@ fn run_vm_slice<'gc>(
             any(target_arch = "x86_64", target_arch = "aarch64")
         )))]
         {
-            let _ = resume.code;
+            let _ = resume.code.take();
             None
         }
     } else {
         native_id.and_then(|id| ctx.jit().lookup(id))
     };
+    #[cfg(all(not(test), feature = "jit"))]
+    let native_code = native_id.and_then(|id| ctx.jit().lookup(id));
     #[cfg(feature = "jit")]
     let mut native_instructions = prefix_instructions;
     #[cfg(feature = "jit")]
@@ -292,7 +298,16 @@ fn run_vm_slice<'gc>(
 
     loop {
         #[cfg(feature = "jit")]
-        if !std::mem::replace(&mut skip_native_first, false) {
+        if {
+            #[cfg(test)]
+            {
+                !std::mem::replace(&mut skip_native_first, false)
+            }
+            #[cfg(not(test))]
+            {
+                true
+            }
+        } {
             #[cfg(all(test, feature = "jit"))]
             if let Some(snapshot) = &mock {
                 let completed = ctx.jit().run_mock(snapshot, &mut registers);

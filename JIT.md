@@ -861,6 +861,36 @@ paired trials and profile-driven scratch/Call-probe corrections are recorded
 in `PLAN_JIT.md`; upvalue, callback and compiled-Off regressions remain open.
 Do not treat this tier's correctness tests as release or performance acceptance.
 
+`2695050` passes the shared VM's optional resume token as a thin mutable borrow
+instead of an owned aggregate, taking its private prepared lease once. The
+production driver remains withdrawn. Ninety-five GNU/musl continuation, pair,
+accounting and fuel checks pass. Source-verified Callgrind profiles report about
+4.1% fewer collected Off upvalue instructions and 2.5% fewer Off callback
+instructions; Auto instruction reductions are about one to one-and-a-half
+percent. Full GNU/musl/baseline validation passes 5,026 executions in 400 suites
+with eighteen existing/repeated ignores and zero failures. Native Memcheck
+passes 24 executions with zero errors/definite/indirect leaks and an unsuppressed
+possible 48-byte TLS leak in each Rust harness; pinned Miri passes eleven
+stats/owner checks. Unsupported i686 checking passes with warnings retained.
+Three complete original/prior-cache/matched-restored comparisons now retain
+432 commands and verified hashes. The thin candidate fails original upvalue,
+callback and several compiled-Off gates. Matched shipping ordinary-entry
+timings improve, but speed numeric feature costs worsen; it is not accepted
+as a regression fix. Details and contention limitations are in `PLAN_JIT.md`.
+Instruction counts are not a claim that the original performance gates pass.
+
+The subsequent production-isolation candidate restricts the resume token,
+optional VM parameter, ownership validation and lease-selection branch to unit
+tests, alongside the already test-only driver. Production keeps the same opcode
+loop and canonical activation routing without unused prototype entry state.
+GNU/musl full validation passes 5,029 executions in 403 suites, with twenty
+existing/repeated ignores and zero failures. Native Memcheck passes 24 and
+pinned Miri eleven; unsupported i686-musl checking passes with warnings
+retained. Three immutable comparisons complete another 432 commands. Matched
+shipping upvalue Off baseline/candidate ratio improves to 1.074720, while Auto
+remains approximately unchanged. Original upvalue/callback and compiled-Off
+gates still fail; this is retained prototype isolation, not release acceptance.
+
 `make jit-chain` tests a source-bound direct-native caller-continuation prototype
 that avoids VM reentry for admitted caller prefixes while retaining physical
 Call/Return. Unsupported prefixes now resume through the shared VM slice without
@@ -870,19 +900,32 @@ unsupported, guard-error and helper-decline paths, alongside exact frame, fuel
 and dispatch traces. Resume tokens bind runtime, source, closure, thread/frame,
 PC and remaining budget; retired or Off code cannot regain native authority.
 The suite also covers GC, callback release, caught-panic lease cleanup and
-stale pair selection after fuel-limited canonical execution. `68ce077` routes
-supported-platform Auto scoped activations through this driver with the normal
-step-fuel contract. Off, unsupported platforms, initially variable frames and
-nonstandard step fuel retain canonical routing. A separate canonical entry
-prevents recursive fallback and remains the explicit test reference.
+stale pair selection after fuel-limited canonical execution. A production
+routing attempt (`68ce077`) passed correctness but was withdrawn in `9a2f9ac`
+after two complete frozen comparisons. Production retains canonical scoped
+activation routing; the complete driver and resume constructors are test-only.
+The shared VM still implements the tested continuation path.
 
 Same-slice resume can hand a later paired Call to the driver's lexical scope;
 the driver consumes the handoff and preserves remaining budget and original
 fuel on refusal. This preserves cold/dynamic paired coverage after interpreted
 arithmetic. Fifteen GNU/musl chain tests, public pair coverage, activation,
 accounting and fuel gates pass 106 focused executions across eleven suites.
-Broader production validation is pending. These tests establish actual
-production routing, not a measured speedup or original regression acceptance.
+The broader production matrix passes 5,050 executions in 402 suites, including
+24 native Memcheck executions with zero errors or definite/indirect losses.
+GNU all-features Auto also passes 1,179 executions, and pinned Miri passes seven
+Rust-only accounting tests. `bb47264` fixes an unsupported production compile
+gap by exposing the platform-independent owner identity helper on all targets;
+real i686 fallback passes 2,074 executions, followed by 38 native owner/chain/
+public-pair/mock checks. Revision-scoped details and retained warnings are in
+the plan. These tests establish routing and local correctness, not a measured
+speedup or original regression acceptance. Against the previous paired cache,
+the candidate gained about three percent in speed upvalue Auto but slowed
+shipping callbacks Auto about twelve percent and shipping Off upvalues about
+eight percent. Original upvalue/callback and compiled-Off gates failed. The
+restored routing passes 48 GNU/musl chain/public-pair executions; the private
+owner identity fix and stronger continuation tests remain. Full timings and
+contended provenance are retained in the plan; this candidate is not a fix.
 
 A unified VM execution counter (`f862a4e`) passed correctness, Miri and native
 memory checks but was reverted in `d8e2ef5` after two complete comparisons.
