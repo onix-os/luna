@@ -150,6 +150,10 @@ impl<'gc> Code<'gc> {
         self.code.relocations
     }
 
+    pub(super) fn accepts_entry(&self, source: Closure<'gc>, pc: usize) -> bool {
+        source == self.source && self.code.entries.get(pc).copied().unwrap_or(false)
+    }
+
     pub(super) fn prepare(
         &self,
         frame: &mut Frame<'gc, '_, '_>,
@@ -171,14 +175,8 @@ impl<'gc> Code<'gc> {
             return None;
         }
         frame.host.with_registers(|closure, registers| {
-            (closure == self.source
-                && registers.stack_frame.len() >= slots.len()
-                && self
-                    .code
-                    .entries
-                    .get(*registers.pc)
-                    .copied()
-                    .unwrap_or(false))
+            (registers.stack_frame.len() >= slots.len()
+                && self.accepts_entry(closure, *registers.pc))
             .then_some(*registers.pc)
         })
     }

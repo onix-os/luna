@@ -287,7 +287,12 @@ impl Session<'_, '_, '_, '_> {
         {
             return 0;
         }
-        self.frame.host.with_registers(|_, registers| {
+        let pc = self.frame.host.with_registers(|closure, registers| {
+            if registers.stack_frame.len() < self.slots.len()
+                || !self.region.caller.accepts_entry(closure, *registers.pc)
+            {
+                return None;
+            }
             for (slot, value) in self
                 .slots
                 .iter_mut()
@@ -295,8 +300,9 @@ impl Session<'_, '_, '_, '_> {
             {
                 *slot = abi::Slot::from_value(value);
             }
+            Some(*registers.pc)
         });
-        let Some(pc) = self.region.caller.prepare(&mut self.frame, self.slots) else {
+        let Some(pc) = pc else {
             return 0;
         };
         view.pc = pc as u64;

@@ -76,7 +76,7 @@ region/backend/failure cases with zero errors or definite/indirect leaks (the
 `native-region-failures-*`. These tests do not establish performance acceptance.
 
 Broader platform validation and actual regression measurements remain required.
-Once-per-region admission and production integration are not implemented here.
+Full pair admission reuse and production integration are not implemented here.
 All original performance, compiled-Off, resource-policy and release gates remain
 open; green prototype tests do not replace those gates.
 
@@ -105,6 +105,31 @@ and hashed. Thus the diagnostic improves on Auto in both build profiles but
 still fails the fundamental faster-than-Off requirement. The next optimization
 must target remaining host/admission/materialization costs without reducing
 generated coverage or treating these diagnostic ratios as production acceptance.
+
+The next test-only candidate keeps full admission at region entry, but combines
+caller refresh with source/entry/width validation on continuing boundaries.
+Runtime and code ownership remain fixed during a region. Only pure generated
+fragments and the verified leaf pair may continue; all canonical fallbacks and
+other transitions return from the region before user callbacks can run. Frame
+identity, fuel, errors and canonical slot reconstruction remain checked each
+time. This removes repeated runtime/root/hook/tag scans for the caller, not the
+pair's own admission or physical Call/Return.
+
+All 52 focused GNU executions, nineteen musl checks and nineteen native Memcheck
+checks pass with the same 216 bounded differentials and four injected failure
+paths; the diagnostic stays explicitly ignored in ordinary tests. Memcheck has
+zero errors or definite/indirect losses, with the existing possible TLS loss
+retained. Three alternating archived shipping-binary comparisons show candidate
+region/Auto **0.860279/0.859573/0.859696**, versus the full-admission control's
+**0.900488/0.900701/0.899478**. Candidate region time is about 4.4% below that
+control, but remains **1.834–1.838x Off**. CPU/environment observations and all
+raw controls are retained as `native-region-admission-paired-*`; speed-profile
+confirmation reports candidate region/Auto **0.763262/0.764661/0.763553** and
+region/Off **1.711138/1.706282/1.707845**. Alternating full-admission speed
+controls report region/Auto **0.824462/0.810055/0.812130**; the slower first
+control is retained, not discarded. Both baseline and candidate binaries are
+archived with verified hashes. These remain isolated diagnostics: no production
+path selects the region, and original acceptance remains incomplete.
 
 #### Scoped helper borrowing prerequisite — 2026-10-06
 
