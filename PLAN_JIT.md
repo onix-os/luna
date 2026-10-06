@@ -13,6 +13,32 @@
 
 #### Installed-pair scheduling eligibility candidate — 2026-10-06
 
+**Working candidate retained, not performance-accepted.** Both repeated
+comparisons completed 24 native rounds/profile and twelve compiled-Off rounds
+per profile, with eleven native samples/invocation, alternating order, verified
+hashes and retained contention telemetry. The immediate-parent comparison gives
+control-Auto/candidate-Auto medians **1.081299/1.059407** for callbacks
+(speed/shipping), with p10-p90 **1.058995-1.106415/1.037403-1.084704**. This is
+an incremental callback gain, not completion of the original regression work.
+Upvalue Auto direct ratios **1.009876/1.005636** have ranges crossing one.
+
+The same comparison exposes unresolved costs: shipping upvalue Off direct ratio
+**0.899337** (p10-p90 0.893351-0.905319), while compiled-Off/no-feature upvalue
+cost rises from **1.0987 to 1.12345** in speed and **1.10935 to 1.178** in shipping.
+Do not infer a particular layout cause from these timings or dismiss the costs
+because callbacks improved. The control is an independently built parent
+worktree; source, environment and binary records identify both artifacts.
+
+Against original acceptance, candidate upvalue Auto-Off ratios are
+**0.5762/0.55035**, callbacks **0.8119/0.79545**, table **1.24425/1.396**,
+metamethod **0.84695/0.93375**, allocation **0.9838/0.834**. Upvalue and callback
+gates fail all 24 rounds in both profiles. Original-comparison compiled-Off
+upvalue costs are **1.12275/1.1754**, callbacks **1.06865/1.06865**, still above
+1.05. Logs and 109-row summaries use `pair-eligibility-timing` and
+`pair-eligibility-vs-pair-eligibility-control-timing`. Collector zero exits mean
+complete evidence, not passing gates. Resolve the Off tradeoff and remaining
+native costs before treating this candidate as accepted or release-ready.
+
 `63f5966` routes execution through the scoped activation host only when at
 least one native call-pair program is installed, rather than whenever the Auto
 pair-state container exists. An inline installed count tracks installation,
@@ -37,8 +63,8 @@ Candidate and immediate-parent `99c57f7` controls have separately built immutabl
 speed/shipping binaries, independent no-feature binaries and verified source
 archives. Release artifact builds were serialized; the detached control checkout
 is retained under `pair-eligibility-control-worktree`. Original-control and
-immediate-parent paired timing series are required before retaining this
-candidate as a performance improvement. All original gates remain unchanged.
+immediate-parent paired timing series are complete, with the mixed results
+above. All original gates remain unchanged; the full plan remains incomplete.
 
 #### Frame-width resident scratch candidate — 2026-10-06
 
