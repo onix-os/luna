@@ -1312,6 +1312,33 @@ fn consumed_call_vm_error_is_returned_without_charging_an_unsuccessful_prefix() 
 
 #[test]
 fn resident_return_error_recovers_pending_values_and_callee_effects() {
+    resident_failure(ResidentFailure::ReturnError);
+}
+
+#[test]
+fn resident_enter_panic_recovers_pending_values_beneath_callee() {
+    resident_failure(ResidentFailure::EnterPanic);
+}
+
+#[test]
+fn resident_leave_panic_discards_uncommitted_callee_scratch() {
+    resident_failure(ResidentFailure::LeavePanic);
+}
+
+#[test]
+fn resident_post_return_panic_preserves_committed_callee_effects() {
+    resident_failure(ResidentFailure::ReturnedPanic);
+}
+
+#[derive(Clone, Copy)]
+enum ResidentFailure {
+    ReturnError,
+    EnterPanic,
+    LeavePanic,
+    ReturnedPanic,
+}
+
+fn resident_failure(failure: ResidentFailure) {
     unsafe extern "C" fn faulty_enter(
         data: *mut c_void,
         pc: u64,
@@ -1325,6 +1352,56 @@ fn resident_return_error_recovers_pending_values_and_callee_effects() {
                 .test_variable_stack();
         }
         frame
+    }
+
+    unsafe fn inject_panic(data: *mut c_void, generated: bool) {
+        let session = unsafe { &mut *data.cast::<Session<'_, '_, '_>>() };
+        session.panic = Some(
+            catch_unwind(AssertUnwindSafe(|| {
+                assert_eq!(session.calls, 1);
+                if generated {
+                    assert_eq!(session.frame.exit.instructions, 3);
+                    assert_eq!((session.view.reads, session.view.writes), (1, 1));
+                    assert_eq!(unsafe { (*session.view.cell).bits }, 17);
+                }
+                panic!("resident injected panic");
+            }))
+            .unwrap_err(),
+        );
+    }
+
+    unsafe extern "C" fn panic_enter(
+        data: *mut c_void,
+        pc: u64,
+        function: u32,
+        arguments: u32,
+    ) -> *mut NativeFrame {
+        let frame = unsafe { enter(data, pc, function, arguments) };
+        if !frame.is_null() {
+            unsafe { inject_panic(data, false) };
+        }
+        std::ptr::null_mut()
+    }
+
+    unsafe extern "C" fn panic_leave(
+        data: *mut c_void,
+        _frame: *mut NativeFrame,
+        _pc: u64,
+        _start: u32,
+    ) -> u32 {
+        unsafe { inject_panic(data, true) };
+        0
+    }
+
+    unsafe extern "C" fn panic_returned(
+        data: *mut c_void,
+        frame: *mut NativeFrame,
+        pc: u64,
+        start: u32,
+    ) -> u32 {
+        let result = unsafe { leave(data, frame, pc, start) };
+        unsafe { inject_panic(data, true) };
+        result
     }
 
     fixture(
@@ -1364,11 +1441,15 @@ fn resident_return_error_recovers_pending_values_and_callee_effects() {
                 let callee =
                     Snapshot::new_in(&prototype.prototypes[0], 4096, metadata.clone()).unwrap();
                 let plan = Plan::new(&caller, &callee, site.pc, limits).unwrap();
+                let mapped_before = memory.requested();
+                let metadata_before = metadata.0.current();
                 let code = compile(
                     &plan,
-                    Hooks {
-                        enter: faulty_enter,
-                        leave,
+                    match failure {
+                        ResidentFailure::ReturnError => Hooks { enter: faulty_enter, leave },
+                        ResidentFailure::EnterPanic => Hooks { enter: panic_enter, leave },
+                        ResidentFailure::LeavePanic => Hooks { enter, leave: panic_leave },
+                        ResidentFailure::ReturnedPanic => Hooks { enter, leave: panic_returned },
                     },
                     memory.clone(),
                     limit,
@@ -1383,9 +1464,9 @@ fn resident_return_error_recovers_pending_values_and_callee_effects() {
                         Program {
                             site,
                             code,
-                            origin: memory,
+                            origin: memory.clone(),
                         },
-                        metadata,
+                        metadata.clone(),
                     )
                     .unwrap(),
                 };
@@ -1418,17 +1499,31 @@ fn resident_return_error_recovers_pending_values_and_callee_effects() {
                             });
                             let leases = crate::jit::owner::Shared::strong_count(&pair.program);
                             let mut recoveries = 0;
-                            let outcome = crate::jit::chains::shadow_pair(
-                                ctx,
-                                host,
-                                &pair,
-                                &mut shadow,
-                                64,
-                                prefix,
-                                &mut recoveries,
-                            )
-                            .unwrap();
-                            assert_eq!((outcome.calls, outcome.returns), (1, 1));
+                            let returned = catch_unwind(AssertUnwindSafe(|| {
+                                crate::jit::chains::shadow_pair(
+                                    ctx,
+                                    host,
+                                    &pair,
+                                    &mut shadow,
+                                    64,
+                                    prefix,
+                                    &mut recoveries,
+                                )
+                            }));
+                            let result = match failure {
+                                ResidentFailure::ReturnError => {
+                                    let outcome = returned.unwrap().unwrap();
+                                    assert_eq!((outcome.calls, outcome.returns), (1, 1));
+                                    outcome.result
+                                }
+                                _ => {
+                                    let Err(payload) = returned else {
+                                        panic!("resident driver swallowed panic");
+                                    };
+                                    assert_eq!(*payload.downcast::<&str>().unwrap(), "resident injected panic");
+                                    Ok(())
+                                }
+                            };
                             assert_eq!(recoveries, 1);
                             assert!(shadow.is_none());
                             assert_eq!(
@@ -1437,25 +1532,40 @@ fn resident_return_error_recovers_pending_values_and_callee_effects() {
                             );
                             assert_eq!(
                                 ctx.jit().0.borrow().stats.native_instructions - native_before,
-                                u64::from(prefix + 3)
+                                u64::from(prefix + if matches!(failure, ResidentFailure::ReturnError | ResidentFailure::ReturnedPanic) { 3 } else { 0 })
                             );
-                            outcome.result
+                            result
                         } else {
                             host.run(ctx, 1, 64, 4).result.unwrap();
-                            host.test_variable_stack();
-                            let result = host.run(ctx, 1, 64, 4).result;
+                            let result = match failure {
+                                ResidentFailure::ReturnError => {
+                                    host.test_variable_stack();
+                                    host.run(ctx, 1, 64, 4).result
+                                }
+                                ResidentFailure::ReturnedPanic => host.run(ctx, 1, 64, 4).result,
+                                _ => Ok(()),
+                            };
                             assert_eq!(
                                 ctx.jit().0.borrow().stats.native_instructions,
                                 native_before
                             );
                             result
                         };
-                        assert!(matches!(
-                            result,
-                            Err(crate::thread::VMError::ExpectedVariableStack(false))
-                        ));
+                        match failure {
+                            ResidentFailure::ReturnError => assert!(matches!(
+                                result,
+                                Err(crate::thread::VMError::ExpectedVariableStack(false))
+                            )),
+                            _ => result.unwrap(),
+                        }
                         assert!(ctx.jit().0.try_borrow_mut().is_ok());
                         let trace = trace(ctx, host, before);
+                        let callee_instructions = match failure {
+                            ResidentFailure::ReturnedPanic => 3,
+                            ResidentFailure::ReturnError if native => 3,
+                            _ => 0,
+                        };
+                        assert_eq!(trace.instructions, (site.pc - start) as u64 + callee_instructions);
                         (
                             trace.frames,
                             trace.slots,
@@ -1466,6 +1576,9 @@ fn resident_return_error_recovers_pending_values_and_callee_effects() {
                     })
                 };
                 assert_eq!(run(true), run(false));
+                drop(pair);
+                assert_eq!(memory.requested(), mapped_before);
+                assert_eq!(metadata.0.current(), metadata_before);
             });
         },
     );

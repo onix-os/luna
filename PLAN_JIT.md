@@ -31,6 +31,20 @@ evidence. Formatting and canonical/chain/pair/public-runtime/shadow checks pass
 (`resident-return-focused.log`). Combined panic fixtures remain next; production
 routing, original performance gates and release acceptance are unchanged.
 
+The follow-up adds generated-boundary panic fixtures after physical Call, before
+callee writeback, and after successful physical Return. Each catches the injected
+panic inside the C callback, resumes it only after the generated call returns,
+and compares recovered state/fuel/dispatches with the corresponding forced-Off
+boundary. Before-writeback scratch proves three generated instructions and
+`n=17` while canonical capture effects remain `n=12`; after Return the committed
+capture stays `n=17`. Pending `p=99` survives all cases. Exact instruction counters
+distinguish committed native work from discarded scratch and failed interpreter
+slices. Pair mapping and metadata charges return to their pre-compilation values
+after lease drop. The four combined fixtures and existing focused suites pass
+**99 executions in five suites**, zero failures or ignores
+(`resident-panic-validation.log`). This is additional correctness coverage for
+the test-only route, not production promotion or performance acceptance.
+
 #### Typed decoder inlining candidate — 2026-10-06
 
 **Retained working improvement, not full performance acceptance.** Original and
