@@ -26,6 +26,12 @@ pub(crate) struct ActivationHost<'gc, 'a> {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
+    pending_prefix: Option<u32>,
+    #[cfg(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
     #[cfg(test)]
     decline_pairs: bool,
     state: &'a mut ThreadState<'gc>,
@@ -68,6 +74,12 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                 target_os = "linux",
                 any(target_arch = "x86_64", target_arch = "aarch64")
             ))]
+            pending_prefix: None,
+            #[cfg(all(
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))]
             #[cfg(test)]
             decline_pairs: false,
         }
@@ -94,6 +106,34 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 impl<'gc, 'a> ActivationHost<'gc, 'a> {
+    pub(crate) fn resume_pair_slice(
+        &mut self,
+        ctx: Context<'gc>,
+        budget: u32,
+    ) -> Result<u32, VMError> {
+        assert!(self.pair.handoff.is_none());
+        self.select_pairs = ctx.jit().call_pairs_enabled();
+        #[cfg(test)]
+        {
+            self.select_pairs &= !self.decline_pairs;
+        }
+        self.with_frame(|frame| run_vm(ctx, frame, budget))
+    }
+
+    pub(crate) fn take_pair(&mut self) -> Option<crate::jit::PreparedPair> {
+        self.pair.handoff.take()
+    }
+
+    pub(crate) fn cache_pair(&mut self, pair: crate::jit::PreparedPair) {
+        self.pair.cache = Some(pair);
+    }
+
+    pub(crate) fn defer_pair(&mut self, pair: crate::jit::PreparedPair, prefix: u32) {
+        assert!(self.pair.handoff.is_none() && self.pending_prefix.is_none());
+        self.pair.handoff = Some(pair);
+        self.pending_prefix = Some(prefix);
+    }
+
     pub(crate) fn clear_hook(&mut self, ctx: Context<'gc>) {
         self.with_frame(|frame| ctx.clear_hook_at(frame.frame_depth()));
     }
@@ -243,7 +283,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                 any(target_arch = "x86_64", target_arch = "aarch64")
             ))]
             {
-                assert!(self.pair.handoff.is_none());
+                assert_eq!(self.pair.handoff.is_some(), self.pending_prefix.is_some());
                 self.select_pairs = limit - activations >= 2
                     && budget >= 4
                     && step_fuel == 4
@@ -253,6 +293,21 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                     self.select_pairs &= !self.decline_pairs;
                 }
             }
+            #[cfg(all(
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))]
+            let result = if let Some(prefix) = self.pending_prefix.take() {
+                Ok(prefix)
+            } else {
+                self.with_frame(|frame| run_vm(ctx, frame, budget))
+            };
+            #[cfg(not(all(
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            )))]
             let result = self.with_frame(|frame| run_vm(ctx, frame, budget));
             activations += 1;
             #[cfg(all(
@@ -264,10 +319,10 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                 let prefix = result.expect("pair handoff with VM error");
                 assert!(prefix < budget);
                 self.select_pairs = false;
-                let outcome = pair.invoke(ctx, self, budget, prefix);
+                let outcome = pair.invoke(ctx, self, budget, prefix, limit - activations);
                 self.pair.cache = Some(pair);
                 if let Some(outcome) = outcome {
-                    activations += outcome.returns;
+                    activations += outcome.extra_activations;
                     (outcome.result.map(|()| 0), true)
                 } else {
                     (
@@ -299,8 +354,17 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                 any(target_arch = "x86_64", target_arch = "aarch64")
             )))]
             self.fuel.consume(step_fuel);
+            #[cfg(all(
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))]
+            if self.pending_prefix.is_some() {
+                assert!(result.is_ok() && activations < limit);
+                continue;
+            }
             if result.is_err()
-                || activations == limit
+                || activations >= limit
                 || !self.fuel.should_continue()
                 || self.state.mode() != ThreadMode::Normal
                 || !matches!(self.state.frames.last(), Some(Frame::Lua { .. }))
