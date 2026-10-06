@@ -861,6 +861,13 @@ paired trials and profile-driven scratch/Call-probe corrections are recorded
 in `PLAN_JIT.md`; upvalue, callback and compiled-Off regressions remain open.
 Do not treat this tier's correctness tests as release or performance acceptance.
 
+A source-bound numeric paired-call payload (`40de9c3`) was tested and reverted
+in `f69b33c`. Both full-profile comparisons retained the original thresholds.
+Shipping upvalue Auto gained about 2.3 percent against the previous paired cache,
+but shipping Off slowed about 5.2 percent; speed Auto did not improve. Production
+still uses tagged scratch. `PLAN_JIT.md` records the full validation and rejected
+timings; this experiment did not resolve the regressions.
+
 The scoped host reuses one paired-code lease within its activation batch. Numeric
 prototype hints select a possible hit; matching live cache ownership and all
 canonical entry guards still validate it. Retirement, replacement, foreign

@@ -11,6 +11,50 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Rejected typed numeric pair payload — 2026-10-06
+
+Candidate `40de9c3` replaced the paired callee's tagged register-prefix scratch
+with a source-bound 32-byte numeric payload. Generated code performed the same
+GetUpValue/arithmetic/SetUpValue effects; canonical materialization applied their
+ordered register/capture writes. Physical Call/Return, fresh capture checks,
+fuel, ownership, source verification and resource limits remained unchanged.
+It was reverted in `f69b33c`; production payloads remain tagged.
+
+GNU Off/Auto/Force, musl Auto and focused gates passed 4,672 test executions in
+330 suites with zero failures. Canonical fixtures compiled both payload formats
+and differential generated-call tests covered frame/fuel traces, aliases,
+references, errors and callbacks. Additional native tests checked wrapping
+arithmetic, constant operands, low budgets and stale views; source-mutation
+tests rejected changed payload offsets, branches and signatures. Native
+Memcheck passed all nine public runtime tests with zero errors and no definite
+or indirect leaks. The first memory-check command failed at argument parsing;
+the corrected terminal run and original failure are both retained.
+
+Two complete comparisons against the original baseline and previous paired
+cache each ran 24 blocks/144 commands, both profiles, all nine cases, eleven
+paired samples, three windows and twelve cost batches per profile. Source and
+artifact hashes and external contention were retained. Each driver completed
+zero, but each had 96 failed command gates and 48 successful commands.
+
+| Previous paired cache / numeric candidate | Speed | Shipping |
+| --- | ---: | ---: |
+| Upvalue Auto | 0.993513 | 1.023393 |
+| Upvalue Off | 1.030651 | 0.950180 |
+| Callback Auto | 1.020553 | 0.992659 |
+| Callback Off | 1.018541 | 0.984484 |
+
+The shipping upvalue Auto gain of about 2.3 percent does not justify a shipping
+Off slowdown of about 5.2 percent. Against original controls, candidate
+compiled-Off/no-feature ratios were 1.15315/1.16940 for upvalues and
+1.11625/1.13475 for callbacks (speed/shipping), above the unchanged 1.05 limit.
+The smaller payload did not fix original upvalue/callback performance gates.
+Do not infer acceleration from smaller scratch, correctness or native coverage.
+Sources, binaries, rejected patch, tests and both full trials are retained under
+`target/jit-evidence/short-slice-performance/numeric-pair-*`.
+The restored canonical fixture retains extra minimum/maximum integer wrapping,
+constant-overflow and unused reference-argument cases; frozen corpus and gates
+are unchanged. Original performance acceptance remains open.
+
 #### Rejected paired-session reuse and isolated entry — 2026-10-06
 
 Both revisions below have been reverted. Runtime sources exactly match the
