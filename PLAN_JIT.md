@@ -11,6 +11,81 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Rejected adapter and shared-accounting trials — 2026-10-06
+
+Two measured trials were removed; the production runtime remains the
+**`7b92c98`** implementation below. Neither trial fixes the original
+performance regressions or closes a plan gate.
+
+Forcing the activation host's `with_frame` and `with_registers` adapters to
+inline passes focused correctness checks but only reduces upvalue Auto
+Callgrind instructions from **126,645,129 to 126,137,225** (0.40%). Five
+alternating 100-iteration diagnostic batches give direct Auto ratios
+**0.9977, 0.9596, 0.9815, 0.9862, 1.0046** against the production control:
+four regress. Each Auto batch preserves **6,119,107 native instructions**;
+Off remains zero. Both attributes were removed. This screening diagnostic
+is not the original acceptance harness and does not substitute for it.
+Evidence is retained under `native-region-adapter-*` in
+`target/jit-evidence/short-slice-performance/`.
+
+The second trial shares the VM's logical-work accumulator with its unwind
+statistics, subtracting native work when publishing dispatch totals and
+excluding uncharged terminal opcodes only from successful fuel reports.
+It preserves prefix, hook, handoff, mock, error and panic accounting in the
+tested corpus, without splitting the VM or removing statistics. Candidate
+validation passes **1,764 GNU executions / 175 suites** (ten ignores),
+**111 focused musl executions / 13 suites** (two ignores), **2,101 real i686
+fallback executions / 327 suites** (two ignores), nine Miri statistics tests
+and four native production integration executions under Memcheck. All have
+zero failures; Memcheck has no errors or definite/indirect loss, while the
+possible 48-byte harness TLS allocations remain visible. An initial fixture
+compile error is retained separately, not counted as passing evidence.
+
+Six alternating windows then compare immutable control/candidate binaries
+using the unchanged nine-case opt3 native gate and both speed/shipping
+compiled-Off gates: eleven paired samples, twenty iterations for disabled
+controls, **36 checked commands** total. All aggregate commands fail. The
+median direct control/candidate timing ratios for selected disabled cases
+show why the candidate was rejected (greater than one means faster):
+
+| Compiled-Off case | Speed profile | Shipping profile |
+| --- | ---: | ---: |
+| Integer | 1.0457 | 0.8455 |
+| Float | 1.0345 | 0.9417 |
+| Table | 0.9985 | 0.9138 |
+| Upvalue | 0.9924 | 0.9214 |
+
+Shipping candidate/no-feature overhead ratios are **1.1673–1.1983** for
+integer, **1.1292–1.1476** for table and **1.2228–1.2415** for upvalue,
+all above the unchanged 1.05 limit. Upvalue Auto also becomes slightly slower
+in every native timing window (direct ratios **0.9871–0.9983**), with native
+coverage unchanged. Large early numeric timing variation moves with Off
+controls and is not claimed as a stable native gain.
+
+Exact-source symbol-bearing profiles, collecting two warmups plus three
+measured workloads, show that instruction reduction alone is insufficient:
+
+| Integer compiled-Off profile | Control instructions | Candidate instructions |
+| --- | ---: | ---: |
+| Speed | 26,890,710 | 26,487,505 |
+| Shipping | 29,796,900 | 29,500,015 |
+
+Shipping gets slower despite about 1% fewer instructions. Its data reads rise
+from **8,887,200 to 8,990,370**, while writes fall from **4,693,000 to
+4,486,710**. These software profiles do not establish a hardware root cause;
+do not equate instruction count with wall time or bypass shipping validation.
+
+The complete source archive/patch, hashes, candidate checks, raw samples,
+contention telemetry, all nonzero gate exits and 540-row `summary.json` remain
+under `vm-work-accounting-*`. No owned build/test/profile overlapped timing;
+unrelated applications were left alone. Both runtime files and the trial-only
+guard tests were restored. The source manifest matches the published runtime;
+restored GNU checks pass **51 executions / eight suites**, zero failures or
+ignores, plus formatting and all-target checking. Current production behavior
+and the original open performance/resource/platform/release obligations are
+unchanged. Subsequent work must explain the measured cost, not keep a narrow
+instruction-count win that regresses the shipped profile.
+
 #### Production caller regions and measured remaining costs — 2026-10-06
 
 **`302b2c3`** indexes installed regions by caller; **`7b92c98`** connects
