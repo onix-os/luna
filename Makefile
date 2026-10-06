@@ -351,7 +351,7 @@ jit-native-region-profile-build:
 	@{ find src -type f -name '*.rs' -print0; printf '%s\0' Cargo.toml Cargo.lock Makefile examples/jit_support/workloads.rs; } | sort -z | xargs -0 sha256sum > '$(REGION_PROFILE_DIR)/source.sha256'
 	@git rev-parse HEAD > '$(REGION_PROFILE_DIR)/revision'
 	@git diff --binary > '$(REGION_PROFILE_DIR)/source.patch'
-	@printf 'opt_level=%s\nstrip=false\ncollection=*cost::profile_region\niterations=3\n' '$(JIT_BENCH_OPT)' > '$(REGION_PROFILE_DIR)/configuration'
+	@printf 'opt_level=%s\nstrip=false\ncollection=*cost::profile_region\niterations=3\ncase=%s\n' '$(JIT_BENCH_OPT)' "$${LUNA_REGION_CASE:-closure_upvalue}" > '$(REGION_PROFILE_DIR)/configuration'
 
 jit-native-region-profile-run:
 	@sha256sum -c '$(REGION_PROFILE_DIR)/binary.sha256' '$(REGION_PROFILE_DIR)/source.sha256' > '$(REGION_PROFILE_DIR)/verification.log'

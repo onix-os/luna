@@ -11,15 +11,27 @@ fn setting(name: &str, default: usize, maximum: usize) -> usize {
     value
 }
 
+fn workload() -> &'static workloads::Workload {
+    match std::env::var("LUNA_REGION_CASE").as_deref().unwrap_or("closure_upvalue") {
+        "closure_upvalue" => workloads::WORKLOADS
+            .iter()
+            .find(|case| case.name == "closure_upvalue")
+            .unwrap(),
+        "closure_upvalue_modulo" => &workloads::Workload {
+            name: "closure_upvalue_modulo",
+            source: b"local sum=0 local function add(v) sum=sum+v end for i=1,10000 do local q=i%3 add(i) end return sum",
+            expected: 50005000,
+        },
+        _ => panic!("unknown region diagnostic case"),
+    }
+}
+
 #[test]
 #[ignore = "paired release diagnostic, not a performance acceptance gate"]
 fn paired_region_cost() {
     let samples = setting("LUNA_REGION_SAMPLES", 21, 101);
     let iterations = setting("LUNA_REGION_ITERATIONS", 8, 100);
-    let workload = workloads::WORKLOADS
-        .iter()
-        .find(|case| case.name == "closure_upvalue")
-        .unwrap();
+    let workload = workload();
     fixture_source(workload.source, |ctx, closure, region, start| {
         let mut times: [Vec<u128>; 3] = std::array::from_fn(|_| Vec::new());
         for round in 0..samples + 3 {
@@ -154,10 +166,7 @@ fn region_cost_profile() {
     let mode = std::env::var("LUNA_REGION_PROFILE_MODE").unwrap_or_else(|_| "region".into());
     assert!(["off", "auto", "region"].contains(&mode.as_str()));
     let iterations = setting("LUNA_REGION_ITERATIONS", 3, 100);
-    let workload = workloads::WORKLOADS
-        .iter()
-        .find(|case| case.name == "closure_upvalue")
-        .unwrap();
+    let workload = workload();
     fixture_source(workload.source, |ctx, closure, region, start| {
         let expected = with_test_thread(ctx, closure, &mut Fuel::with(1000000), |host| {
             ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
@@ -199,7 +208,7 @@ fn region_cost_profile() {
                         60006
                     );
                 }
-                println!("profile_verified=true mode={mode} iteration={iteration} native={} pairs={} fragments={} fallbacks={}", after.native_instructions - before.native_instructions, counts[0], counts[1], counts[2]);
+                println!("profile_verified=true case={} mode={mode} iteration={iteration} native={} pairs={} fragments={} fallbacks={}", workload.name, after.native_instructions - before.native_instructions, counts[0], counts[1], counts[2]);
             });
         }
     });
