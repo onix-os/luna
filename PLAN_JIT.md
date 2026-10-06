@@ -38,7 +38,7 @@ a cold non-inlined mismatch helper. All remaining frame, source, owner, scalar
 tag, exit and materialization guards stay unchanged. The existing malformed
 leave differential fixture now covers all four comparisons and verifies no
 materialization, physical Return, state/statistics or fuel changes on failure.
-GNU/musl focused checks pass 122 executions in eleven suites, zero failures or
+GNU/musl focused checks pass 120 executions in eleven suites, zero failures or
 ignores and no Rust warnings. A wrong Make target invocation is retained; the
 correct target is `jit-call-canonical`. Instruction evidence and full unchanged
 timing/semantic acceptance are required before retaining this new candidate.
