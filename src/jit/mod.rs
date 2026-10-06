@@ -427,6 +427,69 @@ mod stats_tests {
     }
 
     #[test]
+    fn mixed_dispatches_preserve_native_totals_and_successful_reports() {
+        for initial in [0, u64::MAX - 1, u64::MAX] {
+            for native in [0, 1, 3, 64] {
+                for interpreted in [0u32, 1, 3, 64] {
+                    for report in [None, Some(interpreted.saturating_sub(1)), Some(interpreted)] {
+                        let runtime = Runtime::new();
+                        runtime.0.borrow_mut().stats.total_dispatches = initial;
+                        if native != 0 {
+                            runtime.0.borrow_mut().stats.record_native_exit(&abi::Exit {
+                                pc: 3,
+                                instructions: native,
+                                reason: exits::Kind::Budget as u32,
+                            });
+                        }
+                        {
+                            let mut slice = runtime.interpreter_stats();
+                            slice.dispatches = interpreted;
+                            slice.reported_instructions = report;
+                        }
+                        let stats = runtime.0.borrow().stats;
+                        assert_eq!(
+                            stats.total_dispatches,
+                            initial.saturating_add(u64::from(native + interpreted))
+                        );
+                        assert_eq!(stats.native_instructions, u64::from(native));
+                        assert_eq!(stats.native_entries, u64::from(native != 0));
+                        assert_eq!(
+                            stats.interpreted_slices,
+                            u64::from(report.is_some() && interpreted != 0)
+                        );
+                        assert_eq!(
+                            stats.interpreted_instructions,
+                            u64::from(report.unwrap_or(0))
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn mixed_unwind_preserves_unreported_interpreter_dispatches() {
+        let runtime = Runtime::new();
+        runtime.0.borrow_mut().stats.record_native_exit(&abi::Exit {
+            pc: 5,
+            instructions: 5,
+            reason: exits::Kind::Interpreter as u32,
+        });
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut slice = runtime.interpreter_stats();
+            slice.dispatches = 3;
+            panic!("mixed dispatch unwind sentinel");
+        }));
+        assert!(result.is_err());
+        let stats = runtime.0.borrow().stats;
+        assert_eq!(stats.total_dispatches, 8);
+        assert_eq!(stats.native_instructions, 5);
+        assert_eq!(stats.native_entries, 1);
+        assert_eq!(stats.interpreted_instructions, 0);
+        assert_eq!(stats.interpreted_slices, 0);
+    }
+
+    #[test]
     fn interpreter_dispatches_saturate_without_counting_empty_slices() {
         let runtime = Runtime::new();
         for initial in [0, u64::MAX - 1, u64::MAX] {
