@@ -13,6 +13,33 @@
 
 #### Typed decoder inlining candidate — 2026-10-06
 
+**Retained working improvement, not full performance acceptance.** Original and
+immediate-eligibility-control comparisons each completed 24 native rounds per
+profile and twelve cost rounds per profile, paired eleven-sample invocations,
+alternating order, hash checks and external contention telemetry. Direct
+control-Off/candidate-Off ratios are upvalue **1.121804/1.139790** and callback
+**1.112391/1.127235** (speed/shipping), with p10-p90 ranges wholly above one.
+The decoder hint measurably accelerates the interpreter rather than merely
+reducing a profiler instruction count.
+
+Matched upvalue compiled-Off/no-feature cost improves from **1.1196 to 1.02925**
+in speed (12/12 batches pass) and **1.1775 to 1.11435** in shipping (still fails).
+Callback cost changes **1.0757 to 1.1078** in speed (worse, all fail) and
+**1.05755 to 1.0491** in shipping (7/12 pass). Faster no-feature execution remains
+part of the control; do not keep it artificially slow to improve JIT ratios.
+Native tradeoffs remain: direct Auto upvalue **1.055464/0.980640**, callback
+**0.977019/1.001331**, table **0.971979/0.955262**. In particular, the shipping
+upvalue/table slowdowns are not acceptance simply because Off improved.
+
+Against original gates, Auto-Off upvalue ratios are **0.5455/0.47325**, callback
+**0.72025/0.7003**, table **1.09105/1.14785**, metamethod **0.78995/0.84405**,
+allocation **0.87745/0.7399**. Upvalue/callback/table fail every round in both
+profiles. Original-comparison Off upvalue costs are **1.0297/1.11285**, callbacks
+**1.1023/1.046**. Logs and 109-row summaries are `decoder-inline-timing` and
+`decoder-inline-vs-pair-eligibility-timing`; collector zero exits mean complete
+evidence, not passing workload gates. Original thresholds and full scope stay
+unchanged; native call costs and remaining Off tradeoffs still require work.
+
 The shipping Off investigation of `63f5966` versus `99c57f7` completed eight
 Make-based Callgrind runs with paired no-feature controls and verified archives.
 Both JIT-Off variants execute exactly **113,628,573** upvalue instructions and
@@ -38,8 +65,8 @@ warnings. Native pair/public-runtime Memcheck passes 37 executions with zero
 errors or definite/indirect losses, retaining possible 48-byte TLS losses.
 Fourteen Miri model executions and i686 checking pass. Immutable artifacts,
 source manifests and shipping profile archives are verified. Original and
-immediate-eligibility-control timing comparisons remain required before accepting
-this compiler-hint trial; all original thresholds remain unchanged.
+immediate-eligibility-control timing comparisons are complete with the mixed
+results above; this compiler-hint trial is not full-plan acceptance.
 
 #### Installed-pair scheduling eligibility candidate — 2026-10-06
 
