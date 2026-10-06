@@ -1690,7 +1690,7 @@ impl Runtime {
                 closure.upvalues(),
                 slots,
                 |registers, pointer, projection| {
-                    self.invoke_frame::<true>(
+                    self.invoke_frame::<true, false>(
                         code,
                         ctx,
                         closure,
@@ -1701,7 +1701,7 @@ impl Runtime {
                 },
             )
         } else {
-            self.invoke_frame::<false>(
+            self.invoke_frame::<false, false>(
                 code,
                 ctx,
                 closure,
@@ -1768,7 +1768,7 @@ impl Runtime {
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
     #[inline(always)]
-    fn invoke_frame<'gc, const PROJECTED: bool>(
+    fn invoke_frame<'gc, const PROJECTED: bool, const DEFER: bool>(
         &self,
         code: &backend::Code,
         ctx: crate::Context<'gc>,
@@ -1783,6 +1783,7 @@ impl Runtime {
     ) -> u32 {
         let (slots, projection, register_count) = binding;
         debug_assert!(PROJECTED || projection.is_none());
+        debug_assert!(!DEFER || !PROJECTED);
         let mut frame = helpers::Frame {
             ctx,
             closure,
@@ -1831,12 +1832,14 @@ impl Runtime {
         #[cfg(not(test))]
         let exit = unsafe { code.invoke_raw(slots, pc, budget, &mut host) };
         let slots = unsafe { std::slice::from_raw_parts(slots, register_count) };
-        for (slot, dest) in slots
-            .iter()
-            .copied()
-            .zip(frame.registers.stack_frame[..register_count].iter_mut())
-        {
-            slot.write_back(dest);
+        if !DEFER || frame.panic.is_some() {
+            for (slot, dest) in slots
+                .iter()
+                .copied()
+                .zip(frame.registers.stack_frame[..register_count].iter_mut())
+            {
+                slot.write_back(dest);
+            }
         }
         if frame.panic.is_none() {
             *frame.registers.pc = usize::try_from(exit.pc).expect("native PC exceeds host range");
