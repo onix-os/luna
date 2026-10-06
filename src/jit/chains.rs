@@ -116,6 +116,7 @@ impl Driver {
                 break;
             }
         }
+        self.pair = PairScope::default();
         outcome
     }
 }
@@ -123,7 +124,9 @@ impl Driver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Closure, Executor, Fuel, JitConfig, JitMode, Lua, Thread};
+    use crate::{
+        Callback, CallbackReturn, Closure, Executor, Fuel, JitConfig, JitMode, Lua, Thread,
+    };
 
     const SOURCE: &[u8] =
         b"local sum=0 local function add(v) sum=sum+v end for i=1,10000 do add(i) end return sum";
@@ -253,5 +256,167 @@ mod tests {
                 });
             });
         });
+    }
+
+    #[test]
+    fn native_prefixes_preserve_exhausted_and_small_fuel_transitions() {
+        for remaining in [-1, 0, 1, 8, 13, 64] {
+            let mut traces = Vec::new();
+            for mode in [JitMode::Off, JitMode::Auto] {
+                let (mut lua, closure) = state(mode, SOURCE);
+                lua.enter(|ctx| {
+                    let thread = Thread::new(ctx);
+                    thread.start(ctx, ctx.fetch(&closure).into(), ()).unwrap();
+                    let mut fuel = Fuel::with(4096);
+                    crate::thread::activation::with_test_existing_thread(
+                        ctx,
+                        thread,
+                        &mut fuel,
+                        |host| {
+                            for _ in 0..2 {
+                                host.run(ctx, 1, 64, 4).result.unwrap();
+                            }
+                            host.test_fuel(Fuel::with(remaining));
+                            ctx.jit().0.borrow_mut().stats = Default::default();
+                            if mode == JitMode::Auto {
+                                let outcome = Driver::default().run(ctx, host, 8, 64);
+                                outcome.result.unwrap();
+                                assert!(outcome.pause.is_none());
+                                assert!(outcome.slices > 0);
+                            } else {
+                                host.run(ctx, 8, 64, 4).result.unwrap();
+                            }
+                            traces.push(trace(ctx, host));
+                        },
+                    );
+                });
+            }
+            assert_eq!(traces[0], traces[1], "remaining={remaining}");
+        }
+    }
+
+    #[test]
+    fn native_chains_release_leases_and_materialize_captures_before_collection() {
+        let (mut lua, closure) = state(JitMode::Auto, SOURCE);
+        let thread = lua.enter(|ctx| {
+            let thread = Thread::new(ctx);
+            thread.start(ctx, ctx.fetch(&closure).into(), ()).unwrap();
+            let mut fuel = Fuel::with(4096);
+            crate::thread::activation::with_test_existing_thread(ctx, thread, &mut fuel, |host| {
+                for _ in 0..2 {
+                    host.run(ctx, 1, 64, 4).result.unwrap();
+                }
+            });
+            ctx.stash(thread)
+        });
+        let mut driver = Driver::default();
+        for _ in 0..32 {
+            lua.enter(|ctx| {
+                let mut fuel = Fuel::with(4096);
+                crate::thread::activation::with_test_existing_thread(
+                    ctx,
+                    ctx.fetch(&thread),
+                    &mut fuel,
+                    |host| {
+                        let outcome = driver.run(ctx, host, 16, 64);
+                        outcome.result.unwrap();
+                        assert!(outcome.pause.is_none());
+                        assert_eq!(outcome.slices, 16);
+                        assert_eq!(outcome.pairs, 8);
+                    },
+                );
+            });
+            assert!(driver.pair.cache.is_none());
+            assert!(driver.pair.handoff.is_none());
+            lua.gc_collect();
+        }
+        let executor = lua.enter(|ctx| ctx.stash(Executor::run(&ctx, ctx.fetch(&thread)).unwrap()));
+        assert_eq!(lua.execute::<i64>(&executor).unwrap(), 50005000);
+    }
+
+    #[test]
+    fn hooks_and_off_decline_before_native_work_or_frame_changes() {
+        for hooked in [false, true] {
+            let (mut lua, closure) = state(JitMode::Auto, SOURCE);
+            if !hooked {
+                lua.set_jit_config(JitConfig::default()).unwrap();
+            }
+            lua.enter(|ctx| {
+                let thread = Thread::new(ctx);
+                thread.start(ctx, ctx.fetch(&closure).into(), ()).unwrap();
+                if hooked {
+                    let hook = Callback::from_fn(&ctx, |_, _, _| Ok(CallbackReturn::Return));
+                    ctx.set_debug_hook(crate::Value::Function(hook.into()), true, 1);
+                }
+                let mut fuel = Fuel::with(4096);
+                crate::thread::activation::with_test_existing_thread(
+                    ctx,
+                    thread,
+                    &mut fuel,
+                    |host| {
+                        let before = trace(ctx, host);
+                        let mut driver = Driver::default();
+                        let outcome = driver.run(ctx, host, 16, 64);
+                        outcome.result.unwrap();
+                        assert_eq!(outcome.slices, 0);
+                        assert!(matches!(outcome.pause, Some(Pause::Unavailable)));
+                        assert_eq!(trace(ctx, host), before);
+                        assert!(driver.pair.cache.is_none());
+                    },
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn native_caller_stops_before_rust_callback_and_releases_host_borrows() {
+        let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+        let mut lua = Lua::empty();
+        lua.set_jit_config(JitConfig {
+            mode: JitMode::Auto,
+            hot_threshold: 1,
+            ..JitConfig::default()
+        })
+        .unwrap();
+        let counter = calls.clone();
+        let closure = lua.enter(|ctx| {
+            let increment = Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+                drop(ctx.jit().0.borrow_mut());
+                counter.set(counter.get() + 1);
+                let value: i64 = stack.consume(ctx)?;
+                stack.replace(ctx, value.wrapping_add(1));
+                Ok(CallbackReturn::Return)
+            });
+            ctx.set_global("host_increment", increment);
+            ctx.stash(
+                Closure::load(
+                    ctx,
+                    None,
+                    b"local sum=0 for i=1,5000 do sum=sum+host_increment(i) end return sum",
+                )
+                .unwrap(),
+            )
+        });
+        let warm = lua.enter(|ctx| ctx.stash(Executor::start(ctx, ctx.fetch(&closure).into(), ())));
+        assert_eq!(lua.execute::<i64>(&warm).unwrap(), 12507500);
+        calls.set(0);
+        let executor = lua.enter(|ctx| {
+            let thread = Thread::new(ctx);
+            thread.start(ctx, ctx.fetch(&closure).into(), ()).unwrap();
+            let mut fuel = Fuel::with(4096);
+            crate::thread::activation::with_test_existing_thread(ctx, thread, &mut fuel, |host| {
+                let mut driver = Driver::default();
+                let outcome = driver.run(ctx, host, 16, 64);
+                outcome.result.unwrap();
+                assert!(outcome.pause.is_none());
+                assert_eq!(outcome.slices, 1);
+                assert!(!host.lua_ready());
+                assert_eq!(calls.get(), 0);
+                assert!(driver.pair.cache.is_none());
+            });
+            ctx.stash(Executor::run(&ctx, thread).unwrap())
+        });
+        assert_eq!(lua.execute::<i64>(&executor).unwrap(), 12507500);
+        assert_eq!(calls.get(), 5000);
     }
 }
