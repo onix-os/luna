@@ -42,6 +42,7 @@ pub(crate) struct Outcome {
 }
 
 #[cfg(all(
+    test,
     not(miri),
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -120,6 +121,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         self.with_frame(|mut frame| f(frame.closure(), frame.registers()))
     }
 
+    #[cfg(test)]
     pub(crate) fn caller_frame(&self) -> Option<CallerFrame<'gc>> {
         let Frame::Lua {
             closure,
@@ -144,6 +146,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn with_caller_prefix<R>(
         &mut self,
         caller: &CallerFrame<'gc>,
@@ -207,11 +210,13 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
             )
     }
 
+    #[cfg(test)]
     pub(crate) fn lua_pending(&self) -> bool {
         self.state.mode() == ThreadMode::Normal
             && matches!(self.state.frames.last(), Some(Frame::Lua { .. }))
     }
 
+    #[cfg(test)]
     pub(crate) fn pairing_enabled(&self, ctx: Context<'gc>) -> bool {
         #[cfg(test)]
         if self.decline_pairs {
@@ -353,6 +358,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
+    #[cfg(test)]
     pub(crate) fn native_transition(
         &mut self,
         ctx: Context<'gc>,
@@ -418,6 +424,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
+    #[cfg(test)]
     pub(crate) fn resume_native_paired(
         &mut self,
         ctx: Context<'gc>,
@@ -441,6 +448,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
+    #[cfg(test)]
     pub(crate) fn canonical_slice(
         &mut self,
         ctx: Context<'gc>,
@@ -456,6 +464,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
+    #[cfg(test)]
     pub(crate) fn frame_identity(&self) -> (usize, usize) {
         (
             std::ptr::from_ref(&*self.state) as usize,
@@ -466,32 +475,6 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
 
 impl<'gc, 'a> ActivationHost<'gc, 'a> {
     pub fn run(&mut self, ctx: Context<'gc>, limit: usize, budget: u32, step_fuel: i32) -> Outcome {
-        #[cfg(all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
-        if step_fuel == 4 && ctx.jit().active() {
-            let outcome =
-                crate::jit::chains::Driver::default().run_shadow(ctx, self, limit, budget);
-            return Outcome {
-                result: outcome.result,
-                #[cfg(test)]
-                activations: outcome.slices,
-                #[cfg(test)]
-                stack_growths: outcome.stack_growths,
-            };
-        }
-        self.run_canonical(ctx, limit, budget, step_fuel)
-    }
-
-    pub(crate) fn run_canonical(
-        &mut self,
-        ctx: Context<'gc>,
-        limit: usize,
-        budget: u32,
-        step_fuel: i32,
-    ) -> Outcome {
         assert!(limit > 0);
         let mut activations = 0;
         #[cfg(test)]
@@ -577,6 +560,17 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                 };
             }
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn run_canonical(
+        &mut self,
+        ctx: Context<'gc>,
+        limit: usize,
+        budget: u32,
+        step_fuel: i32,
+    ) -> Outcome {
+        self.run(ctx, limit, budget, step_fuel)
     }
 }
 
