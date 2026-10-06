@@ -868,6 +868,12 @@ but shipping Off slowed about 5.2 percent; speed Auto did not improve. Productio
 still uses tagged scratch. `PLAN_JIT.md` records the full validation and rejected
 timings; this experiment did not resolve the regressions.
 
+The explicit paired-handoff VM argument (`0c5e19e`) was also tested and reverted.
+It left native semantics unchanged but slowed shipping Off upvalues about ten
+percent against the prior paired cache. Ordinary frames retain their original
+handoff field. Complete original/previous-cache comparisons and rejection
+evidence are recorded in `PLAN_JIT.md`; performance acceptance remains open.
+
 The scoped host reuses one paired-code lease within its activation batch. Numeric
 prototype hints select a possible hit; matching live cache ownership and all
 canonical entry guards still validate it. Retirement, replacement, foreign

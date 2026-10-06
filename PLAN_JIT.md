@@ -11,6 +11,43 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Rejected explicit paired handoff argument — 2026-10-06
+
+`0c5e19e` removed the optional paired-handoff reference from `LuaFrame` and
+passed it explicitly to the VM. The host still owned the stack borrow and
+selected the same paired scope; native guards, physical frames, accounting and
+code were unchanged. GNU Off/Auto/Force and musl Auto passed 4,556 executions
+across 320 suites with sixteen existing ignores and zero failures. Focused
+public/canonical/pair/activation tests passed 64 executions. Native Memcheck
+passed eighteen canonical and nine public tests, zero errors and no definite
+or indirect leaks.
+
+Two full original/previous-cache comparisons each completed 24 blocks and
+144 commands under the unchanged protocol: both profiles, nine cases, eleven
+paired samples, three windows, twelve cost batches/profile, source/artifact
+hashes and external contention. Each driver exited zero but recorded 96 failed
+command gates and 48 successes. Direct previous/candidate elapsed-time ratios:
+
+| Previous paired cache / explicit handoff | Speed | Shipping |
+| --- | ---: | ---: |
+| Upvalue Auto | 0.999336 | 1.010594 |
+| Upvalue Off | 1.027945 | 0.908735 |
+| Callback Auto | 1.001062 | 0.994173 |
+| Callback Off | 1.025054 | 0.957597 |
+
+Shipping Off upvalues slowed about 10.0 percent and callbacks about 4.4 percent.
+The shipping upvalue Auto gain of about 1.1 percent was insufficient to retain
+the candidate. Original-control compiled-Off/no-feature candidate ratios were
+1.10460/1.19285 for upvalues and 1.11715/1.08055 for callbacks (speed/shipping),
+above the unchanged 1.05 limit. The refactor was reverted; production frame and
+VM argument layouts remain unchanged. Source archives, immutable binaries,
+tests, Memcheck, rejected patch and both trials are retained under
+`target/jit-evidence/short-slice-performance/frame-scope-*`.
+This is a rejected performance experiment, not resolution of the open gates.
+After rollback, formatting/checks and GNU public/canonical/pair/activation
+tests pass 64 executions; musl public/canonical/pair tests pass 53. Runtime
+sources exactly match the previously verified `77b695f` baseline.
+
 #### Rejected typed numeric pair payload — 2026-10-06
 
 Candidate `40de9c3` replaced the paired callee's tagged register-prefix scratch
