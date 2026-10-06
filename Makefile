@@ -541,6 +541,13 @@ jit-stats:
 	@$(MAKE) --no-print-directory jit-native jit-heap
 
 .PHONY: jit-stats-miri
+.PHONY: jit-caller-shadow jit-caller-shadow-miri
+jit-caller-shadow:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::caller_shadow:: $(ARGS)
+
+jit-caller-shadow-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::caller_shadow:: -- --test-threads=1
+
 jit-stats-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::stats_tests -- --test-threads=1
 

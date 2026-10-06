@@ -13,6 +13,73 @@ use crate::{thread::activation::with_test_thread, Closure, Fuel, JitConfig, Lua}
 
 const ADD: &[u8] = b"local n=7 local function f(v) n=n+v end f(2) return n";
 
+#[test]
+fn caller_shadow_transfer_refreshes_after_real_native_call_and_return() {
+    fixture(ADD, |lua, closure, site, code| {
+        lua.enter(|ctx| {
+            let native =
+                with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                    position(host, ctx, site.pc);
+                    let (mut shadow, capture) = host.with_registers(|caller, registers| {
+                        let Value::Function(Function::Closure(callee)) =
+                            registers.stack_frame[usize::from(site.function.0)]
+                        else {
+                            panic!("expected closure");
+                        };
+                        (
+                            crate::jit::caller_shadow::Shadow::<256>::capture(caller, &registers)
+                                .unwrap(),
+                            callee.upvalues()[usize::from(site.pattern.upvalue)].get(),
+                        )
+                    });
+                    shadow.slots_mut()[0] = Slot::from_value(Value::Integer(12));
+                    shadow.slots_mut()[usize::from(site.function.0) + 1] =
+                        Slot::from_value(Value::Integer(5));
+                    let transfer = host.with_registers(|caller, mut registers| {
+                        shadow
+                            .prepare_call(
+                                caller,
+                                &mut registers,
+                                site.function.0,
+                                site.arguments,
+                                capture,
+                            )
+                            .unwrap()
+                    });
+                    let before = ctx.jit().0.borrow().stats.native_instructions;
+                    let before_stats = stats(ctx);
+                    let outcome = invoke_result(ctx, host, &site, &code, 64, 0).unwrap();
+                    outcome.result.unwrap();
+                    assert_eq!((outcome.calls, outcome.returns), (1, 1));
+                    assert_eq!(ctx.jit().0.borrow().stats.native_instructions - before, 3);
+                    assert!(host
+                        .with_registers(|caller, registers| transfer.resume(caller, &registers)));
+                    assert!(host.with_registers(
+                        |caller, mut registers| shadow.flush(caller, &mut registers)
+                    ));
+                    host.with_registers(|_, registers| {
+                        assert!(matches!(registers.stack_frame[0], Value::Integer(17)));
+                        assert_eq!(*registers.pc, site.pc + 1);
+                    });
+                    trace(ctx, host, before_stats)
+                });
+            let interpreted =
+                with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                    position(host, ctx, site.pc);
+                    host.with_registers(|_, registers| {
+                        registers.stack_frame[0] = Value::Integer(12);
+                        registers.stack_frame[usize::from(site.function.0) + 1] = Value::Integer(5);
+                    });
+                    let before_stats = stats(ctx);
+                    let outcome = host.run(ctx, 2, 64, 4);
+                    outcome.result.unwrap();
+                    trace(ctx, host, before_stats)
+                });
+            assert_eq!(native, interpreted);
+        });
+    });
+}
+
 fn fixture(source: &[u8], test: impl FnOnce(&mut Lua, crate::StashedClosure, Site, CallCode)) {
     fixture_hooks(source, Hooks { enter, leave }, test);
 }
