@@ -2,6 +2,7 @@ use super::*;
 
 mod cache;
 mod cost;
+mod request;
 use crate::{
     opcode::Operation, thread::activation::with_test_thread, Fuel, JitConfig, JitMode, Lua, Value,
 };
@@ -31,6 +32,11 @@ fn fixture_source(
 }
 
 fn build_region<'gc>(ctx: Context<'gc>, closure: Closure<'gc>) -> (Region, usize) {
+    let (pair, start) = build_dependencies(ctx, closure);
+    (Region::new(ctx, closure, pair).unwrap(), start)
+}
+
+fn build_dependencies<'gc>(ctx: Context<'gc>, closure: Closure<'gc>) -> (PreparedPair, usize) {
     let prototype = closure.prototype();
     let start = prototype
         .opcodes
@@ -69,8 +75,7 @@ fn build_region<'gc>(ctx: Context<'gc>, closure: Closure<'gc>) -> (Region, usize
     let pair = PreparedPair {
         program: ctx.jit().pair_lease(key).unwrap(),
     };
-    let region = Region::new(ctx, closure, pair).unwrap();
-    (region, start)
+    (pair, start)
 }
 
 #[test]

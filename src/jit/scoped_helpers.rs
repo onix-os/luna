@@ -108,19 +108,37 @@ impl Code {
             .borrow()
             .identity(ctx, source.prototype())
             .ok_or_else(|| JitError::Compilation("unregistered scoped source".into()))?;
-        let (memory, metadata, snapshots, limit, instructions, limits) = {
+        let (memory, metadata, snapshots, config) = {
             let manager = ctx.jit().0.borrow();
             (
                 manager.memory.clone(),
                 manager.metadata.clone(),
                 manager.snapshots.clone(),
-                manager.config.max_code_bytes,
-                manager.config.max_prototype_instructions,
-                work::Limits::from(&manager.config),
+                manager.config.clone(),
             )
         };
-        let snapshot = Snapshot::new_in(&source.prototype(), instructions, snapshots)?;
-        let code = backend::compile_scoped_in(&snapshot, memory.clone(), limit, metadata, limits)?;
+        let snapshot = Snapshot::new_in(
+            &source.prototype(),
+            config.max_prototype_instructions,
+            snapshots,
+        )?;
+        Self::compile(&snapshot, identity, memory, metadata, &config)
+    }
+
+    pub(super) fn compile(
+        snapshot: &Snapshot,
+        identity: u64,
+        memory: MappingCounter,
+        metadata: super::resources::BudgetAllocator,
+        config: &super::JitConfig,
+    ) -> Result<Self, JitError> {
+        let code = backend::compile_scoped_in(
+            snapshot,
+            memory.clone(),
+            config.max_code_bytes,
+            metadata,
+            work::Limits::from(config),
+        )?;
         Ok(Self {
             code,
             source: identity,

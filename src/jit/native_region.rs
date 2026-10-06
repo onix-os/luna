@@ -16,6 +16,8 @@ use super::{
 };
 
 pub(super) mod cache;
+mod request;
+pub(super) use request::Request;
 
 pub(super) struct Region {
     caller: scoped_helpers::Code,
@@ -23,6 +25,7 @@ pub(super) struct Region {
     pair: PreparedPair,
     driver: region::Driver,
     source: u64,
+    config: super::JitConfig,
 }
 
 #[derive(Debug)]
@@ -51,69 +54,7 @@ impl Region {
         caller: Closure<'gc>,
         pair: PreparedPair,
     ) -> Result<Self, JitError> {
-        let source = ctx
-            .jit_registry()
-            .borrow()
-            .identity(ctx, caller.prototype())
-            .ok_or_else(|| JitError::Compilation("unregistered region caller".into()))?;
-        if pair.program.key().caller != source {
-            return Err(JitError::Compilation("region pair caller".into()));
-        }
-        let ordinary = ctx
-            .jit()
-            .lookup(source)
-            .ok_or_else(|| JitError::Compilation("missing region fallback".into()))?;
-        let (memory, metadata, workspace, limit, limits) = {
-            let manager = ctx.jit().0.borrow();
-            (
-                manager.memory.clone(),
-                manager.metadata.clone(),
-                manager.snapshots.clone(),
-                manager.config.max_code_bytes,
-                super::work::Limits::from(&manager.config),
-            )
-        };
-        let snapshot = super::ir::Snapshot::new_in(
-            &caller.prototype(),
-            ctx.jit().0.borrow().config.max_prototype_instructions,
-            workspace.clone(),
-        )?;
-        let expansion = super::work::Expansion::admit(&snapshot, limits)?;
-        if expansion
-            .instructions
-            .checked_add(64)
-            .is_none_or(|count| count > limits.instructions)
-            || expansion
-                .blocks
-                .checked_add(4)
-                .is_none_or(|count| count > limits.blocks)
-        {
-            return Err(JitError::ResourceLimit("connected region IR"));
-        }
-        drop(snapshot);
-        let caller = scoped_helpers::Code::new(ctx, caller)?;
-        let remaining = super::work::Limits {
-            instructions: 64,
-            blocks: 4,
-            relocations: limits.relocations.saturating_sub(caller.relocations()),
-        };
-        let driver = region::compile(
-            caller.entry(),
-            boundary,
-            memory,
-            limit,
-            metadata,
-            workspace,
-            remaining,
-            region::Fault::None,
-        )?;
-        Ok(Self {
-            caller,
-            ordinary,
-            pair,
-            driver,
-            source,
-        })
+        Request::prepare(ctx, caller.prototype(), pair)?.compile(ctx.jit())
     }
 
     pub(super) fn run<'gc>(

@@ -94,7 +94,10 @@ impl Cache {
 impl Runtime {
     pub(in crate::jit) fn install_region(&self, region: Region) -> Result<(), JitError> {
         let mut manager = self.0.borrow_mut();
-        if manager.config.mode != JitMode::Auto || !region.installed(&manager) {
+        if manager.config.mode != JitMode::Auto
+            || manager.config != region.config
+            || !region.installed(&manager)
+        {
             return Err(JitError::Compilation("region dependency admission".into()));
         }
         let last_used = manager.clock.saturating_add(1);
