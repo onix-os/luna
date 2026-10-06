@@ -24,46 +24,197 @@ fn fixture_source(
     .unwrap();
     lua.enter(|ctx| {
         let closure = Closure::load(ctx, None, source).unwrap();
-        let prototype = closure.prototype();
-        let start = prototype
-            .opcodes
-            .iter()
-            .position(|op| matches!(op.decode(), Operation::Closure { .. }))
-            .unwrap()
-            + 1;
-        let pc = prototype
-            .opcodes
-            .iter()
-            .position(|op| matches!(op.decode(), Operation::Call { .. }))
-            .unwrap();
-        let key = {
-            let registry = ctx.jit_registry().borrow();
-            super::super::pairs::Key {
-                caller: registry.identity(ctx, prototype).unwrap(),
-                callee: registry.identity(ctx, prototype.prototypes[0]).unwrap(),
-                pc,
-            }
-        };
-        let allocator = ctx.jit().0.borrow().snapshots.clone();
-        let caller =
-            || super::super::ir::Snapshot::new_in(&prototype, 4096, allocator.clone()).unwrap();
-        ctx.jit().compile(key.caller, caller()).unwrap();
-        ctx.jit().test_call_pairs(true);
-        ctx.jit().observe_pair(key);
-        ctx.jit()
-            .compile_pair(
-                key,
-                caller(),
-                super::super::ir::Snapshot::new_in(&prototype.prototypes[0], 4096, allocator)
-                    .unwrap(),
-            )
-            .unwrap();
-        let pair = PreparedPair {
-            program: ctx.jit().pair_lease(key).unwrap(),
-        };
-        let region = Region::new(ctx, closure, pair).unwrap();
+        let (region, start) = build_region(ctx, closure);
         test(ctx, closure, region, start);
     });
+}
+
+fn build_region<'gc>(ctx: Context<'gc>, closure: Closure<'gc>) -> (Region<'gc>, usize) {
+    let prototype = closure.prototype();
+    let start = prototype
+        .opcodes
+        .iter()
+        .position(|op| matches!(op.decode(), Operation::Closure { .. }))
+        .unwrap()
+        + 1;
+    let pc = prototype
+        .opcodes
+        .iter()
+        .position(|op| matches!(op.decode(), Operation::Call { .. }))
+        .unwrap();
+    let key = {
+        let registry = ctx.jit_registry().borrow();
+        super::super::pairs::Key {
+            caller: registry.identity(ctx, prototype).unwrap(),
+            callee: registry.identity(ctx, prototype.prototypes[0]).unwrap(),
+            pc,
+        }
+    };
+    let allocator = ctx.jit().0.borrow().snapshots.clone();
+    let caller =
+        || super::super::ir::Snapshot::new_in(&prototype, 4096, allocator.clone()).unwrap();
+    ctx.jit().compile(key.caller, caller()).unwrap();
+    ctx.jit().test_call_pairs(true);
+    ctx.jit().observe_pair(key);
+    ctx.jit()
+        .compile_pair(
+            key,
+            caller(),
+            super::super::ir::Snapshot::new_in(&prototype.prototypes[0], 4096, allocator).unwrap(),
+        )
+        .unwrap();
+    let pair = PreparedPair {
+        program: ctx.jit().pair_lease(key).unwrap(),
+    };
+    let region = Region::new(ctx, closure, pair).unwrap();
+    (region, start)
+}
+
+#[test]
+fn returned_pair_preserves_wide_scalar_and_reference_prefixes() {
+    let locals = (0..24)
+        .map(|index| format!("local k{index}={} ", 100 + index))
+        .collect::<String>();
+    let source = format!("local n=0 local keep={{value=7}} {locals} local function f(v) n=n+v end for i=1,20 do f(i) k0=k0+1 end return n,k0,k23,keep.value");
+    fixture_source(source.as_bytes(), |ctx, closure, region, start| {
+        assert!(region.caller.registers() > 24);
+        let (native, slices) = with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+            ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+            host.run(ctx, 1, start as u32, 4).result.unwrap();
+            ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+            let before = stats(ctx);
+            let outcome = region.run(ctx, host, 64, 64).unwrap();
+            outcome.result.unwrap();
+            assert_eq!(outcome.pairs, 20);
+            let state = trace(ctx, host, before);
+            assert_eq!(
+                state.1,
+                [210, 120, 123, 7]
+                    .map(|value| (abi::INTEGER, value))
+                    .to_vec()
+            );
+            (state, outcome.slices)
+        });
+        let canonical = with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+            ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+            host.run(ctx, 1, start as u32, 4).result.unwrap();
+            let before = stats(ctx);
+            host.run(ctx, slices, 64, 4).result.unwrap();
+            trace(ctx, host, before)
+        });
+        assert_eq!(native, canonical);
+    });
+}
+
+#[test]
+fn returned_pair_preserves_open_upper_frame_captures() {
+    let mut lua = Lua::empty();
+    lua.set_jit_config(JitConfig {
+        mode: JitMode::Auto,
+        ..JitConfig::default()
+    })
+    .unwrap();
+    lua.enter(|ctx| {
+        let root = Closure::load(ctx, None, &b"local n=0 local function caller() local p=99 local function f(v) n=n+v end for i=1,10 do f(i) p=p+1 end return end caller() return n"[..]).unwrap();
+        let mut slices = 0;
+        let mut run = |native: bool| with_test_thread(ctx, root, &mut Fuel::with(10000), |host| {
+            ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+            host.run(ctx, 1, 64, 4).result.unwrap();
+            let caller = host.with_registers(|closure, registers| { assert_eq!(*registers.pc, 0); closure });
+            assert_ne!(caller, root);
+            let start = caller.prototype().opcodes.iter().position(|opcode| matches!(opcode.decode(), Operation::Closure { .. })).unwrap() + 1;
+            let region = native.then(|| {
+                ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+                let (region, found) = build_region(ctx, caller);
+                assert_eq!(found, start);
+                region
+            });
+            ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+            host.run(ctx, 1, start as u32, 4).result.unwrap();
+            let before = stats(ctx);
+            if let Some(region) = region {
+                ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+                let outcome = region.run(ctx, host, 64, 64).unwrap();
+                outcome.result.unwrap();
+                assert_eq!(outcome.pairs, 10);
+                slices = outcome.slices;
+            } else {
+                host.run(ctx, slices, 64, 4).result.unwrap();
+            }
+            host.with_registers(|closure, registers| {
+                assert_eq!(closure, root);
+                assert!(matches!(registers.stack_frame[0], Value::Integer(55)));
+            });
+            trace(ctx, host, before)
+        });
+        let native = run(true);
+        assert_eq!(native, run(false));
+    });
+}
+
+#[test]
+fn region_handles_argument_tail_aliases_and_partial_calls() {
+    for (source, returns) in [
+        (
+            &b"local n=7 local function f(v,w) n=n+v end f(2,3) local p=99 return n,p"[..],
+            1,
+        ),
+        (
+            &b"local n=7 local function f(v) n=n+v end f(2) local p=99 return n,p"[..],
+            0,
+        ),
+    ] {
+        fixture_source(source, |ctx, closure, region, _| {
+            let pc = region.pair.program.key().pc;
+            let Operation::Call { func, .. } = closure.prototype().opcodes[pc].decode() else {
+                panic!()
+            };
+            let mut slices = 0;
+            let mut run = |native| {
+                with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+                    ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                    host.run(ctx, 1, (pc - 1) as u32, 4).result.unwrap();
+                    let capture = host.with_registers(|_, mut registers| {
+                        assert_eq!(*registers.pc, pc - 1);
+                        let Value::Function(crate::Function::Closure(callee)) =
+                            registers.stack_frame[usize::from(func.0)]
+                        else {
+                            panic!()
+                        };
+                        let capture = registers
+                            .open_test_upvalue(&ctx, crate::types::RegisterIndex(func.0 + 1));
+                        callee.set_upvalue(&ctx, 0, capture);
+                        capture
+                    });
+                    let before = stats(ctx);
+                    if native {
+                        ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+                        let outcome = region.run(ctx, host, 64, 64).unwrap();
+                        outcome.result.unwrap();
+                        assert_eq!(outcome.pairs, returns);
+                        assert_eq!(outcome.fragments, 1 + returns);
+                        slices = outcome.slices;
+                    } else {
+                        host.run(ctx, slices, 64, 4).result.unwrap();
+                    }
+                    if returns == 1 {
+                        assert!(matches!(
+                            capture.get(),
+                            crate::closure::UpValueState::Closed(Value::Integer(5))
+                        ));
+                    } else {
+                        host.with_registers(|_, registers| {
+                            assert_eq!(*registers.pc, 0);
+                            assert!(matches!(registers.get_upvalue(&ctx, capture), Value::Nil));
+                        });
+                    }
+                    trace(ctx, host, before)
+                })
+            };
+            let native = run(true);
+            assert_eq!(native, run(false));
+        });
+    }
 }
 
 #[test]
