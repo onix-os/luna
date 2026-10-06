@@ -486,6 +486,7 @@ fn invoke<'gc>(
     })
 }
 
+#[inline(never)]
 fn invoke_result<'gc>(
     ctx: Context<'gc>,
     host: &mut ActivationHost<'gc, '_>,
