@@ -238,6 +238,55 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         };
         *closure = replacement;
     }
+
+    #[cfg(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[cfg(test)]
+    pub(crate) fn test_native_transition(
+        &mut self,
+        ctx: Context<'gc>,
+        transition: crate::opcode::CallTransition,
+        prefix: u32,
+    ) -> Result<(), VMError> {
+        let result = self.with_frame(|mut frame| {
+            *frame.registers().pc += 1;
+            match transition {
+                crate::opcode::CallTransition::Call {
+                    func,
+                    args,
+                    returns,
+                } => {
+                    ctx.jit().observe_call(
+                        ctx,
+                        frame.closure(),
+                        &frame.registers(),
+                        func,
+                        args,
+                        returns,
+                    );
+                    frame.call_function(ctx, func, args, returns)
+                }
+                crate::opcode::CallTransition::TailCall { func, args } => {
+                    frame.tail_call_function(ctx, func, args)
+                }
+                crate::opcode::CallTransition::Return { start, count } => {
+                    frame.return_upper(&ctx, start, count)
+                }
+            }
+        });
+        let mut stats = ctx.jit().interpreter_stats();
+        stats.dispatches = 1;
+        stats.reported_instructions = result.as_ref().ok().map(|_| 0);
+        drop(stats);
+        if result.is_ok() {
+            self.charge_instructions(prefix);
+        }
+        self.charge_native_slice(0);
+        result
+    }
 }
 
 impl<'gc, 'a> ActivationHost<'gc, 'a> {
