@@ -2,6 +2,91 @@ use crate::{opcode::CallTransition, thread::activation::ActivationHost, Context}
 
 use super::PairScope;
 
+type CallerShadow<'gc> = super::caller_shadow::Shadow<'gc, 256>;
+
+fn flush_shadow<'gc>(host: &mut ActivationHost<'gc, '_>, shadow: &mut Option<CallerShadow<'gc>>) {
+    if let Some(shadow) = shadow.take() {
+        assert!(host.with_registers(|closure, mut registers| shadow.flush(closure, &mut registers)));
+    }
+}
+
+fn shadow_prefix<'gc>(
+    ctx: Context<'gc>,
+    host: &mut ActivationHost<'gc, '_>,
+    budget: u32,
+    shadow: &mut Option<CallerShadow<'gc>>,
+) -> Option<Prefix<'gc>> {
+    if budget == 0 || !host.lua_ready() || !ctx.jit().active() {
+        return None;
+    }
+    let frame = host.frame_identity();
+    let id = host.with_registers(|closure, _| {
+        ctx.jit_registry()
+            .borrow()
+            .identity(ctx, closure.prototype())
+    })?;
+    if !ctx.jit().0.borrow().code.contains_key(&id) {
+        return None;
+    }
+    let code = ctx.jit().lookup(id)?;
+    if shadow.is_none() {
+        *shadow =
+            host.with_registers(|closure, registers| CallerShadow::capture(closure, &registers));
+    }
+    let instructions = shadow.as_mut()?.invoke(ctx, &code, host, budget)?;
+    host.with_registers(|closure, registers| {
+        let transition = (instructions < budget)
+            .then(|| closure.prototype().opcodes[*registers.pc].call_transition())
+            .flatten();
+        Some(Prefix {
+            instructions,
+            transition,
+            resume: (instructions < budget && transition.is_none()).then(|| {
+                crate::thread::NativeResume::new(
+                    ctx,
+                    closure,
+                    id,
+                    frame,
+                    *registers.pc,
+                    instructions,
+                    code,
+                )
+            }),
+        })
+    })
+}
+
+fn shadow_pair<'gc>(
+    ctx: Context<'gc>,
+    host: &mut ActivationHost<'gc, '_>,
+    pair: &super::PreparedPair,
+    shadow: &mut Option<CallerShadow<'gc>>,
+    budget: u32,
+    prefix: u32,
+    recoveries: &mut usize,
+) -> Option<super::PairOutcome> {
+    let frame = host.frame_identity();
+    let caller = host.caller_frame()?;
+    let transfer = pair.program.prepare_shadow(ctx, host, shadow.as_mut()?)?;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        pair.invoke(ctx, host, budget, prefix)
+    }));
+    if host.lua_pending() && host.frame_identity() == frame {
+        assert!(host.with_registers(|closure, registers| transfer.resume(closure, &registers)));
+    } else {
+        assert!(transfer.recover(host, &caller));
+        *recoveries += 1;
+        *shadow = None;
+    }
+    match result {
+        Ok(result) => result,
+        Err(payload) => {
+            flush_shadow(host, shadow);
+            std::panic::resume_unwind(payload);
+        }
+    }
+}
+
 struct Prefix<'gc> {
     instructions: u32,
     transition: Option<CallTransition>,
@@ -57,6 +142,8 @@ pub(crate) struct Driver {}
 
 pub(crate) struct Outcome {
     pub slices: usize,
+    shadow_captures: usize,
+    shadow_recoveries: usize,
     #[cfg(test)]
     pairs: usize,
     #[cfg(test)]
@@ -72,10 +159,33 @@ impl Driver {
         limit: usize,
         budget: u32,
     ) -> Outcome {
+        self.run_mode::<false>(ctx, host, limit, budget)
+    }
+
+    pub(crate) fn run_shadow<'gc>(
+        &mut self,
+        ctx: Context<'gc>,
+        host: &mut ActivationHost<'gc, '_>,
+        limit: usize,
+        budget: u32,
+    ) -> Outcome {
+        self.run_mode::<true>(ctx, host, limit, budget)
+    }
+
+    fn run_mode<'gc, const DEFER: bool>(
+        &mut self,
+        ctx: Context<'gc>,
+        host: &mut ActivationHost<'gc, '_>,
+        limit: usize,
+        budget: u32,
+    ) -> Outcome {
         assert!(limit > 0);
         let mut scope = PairScope::default();
+        let mut shadow = None;
         let mut outcome = Outcome {
             slices: 0,
+            shadow_captures: 0,
+            shadow_recoveries: 0,
             #[cfg(test)]
             pairs: 0,
             #[cfg(test)]
@@ -85,7 +195,15 @@ impl Driver {
         while outcome.slices < limit && host.lua_pending() {
             #[cfg(test)]
             let capacity = host.stack_capacity();
-            let Some(prefix) = prefix(ctx, host, budget) else {
+            let capture = DEFER && shadow.is_none();
+            let prefix = if DEFER {
+                shadow_prefix(ctx, host, budget, &mut shadow)
+            } else {
+                prefix(ctx, host, budget)
+            };
+            outcome.shadow_captures += usize::from(capture && shadow.is_some());
+            let Some(prefix) = prefix else {
+                flush_shadow(host, &mut shadow);
                 let fallback = host.run_canonical(ctx, limit - outcome.slices, budget, 4);
                 outcome.slices += fallback.activations;
                 #[cfg(test)]
@@ -116,9 +234,21 @@ impl Driver {
                 } else {
                     None
                 };
-                let paired = pair
-                    .as_ref()
-                    .and_then(|pair| pair.invoke(ctx, host, budget, prefix.instructions));
+                let paired = pair.as_ref().and_then(|pair| {
+                    if DEFER {
+                        shadow_pair(
+                            ctx,
+                            host,
+                            pair,
+                            &mut shadow,
+                            budget,
+                            prefix.instructions,
+                            &mut outcome.shadow_recoveries,
+                        )
+                    } else {
+                        pair.invoke(ctx, host, budget, prefix.instructions)
+                    }
+                });
                 scope.cache = pair;
                 if let Some(paired) = paired {
                     outcome.slices += 1 + paired.returns;
@@ -128,10 +258,12 @@ impl Driver {
                     }
                     outcome.result = paired.result;
                 } else {
+                    flush_shadow(host, &mut shadow);
                     outcome.result = host.native_transition(ctx, transition, prefix.instructions);
                     outcome.slices += 1;
                 }
             } else {
+                flush_shadow(host, &mut shadow);
                 let select_pairs =
                     limit - outcome.slices >= 2 && budget >= 4 && host.pairing_enabled(ctx);
                 let result = host.resume_native_paired(
@@ -179,6 +311,7 @@ impl Driver {
                 break;
             }
         }
+        flush_shadow(host, &mut shadow);
         outcome
     }
 }
@@ -192,6 +325,116 @@ mod tests {
 
     const SOURCE: &[u8] =
         b"local sum=0 local function add(v) sum=sum+v end for i=1,10000 do add(i) end return sum";
+
+    #[test]
+    fn shadow_driver_recovers_generated_prefix_after_call_depth_refusal() {
+        let source = b"local sum=0 local p=10 local function add(v) sum=sum+v end for i=1,10000 do p=p+1 add(i) end return p";
+        let mut traces = Vec::new();
+        for mode in [JitMode::Off, JitMode::Auto] {
+            let (mut lua, closure) = state(mode, source);
+            lua.enter(|ctx| {
+                let prototype = ctx.fetch(&closure).prototype();
+                let start = prototype
+                    .opcodes
+                    .iter()
+                    .position(|op| {
+                        matches!(
+                            op.decode(),
+                            crate::opcode::Operation::Add {
+                                dest: crate::types::RegisterIndex(1),
+                                ..
+                            }
+                        )
+                    })
+                    .unwrap();
+                ctx.set_max_call_depth(1);
+                crate::thread::activation::with_test_thread(
+                    ctx,
+                    ctx.fetch(&closure),
+                    &mut Fuel::with(4096),
+                    |host| {
+                        for _ in 0..prototype.opcodes.len() * 2 {
+                            if host.with_registers(|_, registers| *registers.pc == start) {
+                                break;
+                            }
+                            host.run_canonical(ctx, 1, 1, 4).result.unwrap();
+                        }
+                        host.with_registers(|_, registers| {
+                            assert_eq!(*registers.pc, start);
+                            assert!(matches!(
+                                registers.stack_frame[1],
+                                crate::Value::Integer(10)
+                            ));
+                        });
+                        host.test_fuel(Fuel::with(4096));
+                        ctx.jit().0.borrow_mut().stats = Default::default();
+                        if mode == JitMode::Auto {
+                            let outcome = Driver::default().run_shadow(ctx, host, 8, 64);
+                            outcome.result.unwrap();
+                            assert_eq!(outcome.slices, 1);
+                            assert_eq!(outcome.shadow_recoveries, 1);
+                            assert_eq!(ctx.jit().0.borrow().stats.native_pair_calls, 1);
+                        } else {
+                            host.run_canonical(ctx, 8, 64, 4).result.unwrap();
+                        }
+                        assert!(!host.lua_pending());
+                        assert!(matches!(host.test_trace().1[1], crate::Value::Integer(11)));
+                        traces.push(trace(ctx, host));
+                    },
+                );
+            });
+        }
+        assert_eq!(traces[0], traces[1]);
+    }
+
+    #[test]
+    fn shadow_caller_loop_matches_bounded_exits_and_reuses_one_snapshot() {
+        let cases = [1, 4, 8, 64]
+            .into_iter()
+            .flat_map(|budget| {
+                [1, 2, 3, 8, 16]
+                    .into_iter()
+                    .map(move |limit| (budget, limit, 4096))
+            })
+            .chain([-1, 0, 1, 8, 13, 64].into_iter().map(|fuel| (64, 8, fuel)));
+        for (budget, limit, remaining) in cases {
+            let mut traces = Vec::new();
+            for mode in [JitMode::Off, JitMode::Auto] {
+                let (mut lua, closure) = state(mode, SOURCE);
+                lua.enter(|ctx| {
+                    crate::thread::activation::with_test_thread(
+                        ctx,
+                        ctx.fetch(&closure),
+                        &mut Fuel::with(4096),
+                        |host| {
+                            for _ in 0..2 {
+                                host.run_canonical(ctx, 1, 64, 4).result.unwrap();
+                            }
+                            host.test_fuel(Fuel::with(remaining));
+                            ctx.jit().0.borrow_mut().stats = Default::default();
+                            if mode == JitMode::Auto {
+                                let outcome =
+                                    Driver::default().run_shadow(ctx, host, limit, budget);
+                                outcome.result.unwrap();
+                                assert!(outcome.slices > 0 && outcome.slices <= limit);
+                                if budget == 64 && limit >= 8 && remaining == 4096 {
+                                    assert!(outcome.pairs > 1);
+                                    assert_eq!(outcome.shadow_captures, 1);
+                                }
+                            } else {
+                                host.run_canonical(ctx, limit, budget, 4).result.unwrap();
+                            }
+                            traces.push(trace(ctx, host));
+                        },
+                    );
+                });
+            }
+            assert_eq!(
+                traces[0], traces[1],
+                "budget={budget} limit={limit} fuel={remaining}"
+            );
+        }
+    }
 
     #[derive(Debug, PartialEq)]
     struct Trace {
@@ -351,6 +594,15 @@ mod tests {
 
     #[test]
     fn native_chains_release_leases_and_materialize_captures_before_collection() {
+        collection_boundary::<false>();
+    }
+
+    #[test]
+    fn shadow_chains_materialize_captures_before_collection() {
+        collection_boundary::<true>();
+    }
+
+    fn collection_boundary<const DEFER: bool>() {
         let (mut lua, closure) = state(JitMode::Auto, SOURCE);
         let thread = lua.enter(|ctx| {
             let thread = Thread::new(ctx);
@@ -372,7 +624,7 @@ mod tests {
                     ctx.fetch(&thread),
                     &mut fuel,
                     |host| {
-                        let outcome = driver.run(ctx, host, 16, 64);
+                        let outcome = driver.run_mode::<DEFER>(ctx, host, 16, 64);
                         outcome.result.unwrap();
                         assert_eq!(outcome.slices, 16);
                         assert_eq!(outcome.pairs, 8);
@@ -388,6 +640,15 @@ mod tests {
 
     #[test]
     fn hooks_and_off_fall_back_without_native_work() {
+        hook_boundary::<false>();
+    }
+
+    #[test]
+    fn shadow_hooks_and_off_fall_back_without_native_work() {
+        hook_boundary::<true>();
+    }
+
+    fn hook_boundary<const DEFER: bool>() {
         for hooked in [false, true] {
             let (mut lua, closure) = state(JitMode::Auto, SOURCE);
             if !hooked {
@@ -411,7 +672,7 @@ mod tests {
                         assert!(prefix(ctx, host, 64).is_none());
                         assert_eq!(trace(ctx, host), before);
                         let mut driver = Driver::default();
-                        let outcome = driver.run(ctx, host, 16, 64);
+                        let outcome = driver.run_mode::<DEFER>(ctx, host, 16, 64);
                         outcome.result.unwrap();
                         assert!(outcome.slices > 0);
                         assert_eq!(ctx.jit().0.borrow().stats.native_instructions, 0);
@@ -424,6 +685,15 @@ mod tests {
 
     #[test]
     fn native_caller_stops_before_rust_callback_and_releases_host_borrows() {
+        callback_boundary::<false>();
+    }
+
+    #[test]
+    fn shadow_caller_materializes_before_rust_callback() {
+        callback_boundary::<true>();
+    }
+
+    fn callback_boundary<const DEFER: bool>() {
         let calls = std::rc::Rc::new(std::cell::Cell::new(0));
         let mut lua = Lua::empty();
         lua.set_jit_config(JitConfig {
@@ -460,7 +730,7 @@ mod tests {
             let mut fuel = Fuel::with(4096);
             crate::thread::activation::with_test_existing_thread(ctx, thread, &mut fuel, |host| {
                 let mut driver = Driver::default();
-                let outcome = driver.run(ctx, host, 16, 64);
+                let outcome = driver.run_mode::<DEFER>(ctx, host, 16, 64);
                 outcome.result.unwrap();
                 assert_eq!(outcome.slices, 1);
                 assert!(!host.lua_ready());
@@ -475,7 +745,20 @@ mod tests {
 
     #[test]
     fn caught_native_panic_releases_a_previously_cached_pair_lease() {
-        let source = b"local sum=0 local function add(v) sum=sum+v end for i=1,10000 do local remainder=i%3 add(i) local unused=trigger end return sum";
+        panic_boundary::<false>(b"local sum=0 local function add(v) sum=sum+v end for i=1,10000 do local remainder=i%3 add(i) local unused=trigger end return sum");
+    }
+
+    #[test]
+    fn caught_shadow_panic_releases_a_previously_cached_pair_lease() {
+        panic_boundary::<true>(b"local sum=0 local function add(v) sum=sum+v end for i=1,10000 do local remainder=i%3 add(i) local unused=trigger end return sum");
+    }
+
+    #[test]
+    fn shadow_helper_panic_materializes_pending_loop_state_after_native_pair() {
+        panic_boundary::<true>(b"local sum=0 local function add(v) sum=sum+v end for i=1,10000 do add(i) local unused=trigger end return sum");
+    }
+
+    fn panic_boundary<const DEFER: bool>(source: &[u8]) {
         let (mut lua, closure) = state(JitMode::Auto, source);
         lua.enter(|ctx| {
             let closure = ctx.fetch(&closure);
@@ -510,27 +793,40 @@ mod tests {
                     host.run_canonical(ctx, 1, 64, 4).result.unwrap();
                 }
                 let mut driver = Driver::default();
-                let setup = driver.run(ctx, host, 1, 1);
+                let setup = driver.run_mode::<DEFER>(ctx, host, 1, 1);
                 setup.result.unwrap();
                 assert_eq!(setup.slices, 1);
-                host.with_registers(|closure, registers| {
-                    assert!(matches!(
-                        closure.prototype().opcodes[*registers.pc].decode(),
-                        crate::opcode::Operation::NumericForLoop { .. }
-                    ));
+                let base = host.with_registers(|closure, registers| {
+                    let crate::opcode::Operation::NumericForLoop { base, .. } =
+                        closure.prototype().opcodes[*registers.pc].decode()
+                    else {
+                        panic!("expected loop head");
+                    };
+                    base.0 as usize
                 });
                 let before = ctx.jit().0.borrow().stats.native_pair_calls;
                 let globals = ctx.globals().into_inner();
                 let lock = globals.borrow_mut(&ctx);
                 let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    driver.run(ctx, host, 16, 64)
+                    driver.run_mode::<DEFER>(ctx, host, 16, 64)
                 }));
                 assert!(caught.is_err());
                 drop(lock);
                 assert_eq!(ctx.jit().0.borrow().stats.native_pair_calls - before, 1);
+                host.with_registers(|_, registers| {
+                    assert!(matches!(registers.stack_frame[0], crate::Value::Integer(3)));
+                    assert!(matches!(
+                        registers.stack_frame[base],
+                        crate::Value::Integer(2)
+                    ));
+                    assert!(matches!(
+                        registers.stack_frame[base + 3],
+                        crate::Value::Integer(2)
+                    ));
+                });
                 assert_eq!(super::super::owner::Shared::strong_count(&program), owners);
                 drop(ctx.jit().0.borrow_mut());
-                let reused = driver.run(ctx, host, 2, 64);
+                let reused = driver.run_mode::<DEFER>(ctx, host, 2, 64);
                 reused.result.unwrap();
                 assert_eq!(reused.slices, 2);
                 assert_eq!(super::super::owner::Shared::strong_count(&program), owners);
@@ -753,7 +1049,7 @@ mod tests {
             for limit in [1, 2, 8] {
                 let mut traces = Vec::new();
                 let mut statistics = Vec::new();
-                for driver in [false, true] {
+                for driver in 0..3 {
                     let mut lua = Lua::empty();
                     lua.set_jit_config(JitConfig {
                         mode: JitMode::Auto,
@@ -771,8 +1067,12 @@ mod tests {
                             &mut fuel,
                             |host| {
                                 ctx.jit().0.borrow_mut().stats = Default::default();
-                                if driver {
-                                    let outcome = Driver::default().run(ctx, host, limit, budget);
+                                if driver != 0 {
+                                    let outcome = if driver == 1 {
+                                        Driver::default().run(ctx, host, limit, budget)
+                                    } else {
+                                        Driver::default().run_shadow(ctx, host, limit, budget)
+                                    };
                                     outcome.result.unwrap();
                                     assert_eq!(outcome.slices, limit);
                                 } else {
@@ -789,6 +1089,11 @@ mod tests {
                 assert_eq!(
                     statistics[0], statistics[1],
                     "budget={budget} limit={limit}"
+                );
+                assert_eq!(traces[0], traces[2], "shadow budget={budget} limit={limit}");
+                assert_eq!(
+                    statistics[0], statistics[2],
+                    "shadow budget={budget} limit={limit}"
                 );
             }
         }

@@ -38,6 +38,49 @@ pub(super) struct Program {
 }
 
 impl Program {
+    #[cfg(test)]
+    pub(super) fn prepare_shadow<'a, 'gc, const N: usize>(
+        &self,
+        ctx: Context<'gc>,
+        host: &mut ActivationHost<'gc, '_>,
+        shadow: &'a mut super::caller_shadow::Shadow<'gc, N>,
+    ) -> Option<super::caller_shadow::Transfer<'a, 'gc, N>> {
+        let manager = ctx.jit().0.borrow();
+        if manager.config.mode != super::JitMode::Auto || !self.origin.same_root(&manager.memory) {
+            return None;
+        }
+        drop(manager);
+        host.with_registers(|caller, mut registers| {
+            let registry = ctx.jit_registry().borrow();
+            if *registers.pc != self.site.pc
+                || registry.identity(ctx, caller.prototype()) != Some(self.site.caller)
+            {
+                return None;
+            }
+            let Value::Function(Function::Closure(callee)) = registers
+                .stack_frame
+                .get(usize::from(self.site.function.0))
+                .copied()?
+            else {
+                return None;
+            };
+            if registry.identity(ctx, callee.prototype()) != Some(self.site.callee) {
+                return None;
+            }
+            let capture = callee
+                .upvalues()
+                .get(usize::from(self.site.pattern.upvalue))?
+                .get();
+            shadow.prepare_call(
+                caller,
+                &mut registers,
+                self.site.function.0,
+                self.site.arguments,
+                capture,
+            )
+        })
+    }
+
     pub(super) fn key(&self) -> super::pairs::Key {
         super::pairs::Key {
             caller: self.site.caller,
