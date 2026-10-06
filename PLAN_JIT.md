@@ -11,6 +11,35 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Installed-pair scheduling eligibility candidate — 2026-10-06
+
+`63f5966` routes execution through the scoped activation host only when at
+least one native call-pair program is installed, rather than whenever the Auto
+pair-state container exists. An inline installed count tracks installation,
+eviction (including repeated eviction), source retirement and clear; it avoids
+scanning the callsite map on the hot path. Ordinary VM execution still observes
+calls and executes native regions while no pair is installed. Explicit test
+activation overrides are unchanged; the rejected resident scheduler stays
+test-only.
+
+New tests prove lifecycle/count agreement, queued-but-uncompiled ineligibility,
+pinned lease retirement, and actual native callback execution with zero scoped
+eligibility. Existing failure/GC/late-installation tests now assert ineligibility
+as well. GNU/musl focused checks pass one hundred executions. Full GNU
+Off/Auto/Force, musl Auto and baseline/docs pass **5,129 executions in 403 suites**,
+zero failures, twenty existing/repeated ignores and no Rust warnings. Memcheck
+passes 37 pair/public-runtime executions with zero errors or definite/indirect
+losses, retaining the possible 48-byte harness TLS loss. Fourteen Miri model
+executions and i686-musl checking pass (71 library/ten library-test warnings).
+The native pair manager itself is not Miri-covered.
+
+Candidate and immediate-parent `99c57f7` controls have separately built immutable
+speed/shipping binaries, independent no-feature binaries and verified source
+archives. Release artifact builds were serialized; the detached control checkout
+is retained under `pair-eligibility-control-worktree`. Original-control and
+immediate-parent paired timing series are required before retaining this
+candidate as a performance improvement. All original gates remain unchanged.
+
 #### Frame-width resident scratch candidate — 2026-10-06
 
 **Production route rejected again in `4169436`; width-sized machinery retained
