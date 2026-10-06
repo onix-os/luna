@@ -132,6 +132,7 @@ cat > "$root/bin/valgrind" <<'SH'
 set -euo pipefail
 if [[ $1 == --version ]]; then echo 'mock valgrind'; exit 0; fi
 printf '%s\n' "$*" >> "$MOCK_INVOCATIONS"
+printf '%s\n' "$@" > "$MOCK_INVOCATIONS.args"
 [[ $* == *'--mode paired --samples 11' && $* != *'--check'* ]]
 for arg in "$@"; do
     case $arg in --callgrind-out-file=*) directory=${arg#*=}; directory=${directory%/*} ;; esac
@@ -148,7 +149,11 @@ chmod +x "$MOCK_BINARY"
 runner() {
     PATH="$root/bin:$PATH" bash examples/jit_support/paired_profile.sh "$1" "$2"
 }
-runner "$MOCK_BINARY" "$root/success"
+relative_binary=$(realpath --relative-to="$PWD" "$MOCK_BINARY")
+runner "$relative_binary" "$root/success"
+grep -Fxq "$relative_binary" "$MOCK_INVOCATIONS.args"
+grep -Fxq "invocation=$relative_binary" "$root/success/configuration"
+grep -Fxq "artifact=$MOCK_BINARY" "$root/success/configuration"
 [[ $(find "$root/success" -name 'annotation-*.log' | wc -l) == 9 ]]
 if runner "$MOCK_BINARY" "$root/success" > "$root/existing.log" 2>&1; then exit 1; fi
 [[ $(wc -l < "$MOCK_INVOCATIONS") == 1 ]]

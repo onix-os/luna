@@ -3,18 +3,20 @@ set -euo pipefail
 
 [[ $# == 2 ]] || { echo 'Expected binary and new output directory' >&2; exit 2; }
 [[ -f $1 && -x $1 ]] || { echo 'Missing benchmark executable' >&2; exit 2; }
-binary=$(realpath -- "$1")
+binary=$1
+artifact=$(realpath -- "$binary")
 directory=$2
 mkdir -p -- "$(dirname -- "$directory")"
 mkdir -- "$directory"
-sha256sum -- "$binary" > "$directory/binary.sha256"
-nm --demangle --defined-only "$binary" > "$directory/symbols.log" 2>&1
+sha256sum -- "$artifact" > "$directory/binary.sha256"
+nm --demangle --defined-only "$artifact" > "$directory/symbols.log" 2>&1
 grep -E ' [tT] jit_bench::report$' "$directory/symbols.log" > /dev/null || {
     echo 'Benchmark lacks the report boundary symbol' >&2
     exit 2
 }
 { rustc -vV; cargo --version; uname -sm; valgrind --version; } > "$directory/environment.log"
 printf 'context=full\nmode=paired\nsamples=11\ncollection=*Executor>::step\ndump_before=jit_bench::report\n' > "$directory/configuration"
+printf 'invocation=%s\nartifact=%s\n' "$binary" "$artifact" >> "$directory/configuration"
 status=0
 valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no \
     --toggle-collect='*Executor>::step' --dump-before='jit_bench::report' \
