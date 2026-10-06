@@ -11,6 +11,36 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Typed decoder inlining candidate — 2026-10-06
+
+The shipping Off investigation of `63f5966` versus `99c57f7` completed eight
+Make-based Callgrind runs with paired no-feature controls and verified archives.
+Both JIT-Off variants execute exactly **113,628,573** upvalue instructions and
+**55,741,490** callback instructions, with identical reads/writes and branch
+counts; simulated miss differences are negligible. This does not explain away
+the timing regressions, but does not support removing the installed-pair count
+on the theory that it added executed Off instructions. Shared preexisting costs
+include 12.10 million upvalue opcode-decoder instructions and separate VM dispatch.
+
+`9faf195` adds `#[inline(always)]` to the existing typed `OpCode::decode`, with
+no byte-layout assumptions, opcode changes, duplicated VM or disabled accounting.
+The shipping profile reduces upvalue instructions from **113,628,573 to
+96,776,633** in JIT-Off and from **102,524,372 to 86,022,477** without JIT;
+callbacks fall from **55,741,490 to 50,389,755** and **52,538,550 to 47,286,840**.
+The separate decoder disappears from the 99%-coverage annotation. JIT executable
+text grows by 5,964 bytes in speed and 7,116 bytes in shipping versus the
+eligibility candidate; instruction counts alone do not establish speedup.
+
+Baseline/focused/accounting checks pass 450 executions in 87 suites, two existing
+ignores. Full GNU Off/Auto/Force, musl Auto and JIT docs pass **4,735 executions in
+323 suites**, zero failures, eighteen existing/repeated ignores and no Rust
+warnings. Native pair/public-runtime Memcheck passes 37 executions with zero
+errors or definite/indirect losses, retaining possible 48-byte TLS losses.
+Fourteen Miri model executions and i686 checking pass. Immutable artifacts,
+source manifests and shipping profile archives are verified. Original and
+immediate-eligibility-control timing comparisons remain required before accepting
+this compiler-hint trial; all original thresholds remain unchanged.
+
 #### Installed-pair scheduling eligibility candidate — 2026-10-06
 
 **Working candidate retained, not performance-accepted.** Both repeated
