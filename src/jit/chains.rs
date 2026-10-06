@@ -42,9 +42,7 @@ fn prefix<'gc>(
 }
 
 #[derive(Default)]
-struct Driver {
-    pair: PairScope,
-}
+struct Driver {}
 
 struct Outcome {
     slices: usize,
@@ -61,6 +59,7 @@ impl Driver {
         limit: usize,
         budget: u32,
     ) -> Outcome {
+        let mut scope = PairScope::default();
         let mut outcome = Outcome {
             slices: 0,
             pairs: 0,
@@ -87,7 +86,7 @@ impl Driver {
                             closure,
                             &registers,
                             *registers.pc,
-                            &mut self.pair,
+                            &mut scope,
                         )
                     })
                 } else {
@@ -96,7 +95,7 @@ impl Driver {
                 let paired = pair
                     .as_ref()
                     .and_then(|pair| pair.invoke(ctx, host, budget, prefix.instructions));
-                self.pair.cache = pair;
+                scope.cache = pair;
                 if let Some(paired) = paired {
                     outcome.slices += 1 + paired.returns;
                     outcome.pairs += paired.returns;
@@ -116,7 +115,6 @@ impl Driver {
                 break;
             }
         }
-        self.pair = PairScope::default();
         outcome
     }
 }
@@ -326,8 +324,7 @@ mod tests {
                     },
                 );
             });
-            assert!(driver.pair.cache.is_none());
-            assert!(driver.pair.handoff.is_none());
+            assert_eq!(std::mem::size_of_val(&driver), 0);
             lua.gc_collect();
         }
         let executor = lua.enter(|ctx| ctx.stash(Executor::run(&ctx, ctx.fetch(&thread)).unwrap()));
@@ -361,7 +358,7 @@ mod tests {
                         assert_eq!(outcome.slices, 0);
                         assert!(matches!(outcome.pause, Some(Pause::Unavailable)));
                         assert_eq!(trace(ctx, host), before);
-                        assert!(driver.pair.cache.is_none());
+                        assert_eq!(std::mem::size_of_val(&driver), 0);
                     },
                 );
             });
@@ -412,11 +409,78 @@ mod tests {
                 assert_eq!(outcome.slices, 1);
                 assert!(!host.lua_ready());
                 assert_eq!(calls.get(), 0);
-                assert!(driver.pair.cache.is_none());
+                assert_eq!(std::mem::size_of_val(&driver), 0);
             });
             ctx.stash(Executor::run(&ctx, thread).unwrap())
         });
         assert_eq!(lua.execute::<i64>(&executor).unwrap(), 12507500);
         assert_eq!(calls.get(), 5000);
+    }
+
+    #[test]
+    fn caught_native_panic_releases_a_previously_cached_pair_lease() {
+        let source = b"local sum=0 local function add(v) sum=sum+v end for i=1,10000 do add(i) local unused=trigger end return sum";
+        let (mut lua, closure) = state(JitMode::Auto, source);
+        lua.enter(|ctx| {
+            let closure = ctx.fetch(&closure);
+            let prototype = closure.prototype();
+            let pc = prototype
+                .opcodes
+                .iter()
+                .position(|opcode| {
+                    matches!(opcode.call_transition(), Some(CallTransition::Call { .. }))
+                })
+                .unwrap();
+            let key = super::super::pairs::Key {
+                caller: ctx
+                    .jit_registry()
+                    .borrow()
+                    .identity(ctx, prototype)
+                    .unwrap(),
+                callee: ctx
+                    .jit_registry()
+                    .borrow()
+                    .identity(ctx, prototype.prototypes[0])
+                    .unwrap(),
+                pc,
+            };
+            let program = ctx.jit().pair_lease(key).unwrap();
+            let owners = super::super::owner::Shared::strong_count(&program);
+            let thread = Thread::new(ctx);
+            thread.start(ctx, closure.into(), ()).unwrap();
+            let mut fuel = Fuel::with(4096);
+            crate::thread::activation::with_test_existing_thread(ctx, thread, &mut fuel, |host| {
+                for _ in 0..2 {
+                    host.run(ctx, 1, 64, 4).result.unwrap();
+                }
+                let mut driver = Driver::default();
+                let setup = driver.run(ctx, host, 1, 1);
+                setup.result.unwrap();
+                assert_eq!(setup.slices, 1);
+                assert!(setup.pause.is_none());
+                host.with_registers(|closure, registers| {
+                    assert!(matches!(
+                        closure.prototype().opcodes[*registers.pc].decode(),
+                        crate::opcode::Operation::NumericForLoop { .. }
+                    ));
+                });
+                let before = ctx.jit().0.borrow().stats.native_pair_calls;
+                let globals = ctx.globals().into_inner();
+                let lock = globals.borrow_mut(&ctx);
+                let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    driver.run(ctx, host, 16, 64)
+                }));
+                assert!(caught.is_err());
+                drop(lock);
+                assert_eq!(ctx.jit().0.borrow().stats.native_pair_calls - before, 1);
+                assert_eq!(super::super::owner::Shared::strong_count(&program), owners);
+                drop(ctx.jit().0.borrow_mut());
+                let reused = driver.run(ctx, host, 2, 64);
+                reused.result.unwrap();
+                assert!(reused.pause.is_none());
+                assert_eq!(reused.slices, 2);
+                assert_eq!(super::super::owner::Shared::strong_count(&program), owners);
+            });
+        });
     }
 }
