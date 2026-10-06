@@ -51,7 +51,16 @@ baseline and docs pass 1,595 executions in 160 suites, zero failures, six existi
 ignores and no Rust warnings. i686-musl checking passes using `.#fallback` with
 71 library and eleven library-test warnings. An initial default-shell i686
 attempt failed because that shell does not contain the target; its log is kept.
-Source hashes in `native-region-source.sha256` match these validation runs.
+Source hashes in `native-region-source.sha256` match that `0fe4994` checkpoint.
+
+A follow-up retirement test removes both installed owners while retaining the
+region. Requested code bytes stay live, fresh entry declines without VM work,
+and dropping the final region lease reduces requested and mapped bytes to zero.
+All seven backend/region tests pass on GNU and musl (`native-region-retirement`).
+GNU Memcheck also passes those seven checks with zero errors or definite/indirect
+losses; possible 48-byte harness TLS loss per process remains visible.
+The follow-up changes tests only; the preceding workspace results apply to the
+unchanged implementation, not an execution of this additional test.
 
 Generated-region panic and failed-Return integration still need explicit checks,
 followed by broader platform validation and actual regression measurements.

@@ -131,6 +131,37 @@ fn rejected_region_entry_preserves_frames_values_fuel_and_work() {
 }
 
 #[test]
+fn retired_region_owners_keep_mappings_live_until_the_region_is_dropped() {
+    fixture(|ctx, closure, region, start| {
+        let memory = ctx.jit().0.borrow().memory.clone();
+        let before = memory.requested();
+        assert!(before > 0);
+        {
+            let mut manager = ctx.jit().0.borrow_mut();
+            manager.code.remove(&region.source).unwrap();
+            manager
+                .pairs
+                .as_mut()
+                .unwrap()
+                .evict(region.pair.program.key());
+        }
+        assert_eq!(memory.requested(), before);
+        with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+            ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+            host.run(ctx, 1, start as u32, 4).result.unwrap();
+            ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+            let before_stats = stats(ctx);
+            let before = trace(ctx, host, before_stats);
+            assert!(region.run(ctx, host, 64, 64).is_none());
+            assert_eq!(trace(ctx, host, before_stats), before);
+        });
+        drop(region);
+        assert_eq!(memory.requested(), 0);
+        assert_eq!(memory.load(std::sync::atomic::Ordering::Relaxed), 0);
+    });
+}
+
+#[test]
 fn region_preserves_canonical_error_and_stops_before_callback_execution() {
     for (source, error) in [
         (
