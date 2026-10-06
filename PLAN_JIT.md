@@ -11,6 +11,44 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Ordinary executor adapter trial rejected — 2026-10-07
+
+The exact compiled-Off profiles below motivated moving the ordinary slice closure
+to an explicitly inlined private associated function. Its body, cfg branches,
+stack borrow, physical frame, VM granularity and accounting remain equivalent;
+comparison of the moved body allows only formatting/trailing-comma differences.
+The interpreter loop, scheduling and JIT selection do not change.
+
+The trial passes **1,279 GNU Auto executions / 82 suites** (six ignores), plus
+**15 focused baseline/JIT activation tests**. An initial full-build attempt failed
+because the diagnostic linker wrapper also intercepted an unstripped debug example;
+the wrapper is restricted to release outputs and the full gate is rerun in a fresh
+shell without the override. That failed attempt is retained, not counted as passing.
+
+Exact-code full cost-worker profiling removes the outlined closure and reduces
+disabled upvalue instructions **386,571,040 → 379,010,055 (1.96%)** and callbacks
+**181,129,784 → 177,939,344 (1.76%)**. Allocation instructions instead increase
+about **1.06%**. Report order, native-zero work, all event sums, independent self
+costs and binary/raw hashes verify. No profiled wall time is used for acceptance.
+
+The unchanged full native and both disabled gates then run **72 checked commands**,
+at two matched invocation paths across six alternating windows. All aggregate gates
+fail; all compared native/interpreter/helper/region counters match and frozen hashes
+remain unchanged. Native table direct control/candidate medians are **0.9786 / 0.9622**,
+while upvalue is essentially unchanged (**0.9941 / 0.9976**). Speed disabled float
+passes only **one of twelve** candidate runs versus **six** control runs. Its candidate
+median overhead ratios are **1.0635 / 1.0590**, above the unchanged five-percent cap.
+Speed callbacks improve about 1.7%, but their median overhead still exceeds seven
+percent. Shipping upvalue remains about fourteen percent above no-feature.
+
+**The trial is removed.** Small instruction savings do not justify worse native table
+timing and disabled float failures. Production source is restored byte-for-byte;
+the restored 15 activation checks and formatting pass. Source/archive, exact symbols,
+profiles, failed build, full tests and the 1,512-row timing report remain under
+`executor-ordinary-inline-*` and `ordinary-balanced/` in
+`target/jit-evidence/short-slice-performance/`. This does not fix the original
+regressions or close performance, resource, platform or release acceptance.
+
 #### Exact compiled-Off attribution — 2026-10-07
 
 Linker-boundary replay now also recovers symbols for the original feature-cost
