@@ -18,7 +18,6 @@ mod vm;
 #[cfg(feature = "jit")]
 pub(crate) use self::thread::LuaRegisters;
 #[cfg(all(
-    test,
     feature = "jit",
     not(miri),
     target_os = "linux",

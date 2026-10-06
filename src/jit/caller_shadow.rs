@@ -74,9 +74,64 @@ impl<'gc, const N: usize> Shadow<'gc, N> {
         true
     }
 
+    #[cfg(test)]
     pub(super) fn slots_mut(&mut self) -> &mut [Slot] {
         assert!(self.ready);
         &mut self.slots[..self.count]
+    }
+
+    #[cfg(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    pub(super) fn invoke(
+        &mut self,
+        ctx: crate::Context<'gc>,
+        prepared: &super::Prepared,
+        host: &mut crate::thread::activation::ActivationHost<'gc, '_>,
+        budget: u32,
+    ) -> Option<u32> {
+        if !self.ready || !self.valid() || !host.lua_ready() {
+            return None;
+        }
+        host.clear_hook(ctx);
+        if ctx.hook_enabled() {
+            return None;
+        }
+        host.with_registers(|closure, mut registers| {
+            let code = &prepared.code;
+            #[cfg(test)]
+            if code.scalar_leaf.is_some() {
+                return None;
+            }
+            if !self.matches(closure, &registers)
+                || code.registers != self.count
+                || code.projected_upvalues
+                || !code.entries.get(*registers.pc).copied().unwrap_or(false)
+            {
+                return None;
+            }
+            let id = ctx
+                .jit_registry()
+                .borrow()
+                .identity(ctx, closure.prototype())?;
+            let manager = ctx.jit().0.borrow();
+            if manager.config.mode != super::JitMode::Auto
+                || !super::owner::Shared::ptr_eq(&manager.code.get(&id)?.code, code)
+            {
+                return None;
+            }
+            drop(manager);
+            Some(ctx.jit().invoke_frame::<false, true>(
+                code,
+                ctx,
+                closure,
+                &mut registers,
+                (self.slots.as_mut_ptr(), None, self.count),
+                budget,
+            ))
+        })
     }
 
     pub(super) fn prepare_call(

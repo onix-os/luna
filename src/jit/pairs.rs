@@ -187,7 +187,7 @@ impl Runtime {
         caller: crate::Closure<'gc>,
         registers: &crate::thread::LuaRegisters<'gc, '_>,
         pc: usize,
-        scope: &mut super::PairScope,
+        scope: &mut super::PairScope<'gc>,
     ) -> Option<super::PreparedPair> {
         let prototype = caller.prototype();
         let crate::opcode::Operation::Call {

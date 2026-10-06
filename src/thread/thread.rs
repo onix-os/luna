@@ -801,7 +801,7 @@ pub(super) struct LuaFrame<'gc, 'a> {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    pub(super) pair_handoff: Option<&'a mut crate::jit::PairScope>,
+    pub(super) pair_handoff: Option<&'a mut crate::jit::PairScope<'gc>>,
     pub(super) state: &'a mut ThreadState<'gc>,
     // The executor or activation host owns this stack borrow.
     pub(super) stack: FrameStack<'gc, 'a>,
@@ -1286,7 +1286,17 @@ pub(crate) struct LuaRegisters<'gc, 'a> {
 }
 
 impl<'gc, 'a> LuaRegisters<'gc, 'a> {
-    #[cfg(all(test, feature = "jit"))]
+    #[cfg(all(
+        feature = "jit",
+        any(
+            test,
+            all(
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            )
+        )
+    ))]
     pub(crate) fn shadow_key(&self) -> (usize, usize) {
         (Gc::as_ptr(self.stack) as usize, self.base)
     }

@@ -11,6 +11,134 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Production resident-caller candidate — 2026-10-06
+
+**Rejected by performance measurements; production rollback pending profile
+capture.** The complete `resident-production-timing` comparison contains 24
+native rounds per profile and twelve compiled-Off rounds per profile, alternating
+candidate/original order with eleven samples per native invocation. Binary and
+source hashes passed before and after every block; external contention telemetry
+is retained. The runner's zero exit means evidence collection completed, not
+that the embedded workload gates passed.
+
+Candidate Auto/Off median speedups (speed/shipping) are upvalue **0.4692/0.4810**,
+callbacks **0.3455/0.4102**, metamethod **0.51395/0.5844**, table **1.2274/1.3357**
+and allocation **0.84775/0.7347**. Upvalue and callback gates pass zero of 24
+rounds in both profiles. Direct original-Auto/candidate-Auto ratios are
+**0.662226/0.726186** for upvalues and **0.424427/0.504875** for callbacks: this
+is a repeated regression against the immutable original, not merely a missed
+speedup target. Compiled-Off/no-feature upvalue costs are **1.09905/1.2387** and
+callback costs **1.0722/1.0865**, all above the unchanged 1.05 limit. Profiling
+must guide a different implementation; correctness acceptance does not justify
+leaving this production candidate enabled.
+
+`f68b572` moves scoped resume transport into the existing pair handoff without
+adding a VM argument. GNU/musl focused validation passes 116 executions; fourteen
+Miri model executions and i686-musl checking pass. A native Memcheck run passes
+24 chain tests with zero errors or definite/indirect losses, retaining the
+48-byte possible Rust harness TLS loss. The first portability run exposed an
+unused native-only field on fallback targets; its cfg was corrected and the
+checks rerun. Logs use `scoped-resume-handoff-v2`, `scoped-resume-portability-v2`
+and `scoped-resume-memcheck-v1` in the short-slice evidence directory.
+
+`4557a72` promotes the resident caller scheduler into production Auto scoped
+execution with the existing four-unit step charge. Other modes and unsupported
+targets retain canonical execution. Canonical fallback does not reenter the
+scheduler. Resume validation and native-entry skipping now use the existing
+handoff field in the single VM loop; the interpreter function signature remains
+unchanged. Shadow telemetry remains test-only, and fixed 256-slot storage is
+still an unproven performance choice.
+
+Current candidate evidence: GNU checking and 76 focused executions pass,
+including nine public-runtime tests against the production library. Full GNU
+Off/Auto/Force, musl Auto and baseline/docs pass **5,113 executions in 403 suites**,
+zero failures, twenty existing/repeated ignores and no Rust warnings. Native
+Memcheck passes 65 executions across chain/canonical/public-pair/shadow tests,
+zero errors or definite/indirect losses; each harness retains the possible
+48-byte TLS loss. Fourteen Miri synchronization-model executions and i686-musl
+checking pass (71 library and nine library-test warnings). Miri does not execute
+generated code or this scheduler. Immutable speed/shipping binaries, independent
+no-feature controls and the source archive built successfully; the validation
+source manifest still matches. All these `resident-production-*` validation and
+build logs have terminal zero exits. Timing acceptance remains separate.
+
+**This is a production candidate, not performance acceptance.** Upvalue,
+callback and compiled-Off regressions remain unresolved until measured against
+the unchanged original controls and thresholds. Combined partial-return and
+enter/leave-panic recovery coverage and current platform/release acceptance
+remain required. Earlier test-only checkpoints below describe their own
+revisions, not the current selector.
+
+#### Bounded resident-caller scheduler checkpoint — 2026-10-06
+
+`6b38a85` adds a **test-only** resident-shadow route to the bounded caller driver.
+It retains one caller snapshot across admitted native pairs and budget chunks,
+then materializes/discards it before canonical fallback, unsupported-prefix
+resumption, nonpaired transitions and host return. Pair transfer preparation
+checks runtime ledger and caller/callee identities. After a consumed call, the
+driver resumes the actual same caller or recovers its protected prefix below a
+child/error frame; native-boundary panics propagate after that synchronization.
+
+Differential coverage includes budgets 1/4/8/64, activation limits 1/2/3/8/16,
+negative/zero/small fuel, and cold-source full-statistics parity. A counter proves
+multiple native pairs reuse one snapshot. Another proves generated pending
+state takes the new recovery path under call-depth refusal, with full canonical
+trace equality. Both drivers retain callback, hook/Off, repeated collection and
+cached-lease panic fixtures. A pure native caller suffix panic additionally
+checks materialized loop index/visible iterator `2` and captured sum `3` before
+unwinding; this is not merely a lease-release test.
+
+GNU/musl focused checks pass 108 executions. Native Memcheck passes 54 with zero
+errors or definite/indirect leaks, retaining possible 48-byte harness TLS losses.
+The full GNU Auto workspace/all-target suite passes **1,177 executions in eighty
+suites**, zero failures, four existing ignores and no Rust warnings. Pinned Miri
+passes fourteen synchronization-model executions, not generated code or the
+scheduler. i686-musl checking passes with the existing 71 library and ten
+library-test warnings. Logs/exits use `caller-shadow-driver-*` in the short-slice
+evidence directory; the initial nonexistent Make target attempt is retained.
+
+Production routing remains unchanged. This scheduler still uses the withdrawn,
+test-only `NativeResume` continuation. Production integration must preserve the
+compiled-Off path rather than blindly restoring its former resume-parameter
+overhead or repeating rejected VM splits. Current fixed 256-slot test storage
+is not a demonstrated performance choice. Complete error/partial-return paths,
+current-revision platform/release checks and original benchmark gates remain
+required. **No production speedup or fixed performance regression is claimed.**
+
+#### Generated caller-shadow execution checkpoint — 2026-10-06
+
+`4de9486` connects the test-only shadow to actual generated caller code, using
+the existing helper/exit/statistics implementation with deferred scalar
+writeback. Production instances explicitly retain `DEFER=false`; the new
+deferred entry is not routed into production. Entry checks shadow readiness,
+tags, frame binding/width, native mode, hooks, entry PC, ordinary nonprojected
+ABI and exact installed-code identity for the current runtime/source.
+
+The generated caller/callee/caller differential preserves pending caller values
+through a real physical native Call/Return. Caller entries split at budgets
+1/2/3/4/8/64 match the interpreter's full final frame/register/upvalue/fuel and
+dispatch/instruction trace. Exact native instruction counts prove both caller
+segments and the callee execute generated code. Negative cases reject Off,
+enabled/suppressed hooks, foreign-owner code with a colliding source id, a
+retired cache lease, replaced closure, unsupported PC and malformed tags.
+
+GNU/musl focused checks pass 64 executions. Native Memcheck passes 32 with zero
+errors or definite/indirect leaks; possible 48-byte harness TLS loss remains
+unsuppressed. Pinned Miri Stacked seed 1 / Tree seed 2 pass fourteen model
+executions, not generated machine code. i686-musl checking passes with 71 library
+and ten library-test warnings retained. The full GNU Off/Auto/Force, musl Auto,
+no-JIT baseline and documentation sequence passes **5,077 executions in 403
+suites**, zero failures, twenty existing/repeated ignores and no Rust warnings.
+Source hashes verify after the terminal run. Logs, hashes and failed draft
+fixtures remain under `caller-shadow-generated-*` in the short-slice directory.
+
+This proves a combined execution mechanism, **not a shipped regression fix**.
+General bounded caller scheduling, partial-effect/error/panic handling and
+callback/GC observable boundaries must be integrated and validated before
+production selection. No new wall-clock speedup or original performance-gate
+acceptance is claimed; current-revision hosted ARM64 and release gates remain
+separate requirements.
+
 #### Suspended-caller recovery checkpoint — 2026-10-06
 
 `b7d6817` adds **test-only** one-way recovery of pending noncapture values below

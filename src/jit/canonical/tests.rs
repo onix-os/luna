@@ -14,6 +14,207 @@ use crate::{thread::activation::with_test_thread, Closure, Fuel, JitConfig, Lua}
 const ADD: &[u8] = b"local n=7 local function f(v) n=n+v end f(2) return n";
 
 #[test]
+fn generated_shadow_entry_rejects_hooks_owner_source_and_stale_code() {
+    fixture(ADD, |lua, closure, site, _code| {
+        lua.set_jit_config(JitConfig {
+            mode: crate::JitMode::Auto,
+            ..JitConfig::default()
+        })
+        .unwrap();
+        lua.enter(|ctx| {
+            let prototype = ctx.fetch(&closure).prototype();
+            let snapshot = || Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap();
+            ctx.jit().compile(site.caller, snapshot()).unwrap();
+            let prepared = ctx.jit().lookup(site.caller).unwrap();
+            let foreign = crate::jit::Runtime::new();
+            foreign.0.borrow_mut().config.mode = crate::JitMode::Auto;
+            foreign
+                .0
+                .borrow_mut()
+                .tracked
+                .insert(site.caller, Default::default());
+            foreign.compile(site.caller, snapshot()).unwrap();
+            let foreign_code = foreign.lookup(site.caller).unwrap();
+            for case in 0..8 {
+                with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                    let mut shadow = host.with_registers(|caller, registers| {
+                        crate::jit::caller_shadow::Shadow::<256>::capture(caller, &registers)
+                            .unwrap()
+                    });
+                    let mut removed = None;
+                    match case {
+                        0 => ctx.jit().0.borrow_mut().config.mode = crate::JitMode::Off,
+                        1 | 2 => {
+                            let hook = crate::Callback::from_fn(&ctx, |_, _, _| {
+                                panic!("declined hook ran")
+                            });
+                            ctx.set_debug_hook(hook.into(), false, 1);
+                            if case == 2 {
+                                ctx.suppress_hook_at(1);
+                            }
+                        }
+                        3 => {}
+                        4 => removed = ctx.jit().0.borrow_mut().code.remove(&site.caller),
+                        5 => host.test_replace_closure(rebind(ctx, ctx.fetch(&closure), prototype)),
+                        6 => host.with_registers(|_, registers| *registers.pc = site.pc),
+                        7 => shadow.slots_mut()[0].tag = u64::MAX,
+                        _ => unreachable!(),
+                    }
+                    let before = stats(ctx);
+                    let original = trace(ctx, host, before);
+                    assert_eq!(
+                        shadow.invoke(
+                            ctx,
+                            if case == 3 { &foreign_code } else { &prepared },
+                            host,
+                            64
+                        ),
+                        None,
+                        "case={case}"
+                    );
+                    assert_eq!(trace(ctx, host, before), original, "case={case}");
+                    if let Some(removed) = removed {
+                        ctx.jit().0.borrow_mut().code.insert(site.caller, removed);
+                    }
+                    ctx.jit().0.borrow_mut().config.mode = crate::JitMode::Auto;
+                    ctx.set_debug_hook(Value::Nil, false, 0);
+                });
+            }
+        });
+    });
+}
+
+#[test]
+fn generated_caller_callee_caller_preserves_pending_values_and_full_trace() {
+    fixture(
+        b"local n=7 local p=10 local function f(v) n=n+v end p=99 n=12 f(5) p=p+n return n,p",
+        |lua, closure, site, code| {
+            lua.set_jit_config(JitConfig {
+                mode: crate::JitMode::Auto,
+                ..JitConfig::default()
+            })
+            .unwrap();
+            lua.enter(|ctx| {
+                let prototype = ctx.fetch(&closure).prototype();
+                ctx.jit()
+                    .compile(
+                        site.caller,
+                        Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap(),
+                    )
+                    .unwrap();
+                let caller_code = ctx.jit().lookup(site.caller).unwrap();
+                let start = prototype
+                    .opcodes
+                    .iter()
+                    .position(|op| matches!(op.decode(), Operation::Closure { .. }))
+                    .unwrap()
+                    + 1;
+                assert!(start < site.pc);
+                let run = |native: bool, budget: u32| {
+                    with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                        position(host, ctx, start);
+                        let before = stats(ctx);
+                        let native_before = ctx.jit().0.borrow().stats.native_instructions;
+                        if native {
+                            let mut shadow = host.with_registers(|caller, registers| {
+                                crate::jit::caller_shadow::Shadow::<256>::capture(
+                                    caller, &registers,
+                                )
+                                .unwrap()
+                            });
+                            let mut prefix = 0;
+                            for _ in 0..prototype.opcodes.len() {
+                                if host.with_registers(|_, registers| *registers.pc == site.pc) {
+                                    break;
+                                }
+                                let completed =
+                                    shadow.invoke(ctx, &caller_code, host, budget).unwrap();
+                                assert!(completed > 0 && completed <= budget);
+                                prefix += completed;
+                            }
+                            assert_eq!(prefix as usize, site.pc - start);
+                            let capture = host.with_registers(|_, registers| {
+                                assert_eq!(*registers.pc, site.pc);
+                                assert!(matches!(registers.stack_frame[0], Value::Integer(7)));
+                                assert!(matches!(registers.stack_frame[1], Value::Integer(10)));
+                                let Value::Function(Function::Closure(callee)) =
+                                    registers.stack_frame[usize::from(site.function.0)]
+                                else {
+                                    panic!("expected closure");
+                                };
+                                callee.upvalues()[usize::from(site.pattern.upvalue)].get()
+                            });
+                            let transfer = host.with_registers(|caller, mut registers| {
+                                shadow
+                                    .prepare_call(
+                                        caller,
+                                        &mut registers,
+                                        site.function.0,
+                                        site.arguments,
+                                        capture,
+                                    )
+                                    .unwrap()
+                            });
+                            let outcome =
+                                invoke_result(ctx, host, &site, &code, 64, prefix).unwrap();
+                            assert_eq!((outcome.calls, outcome.returns), (1, 1));
+                            outcome.result.unwrap();
+                            assert!(host.with_registers(
+                                |caller, registers| transfer.resume(caller, &registers)
+                            ));
+                            host.with_registers(|_, registers| {
+                                assert!(matches!(registers.stack_frame[0], Value::Integer(17)));
+                                assert!(matches!(registers.stack_frame[1], Value::Integer(10)));
+                            });
+                            let mut suffix = 0;
+                            for _ in 0..prototype.opcodes.len() {
+                                if host.with_registers(|caller, registers| {
+                                    caller.prototype().opcodes[*registers.pc]
+                                        .call_transition()
+                                        .is_some()
+                                }) {
+                                    break;
+                                }
+                                let completed =
+                                    shadow.invoke(ctx, &caller_code, host, budget).unwrap();
+                                assert!(completed > 0 && completed <= budget);
+                                suffix += completed;
+                            }
+                            assert!(suffix > 0);
+                            let transition = host.with_registers(|caller, mut registers| {
+                                assert!(shadow.flush(caller, &mut registers));
+                                assert!(matches!(registers.stack_frame[1], Value::Integer(116)));
+                                caller.prototype().opcodes[*registers.pc]
+                                    .call_transition()
+                                    .unwrap()
+                            });
+                            assert!(matches!(
+                                transition,
+                                crate::opcode::CallTransition::Return { .. }
+                            ));
+                            host.native_transition(ctx, transition, suffix).unwrap();
+                            assert_eq!(
+                                ctx.jit().0.borrow().stats.native_instructions - native_before,
+                                u64::from(prefix + 3 + suffix)
+                            );
+                        } else {
+                            ctx.jit().0.borrow_mut().config.mode = crate::JitMode::Off;
+                            host.run(ctx, 3, 64, 4).result.unwrap();
+                            ctx.jit().0.borrow_mut().config.mode = crate::JitMode::Auto;
+                        }
+                        trace(ctx, host, before)
+                    })
+                };
+                let interpreted = run(false, 64);
+                for budget in [1, 2, 3, 4, 8, 64] {
+                    assert_eq!(run(true, budget), interpreted, "budget={budget}");
+                }
+            });
+        },
+    );
+}
+
+#[test]
 fn suspended_caller_prefix_rejects_wrong_pc_host_source_and_overlap() {
     fixture(
         b"local n=7 local p=10 local function f(v) n=n+v end f(2) return n,p",
