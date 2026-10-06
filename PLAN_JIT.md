@@ -41,10 +41,23 @@ the 540-row report remain under `helper-operand-inline-*` in
 `target/jit-evidence/short-slice-performance/`. Large numeric timing variation
 that also appears in Off is not claimed as a native gain.
 
-A separately frozen ordinary `#[inline]` hint is being evaluated to let the
-optimizer decline expansion in size-oriented builds. It is not yet retained,
-and does not add profile-specific cfg, a feature or a build script. Original
-thresholds and every open performance/resource/platform/release gate remain.
+A separately frozen ordinary `#[inline]` hint does not solve the tradeoff:
+its entire shipping JIT binary is **byte-identical** to the forced-inline
+variant (SHA-256 `c3a790f94f7b2cfd0b29256899e7efacf180c204715b8f925f5c458a4640da3f`).
+Its table profile also loses the instruction saving, recording **53,245,227**
+instructions versus **53,169,450** for production. Its 35 focused GNU checks,
+formatting, compilation and all artifact builds pass, but no second timing
+campaign or full correctness suite is claimed. There is no reason to rerun the
+same shipping binary as though it were a different performance fix.
+
+**Both annotations are removed; production runtime source is unchanged.**
+Ordinary-hint evidence remains under `helper-operand-hint-candidate/` alongside
+the forced trial. Neither adds profile-specific cfg, a feature or a build
+script. Original thresholds and all open performance/resource/platform/release
+gates remain. The measured native gain identifies a useful conversion cost;
+it does not justify retaining newly failing disabled controls.
+Restored production source passes **35 focused executions**, with no failures
+or ignores, plus formatting and all-target JIT checks.
 
 #### Actual acceptance-workload profiling — 2026-10-06
 
