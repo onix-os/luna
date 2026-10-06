@@ -11,6 +11,40 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Generated caller-shadow execution checkpoint — 2026-10-06
+
+`4de9486` connects the test-only shadow to actual generated caller code, using
+the existing helper/exit/statistics implementation with deferred scalar
+writeback. Production instances explicitly retain `DEFER=false`; the new
+deferred entry is not routed into production. Entry checks shadow readiness,
+tags, frame binding/width, native mode, hooks, entry PC, ordinary nonprojected
+ABI and exact installed-code identity for the current runtime/source.
+
+The generated caller/callee/caller differential preserves pending caller values
+through a real physical native Call/Return. Caller entries split at budgets
+1/2/3/4/8/64 match the interpreter's full final frame/register/upvalue/fuel and
+dispatch/instruction trace. Exact native instruction counts prove both caller
+segments and the callee execute generated code. Negative cases reject Off,
+enabled/suppressed hooks, foreign-owner code with a colliding source id, a
+retired cache lease, replaced closure, unsupported PC and malformed tags.
+
+GNU/musl focused checks pass 64 executions. Native Memcheck passes 32 with zero
+errors or definite/indirect leaks; possible 48-byte harness TLS loss remains
+unsuppressed. Pinned Miri Stacked seed 1 / Tree seed 2 pass fourteen model
+executions, not generated machine code. i686-musl checking passes with 71 library
+and ten library-test warnings retained. The full GNU Off/Auto/Force, musl Auto,
+no-JIT baseline and documentation sequence passes **5,077 executions in 403
+suites**, zero failures, twenty existing/repeated ignores and no Rust warnings.
+Source hashes verify after the terminal run. Logs, hashes and failed draft
+fixtures remain under `caller-shadow-generated-*` in the short-slice directory.
+
+This proves a combined execution mechanism, **not a shipped regression fix**.
+General bounded caller scheduling, partial-effect/error/panic handling and
+callback/GC observable boundaries must be integrated and validated before
+production selection. No new wall-clock speedup or original performance-gate
+acceptance is claimed; current-revision hosted ARM64 and release gates remain
+separate requirements.
+
 #### Suspended-caller recovery checkpoint — 2026-10-06
 
 `b7d6817` adds **test-only** one-way recovery of pending noncapture values below
