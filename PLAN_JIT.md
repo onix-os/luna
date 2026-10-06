@@ -11,6 +11,42 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Bounded resident-caller scheduler checkpoint — 2026-10-06
+
+`6b38a85` adds a **test-only** resident-shadow route to the bounded caller driver.
+It retains one caller snapshot across admitted native pairs and budget chunks,
+then materializes/discards it before canonical fallback, unsupported-prefix
+resumption, nonpaired transitions and host return. Pair transfer preparation
+checks runtime ledger and caller/callee identities. After a consumed call, the
+driver resumes the actual same caller or recovers its protected prefix below a
+child/error frame; native-boundary panics propagate after that synchronization.
+
+Differential coverage includes budgets 1/4/8/64, activation limits 1/2/3/8/16,
+negative/zero/small fuel, and cold-source full-statistics parity. A counter proves
+multiple native pairs reuse one snapshot. Another proves generated pending
+state takes the new recovery path under call-depth refusal, with full canonical
+trace equality. Both drivers retain callback, hook/Off, repeated collection and
+cached-lease panic fixtures. A pure native caller suffix panic additionally
+checks materialized loop index/visible iterator `2` and captured sum `3` before
+unwinding; this is not merely a lease-release test.
+
+GNU/musl focused checks pass 108 executions. Native Memcheck passes 54 with zero
+errors or definite/indirect leaks, retaining possible 48-byte harness TLS losses.
+The full GNU Auto workspace/all-target suite passes **1,177 executions in eighty
+suites**, zero failures, four existing ignores and no Rust warnings. Pinned Miri
+passes fourteen synchronization-model executions, not generated code or the
+scheduler. i686-musl checking passes with the existing 71 library and ten
+library-test warnings. Logs/exits use `caller-shadow-driver-*` in the short-slice
+evidence directory; the initial nonexistent Make target attempt is retained.
+
+Production routing remains unchanged. This scheduler still uses the withdrawn,
+test-only `NativeResume` continuation. Production integration must preserve the
+compiled-Off path rather than blindly restoring its former resume-parameter
+overhead or repeating rejected VM splits. Current fixed 256-slot test storage
+is not a demonstrated performance choice. Complete error/partial-return paths,
+current-revision platform/release checks and original benchmark gates remain
+required. **No production speedup or fixed performance regression is claimed.**
+
 #### Generated caller-shadow execution checkpoint — 2026-10-06
 
 `4de9486` connects the test-only shadow to actual generated caller code, using
