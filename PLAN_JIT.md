@@ -35,8 +35,10 @@ TLS losses and Miri warnings remain unsuppressed. i686-musl all-target checking
 passes with 71 library and ten library-test warnings retained. Evidence prefixes
 are `caller-shadow-recovery-*` under the existing short-slice evidence directory.
 
-The full GNU Auto workspace/all-target matrix is running; no terminal matrix
-result is claimed here yet. Production generated-caller integration, failed
+The full GNU Auto workspace/all-target matrix passes 1,168 executions across
+eighty suites, zero failures, four existing ignores and no Rust warnings.
+This is one mode/target, not a complete new-revision platform matrix.
+Production generated-caller integration, failed
 Return with partial native effects, panic cleanup and callback/GC observable
 boundaries remain unimplemented or unproven. **No performance regression fix or
 new speedup is claimed**, and the original acceptance gates stay open.
