@@ -685,6 +685,106 @@ mod tests {
     }
 
     #[test]
+    fn native_resume_interprets_after_code_retirement_or_mode_change() {
+        let source = b"local sum=0 local one=1 local scale=2 sum=sum+one local function add(v) sum=sum+v end for i=1,10000 do add(i) end return sum";
+        let (mut control, closure) = state(JitMode::Auto, source);
+        let expected = control.enter(|ctx| {
+            let thread = Thread::new(ctx);
+            thread.start(ctx, ctx.fetch(&closure).into(), ()).unwrap();
+            let mut fuel = Fuel::with(4096);
+            crate::thread::activation::with_test_existing_thread(ctx, thread, &mut fuel, |host| {
+                ctx.jit().0.borrow_mut().stats = Default::default();
+                host.run(ctx, 1, 64, 4).result.unwrap();
+                trace(ctx, host)
+            })
+        });
+        for off in [false, true] {
+            let (mut lua, closure) = state(JitMode::Auto, source);
+            let executor = lua.enter(|ctx| {
+                let closure = ctx.fetch(&closure);
+                let thread = Thread::new(ctx);
+                thread.start(ctx, closure.into(), ()).unwrap();
+                let mut fuel = Fuel::with(4096);
+                crate::thread::activation::with_test_existing_thread(
+                    ctx,
+                    thread,
+                    &mut fuel,
+                    |host| {
+                        ctx.jit().0.borrow_mut().stats = Default::default();
+                        let prefix = prefix(ctx, host, 64).unwrap();
+                        let instructions = prefix.instructions;
+                        assert!(instructions > 0);
+                        let id = ctx
+                            .jit_registry()
+                            .borrow()
+                            .identity(ctx, closure.prototype())
+                            .unwrap();
+                        {
+                            let mut manager = ctx.jit().0.borrow_mut();
+                            if off {
+                                let config = JitConfig {
+                                    mode: JitMode::Off,
+                                    ..manager.config.clone()
+                                };
+                                manager.configure(config);
+                            } else {
+                                assert!(manager.code.remove(&id).is_some());
+                            }
+                        }
+                        let before = ctx.jit().0.borrow().stats;
+                        let completed = host
+                            .test_resume_native(ctx, 64, prefix.resume.unwrap())
+                            .unwrap();
+                        host.charge_native_slice(completed);
+                        let after = ctx.jit().0.borrow().stats;
+                        assert_eq!(after.native_entries, before.native_entries);
+                        assert_eq!(after.native_instructions, before.native_instructions);
+                        assert!(after.interpreted_instructions > before.interpreted_instructions);
+                        assert_eq!(trace(ctx, host), expected);
+                    },
+                );
+                ctx.stash(Executor::run(&ctx, thread).unwrap())
+            });
+            assert_eq!(lua.execute::<i64>(&executor).unwrap(), 50005001);
+        }
+    }
+
+    #[test]
+    fn native_resume_refuses_changed_pc_or_exhausted_budget_before_effects() {
+        let source = b"local sum=0 local one=1 local scale=2 sum=sum+one local function add(v) sum=sum+v end for i=1,10000 do add(i) end return sum";
+        for changed_pc in [false, true] {
+            let (mut lua, closure) = state(JitMode::Auto, source);
+            lua.enter(|ctx| {
+                let thread = Thread::new(ctx);
+                thread.start(ctx, ctx.fetch(&closure).into(), ()).unwrap();
+                let mut fuel = Fuel::with(4096);
+                crate::thread::activation::with_test_existing_thread(
+                    ctx,
+                    thread,
+                    &mut fuel,
+                    |host| {
+                        let prefix = prefix(ctx, host, 64).unwrap();
+                        let budget = if changed_pc {
+                            host.with_registers(|_, registers| *registers.pc += 1);
+                            64
+                        } else {
+                            prefix.instructions
+                        };
+                        let before = trace(ctx, host);
+                        let statistics = ctx.jit().0.borrow().stats;
+                        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            host.test_resume_native(ctx, budget, prefix.resume.unwrap())
+                        }));
+                        assert!(caught.is_err());
+                        assert_eq!(trace(ctx, host), before);
+                        assert_eq!(ctx.jit().0.borrow().stats, statistics);
+                    },
+                );
+            });
+        }
+    }
+
+    #[test]
     fn native_resume_refuses_a_different_thread_with_the_same_closure_and_pc() {
         let source = b"local sum=0 local one=1 local scale=2 sum=sum+one local function add(v) sum=sum+v end for i=1,10000 do add(i) end return sum";
         let (mut lua, closure) = state(JitMode::Auto, source);
