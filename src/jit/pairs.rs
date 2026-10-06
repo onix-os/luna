@@ -26,9 +26,7 @@ struct Entry {
 }
 
 pub(super) struct State {
-    #[cfg(test)]
     pub(super) regions: super::native_region::cache::Cache,
-    #[cfg(test)]
     pub(super) promotions: Option<super::native_region::schedule::Schedule>,
     #[cfg(test)]
     executions: (usize, usize),
@@ -43,10 +41,13 @@ pub(super) struct State {
 impl State {
     pub(super) fn new(allocator: BudgetAllocator) -> Self {
         Self {
-            #[cfg(test)]
             regions: super::native_region::cache::Cache::new(allocator.clone()),
             #[cfg(test)]
             promotions: None,
+            #[cfg(not(test))]
+            promotions: Some(super::native_region::schedule::Schedule::new(
+                allocator.clone(),
+            )),
             #[cfg(test)]
             executions: (0, 0),
             entries: metadata_map(allocator.clone()),
@@ -60,7 +61,6 @@ impl State {
 
     pub fn queued(&self) -> usize {
         let count = self.queue.len();
-        #[cfg(test)]
         let count = count + self.promotions.as_ref().map_or(0, |queue| queue.queued());
         count
     }
@@ -70,15 +70,10 @@ impl State {
     }
 
     pub fn clear(&mut self) {
-        #[cfg(test)]
         let enabled = self.promotions.is_some();
         *self = Self::new(self.allocator.clone());
-        #[cfg(test)]
-        if enabled {
-            self.promotions = Some(super::native_region::schedule::Schedule::new(
-                self.allocator.clone(),
-            ));
-        }
+        self.promotions =
+            enabled.then(|| super::native_region::schedule::Schedule::new(self.allocator.clone()));
     }
 
     pub fn victim(&self, exclude: Option<Key>) -> Option<(u64, Key)> {
@@ -96,9 +91,7 @@ impl State {
     }
 
     pub fn evict(&mut self, key: Key) {
-        #[cfg(test)]
         self.regions.remove(key);
-        #[cfg(test)]
         if let Some(queue) = &mut self.promotions {
             queue.cancel(key);
         }
@@ -120,16 +113,13 @@ impl State {
         if self.queue.is_empty() {
             self.queue = Vec::new_in(self.allocator.clone());
         }
-        #[cfg(test)]
         if let Some(queue) = &mut self.promotions {
             queue.configure(config, available.saturating_sub(retained));
         }
     }
 
     pub fn retire(&mut self, id: u64) {
-        #[cfg(test)]
         self.regions.retire(id);
-        #[cfg(test)]
         if let Some(queue) = &mut self.promotions {
             queue.retire(id);
         }
@@ -193,7 +183,6 @@ impl State {
             | self
                 .queue_compactor
                 .needed(self.queue.len(), self.queue.capacity());
-        #[cfg(test)]
         let needed = needed
             | self.regions.needs_compaction()
             | self
@@ -203,14 +192,12 @@ impl State {
         needed
     }
 
-    #[cfg(test)]
     pub(super) fn has_key(&self, key: Key) -> bool {
         self.entries
             .get(&key)
             .is_some_and(|entry| entry.program.is_some())
     }
 
-    #[cfg(test)]
     pub(super) fn contains(&self, pair: &super::PreparedPair) -> bool {
         self.entries
             .get(&pair.program.key())
@@ -548,9 +535,7 @@ impl Runtime {
                 .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
             let last_used = manager.clock.saturating_add(1);
             let pairs = manager.pairs.as_mut().unwrap();
-            #[cfg(test)]
             pairs.regions.remove(key);
-            #[cfg(test)]
             if let Some(queue) = &mut pairs.promotions {
                 queue.cancel(key);
             }
@@ -559,10 +544,7 @@ impl Runtime {
             entry.last_used = last_used;
             manager.clock = last_used;
             manager.stats.installed_regions = manager.stats.installed_regions.saturating_add(1);
-            #[cfg(test)]
-            {
-                manager.stats.queued_requests = manager.queued_count();
-            }
+            manager.stats.queued_requests = manager.queued_count();
             Ok(())
         });
         if result.is_err() {

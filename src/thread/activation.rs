@@ -229,7 +229,6 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
             && matches!(self.state.frames.last(), Some(Frame::Lua { .. }))
     }
 
-    #[cfg(test)]
     pub(crate) fn pairing_enabled(&self, ctx: Context<'gc>) -> bool {
         #[cfg(test)]
         if self.decline_pairs {
@@ -366,7 +365,6 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    #[cfg(test)]
     pub(crate) fn native_transition(
         &mut self,
         ctx: Context<'gc>,
@@ -456,7 +454,6 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    #[cfg(test)]
     pub(crate) fn canonical_slice(
         &mut self,
         ctx: Context<'gc>,
@@ -466,7 +463,6 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
     }
 
     #[cfg(all(
-        test,
         not(miri),
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
@@ -480,6 +476,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         assert!(self.pair.handoff.is_none());
         if let Some(scope) = &scope {
             assert!(scope.handoff.is_none());
+            #[cfg(test)]
             assert!(scope.resume.is_none());
         }
         self.select_pairs = false;
@@ -497,7 +494,6 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    #[cfg(test)]
     pub(crate) fn frame_identity(&self) -> (usize, usize) {
         (
             std::ptr::from_ref(&*self.state) as usize,
@@ -516,6 +512,38 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
             assert!(matches!(self.state.frames.last(), Some(Frame::Lua { .. })));
             #[cfg(test)]
             let capacity = self.stack.capacity();
+            #[cfg(all(
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))]
+            if step_fuel == 4 {
+                assert!(self.pair.handoff.is_none());
+                self.select_pairs = false;
+                if let Some(outcome) = ctx.jit().run_region(ctx, self, limit - activations, budget)
+                {
+                    activations += outcome.slices;
+                    #[cfg(test)]
+                    {
+                        stack_growths += usize::from(self.stack.capacity() > capacity);
+                    }
+                    if outcome.result.is_err()
+                        || activations == limit
+                        || !self.fuel.should_continue()
+                        || self.state.mode() != ThreadMode::Normal
+                        || !matches!(self.state.frames.last(), Some(Frame::Lua { .. }))
+                    {
+                        return Outcome {
+                            result: outcome.result,
+                            #[cfg(test)]
+                            activations,
+                            #[cfg(test)]
+                            stack_growths,
+                        };
+                    }
+                    continue;
+                }
+            }
             #[cfg(all(
                 not(miri),
                 target_os = "linux",

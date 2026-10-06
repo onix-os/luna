@@ -485,10 +485,7 @@ impl Lua {
     ))]
     fn service_jit_pair(&mut self) -> Result<usize, crate::jit::JitError> {
         let Some(key) = self.jit.next_pair_request() else {
-            #[cfg(test)]
             return self.service_jit_region();
-            #[cfg(not(test))]
-            return Ok(0);
         };
         let (config, allocator) = {
             let manager = self.jit.0.borrow();
@@ -531,7 +528,6 @@ impl Lua {
     }
 
     #[cfg(all(
-        test,
         feature = "jit",
         not(miri),
         target_os = "linux",

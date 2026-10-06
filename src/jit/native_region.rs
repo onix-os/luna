@@ -6,13 +6,16 @@ use std::{
 
 use crate::{
     thread::{activation::ActivationHost, VMError},
-    Closure, Context,
+    Context,
 };
+
+#[cfg(test)]
+use crate::{jit::JitError, Closure};
 
 use super::{
     abi,
     backend::region::{self, View},
-    helpers, scoped_helpers, JitError, Prepared, PreparedPair,
+    helpers, scoped_helpers, Prepared, PreparedPair,
 };
 
 pub(super) mod cache;
@@ -31,7 +34,7 @@ pub(crate) struct Region {
 }
 
 #[derive(Debug)]
-pub(super) struct Outcome {
+pub(crate) struct Outcome {
     pub slices: usize,
     pub fragments: usize,
     pub pairs: usize,
@@ -51,6 +54,7 @@ impl Region {
                 .is_some_and(|pairs| pairs.contains(&self.pair))
     }
 
+    #[cfg(test)]
     pub(super) fn new<'gc>(
         ctx: Context<'gc>,
         caller: Closure<'gc>,
@@ -148,6 +152,11 @@ impl Region {
             host: std::ptr::null_mut(),
             exit: abi::Exit::default(),
         };
+        {
+            let mut manager = ctx.jit().0.borrow_mut();
+            manager.stats.native_region_entries =
+                manager.stats.native_region_entries.saturating_add(1);
+        }
         unsafe { (&mut *pointer).publish(&mut view) };
         unsafe { self.driver.invoke(&mut view, limit as u32) };
         let payload = session.panic.take();
@@ -156,6 +165,35 @@ impl Region {
             std::panic::resume_unwind(payload);
         }
         Some(outcome)
+    }
+}
+
+impl super::Runtime {
+    pub(crate) fn run_region<'gc>(
+        &self,
+        ctx: Context<'gc>,
+        host: &mut ActivationHost<'gc, '_>,
+        limit: usize,
+        budget: u32,
+    ) -> Option<Outcome> {
+        {
+            let manager = self.0.borrow();
+            if manager.config.mode != super::JitMode::Auto
+                || manager
+                    .pairs
+                    .as_ref()
+                    .is_none_or(|pairs| pairs.regions.is_empty())
+            {
+                return None;
+            }
+        }
+        if !host.lua_ready() {
+            return None;
+        }
+        host.clear_hook(ctx);
+        let region =
+            host.with_registers(|caller, registers| self.region_at(ctx, caller, *registers.pc))?;
+        region.run(ctx, host, limit, budget)
     }
 }
 
@@ -321,6 +359,7 @@ impl Session<'_, '_, '_, '_> {
 fn record(ctx: Context<'_>, exit: &abi::Exit, counts: helpers::Counts) {
     let mut manager = ctx.jit().0.borrow_mut();
     let stats = &mut manager.stats;
+    stats.native_region_fragments = stats.native_region_fragments.saturating_add(1);
     stats.helper_calls = stats.helper_calls.saturating_add(counts.calls);
     stats.helper_instructions = stats.helper_instructions.saturating_add(counts.completed);
     stats.helper_declines = stats.helper_declines.saturating_add(counts.declined);

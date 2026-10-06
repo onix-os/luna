@@ -334,6 +334,11 @@ jit-native-region:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical::tests::native_region_ $(ARGS)
 
 .PHONY: jit-native-region-cost jit-native-region-cost-run
+.PHONY: jit-regions
+jit-regions:
+	@$(CARGO) test --locked -p luna --features jit --test jit_regions $(TARGET_ARG) $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit,async --test jit_regions $(TARGET_ARG) $(ARGS)
+
 jit-native-region-cost:
 	@CARGO_PROFILE_RELEASE_OPT_LEVEL=$(JIT_BENCH_OPT) $(CARGO) test --locked --release -p luna --features jit --lib $(TARGET_ARG) jit::native_region::tests::cost::paired_region_cost -- --ignored --exact --nocapture --test-threads=1
 

@@ -184,6 +184,7 @@ pub(crate) fn compile(
             allocations: BudgetVec::new_in(metadata.clone()),
             total: memory,
             status: status.clone(),
+            #[cfg(test)]
             failure: Failure::None,
             limit,
             page: page as usize,

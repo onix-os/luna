@@ -102,6 +102,7 @@ pub(super) struct BoundCode<'code, 'gc> {
 
 #[cfg(not(miri))]
 impl Code {
+    #[cfg(test)]
     pub(super) fn new<'gc>(ctx: Context<'gc>, source: Closure<'gc>) -> Result<Self, JitError> {
         let identity = ctx
             .jit_registry()
@@ -186,6 +187,7 @@ impl Code {
 
 #[cfg(not(miri))]
 impl<'gc> BoundCode<'_, 'gc> {
+    #[cfg(test)]
     pub(super) fn invoke(
         &self,
         frame: &mut Frame<'gc, '_, '_>,

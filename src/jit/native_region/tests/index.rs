@@ -223,6 +223,29 @@ fn retirement_unlinks_callee_sites_without_reordering_survivors() {
 }
 
 #[test]
+fn unsupported_entry_pc_refuses_before_lease_or_recency_changes() {
+    fixture_source(SOURCE, |ctx, caller, region, _| {
+        ctx.jit().install_region(region).unwrap();
+        let unsupported = caller
+            .prototype()
+            .opcodes
+            .iter()
+            .position(|op| matches!(op.decode(), crate::opcode::Operation::Closure { .. }))
+            .unwrap();
+        for pc in [unsupported, usize::MAX] {
+            let before = ctx.jit().0.borrow().stats;
+            let clock = ctx.jit().0.borrow().clock;
+            assert!(ctx.jit().region_at(ctx, caller, pc).is_none());
+            let after = ctx.jit().0.borrow().stats;
+            assert_eq!(after.code_lookups, before.code_lookups + 1);
+            assert_eq!(after.code_leases, before.code_leases);
+            assert_eq!(ctx.jit().0.borrow().clock, clock);
+        }
+        assert!(ctx.jit().region_at(ctx, caller, 0).is_some());
+    });
+}
+
+#[test]
 fn disabled_hooked_and_foreign_live_selection_is_effect_free() {
     fixture_source(SOURCE, |ctx, caller, region, _| {
         ctx.jit().install_region(region).unwrap();

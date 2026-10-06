@@ -69,6 +69,10 @@ impl Cache {
         self.callers.get(&caller).copied()
     }
 
+    pub(in crate::jit) fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
     fn get(&self, key: Key) -> Option<&Shared<Region>> {
         self.entries.get(&key).map(|entry| &entry.region)
     }
@@ -199,14 +203,34 @@ impl Runtime {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(in crate::jit) fn region_lease(&self, key: Key) -> Option<Shared<Region>> {
         self.select_region(|_| Some(key))
     }
 
+    #[cfg(test)]
     pub(in crate::jit) fn region_for<'gc>(
         &self,
         ctx: crate::Context<'gc>,
         caller: crate::Closure<'gc>,
+    ) -> Option<Shared<Region>> {
+        self.select_caller(ctx, caller, |_| true)
+    }
+
+    pub(in crate::jit) fn region_at<'gc>(
+        &self,
+        ctx: crate::Context<'gc>,
+        caller: crate::Closure<'gc>,
+        pc: usize,
+    ) -> Option<Shared<Region>> {
+        self.select_caller(ctx, caller, |region| region.caller.accepts_pc(pc))
+    }
+
+    fn select_caller<'gc>(
+        &self,
+        ctx: crate::Context<'gc>,
+        caller: crate::Closure<'gc>,
+        entry: impl FnOnce(&Region) -> bool,
     ) -> Option<Shared<Region>> {
         if !crate::jit::RuntimeOwner::ptr_eq(&self.0, &ctx.jit().0) || ctx.hook_enabled() {
             return None;
@@ -215,7 +239,10 @@ impl Runtime {
             .jit_registry()
             .borrow()
             .identity(ctx, caller.prototype())?;
-        self.select_region(|cache| cache.caller(source))
+        self.select_region(|cache| {
+            let key = cache.caller(source)?;
+            entry(cache.get(key)?).then_some(key)
+        })
     }
 
     fn select_region(&self, select: impl FnOnce(&Cache) -> Option<Key>) -> Option<Shared<Region>> {

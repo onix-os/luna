@@ -117,7 +117,6 @@ mod mock;
 #[cfg(test)]
 mod model;
 #[cfg(all(
-    test,
     not(miri),
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -142,7 +141,7 @@ mod preds;
 pub(crate) mod registry;
 pub(crate) mod resources;
 #[cfg(all(
-    test,
+    any(test, not(miri)),
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
@@ -271,6 +270,10 @@ pub struct JitStats {
     pub native_pair_calls: u64,
     pub native_pair_returns: u64,
     pub native_pair_cache_hits: u64,
+    /// Accepted caller-region executions.
+    pub native_region_entries: u64,
+    /// Caller-region exits processed at native boundaries.
+    pub native_region_fragments: u64,
     pub code_lookups: u64,
     pub code_leases: u64,
     pub native_instructions: u64,
@@ -607,7 +610,6 @@ pub enum JitError {
 
 pub(crate) struct Manager {
     #[cfg(all(
-        test,
         not(miri),
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
@@ -691,7 +693,6 @@ impl Default for Manager {
                 target_os = "linux",
                 any(target_arch = "x86_64", target_arch = "aarch64")
             ))]
-            #[cfg(test)]
             resume_scope: None,
             #[cfg(test)]
             before_compile: None,
@@ -770,7 +771,7 @@ enum CacheKey {
     Prototype(u64),
     #[cfg(not(miri))]
     Pair(pairs::Key),
-    #[cfg(all(test, not(miri)))]
+    #[cfg(not(miri))]
     Region(pairs::Key),
 }
 
@@ -848,19 +849,15 @@ impl Manager {
             any(target_arch = "x86_64", target_arch = "aarch64")
         ))]
         if let Some(pairs) = &mut self.pairs {
-            #[cfg(test)]
             let regions = pairs.regions.compact();
-            #[cfg(test)]
             let promotions = pairs.promotions.as_mut().map(|queue| queue.compact());
             let results = pairs.compact();
             for result in results {
                 self.record_compaction(result);
             }
-            #[cfg(test)]
             for result in regions {
                 self.record_compaction(result);
             }
-            #[cfg(test)]
             for result in promotions.into_iter().flatten() {
                 self.record_compaction(result);
             }
@@ -920,7 +917,6 @@ impl Manager {
                 let excluded = match exclude {
                     CacheKey::Pair(key) => Some(key),
                     CacheKey::Prototype(_) => None,
-                    #[cfg(test)]
                     CacheKey::Region(_) => None,
                 };
                 pairs
@@ -928,7 +924,7 @@ impl Manager {
                     .map(|(clock, key)| (clock, CacheKey::Pair(key)))
             }))
             .min();
-        #[cfg(all(test, not(miri)))]
+        #[cfg(not(miri))]
         let victim = victim
             .into_iter()
             .chain(self.pairs.as_ref().and_then(|pairs| {
@@ -950,7 +946,7 @@ impl Manager {
         match victim {
             CacheKey::Prototype(id) => {
                 self.code.remove(&id);
-                #[cfg(all(test, not(miri)))]
+                #[cfg(not(miri))]
                 if let Some(queue) = self
                     .pairs
                     .as_mut()
@@ -964,14 +960,11 @@ impl Manager {
             }
             #[cfg(not(miri))]
             CacheKey::Pair(key) => self.pairs.as_mut().unwrap().evict(key),
-            #[cfg(all(test, not(miri)))]
+            #[cfg(not(miri))]
             CacheKey::Region(key) => self.pairs.as_mut().unwrap().regions.remove(key),
         }
         self.stats.cache_evictions = self.stats.cache_evictions.saturating_add(1);
-        #[cfg(test)]
-        {
-            self.stats.queued_requests = self.queued_count();
-        }
+        self.stats.queued_requests = self.queued_count();
         true
     }
 
@@ -1203,7 +1196,6 @@ impl PreparedPair {
     ) -> Option<PairOutcome> {
         let outcome = self.program.invoke_result(ctx, host, budget, prefix);
         if let Some(outcome) = &outcome {
-            #[cfg(test)]
             if outcome.calls > 0 && outcome.result.is_ok() {
                 ctx.jit().observe_region(self.program.key());
             }
@@ -1589,7 +1581,7 @@ impl Runtime {
                         };
                         manager.clock = manager.clock.saturating_add(1);
                         let last_used = manager.clock;
-                        #[cfg(all(test, not(miri)))]
+                        #[cfg(not(miri))]
                         if let Some(pairs) = &mut manager.pairs {
                             pairs.regions.retire_caller(id);
                             if let Some(queue) = &mut pairs.promotions {
@@ -1599,10 +1591,7 @@ impl Runtime {
                         manager.code.insert(id, CachedCode { code, last_used });
                         manager.stats.installed_regions =
                             manager.stats.installed_regions.saturating_add(1);
-                        #[cfg(test)]
-                        {
-                            manager.stats.queued_requests = manager.queued_count();
-                        }
+                        manager.stats.queued_requests = manager.queued_count();
                     }
                     Ok(())
                 }
@@ -1635,7 +1624,7 @@ impl Runtime {
             if manager.config.mode == JitMode::Off {
                 return None;
             }
-            #[cfg(all(test, not(miri)))]
+            #[cfg(not(miri))]
             if let Some(prepared) = native_region::resume::lookup(&mut manager, id) {
                 return prepared;
             }
@@ -1675,7 +1664,6 @@ impl Runtime {
 
     pub(crate) fn observe(&self, id: u64) {
         #[cfg(all(
-            test,
             not(miri),
             target_os = "linux",
             any(target_arch = "x86_64", target_arch = "aarch64")
@@ -1708,7 +1696,7 @@ impl Runtime {
             any(target_arch = "x86_64", target_arch = "aarch64")
         ))]
         {
-            #[cfg(all(test, not(miri)))]
+            #[cfg(not(miri))]
             if native_region::resume::skip(self, prepared, closure, registers) {
                 return 0;
             }

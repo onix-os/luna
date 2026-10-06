@@ -47,6 +47,7 @@ impl<'gc> Token<'gc> {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn run(
         self,
         ctx: Context<'gc>,
