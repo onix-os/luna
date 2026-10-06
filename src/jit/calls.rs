@@ -44,24 +44,10 @@ impl Plan<'_> {
         self.caller.operations.allocator().clone()
     }
 
-    #[cfg(test)]
     pub fn program(
         &self,
         config: cranelift_codegen::isa::TargetFrontendConfig,
         convention: cranelift_codegen::isa::CallConv,
-    ) -> Result<Program, JitError> {
-        self.program_for(
-            config,
-            convention,
-            super::backend::calls::FrameLayout::Tagged,
-        )
-    }
-
-    pub(crate) fn program_for(
-        &self,
-        config: cranelift_codegen::isa::TargetFrontendConfig,
-        convention: cranelift_codegen::isa::CallConv,
-        layout: super::backend::calls::FrameLayout,
     ) -> Result<Program, JitError> {
         use cranelift_codegen::ir::{
             condcodes::IntCC, types, AbiParam, ExtFuncData, ExternalName, Function, InstBuilder,
@@ -81,17 +67,11 @@ impl Plan<'_> {
             signature
         };
         let leaf_signature = signature(&[pointer, types::I64, types::I32, pointer, pointer], None);
-        let integer = super::integer::Plan::new(self.callee)?;
-        let callee = match layout {
-            super::backend::calls::FrameLayout::Tagged => {
-                integer.function(UserFuncName::user(0, 1), leaf_signature.clone(), config)?
-            }
-            super::backend::calls::FrameLayout::Numeric => integer.numeric_function(
-                UserFuncName::user(0, 1),
-                leaf_signature.clone(),
-                config,
-            )?,
-        };
+        let callee = super::integer::Plan::new(self.callee)?.function(
+            UserFuncName::user(0, 1),
+            leaf_signature.clone(),
+            config,
+        )?;
         let mut entry = Function::with_name_signature(
             UserFuncName::user(0, 0),
             signature(&[pointer, types::I32], Some(types::I32)),
@@ -193,42 +173,23 @@ impl Plan<'_> {
         Ok(Program { entry, callee })
     }
 
-    #[cfg(test)]
     pub fn verify_program(
         &self,
         program: &Program,
         config: cranelift_codegen::isa::TargetFrontendConfig,
         convention: cranelift_codegen::isa::CallConv,
     ) -> Result<(), JitError> {
-        self.verify_program_for(
-            program,
-            config,
-            convention,
-            super::backend::calls::FrameLayout::Tagged,
-        )
-    }
-
-    pub(crate) fn verify_program_for(
-        &self,
-        program: &Program,
-        config: cranelift_codegen::isa::TargetFrontendConfig,
-        convention: cranelift_codegen::isa::CallConv,
-        layout: super::backend::calls::FrameLayout,
-    ) -> Result<(), JitError> {
-        let expected = self.program_for(config, convention, layout)?;
+        let expected = self.program(config, convention)?;
         if program.entry != expected.entry || program.callee != expected.callee {
             return Err(JitError::Compilation(
                 "aggregate program differs from source".into(),
             ));
         }
-        if layout == super::backend::calls::FrameLayout::Tagged {
-            super::integer::Plan::new(self.callee)?.verify(
-                &program.callee,
-                expected.callee.signature.clone(),
-                config,
-            )?;
-        }
-        Ok(())
+        super::integer::Plan::new(self.callee)?.verify(
+            &program.callee,
+            expected.callee.signature.clone(),
+            config,
+        )
     }
 }
 
@@ -666,88 +627,6 @@ mod tests {
             changed.callee.signature.params[2].value_type = cranelift_codegen::ir::types::I64;
             assert!(plan
                 .verify_program(&changed, isa.frontend_config(), isa.default_call_conv())
-                .is_err());
-        });
-    }
-
-    #[cfg(all(
-        not(miri),
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
-    #[test]
-    fn numeric_aggregate_rejects_payload_and_source_mutations() {
-        use super::super::backend::calls::FrameLayout;
-        use cranelift_codegen::{ir::InstructionData, settings};
-        let isa = cranelift_native::builder()
-            .unwrap()
-            .finish(settings::Flags::new(settings::builder()))
-            .unwrap();
-        sources(|caller, callee, pc| {
-            let plan = Plan::new(
-                &caller,
-                &callee,
-                pc,
-                work::Limits::from(&JitConfig::default()),
-            )
-            .unwrap();
-            let layout = FrameLayout::Numeric;
-            let config = isa.frontend_config();
-            let convention = isa.default_call_conv();
-            let program = plan.program_for(config, convention, layout).unwrap();
-            cranelift_codegen::verify_function(&program.entry, isa.as_ref()).unwrap();
-            cranelift_codegen::verify_function(&program.callee, isa.as_ref()).unwrap();
-            plan.verify_program_for(&program, config, convention, layout)
-                .unwrap();
-            assert!(plan
-                .verify_program_for(&program, config, convention, FrameLayout::Tagged)
-                .is_err());
-            let mut tested = 0;
-            for (callee, original) in [(false, &program.entry), (true, &program.callee)] {
-                for block in original.layout.blocks() {
-                    for inst in original.layout.block_insts(block) {
-                        let mut changed = Program {
-                            entry: program.entry.clone(),
-                            callee: program.callee.clone(),
-                        };
-                        let function = if callee {
-                            &mut changed.callee
-                        } else {
-                            &mut changed.entry
-                        };
-                        let mutated = match &mut function.dfg.insts[inst] {
-                            InstructionData::UnaryImm { imm, .. } => {
-                                *imm = (i64::from(*imm) ^ 1).into();
-                                true
-                            }
-                            InstructionData::Load { offset, .. }
-                            | InstructionData::Store { offset, .. } => {
-                                *offset = (i32::from(*offset) + 1).into();
-                                true
-                            }
-                            InstructionData::Brif { blocks, .. } => {
-                                blocks.swap(0, 1);
-                                true
-                            }
-                            _ => false,
-                        };
-                        if mutated {
-                            tested += 1;
-                            assert!(plan
-                                .verify_program_for(&changed, config, convention, layout)
-                                .is_err());
-                        }
-                    }
-                }
-            }
-            assert!(tested >= 30);
-            let mut changed = Program {
-                entry: program.entry.clone(),
-                callee: program.callee.clone(),
-            };
-            changed.callee.signature.params[2].value_type = cranelift_codegen::ir::types::I64;
-            assert!(plan
-                .verify_program_for(&changed, config, convention, layout)
                 .is_err());
         });
     }

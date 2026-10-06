@@ -2,7 +2,7 @@ use super::*;
 use crate::jit::{
     backend::{
         self,
-        calls::{compile, FrameLayout, LinkFault},
+        calls::{compile, LinkFault},
     },
     calls::Plan,
     ir::Snapshot,
@@ -13,14 +13,14 @@ use crate::{thread::activation::with_test_thread, Closure, Fuel, JitConfig, Lua}
 
 const ADD: &[u8] = b"local n=7 local function f(v) n=n+v end f(2) return n";
 
-fn fixture(source: &[u8], test: impl FnMut(&mut Lua, crate::StashedClosure, Site, CallCode)) {
+fn fixture(source: &[u8], test: impl FnOnce(&mut Lua, crate::StashedClosure, Site, CallCode)) {
     fixture_hooks(source, Hooks { enter, leave }, test);
 }
 
 fn fixture_hooks(
     source: &[u8],
     hooks: Hooks,
-    test: impl FnMut(&mut Lua, crate::StashedClosure, Site, CallCode),
+    test: impl FnOnce(&mut Lua, crate::StashedClosure, Site, CallCode),
 ) {
     fixture_return_count(source, hooks, None, test);
 }
@@ -29,7 +29,7 @@ fn fixture_return_count(
     source: &[u8],
     hooks: Hooks,
     returns: Option<u8>,
-    test: impl FnMut(&mut Lua, crate::StashedClosure, Site, CallCode),
+    test: impl FnOnce(&mut Lua, crate::StashedClosure, Site, CallCode),
 ) {
     fixture_layout(source, hooks, returns, None, test);
 }
@@ -39,19 +39,6 @@ fn fixture_layout(
     hooks: Hooks,
     returns: Option<u8>,
     registers: Option<u16>,
-    mut test: impl FnMut(&mut Lua, crate::StashedClosure, Site, CallCode),
-) {
-    for layout in [FrameLayout::Tagged, FrameLayout::Numeric] {
-        fixture_layout_for(source, hooks, returns, registers, layout, &mut test);
-    }
-}
-
-fn fixture_layout_for(
-    source: &[u8],
-    hooks: Hooks,
-    returns: Option<u8>,
-    registers: Option<u16>,
-    layout: FrameLayout,
     test: impl FnOnce(&mut Lua, crate::StashedClosure, Site, CallCode),
 ) {
     let mut lua = Lua::empty();
@@ -121,11 +108,7 @@ fn fixture_layout_for(
         },
     };
     let root = Ledger::new(8 * 1024 * 1024);
-    let compiler = match layout {
-        FrameLayout::Tagged => compile,
-        FrameLayout::Numeric => backend::calls::compile_numeric,
-    };
-    let code = compiler(
+    let code = compile(
         &plan,
         hooks,
         MappingCounter::new(Ledger::child(2 * 1024 * 1024, root.clone())),
@@ -380,11 +363,7 @@ fn native_budget_declines_keep_the_callee_frame_for_interpreter_resume() {
                     position(host, ctx, site.pc);
                     let before = stats(ctx);
                     let mut scratch = [MaybeUninit::uninit(); 256];
-                    let payload = match code.layout {
-                        FrameLayout::Tagged => Scratch::Tagged(&mut scratch),
-                        FrameLayout::Numeric => Scratch::Numeric(abi::Numeric::default()),
-                    };
-                    let mut session = Session::with_scratch(ctx, host, &site, payload);
+                    let mut session = Session::new(ctx, host, &site, &mut scratch);
                     assert!(session.preflight(64));
                     let returned =
                         unsafe { code.invoke(std::ptr::addr_of_mut!(session).cast(), budget) };
