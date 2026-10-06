@@ -863,11 +863,17 @@ Do not treat this tier's correctness tests as release or performance acceptance.
 
 `make jit-chain` tests a source-bound direct-native caller-continuation prototype
 that avoids VM reentry for admitted caller prefixes while retaining physical
-Call/Return. It checks exact scalar/frame/fuel/dispatch traces, GC, callback
-release, hook/Off refusal and lease cleanup on caught native panic. The driver
-is test-only: unsupported prefixes report explicit partial progress, and their
-interpreter resume path is not implemented. Production dispatch is unchanged;
-these tests establish neither a production fix nor a measured speedup.
+Call/Return. Unsupported prefixes now resume through the shared VM slice without
+replaying effects or retrying the first native attempt. Cold code, hooks and Off
+use canonical activation fallback. Tests compare full statistics for cold,
+unsupported, guard-error and helper-decline paths, alongside exact frame, fuel
+and dispatch traces. Resume tokens bind runtime, source, closure, thread/frame,
+PC and remaining budget; retired or Off code cannot regain native authority.
+The suite also covers GC, callback release, caught-panic lease cleanup and
+stale pair selection after fuel-limited canonical execution. The driver remains
+test-only. The VM entry uses a shared slice implementation, but production
+execution is not routed through the new driver. These tests establish neither
+a production regression fix nor a measured speedup.
 
 A unified VM execution counter (`f862a4e`) passed correctness, Miri and native
 memory checks but was reverted in `d8e2ef5` after two complete comparisons.

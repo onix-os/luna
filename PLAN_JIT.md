@@ -11,6 +11,40 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Shared native-prefix resume and driver fallback — 2026-10-06
+
+`20d1399` introduces a shared VM-slice continuation entry. The ordinary VM and
+test-only native resume use one interpreter implementation, not a second loop.
+`75a922d` binds tokens to the exact runtime, registered source, closure,
+thread/frame and PC. Tokens cannot be reused or resume with an exhausted
+budget. `7fe44d5` verifies that retired mappings and mode changes to Off retain
+correct interpreted continuation without executing more native instructions.
+
+`ed608bb` connects the test-only direct caller driver to unsupported-prefix tokens in
+the same original slice. It does not retry the failed first native attempt or
+replay completed writes. Whole-slice instruction fuel is charged only on
+success; errors retain the original step charge. Cold code, hook suppression
+and Off use canonical activation fallback instead of reporting a pause.
+Installation preflight avoids duplicate failed lookups on the cold path.
+
+A new exact-trace fixture reproduced stale pair selection after an earlier
+fuel-limited canonical activation: resume returned before its physical Call,
+omitting the callee frame and undercharging fuel. Resume now disables inherited
+handoff selection. The failed reproducer and corrected checks remain in
+`target/jit-evidence/short-slice-performance/native-chain-resume*`.
+
+The current chain suite passes fifteen tests on GNU and fifteen on musl.
+Fifteen additional native Memcheck executions pass with zero errors and no
+definite/indirect losses; the existing 48-byte possible test-harness TLS loss
+remains unsuppressed. Integrated unsupported,
+guard-error and helper-decline fixtures compare complete statistics and
+canonical traces; helper effects and Rust callbacks execute exactly once.
+Cold comparisons cover budgets 0/1/8/64 and limits 1/2/8 without weakening
+lookup diagnostics. The driver remains test-only: promotion, full validation
+and unchanged speed/shipping comparisons are still required. No measured
+speedup or original performance acceptance is claimed. The older prototype
+snapshot below describes its earlier, non-resuming revision.
+
 #### Test-only direct native caller continuations — 2026-10-06
 
 `602881d` introduces `src/jit/chains.rs`, a test-only driver that executes
