@@ -196,7 +196,7 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
     }
 }
 
-unsafe extern "C" fn call<const KIND: u32>(
+pub(super) unsafe extern "C" fn call<const KIND: u32>(
     host: *mut abi::Host,
     slots: *mut Slot,
     a: u32,

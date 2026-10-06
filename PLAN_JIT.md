@@ -11,6 +11,34 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Scoped helper borrowing prerequisite — 2026-10-06
+
+Eight fresh, source-verified speed/symbol profiles of `9ccfb43` retain Auto
+upvalue **147,697,530** and callback **50,704,215** instructions. Ordinary
+caller invocation still collects **16,494,304/7,576,620** instructions; canonical
+leave remains **19,705,680** for upvalues. Decoder inlining did not remove these
+costs. Raw profiles, source archives and verified manifests are retained as
+`native-decoder-activation-profile-v1`. These are diagnostics, not timing gates.
+
+The next structural prerequisite is **test-only** scoped helper borrowing.
+The existing helper frame holds mutable canonical registers across a generated
+invocation; it cannot remain live across a physical Call that resizes the stack.
+`scoped_helpers` instead holds the activation host and creates each register view
+only for a helper invocation. Distinct linked symbols reuse all nine existing
+helper implementations, including decline-PC restoration and panic transport.
+Its code wrapper binds the source closure and runtime ledger; entry rejects
+wrong source/owner, Off, hooks, invalid tags and wrong scratch width. Symbol
+storage is charged using the actual selected names.
+
+Generated tests execute all nine gateways, preserve final values/frame/fuel,
+and cross physical Call/Return with proven stack growth to a 256-register child
+using one outer host. Other fixtures cover a generated helper decline followed
+by the exact canonical error and pending scalar materialization on panic.
+This is a prerequisite for connected native caller/callee regions, **not** a
+new production scheduler or measured speedup. No production route selects the
+new symbols. Miri coverage for the new borrow boundary and native-region
+integration remain required before considering production promotion.
+
 #### Resident failed-Return recovery — 2026-10-06
 
 A new generated-prefix/generated-callee regression reproduces a resume assertion

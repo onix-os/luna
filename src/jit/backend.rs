@@ -437,6 +437,8 @@ pub(super) fn compile_in(
         work,
         Selection {
             projected: false,
+            #[cfg(all(test, not(miri)))]
+            scoped_helpers: false,
             #[cfg(test)]
             leaf: false,
             #[cfg(test)]
@@ -466,6 +468,8 @@ pub(super) fn compile_projected_in(
         work,
         Selection {
             projected: true,
+            #[cfg(not(miri))]
+            scoped_helpers: false,
             leaf: false,
             cell_kernel: false,
             integer_activation: false,
@@ -491,6 +495,8 @@ pub(super) fn compile_leaf_in(
         work,
         Selection {
             projected: false,
+            #[cfg(not(miri))]
+            scoped_helpers: false,
             leaf: true,
             cell_kernel: false,
             integer_activation: false,
@@ -516,6 +522,7 @@ pub(super) fn compile_leaf_kernel_in(
         work,
         Selection {
             projected: false,
+            scoped_helpers: false,
             leaf: true,
             cell_kernel: true,
             integer_activation: false,
@@ -587,6 +594,7 @@ fn compile_leaf_pair_selected(
             remaining,
             Selection {
                 projected: false,
+                scoped_helpers: false,
                 leaf: true,
                 cell_kernel: true,
                 integer_activation: true,
@@ -616,6 +624,8 @@ fn compile_leaf_pair_selected(
 
 struct Selection {
     projected: bool,
+    #[cfg(all(test, not(miri)))]
+    scoped_helpers: bool,
     #[cfg(test)]
     leaf: bool,
     #[cfg(test)]
@@ -624,6 +634,31 @@ struct Selection {
     integer_activation: bool,
     #[cfg(test)]
     failure: Failure,
+}
+
+#[cfg(all(test, not(miri)))]
+pub(super) fn compile_scoped_in(
+    snapshot: &Snapshot,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    work: super::work::Limits,
+) -> Result<Code, JitError> {
+    compile_selected(
+        snapshot,
+        total,
+        limit,
+        metadata,
+        work,
+        Selection {
+            projected: false,
+            scoped_helpers: true,
+            leaf: false,
+            cell_kernel: false,
+            integer_activation: false,
+            failure: Failure::None,
+        },
+    )
 }
 
 fn compile_selected(
@@ -697,7 +732,14 @@ fn compile_selected(
             "injected provider setup probe".into(),
         ));
     }
-    let symbol_bytes = symbol_storage_bytes(helpers::SYMBOLS.map(|(_, name, _)| name.len()))?;
+    let helper_symbols = helpers::SYMBOLS;
+    #[cfg(all(test, not(miri)))]
+    let helper_symbols = if selection.scoped_helpers {
+        super::scoped_helpers::SYMBOLS
+    } else {
+        helper_symbols
+    };
+    let symbol_bytes = symbol_storage_bytes(helper_symbols.map(|(_, name, _)| name.len()))?;
     #[cfg(test)]
     if failure == Failure::RefuseSymbols {
         let ledger = &snapshot.operations.allocator().0;
@@ -714,7 +756,7 @@ fn compile_selected(
     #[cfg(not(test))]
     let native_isa = cranelift_native::builder();
     let mut jit = native_builder(native_isa)?;
-    for (_, name, entry) in helpers::SYMBOLS {
+    for (_, name, entry) in helper_symbols {
         jit.symbol(owned_symbol(name)?, entry as *const u8);
     }
     jit.memory_provider(provider);
@@ -784,7 +826,7 @@ fn compile_selected(
     fill_signature(&mut helper_signature.params, helper_types)?;
     fill_signature(&mut helper_signature.returns, helper_returns)?;
     let helper_ids = super::arrays::try_array::<_, _, { helpers::SYMBOLS.len() }>(|index| {
-        let (kind, name, _) = helpers::SYMBOLS[index];
+        let (kind, name, _) = helper_symbols[index];
         module
             .declare_function(name, Linkage::Import, &helper_signature)
             .map(|id| (kind, id))
