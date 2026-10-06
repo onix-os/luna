@@ -11,6 +11,59 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Test-only direct native caller continuations — 2026-10-06
+
+`602881d` introduces `src/jit/chains.rs`, a test-only driver that executes
+admitted ordinary native caller prefixes directly instead of reentering the
+interpreter VM for each prefix. It resolves the current closure's weak source
+identity, leases currently installed ordinary code, and selects source-bound
+paired Calls through the existing cache/preflight. Real physical Call/Return,
+fresh capture projection, native helpers and original per-slice fuel/dispatch
+publication remain in use. This differs from the rejected Session reuse, which
+still executed every caller prefix through `run_vm`.
+
+`3452fe2` adds boundary tests. `f570425` makes the driver stateless and keeps
+pair leases lexical to each `run`, so both ordinary return and unwinding drop
+them before callbacks, collection or later arena entries. Its new native-panic
+test fails a helper after a completed cached pair, catches the transported
+panic, checks that the Program's exact baseline strong-owner count is restored,
+and successfully reuses the driver. This fixes prototype lease retention on a
+caught unwind, not the production performance regression.
+
+`make jit-chain` runs seven native tests. They compare Off physical-frame,
+scalar-slot, open-upvalue, fuel, dispatch and instruction traces at budgets
+4/8/64 and activation limits 1/2/3/8/16, require real native/paired work, and
+cover fuel -1/0/1/8/13/64. Thirty-two collection boundaries preserve live captures
+and a checked final result of 50005000. A callback test schedules but does not
+execute Rust while host borrows live, then completes all 5000 checked callbacks
+through the normal executor. Hooks and Off decline before native work.
+
+Final revision `f570425` passes 52 focused GNU/musl executions in five suites,
+including all seven chain tests on each target, plus seven native Memcheck
+executions with zero errors and no definite/indirect leaks. The existing
+48-byte possible test-harness TLS loss remains recorded without suppression.
+A fresh full GNU Auto, musl Auto and feature-disabled baseline run passes
+2,694 executions in 240 suites with ten repeated/preexisting ignores and
+zero failures. Earlier six-test/full runs remain separately revision-scoped;
+none of these correctness results is timing acceptance.
+
+**Promotion is not complete.** An unsupported prefix returns explicit partial
+progress: canonical effects and native counts are materialized, but fuel is not
+yet charged and the unsupported opcode remains pending. The regression test
+checks this state; it does not implement interpreter continuation. Production
+needs an exact resume path that neither replays completed effects nor retries a
+failed first native attempt, preserves original remaining budget and terminal
+instruction accounting, and charges fuel only at the original successful slice
+boundary. Unavailable/guard/error and actor boundaries must also be verified
+before routing real execution through this driver.
+
+The driver and transition adapter are excluded from library builds. Existing
+production VM, native invocation, pair selection and generated code are
+unchanged. No frozen benchmark, threshold or coverage assertion is altered.
+No performance gain or original acceptance is claimed. Prototype, failed
+fixture invocations and revision-scoped validation remain under
+`target/jit-evidence/short-slice-performance/native-chain*`.
+
 #### Rejected unified slice execution counter — 2026-10-06
 
 `f862a4e` combined the VM's completed-instruction and interpreter-dispatch

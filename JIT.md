@@ -861,6 +861,14 @@ paired trials and profile-driven scratch/Call-probe corrections are recorded
 in `PLAN_JIT.md`; upvalue, callback and compiled-Off regressions remain open.
 Do not treat this tier's correctness tests as release or performance acceptance.
 
+`make jit-chain` tests a source-bound direct-native caller-continuation prototype
+that avoids VM reentry for admitted caller prefixes while retaining physical
+Call/Return. It checks exact scalar/frame/fuel/dispatch traces, GC, callback
+release, hook/Off refusal and lease cleanup on caught native panic. The driver
+is test-only: unsupported prefixes report explicit partial progress, and their
+interpreter resume path is not implemented. Production dispatch is unchanged;
+these tests establish neither a production fix nor a measured speedup.
+
 A unified VM execution counter (`f862a4e`) passed correctness, Miri and native
 memory checks but was reverted in `d8e2ef5` after two complete comparisons.
 Shipping Off upvalues/callbacks slowed about ten percent against the previous
