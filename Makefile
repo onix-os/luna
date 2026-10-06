@@ -35,6 +35,7 @@ COST_ITERATIONS ?= 20
 COST_STRIP ?= true
 PROFILE_CASE ?= float_loop
 PROFILE_MODE ?= off
+BENCH_PROFILE_DIR ?= target/jit-evidence/bench-profile/$(PROFILE_CASE)/$(PROFILE_MODE)
 COST_DIR := target/jit-evidence/feature-cost/$(SIZE_PROFILE)$(if $(TARGET),-$(TARGET),)$(if $(filter false,$(COST_STRIP)),-symbols,)
 COST_PROFILE_DIR := $(COST_DIR)/callgrind/$(PROFILE_CASE)/$(PROFILE_MODE)
 COST_RELEASE_DIR := target/$(if $(TARGET),$(TARGET)/,)release/examples
@@ -145,6 +146,22 @@ jit-bench-run:
 
 jit-bench: jit-bench-build
 	@$(MAKE) --no-print-directory jit-bench-run
+
+.PHONY: jit-bench-profile-run
+jit-bench-profile-run:
+	@case '$(PROFILE_CASE)' in integer_loop|float_loop|array_table|closure_upvalue|polymorphic_metamethod|rust_callbacks|allocation_gc|oslo_predicate) ;; *) echo 'Unknown warm benchmark case' >&2; exit 2;; esac
+	@case '$(PROFILE_MODE)' in off|auto) ;; *) echo 'PROFILE_MODE must be off|auto' >&2; exit 2;; esac
+	@test -x '$(JIT_BENCH_BINARY)'
+	@mkdir -p '$(BENCH_PROFILE_DIR)'
+	@{ rustc -vV; $(CARGO) --version; uname -sm; } > '$(BENCH_PROFILE_DIR)/environment.log'
+	@sha256sum '$(JIT_BENCH_BINARY)' > '$(BENCH_PROFILE_DIR)/binary-sha256.log'
+	@valgrind --version > '$(BENCH_PROFILE_DIR)/profiler.log'
+	@printf 'case=%s\nmode=%s\nsamples=11\nwarmups=2\ncollection=*Executor>::step\n' '$(PROFILE_CASE)' '$(PROFILE_MODE)' >> '$(BENCH_PROFILE_DIR)/profiler.log'
+	@valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*Executor>::step' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file='$(BENCH_PROFILE_DIR)/profile.callgrind' '$(JIT_BENCH_BINARY)' --mode '$(PROFILE_MODE)' --case '$(PROFILE_CASE)' --samples 11 > '$(BENCH_PROFILE_DIR)/run.log' 2>&1
+	@grep -Eq '^summary: [1-9][0-9]*' '$(BENCH_PROFILE_DIR)/profile.callgrind'
+	@grep -Eq '^case=$(PROFILE_CASE) mode=$(PROFILE_MODE) samples=11 ' '$(BENCH_PROFILE_DIR)/run.log'
+	@callgrind_annotate --inclusive=no --threshold=99 '$(BENCH_PROFILE_DIR)/profile.callgrind' > '$(BENCH_PROFILE_DIR)/annotation.log'
+	@sha256sum --check '$(BENCH_PROFILE_DIR)/binary-sha256.log'
 
 jit-metrics-build:
 	@mkdir -p target/jit-evidence/metrics
@@ -1117,6 +1134,7 @@ help:
 	@echo "  jit-bench    Measure checked workloads (ARGS='--mode off --samples 11')"
 	@echo "  jit-bench-build Build the benchmark without timing"
 	@echo "  jit-bench-run Time an existing artifact (JIT_BENCH_BINARY=path)"
+	@echo "  jit-bench-profile-run Profile a frozen warm benchmark (PROFILE_CASE=... PROFILE_MODE=off|auto)"
 	@echo "  jit-metrics  Observe cold compilation, coverage and host slice costs"
 	@echo "  jit-metrics-build Build the separate scheduling metrics artifact"
 	@echo "  jit-metrics-run Measure an existing artifact (JIT_METRICS_BINARY=path)"
