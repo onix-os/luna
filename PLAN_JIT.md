@@ -11,6 +11,103 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Rejected paired-session reuse and isolated entry — 2026-10-06
+
+Both revisions below have been reverted. Runtime sources exactly match the
+previous paired-cache implementation; `native_pair_batches` is not part of the
+restored API. The added owner/capture/costly-prefix continuation regression test
+remains, with original frozen-corpus assertions unchanged.
+
+`06040e9` keeps one canonical Session and scratch allocation across consecutive
+same-program paired Calls inside the existing activation host. Caller prefixes
+still execute through the unchanged VM; each repeat selects a current cache
+owner, requires exact Program pointer identity, reruns the full source/capture/
+argument/fuel preflight, performs physical Call/Return and rebuilds scoped
+register views. Native code, source admission and mapping/linking are unchanged.
+Counters publish per pair before caller continuation, not only at batch exit.
+
+Different-program and declined handoffs preserve the selected lease and caller
+prefix for the outer host. Already-dispatched prefixes are neither repeated nor
+charged twice. A pending Call finishes its already-started caller activation
+even if prefix operations exhausted fuel; reserved activation slots still bound
+the batch. Callbacks are scheduled but do not run while Session/host borrows live.
+`native_pair_batches` counts invocations consuming more than one paired Call;
+it is zero Off and stops increasing after switching Auto to Off.
+
+GNU Off/Auto/Force and musl Auto pass 4,640 executions across 324 suites, zero
+failures and sixteen repeated existing ignores. Nine public runtime tests
+retain exact Off fuel/dispatch traces, including actual frozen-corpus batches,
+owner switches, an integer capture becoming a float and allocation-heavy
+prefixes across seven fuel budgets and cold/prepared states. Eighteen canonical,
+twenty-six pair and eleven activation tests pass. Native Memcheck passes all
+nine public tests with zero errors and no definite/indirect leaks.
+
+Speed/symbol instruction totals against the previous paired-cache candidate:
+
+| Instructions | Previous paired cache | Reused Session |
+| --- | ---: | ---: |
+| Upvalue Off | 101,779,863 | 101,877,588 |
+| Upvalue Auto | 151,972,649 | 150,428,569 |
+| Callback Off | 45,316,930 | 45,390,695 |
+| Callback Auto | 54,760,685 | 55,284,459 |
+
+Upvalue native coverage remains 298,428 bytecodes in the representative profile.
+Two complete unchanged comparisons against the original baseline and previous
+paired-cache implementation each executed 24 blocks/144 commands, both profiles,
+all nine workloads, three windows, eleven paired samples and twelve cost batches
+per profile, with verified hashes and external contention. Each has 96 failed
+command gates and 48 successes; driver zero is not performance acceptance.
+
+Against the previous paired cache, initial Session reuse gives speed Auto
+upvalue 1.024181x and callbacks 1.011991x. Shipping Auto is 1.001498x for upvalues
+and 0.976237x for callbacks; shipping Off is 0.889857x and 0.970099x respectively.
+The approximately 12.4 percent upvalue Off slowdown is unacceptable. Those
+initial sources and binaries remain archived as `pair-batch-*`.
+
+Revision `6da1992` isolates host construction and dispatch behind one non-inlined
+`run_scoped` entry, keeping the stack guard inside the activation function and
+releasing it before returning the same outcome. It targets common executor
+stack/code-size contamination without changing physical frames, source/capture
+guards, stats or fuel. Full GNU Off/Auto/Force and musl Auto again pass 4,640
+executions, 324 suites, sixteen repeated existing ignores and zero failures.
+Its source-stable speed/symbol profiles have upvalue Off/Auto instruction totals
+102,277,038/150,390,465 and callback totals 45,640,405/56,359,334. Instruction
+counts and branch-miss counts change, but do not establish elapsed-time benefit.
+The isolated revision's two full comparisons also completed 24 blocks/144
+commands each under the unchanged protocol. Each records 96 failed command
+gates and 48 successes, with artifacts/source archives verified and contention
+retained. Direct previous/isolated elapsed-time ratios are:
+
+| Previous paired cache / isolated revision | Speed | Shipping |
+| --- | ---: | ---: |
+| Upvalue Auto | 1.002014 | 1.008536 |
+| Upvalue Off | 0.984911 | 0.928952 |
+| Callback Auto | 0.988260 | 0.972687 |
+| Callback Off | 1.031442 | 0.915312 |
+
+Shipping Off upvalues are approximately 7.6 percent slower; native callbacks
+are approximately 2.8 percent slower, and callback Off about 9.3 percent slower.
+Shipping upvalue Auto gains less than one percent. Higher Off/Auto ratios can
+come from slower Off, so they must not be presented as native acceleration.
+Against the original baseline, isolated speed native upvalue/callback ratios
+are 0.59550/0.72540; compiled-Off/no-feature ratios are 1.09390/1.07305.
+Shipping ratios are 0.53640/0.75190 and 1.06610/1.01585 respectively. Original
+upvalue, callback and compiled-Off acceptance remains unresolved.
+
+Both complete source variants, immutable binaries, four full comparisons and
+summaries are retained under `pair-batch-*` and `pair-batch-isolated-*`.
+Restored GNU formatting/checks, nine public runtime, eighteen canonical,
+twenty-six pair and eleven activation tests pass again. Source hashes match the
+previous verified paired-cache artifacts. The new continuation fixture covers
+three scenarios across seven fuel budgets and cold/prepared states, including
+actual native paired execution; only experiment-specific batching assertions
+were removed with the rejected feature. No frozen assertion was weakened.
+Rollback `14224f1` also passes restored musl public/canonical/pair checks and
+native Memcheck on all nine public tests, with zero errors and no definite or
+indirect leaks. No benchmarking or validation process remains running.
+Evidence is retained under
+`target/jit-evidence/short-slice-performance/pair-batch-*`.
+
 #### Rejected slice-policy snapshot and ordinary lease cache — 2026-10-06
 
 The candidate `859103e` reads Auto mode and paired-program availability under one short

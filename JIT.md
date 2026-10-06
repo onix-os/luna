@@ -1,6 +1,12 @@
 # Native JIT: experimental scalar and heap tier
 
 Current production Auto includes scoped paired-code execution and lease reuse.
+The same-program Session reuse (`06040e9`) and isolated activation-entry
+revision (`6da1992`) passed correctness checks but failed full paired performance
+comparisons. Both were reverted; new owner/capture/costly-prefix continuation
+tests remain. Four complete 24-block comparisons and rejected artifacts are
+retained. Neither implementation nor its temporary batching telemetry remains
+in production.
 The slice-policy snapshot (`859103e`) passed 4,640 correctness executions and
 native Memcheck, but its full comparisons showed shipping slowdowns despite
 lower instruction counts. It was reverted, as was the slower ordinary-code
