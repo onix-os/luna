@@ -330,6 +330,10 @@ jit-native-region:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::native_region::tests $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical::tests::native_region_ $(ARGS)
 
+.PHONY: jit-native-region-cost
+jit-native-region-cost:
+	@CARGO_PROFILE_RELEASE_OPT_LEVEL=$(JIT_BENCH_OPT) $(CARGO) test --locked --release -p luna --features jit --lib $(TARGET_ARG) jit::native_region::tests::cost::paired_region_cost -- --ignored --exact --nocapture --test-threads=1
+
 .PHONY: jit-scoped-helpers-miri
 jit-scoped-helpers-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::scoped_helpers::tests -- --test-threads=1

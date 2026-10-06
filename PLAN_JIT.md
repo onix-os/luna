@@ -80,6 +80,32 @@ Once-per-region admission and production integration are not implemented here.
 All original performance, compiled-Off, resource-policy and release gates remain
 open; green prototype tests do not replace those gates.
 
+`make jit-native-region-cost` adds an explicitly ignored release diagnostic for
+the exact shared `closure_upvalue` workload. It rotates Off/ordinary Auto/region
+order, excludes compilation and initial closure setup, validates the complete
+final VM trace and fuel/work totals, and emits every timing sample with native
+coverage, lookups and leases. Each region iteration must execute 10,000 pairs,
+10,001 caller fragments and no admission fallback. Samples and iteration counts
+are configurable through bounded `LUNA_REGION_SAMPLES`/`LUNA_REGION_ITERATIONS`.
+This measures the isolated activation host under `cfg(test)`; it is not the
+production Executor harness, compiled-Off baseline, or an acceptance gate.
+
+The initial speed-profile run (21 samples, eight iterations each) reports
+region/Auto time **0.819289** and region/Off **1.805744**. Three further runs
+(31 samples, sixteen iterations) report **0.810575/0.810989/0.811697** versus Auto
+and **1.800214/1.800923/1.802219** versus Off. Native instructions and helper work
+match Auto. The reduction in caller lookup/lease overhead is measurable, but
+the region remains slower than Off and must not be promoted as a solved
+regression. Raw samples, source hashes, environment observations and the speed
+test binary are retained as `native-region-cost-*` in short-slice evidence.
+Three shipping-profile (`opt-level=s`) repeats, each 31 samples of sixteen
+iterations, report region/Auto **0.900695/0.900525/0.901399** and region/Off
+**1.877764/1.882828/1.881338**. The shipping test binary is separately archived
+and hashed. Thus the diagnostic improves on Auto in both build profiles but
+still fails the fundamental faster-than-Off requirement. The next optimization
+must target remaining host/admission/materialization costs without reducing
+generated coverage or treating these diagnostic ratios as production acceptance.
+
 #### Scoped helper borrowing prerequisite — 2026-10-06
 
 Eight fresh, source-verified speed/symbol profiles of `9ccfb43` retain Auto

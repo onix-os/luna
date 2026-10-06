@@ -1,4 +1,6 @@
 use super::*;
+
+mod cost;
 use crate::{
     opcode::Operation, thread::activation::with_test_thread, Fuel, JitConfig, JitMode, Lua, Value,
 };
