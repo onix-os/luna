@@ -11,6 +11,38 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Current activation profile and cold-diagnostic candidate — 2026-10-06
+
+Fresh source/archive `09543dd` profiles, under
+`native-activation-isolated-profile-v1`, complete eight Callgrind runs with
+verified source/binary hashes: upvalues/callbacks, Off/Auto, matching
+feature-disabled controls, speed optimization with symbols retained. Collected
+Off instructions remain exactly equal to the earlier thin build: upvalues
+101,779,863 versus no-feature 91,575,447; callbacks 45,316,930 versus 42,538,855.
+Thus the shipping timing improvement from production isolation is not evidence
+of fewer executed interpreter instructions. Auto collects 151,972,649 upvalue
+and 54,760,685 callback instructions; neither is performance acceptance.
+
+Current upvalue Auto exclusive costs remain canonical leave 19,705,680 (12.97%),
+ordinary eight-slot invocation 16,494,304 (10.85%), enter register preparation
+9,244,640 (6.08%), call preparation 7,366,763 (4.85%) and canonical enter
+7,347,056 (4.83%). Callback seven-slot invocation collects 7,576,620 (13.84%).
+Simulated branch/cache events and diagnostic worker elapsed times are not
+hardware or release certification. Prior rejected writeback, prototype-binding
+and Session-reuse experiments are not repeated.
+
+The exact current canonical-leave assembly constructs successful-path assertion
+diagnostic tuples on the stack. A new bounded candidate retains every PC/start,
+call/return-count comparison, but constructs the same assertion tuple only in
+a cold non-inlined mismatch helper. All remaining frame, source, owner, scalar
+tag, exit and materialization guards stay unchanged. The existing malformed
+leave differential fixture now covers all four comparisons and verifies no
+materialization, physical Return, state/statistics or fuel changes on failure.
+GNU/musl focused checks pass 122 executions in eleven suites, zero failures or
+ignores and no Rust warnings. A wrong Make target invocation is retained; the
+correct target is `jit-call-canonical`. Instruction evidence and full unchanged
+timing/semantic acceptance are required before retaining this new candidate.
+
 #### Production isolation candidate — 2026-10-06
 
 `NativeResume`, the optional shared-VM resume parameter, its validation and

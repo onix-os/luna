@@ -143,6 +143,12 @@ struct Session<'gc, 'host, 'borrow> {
     prefix: u32,
 }
 
+#[cold]
+#[inline(never)]
+fn assert_leave_transition(actual: (u64, u32, usize, usize), start: u32) {
+    assert_eq!(actual, (3, start, 1, 0));
+}
+
 impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
     fn new(
         ctx: Context<'gc>,
@@ -345,10 +351,13 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
 
     fn leave(&mut self, frame: *mut NativeFrame, pc: u64, start: u32) -> u32 {
         assert_eq!(frame, std::ptr::addr_of_mut!(self.frame));
-        assert_eq!(
-            (pc, start, self.calls, self.returns),
-            (3, u32::from(self.site.start.0), 1, 0)
-        );
+        if pc != 3 || start != u32::from(self.site.start.0) || self.calls != 1 || self.returns != 0
+        {
+            assert_leave_transition(
+                (pc, start, self.calls, self.returns),
+                self.site.start.0.into(),
+            );
+        }
         let (upper, index) = self.target.unwrap();
         let cell = if upper {
             std::ptr::addr_of_mut!(self.cell)

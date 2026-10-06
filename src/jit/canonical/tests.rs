@@ -722,34 +722,40 @@ fn host_releases_before_collection_callbacks_and_nested_executor_steps() {
 
 #[test]
 fn mismatched_leave_is_caught_before_canonical_return_or_materialization() {
-    fixture(ADD, |lua, closure, site, _code| {
-        lua.enter(|ctx| {
-            with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
-                position(host, ctx, site.pc);
-                let mut scratch = [MaybeUninit::uninit(); 256];
-                let mut session = Session::new(ctx, host, &site, &mut scratch);
-                assert!(session.preflight(64));
-                let data = std::ptr::addr_of_mut!(session).cast();
-                let frame = unsafe {
-                    enter(
-                        data,
-                        site.pc as u64,
-                        u32::from(site.function.0),
-                        u32::from(site.arguments),
-                    )
-                };
-                assert!(!frame.is_null());
-                let original = trace(ctx, session.host, stats(ctx));
-                assert_eq!(
-                    unsafe { leave(data, frame, 999, u32::from(site.start.0)) },
-                    0
-                );
-                assert!(session.panic.is_some());
-                assert_eq!(session.returns, 0);
-                assert_eq!(trace(ctx, session.host, stats(ctx)), original);
+    for (pc, start_offset, calls, returns) in
+        [(999, 0, 1, 0), (3, 1, 1, 0), (3, 0, 0, 0), (3, 0, 1, 1)]
+    {
+        fixture(ADD, |lua, closure, site, _code| {
+            lua.enter(|ctx| {
+                with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                    position(host, ctx, site.pc);
+                    let mut scratch = [MaybeUninit::uninit(); 256];
+                    let mut session = Session::new(ctx, host, &site, &mut scratch);
+                    assert!(session.preflight(64));
+                    let data = std::ptr::addr_of_mut!(session).cast();
+                    let frame = unsafe {
+                        enter(
+                            data,
+                            site.pc as u64,
+                            u32::from(site.function.0),
+                            u32::from(site.arguments),
+                        )
+                    };
+                    assert!(!frame.is_null());
+                    session.calls = calls;
+                    session.returns = returns;
+                    let original = trace(ctx, session.host, stats(ctx));
+                    assert_eq!(
+                        unsafe { leave(data, frame, pc, u32::from(site.start.0) + start_offset) },
+                        0
+                    );
+                    assert!(session.panic.is_some());
+                    assert_eq!(session.returns, returns);
+                    assert_eq!(trace(ctx, session.host, stats(ctx)), original);
+                });
             });
         });
-    });
+    }
 }
 
 #[test]
