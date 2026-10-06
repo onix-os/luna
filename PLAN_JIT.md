@@ -192,6 +192,63 @@ The complete GNU Auto workspace/all-target run for this candidate passes
 the two explicit diagnostics), and no Rust warnings. This is one mode/target,
 not a new complete platform matrix. The profile source manifest still matches.
 
+#### Selective post-Return refresh rejected — 2026-10-06
+
+Two test-only candidates retained full pre-Call materialization but refreshed
+only the successful leaf pair's argument/result tail and captured caller slot.
+The dynamic preflight produced a consumed refresh descriptor; errors, partial
+calls and mismatched widths retained full canonical recovery. Neither changed
+production selection, Session layout, physical Call/Return or generated coverage.
+The first descriptor used `usize` fields; the second used validated `u16` fields.
+
+Both are **rejected**, not a regression fix. Execution-only instruction profiles
+retain Off **51,691,809** and ordinary Auto **95,500,500** unchanged, but region
+instructions rise from baseline **74,110,893** to **74,761,485** (`v3`) and
+**75,290,253** (`v4`). Less copying did not offset added descriptor construction,
+transport and refresh branching. The smaller representation increased work.
+
+Three alternating speed/symbol comparisons, each 31 samples of sixteen
+iterations, report baseline region **14.414–14.426 ms**, `usize` candidate
+**14.646–14.717 ms**, and compact candidate **15.306–15.352 ms**. Three shipping
+comparisons report baseline **23.211–23.262 ms** versus compact candidate
+**24.189–24.286 ms**. Thus the compact change loses about 6% in speed builds and
+4% in shipping builds. The first candidate's region/Auto ratio improves only
+because its ordinary Auto control also slows; that ratio is not evidence of an
+absolute improvement. All controls and samples are retained, including layout
+and external-contention observations. No compiled-Off or production-performance
+acceptance is inferred from these isolated diagnostics.
+
+The rejected original candidate passed **1,213 GNU Auto executions in eighty
+suites**, six ignores and no failures. The compact candidate passed 58 focused
+GNU checks, 58 musl checks and 58 native Memcheck executions, with zero memory
+errors or definite/indirect losses; possible 48-byte harness TLS losses remain
+visible. Stacked seed 1 and Tree seed 2 Miri each passed nine shadow models,
+retaining 21 warnings each. These are evidence for the rejected candidates,
+not a new full-suite claim for the restored implementation.
+
+The refresh descriptor and runtime changes are removed. Three useful integrated
+differentials remain: a wide scalar/reference caller prefix, an open capture in
+an upper physical frame, and argument-tail aliases with successful and partial
+calls. The alias fixture must enter before the final argument load, not at the
+Call itself, and includes a native operation after Return; this exercises
+continuation rather than merely observing an inadmissible entry.
+
+After restoring full refresh, **56 focused GNU executions**, sixteen musl
+checks and sixteen native Memcheck executions pass. Memcheck again reports
+zero errors or definite/indirect losses, retaining the possible harness TLS
+allocation. The original 216 bounded differentials and four injected failure
+paths remain enabled; no acceptance assertion or threshold is weakened.
+The restored GNU Auto workspace/all-target gate then passes **1,211 executions
+in eighty suites**, zero failures, six ignores and no Rust warnings. This gate
+covers the retained tests and restored runtime, not the rejected descriptor.
+
+Evidence is retained under `native-region-profile-v3`, `native-region-profile-v4`
+and `native-region-refresh-*` in short-slice performance evidence: exact binary
+and source hashes, rejected patches/source archives, instruction annotations,
+raw timings, environment observations and validation logs. Continue from the
+earlier admitted-pair implementation. Full production integration and original
+performance, compiled-Off, platform/resource/release acceptance remain open.
+
 #### Scoped helper borrowing prerequisite — 2026-10-06
 
 Eight fresh, source-verified speed/symbol profiles of `9ccfb43` retain Auto
