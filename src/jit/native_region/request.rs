@@ -12,7 +12,7 @@ use crate::{
 };
 use ottavino_gc_arena::Gc;
 
-pub(in crate::jit) struct Request {
+pub(crate) struct Request {
     snapshot: Snapshot,
     source: u64,
     ordinary: Prepared,
@@ -80,7 +80,18 @@ impl Request {
                 .is_some_and(|pairs| pairs.contains(&self.pair))
     }
 
-    pub(in crate::jit) fn compile(self, runtime: &Runtime) -> Result<Region, JitError> {
+    pub(crate) fn pin_dependencies(&self) -> (Prepared, PreparedPair) {
+        (
+            Prepared {
+                code: self.ordinary.code.clone(),
+            },
+            PreparedPair {
+                program: self.pair.program.clone(),
+            },
+        )
+    }
+
+    pub(crate) fn compile(self, runtime: &Runtime) -> Result<Region, JitError> {
         if !self.admitted(&runtime.0.borrow()) {
             return Err(JitError::Compilation("stale region request".into()));
         }

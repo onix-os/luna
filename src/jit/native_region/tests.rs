@@ -3,6 +3,7 @@ use super::*;
 mod cache;
 mod cost;
 mod request;
+mod service;
 use crate::{
     opcode::Operation, thread::activation::with_test_thread, Fuel, JitConfig, JitMode, Lua, Value,
 };

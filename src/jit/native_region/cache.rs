@@ -42,6 +42,10 @@ impl Cache {
         self.entries.get(&key).map(|entry| &entry.region)
     }
 
+    pub(in crate::jit) fn contains(&self, key: Key) -> bool {
+        self.entries.contains_key(&key)
+    }
+
     fn lease(&mut self, key: Key, last_used: u64) -> Option<Shared<Region>> {
         let entry = self.entries.get_mut(&key)?;
         entry.last_used = last_used;
@@ -92,7 +96,7 @@ impl Cache {
 }
 
 impl Runtime {
-    pub(in crate::jit) fn install_region(&self, region: Region) -> Result<(), JitError> {
+    pub(crate) fn install_region(&self, region: Region) -> Result<(), JitError> {
         let mut manager = self.0.borrow_mut();
         if manager.config.mode != JitMode::Auto
             || manager.config != region.config
@@ -101,6 +105,7 @@ impl Runtime {
             return Err(JitError::Compilation("region dependency admission".into()));
         }
         let last_used = manager.clock.saturating_add(1);
+        let key = region.pair.program.key();
         manager
             .pairs
             .as_mut()
@@ -108,6 +113,11 @@ impl Runtime {
             .regions
             .insert(region, last_used)?;
         manager.clock = last_used;
+        manager.stats.installed_regions = manager.stats.installed_regions.saturating_add(1);
+        if let Some(queue) = &mut manager.pairs.as_mut().unwrap().promotions {
+            queue.cancel(key);
+        }
+        manager.stats.queued_requests = manager.queued_count();
         Ok(())
     }
 

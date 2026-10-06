@@ -17,9 +17,10 @@ use super::{
 
 pub(super) mod cache;
 mod request;
+pub(super) mod schedule;
 pub(super) use request::Request;
 
-pub(super) struct Region {
+pub(crate) struct Region {
     caller: scoped_helpers::Code,
     ordinary: Prepared,
     pair: PreparedPair,

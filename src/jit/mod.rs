@@ -836,12 +836,18 @@ impl Manager {
         if let Some(pairs) = &mut self.pairs {
             #[cfg(test)]
             let regions = pairs.regions.compact();
+            #[cfg(test)]
+            let promotions = pairs.promotions.as_mut().map(|queue| queue.compact());
             let results = pairs.compact();
             for result in results {
                 self.record_compaction(result);
             }
             #[cfg(test)]
             self.record_compaction(regions);
+            #[cfg(test)]
+            for result in promotions.into_iter().flatten() {
+                self.record_compaction(result);
+            }
         }
         let result = self.tracked_compactor.map(&mut self.tracked);
         self.record_compaction(result);
@@ -928,6 +934,14 @@ impl Manager {
         match victim {
             CacheKey::Prototype(id) => {
                 self.code.remove(&id);
+                #[cfg(all(test, not(miri)))]
+                if let Some(queue) = self
+                    .pairs
+                    .as_mut()
+                    .and_then(|pairs| pairs.promotions.as_mut())
+                {
+                    queue.cancel_caller(id);
+                }
                 if let Some(tracking) = self.tracked.get_mut(&id) {
                     tracking.hotness = 0;
                 }
@@ -938,6 +952,10 @@ impl Manager {
             CacheKey::Region(key) => self.pairs.as_mut().unwrap().regions.remove(key),
         }
         self.stats.cache_evictions = self.stats.cache_evictions.saturating_add(1);
+        #[cfg(test)]
+        {
+            self.stats.queued_requests = self.queued_count();
+        }
         true
     }
 
@@ -1169,6 +1187,10 @@ impl PreparedPair {
     ) -> Option<PairOutcome> {
         let outcome = self.program.invoke_result(ctx, host, budget, prefix);
         if let Some(outcome) = &outcome {
+            #[cfg(test)]
+            if outcome.calls > 0 && outcome.result.is_ok() {
+                ctx.jit().observe_region(self.program.key());
+            }
             ctx.jit().record_pair_execution(
                 outcome.calls,
                 if outcome.result.is_ok() {
@@ -1554,10 +1576,17 @@ impl Runtime {
                         #[cfg(all(test, not(miri)))]
                         if let Some(pairs) = &mut manager.pairs {
                             pairs.regions.retire_caller(id);
+                            if let Some(queue) = &mut pairs.promotions {
+                                queue.cancel_caller(id);
+                            }
                         }
                         manager.code.insert(id, CachedCode { code, last_used });
                         manager.stats.installed_regions =
                             manager.stats.installed_regions.saturating_add(1);
+                        #[cfg(test)]
+                        {
+                            manager.stats.queued_requests = manager.queued_count();
+                        }
                     }
                     Ok(())
                 }

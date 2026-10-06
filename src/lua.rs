@@ -485,6 +485,9 @@ impl Lua {
     ))]
     fn service_jit_pair(&mut self) -> Result<usize, crate::jit::JitError> {
         let Some(key) = self.jit.next_pair_request() else {
+            #[cfg(test)]
+            return self.service_jit_region();
+            #[cfg(not(test))]
             return Ok(0);
         };
         let (config, allocator) = {
@@ -525,6 +528,47 @@ impl Lua {
             }
         }
         Ok(1)
+    }
+
+    #[cfg(all(
+        test,
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    fn service_jit_region(&mut self) -> Result<usize, crate::jit::JitError> {
+        use crate::jit::JitError;
+        let Some(key) = self.jit.next_region_request() else {
+            return Ok(0);
+        };
+        let prepare = |lua: &mut Self| {
+            lua.arena
+                .mutate(|mc, state| lua.jit.prepare_region(state.ctx(mc), key))
+        };
+        let Some(request) = prepare(self) else {
+            return Ok(0);
+        };
+        let result = (|| {
+            let request = request?;
+            let pins = request.pin_dependencies();
+            let mut compiled = request.compile(&self.jit);
+            if matches!(&compiled, Err(JitError::ResourceLimit("native mappings")))
+                && self.jit.retry_region_request(key)
+            {
+                let request = prepare(self)
+                    .ok_or_else(|| JitError::Compilation("region retry dependencies".into()))??;
+                compiled = request.compile(&self.jit);
+            }
+            drop(pins);
+            self.jit.install_region(compiled?)
+        })();
+        if result.is_err() {
+            let mut manager = self.jit.0.borrow_mut();
+            manager.stats.compilation_failures =
+                manager.stats.compilation_failures.saturating_add(1);
+        }
+        result.map(|()| 1)
     }
 
     /// Queue registered source prototypes and compile one bounded queue of them.
