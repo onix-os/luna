@@ -11,6 +11,36 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Suspended-caller recovery checkpoint — 2026-10-06
+
+`b7d6817` adds **test-only** one-way recovery of pending noncapture values below
+the call tail. A caller-frame witness checks host identity, exact depth,
+closure, bottom/base/size, consumed PC, surviving prefix and child overlap
+before granting prefix access. Recovery preserves actual capture effects and
+never revalidates the shadow. It is limited to the caller or one physical child,
+not an arbitrary ancestor lookup or a replacement for native lease admission.
+
+Exact trace differential tests cover four generated-call budget declines,
+call-depth refusal and consumed-call VM error. Declined callees then resume
+canonically without replaying the call. Guard tests reject unconsumed PCs,
+different closures, foreign hosts, callee overlap and oversized prefixes without
+state changes. A failed initial oracle is retained: foreign-thread setup changes
+shared runtime counters; the corrected snapshot precedes the tested rejection,
+after setup, with the full trace comparison retained.
+
+Focused GNU/musl tests pass 60 executions, pinned Miri Stacked seed 1 / Tree
+seed 2 pass fourteen model executions, and native Memcheck passes thirty
+executions with zero errors or definite/indirect leaks. Possible 48-byte harness
+TLS losses and Miri warnings remain unsuppressed. i686-musl all-target checking
+passes with 71 library and ten library-test warnings retained. Evidence prefixes
+are `caller-shadow-recovery-*` under the existing short-slice evidence directory.
+
+The full GNU Auto workspace/all-target matrix is running; no terminal matrix
+result is claimed here yet. Production generated-caller integration, failed
+Return with partial native effects, panic cleanup and callback/GC observable
+boundaries remain unimplemented or unproven. **No performance regression fix or
+new speedup is claimed**, and the original acceptance gates stay open.
+
 #### Caller-shadow synchronization checkpoint — 2026-10-06
 
 `711959d` adds a **test-only** caller-shadow transfer model and a real generated
