@@ -67,6 +67,184 @@ fn fixture_source(
 }
 
 #[test]
+fn admitted_pair_rechecks_dynamic_values_frames_fuel_mode_and_hooks() {
+    fixture(|ctx, closure, region, _| {
+        let pc = region.pair.program.key().pc;
+        let Operation::Call { func, .. } = closure.prototype().opcodes[pc].decode() else {
+            panic!()
+        };
+        let foreign = Closure::load(ctx, None, &b"return 9"[..]).unwrap();
+        for case in 0..11 {
+            with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+                ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                for _ in 0..32 {
+                    if host.with_registers(|_, registers| *registers.pc == pc) {
+                        break;
+                    }
+                    host.run(ctx, 1, 1, 4).result.unwrap();
+                }
+                assert!(host.with_registers(|_, registers| *registers.pc == pc));
+                ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+                let admitted = super::super::canonical::admission::Admitted::new(
+                    &region.pair.program,
+                    ctx,
+                    closure,
+                    host.frame_identity(),
+                )
+                .unwrap();
+                let mut budget = 64;
+                match case {
+                    0 => budget = 3,
+                    1 => host.test_fuel(Fuel::with(0)),
+                    2 => host.test_variable_stack(),
+                    3 => host.test_replace_closure(foreign),
+                    4 => host.with_registers(|_, registers| {
+                        registers.stack_frame[usize::from(func.0)] = Value::Integer(3)
+                    }),
+                    5 => host.with_registers(|_, registers| {
+                        registers.stack_frame[usize::from(func.0) + 1] = Value::Number(3.0)
+                    }),
+                    6 => host.with_registers(|_, registers| {
+                        registers.stack_frame[0] = Value::Number(3.0)
+                    }),
+                    7 => host.with_registers(|_, registers| {
+                        let Value::Function(crate::Function::Closure(callee)) =
+                            registers.stack_frame[usize::from(func.0)]
+                        else {
+                            panic!()
+                        };
+                        callee.set_upvalue(
+                            &ctx,
+                            0,
+                            crate::closure::UpValue::new(
+                                &ctx,
+                                crate::closure::UpValueState::Closed(Value::Integer(3)),
+                            ),
+                        );
+                    }),
+                    8 => ctx.jit().0.borrow_mut().config.mode = JitMode::Off,
+                    9 => {
+                        let callback = crate::Callback::from_fn(&ctx, |_, _, _| {
+                            panic!("admitted hook executed")
+                        });
+                        ctx.set_debug_hook(callback.into(), false, 1);
+                        ctx.suppress_hook_at(1);
+                    }
+                    10 => host.with_registers(|_, registers| *registers.pc = pc + 1),
+                    _ => unreachable!(),
+                }
+                let before_stats = stats(ctx);
+                let before = trace(ctx, host, before_stats);
+                assert!(admitted.invoke(host, budget, 0).is_none(), "case={case}");
+                assert_eq!(trace(ctx, host, before_stats), before, "case={case}");
+                ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+                ctx.set_debug_hook(Value::Nil, false, 0);
+            });
+        }
+        with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+            let admitted = super::super::canonical::admission::Admitted::new(
+                &region.pair.program,
+                ctx,
+                closure,
+                host.frame_identity(),
+            )
+            .unwrap();
+            with_test_thread(ctx, closure, &mut Fuel::with(10000), |foreign| {
+                ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                for _ in 0..32 {
+                    if foreign.with_registers(|_, registers| *registers.pc == pc) {
+                        break;
+                    }
+                    foreign.run(ctx, 1, 1, 4).result.unwrap();
+                }
+                assert!(foreign.with_registers(|_, registers| *registers.pc == pc));
+                ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+                let before_stats = stats(ctx);
+                let before = trace(ctx, foreign, before_stats);
+                assert!(admitted.invoke(foreign, 64, 0).is_none());
+                assert_eq!(trace(ctx, foreign, before_stats), before);
+            });
+        });
+    });
+}
+
+#[test]
+fn admitted_pair_accepts_rebound_closure_but_not_identical_foreign_prototype() {
+    let source = b"local n=0 local function f(v) n=n+v end f(3) return n";
+    fixture_source(source, |ctx, closure, region, start| {
+        let pc = region.pair.program.key().pc;
+        let Operation::Call { func, .. } = closure.prototype().opcodes[pc].decode() else {
+            panic!()
+        };
+        for same in [false, true] {
+            let run = |native| {
+                with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+                    ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                    host.run(ctx, 1, pc as u32, 4).result.unwrap();
+                    assert!(pc > start);
+                    assert!(host.with_registers(|_, registers| *registers.pc == pc));
+                    ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+                    let admitted = super::super::canonical::admission::Admitted::new(
+                        &region.pair.program,
+                        ctx,
+                        closure,
+                        host.frame_identity(),
+                    )
+                    .unwrap();
+                    host.with_registers(|_, registers| {
+                        let Value::Function(crate::Function::Closure(original)) =
+                            registers.stack_frame[usize::from(func.0)]
+                        else {
+                            panic!()
+                        };
+                        let prototype = if same {
+                            original.prototype()
+                        } else {
+                            Closure::load(ctx, None, &source[..])
+                                .unwrap()
+                                .prototype()
+                                .prototypes[0]
+                        };
+                        let mut upvalues = allocator_api2::vec::Vec::new_in(
+                            ottavino_gc_arena::allocator_api::MetricsAlloc::new(&ctx),
+                        );
+                        upvalues.extend(
+                            original
+                                .upvalues()
+                                .iter()
+                                .map(|value| ottavino_gc_arena::lock::Lock::new(value.get())),
+                        );
+                        let replacement = Closure::from_parts(&ctx, prototype, upvalues);
+                        assert_ne!(replacement, original);
+                        registers.stack_frame[usize::from(func.0)] = replacement.into();
+                    });
+                    let before_stats = stats(ctx);
+                    let before = trace(ctx, host, before_stats);
+                    if native {
+                        let outcome = admitted.invoke(host, 64, 0);
+                        if same {
+                            let outcome = outcome.unwrap();
+                            assert_eq!((outcome.calls, outcome.returns), (1, 1));
+                            outcome.result.unwrap();
+                        } else {
+                            assert!(outcome.is_none());
+                            assert_eq!(trace(ctx, host, before_stats), before);
+                            ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                            host.run(ctx, 2, 64, 4).result.unwrap();
+                        }
+                    } else {
+                        ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                        host.run(ctx, 2, 64, 4).result.unwrap();
+                    }
+                    trace(ctx, host, before_stats)
+                })
+            };
+            assert_eq!(run(true), run(false));
+        }
+    });
+}
+
+#[test]
 fn rejected_region_entry_preserves_frames_values_fuel_and_work() {
     fixture(|ctx, closure, region, start| {
         let foreign = Closure::load(ctx, None, &b"return 7"[..]).unwrap();

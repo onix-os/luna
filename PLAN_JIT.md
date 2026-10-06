@@ -76,7 +76,8 @@ region/backend/failure cases with zero errors or definite/indirect leaks (the
 `native-region-failures-*`. These tests do not establish performance acceptance.
 
 Broader platform validation and actual regression measurements remain required.
-Full pair admission reuse and production integration are not implemented here.
+The pair-admission candidate below remains test-only; production integration is
+not implemented here.
 All original performance, compiled-Off, resource-policy and release gates remain
 open; green prototype tests do not replace those gates.
 
@@ -149,6 +150,47 @@ caller refresh **4,621,176 (5.76%)**. These identify remaining costs; they are
 not elapsed-time gates and must not be compared directly to earlier profiles
 that collected whole Executor steps. Previously rejected prototype binding,
 Session reuse and generic writeback experiments remain rejected.
+
+The next test-only region candidate admits the immutable pair callsite once per
+bounded run: runtime/source binding, exact callee prototype, call operand shape,
+register bounds and constant eligibility. Each call still checks mode, hook
+suppression, frame/PC identity, live callee prototype, capture provenance/type,
+argument type/range and fuel. Fresh canonical Sessions, post-Call and leave
+validation, physical frames, error/panic transport and counters are unchanged.
+The token stays within the GC-scoped region execution; it is not retained in the
+global code cache. This does not reintroduce the rejected production Session
+prototype-binding field or Session reuse.
+
+GNU focused validation passes 82 executions; musl and native Memcheck each pass
+21 checks. The new tests reject eleven dynamic changes and a foreign host
+positioned at the same callsite, accept a rebound closure with the same actual
+prototype, and reject a bytecode-identical distinct prototype without work.
+The 216 bounded cases and four failure paths remain enabled. Memcheck reports
+zero errors or definite/indirect leaks; possible 48-byte harness TLS losses are
+retained. Initial prototype structural-equality compilation failure is retained;
+the guard uses GC pointer identity rather than structural equality.
+
+Profile `native-region-profile-v2` reduces region instructions to **74,110,893**,
+down **6,117,786 (7.6%)** from v1. Off and ordinary Auto instruction totals remain
+exactly unchanged. Three alternating speed/symbol comparisons report candidate
+region/Auto **0.709723/0.711329/0.710726**, with region elapsed about 14.65 ms
+versus the preceding candidate's 15.74 ms per sixteen iterations. Candidate
+diagnostic Off times are about 3.3% slower despite identical instruction counts;
+this is retained, not treated as compiled-Off acceptance. Region/Off is still
+**1.5167–1.5172** in these binaries.
+
+Three shipping comparisons report region/Auto **0.806806/0.807406/0.807396** and
+region/Off **1.738861/1.733194/1.734294**. Region time is about 23.22 ms versus
+the preceding 24.75–24.77 ms. Exact results, fuel, dispatches and generated work
+remain matched. Raw paired controls, profiles and source/binary archives are
+retained under `native-region-pair-*` and `native-region-profile-v2`. Profiling
+source manifests now also include newly added, not-yet-tracked Rust modules.
+The region still loses to Off; neither this diagnostic nor green correctness
+checks satisfy original production performance/release gates.
+The complete GNU Auto workspace/all-target run for this candidate passes
+**1,208 executions in eighty suites**, zero failures, six ignores (including
+the two explicit diagnostics), and no Rust warnings. This is one mode/target,
+not a new complete platform matrix. The profile source manifest still matches.
 
 #### Scoped helper borrowing prerequisite — 2026-10-06
 

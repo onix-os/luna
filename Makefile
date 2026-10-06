@@ -347,7 +347,7 @@ jit-native-region-profile-build:
 	@test "$$(wc -l < '$(REGION_PROFILE_DIR)/binary-path')" -eq 1
 	@cp "$$(cat '$(REGION_PROFILE_DIR)/binary-path')" '$(REGION_PROFILE_DIR)/test-binary'
 	@sha256sum '$(REGION_PROFILE_DIR)/test-binary' > '$(REGION_PROFILE_DIR)/binary.sha256'
-	@git ls-files -z src Cargo.toml Cargo.lock Makefile examples/jit_support/workloads.rs | xargs -0 sha256sum > '$(REGION_PROFILE_DIR)/source.sha256'
+	@{ find src -type f -name '*.rs' -print0; printf '%s\0' Cargo.toml Cargo.lock Makefile examples/jit_support/workloads.rs; } | sort -z | xargs -0 sha256sum > '$(REGION_PROFILE_DIR)/source.sha256'
 	@git rev-parse HEAD > '$(REGION_PROFILE_DIR)/revision'
 	@git diff --binary > '$(REGION_PROFILE_DIR)/source.patch'
 	@printf 'opt_level=%s\nstrip=false\ncollection=*cost::profile_region\niterations=3\n' '$(JIT_BENCH_OPT)' > '$(REGION_PROFILE_DIR)/configuration'

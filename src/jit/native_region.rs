@@ -154,8 +154,15 @@ impl<'gc> Region<'gc> {
         let identity = host.frame_identity();
         let mut frame = scoped_helpers::Frame::new(ctx, host);
         let pc = self.caller.prepare(&mut frame, slots)?;
+        let admitted = super::canonical::admission::Admitted::new(
+            &self.pair.program,
+            ctx,
+            self.caller.source(),
+            identity,
+        )?;
         let mut session = Session {
             region: self,
+            admitted,
             frame,
             slots,
             host: abi::Host {
@@ -195,6 +202,7 @@ impl<'gc> Region<'gc> {
 
 struct Session<'gc, 'host, 'borrow, 'region> {
     region: &'region Region<'gc>,
+    admitted: super::canonical::admission::Admitted<'region, 'gc>,
     frame: scoped_helpers::Frame<'gc, 'host, 'borrow>,
     slots: &'borrow mut [abi::Slot],
     host: abi::Host,
@@ -240,9 +248,8 @@ impl Session<'_, '_, '_, '_> {
             let paired = if self.limit - self.outcome.slices >= 2
                 && view.exit.pc as usize == self.region.pair.program.key().pc
             {
-                self.region
-                    .pair
-                    .invoke(ctx, self.frame.host, self.budget, view.exit.instructions)
+                self.admitted
+                    .invoke(self.frame.host, self.budget, view.exit.instructions)
             } else {
                 None
             };
