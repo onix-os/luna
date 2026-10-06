@@ -15,6 +15,61 @@ fn slots(host: &mut ActivationHost<'_, '_>) -> Vec<abi::Slot> {
 }
 
 #[test]
+fn region_pointer_publication_survives_reborrowing_the_outer_owner() {
+    struct Owner<'gc, 'host, 'borrow> {
+        frame: Frame<'gc, 'host, 'borrow>,
+        slots: &'borrow mut [abi::Slot],
+        host: abi::Host,
+    }
+    let mut lua = Lua::empty();
+    lua.enter(|ctx| {
+        let closure = Closure::load(ctx, None, &b"local a='x' local b=a return a,b"[..]).unwrap();
+        with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+            let mut scratch = slots(host);
+            let mut owner = Owner {
+                frame: Frame::new(ctx, host),
+                slots: &mut scratch,
+                host: abi::Host {
+                    data: std::ptr::null_mut(),
+                    projection: std::ptr::null_mut(),
+                },
+            };
+            let data = std::ptr::from_mut(&mut owner);
+            let mut view = RegionView {
+                data: data.cast(),
+                slots: std::ptr::null_mut(),
+                pc: 0,
+                budget: 64,
+                host: std::ptr::null_mut(),
+                exit: abi::Exit::default(),
+            };
+            {
+                let owner = unsafe { &mut *data };
+                publish_region(&mut owner.frame, owner.slots, &mut owner.host, &mut view);
+            }
+            for iteration in 0..3 {
+                let result = if iteration == 0 {
+                    unsafe { call::<{ abi::HELPER_CONSTANT }>(view.host, view.slots, 0, 0, 0, 0) }
+                } else {
+                    unsafe { call::<{ abi::HELPER_MOVE }>(view.host, view.slots, 1, 0, 0, 1) }
+                };
+                assert_eq!(result, abi::HELPER_COMPLETED);
+                let owner = unsafe { &mut *view.data.cast::<Owner<'_, '_, '_>>() };
+                assert!(owner.frame.panic.is_none());
+                if iteration == 1 {
+                    owner.slots[0] = abi::Slot::from_value(Value::Integer(99));
+                }
+                publish_region(&mut owner.frame, owner.slots, &mut owner.host, &mut view);
+            }
+            assert_eq!(owner.frame.count.completed, 3);
+            owner.frame.host.with_registers(|_, registers| {
+                assert!(matches!(registers.stack_frame[1], Value::Integer(99)))
+            });
+        });
+    });
+}
+
+#[test]
 fn scoped_symbols_are_distinct_and_decline_null_hosts() {
     for (index, (kind, name, entry)) in SYMBOLS.into_iter().enumerate() {
         assert_eq!(kind, helpers::SYMBOLS[index].0);

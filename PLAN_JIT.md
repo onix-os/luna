@@ -11,6 +11,54 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Bounded generated caller regions — 2026-10-06
+
+A **test-only** Cranelift dispatcher now invokes a leased scoped caller directly,
+returns from that fragment before the Rust boundary changes physical Lua frames,
+and resumes through the generated loop. Its independent countdown bounds caller
+fragments even when the boundary always requests continuation. Only boundary
+status one continues. Slots and helper-host pointers are republished after an
+outer-owner reborrow and reloaded on the next generated iteration.
+
+The initial host uses existing prepared pairs, canonical Call/Return, exact
+source/host-bound native fallback, and existing fuel/error transport. Caller
+state is fully materialized at every boundary; resume still performs full
+admission. This is **not** production-selected or a demonstrated speedup.
+Entry requires the exact installed ordinary-caller and pair owners. Off, hooks,
+wrong closure, variable frames and invalid limits decline without VM work.
+
+The bounded differential covers 216 limit/budget/fuel combinations, including
+twenty real pairs in one region. Additional checks cover nine entry declines,
+canonical-error fallback and stopping before user callback execution. Error
+accounting is checked against ordinary Auto: native completed prefixes remain
+reported when a later fallback fails, whereas Off reports slice instructions
+only on success. Frames, values, open captures, fuel and dispatches match Off;
+the error fixture explicitly checks the two-instruction prefix difference.
+
+Backend tests reject four mutated templates before mapping, independently bound
+zero/finite invocations, check refreshed arguments and verify ledger reclamation
+after successful execution, IR/relocation/mapping refusals and injected metadata/
+workspace allocation failures. Focused native checks pass fourteen tests across
+three suites. Stacked seed 1 and Tree seed 2 Miri checks each pass four scoped
+models, including pointer republication; Miri does not execute generated code.
+Evidence is retained as `native-region-*` under short-slice performance evidence.
+
+The same fourteen focused tests also pass on x86_64-musl. GNU Memcheck runs all
+three suites with zero memory errors and zero definite/indirect losses; the
+existing 48-byte possible test-harness TLS loss in each process is retained,
+not suppressed. GNU Auto workspace/all-target tests plus the no-JIT workspace
+baseline and docs pass 1,595 executions in 160 suites, zero failures, six existing
+ignores and no Rust warnings. i686-musl checking passes using `.#fallback` with
+71 library and eleven library-test warnings. An initial default-shell i686
+attempt failed because that shell does not contain the target; its log is kept.
+Source hashes in `native-region-source.sha256` match these validation runs.
+
+Generated-region panic and failed-Return integration still need explicit checks,
+followed by broader platform validation and actual regression measurements.
+Once-per-region admission and production integration are not implemented here.
+All original performance, compiled-Off, resource-policy and release gates remain
+open; green prototype tests do not replace those gates.
+
 #### Scoped helper borrowing prerequisite — 2026-10-06
 
 Eight fresh, source-verified speed/symbol profiles of `9ccfb43` retain Auto

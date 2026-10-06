@@ -8,6 +8,34 @@ use crate::Closure;
 use crate::{thread::activation::ActivationHost, Context};
 
 use super::{abi, helpers};
+
+#[repr(C)]
+pub(crate) struct RegionView {
+    pub data: *mut std::ffi::c_void,
+    pub slots: *mut abi::Slot,
+    pub pc: u64,
+    pub budget: u32,
+    pub host: *mut abi::Host,
+    pub exit: abi::Exit,
+}
+
+pub(super) fn publish_region(
+    frame: &mut Frame<'_, '_, '_>,
+    slots: &mut [abi::Slot],
+    host: &mut abi::Host,
+    view: &mut RegionView,
+) {
+    *host = frame.publish(slots.len());
+    view.host = std::ptr::from_mut(host);
+    view.slots = slots.as_mut_ptr();
+}
+
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(std::mem::size_of::<RegionView>() == 56);
+    assert!(std::mem::offset_of!(RegionView, host) == 32);
+    assert!(std::mem::offset_of!(RegionView, exit) == 40);
+};
 #[cfg(not(miri))]
 use super::{backend, ir::Snapshot, resources::MappingCounter, work, JitError};
 
@@ -95,6 +123,38 @@ impl<'gc> Code<'gc> {
         slots: &mut [abi::Slot],
         budget: u32,
     ) -> Option<abi::Exit> {
+        let pc = self.prepare(frame, slots)?;
+        let mut host = frame.publish(slots.len());
+        let exit = unsafe { self.code.invoke_host(slots, pc, budget, &mut host) };
+        if frame.panic.is_none() {
+            frame
+                .host
+                .with_registers(|_, registers| *registers.pc = exit.pc as usize);
+        }
+        Some(exit)
+    }
+
+    pub(super) fn source(&self) -> Closure<'gc> {
+        self.source
+    }
+
+    pub(super) fn registers(&self) -> usize {
+        self.code.registers
+    }
+
+    pub(super) fn entry(&self) -> abi::Entry {
+        self.code.linked_entry()
+    }
+
+    pub(super) fn relocations(&self) -> usize {
+        self.code.relocations
+    }
+
+    pub(super) fn prepare(
+        &self,
+        frame: &mut Frame<'gc, '_, '_>,
+        slots: &[abi::Slot],
+    ) -> Option<usize> {
         let manager = frame.ctx.jit().0.borrow();
         if manager.config.mode != super::JitMode::Auto
             || !self.origin.same_root(&manager.memory)
@@ -110,7 +170,7 @@ impl<'gc> Code<'gc> {
         if frame.ctx.hook_enabled() {
             return None;
         }
-        let pc = frame.host.with_registers(|closure, registers| {
+        frame.host.with_registers(|closure, registers| {
             (closure == self.source
                 && registers.stack_frame.len() >= slots.len()
                 && self
@@ -120,19 +180,7 @@ impl<'gc> Code<'gc> {
                     .copied()
                     .unwrap_or(false))
             .then_some(*registers.pc)
-        })?;
-        frame.slot_count = slots.len();
-        let mut host = abi::Host {
-            data: std::ptr::from_mut(frame).cast(),
-            projection: std::ptr::null_mut(),
-        };
-        let exit = unsafe { self.code.invoke_host(slots, pc, budget, &mut host) };
-        if frame.panic.is_none() {
-            frame
-                .host
-                .with_registers(|_, registers| *registers.pc = exit.pc as usize);
-        }
-        Some(exit)
+        })
     }
 }
 
@@ -146,6 +194,13 @@ pub(super) struct Frame<'gc, 'host, 'borrow> {
 }
 
 impl<'gc, 'host, 'borrow> Frame<'gc, 'host, 'borrow> {
+    pub(super) fn publish(&mut self, slots: usize) -> abi::Host {
+        self.slot_count = slots;
+        abi::Host {
+            data: std::ptr::from_mut(self).cast(),
+            projection: std::ptr::null_mut(),
+        }
+    }
     pub(super) fn new(ctx: Context<'gc>, host: &'borrow mut ActivationHost<'gc, 'host>) -> Self {
         Self {
             ctx,

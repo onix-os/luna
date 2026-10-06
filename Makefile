@@ -324,6 +324,11 @@ jit-call-canonical:
 jit-scoped-helpers:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::scoped_helpers::tests $(ARGS)
 
+.PHONY: jit-native-region
+jit-native-region:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::region::tests $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::native_region::tests $(ARGS)
+
 .PHONY: jit-scoped-helpers-miri
 jit-scoped-helpers-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::scoped_helpers::tests -- --test-threads=1

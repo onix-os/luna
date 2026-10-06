@@ -27,6 +27,8 @@ use crate::opcode::{Operation, RCIndex};
 
 #[cfg(not(miri))]
 pub(super) mod calls;
+#[cfg(all(test, not(miri)))]
+pub(super) mod region;
 
 struct Memory {
     allocations: BudgetVec<Segment, BudgetAllocator>,
@@ -216,6 +218,10 @@ pub(super) struct Code {
 }
 
 impl Code {
+    #[cfg(all(test, not(miri)))]
+    pub(super) fn linked_entry(&self) -> Entry {
+        self.entry
+    }
     #[cfg(all(test, not(miri)))]
     pub fn discard_scalar_kernel(&mut self) -> bool {
         self.scalar_kernel.take().is_some()
