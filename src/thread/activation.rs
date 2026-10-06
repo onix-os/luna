@@ -75,16 +75,29 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
 
     fn with_frame<R>(&mut self, f: impl for<'frame> FnOnce(LuaFrame<'gc, 'frame>) -> R) -> R {
         f(LuaFrame {
+            state: self.state,
+            stack: &mut self.stack,
+            fuel: self.fuel,
+        })
+    }
+
+    fn run_vm(&mut self, ctx: Context<'gc>, budget: u32) -> Result<u32, VMError> {
+        let frame = LuaFrame {
+            state: self.state,
+            stack: &mut self.stack,
+            fuel: self.fuel,
+        };
+        run_vm(
+            ctx,
+            frame,
+            budget,
             #[cfg(all(
                 not(miri),
                 target_os = "linux",
                 any(target_arch = "x86_64", target_arch = "aarch64")
             ))]
-            pair_handoff: self.select_pairs.then_some(&mut self.pair),
-            state: self.state,
-            stack: &mut self.stack,
-            fuel: self.fuel,
-        })
+            self.select_pairs.then_some(&mut self.pair),
+        )
     }
 }
 
@@ -253,7 +266,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                     self.select_pairs &= !self.decline_pairs;
                 }
             }
-            let result = self.with_frame(|frame| run_vm(ctx, frame, budget));
+            let result = self.run_vm(ctx, budget);
             activations += 1;
             #[cfg(all(
                 not(miri),
@@ -271,7 +284,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                     (outcome.result.map(|()| 0), true)
                 } else {
                     (
-                        self.with_frame(|frame| run_vm(ctx, frame, budget - prefix))
+                        self.run_vm(ctx, budget - prefix)
                             .map(|instructions| prefix + instructions),
                         false,
                     )

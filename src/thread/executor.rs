@@ -642,13 +642,6 @@ impl<'gc> Executor<'gc> {
                             #[cfg(feature = "jit")]
                             let mut frame_stack = frame_stack;
                             let lua_frame = LuaFrame {
-                                #[cfg(all(
-                                    feature = "jit",
-                                    not(miri),
-                                    target_os = "linux",
-                                    any(target_arch = "x86_64", target_arch = "aarch64")
-                                ))]
-                                pair_handoff: None,
                                 state: top_state,
                                 #[cfg(feature = "jit")]
                                 stack: &mut frame_stack,
@@ -687,7 +680,7 @@ impl<'gc> Executor<'gc> {
                                 }
                                 result
                             } else {
-                                run_vm(ctx, lua_frame, Self::VM_GRANULARITY)
+                                run_vm(ctx, lua_frame, Self::VM_GRANULARITY, None)
                             };
                             #[cfg(not(all(
                                 test,
@@ -696,7 +689,18 @@ impl<'gc> Executor<'gc> {
                                 target_os = "linux",
                                 any(target_arch = "x86_64", target_arch = "aarch64")
                             )))]
-                            let result = run_vm(ctx, lua_frame, Self::VM_GRANULARITY);
+                            let result = run_vm(
+                                ctx,
+                                lua_frame,
+                                Self::VM_GRANULARITY,
+                                #[cfg(all(
+                                    feature = "jit",
+                                    not(miri),
+                                    target_os = "linux",
+                                    any(target_arch = "x86_64", target_arch = "aarch64")
+                                ))]
+                                None,
+                            );
                             result
                         };
                         #[cfg(all(
