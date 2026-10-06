@@ -36,6 +36,7 @@ COST_STRIP ?= true
 PROFILE_CASE ?= float_loop
 PROFILE_MODE ?= off
 BENCH_PROFILE_DIR ?= target/jit-evidence/bench-profile/$(PROFILE_CASE)/$(PROFILE_MODE)
+PAIRED_PROFILE_DIR ?= target/jit-evidence/paired-profile
 COST_DIR := target/jit-evidence/feature-cost/$(SIZE_PROFILE)$(if $(TARGET),-$(TARGET),)$(if $(filter false,$(COST_STRIP)),-symbols,)
 COST_PROFILE_DIR := $(COST_DIR)/callgrind/$(PROFILE_CASE)/$(PROFILE_MODE)
 COST_RELEASE_DIR := target/$(if $(TARGET),$(TARGET)/,)release/examples
@@ -146,6 +147,19 @@ jit-bench-run:
 
 jit-bench: jit-bench-build
 	@$(MAKE) --no-print-directory jit-bench-run
+
+.PHONY: jit-bench-paired-profile-run jit-bench-paired-profile-verify jit-bench-paired-profile-annotate jit-bench-paired-profile-tests
+jit-bench-paired-profile-run:
+	@bash examples/jit_support/paired_profile.sh '$(JIT_BENCH_BINARY)' '$(PAIRED_PROFILE_DIR)'
+
+jit-bench-paired-profile-verify:
+	@bash examples/jit_support/verify_paired_profile.sh '$(PAIRED_PROFILE_DIR)'
+
+jit-bench-paired-profile-annotate:
+	@bash examples/jit_support/annotate_paired_profile.sh '$(PAIRED_PROFILE_DIR)'
+
+jit-bench-paired-profile-tests:
+	@bash tests/test-jit-paired-profile.sh
 
 .PHONY: jit-bench-profile-run
 jit-bench-profile-run:
@@ -965,7 +979,7 @@ jit-rustdoc:
 jit-tree:
 	@$(CARGO) tree -p luna -e normal $(TARGET_ARG)
 
-jit-verify: verify jit-check
+jit-verify: verify jit-check jit-bench-paired-profile-tests
 	@$(MAKE) jit-test JIT_MODE=off
 	@$(MAKE) jit-test JIT_MODE=auto
 	@$(MAKE) jit-test JIT_MODE=force
@@ -1135,6 +1149,8 @@ help:
 	@echo "  jit-bench-build Build the benchmark without timing"
 	@echo "  jit-bench-run Time an existing artifact (JIT_BENCH_BINARY=path)"
 	@echo "  jit-bench-profile-run Profile a frozen warm benchmark (PROFILE_CASE=... PROFILE_MODE=off|auto)"
+	@echo "  jit-bench-paired-profile-run Profile a frozen full paired suite (new PAIRED_PROFILE_DIR=path)"
+	@echo "  jit-bench-paired-profile-tests Test full-suite profile partition verification"
 	@echo "  jit-metrics  Observe cold compilation, coverage and host slice costs"
 	@echo "  jit-metrics-build Build the separate scheduling metrics artifact"
 	@echo "  jit-metrics-run Measure an existing artifact (JIT_METRICS_BINARY=path)"

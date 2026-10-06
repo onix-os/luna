@@ -999,6 +999,32 @@ it is not a substitute for generated-code tests and is absent from library build
 
 `make jit-cost-profile PROFILE_CASE=float_loop` uses Callgrind from the Nix shell on symbol-retained matched no-JIT/compiled-Off probes at opt-level 3. `PROFILE_MODE=auto` instead profiles the JIT artifact in Auto against the feature-disabled interpreter; the worker must assert real native work. Collection toggles only within `*run_vm*`; the command fails on a nonzero child exit or empty profile. Raw instruction-level events, exclusive annotations, hashes, settings and checked worker output live under `target/jit-evidence/feature-cost/speed-symbols/callgrind/<case>/<mode>/` (with a target-qualified directory when requested). Warm corpus cases are selectable; normal checked cost comparisons reject `--case` and continue to require all nine controls. These are simulated instruction/cache/branch events, not hardware cycles, wall-time acceptance or native-machine-code validation.
 
+`make jit-bench-paired-profile-run JIT_BENCH_BINARY=<frozen-symbol-binary>
+PAIRED_PROFILE_DIR=<new-directory>` profiles the unchanged full nine-case paired
+suite, with eleven measured pairs and the original warmups. It does not build
+or run performance thresholds under Callgrind. Collection is limited to
+`Executor::step`; dumps before `jit_bench::report` partition costs by workload.
+Each interval combines **Off and Auto**, not Auto alone. Verification checks
+report order/coverage, all nineteen dump parts, empty between-report intervals,
+and every event sum against the profiler totals. Existing output directories
+and binaries without the report symbol are rejected.
+
+Raw dumps and binary hashes are retained. Exclusive annotations use separate
+derived files: zero-call inclusive carry-over records have their cost vectors
+zeroed, preserving position/symbol metadata. This avoids Callgrind 3.26.0's
+annotation parser treating those inclusive records as self cost. An independent
+self-cost sum must equal the original summary; raw-file hashes must remain
+unchanged. `make jit-bench-paired-profile-annotate PAIRED_PROFILE_DIR=<directory>`
+rechecks and annotates existing dumps. Fixture/refusal checks run through
+`make jit-bench-paired-profile-tests`, `jit-verify` and CI.
+
+Standalone and full-suite timings can differ for the same executable. Keep the
+execution context when investigating a full-suite regression. Symbol and
+ordinary stripped builds can also have different `.text`: validate a matching
+artifact rather than attributing an arbitrary release binary from its source
+alone. Software cache/branch simulations and profiled wall times do not prove
+hardware causes or satisfy performance acceptance.
+
 `make jit-disassembly` dumps finalized, relocated native code for scalar-loop
 and table/helper fixtures through an explicitly invoked ignored test. The
 scalar kernel executes to the checked 5050 return value; the table kernel exits
