@@ -9,7 +9,52 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Progress snapshot — 2026-10-06
+### Progress snapshot — 2026-10-07
+
+#### Table-borrow consolidation rejected — 2026-10-07
+
+`a6ca9b5` adds a 16-combination regression test covering self/other metatables,
+readonly guards, existing/missing keys and pending native scalar keys. It
+checks read/write decisions, unchanged declined destinations, canonical key
+authority, PC, effects and counters. The test passes on production before the
+trial and remains independently useful.
+
+The trial consolidates table-helper guard reads under one shared borrow, then
+uses the existing barrier-aware mutable borrow and `RawTable::set`. A local
+review confirms `Gc<RefLock<T>>::borrow_mut` calls `Gc::write`; shared guards
+end before mutation, and self-metatable reads remain shared. Weak upgrades,
+key/storage behavior, helper ABI, projection, physical frames and counters
+are unchanged. No public table API or compiler hint changes.
+
+Actual table benchmark instructions fall **53,169,450 → 51,780,386** (2.61%),
+reads by **4.78%** and writes by **4.49%**. That instruction reduction does
+**not** translate into meaningful table acceleration: six original-gate
+windows give median direct control/candidate Auto ratio **1.0044**, and both
+versions fail all six table thresholds. Large absolute timing shifts in some
+windows also affect Off and are not attributed to the optimization.
+
+More importantly, upvalue Auto regresses in **all six** windows: direct
+control/candidate ratios **0.9014–0.9266**, median **0.9120**. Its paired
+Off/Auto ratios fall from **0.6456–0.6596** to **0.6004–0.6100**. Speed-profile
+compiled-Off float ratios worsen to **1.0898–1.0990**, failing all six checks
+versus four control passes. Shipping disabled upvalue ratios rise from
+**1.1439–1.1479** to **1.1747–1.1857**. This is not an acceptable tradeoff.
+
+GNU full Auto passes **1,279 executions / 82 suites** (six ignores), focused
+GNU and musl each pass **36 executions**, and Miri passes **14 Rust model
+tests** with existing warnings. Both no-feature control binaries are
+byte-identical. All compared native/interpreter/helper/region counters match.
+All **36** aggregate native and disabled gate commands still fail; collection
+exit zero only confirms collection and final hash verification. No owned
+build, test or profiler overlaps timing; external contention remains recorded.
+
+**The runtime trial is removed; the regression test is retained.** Frozen
+source, artifacts, three workload profiles, safety review, raw windows,
+telemetry and the 540-row report remain under `table-borrow-*` in
+`target/jit-evidence/short-slice-performance/`. Local table instruction savings
+do not explain or excuse the unrelated upvalue slowdown; that discrepancy
+needs investigation rather than another unmeasured compiler hint. All original
+performance, resource, platform and release acceptance requirements remain open.
 
 #### Operand conversion trial: native gains, disabled regressions — 2026-10-06
 
