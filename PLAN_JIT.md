@@ -45,6 +45,18 @@ after lease drop. The four combined fixtures and existing focused suites pass
 (`resident-panic-validation.log`). This is additional correctness coverage for
 the test-only route, not production promotion or performance acceptance.
 
+Validation of `097ccac` completes GNU Auto workspace/all-target tests plus the
+musl focused suites: **1,286 executions in 85 suites**, zero failures, four
+existing ignores and no Rust warnings. Native Memcheck passes **64 executions**
+across canonical, resident-chain and public-runtime suites, with zero errors or
+definite/indirect losses; possible 48-byte Rust-harness TLS losses remain
+unsuppressed. Miri Stacked seed 1 and Tree seed 2 pass fourteen shadow-model
+executions, not generated code. i686-musl checking passes with the existing 71
+library and ten library-test warnings. Source hashes verify unchanged throughout;
+logs/exits and the manifest use `resident-failure-*` in short-slice evidence.
+The fix (`ec7ca7b`) and panic tests (`097ccac`) are separate pushed commits.
+No performance rerun is claimed: production executable source is unchanged.
+
 #### Typed decoder inlining candidate — 2026-10-06
 
 **Retained working improvement, not full performance acceptance.** Original and
