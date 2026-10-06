@@ -11,6 +11,66 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Rejected slice-policy snapshot and ordinary lease cache — 2026-10-06
+
+The candidate `859103e` reads Auto mode and paired-program availability under one short
+manager borrow per VM slice, rather than separate reads for native lookup,
+hook exits and Call observation. The snapshot contains only booleans and drops
+the manager borrow before execution. Each new slice refreshes it; source
+identity, current code ownership, native preflight, hooks, physical frames,
+fuel, stats and callback boundaries remain unchanged. Unit tests cover mode
+changes, paired-state availability and immediate mutable reborrowing.
+
+GNU Off/Auto/Force and musl Auto pass 4,640 executions in 324 suites, zero
+failures and sixteen repeated existing ignores. Focused tests include eight
+public runtime and eighteen canonical cases. Speed/symbol profiles retain
+stable source hashes and the unchanged workloads, warmups and iteration counts.
+
+| Collected instructions | Previous paired cache | Slice policy |
+| --- | ---: | ---: |
+| Upvalue Off | 101,779,863 | 101,380,251 |
+| Upvalue Auto | 151,972,649 | 151,613,582 |
+| Callback Off | 45,316,930 | 45,216,910 |
+| Callback Auto | 54,760,685 | 54,585,819 |
+
+Native Memcheck on all eight public runtime tests reports zero errors and no
+definite or indirect leaks. Matched speed/shipping binaries and source archives
+have verified hashes. Two complete unchanged 24-block/144-command comparisons
+retain all nine workloads, eleven paired samples, three windows, twelve cost
+batches per profile and external contention. Both drivers return zero for
+complete evidence, but each records 96 failed gates and 48 successful commands.
+
+The small instruction reductions did not produce an acceptable elapsed-time
+change. Direct previous/candidate ratios are:
+
+| Previous paired cache / slice-policy elapsed time | Speed | Shipping |
+| --- | ---: | ---: |
+| Upvalue Auto | 1.00210 | 0.97539 |
+| Upvalue Off | 1.02752 | 0.92108 |
+| Callback Auto | 0.99093 | 0.99958 |
+| Callback Off | 1.02312 | 0.95245 |
+
+Shipping upvalue Auto is approximately 2.5 percent slower and Off is 8.6 percent
+slower. Against the original baseline, speed native Off/Auto ratios remain
+0.57000 for upvalues and 0.73085 for callbacks. Speed compiled-Off/no-feature
+ratios are 1.10290 and 1.05115; shipping ratios are 1.10705 and 1.08370. These
+do not meet the unchanged gates. Instruction counts alone were misleading:
+the slice-policy candidate was reverted in a separate commit, restoring the
+previous paired-cache executable sources exactly. Its unit-test compilation
+failure, corrected tests, rejected patch, immutable binaries, both full trials
+and summaries remain under `slice-policy-*`. Do not present the intermediate
+commit or lower instruction totals as a performance fix.
+
+An ordinary-code scoped lease-cache experiment passed correctness and native
+Memcheck but increased all four instruction totals to 103,379,958, 152,730,803,
+45,792,040 and 56,335,319 respectively. Saved clones did not compensate for
+the added scope and lease bookkeeping. The draft was fully reverted, not committed.
+The rejected patch, nine public Memcheck tests, profiles, source hashes and
+initial failed unit-test invocation remain under
+`target/jit-evidence/short-slice-performance/native-cache-*` and `slice-policy-*`.
+No workload, threshold, native-coverage assertion or resource limit changed.
+The original upvalue, callback and compiled-Off regressions remain unresolved.
+
 #### Scoped paired-code lease reuse — 2026-10-06
 
 `c38d99c` adds a one-entry cache owned by the scoped activation host. It retains

@@ -1,5 +1,14 @@
 # Native JIT: experimental scalar and heap tier
 
+Current production Auto includes scoped paired-code execution and lease reuse.
+The slice-policy snapshot (`859103e`) passed 4,640 correctness executions and
+native Memcheck, but its full comparisons showed shipping slowdowns despite
+lower instruction counts. It was reverted, as was the slower ordinary-code
+lease-cache experiment. The upvalue, callback and compiled-Off regressions
+remain unresolved. See the latest progress snapshot in
+`PLAN_JIT.md` for current evidence and open acceptance gates; earlier test-only
+milestones below are historical.
+
 The test-only scoped host now selects leased call programs before canonical
 Call dispatch (`7c5b5b7`). Cold/cached-native traces, fuel cutoffs, fallback
 errors and public executor callback/GC checks pass focused tests. Production
