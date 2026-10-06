@@ -119,9 +119,7 @@ pub(super) fn run_vm<'gc>(
         .flatten();
 
     #[cfg(feature = "jit")]
-    let (jit_active, _pairs_active) = ctx.jit().slice_policy();
-    #[cfg(feature = "jit")]
-    let native_id = if !hook_enabled && jit_active {
+    let native_id = if !hook_enabled && ctx.jit().active() {
         ctx.jit_registry().borrow().identity(ctx, current_prototype)
     } else {
         None
@@ -133,7 +131,7 @@ pub(super) fn run_vm<'gc>(
     #[cfg(feature = "jit")]
     let mut interpreter_stats = ctx.jit().interpreter_stats();
     #[cfg(feature = "jit")]
-    if hook_enabled && jit_active {
+    if hook_enabled && ctx.jit().active() {
         let mut manager = ctx.jit().0.borrow_mut();
         manager.stats.hook_exits = manager.stats.hook_exits.saturating_add(1);
     }
@@ -144,7 +142,7 @@ pub(super) fn run_vm<'gc>(
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    let observe_pairs = !hook_enabled && _pairs_active;
+    let observe_pairs = !hook_enabled && ctx.jit().call_pairs_enabled();
 
     #[cfg(all(
         feature = "jit",

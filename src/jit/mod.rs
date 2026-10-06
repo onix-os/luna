@@ -1188,24 +1188,6 @@ impl Runtime {
         self.0.borrow().config.mode == JitMode::Auto
     }
 
-    pub(crate) fn slice_policy(&self) -> (bool, bool) {
-        let manager = self.0.borrow();
-        let active = manager.config.mode == JitMode::Auto;
-        #[cfg(all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
-        let pairs = active && manager.pairs.is_some();
-        #[cfg(not(all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )))]
-        let pairs = false;
-        (active, pairs)
-    }
-
     #[cfg(any(
         test,
         all(
@@ -1974,43 +1956,6 @@ mod scheduling_tests;
 #[cfg(test)]
 mod policy_tests {
     use super::*;
-
-    #[test]
-    fn slice_policy_refreshes_mode_and_releases_manager_borrow() {
-        let runtime = Runtime::new();
-        for mode in [JitMode::Off, JitMode::Auto, JitMode::Off] {
-            runtime.0.borrow_mut().config.mode = mode;
-            let (active, pairs) = runtime.slice_policy();
-            assert_eq!(active, mode == JitMode::Auto);
-            #[cfg(all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            ))]
-            assert_eq!(pairs, runtime.call_pairs_enabled());
-            #[cfg(not(all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            )))]
-            assert!(!pairs);
-            drop(runtime.0.borrow_mut());
-        }
-        #[cfg(all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ))]
-        {
-            runtime.0.borrow_mut().configure(JitConfig {
-                mode: JitMode::Auto,
-                ..Default::default()
-            });
-            assert_eq!(runtime.slice_policy(), (true, true));
-            runtime.0.borrow_mut().config.mode = JitMode::Off;
-            assert_eq!(runtime.slice_policy(), (false, false));
-        }
-    }
 
     fn queued_manager() -> Manager {
         let mut manager = Manager::default();
