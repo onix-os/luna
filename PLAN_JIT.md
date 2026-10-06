@@ -131,6 +131,25 @@ control is retained, not discarded. Both baseline and candidate binaries are
 archived with verified hashes. These remain isolated diagnostics: no production
 path selects the region, and original acceptance remains incomplete.
 
+The new isolated instruction profiler collects only the non-inlined
+`cost::profile_region` execution wrapper, after compilation and prefix setup.
+Each of three iterations compares the entire trace to Off and requires 60,006
+native instructions for Auto/region; region additionally requires 10,000 pairs,
+10,001 caller fragments and no fallback. Make obtains the exact symbol-bearing
+test binary from Cargo artifact JSON, archives source/binary hashes and rejects
+empty collection or missing iteration witnesses. Initial lifetime-elision build
+errors are retained; the fixed profiler uses one explicit GC lifetime.
+
+The speed/symbol profile at `native-region-profile-v1` collects **51,691,809**
+instructions for Off, **95,500,500** for ordinary Auto, and **80,228,679** for
+the admitted-caller region. Region exclusive costs include canonical leave
+**12,120,000 (15.11%)**, region boundary **10,876,881 (13.56%)**, pair preflight
+**8,100,000 (10.10%)**, callee register preparation **5,700,000 (7.10%)**, and
+caller refresh **4,621,176 (5.76%)**. These identify remaining costs; they are
+not elapsed-time gates and must not be compared directly to earlier profiles
+that collected whole Executor steps. Previously rejected prototype binding,
+Session reuse and generic writeback experiments remain rejected.
+
 #### Scoped helper borrowing prerequisite — 2026-10-06
 
 Eight fresh, source-verified speed/symbol profiles of `9ccfb43` retain Auto

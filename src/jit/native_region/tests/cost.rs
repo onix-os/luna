@@ -112,3 +112,95 @@ fn paired_region_cost() {
             medians[0], medians[1], medians[2], medians[2] as f64 / medians[1] as f64, medians[2] as f64 / medians[0] as f64);
     });
 }
+
+fn profile_body<'gc>(
+    ctx: Context<'gc>,
+    host: &mut ActivationHost<'gc, '_>,
+    region: &Region<'gc>,
+    mode: &str,
+) -> [usize; 3] {
+    let mut counts = [0; 3];
+    while host.lua_ready() {
+        if mode == "region" {
+            if let Some(outcome) = region.run(ctx, host, 64, 64) {
+                outcome.result.unwrap();
+                counts[0] += outcome.pairs;
+                counts[1] += outcome.fragments;
+            } else {
+                counts[2] += 1;
+                host.run(ctx, 64, 64, 4).result.unwrap();
+            }
+        } else {
+            host.run(ctx, 64, 64, 4).result.unwrap();
+        }
+        assert!(host.fuel().should_continue());
+    }
+    counts
+}
+
+#[inline(never)]
+fn profile_region<'gc>(
+    ctx: Context<'gc>,
+    host: &mut ActivationHost<'gc, '_>,
+    region: &Region<'gc>,
+    mode: &str,
+) -> [usize; 3] {
+    black_box(profile_body(ctx, host, region, mode))
+}
+
+#[test]
+#[ignore = "isolated instruction profile, not timing acceptance"]
+fn region_cost_profile() {
+    let mode = std::env::var("LUNA_REGION_PROFILE_MODE").unwrap_or_else(|_| "region".into());
+    assert!(["off", "auto", "region"].contains(&mode.as_str()));
+    let iterations = setting("LUNA_REGION_ITERATIONS", 3, 100);
+    let workload = workloads::WORKLOADS
+        .iter()
+        .find(|case| case.name == "closure_upvalue")
+        .unwrap();
+    fixture_source(workload.source, |ctx, closure, region, start| {
+        let expected = with_test_thread(ctx, closure, &mut Fuel::with(1000000), |host| {
+            ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+            host.run(ctx, 1, start as u32, 4).result.unwrap();
+            let before = stats(ctx);
+            profile_body(ctx, host, &region, "off");
+            trace(ctx, host, before)
+        });
+        assert_eq!(expected.1, vec![(abi::INTEGER, workload.expected as u64)]);
+        for iteration in 0..iterations {
+            with_test_thread(ctx, closure, &mut Fuel::with(1000000), |host| {
+                ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                host.run(ctx, 1, start as u32, 4).result.unwrap();
+                ctx.jit().0.borrow_mut().config.mode = if mode == "off" {
+                    JitMode::Off
+                } else {
+                    JitMode::Auto
+                };
+                let before = ctx.jit().0.borrow().stats;
+                let counts = profile_region(ctx, host, &region, &mode);
+                let after = ctx.jit().0.borrow().stats;
+                assert_eq!(
+                    trace(
+                        ctx,
+                        host,
+                        (
+                            before.total_dispatches,
+                            before.native_instructions + before.interpreted_instructions
+                        )
+                    ),
+                    expected
+                );
+                if mode == "region" {
+                    assert_eq!(counts, [10000, 10001, 0]);
+                }
+                if mode != "off" {
+                    assert_eq!(
+                        after.native_instructions - before.native_instructions,
+                        60006
+                    );
+                }
+                println!("profile_verified=true mode={mode} iteration={iteration} native={} pairs={} fragments={} fallbacks={}", after.native_instructions - before.native_instructions, counts[0], counts[1], counts[2]);
+            });
+        }
+    });
+}
