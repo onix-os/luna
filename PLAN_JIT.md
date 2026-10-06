@@ -11,6 +11,26 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Scoped source-registration lease trial — 2026-10-07
+
+The admitted native region now experimentally owns an immutable registry borrow.
+Each paired session borrows that witness and compares the fresh physical callee
+against its resolved prototype after Call and before materialization. Ordinary
+unbound sessions retain registry identity lookups. The registration cannot change
+while the witness exists; no GC pointer escapes its arena scope. Frame transfer,
+capture refresh, full-prefix writeback, fuel, native coverage and slice limits are
+unchanged. This is a trial, not performance acceptance.
+
+Focused canonical/region/resume/cache gates pass **94 test executions** (two
+ignored). Changed-prototype adversarial checks cover both source paths. Added
+checks prove registry mutation is excluded during admission, available after
+return/error/panic, and rejects a stale source after reset. An integrated test
+collects twice after region return, then resumes the pending callback and loads
+new registered source successfully, including a canonical-fallback case.
+
+Full-suite and original native/compiled-Off performance acceptance are pending.
+Evidence is under `target/jit-evidence/short-slice-performance/source-lease-*`.
+
 #### Ordinary executor adapter trial rejected — 2026-10-07
 
 The exact compiled-Off profiles below motivated moving the ordinary slice closure

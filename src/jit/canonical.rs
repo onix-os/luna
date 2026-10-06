@@ -174,6 +174,7 @@ struct Session<'gc, 'host, 'borrow> {
     ctx: Context<'gc>,
     host: &'borrow mut ActivationHost<'gc, 'host>,
     site: &'borrow Site,
+    source: Option<&'borrow admission::BoundSource<'gc>>,
     frame: NativeFrame,
     slots: &'borrow mut [MaybeUninit<Slot>; 256],
     cell: Slot,
@@ -198,6 +199,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             ctx,
             host,
             site,
+            source: None,
             frame: NativeFrame {
                 slots: std::ptr::null_mut(),
                 view: std::ptr::null_mut(),
@@ -341,11 +343,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
         let site = self.site;
         let prepared = self.host.with_registers(|closure, registers| {
             if *registers.pc != 0
-                || ctx
-                    .jit_registry()
-                    .borrow()
-                    .identity(ctx, closure.prototype())
-                    != Some(site.callee)
+                || !source_matches(self.source, ctx, site.callee, closure)
                 || registers.stack_frame.len() < site.registers
             {
                 return None;
@@ -409,12 +407,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
         let cell = unsafe { cell.read() };
         assert_eq!(cell.tag, abi::INTEGER);
         self.host.with_registers(|closure, mut registers| {
-            assert_eq!(
-                ctx.jit_registry()
-                    .borrow()
-                    .identity(ctx, closure.prototype()),
-                Some(site.callee)
-            );
+            assert!(source_matches(self.source, ctx, site.callee, closure));
             assert_eq!(*registers.pc, 0);
             assert!(registers.projection_read(upper, index).is_some());
             // Enter initializes the entire prefix before publishing the native frame.
@@ -480,6 +473,23 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             std::panic::resume_unwind(payload);
         }
         outcome
+    }
+}
+
+fn source_matches<'gc>(
+    source: Option<&admission::BoundSource<'gc>>,
+    ctx: Context<'gc>,
+    identity: u64,
+    closure: crate::Closure<'gc>,
+) -> bool {
+    match source {
+        Some(source) => source.matches(closure.prototype()),
+        None => {
+            ctx.jit_registry()
+                .borrow()
+                .identity(ctx, closure.prototype())
+                == Some(identity)
+        }
     }
 }
 
