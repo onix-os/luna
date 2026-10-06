@@ -11,6 +11,41 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Caller-shadow synchronization checkpoint — 2026-10-06
+
+`711959d` adds a **test-only** caller-shadow transfer model and a real generated
+callee/interpreter differential test. It preserves pending caller scalars,
+materializes the function/argument tail and aliased capture before a call, then
+reloads actual canonical callee effects. Dropped transfers invalidate the
+shadow rather than permitting stale writeback. Binding, width, argument bounds,
+capture provenance and scalar tags are checked before materialization.
+
+The real native test verifies three generated callee instructions, one physical
+Call/Return pair and exact interpreter parity for frames, register tags/bits,
+open upvalues, fuel and dispatch accounting. Caller return tails are not
+universally nil: only requested missing results are nil-padded, so the model
+reloads actual tail values instead of inventing them.
+
+GNU/musl focused validation passes 52 executions; pinned Miri Stacked seed 1
+and Tree seed 2 pass ten model executions. Native Memcheck passes 26 executions
+with zero errors or definite/indirect leaks; possible 48-byte harness TLS loss
+per binary remains unsuppressed. i686-musl all-target checking passes with
+71 library and ten library-test warnings retained. The initial nonexistent
+`unsupported` shell invocation is retained separately; the declared shell is
+`fallback`. Logs and terminal markers are retained under
+`target/jit-evidence/short-slice-performance/caller-shadow-*`.
+
+**This is not a production optimization or a regression fix.** Generated caller
+integration, owner/source/code-lease authorization, frame/fuel/hook guards and
+full observable/error/parent-frame synchronization are still required. No new
+wall-clock speedup, full-matrix acceptance or release acceptance is claimed;
+the original performance gates remain unchanged and open.
+
+Hosted CI for exact revision `033c475` completed all seven jobs successfully,
+including real ARM64 native execution. The later `f641e7d` run currently has
+six successful jobs with musl native still running; it is not reported as
+completed, and neither run certifies the new caller-shadow revision.
+
 #### Current activation profiles and rejected cold diagnostics — 2026-10-06
 
 Fresh source/archive `09543dd` profiles, under
