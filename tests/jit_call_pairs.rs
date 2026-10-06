@@ -212,6 +212,7 @@ fn production_auto_to_off_clears_pairs_and_resumes_without_native_work() {
     assert_eq!(value.unwrap(), workload.expected);
     assert_eq!(after.native_pair_calls, before.native_pair_calls);
     assert_eq!(after.native_pair_returns, before.native_pair_returns);
+    assert_eq!(after.native_pair_cache_hits, before.native_pair_cache_hits);
     assert_eq!(after.native_entries, before.native_entries);
     assert_eq!(after.compilation_requests, before.compilation_requests);
 }
@@ -237,6 +238,10 @@ fn production_auto_pairs_execute_the_frozen_corpus_with_exact_off_slice_traces()
                 "production tier was not selected"
             );
             assert!(native.2.native_pair_calls >= native.2.native_pair_returns);
+            if fuel >= 64 {
+                assert!(native.2.native_pair_cache_hits > 0);
+            }
+            assert_eq!(reference.2.native_pair_cache_hits, 0);
             assert_eq!(
                 (
                     reference.2.native_pair_calls,
@@ -245,6 +250,27 @@ fn production_auto_pairs_execute_the_frozen_corpus_with_exact_off_slice_traces()
                 (0, 0)
             );
             assert_eq!(reference.2.native_entries, 0);
+        }
+    }
+}
+
+#[test]
+fn scoped_pair_cache_preserves_alternating_callees_at_one_callsite() {
+    let source = b"local n=0 local function add(v) n=n+v end local function sub(v) n=n-v end for i=1,600 do local f=i%2==0 and add or sub f(i) end return n";
+    for prepare in [false, true] {
+        for fuel in [24, 64, 1000] {
+            let reference = run(source, JitMode::Off, prepare, fuel);
+            let native = run(source, JitMode::Auto, prepare, fuel);
+            assert_eq!(native.0, 300);
+            assert_eq!((native.0, &native.1), (reference.0, &reference.1));
+            if fuel >= 64 {
+                assert!(
+                    native.2.native_pair_returns > 0,
+                    "prepare={prepare}, fuel={fuel}"
+                );
+            }
+            assert_eq!(native.2.native_pair_cache_hits, 0);
+            assert_eq!(native.2.compilation_failures, 0);
         }
     }
 }

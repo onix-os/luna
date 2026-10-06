@@ -69,7 +69,6 @@ impl<T> Shared<T> {
         unsafe { this.pointer.as_ref() }.strong.get()
     }
 
-    #[cfg(test)]
     pub fn ptr_eq(left: &Self, right: &Self) -> bool {
         left.pointer == right.pointer
     }

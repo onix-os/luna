@@ -187,6 +187,7 @@ impl Runtime {
         caller: crate::Closure<'gc>,
         registers: &crate::thread::LuaRegisters<'gc, '_>,
         pc: usize,
+        scope: &mut super::PairScope,
     ) -> Option<super::PreparedPair> {
         let prototype = caller.prototype();
         let crate::opcode::Operation::Call {
@@ -205,14 +206,55 @@ impl Runtime {
         else {
             return None;
         };
+        let caller_address = ottavino_gc_arena::Gc::as_ptr(prototype) as usize;
+        let callee_address = ottavino_gc_arena::Gc::as_ptr(callee.prototype()) as usize;
+        if scope.cache.as_ref().is_some_and(|cached| {
+            cached.program.key().pc == pc
+                && scope.caller == caller_address
+                && scope.callee == callee_address
+                && self.touch_pair(cached)
+        }) {
+            return scope.cache.take();
+        }
         let registry = ctx.jit_registry().borrow();
         let key = Key {
             caller: registry.identity(ctx, prototype)?,
             callee: registry.identity(ctx, callee.prototype())?,
             pc,
         };
-        self.pair_lease(key)
-            .map(|program| super::PreparedPair { program })
+        let program = self.pair_lease(key)?;
+        scope.cache = None;
+        scope.caller = caller_address;
+        scope.callee = callee_address;
+        Some(super::PreparedPair { program })
+    }
+
+    fn touch_pair(&self, cached: &super::PreparedPair) -> bool {
+        let mut manager = self.0.borrow_mut();
+        if manager.config.mode != JitMode::Auto {
+            return false;
+        }
+        manager.stats.code_lookups = manager.stats.code_lookups.saturating_add(1);
+        let clock = manager.clock.saturating_add(1);
+        let Some(entry) = manager
+            .pairs
+            .as_mut()
+            .and_then(|pairs| pairs.entries.get_mut(&cached.program.key()))
+        else {
+            return false;
+        };
+        if !entry
+            .program
+            .as_ref()
+            .is_some_and(|program| Shared::ptr_eq(program, &cached.program))
+        {
+            return false;
+        }
+        entry.last_used = clock;
+        manager.clock = clock;
+        manager.stats.native_pair_cache_hits =
+            manager.stats.native_pair_cache_hits.saturating_add(1);
+        true
     }
 
     pub(crate) fn call_pairs_enabled(&self) -> bool {

@@ -38,6 +38,14 @@ pub(super) struct Program {
 }
 
 impl Program {
+    pub(super) fn key(&self) -> super::pairs::Key {
+        super::pairs::Key {
+            caller: self.site.caller,
+            callee: self.site.callee,
+            pc: self.site.pc,
+        }
+    }
+
     pub fn new(
         key: super::pairs::Key,
         caller: &super::ir::Snapshot,

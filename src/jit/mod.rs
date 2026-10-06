@@ -248,6 +248,7 @@ pub struct JitStats {
     pub native_entries: u64,
     pub native_pair_calls: u64,
     pub native_pair_returns: u64,
+    pub native_pair_cache_hits: u64,
     pub code_lookups: u64,
     pub code_leases: u64,
     pub native_instructions: u64,
@@ -1015,6 +1016,19 @@ pub(crate) struct Prepared {
 ))]
 pub(crate) struct PreparedPair {
     program: owner::Shared<canonical::Program>,
+}
+
+#[cfg(all(
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[derive(Default)]
+pub(crate) struct PairScope {
+    pub handoff: Option<PreparedPair>,
+    pub cache: Option<PreparedPair>,
+    caller: usize,
+    callee: usize,
 }
 
 #[cfg(all(

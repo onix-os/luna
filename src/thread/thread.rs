@@ -801,7 +801,7 @@ pub(super) struct LuaFrame<'gc, 'a> {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    pub(super) pair_handoff: Option<&'a mut Option<crate::jit::PreparedPair>>,
+    pub(super) pair_handoff: Option<&'a mut crate::jit::PairScope>,
     pub(super) state: &'a mut ThreadState<'gc>,
     // The executor or activation host owns this stack borrow.
     pub(super) stack: FrameStack<'gc, 'a>,
