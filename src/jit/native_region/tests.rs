@@ -612,6 +612,10 @@ fn region_preserves_canonical_error_and_stops_before_callback_execution() {
             &b"local n=0 local function f(v) n=n+v end f(3) cb() return n"[..],
             false,
         ),
+        (
+            &b"local n=0 local function f(v) n=n+v end f(3) local a=7 local b=3 local q=a%b cb() return n,q"[..],
+            false,
+        ),
     ] {
         fixture_source(source, |ctx, closure, region, start| {
             let callback =
@@ -698,6 +702,103 @@ fn stats(ctx: Context<'_>) -> (u64, u64) {
         stats.total_dispatches,
         stats.native_instructions + stats.interpreted_instructions,
     )
+}
+
+#[test]
+fn interpreted_prefixes_preserve_paired_coverage_and_bounded_accounting() {
+    for source in [
+        &b"local n=0 local function f(v) n=n+v end for i=1,20 do local q=i%3 f(i) end return n"[..],
+        &b"local n=0 local function f(v) n=n+v end local a='a' local b='b' for i=1,20 do local q=a<b f(i) end return n"[..],
+    ] {
+        fixture_source(source, |ctx, closure, region, start| {
+            for limit in [1, 2, 3, 4, 8, 64] {
+                for budget in [1, 2, 3, 4, 8, 64] {
+                    for fuel in [-1, 0, 1, 8, 20, 10000] {
+                        for select_pairs in [false, true] {
+                            let (native, slices, error) = with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+                                ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                                host.run(ctx, 1, start as u32, 4).result.unwrap();
+                                host.test_fuel(Fuel::with(fuel));
+                                host.test_pair_selection(select_pairs);
+                                ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+                                let before = stats(ctx);
+                                let returns = ctx.jit().0.borrow().stats.native_pair_returns;
+                                let outcome = region.run(ctx, host, limit, budget).unwrap();
+                                assert!(outcome.slices > 0 && outcome.slices <= limit);
+                                assert!(outcome.fragments > 0 && outcome.fragments <= outcome.slices);
+                                assert!(ctx.jit().0.borrow().resume_scope.is_none());
+                                assert_eq!(ctx.jit().0.borrow().stats.native_pair_returns - returns, outcome.pairs as u64);
+                                if (limit, budget, fuel) == (64, 64, 10000) && select_pairs {
+                                    assert_eq!(outcome.pairs, 20);
+                                    assert!(matches!(host.test_trace().1.as_slice(), [Value::Integer(210)]));
+                                }
+                                if limit == 1 || budget < 4 || !select_pairs {
+                                    assert_eq!(outcome.pairs, 0);
+                                }
+                                (trace(ctx, host, before), outcome.slices, outcome.result.err().map(|e| e.to_string()))
+                            });
+                            let canonical = with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+                                ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                                host.run(ctx, 1, start as u32, 4).result.unwrap();
+                                host.test_fuel(Fuel::with(fuel));
+                                let before = stats(ctx);
+                                let result = host.run(ctx, slices, budget, 4).result;
+                                (trace(ctx, host, before), result.err().map(|e| e.to_string()))
+                            });
+                            assert_eq!((native, error), canonical, "limit={limit} budget={budget} fuel={fuel} pairs={select_pairs}");
+                        }
+                    }
+                }
+            }
+        });
+    }
+}
+
+#[test]
+fn interpreted_prefix_handoff_uses_the_selected_call_site() {
+    for source in [
+        &b"local n=0 local function f(v) n=n+v end for i=1,10 do local a=i%3 f(i) local divisor=2 local b=i%divisor f(i) end return n"[..],
+        &b"local n=0 local function f(v) n=n+v end for i=1,10 do f(i) f(i) end return n"[..],
+    ] {
+    fixture_source(
+        source,
+        |ctx, closure, region, start| {
+            let prototype = closure.prototype();
+            let key = region.pair.program.key();
+            let allocator = ctx.jit().0.borrow().snapshots.clone();
+            for (pc, opcode) in prototype.opcodes.iter().enumerate() {
+                if pc != key.pc && matches!(opcode.decode(), Operation::Call { .. }) {
+                    let key = super::super::pairs::Key { pc, ..key };
+                    ctx.jit().observe_pair(key);
+                    ctx.jit().compile_pair(
+                        key,
+                        super::super::ir::Snapshot::new_in(&prototype, 4096, allocator.clone()).unwrap(),
+                        super::super::ir::Snapshot::new_in(&prototype.prototypes[0], 4096, allocator.clone()).unwrap(),
+                    ).unwrap();
+                }
+            }
+            let (native, slices) = with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+                ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                host.run(ctx, 1, start as u32, 4).result.unwrap();
+                ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+                let before = stats(ctx);
+                let outcome = region.run(ctx, host, 64, 64).unwrap();
+                outcome.result.unwrap();
+                assert_eq!(outcome.pairs, 20);
+                assert!(matches!(host.test_trace().1.as_slice(), [Value::Integer(110)]));
+                (trace(ctx, host, before), outcome.slices)
+            });
+            let canonical = with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+                ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                host.run(ctx, 1, start as u32, 4).result.unwrap();
+                let before = stats(ctx);
+                host.run(ctx, slices, 64, 4).result.unwrap();
+                trace(ctx, host, before)
+            });
+            assert_eq!(native, canonical);
+        },
+    );
+    }
 }
 
 #[test]

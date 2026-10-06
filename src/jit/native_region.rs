@@ -177,6 +177,59 @@ impl Session<'_, '_, '_, '_> {
         scoped_helpers::publish_region(&mut self.frame, self.slots, &mut self.host, view);
     }
 
+    #[inline(never)]
+    fn fallback(&mut self, exit: &abi::Exit) {
+        let ctx = self.frame.ctx;
+        let token = resume::Token::new(
+            ctx,
+            self.admitted.caller(),
+            self.region.source,
+            self.identity,
+            exit.pc as usize,
+            exit.instructions,
+            Prepared {
+                code: self.region.ordinary.code.clone(),
+            },
+        );
+        let mut scope = super::PairScope::default();
+        let select_pairs = self.limit - self.outcome.slices >= 2
+            && self.budget >= 4
+            && self.frame.host.pairing_enabled(ctx);
+        let result = token.run_paired(
+            ctx,
+            self.frame.host,
+            self.budget,
+            select_pairs.then_some(&mut scope),
+        );
+        self.outcome.slices += 1;
+        let (result, charged) = if let Some(pair) = scope.handoff.take() {
+            let completed = result.expect("pair handoff with VM error");
+            assert!(completed < self.budget);
+            if let Some(paired) = pair.invoke(ctx, self.frame.host, self.budget, completed) {
+                self.outcome.slices += paired.returns;
+                self.outcome.pairs += paired.returns;
+                (paired.result.map(|()| 0), true)
+            } else {
+                (
+                    self.frame
+                        .host
+                        .canonical_slice(ctx, self.budget - completed)
+                        .map(|instructions| completed + instructions),
+                    false,
+                )
+            }
+        } else {
+            (result, false)
+        };
+        if let Ok(instructions) = result {
+            self.frame.host.charge_instructions(instructions);
+        }
+        if !charged {
+            self.frame.host.charge_native_slice(0);
+        }
+        self.outcome.result = result.map(|_| ());
+    }
+
     fn complete(&mut self, view: &mut View) -> u32 {
         let ctx = self.frame.ctx;
         self.outcome.fragments += 1;
@@ -205,6 +258,7 @@ impl Session<'_, '_, '_, '_> {
             self.outcome.slices += 1;
         } else if let Some(transition) = transition {
             let paired = if self.limit - self.outcome.slices >= 2
+                && self.frame.host.pairing_enabled(ctx)
                 && view.exit.pc as usize == self.region.pair.program.key().pc
             {
                 self.admitted
@@ -216,6 +270,10 @@ impl Session<'_, '_, '_, '_> {
                 self.outcome.slices += 1 + paired.returns;
                 self.outcome.pairs += paired.returns;
                 self.outcome.result = paired.result;
+            } else if matches!(transition, crate::opcode::CallTransition::Call { .. })
+                && view.exit.pc as usize != self.region.pair.program.key().pc
+            {
+                self.fallback(&view.exit);
             } else {
                 self.outcome.result =
                     self.frame
@@ -225,25 +283,7 @@ impl Session<'_, '_, '_, '_> {
                 return 0;
             }
         } else {
-            let resume = resume::Token::new(
-                ctx,
-                self.admitted.caller(),
-                self.region.source,
-                self.identity,
-                view.exit.pc as usize,
-                view.exit.instructions,
-                Prepared {
-                    code: self.region.ordinary.code.clone(),
-                },
-            );
-            let result = resume.run(ctx, self.frame.host, self.budget);
-            if let Ok(instructions) = result {
-                self.frame.host.charge_instructions(instructions);
-            }
-            self.frame.host.charge_native_slice(0);
-            self.outcome.slices += 1;
-            self.outcome.result = result.map(|_| ());
-            return 0;
+            self.fallback(&view.exit);
         }
         if self.outcome.result.is_err()
             || self.outcome.slices >= self.limit
