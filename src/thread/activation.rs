@@ -35,7 +35,6 @@ pub(crate) struct ActivationHost<'gc, 'a> {
 
 pub(crate) struct Outcome {
     pub result: Result<(), VMError>,
-    #[cfg(test)]
     pub activations: usize,
     #[cfg(test)]
     pub stack_growths: usize,
@@ -114,6 +113,24 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                     ..
                 })
             )
+    }
+
+    pub(crate) fn lua_pending(&self) -> bool {
+        self.state.mode() == ThreadMode::Normal
+            && matches!(self.state.frames.last(), Some(Frame::Lua { .. }))
+    }
+
+    pub(crate) fn pairing_enabled(&self, ctx: Context<'gc>) -> bool {
+        #[cfg(test)]
+        if self.decline_pairs {
+            return false;
+        }
+        ctx.jit().call_pairs_enabled()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stack_capacity(&self) -> usize {
+        self.stack.capacity()
     }
 
     pub(crate) fn fuel(&self) -> &Fuel {
@@ -244,8 +261,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    #[cfg(test)]
-    pub(crate) fn test_native_transition(
+    pub(crate) fn native_transition(
         &mut self,
         ctx: Context<'gc>,
         transition: crate::opcode::CallTransition,
@@ -259,14 +275,16 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                     args,
                     returns,
                 } => {
-                    ctx.jit().observe_call(
-                        ctx,
-                        frame.closure(),
-                        &frame.registers(),
-                        func,
-                        args,
-                        returns,
-                    );
+                    if ctx.jit().call_pairs_enabled() {
+                        ctx.jit().observe_call(
+                            ctx,
+                            frame.closure(),
+                            &frame.registers(),
+                            func,
+                            args,
+                            returns,
+                        );
+                    }
                     frame.call_function(ctx, func, args, returns)
                 }
                 crate::opcode::CallTransition::TailCall { func, args } => {
@@ -294,15 +312,13 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
     #[cfg(test)]
-    pub(crate) fn test_resume_native(
+    pub(crate) fn resume_native(
         &mut self,
         ctx: Context<'gc>,
         budget: u32,
         resume: super::vm::NativeResume<'gc>,
     ) -> Result<u32, VMError> {
-        assert!(self.pair.handoff.is_none());
-        self.select_pairs = false;
-        self.with_frame(|frame| super::vm::resume_vm(ctx, frame, budget, resume))
+        self.resume_native_paired(ctx, budget, resume, None)
     }
 
     #[cfg(all(
@@ -310,8 +326,45 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    #[cfg(test)]
-    pub(crate) fn test_frame_identity(&self) -> (usize, usize) {
+    pub(crate) fn resume_native_paired(
+        &mut self,
+        ctx: Context<'gc>,
+        budget: u32,
+        resume: super::vm::NativeResume<'gc>,
+        scope: Option<&mut crate::jit::PairScope>,
+    ) -> Result<u32, VMError> {
+        assert!(self.pair.handoff.is_none());
+        self.select_pairs = false;
+        let frame = LuaFrame {
+            pair_handoff: scope,
+            state: self.state,
+            stack: &mut self.stack,
+            fuel: self.fuel,
+        };
+        super::vm::resume_vm(ctx, frame, budget, resume)
+    }
+
+    #[cfg(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    pub(crate) fn canonical_slice(
+        &mut self,
+        ctx: Context<'gc>,
+        budget: u32,
+    ) -> Result<u32, VMError> {
+        assert!(self.pair.handoff.is_none());
+        self.select_pairs = false;
+        self.with_frame(|frame| run_vm(ctx, frame, budget))
+    }
+
+    #[cfg(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    pub(crate) fn frame_identity(&self) -> (usize, usize) {
         (
             std::ptr::from_ref(&*self.state) as usize,
             self.state.frames.len(),
@@ -321,6 +374,31 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
 
 impl<'gc, 'a> ActivationHost<'gc, 'a> {
     pub fn run(&mut self, ctx: Context<'gc>, limit: usize, budget: u32, step_fuel: i32) -> Outcome {
+        assert!(limit > 0);
+        #[cfg(all(
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ))]
+        if step_fuel == 4 && self.lua_ready() && ctx.jit().active() {
+            let outcome = crate::jit::chains::Driver::default().run(ctx, self, limit, budget);
+            return Outcome {
+                result: outcome.result,
+                activations: outcome.slices,
+                #[cfg(test)]
+                stack_growths: outcome.stack_growths,
+            };
+        }
+        self.run_canonical(ctx, limit, budget, step_fuel)
+    }
+
+    pub(crate) fn run_canonical(
+        &mut self,
+        ctx: Context<'gc>,
+        limit: usize,
+        budget: u32,
+        step_fuel: i32,
+    ) -> Outcome {
         assert!(limit > 0);
         let mut activations = 0;
         #[cfg(test)]
@@ -399,7 +477,6 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
             {
                 return Outcome {
                     result,
-                    #[cfg(test)]
                     activations,
                     #[cfg(test)]
                     stack_growths,

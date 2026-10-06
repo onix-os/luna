@@ -20,7 +20,7 @@ fn prefix<'gc>(
     if ctx.hook_enabled() {
         return None;
     }
-    let frame = host.test_frame_identity();
+    let frame = host.frame_identity();
     host.with_registers(|closure, mut registers| {
         let id = ctx
             .jit_registry()
@@ -53,32 +53,45 @@ fn prefix<'gc>(
 }
 
 #[derive(Default)]
-struct Driver {}
+pub(crate) struct Driver {}
 
-struct Outcome {
-    slices: usize,
+pub(crate) struct Outcome {
+    pub slices: usize,
+    #[cfg(test)]
     pairs: usize,
-    result: Result<(), crate::thread::VMError>,
+    #[cfg(test)]
+    pub stack_growths: usize,
+    pub result: Result<(), crate::thread::VMError>,
 }
 
 impl Driver {
-    fn run<'gc>(
+    pub(crate) fn run<'gc>(
         &mut self,
         ctx: Context<'gc>,
         host: &mut ActivationHost<'gc, '_>,
         limit: usize,
         budget: u32,
     ) -> Outcome {
+        assert!(limit > 0);
         let mut scope = PairScope::default();
         let mut outcome = Outcome {
             slices: 0,
+            #[cfg(test)]
             pairs: 0,
+            #[cfg(test)]
+            stack_growths: 0,
             result: Ok(()),
         };
-        while outcome.slices < limit && host.lua_ready() {
+        while outcome.slices < limit && host.lua_pending() {
+            #[cfg(test)]
+            let capacity = host.stack_capacity();
             let Some(prefix) = prefix(ctx, host, budget) else {
-                let fallback = host.run(ctx, limit - outcome.slices, budget, 4);
+                let fallback = host.run_canonical(ctx, limit - outcome.slices, budget, 4);
                 outcome.slices += fallback.activations;
+                #[cfg(test)]
+                {
+                    outcome.stack_growths += fallback.stack_growths;
+                }
                 outcome.result = fallback.result;
                 break;
             };
@@ -89,7 +102,7 @@ impl Driver {
                 let pair = if matches!(transition, CallTransition::Call { .. })
                     && limit - outcome.slices >= 2
                     && budget >= 4
-                    && ctx.jit().call_pairs_enabled()
+                    && host.pairing_enabled(ctx)
                 {
                     host.with_registers(|closure, registers| {
                         ctx.jit().prepare_call_at(
@@ -109,21 +122,58 @@ impl Driver {
                 scope.cache = pair;
                 if let Some(paired) = paired {
                     outcome.slices += 1 + paired.returns;
-                    outcome.pairs += paired.returns;
+                    #[cfg(test)]
+                    {
+                        outcome.pairs += paired.returns;
+                    }
                     outcome.result = paired.result;
                 } else {
-                    outcome.result =
-                        host.test_native_transition(ctx, transition, prefix.instructions);
+                    outcome.result = host.native_transition(ctx, transition, prefix.instructions);
                     outcome.slices += 1;
                 }
             } else {
-                let result = host.test_resume_native(ctx, budget, prefix.resume.unwrap());
+                let select_pairs =
+                    limit - outcome.slices >= 2 && budget >= 4 && host.pairing_enabled(ctx);
+                let result = host.resume_native_paired(
+                    ctx,
+                    budget,
+                    prefix.resume.unwrap(),
+                    select_pairs.then_some(&mut scope),
+                );
+                outcome.slices += 1;
+                let (result, charged) = if let Some(pair) = scope.handoff.take() {
+                    let completed = result.expect("pair handoff with VM error");
+                    assert!(completed < budget);
+                    let paired = pair.invoke(ctx, host, budget, completed);
+                    scope.cache = Some(pair);
+                    if let Some(paired) = paired {
+                        outcome.slices += paired.returns;
+                        #[cfg(test)]
+                        {
+                            outcome.pairs += paired.returns;
+                        }
+                        (paired.result.map(|()| 0), true)
+                    } else {
+                        (
+                            host.canonical_slice(ctx, budget - completed)
+                                .map(|instructions| completed + instructions),
+                            false,
+                        )
+                    }
+                } else {
+                    (result, false)
+                };
                 if let Ok(completed) = result {
                     host.charge_instructions(completed);
                 }
-                host.charge_native_slice(0);
+                if !charged {
+                    host.charge_native_slice(0);
+                }
                 outcome.result = result.map(|_| ());
-                outcome.slices += 1;
+            }
+            #[cfg(test)]
+            {
+                outcome.stack_growths += usize::from(host.stack_capacity() > capacity);
             }
             if outcome.result.is_err() || !host.fuel().should_continue() {
                 break;
@@ -206,7 +256,7 @@ mod tests {
                             &mut fuel,
                             |host| {
                                 for _ in 0..2 {
-                                    host.run(ctx, 1, 64, 4).result.unwrap();
+                                    host.run_canonical(ctx, 1, 64, 4).result.unwrap();
                                 }
                                 ctx.jit().0.borrow_mut().stats = Default::default();
                                 if mode == JitMode::Auto {
@@ -219,7 +269,7 @@ mod tests {
                                         assert!(outcome.pairs != 0);
                                     }
                                 } else {
-                                    host.run(ctx, limit, budget, 4).result.unwrap();
+                                    host.run_canonical(ctx, limit, budget, 4).result.unwrap();
                                 }
                                 traces.push(trace(ctx, host));
                             },
@@ -279,7 +329,7 @@ mod tests {
                         &mut fuel,
                         |host| {
                             for _ in 0..2 {
-                                host.run(ctx, 1, 64, 4).result.unwrap();
+                                host.run_canonical(ctx, 1, 64, 4).result.unwrap();
                             }
                             host.test_fuel(Fuel::with(remaining));
                             ctx.jit().0.borrow_mut().stats = Default::default();
@@ -288,7 +338,7 @@ mod tests {
                                 outcome.result.unwrap();
                                 assert!(outcome.slices > 0);
                             } else {
-                                host.run(ctx, 8, 64, 4).result.unwrap();
+                                host.run_canonical(ctx, 8, 64, 4).result.unwrap();
                             }
                             traces.push(trace(ctx, host));
                         },
@@ -308,7 +358,7 @@ mod tests {
             let mut fuel = Fuel::with(4096);
             crate::thread::activation::with_test_existing_thread(ctx, thread, &mut fuel, |host| {
                 for _ in 0..2 {
-                    host.run(ctx, 1, 64, 4).result.unwrap();
+                    host.run_canonical(ctx, 1, 64, 4).result.unwrap();
                 }
             });
             ctx.stash(thread)
@@ -425,7 +475,7 @@ mod tests {
 
     #[test]
     fn caught_native_panic_releases_a_previously_cached_pair_lease() {
-        let source = b"local sum=0 local function add(v) sum=sum+v end for i=1,10000 do add(i) local unused=trigger end return sum";
+        let source = b"local sum=0 local function add(v) sum=sum+v end for i=1,10000 do local remainder=i%3 add(i) local unused=trigger end return sum";
         let (mut lua, closure) = state(JitMode::Auto, source);
         lua.enter(|ctx| {
             let closure = ctx.fetch(&closure);
@@ -457,7 +507,7 @@ mod tests {
             let mut fuel = Fuel::with(4096);
             crate::thread::activation::with_test_existing_thread(ctx, thread, &mut fuel, |host| {
                 for _ in 0..2 {
-                    host.run(ctx, 1, 64, 4).result.unwrap();
+                    host.run_canonical(ctx, 1, 64, 4).result.unwrap();
                 }
                 let mut driver = Driver::default();
                 let setup = driver.run(ctx, host, 1, 1);
@@ -512,7 +562,7 @@ mod tests {
                                 assert_eq!(outcome.slices, 1);
                                 assert!(ctx.jit().0.borrow().stats.native_instructions > 0);
                             } else {
-                                host.run(ctx, 1, budget, 4).result.unwrap();
+                                host.run_canonical(ctx, 1, budget, 4).result.unwrap();
                             }
                             traces.push(trace(ctx, host));
                             statistics.push(ctx.jit().0.borrow().stats);
@@ -575,7 +625,7 @@ mod tests {
                             assert_eq!(outcome.slices, 1);
                             outcome.result
                         } else {
-                            host.run(ctx, 1, 64, 4).result
+                            host.run_canonical(ctx, 1, 64, 4).result
                         };
                         errors.push(result.unwrap_err().to_string());
                         let stats = ctx.jit().0.borrow().stats;
@@ -634,7 +684,7 @@ mod tests {
                             outcome.result.unwrap();
                             assert_eq!(outcome.slices, 1);
                         } else {
-                            host.run(ctx, 1, 64, 4).result.unwrap();
+                            host.run_canonical(ctx, 1, 64, 4).result.unwrap();
                         }
                         let stats = ctx.jit().0.borrow().stats;
                         assert_eq!(stats.helper_declines, 1);
@@ -678,7 +728,7 @@ mod tests {
                     thread,
                     &mut fuel,
                     |host| {
-                        host.run(ctx, 16, 4, 4).result.unwrap();
+                        host.run_canonical(ctx, 16, 4, 4).result.unwrap();
                         host.test_fuel(Fuel::with(4096));
                         ctx.jit().0.borrow_mut().stats = Default::default();
                         if driver {
@@ -686,7 +736,7 @@ mod tests {
                             outcome.result.unwrap();
                             assert_eq!(outcome.slices, 1);
                         } else {
-                            host.run(ctx, 1, 64, 4).result.unwrap();
+                            host.run_canonical(ctx, 1, 64, 4).result.unwrap();
                         }
                         traces.push(trace(ctx, host));
                     },
@@ -726,7 +776,7 @@ mod tests {
                                     outcome.result.unwrap();
                                     assert_eq!(outcome.slices, limit);
                                 } else {
-                                    host.run(ctx, limit, budget, 4).result.unwrap();
+                                    host.run_canonical(ctx, limit, budget, 4).result.unwrap();
                                 }
                                 assert_eq!(ctx.jit().0.borrow().stats.native_entries, 0);
                                 traces.push(trace(ctx, host));
@@ -754,7 +804,7 @@ mod tests {
             let mut fuel = Fuel::with(4096);
             crate::thread::activation::with_test_existing_thread(ctx, thread, &mut fuel, |host| {
                 ctx.jit().0.borrow_mut().stats = Default::default();
-                host.run(ctx, 1, 64, 4).result.unwrap();
+                host.run_canonical(ctx, 1, 64, 4).result.unwrap();
                 trace(ctx, host)
             })
         });
@@ -792,9 +842,8 @@ mod tests {
                             }
                         }
                         let before = ctx.jit().0.borrow().stats;
-                        let completed = host
-                            .test_resume_native(ctx, 64, prefix.resume.unwrap())
-                            .unwrap();
+                        let completed =
+                            host.resume_native(ctx, 64, prefix.resume.unwrap()).unwrap();
                         host.charge_native_slice(completed);
                         let after = ctx.jit().0.borrow().stats;
                         assert_eq!(after.native_entries, before.native_entries);
@@ -833,7 +882,7 @@ mod tests {
                         let before = trace(ctx, host);
                         let statistics = ctx.jit().0.borrow().stats;
                         let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            host.test_resume_native(ctx, budget, prefix.resume.unwrap())
+                            host.resume_native(ctx, budget, prefix.resume.unwrap())
                         }));
                         assert!(caught.is_err());
                         assert_eq!(trace(ctx, host), before);
@@ -869,7 +918,7 @@ mod tests {
                 host.with_registers(|_, registers| *registers.pc = pc);
                 let before = trace(ctx, host);
                 let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    host.test_resume_native(ctx, 64, resume)
+                    host.resume_native(ctx, 64, resume)
                 }));
                 assert!(caught.is_err());
                 assert_eq!(trace(ctx, host), before);
