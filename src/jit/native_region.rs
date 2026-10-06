@@ -164,7 +164,6 @@ impl Region {
         )?;
         let mut session = Session {
             region: self,
-            caller,
             admitted,
             frame,
             slots,
@@ -205,7 +204,6 @@ impl Region {
 
 struct Session<'gc, 'host, 'borrow, 'region> {
     region: &'region Region,
-    caller: scoped_helpers::BoundCode<'region, 'gc>,
     admitted: super::canonical::admission::Admitted<'region, 'gc>,
     frame: scoped_helpers::Frame<'gc, 'host, 'borrow>,
     slots: &'borrow mut [abi::Slot],
@@ -226,7 +224,7 @@ impl Session<'_, '_, '_, '_> {
         let ctx = self.frame.ctx;
         self.outcome.fragments += 1;
         let transition = self.frame.host.with_registers(|closure, registers| {
-            assert_eq!(closure, self.caller.source());
+            assert_eq!(closure, self.admitted.caller());
             for (slot, value) in self.slots.iter().zip(registers.stack_frame.iter_mut()) {
                 slot.write_back(value);
             }
@@ -272,7 +270,7 @@ impl Session<'_, '_, '_, '_> {
         } else {
             let resume = NativeResume::new(
                 ctx,
-                self.caller.source(),
+                self.admitted.caller(),
                 self.region.source,
                 self.identity,
                 view.exit.pc as usize,
@@ -300,7 +298,8 @@ impl Session<'_, '_, '_, '_> {
         }
         let pc = self.frame.host.with_registers(|closure, registers| {
             if registers.stack_frame.len() < self.slots.len()
-                || !self.caller.accepts_entry(closure, *registers.pc)
+                || closure != self.admitted.caller()
+                || !self.region.caller.accepts_pc(*registers.pc)
             {
                 return None;
             }

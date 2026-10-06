@@ -149,6 +149,10 @@ impl Code {
         self.code.registers
     }
 
+    pub(super) fn accepts_pc(&self, pc: usize) -> bool {
+        self.code.entries.get(pc).copied().unwrap_or(false)
+    }
+
     pub(super) fn entry(&self) -> abi::Entry {
         self.code.linked_entry()
     }
@@ -182,7 +186,7 @@ impl<'gc> BoundCode<'_, 'gc> {
     }
 
     pub(super) fn accepts_entry(&self, source: Closure<'gc>, pc: usize) -> bool {
-        source == self.source && self.code.code.entries.get(pc).copied().unwrap_or(false)
+        source == self.source && self.code.accepts_pc(pc)
     }
 
     pub(super) fn prepare(

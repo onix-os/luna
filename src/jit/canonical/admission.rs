@@ -11,6 +11,10 @@ pub(in crate::jit) struct Admitted<'program, 'gc> {
 }
 
 impl<'program, 'gc> Admitted<'program, 'gc> {
+    pub(in crate::jit) fn caller(&self) -> Closure<'gc> {
+        self.caller
+    }
+
     pub(in crate::jit) fn new(
         program: &'program Program,
         ctx: Context<'gc>,
