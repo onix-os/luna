@@ -1287,6 +1287,11 @@ pub(crate) struct LuaRegisters<'gc, 'a> {
 
 impl<'gc, 'a> LuaRegisters<'gc, 'a> {
     #[cfg(all(test, feature = "jit"))]
+    pub(crate) fn shadow_key(&self) -> (usize, usize) {
+        (Gc::as_ptr(self.stack) as usize, self.base)
+    }
+
+    #[cfg(all(test, feature = "jit"))]
     pub(crate) fn with_test_frame<R>(
         ctx: Context<'gc>,
         pc: &mut usize,

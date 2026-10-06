@@ -11,6 +11,124 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Suspended-caller recovery checkpoint — 2026-10-06
+
+`b7d6817` adds **test-only** one-way recovery of pending noncapture values below
+the call tail. A caller-frame witness checks host identity, exact depth,
+closure, bottom/base/size, consumed PC, surviving prefix and child overlap
+before granting prefix access. Recovery preserves actual capture effects and
+never revalidates the shadow. It is limited to the caller or one physical child,
+not an arbitrary ancestor lookup or a replacement for native lease admission.
+
+Exact trace differential tests cover four generated-call budget declines,
+call-depth refusal and consumed-call VM error. Declined callees then resume
+canonically without replaying the call. Guard tests reject unconsumed PCs,
+different closures, foreign hosts, callee overlap and oversized prefixes without
+state changes. A failed initial oracle is retained: foreign-thread setup changes
+shared runtime counters; the corrected snapshot precedes the tested rejection,
+after setup, with the full trace comparison retained.
+
+Focused GNU/musl tests pass 60 executions, pinned Miri Stacked seed 1 / Tree
+seed 2 pass fourteen model executions, and native Memcheck passes thirty
+executions with zero errors or definite/indirect leaks. Possible 48-byte harness
+TLS losses and Miri warnings remain unsuppressed. i686-musl all-target checking
+passes with 71 library and ten library-test warnings retained. Evidence prefixes
+are `caller-shadow-recovery-*` under the existing short-slice evidence directory.
+
+The full GNU Auto workspace/all-target matrix passes 1,168 executions across
+eighty suites, zero failures, four existing ignores and no Rust warnings.
+This is one mode/target, not a complete new-revision platform matrix.
+Production generated-caller integration, failed
+Return with partial native effects, panic cleanup and callback/GC observable
+boundaries remain unimplemented or unproven. **No performance regression fix or
+new speedup is claimed**, and the original acceptance gates stay open.
+
+#### Caller-shadow synchronization checkpoint — 2026-10-06
+
+`711959d` adds a **test-only** caller-shadow transfer model and a real generated
+callee/interpreter differential test. It preserves pending caller scalars,
+materializes the function/argument tail and aliased capture before a call, then
+reloads actual canonical callee effects. Dropped transfers invalidate the
+shadow rather than permitting stale writeback. Binding, width, argument bounds,
+capture provenance and scalar tags are checked before materialization.
+
+The real native test verifies three generated callee instructions, one physical
+Call/Return pair and exact interpreter parity for frames, register tags/bits,
+open upvalues, fuel and dispatch accounting. Caller return tails are not
+universally nil: only requested missing results are nil-padded, so the model
+reloads actual tail values instead of inventing them.
+
+GNU/musl focused validation passes 52 executions; pinned Miri Stacked seed 1
+and Tree seed 2 pass ten model executions. Native Memcheck passes 26 executions
+with zero errors or definite/indirect leaks; possible 48-byte harness TLS loss
+per binary remains unsuppressed. i686-musl all-target checking passes with
+71 library and ten library-test warnings retained. The initial nonexistent
+`unsupported` shell invocation is retained separately; the declared shell is
+`fallback`. Logs and terminal markers are retained under
+`target/jit-evidence/short-slice-performance/caller-shadow-*`.
+
+**This is not a production optimization or a regression fix.** Generated caller
+integration, owner/source/code-lease authorization, frame/fuel/hook guards and
+full observable/error/parent-frame synchronization are still required. No new
+wall-clock speedup, full-matrix acceptance or release acceptance is claimed;
+the original performance gates remain unchanged and open.
+
+Hosted CI for exact revision `033c475` completed all seven jobs successfully,
+including real ARM64 native execution. The later `f641e7d` run currently has
+six successful jobs with musl native still running; it is not reported as
+completed, and neither run certifies the new caller-shadow revision.
+
+#### Current activation profiles and rejected cold diagnostics — 2026-10-06
+
+Fresh source/archive `09543dd` profiles, under
+`native-activation-isolated-profile-v1`, complete eight Callgrind runs with
+verified source/binary hashes: upvalues/callbacks, Off/Auto, matching
+feature-disabled controls, speed optimization with symbols retained. Collected
+Off instructions remain exactly equal to the earlier thin build: upvalues
+101,779,863 versus no-feature 91,575,447; callbacks 45,316,930 versus 42,538,855.
+Thus the shipping timing improvement from production isolation is not evidence
+of fewer executed interpreter instructions. Auto collects 151,972,649 upvalue
+and 54,760,685 callback instructions; neither is performance acceptance.
+
+Current upvalue Auto exclusive costs remain canonical leave 19,705,680 (12.97%),
+ordinary eight-slot invocation 16,494,304 (10.85%), enter register preparation
+9,244,640 (6.08%), call preparation 7,366,763 (4.85%) and canonical enter
+7,347,056 (4.83%). Callback seven-slot invocation collects 7,576,620 (13.84%).
+Simulated branch/cache events and diagnostic worker elapsed times are not
+hardware or release certification. Prior rejected writeback, prototype-binding
+and Session-reuse experiments are not repeated.
+
+The exact current canonical-leave assembly constructs successful-path assertion
+diagnostic tuples on the stack. A new bounded candidate retains every PC/start,
+call/return-count comparison, but constructs the same assertion tuple only in
+a cold non-inlined mismatch helper. All remaining frame, source, owner, scalar
+tag, exit and materialization guards stay unchanged. The existing malformed
+leave differential fixture now covers all four comparisons and verifies no
+materialization, physical Return, state/statistics or fuel changes on failure.
+GNU/musl focused checks pass 120 executions in eleven suites, zero failures or
+ignores and no Rust warnings. A wrong Make target invocation is retained; the
+correct target is `jit-call-canonical`.
+
+The candidate (`8197115`, profile archive `9a16c5a`) then completes eight
+source-verified runs under `canonical-leave-cold-profile-v1`. Assembly confirms
+the diagnostic tuple stores move off the successful path. Canonical leave
+collects 19,559,712 instructions versus 19,705,680; total Auto upvalues collect
+151,826,741 versus 151,972,649, only about 0.10% fewer. Callback Auto is
+54,760,604 versus 54,760,685, effectively unchanged. Off upvalues collect
+101,780,271 versus 101,779,863 and callbacks remain exactly 45,316,930. These
+small instruction differences do not address the original performance gap.
+The cold-diagnostic runtime change is rejected at the diagnostic stage and
+restored before wall-clock promotion; no elapsed-time improvement or regression
+is claimed. The expanded four-case malformed-return fixture remains. All
+instruction profiles, source archives, hashes and assembly remain retained.
+Restored GNU/musl focused validation passes 120 executions in eleven suites;
+native Memcheck passes all twenty canonical tests, including the expanded
+malformed-return fixture, with zero errors and no definite/indirect leaks.
+The possible 48-byte Rust-harness TLS loss remains unsuppressed. Runtime source
+matches retained `09543dd` exactly; only the regression fixture is expanded.
+Next work must address activation/invocation structure rather than further
+entry-ABI, tuple-diagnostic or previously rejected writeback micro-changes.
+
 #### Production isolation candidate — 2026-10-06
 
 `NativeResume`, the optional shared-VM resume parameter, its validation and
