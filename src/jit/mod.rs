@@ -249,7 +249,6 @@ pub struct JitStats {
     pub native_pair_calls: u64,
     pub native_pair_returns: u64,
     pub native_pair_cache_hits: u64,
-    pub native_pair_batches: u64,
     pub code_lookups: u64,
     pub code_leases: u64,
     pub native_instructions: u64,
@@ -1039,9 +1038,7 @@ pub(crate) struct PairScope {
 ))]
 pub(crate) struct PairOutcome {
     pub calls: usize,
-    #[cfg(test)]
     pub returns: usize,
-    pub extra_activations: usize,
     pub result: Result<(), crate::thread::VMError>,
 }
 
@@ -1057,14 +1054,19 @@ impl PreparedPair {
         host: &mut crate::thread::activation::ActivationHost<'gc, '_>,
         budget: u32,
         prefix: u32,
-        extra_limit: usize,
     ) -> Option<PairOutcome> {
-        self.program
-            .invoke_batch(ctx, host, budget, prefix, extra_limit)
-    }
-
-    fn same_program(&self, program: &canonical::Program) -> bool {
-        std::ptr::eq(&*self.program, program)
+        let outcome = self.program.invoke_result(ctx, host, budget, prefix);
+        if let Some(outcome) = &outcome {
+            ctx.jit().record_pair_execution(
+                outcome.calls,
+                if outcome.result.is_ok() {
+                    outcome.returns
+                } else {
+                    0
+                },
+            );
+        }
+        outcome
     }
 }
 

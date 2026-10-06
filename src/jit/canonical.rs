@@ -111,7 +111,6 @@ impl Program {
         })
     }
 
-    #[cfg(test)]
     pub fn invoke_result<'gc>(
         &self,
         ctx: Context<'gc>,
@@ -125,30 +124,6 @@ impl Program {
         }
         drop(manager);
         invoke_result(ctx, host, &self.site, &self.code, budget, prefix)
-    }
-
-    pub fn invoke_batch<'gc>(
-        &self,
-        ctx: Context<'gc>,
-        host: &mut ActivationHost<'gc, '_>,
-        budget: u32,
-        prefix: u32,
-        extra_limit: usize,
-    ) -> Option<super::PairOutcome> {
-        let manager = ctx.jit().0.borrow();
-        if manager.config.mode != super::JitMode::Auto || !self.origin.same_root(&manager.memory) {
-            return None;
-        }
-        drop(manager);
-        invoke_batch(
-            ctx,
-            host,
-            &self.site,
-            &self.code,
-            budget,
-            prefix,
-            Some((self, extra_limit)),
-        )
     }
 }
 
@@ -166,7 +141,6 @@ struct Session<'gc, 'host, 'borrow> {
     error: Option<crate::thread::VMError>,
     panic: Option<Box<dyn Any + Send>>,
     prefix: u32,
-    extra_activations: usize,
 }
 
 impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
@@ -201,7 +175,6 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             error: None,
             panic: None,
             prefix: 0,
-            extra_activations: 0,
         }
     }
 
@@ -297,7 +270,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
     }
 
     fn enter(&mut self, pc: u64, function: u32, arguments: u32) -> *mut NativeFrame {
-        if self.calls != self.returns
+        if self.calls != 0
             || (pc, function, arguments)
                 != (
                     self.site.pc as u64,
@@ -308,7 +281,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             return std::ptr::null_mut();
         }
         let ctx = self.ctx;
-        self.calls += 1;
+        self.calls = 1;
         let result = self.host.call(ctx, self.site.function, self.site.arguments);
         let mut stats = ctx.jit().interpreter_stats();
         stats.dispatches = 1;
@@ -373,8 +346,8 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
     fn leave(&mut self, frame: *mut NativeFrame, pc: u64, start: u32) -> u32 {
         assert_eq!(frame, std::ptr::addr_of_mut!(self.frame));
         assert_eq!(
-            (pc, start, self.calls),
-            (3, u32::from(self.site.start.0), self.returns + 1)
+            (pc, start, self.calls, self.returns),
+            (3, u32::from(self.site.start.0), 1, 0)
         );
         let (upper, index) = self.target.unwrap();
         let cell = if upper {
@@ -435,7 +408,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             self.host.charge_native_slice(self.frame.exit.instructions);
             return 1;
         }
-        self.returns += 1;
+        self.returns = 1;
         let result = self.host.return_fixed(
             ctx,
             self.site.start,
@@ -456,9 +429,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
         let payload = self.panic.take();
         let outcome = super::PairOutcome {
             calls: self.calls,
-            #[cfg(test)]
             returns: self.returns,
-            extra_activations: self.extra_activations,
             result: self.error.take().map_or(Ok(()), Err),
         };
         drop(self);
@@ -510,7 +481,6 @@ fn invoke<'gc>(
     })
 }
 
-#[cfg(test)]
 fn invoke_result<'gc>(
     ctx: Context<'gc>,
     host: &mut ActivationHost<'gc, '_>,
@@ -519,86 +489,16 @@ fn invoke_result<'gc>(
     budget: u32,
     prefix: u32,
 ) -> Option<super::PairOutcome> {
-    invoke_batch(ctx, host, site, code, budget, prefix, None)
-}
-
-fn invoke_batch<'gc>(
-    ctx: Context<'gc>,
-    host: &mut ActivationHost<'gc, '_>,
-    site: &Site,
-    code: &CallCode,
-    budget: u32,
-    prefix: u32,
-    repeat: Option<(&Program, usize)>,
-) -> Option<super::PairOutcome> {
     let mut scratch = [MaybeUninit::uninit(); 256];
     let mut session = Session::new(ctx, host, site, &mut scratch);
     session.prefix = prefix;
     if !session.preflight(budget) {
         return None;
     }
-    loop {
-        let before = (session.calls, session.returns);
-        unsafe {
-            code.invoke(std::ptr::addr_of_mut!(session).cast(), budget.min(64));
-        }
-        session.extra_activations += session.returns - before.1;
-        if repeat.is_some() && session.panic.is_none() {
-            ctx.jit().record_pair_execution(
-                session.calls - before.0,
-                if session.error.is_none() {
-                    session.returns - before.1
-                } else {
-                    0
-                },
-            );
-        }
-        let Some((program, limit)) = repeat else {
-            break;
-        };
-        if session.panic.is_some()
-            || session.error.is_some()
-            || session.returns == before.1
-            || session.extra_activations + 2 > limit
-            || !session.host.fuel().should_continue()
-            || !session.host.lua_ready()
-        {
-            break;
-        }
-        let next = session.host.resume_pair_slice(ctx, budget);
-        if let Some(pair) = session.host.take_pair() {
-            let prefix = next.expect("pair handoff with VM error");
-            if !pair.same_program(program) {
-                session.host.defer_pair(pair, prefix);
-                break;
-            }
-            session.prefix = prefix;
-            if !session.preflight(budget) {
-                session.host.defer_pair(pair, prefix);
-                break;
-            }
-            session.host.cache_pair(pair);
-            session.extra_activations += 1;
-            session.frame.exit = Exit::default();
-            session.view.reads = 0;
-            session.view.writes = 0;
-            session.view.dirty = 0;
-            session.target = None;
-        } else {
-            session.extra_activations += 1;
-            match next {
-                Ok(instructions) => session.host.charge_instructions(instructions),
-                Err(error) => session.error = Some(error),
-            }
-            session.host.charge_native_slice(0);
-            break;
-        }
+    unsafe {
+        code.invoke(std::ptr::addr_of_mut!(session).cast(), budget.min(64));
     }
     let outcome = session.finish();
-    if repeat.is_some() && outcome.calls > 1 {
-        let mut manager = ctx.jit().0.borrow_mut();
-        manager.stats.native_pair_batches = manager.stats.native_pair_batches.saturating_add(1);
-    }
     (outcome.calls != 0).then_some(outcome)
 }
 

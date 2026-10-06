@@ -713,14 +713,19 @@ impl<'gc> Executor<'gc> {
                         let result = if let Some(limit) =
                             std::num::NonZeroUsize::new(ctx.jit().scoped_activation_limit())
                         {
-                            let outcome = super::activation::run_scoped(
-                                ctx,
-                                top_state,
-                                fuel,
-                                limit.get(),
-                                Self::VM_GRANULARITY,
-                                Self::FUEL_PER_STEP,
-                            );
+                            let outcome = {
+                                let mut host = super::activation::ActivationHost::new(
+                                    top_state,
+                                    stack.borrow_mut(&ctx),
+                                    fuel,
+                                );
+                                host.run(
+                                    ctx,
+                                    limit.get(),
+                                    Self::VM_GRANULARITY,
+                                    Self::FUEL_PER_STEP,
+                                )
+                            };
                             #[cfg(test)]
                             ctx.jit()
                                 .record_activations(outcome.activations, outcome.stack_growths);
