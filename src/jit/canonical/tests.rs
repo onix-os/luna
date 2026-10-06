@@ -14,6 +14,171 @@ use crate::{thread::activation::with_test_thread, Closure, Fuel, JitConfig, Lua}
 const ADD: &[u8] = b"local n=7 local function f(v) n=n+v end f(2) return n";
 
 #[test]
+fn suspended_caller_prefix_rejects_wrong_pc_host_source_and_overlap() {
+    fixture(
+        b"local n=7 local p=10 local function f(v) n=n+v end f(2) return n,p",
+        |lua, closure, site, _code| {
+            for case in 0..5 {
+                lua.enter(|ctx| {
+                    with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                        position(host, ctx, site.pc);
+                        let caller = host.caller_frame().unwrap();
+                        let count = usize::from(site.function.0);
+                        assert!(host
+                            .with_caller_prefix(&caller, count, |_, _, _| panic!(
+                                "unconsumed call accepted"
+                            ))
+                            .is_none());
+                        if case == 1 {
+                            host.test_replace_closure(
+                                Closure::load(ctx, None, b"return 1").unwrap(),
+                            );
+                        }
+                        host.call(ctx, site.function, site.arguments).unwrap();
+                        let mut before = stats(ctx);
+                        let mut original = trace(ctx, host, before);
+                        match case {
+                            0 => assert_eq!(
+                                host.with_caller_prefix(&caller, count, |_, _, values| values
+                                    .len()),
+                                Some(count)
+                            ),
+                            1 => assert!(host
+                                .with_caller_prefix(&caller, count, |_, _, _| panic!(
+                                    "changed source accepted"
+                                ))
+                                .is_none()),
+                            2 => assert!(host
+                                .with_caller_prefix(&caller, count + 1, |_, _, _| panic!(
+                                    "callee overlap accepted"
+                                ))
+                                .is_none()),
+                            3 => assert!(host
+                                .with_caller_prefix(&caller, usize::MAX, |_, _, _| panic!(
+                                    "oversized prefix accepted"
+                                ))
+                                .is_none()),
+                            4 => with_test_thread(
+                                ctx,
+                                ctx.fetch(&closure),
+                                &mut Fuel::with(10000),
+                                |foreign| {
+                                    position(foreign, ctx, site.pc);
+                                    foreign.call(ctx, site.function, site.arguments).unwrap();
+                                    before = stats(ctx);
+                                    original = trace(ctx, host, before);
+                                    assert!(foreign
+                                        .with_caller_prefix(&caller, count, |_, _, _| panic!(
+                                            "foreign host accepted"
+                                        ))
+                                        .is_none());
+                                },
+                            ),
+                            _ => unreachable!(),
+                        }
+                        assert_eq!(trace(ctx, host, before), original);
+                    });
+                });
+            }
+        },
+    );
+}
+
+#[test]
+fn caller_shadow_recovers_pending_values_after_partial_calls_and_errors() {
+    fixture(
+        b"local n=7 local p=10 local function f(v) n=n+v end f(2) return n,p",
+        |lua, closure, site, code| {
+            assert!(site.function.0 > 1);
+            for case in 0..6 {
+                let run = |lua: &mut Lua, native: bool| {
+                    lua.enter(|ctx| {
+                        ctx.set_max_call_depth(if case == 4 { 1 } else { 1000 });
+                        with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                            position(host, ctx, site.pc);
+                            let before = stats(ctx);
+                            if native {
+                                let caller = host.caller_frame().unwrap();
+                                let (mut shadow, capture) =
+                                    host.with_registers(|caller, registers| {
+                                        let Value::Function(Function::Closure(callee)) =
+                                            registers.stack_frame[usize::from(site.function.0)]
+                                        else {
+                                            panic!("expected closure");
+                                        };
+                                        (
+                                            crate::jit::caller_shadow::Shadow::<256>::capture(
+                                                caller, &registers,
+                                            )
+                                            .unwrap(),
+                                            callee.upvalues()[usize::from(site.pattern.upvalue)]
+                                                .get(),
+                                        )
+                                    });
+                                shadow.slots_mut()[0] = Slot::from_value(Value::Integer(12));
+                                shadow.slots_mut()[1] = Slot::from_value(Value::Integer(99));
+                                shadow.slots_mut()[usize::from(site.function.0) + 1] =
+                                    Slot::from_value(Value::Integer(5));
+                                let transfer = host.with_registers(|caller, mut registers| {
+                                    shadow
+                                        .prepare_call(
+                                            caller,
+                                            &mut registers,
+                                            site.function.0,
+                                            site.arguments,
+                                            capture,
+                                        )
+                                        .unwrap()
+                                });
+                                let mut scratch = [MaybeUninit::uninit(); 256];
+                                let mut session = Session::new(ctx, host, &site, &mut scratch);
+                                assert!(session.preflight(64));
+                                if case == 5 {
+                                    session.host.test_variable_stack();
+                                }
+                                unsafe {
+                                    code.invoke(
+                                        std::ptr::addr_of_mut!(session).cast(),
+                                        if case < 4 { case } else { 64 },
+                                    );
+                                }
+                                let outcome = session.finish();
+                                assert_eq!((outcome.calls, outcome.returns), (1, 0));
+                                assert_eq!(outcome.result.is_err(), case == 5);
+                                assert!(transfer.recover(host, &caller));
+                            } else {
+                                host.with_registers(|_, registers| {
+                                    registers.stack_frame[0] = Value::Integer(12);
+                                    registers.stack_frame[1] = Value::Integer(99);
+                                    registers.stack_frame[usize::from(site.function.0) + 1] =
+                                        Value::Integer(5);
+                                });
+                                if case == 5 {
+                                    host.test_variable_stack();
+                                }
+                                assert_eq!(host.run(ctx, 1, 64, 4).result.is_err(), case == 5);
+                                if case < 4 {
+                                    assert!(host.run(ctx, 1, 0, 4).result.is_ok());
+                                }
+                            }
+                            let suspended = trace(ctx, host, before);
+                            let resumed = if case < 4 {
+                                assert!(host.run(ctx, 2, 64, 4).result.is_ok());
+                                Some(trace(ctx, host, before))
+                            } else {
+                                None
+                            };
+                            (suspended, resumed)
+                        })
+                    })
+                };
+                assert_eq!(run(lua, true), run(lua, false), "case={case}");
+            }
+        },
+    );
+}
+
+#[test]
 fn caller_shadow_transfer_refreshes_after_real_native_call_and_return() {
     fixture(ADD, |lua, closure, site, code| {
         lua.enter(|ctx| {

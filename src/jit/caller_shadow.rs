@@ -125,6 +125,51 @@ impl<'gc, const N: usize> Shadow<'gc, N> {
 }
 
 impl<'gc, const N: usize> Transfer<'_, 'gc, N> {
+    fn recover_prefix(
+        self,
+        closure: Closure<'gc>,
+        key: (usize, usize),
+        values: &mut [crate::Value<'gc>],
+    ) -> bool {
+        if self.shadow.ready
+            || !ottavino_gc_arena::Gc::ptr_eq(
+                self.shadow.closure.into_inner(),
+                closure.into_inner(),
+            )
+            || self.shadow.key != key
+            || values.len() != self.tail
+            || !self.shadow.valid()
+        {
+            return false;
+        }
+        for (index, (slot, value)) in self.shadow.slots[..self.tail]
+            .iter()
+            .copied()
+            .zip(values)
+            .enumerate()
+        {
+            if self.capture != Some(index) {
+                slot.write_back(value);
+            }
+        }
+        true
+    }
+
+    #[cfg(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    pub(super) fn recover(
+        self,
+        host: &mut crate::thread::activation::ActivationHost<'gc, '_>,
+        caller: &crate::thread::activation::CallerFrame<'gc>,
+    ) -> bool {
+        host.with_caller_prefix(caller, self.tail, |closure, key, values| {
+            self.recover_prefix(closure, key, values)
+        }) == Some(true)
+    }
+
     pub(super) fn resume(self, closure: Closure<'gc>, registers: &LuaRegisters<'gc, '_>) -> bool {
         if self.shadow.ready || !self.shadow.matches(closure, registers) {
             return false;
@@ -141,6 +186,77 @@ impl<'gc, const N: usize> Transfer<'_, 'gc, N> {
         self.shadow.ready = true;
         true
     }
+}
+
+#[test]
+fn recovery_materializes_pending_prefix_without_overwriting_capture_effects() {
+    let mut lua = crate::Lua::empty();
+    lua.enter(|ctx| {
+        let closure = Closure::load(ctx, None, b"return 1").unwrap();
+        let mut pc = 0;
+        let mut values = [crate::Value::Integer(10); 8];
+        LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+            let capture = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
+            let key = registers.shadow_key();
+            let mut shadow = Shadow::<8>::capture(closure, &registers).unwrap();
+            shadow.slots_mut()[0] = Slot::from_value(crate::Value::Integer(42));
+            shadow.slots_mut()[2] = Slot::from_value(crate::Value::Integer(99));
+            let transfer = shadow
+                .prepare_call(closure, &mut registers, 6, 1, capture)
+                .unwrap();
+            registers.stack_frame[0] = crate::Value::Integer(45);
+            registers.stack_frame[6] = crate::Value::Integer(123);
+            assert!(transfer.recover_prefix(closure, key, &mut registers.stack_frame[..6]));
+            assert!(matches!(
+                registers.stack_frame[0],
+                crate::Value::Integer(45)
+            ));
+            assert!(matches!(
+                registers.stack_frame[2],
+                crate::Value::Integer(99)
+            ));
+            assert!(matches!(
+                registers.stack_frame[6],
+                crate::Value::Integer(123)
+            ));
+            assert!(!shadow.flush(closure, &mut registers));
+        });
+    });
+}
+
+#[test]
+fn refused_recovery_never_materializes_or_revalidates_pending_values() {
+    let mut lua = crate::Lua::empty();
+    lua.enter(|ctx| {
+        let closure = Closure::load(ctx, None, b"return 1").unwrap();
+        let foreign = Closure::load(ctx, None, b"return 1").unwrap();
+        for case in 0..3 {
+            let mut pc = 0;
+            let mut values = [crate::Value::Integer(10); 8];
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                let capture = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
+                let mut key = registers.shadow_key();
+                let mut shadow = Shadow::<8>::capture(closure, &registers).unwrap();
+                shadow.slots_mut()[2] = Slot::from_value(crate::Value::Integer(99));
+                let transfer = shadow
+                    .prepare_call(closure, &mut registers, 6, 1, capture)
+                    .unwrap();
+                if case == 1 {
+                    key.1 += 1;
+                }
+                assert!(!transfer.recover_prefix(
+                    if case == 0 { foreign } else { closure },
+                    key,
+                    &mut registers.stack_frame[..if case == 2 { 5 } else { 6 }],
+                ));
+                assert!(matches!(
+                    registers.stack_frame[2],
+                    crate::Value::Integer(10)
+                ));
+                assert!(!shadow.flush(closure, &mut registers));
+            });
+        }
+    });
 }
 
 #[test]

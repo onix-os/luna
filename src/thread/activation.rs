@@ -41,6 +41,22 @@ pub(crate) struct Outcome {
     pub stack_growths: usize,
 }
 
+#[cfg(all(
+    test,
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+pub(crate) struct CallerFrame<'gc> {
+    state: usize,
+    depth: usize,
+    closure: crate::Closure<'gc>,
+    bottom: usize,
+    base: usize,
+    size: usize,
+    pc: usize,
+}
+
 impl<'gc, 'a> ActivationHost<'gc, 'a> {
     pub fn new(
         state: &'a mut ThreadState<'gc>,
@@ -103,6 +119,84 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         f: impl for<'frame> FnOnce(crate::Closure<'gc>, crate::thread::LuaRegisters<'gc, 'frame>) -> R,
     ) -> R {
         self.with_frame(|mut frame| f(frame.closure(), frame.registers()))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn caller_frame(&self) -> Option<CallerFrame<'gc>> {
+        let Frame::Lua {
+            closure,
+            bottom,
+            base,
+            stack_size,
+            pc,
+            is_variable: false,
+            ..
+        } = self.state.frames.last()?
+        else {
+            return None;
+        };
+        Some(CallerFrame {
+            state: std::ptr::from_ref(&*self.state) as usize,
+            depth: self.state.frames.len(),
+            closure: *closure,
+            bottom: *bottom,
+            base: *base,
+            size: *stack_size,
+            pc: *pc,
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_caller_prefix<R>(
+        &mut self,
+        caller: &CallerFrame<'gc>,
+        count: usize,
+        call: impl FnOnce(crate::Closure<'gc>, (usize, usize), &mut [crate::Value<'gc>]) -> R,
+    ) -> Option<R> {
+        if caller.state != std::ptr::from_ref(&*self.state) as usize
+            || !(caller.depth..=caller.depth.checked_add(1)?).contains(&self.state.frames.len())
+            || count > caller.size
+        {
+            return None;
+        }
+        let Frame::Lua {
+            closure,
+            bottom,
+            base,
+            stack_size,
+            pc,
+            ..
+        } = self.state.frames.get(caller.depth.checked_sub(1)?)?
+        else {
+            return None;
+        };
+        if !ottavino_gc_arena::Gc::ptr_eq(closure.into_inner(), caller.closure.into_inner())
+            || (*bottom, *base, *stack_size, *pc)
+                != (
+                    caller.bottom,
+                    caller.base,
+                    caller.size,
+                    caller.pc.checked_add(1)?,
+                )
+        {
+            return None;
+        }
+        if self.state.frames.len() > caller.depth {
+            match self.state.frames.last()? {
+                Frame::Lua { bottom, .. } | Frame::Callback { bottom, .. }
+                    if caller.base.checked_add(count)? <= *bottom => {}
+                Frame::Error(_) => {}
+                _ => return None,
+            }
+        }
+        let key = (
+            ottavino_gc_arena::Gc::as_ptr(self.state.stack) as usize,
+            caller.base,
+        );
+        let values = self
+            .stack
+            .get_mut(caller.base..caller.base.checked_add(count)?)?;
+        Some(call(*closure, key, values))
     }
 
     pub(crate) fn lua_ready(&self) -> bool {
