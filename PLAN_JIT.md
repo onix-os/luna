@@ -11,6 +11,56 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Rejected direct-helper ABI-hop removal — 2026-10-06
+
+The scoped helper bridge was experimentally changed to call a shared Rust
+implementation directly instead of constructing an opaque host and entering the
+ordinary C helper. Both panic boundaries, projection handling, materialization,
+counts and native coverage were preserved. **The experiment is removed**:
+the published runtime remains `7b92c98`, not this slower candidate.
+
+The symbol-bearing speed profile executes **127,755,818** upvalue instructions
+versus **126,645,129** for production; the compiler outlines the shared
+catch-unwind closure. Seven alternating diagnostic worker windows nevertheless
+show six apparent Auto gains. Those symbol-worker results do not transfer to
+the original benchmark executable or establish acceptance.
+
+Six alternating windows of the unchanged nine-case native gate and both
+speed/shipping compiled-Off gates then run **36 checked commands**, with eleven
+paired samples and twenty iterations for disabled controls. All aggregate gates
+fail. Upvalue Auto regresses in every window: direct control/candidate ratios
+**0.9829–0.9975**, median **0.9938**. Native work remains exactly **778,484**,
+with **259,491 entries**, **4,357 region entries** and **129,299 fragments**.
+The compared execution counters match for every native-harness workload.
+
+Shipping disabled direct median control/candidate gains are **0.9326** for
+integer, **0.9310** for float, **0.9470** for table and **0.9453** for upvalue
+(greater than one means faster). Candidate shipping upvalue/no-feature
+ratios are **1.1977–1.2164**, above the unchanged **1.05** limit. Native table,
+metamethod and allocation timings also regress. Narrow diagnostic gains are
+not a reason to retain a change that worsens the actual consumers.
+
+Candidate checks pass **1,278 GNU Auto executions / 82 suites** (six ignores),
+**394 GNU baseline executions / 81 suites** (two ignores), **81 focused musl
+executions / nine suites** (two ignores), another **81 focused GNU executions**
+(two ignores), **13 Miri tests**, and **577 real i686-musl all-feature Auto
+executions / 82 suites** (no ignores). Four native production integration
+executions pass Memcheck with zero errors or definite/indirect loss; each
+process's possible 48-byte harness TLS allocation remains visible. An initial
+i686-gnu check used the wrong shell/target and failed; the corrected fallback
+evidence uses the declared `.#fallback` shell and i686-musl target.
+
+Source patches/archives, immutable artifacts and hashes, profiles, raw windows,
+contention telemetry and the 540-row report remain under
+`target/jit-evidence/short-slice-performance/scoped-direct-helper-*`.
+No owned build, test or profile overlapped timings; unrelated applications
+were left running. Collection exit zero means collection/hash verification
+completed, not that its benchmark gates passed. Original performance,
+resource, platform and release acceptance remain open.
+Both helper files now match the published source exactly; restored checks pass
+**23 executions / four suites**, with no failures or ignores, plus formatting
+and all-target JIT checking.
+
 #### Rejected adapter and shared-accounting trials — 2026-10-06
 
 Two measured trials were removed; the production runtime remains the
