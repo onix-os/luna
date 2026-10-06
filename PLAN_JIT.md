@@ -11,6 +11,44 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Exact compiled-Off attribution — 2026-10-07
+
+Linker-boundary replay now also recovers symbols for the original feature-cost
+probes. All eight rebuilt stripped images (production/operand trial, both profiles,
+with/without JIT) byte-match their frozen originals. Symbol companions match
+program headers, allocated metadata and every nonempty allocated payload. The
+temporary trial attribute is removed; 36 restored focused tests and formatting pass.
+
+Six unchanged **complete** cost workers run under Callgrind with their original
+`--worker --iterations 20` arguments. Dumps before `std::io::stdio::_print`
+partition the nine reports without changing benchmark source. Collection is
+limited to executor steps. Empty initial/final intervals, ordered verified reports,
+zero native work, all thirteen total event sums, independent exclusive self costs
+and binary/raw hashes verify. These are diagnostic instruction counts, not timings.
+
+For all seven warm cases in both profiles, production and the rejected operand
+trial execute **identical instructions, data reads/writes and branch counts**.
+Their VM functions have equal sizes and normalized instruction sequences; speed
+retains 35 differing read-only-data annotations, so this does not establish binary
+identity across variants. Shipping predicate/cold totals differ by +18/-42
+instructions and remain recorded. The measured candidate-specific slowdown is
+not extra interpreter instruction work. No specific hardware cause is proven;
+the original timing failures and rejection still stand.
+
+The feature itself does add work relative to no-JIT: upvalue instruction overhead
+is **14.05% speed / 12.13% shipping**, callbacks **8.73% / 6.09%**. Speed upvalue
+VM self costs rise **158,858,612 → 189,661,252**. The feature build also outlines
+the ordinary executor-slice closure, with **13,800,690** self instructions absent
+as a separate function in the no-feature profile. That cost includes required
+frame/borrow work, not just adapter overhead. This motivates testing whether the
+ordinary adapter can be folded into the executor without changing slices, frames,
+statistics, panic behavior or the interpreter loop itself.
+
+Evidence: `target/jit-evidence/short-slice-performance/cost-link-capture/`, including
+link inputs/maps, allocation proofs, complete raw profiles, normalized assembly,
+`verified-full-profiles.json` and `function-costs.json`. Performance acceptance
+and the full original plan remain incomplete.
+
 #### Operand inlining still fails matched-path controls — 2026-10-07
 
 The launch-path finding warranted retesting the previously rejected operand
