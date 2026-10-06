@@ -13,6 +13,23 @@
 
 #### Frame-width resident scratch candidate — 2026-10-06
 
+**Production route rejected again in `4169436`; width-sized machinery retained
+test-only.** GNU checking and seventy focused GNU/musl chain/public-pair
+executions pass after rollback, with zero failures. Production source outside
+the test-only chain module matches the pre-candidate checkpoint.
+The completed `resident-width-timing` run has 24 native rounds per profile,
+twelve compiled-Off rounds per profile, paired eleven-sample invocations,
+alternating control order and verified hashes. Speed/shipping Auto-Off median
+ratios are upvalue **0.49355/0.48375**, callback **0.5789/0.5181**, metamethod
+**0.7003/0.66805**, table **1.2209/1.3824** and allocation **0.94035/0.76145**.
+Upvalue/callback/metamethod gates fail all 24 rounds in both profiles. Direct
+original-Auto/candidate-Auto ratios are upvalue **0.661799/0.724849** and callback
+**0.698648/0.637712**. Scratch sizing fixes measured waste but does not make the
+resident scheduler competitive with the original production control.
+Compiled-Off/no-feature costs also fail: upvalue **1.1302/1.2313**, callback
+**1.1094/1.10385** against the unchanged 1.05 limit. Neither successful evidence
+collection nor lower Callgrind instruction counts constitute acceptance.
+
 `5d4155e` reintroduces scoped production resident execution with scratch classes
 8/16/32/64/128/256 selected from actual frame width. Flush reads the shadow in
 place before clearing it instead of taking an owned snapshot. The VM remains
@@ -35,7 +52,8 @@ in the rejected fixed-capacity candidate to **70,221,629**; upvalue Auto falls
 from 192,609,796 to **181,698,997**. Callback memcpy is now 0.39% of collected
 instructions and memset is absent from the 99%-coverage annotation. These are
 instruction observations, not wall-clock acceptance. Original thresholds and
-native coverage remain unchanged; repeated timing collection is still required.
+native coverage remain unchanged; the repeated timing results above reject the
+candidate despite its reduced scratch cost.
 The initial profile-v1 process was deliberately stopped while awaiting its
 first Cargo lock, before compilation: release artifact build scripts share
 post-build copy paths and must run serially. Its terminal143 evidence is retained;
