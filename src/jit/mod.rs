@@ -117,6 +117,13 @@ mod mock;
 #[cfg(test)]
 mod model;
 #[cfg(all(
+    test,
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod native_region;
+#[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
@@ -134,6 +141,12 @@ mod pairs;
 mod preds;
 pub(crate) mod registry;
 pub(crate) mod resources;
+#[cfg(all(
+    test,
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod scoped_helpers;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")

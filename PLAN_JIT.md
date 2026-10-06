@@ -11,6 +11,294 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Bounded generated caller regions — 2026-10-06
+
+A **test-only** Cranelift dispatcher now invokes a leased scoped caller directly,
+returns from that fragment before the Rust boundary changes physical Lua frames,
+and resumes through the generated loop. Its independent countdown bounds caller
+fragments even when the boundary always requests continuation. Only boundary
+status one continues. Slots and helper-host pointers are republished after an
+outer-owner reborrow and reloaded on the next generated iteration.
+
+The initial host uses existing prepared pairs, canonical Call/Return, exact
+source/host-bound native fallback, and existing fuel/error transport. Caller
+state is fully materialized at every boundary; resume still performs full
+admission. This is **not** production-selected or a demonstrated speedup.
+Entry requires the exact installed ordinary-caller and pair owners. Off, hooks,
+wrong closure, variable frames and invalid limits decline without VM work.
+
+The bounded differential covers 216 limit/budget/fuel combinations, including
+twenty real pairs in one region. Additional checks cover nine entry declines,
+canonical-error fallback and stopping before user callback execution. Error
+accounting is checked against ordinary Auto: native completed prefixes remain
+reported when a later fallback fails, whereas Off reports slice instructions
+only on success. Frames, values, open captures, fuel and dispatches match Off;
+the error fixture explicitly checks the two-instruction prefix difference.
+
+Backend tests reject four mutated templates before mapping, independently bound
+zero/finite invocations, check refreshed arguments and verify ledger reclamation
+after successful execution, IR/relocation/mapping refusals and injected metadata/
+workspace allocation failures. Focused native checks pass fourteen tests across
+three suites. Stacked seed 1 and Tree seed 2 Miri checks each pass four scoped
+models, including pointer republication; Miri does not execute generated code.
+Evidence is retained as `native-region-*` under short-slice performance evidence.
+
+The same fourteen focused tests also pass on x86_64-musl. GNU Memcheck runs all
+three suites with zero memory errors and zero definite/indirect losses; the
+existing 48-byte possible test-harness TLS loss in each process is retained,
+not suppressed. GNU Auto workspace/all-target tests plus the no-JIT workspace
+baseline and docs pass 1,595 executions in 160 suites, zero failures, six existing
+ignores and no Rust warnings. i686-musl checking passes using `.#fallback` with
+71 library and eleven library-test warnings. An initial default-shell i686
+attempt failed because that shell does not contain the target; its log is kept.
+Source hashes in `native-region-source.sha256` match that `0fe4994` checkpoint.
+
+A follow-up retirement test removes both installed owners while retaining the
+region. Requested code bytes stay live, fresh entry declines without VM work,
+and dropping the final region lease reduces requested and mapped bytes to zero.
+All seven backend/region tests pass on GNU and musl (`native-region-retirement`).
+GNU Memcheck also passes those seven checks with zero errors or definite/indirect
+losses; possible 48-byte harness TLS loss per process remains visible.
+The follow-up changes tests only; the preceding workspace results apply to the
+unchanged implementation, not an execution of this additional test.
+
+The next failure-transport checkpoint reuses the resident scheduler's four
+fault-injection differentials through the actual connected generated dispatcher:
+failed physical Return, panic after Call, panic before callee writeback and panic
+after Return. Each preserves canonical frames/slots/open captures/fuel/dispatches,
+checks generated instruction counts and reclaims mappings/metadata. The runtime
+ledger-backed injected pair replaces an already installed owner through a
+test-only accessor; the region still enforces exact installed-owner identity.
+The previous resident tests retain their original checks. GNU and musl each pass
+44 executions across four focused suites, while GNU Memcheck passes all eleven
+region/backend/failure cases with zero errors or definite/indirect leaks (the
+48-byte possible harness TLS allocation remains visible). Evidence uses
+`native-region-failures-*`. These tests do not establish performance acceptance.
+
+Broader platform validation and actual regression measurements remain required.
+The pair-admission candidate below remains test-only; production integration is
+not implemented here.
+All original performance, compiled-Off, resource-policy and release gates remain
+open; green prototype tests do not replace those gates.
+
+`make jit-native-region-cost` adds an explicitly ignored release diagnostic for
+the exact shared `closure_upvalue` workload. It rotates Off/ordinary Auto/region
+order, excludes compilation and initial closure setup, validates the complete
+final VM trace and fuel/work totals, and emits every timing sample with native
+coverage, lookups and leases. Each region iteration must execute 10,000 pairs,
+10,001 caller fragments and no admission fallback. Samples and iteration counts
+are configurable through bounded `LUNA_REGION_SAMPLES`/`LUNA_REGION_ITERATIONS`.
+This measures the isolated activation host under `cfg(test)`; it is not the
+production Executor harness, compiled-Off baseline, or an acceptance gate.
+
+The initial speed-profile run (21 samples, eight iterations each) reports
+region/Auto time **0.819289** and region/Off **1.805744**. Three further runs
+(31 samples, sixteen iterations) report **0.810575/0.810989/0.811697** versus Auto
+and **1.800214/1.800923/1.802219** versus Off. Native instructions and helper work
+match Auto. The reduction in caller lookup/lease overhead is measurable, but
+the region remains slower than Off and must not be promoted as a solved
+regression. Raw samples, source hashes, environment observations and the speed
+test binary are retained as `native-region-cost-*` in short-slice evidence.
+Three shipping-profile (`opt-level=s`) repeats, each 31 samples of sixteen
+iterations, report region/Auto **0.900695/0.900525/0.901399** and region/Off
+**1.877764/1.882828/1.881338**. The shipping test binary is separately archived
+and hashed. Thus the diagnostic improves on Auto in both build profiles but
+still fails the fundamental faster-than-Off requirement. The next optimization
+must target remaining host/admission/materialization costs without reducing
+generated coverage or treating these diagnostic ratios as production acceptance.
+
+The next test-only candidate keeps full admission at region entry, but combines
+caller refresh with source/entry/width validation on continuing boundaries.
+Runtime and code ownership remain fixed during a region. Only pure generated
+fragments and the verified leaf pair may continue; all canonical fallbacks and
+other transitions return from the region before user callbacks can run. Frame
+identity, fuel, errors and canonical slot reconstruction remain checked each
+time. This removes repeated runtime/root/hook/tag scans for the caller, not the
+pair's own admission or physical Call/Return.
+
+All 52 focused GNU executions, nineteen musl checks and nineteen native Memcheck
+checks pass with the same 216 bounded differentials and four injected failure
+paths; the diagnostic stays explicitly ignored in ordinary tests. Memcheck has
+zero errors or definite/indirect losses, with the existing possible TLS loss
+retained. Three alternating archived shipping-binary comparisons show candidate
+region/Auto **0.860279/0.859573/0.859696**, versus the full-admission control's
+**0.900488/0.900701/0.899478**. Candidate region time is about 4.4% below that
+control, but remains **1.834–1.838x Off**. CPU/environment observations and all
+raw controls are retained as `native-region-admission-paired-*`; speed-profile
+confirmation reports candidate region/Auto **0.763262/0.764661/0.763553** and
+region/Off **1.711138/1.706282/1.707845**. Alternating full-admission speed
+controls report region/Auto **0.824462/0.810055/0.812130**; the slower first
+control is retained, not discarded. Both baseline and candidate binaries are
+archived with verified hashes. These remain isolated diagnostics: no production
+path selects the region, and original acceptance remains incomplete.
+
+The new isolated instruction profiler collects only the non-inlined
+`cost::profile_region` execution wrapper, after compilation and prefix setup.
+Each of three iterations compares the entire trace to Off and requires 60,006
+native instructions for Auto/region; region additionally requires 10,000 pairs,
+10,001 caller fragments and no fallback. Make obtains the exact symbol-bearing
+test binary from Cargo artifact JSON, archives source/binary hashes and rejects
+empty collection or missing iteration witnesses. Initial lifetime-elision build
+errors are retained; the fixed profiler uses one explicit GC lifetime.
+
+The speed/symbol profile at `native-region-profile-v1` collects **51,691,809**
+instructions for Off, **95,500,500** for ordinary Auto, and **80,228,679** for
+the admitted-caller region. Region exclusive costs include canonical leave
+**12,120,000 (15.11%)**, region boundary **10,876,881 (13.56%)**, pair preflight
+**8,100,000 (10.10%)**, callee register preparation **5,700,000 (7.10%)**, and
+caller refresh **4,621,176 (5.76%)**. These identify remaining costs; they are
+not elapsed-time gates and must not be compared directly to earlier profiles
+that collected whole Executor steps. Previously rejected prototype binding,
+Session reuse and generic writeback experiments remain rejected.
+
+The next test-only region candidate admits the immutable pair callsite once per
+bounded run: runtime/source binding, exact callee prototype, call operand shape,
+register bounds and constant eligibility. Each call still checks mode, hook
+suppression, frame/PC identity, live callee prototype, capture provenance/type,
+argument type/range and fuel. Fresh canonical Sessions, post-Call and leave
+validation, physical frames, error/panic transport and counters are unchanged.
+The token stays within the GC-scoped region execution; it is not retained in the
+global code cache. This does not reintroduce the rejected production Session
+prototype-binding field or Session reuse.
+
+GNU focused validation passes 82 executions; musl and native Memcheck each pass
+21 checks. The new tests reject eleven dynamic changes and a foreign host
+positioned at the same callsite, accept a rebound closure with the same actual
+prototype, and reject a bytecode-identical distinct prototype without work.
+The 216 bounded cases and four failure paths remain enabled. Memcheck reports
+zero errors or definite/indirect leaks; possible 48-byte harness TLS losses are
+retained. Initial prototype structural-equality compilation failure is retained;
+the guard uses GC pointer identity rather than structural equality.
+
+Profile `native-region-profile-v2` reduces region instructions to **74,110,893**,
+down **6,117,786 (7.6%)** from v1. Off and ordinary Auto instruction totals remain
+exactly unchanged. Three alternating speed/symbol comparisons report candidate
+region/Auto **0.709723/0.711329/0.710726**, with region elapsed about 14.65 ms
+versus the preceding candidate's 15.74 ms per sixteen iterations. Candidate
+diagnostic Off times are about 3.3% slower despite identical instruction counts;
+this is retained, not treated as compiled-Off acceptance. Region/Off is still
+**1.5167–1.5172** in these binaries.
+
+Three shipping comparisons report region/Auto **0.806806/0.807406/0.807396** and
+region/Off **1.738861/1.733194/1.734294**. Region time is about 23.22 ms versus
+the preceding 24.75–24.77 ms. Exact results, fuel, dispatches and generated work
+remain matched. Raw paired controls, profiles and source/binary archives are
+retained under `native-region-pair-*` and `native-region-profile-v2`. Profiling
+source manifests now also include newly added, not-yet-tracked Rust modules.
+The region still loses to Off; neither this diagnostic nor green correctness
+checks satisfy original production performance/release gates.
+The complete GNU Auto workspace/all-target run for this candidate passes
+**1,208 executions in eighty suites**, zero failures, six ignores (including
+the two explicit diagnostics), and no Rust warnings. This is one mode/target,
+not a new complete platform matrix. The profile source manifest still matches.
+
+#### Selective post-Return refresh rejected — 2026-10-06
+
+Two test-only candidates retained full pre-Call materialization but refreshed
+only the successful leaf pair's argument/result tail and captured caller slot.
+The dynamic preflight produced a consumed refresh descriptor; errors, partial
+calls and mismatched widths retained full canonical recovery. Neither changed
+production selection, Session layout, physical Call/Return or generated coverage.
+The first descriptor used `usize` fields; the second used validated `u16` fields.
+
+Both are **rejected**, not a regression fix. Execution-only instruction profiles
+retain Off **51,691,809** and ordinary Auto **95,500,500** unchanged, but region
+instructions rise from baseline **74,110,893** to **74,761,485** (`v3`) and
+**75,290,253** (`v4`). Less copying did not offset added descriptor construction,
+transport and refresh branching. The smaller representation increased work.
+
+Three alternating speed/symbol comparisons, each 31 samples of sixteen
+iterations, report baseline region **14.414–14.426 ms**, `usize` candidate
+**14.646–14.717 ms**, and compact candidate **15.306–15.352 ms**. Three shipping
+comparisons report baseline **23.211–23.262 ms** versus compact candidate
+**24.189–24.286 ms**. Thus the compact change loses about 6% in speed builds and
+4% in shipping builds. The first candidate's region/Auto ratio improves only
+because its ordinary Auto control also slows; that ratio is not evidence of an
+absolute improvement. All controls and samples are retained, including layout
+and external-contention observations. No compiled-Off or production-performance
+acceptance is inferred from these isolated diagnostics.
+
+The rejected original candidate passed **1,213 GNU Auto executions in eighty
+suites**, six ignores and no failures. The compact candidate passed 58 focused
+GNU checks, 58 musl checks and 58 native Memcheck executions, with zero memory
+errors or definite/indirect losses; possible 48-byte harness TLS losses remain
+visible. Stacked seed 1 and Tree seed 2 Miri each passed nine shadow models,
+retaining 21 warnings each. These are evidence for the rejected candidates,
+not a new full-suite claim for the restored implementation.
+
+The refresh descriptor and runtime changes are removed. Three useful integrated
+differentials remain: a wide scalar/reference caller prefix, an open capture in
+an upper physical frame, and argument-tail aliases with successful and partial
+calls. The alias fixture must enter before the final argument load, not at the
+Call itself, and includes a native operation after Return; this exercises
+continuation rather than merely observing an inadmissible entry.
+
+After restoring full refresh, **56 focused GNU executions**, sixteen musl
+checks and sixteen native Memcheck executions pass. Memcheck again reports
+zero errors or definite/indirect losses, retaining the possible harness TLS
+allocation. The original 216 bounded differentials and four injected failure
+paths remain enabled; no acceptance assertion or threshold is weakened.
+The restored GNU Auto workspace/all-target gate then passes **1,211 executions
+in eighty suites**, zero failures, six ignores and no Rust warnings. This gate
+covers the retained tests and restored runtime, not the rejected descriptor.
+
+Evidence is retained under `native-region-profile-v3`, `native-region-profile-v4`
+and `native-region-refresh-*` in short-slice performance evidence: exact binary
+and source hashes, rejected patches/source archives, instruction annotations,
+raw timings, environment observations and validation logs. Continue from the
+earlier admitted-pair implementation. Full production integration and original
+performance, compiled-Off, platform/resource/release acceptance remain open.
+
+#### Scoped helper borrowing prerequisite — 2026-10-06
+
+Eight fresh, source-verified speed/symbol profiles of `9ccfb43` retain Auto
+upvalue **147,697,530** and callback **50,704,215** instructions. Ordinary
+caller invocation still collects **16,494,304/7,576,620** instructions; canonical
+leave remains **19,705,680** for upvalues. Decoder inlining did not remove these
+costs. Raw profiles, source archives and verified manifests are retained as
+`native-decoder-activation-profile-v1`. These are diagnostics, not timing gates.
+
+The next structural prerequisite is **test-only** scoped helper borrowing.
+The existing helper frame holds mutable canonical registers across a generated
+invocation; it cannot remain live across a physical Call that resizes the stack.
+`scoped_helpers` instead holds the activation host and creates each register view
+only for a helper invocation. Distinct linked symbols reuse all nine existing
+helper implementations, including decline-PC restoration and panic transport.
+Its code wrapper binds the source closure and runtime ledger; entry rejects
+wrong source/owner, Off, hooks, invalid tags and wrong scratch width. Symbol
+storage is charged using the actual selected names.
+
+Generated tests execute all nine gateways, preserve final values/frame/fuel,
+and cross physical Call/Return with proven stack growth to a 256-register child
+using one outer host. Other fixtures cover a generated helper decline followed
+by the exact canonical error and pending scalar materialization on panic.
+This is a prerequisite for connected native caller/callee regions, **not** a
+new production scheduler or measured speedup. No production route selects the
+new symbols. Miri coverage for the new borrow boundary and native-region
+integration remain required before considering production promotion.
+
+The follow-up exposes the unchanged safe activation-host register access and
+test-thread fixture to Miri. A Rust-only model now holds the outer scoped helper
+host across real physical Call, proven stack reallocation, open-upvalue access
+and Return, rather than only testing detached slot arrays. Stacked Borrows seed
+1 and Tree Borrows seed 2 each pass three tests: the growth model, panic payload/
+materialization case, and distinct-symbol/null-host contract. Generated paths
+remain excluded from Miri. Native focused execution passes all seven scoped
+tests; broader platform and native memory checks are tracked separately.
+
+At `13e5934`, GNU Auto workspace/all-target tests, musl focused checks and the
+no-JIT baseline/docs pass **1,659 executions in 164 suites**, zero failures, six
+existing/repeated ignores and no Rust warnings. Native Memcheck passes seven
+scoped tests with zero errors or definite/indirect losses; possible 48-byte
+harness TLS loss remains unsuppressed. i686-musl checking passes with 71 library
+and eleven library-test warnings (including the newly exposed test accessors).
+The scoped models are now included in the standard `jit-miri` recipe; wrapper
+tests verify 45 portable evidence logs and propagation of four injected failures,
+including the new filter. Runtime source hashes match the validation checkpoint;
+recipe changes are checked separately. Evidence uses `scoped-helper-*` in the
+short-slice directory. Connected native-region execution and all original
+performance/release gates remain open.
+
 #### Resident failed-Return recovery — 2026-10-06
 
 A new generated-prefix/generated-callee regression reproduces a resume assertion

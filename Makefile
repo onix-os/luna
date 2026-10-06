@@ -39,6 +39,7 @@ COST_RELEASE_DIR := target/$(if $(TARGET),$(TARGET)/,)release/examples
 COST_OPT := $(if $(filter shipping,$(SIZE_PROFILE)),s,3)
 MIRI_TARGET ?= x86_64-unknown-linux-gnu
 MIRI_DIR := target/jit-evidence/miri/$(MIRI_TARGET)
+REGION_PROFILE_DIR ?= target/jit-evidence/short-slice-performance/native-region-profile
 
 HAS_REL := $(shell command -v git-rel 2>/dev/null)
 
@@ -109,7 +110,7 @@ jit-miri:
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::status_refusal_precedes_host_setup_and_releases_entry_storage -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/memory-status-quota.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::provider_box_refusal_precedes_host_setup_and_releases_entry_storage -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/provider-box-quota.log'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::memory_tests::segment_record_underlying_refusal_precedes_mapping -- --exact --test-threads=1 2>&1 | tee '$(MIRI_DIR)/segment-record-quota.log'
-	@set -e -o pipefail; for filter in jit::handoff::tests jit::arrays::tests jit::runtime_owner_tests jit::global_owner::tests jit::resources::bootstrap_tests jit::resources::mapping_tests jit::abi::tests jit::helpers::tests jit::registry::tests jit::ir::tests jit::flow::tests jit::work::tests jit::preds::tests jit::dominance::tests jit::owner::tests jit::atomic_owner::tests jit::memory_status::tests jit::global_box::tests jit::segments::tests jit::tags::tests jit::shape::tests jit::backend::comparison_tests jit::backend::loop_tests jit::backend::transfer_tests jit::backend::helper_flow_tests jit::backend::ownership_tests jit::access::tests jit::backend::access_tests jit::entry_flow::tests jit::entry_flow::region_tests jit::exit_flow::tests jit::exits::tests jit::backend::exit_tests jit::policy_tests finalizers::tests lua::memory_tests; do \
+	@set -e -o pipefail; for filter in jit::handoff::tests jit::arrays::tests jit::runtime_owner_tests jit::global_owner::tests jit::resources::bootstrap_tests jit::resources::mapping_tests jit::abi::tests jit::helpers::tests jit::scoped_helpers::tests jit::registry::tests jit::ir::tests jit::flow::tests jit::work::tests jit::preds::tests jit::dominance::tests jit::owner::tests jit::atomic_owner::tests jit::memory_status::tests jit::global_box::tests jit::segments::tests jit::tags::tests jit::shape::tests jit::backend::comparison_tests jit::backend::loop_tests jit::backend::transfer_tests jit::backend::helper_flow_tests jit::backend::ownership_tests jit::access::tests jit::backend::access_tests jit::entry_flow::tests jit::entry_flow::region_tests jit::exit_flow::tests jit::exits::tests jit::backend::exit_tests jit::policy_tests finalizers::tests lua::memory_tests; do \
 		$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' "$$filter" -- --test-threads=1 2>&1 | tee '$(MIRI_DIR)'/"$${filter//::/-}".log; \
 	done
 
@@ -319,6 +320,52 @@ jit-call-native:
 .PHONY: jit-call-canonical
 jit-call-canonical:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical::tests $(ARGS)
+
+.PHONY: jit-scoped-helpers
+jit-scoped-helpers:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::scoped_helpers::tests $(ARGS)
+
+.PHONY: jit-native-region
+jit-native-region:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::region::tests $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::native_region::tests $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical::tests::native_region_ $(ARGS)
+
+.PHONY: jit-native-region-cost jit-native-region-cost-run
+jit-native-region-cost:
+	@CARGO_PROFILE_RELEASE_OPT_LEVEL=$(JIT_BENCH_OPT) $(CARGO) test --locked --release -p luna --features jit --lib $(TARGET_ARG) jit::native_region::tests::cost::paired_region_cost -- --ignored --exact --nocapture --test-threads=1
+
+jit-native-region-cost-run:
+	@test -n '$(REGION_COST_BINARY)' && test -x '$(REGION_COST_BINARY)'
+	@'$(REGION_COST_BINARY)' jit::native_region::tests::cost::paired_region_cost --ignored --exact --nocapture --test-threads=1
+
+.PHONY: jit-native-region-profile-build jit-native-region-profile-run
+jit-native-region-profile-build:
+	@mkdir -p '$(REGION_PROFILE_DIR)'
+	@CARGO_PROFILE_RELEASE_OPT_LEVEL=$(JIT_BENCH_OPT) CARGO_PROFILE_RELEASE_STRIP=false $(CARGO) test --locked --release -p luna --features jit --lib $(TARGET_ARG) --no-run --message-format=json-render-diagnostics > '$(REGION_PROFILE_DIR)/build.jsonl'
+	@jq -r 'select(.reason == "compiler-artifact" and .target.name == "luna" and .profile.test and .executable != null) | .executable' '$(REGION_PROFILE_DIR)/build.jsonl' > '$(REGION_PROFILE_DIR)/binary-path'
+	@test "$$(wc -l < '$(REGION_PROFILE_DIR)/binary-path')" -eq 1
+	@cp "$$(cat '$(REGION_PROFILE_DIR)/binary-path')" '$(REGION_PROFILE_DIR)/test-binary'
+	@sha256sum '$(REGION_PROFILE_DIR)/test-binary' > '$(REGION_PROFILE_DIR)/binary.sha256'
+	@{ find src -type f -name '*.rs' -print0; printf '%s\0' Cargo.toml Cargo.lock Makefile examples/jit_support/workloads.rs; } | sort -z | xargs -0 sha256sum > '$(REGION_PROFILE_DIR)/source.sha256'
+	@git rev-parse HEAD > '$(REGION_PROFILE_DIR)/revision'
+	@git diff --binary > '$(REGION_PROFILE_DIR)/source.patch'
+	@printf 'opt_level=%s\nstrip=false\ncollection=*cost::profile_region\niterations=3\n' '$(JIT_BENCH_OPT)' > '$(REGION_PROFILE_DIR)/configuration'
+
+jit-native-region-profile-run:
+	@sha256sum -c '$(REGION_PROFILE_DIR)/binary.sha256' '$(REGION_PROFILE_DIR)/source.sha256' > '$(REGION_PROFILE_DIR)/verification.log'
+	@valgrind --version > '$(REGION_PROFILE_DIR)/profiler.log'
+	@set -e; for mode in off auto region; do \
+		LUNA_REGION_PROFILE_MODE=$$mode LUNA_REGION_ITERATIONS=3 valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*cost::profile_region' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file='$(REGION_PROFILE_DIR)'/$$mode.callgrind \
+			'$(REGION_PROFILE_DIR)/test-binary' jit::native_region::tests::cost::region_cost_profile --ignored --exact --nocapture --test-threads=1 > '$(REGION_PROFILE_DIR)'/$$mode.log 2>&1; \
+		grep -Eq '^summary: [1-9][0-9]*' '$(REGION_PROFILE_DIR)'/$$mode.callgrind; \
+		test "$$(grep -c 'profile_verified=true' '$(REGION_PROFILE_DIR)'/$$mode.log)" -eq 3; \
+		callgrind_annotate --inclusive=no --threshold=99 '$(REGION_PROFILE_DIR)'/$$mode.callgrind > '$(REGION_PROFILE_DIR)'/$$mode-annotation.log; \
+	done
+
+.PHONY: jit-scoped-helpers-miri
+jit-scoped-helpers-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::scoped_helpers::tests -- --test-threads=1
 
 .PHONY: jit-call-pairs
 jit-call-pairs:

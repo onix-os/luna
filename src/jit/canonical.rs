@@ -547,3 +547,6 @@ fn invoke_result<'gc>(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(super) mod admission;
