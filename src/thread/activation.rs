@@ -300,6 +300,8 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         budget: u32,
         resume: super::vm::NativeResume<'gc>,
     ) -> Result<u32, VMError> {
+        assert!(self.pair.handoff.is_none());
+        self.select_pairs = false;
         self.with_frame(|frame| super::vm::resume_vm(ctx, frame, budget, resume))
     }
 

@@ -2,12 +2,6 @@ use crate::{opcode::CallTransition, thread::activation::ActivationHost, Context}
 
 use super::PairScope;
 
-#[derive(Debug)]
-enum Pause {
-    Unavailable,
-    Unsupported { instructions: u32 },
-}
-
 struct Prefix<'gc> {
     instructions: u32,
     transition: Option<CallTransition>,
@@ -32,6 +26,9 @@ fn prefix<'gc>(
             .jit_registry()
             .borrow()
             .identity(ctx, closure.prototype())?;
+        if !ctx.jit().0.borrow().code.contains_key(&id) {
+            return None;
+        }
         let code = ctx.jit().lookup(id)?;
         let instructions = ctx.jit().run(&code, ctx, closure, &mut registers, budget);
         let transition = (instructions < budget)
@@ -61,7 +58,6 @@ struct Driver {}
 struct Outcome {
     slices: usize,
     pairs: usize,
-    pause: Option<Pause>,
     result: Result<(), crate::thread::VMError>,
 }
 
@@ -77,12 +73,13 @@ impl Driver {
         let mut outcome = Outcome {
             slices: 0,
             pairs: 0,
-            pause: None,
             result: Ok(()),
         };
         while outcome.slices < limit && host.lua_ready() {
             let Some(prefix) = prefix(ctx, host, budget) else {
-                outcome.pause = Some(Pause::Unavailable);
+                let fallback = host.run(ctx, limit - outcome.slices, budget, 4);
+                outcome.slices += fallback.activations;
+                outcome.result = fallback.result;
                 break;
             };
             if prefix.instructions >= budget {
@@ -120,10 +117,13 @@ impl Driver {
                     outcome.slices += 1;
                 }
             } else {
-                outcome.pause = Some(Pause::Unsupported {
-                    instructions: prefix.instructions,
-                });
-                break;
+                let result = host.test_resume_native(ctx, budget, prefix.resume.unwrap());
+                if let Ok(completed) = result {
+                    host.charge_instructions(completed);
+                }
+                host.charge_native_slice(0);
+                outcome.result = result.map(|_| ());
+                outcome.slices += 1;
             }
             if outcome.result.is_err() || !host.fuel().should_continue() {
                 break;
@@ -213,11 +213,6 @@ mod tests {
                                     let mut driver = Driver::default();
                                     let outcome = driver.run(ctx, host, limit, budget);
                                     outcome.result.unwrap();
-                                    assert!(
-                                        outcome.pause.is_none(),
-                                        "budget={budget} limit={limit} pause={:?}",
-                                        outcome.pause
-                                    );
                                     assert_eq!(outcome.slices, limit);
                                     assert!(ctx.jit().0.borrow().stats.native_instructions != 0);
                                     if limit >= 2 {
@@ -247,12 +242,10 @@ mod tests {
             crate::thread::activation::with_test_existing_thread(ctx, thread, &mut fuel, |host| {
                 let fuel_before = host.fuel().remaining();
                 let before = ctx.jit().0.borrow().stats.native_instructions;
-                let outcome = Driver::default().run(ctx, host, 8, 64);
-                outcome.result.unwrap();
-                assert_eq!(outcome.slices, 0);
-                let Some(Pause::Unsupported { instructions }) = outcome.pause else {
-                    panic!("expected explicit partial exit: {:?}", outcome.pause)
-                };
+                let partial = prefix(ctx, host, 64).unwrap();
+                let instructions = partial.instructions;
+                assert!(partial.transition.is_none());
+                assert!(partial.resume.is_some());
                 assert!(instructions > 0);
                 assert_eq!(
                     ctx.jit().0.borrow().stats.native_instructions - before,
@@ -293,7 +286,6 @@ mod tests {
                             if mode == JitMode::Auto {
                                 let outcome = Driver::default().run(ctx, host, 8, 64);
                                 outcome.result.unwrap();
-                                assert!(outcome.pause.is_none());
                                 assert!(outcome.slices > 0);
                             } else {
                                 host.run(ctx, 8, 64, 4).result.unwrap();
@@ -332,7 +324,6 @@ mod tests {
                     |host| {
                         let outcome = driver.run(ctx, host, 16, 64);
                         outcome.result.unwrap();
-                        assert!(outcome.pause.is_none());
                         assert_eq!(outcome.slices, 16);
                         assert_eq!(outcome.pairs, 8);
                     },
@@ -346,7 +337,7 @@ mod tests {
     }
 
     #[test]
-    fn hooks_and_off_decline_before_native_work_or_frame_changes() {
+    fn hooks_and_off_fall_back_without_native_work() {
         for hooked in [false, true] {
             let (mut lua, closure) = state(JitMode::Auto, SOURCE);
             if !hooked {
@@ -365,13 +356,15 @@ mod tests {
                     thread,
                     &mut fuel,
                     |host| {
+                        ctx.jit().0.borrow_mut().stats = Default::default();
                         let before = trace(ctx, host);
+                        assert!(prefix(ctx, host, 64).is_none());
+                        assert_eq!(trace(ctx, host), before);
                         let mut driver = Driver::default();
                         let outcome = driver.run(ctx, host, 16, 64);
                         outcome.result.unwrap();
-                        assert_eq!(outcome.slices, 0);
-                        assert!(matches!(outcome.pause, Some(Pause::Unavailable)));
-                        assert_eq!(trace(ctx, host), before);
+                        assert!(outcome.slices > 0);
+                        assert_eq!(ctx.jit().0.borrow().stats.native_instructions, 0);
                         assert_eq!(std::mem::size_of_val(&driver), 0);
                     },
                 );
@@ -419,7 +412,6 @@ mod tests {
                 let mut driver = Driver::default();
                 let outcome = driver.run(ctx, host, 16, 64);
                 outcome.result.unwrap();
-                assert!(outcome.pause.is_none());
                 assert_eq!(outcome.slices, 1);
                 assert!(!host.lua_ready());
                 assert_eq!(calls.get(), 0);
@@ -471,7 +463,6 @@ mod tests {
                 let setup = driver.run(ctx, host, 1, 1);
                 setup.result.unwrap();
                 assert_eq!(setup.slices, 1);
-                assert!(setup.pause.is_none());
                 host.with_registers(|closure, registers| {
                     assert!(matches!(
                         closure.prototype().opcodes[*registers.pc].decode(),
@@ -491,7 +482,6 @@ mod tests {
                 drop(ctx.jit().0.borrow_mut());
                 let reused = driver.run(ctx, host, 2, 64);
                 reused.result.unwrap();
-                assert!(reused.pause.is_none());
                 assert_eq!(reused.slices, 2);
                 assert_eq!(super::super::owner::Shared::strong_count(&program), owners);
             });
@@ -517,13 +507,10 @@ mod tests {
                         |host| {
                             ctx.jit().0.borrow_mut().stats = Default::default();
                             if resume {
-                                let prefix = prefix(ctx, host, budget).unwrap();
-                                assert!(prefix.instructions > 0 && prefix.instructions < budget);
-                                assert!(prefix.transition.is_none());
-                                let completed = host
-                                    .test_resume_native(ctx, budget, prefix.resume.unwrap())
-                                    .unwrap();
-                                host.charge_native_slice(completed);
+                                let outcome = Driver::default().run(ctx, host, 1, budget);
+                                outcome.result.unwrap();
+                                assert_eq!(outcome.slices, 1);
+                                assert!(ctx.jit().0.borrow().stats.native_instructions > 0);
                             } else {
                                 host.run(ctx, 1, budget, 4).result.unwrap();
                             }
@@ -584,14 +571,9 @@ mod tests {
                     |host| {
                         ctx.jit().0.borrow_mut().stats = Default::default();
                         let result = if resume {
-                            let prefix = prefix(ctx, host, 64).unwrap();
-                            assert!(prefix.instructions > 0);
-                            let result = host.test_resume_native(ctx, 64, prefix.resume.unwrap());
-                            if let Ok(completed) = result {
-                                host.charge_instructions(completed);
-                            }
-                            host.charge_native_slice(0);
-                            result.map(|_| ())
+                            let outcome = Driver::default().run(ctx, host, 1, 64);
+                            assert_eq!(outcome.slices, 1);
+                            outcome.result
                         } else {
                             host.run(ctx, 1, 64, 4).result
                         };
@@ -648,12 +630,9 @@ mod tests {
                     |host| {
                         ctx.jit().0.borrow_mut().stats = Default::default();
                         if resume {
-                            let prefix = prefix(ctx, host, 64).unwrap();
-                            assert!(prefix.instructions > 0);
-                            let completed = host
-                                .test_resume_native(ctx, 64, prefix.resume.unwrap())
-                                .unwrap();
-                            host.charge_native_slice(completed);
+                            let outcome = Driver::default().run(ctx, host, 1, 64);
+                            outcome.result.unwrap();
+                            assert_eq!(outcome.slices, 1);
                         } else {
                             host.run(ctx, 1, 64, 4).result.unwrap();
                         }
@@ -682,6 +661,87 @@ mod tests {
         }
         assert_eq!(traces[0], traces[1]);
         assert_eq!(statistics[0], statistics[1]);
+    }
+
+    #[test]
+    fn resumed_driver_does_not_inherit_a_previous_activation_pair_handoff() {
+        let source = b"local sum=0 local one=1 local scale=2 sum=sum+one local function add(v) sum=sum+v end for i=1,10000 do add(i) end return sum";
+        let mut traces = Vec::new();
+        for driver in [false, true] {
+            let (mut lua, closure) = state(JitMode::Auto, source);
+            lua.enter(|ctx| {
+                let thread = Thread::new(ctx);
+                thread.start(ctx, ctx.fetch(&closure).into(), ()).unwrap();
+                let mut fuel = Fuel::empty();
+                crate::thread::activation::with_test_existing_thread(
+                    ctx,
+                    thread,
+                    &mut fuel,
+                    |host| {
+                        host.run(ctx, 16, 4, 4).result.unwrap();
+                        host.test_fuel(Fuel::with(4096));
+                        ctx.jit().0.borrow_mut().stats = Default::default();
+                        if driver {
+                            let outcome = Driver::default().run(ctx, host, 1, 64);
+                            outcome.result.unwrap();
+                            assert_eq!(outcome.slices, 1);
+                        } else {
+                            host.run(ctx, 1, 64, 4).result.unwrap();
+                        }
+                        traces.push(trace(ctx, host));
+                    },
+                );
+            });
+        }
+        assert_eq!(traces[0], traces[1]);
+    }
+
+    #[test]
+    fn cold_native_driver_preserves_canonical_traces_and_lookup_statistics() {
+        let source = b"local sum=0 for i=1,1000 do sum=sum+i end return sum";
+        for budget in [0, 1, 8, 64] {
+            for limit in [1, 2, 8] {
+                let mut traces = Vec::new();
+                let mut statistics = Vec::new();
+                for driver in [false, true] {
+                    let mut lua = Lua::empty();
+                    lua.set_jit_config(JitConfig {
+                        mode: JitMode::Auto,
+                        ..JitConfig::default()
+                    })
+                    .unwrap();
+                    lua.enter(|ctx| {
+                        let closure = Closure::load(ctx, None, source).unwrap();
+                        let thread = Thread::new(ctx);
+                        thread.start(ctx, closure.into(), ()).unwrap();
+                        let mut fuel = Fuel::with(4096);
+                        crate::thread::activation::with_test_existing_thread(
+                            ctx,
+                            thread,
+                            &mut fuel,
+                            |host| {
+                                ctx.jit().0.borrow_mut().stats = Default::default();
+                                if driver {
+                                    let outcome = Driver::default().run(ctx, host, limit, budget);
+                                    outcome.result.unwrap();
+                                    assert_eq!(outcome.slices, limit);
+                                } else {
+                                    host.run(ctx, limit, budget, 4).result.unwrap();
+                                }
+                                assert_eq!(ctx.jit().0.borrow().stats.native_entries, 0);
+                                traces.push(trace(ctx, host));
+                                statistics.push(ctx.jit().0.borrow().stats);
+                            },
+                        );
+                    });
+                }
+                assert_eq!(traces[0], traces[1], "budget={budget} limit={limit}");
+                assert_eq!(
+                    statistics[0], statistics[1],
+                    "budget={budget} limit={limit}"
+                );
+            }
+        }
     }
 
     #[test]
