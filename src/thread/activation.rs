@@ -47,6 +47,20 @@ pub(crate) struct Outcome {
     pub stack_growths: usize,
 }
 
+#[inline(never)]
+pub(crate) fn run_scoped<'gc>(
+    ctx: Context<'gc>,
+    state: &mut ThreadState<'gc>,
+    fuel: &mut Fuel,
+    limit: usize,
+    budget: u32,
+    step_fuel: i32,
+) -> Outcome {
+    let stack = state.stack;
+    let mut host = ActivationHost::new(state, stack.borrow_mut(&ctx), fuel);
+    host.run(ctx, limit, budget, step_fuel)
+}
+
 impl<'gc, 'a> ActivationHost<'gc, 'a> {
     pub fn new(
         state: &'a mut ThreadState<'gc>,
