@@ -186,13 +186,14 @@ impl Runtime {
         ctx: crate::Context<'gc>,
         caller: crate::Closure<'gc>,
         registers: &crate::thread::LuaRegisters<'gc, '_>,
+        pc: usize,
     ) -> Option<super::PreparedPair> {
         let prototype = caller.prototype();
         let crate::opcode::Operation::Call {
             func,
             args,
             returns,
-        } = prototype.opcodes.get(*registers.pc)?.decode()
+        } = prototype.opcodes.get(pc)?.decode()
         else {
             return None;
         };
@@ -208,7 +209,7 @@ impl Runtime {
         let key = Key {
             caller: registry.identity(ctx, prototype)?,
             callee: registry.identity(ctx, callee.prototype())?,
-            pc: *registers.pc,
+            pc,
         };
         self.pair_lease(key)
             .map(|program| super::PreparedPair { program })
