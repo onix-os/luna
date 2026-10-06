@@ -11,6 +11,45 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Profile-guided thin resume entry candidate — 2026-10-06
+
+Fresh restored routing GNU Auto/musl Auto/no-feature validation passes 2,710
+executions in 240 suites with ten existing/repeated ignores and zero failures.
+Source-verified speed symbol controls at `2fc06b6` then complete eight Callgrind
+profiles: two workloads, Off/Auto, no-feature/JIT controls, three measured worker
+iterations and two warmups. These instrument execution rather than wall time.
+
+Compiled-Off upvalues collect 106,130,223 instructions versus 91,575,447 without
+the feature; callbacks collect 46,467,240 versus 42,538,855. Most of this excess
+is in the shared VM. Auto upvalues collect 153,778,362 instructions. Canonical
+leave contributes 12.8%, ordinary native invocation 10.7%, prepare_call_at 4.8%
+and enter-with-register preflight about 6%. These locate costs but do not prove
+a single causal bottleneck or justify removing semantic checks.
+
+`2695050` changes the shared VM's optional resume ABI to a mutable reference,
+keeping the token privately owned by its entry and taking its prepared lease
+exactly once. There is no new interpreter, counter batching, mode snapshot or
+production driver promotion. Runtime/closure lifetime extends to entry return;
+callbacks/GC still follow release of the entry's host borrows.
+
+Separate source-verified candidate profiles collect:
+
+| Workload/mode | Restored instructions | Thin instructions |
+| --- | ---: | ---: |
+| Upvalues Off | 106130223 | 101779863 |
+| Callbacks Off | 46467240 | 45316930 |
+| Upvalues Auto | 153778362 | 152217316 |
+| Callbacks Auto | 55688232 | 54860009 |
+
+The no-feature upvalue control remains exactly 91,575,447 instructions. Off
+upvalue conditional mispredictions in Callgrind fall from 160,546 to 539;
+simulated branch counts are not hardware certification. Candidate GNU/musl
+chain/public-pair/accounting/fuel checks pass 95 executions in ten suites, zero
+failures/ignores and no Rust warnings. Full GNU Off/Auto/Force, musl Auto,
+baseline and unsupported all-target checks are running. New immutable paired
+wall-clock comparisons are required before retaining it as a performance fix.
+Original upvalue/callback and compiled-Off gates remain open.
+
 #### Rejected production direct caller routing — 2026-10-06
 
 The `68ce077` driver is correct but uncompetitive. Immutable source/archive

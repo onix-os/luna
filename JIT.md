@@ -861,6 +861,15 @@ paired trials and profile-driven scratch/Call-probe corrections are recorded
 in `PLAN_JIT.md`; upvalue, callback and compiled-Off regressions remain open.
 Do not treat this tier's correctness tests as release or performance acceptance.
 
+`2695050` passes the shared VM's optional resume token as a thin mutable borrow
+instead of an owned aggregate, taking its private prepared lease once. The
+production driver remains withdrawn. Ninety-five GNU/musl continuation, pair,
+accounting and fuel checks pass. Source-verified Callgrind profiles report about
+4.1% fewer collected Off upvalue instructions and 2.5% fewer Off callback
+instructions; Auto instruction reductions are about one to one-and-a-half
+percent. Full validation and paired wall-clock acceptance are still pending.
+Instruction counts are not a claim that the original performance gates pass.
+
 `make jit-chain` tests a source-bound direct-native caller-continuation prototype
 that avoids VM reentry for admitted caller prefixes while retaining physical
 Call/Return. Unsupported prefixes now resume through the shared VM slice without
