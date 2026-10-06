@@ -1009,6 +1009,10 @@ report order/coverage, all nineteen dump parts, empty between-report intervals,
 and every event sum against the profiler totals. Existing output directories
 and binaries without the report symbol are rejected.
 
+The runner preserves the supplied executable invocation string, including relative
+paths. It separately resolves the artifact for hashes/symbol checks and records
+both paths in `configuration`; it does not substitute the resolved path at execution.
+
 Raw dumps and binary hashes are retained. Exclusive annotations use separate
 derived files: zero-call inclusive carry-over records have their cost vectors
 zeroed, preserving position/symbol metadata. This avoids Callgrind 3.26.0's
@@ -1023,7 +1027,17 @@ execution context when investigating a full-suite regression. Symbol and
 ordinary stripped builds can also have different `.text`: validate a matching
 artifact rather than attributing an arbitrary release binary from its source
 alone. Software cache/branch simulations and profiled wall times do not prove
-hardware causes or satisfy performance acceptance.
+hardware causes or satisfy performance acceptance. Retaining symbols by changing
+Rust profile flags can change code generation. Linker-boundary replay of the same
+objects without symbol stripping can recover symbols, but requires equality checks
+for program headers and all allocated section metadata/payloads before attribution.
+
+Control launch paths as well as code: same-inode hardlink experiments changed
+upvalue timing by roughly nine percent without changing executable bytes. Compare
+variants at matching paths and balance multiple invocation contexts; retain hashes,
+inode identity, order, outside contention and every original checked result.
+Do not choose a favorable alias as acceptance or infer a hardware cause from this
+sensitivity. Exact code identity alone does not ensure identical timing context.
 
 `make jit-disassembly` dumps finalized, relocated native code for scalar-loop
 and table/helper fixtures through an explicitly invoked ignored test. The

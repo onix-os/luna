@@ -11,6 +11,48 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Exact-code symbols and launch-path controls — 2026-10-07
+
+The latest measurements supersede the causal interpretation of the extra
+native upvalue slowdown below. Scoped interception of the original GNU linker
+command recovers symbols without changing Rust compiler flags. Rebuilt stripped
+control and table-trial binaries match their frozen originals byte for byte;
+each symbol companion has identical program headers, thirty allocated-section
+metadata entries and all twenty-six nonempty file-backed allocated payloads.
+Only non-loaded symbol/section metadata differs. Changing the compiler profile
+to retain symbols did not provide this identity proof.
+
+Even these exact-code companions timed differently at different launch paths.
+A same-inode hardlink matrix tested six invocation lengths across six alternating
+windows, retaining all seventy-two failing full-suite checks and identical native
+coverage counters. Upvalue times changed roughly nine percent with launch-path
+context in both variants. At matched lengths, median direct control/candidate
+Auto time was **0.9985**, rather than the previously reported extra slowdown.
+This establishes a confound, not an argv-allocation or hardware-cache cause,
+and not a runtime improvement. Original absolute performance gates still fail.
+
+`37a2781` fixes the paired profiler's canonicalization of the executable path:
+it invokes the caller's original string, hashes the resolved artifact, and records
+both. Relative-path forwarding has regression coverage. A real complete profile
+finishes successfully with the relative invocation intact, nine combined Off/Auto
+intervals verified, and unchanged binary/raw hashes. These combined profiles are
+not Auto-only measurements or timing acceptance.
+
+The rejected table optimization remains removed. A separate balanced disabled-mode
+campaign uses the same frozen inodes at matching paths in two staging directories,
+both profiles and six alternating windows. All forty-eight original cost checks
+fail. Speed float direct control/candidate medians are **0.9788 / 0.9877** across
+the two stages; shipping upvalue medians are **0.9723 / 0.9697**. These remaining
+disabled regressions, including roughly three percent slower shipping upvalue,
+still reject the trial. External contention and outliers are retained. No thresholds,
+native coverage requirements, runtime safety contracts or release gates changed.
+
+Evidence: `target/jit-evidence/short-slice-performance/link-capture/`,
+`link-path-matrix/`, and `link-balanced-cost/`. Next optimization work must use
+matched/balanced invocation contexts and exact-code attribution, while preserving
+the full original native and compiled-Off checks. Performance and the remaining
+resource/platform/release acceptance audit are still open.
+
 #### Full paired profiling and artifact matching — 2026-10-07
 
 `b47bd51` adds `make jit-bench-paired-profile-run`: a run-only profiler for the
