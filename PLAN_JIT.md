@@ -11,6 +11,61 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Dependency-aware compiled-region cache — 2026-10-06
+
+A **test-only** region cache now participates in the existing runtime metadata
+budget and shared eviction order. Entries use charged `Shared<Region>` owners,
+the existing saturating recency clock and deterministic key tie-breaks. A cache
+hit checks runtime provenance and exact installed caller/pair owners before
+issuing an execution lease. Failed admission/allocation does not replace a live
+entry or advance the clock. Empty storage is released, and sparse storage joins
+existing metadata compaction.
+
+An unleased cached region is itself an eviction candidate. Removing it releases
+its private caller/driver mappings and its ordinary/pair dependency leases;
+those dependencies can then become ordinary eviction candidates. Active region
+leases refuse pressure eviction. This preserves the existing single-owner rules
+for ordinary and pair code rather than weakening them to compensate for cache
+pinning. GC retirement, clear/Off configuration and successful dependency
+replacement invalidate dependent cache ownership. Outstanding leases retain
+their mappings until final drop but cannot enter through retired/replaced
+installed owners.
+
+Nine integrated tests exercise cached native execution with exact Off trace
+parity; active-lease refusal and actual compilation retry after release; source
+collection without GC rooting; dependency replacement; foreign/stale admission;
+failed replacement preserving the old entry; owner/table allocation failures;
+exact metadata headroom versus one byte short; and recency/exclusion behavior
+including clock saturation. Lookup at the exact metadata ceiling allocates no
+new storage. Final collection/drop reclaims native mappings and metadata.
+
+The initial multi-region fixture reset pair State while constructing its second
+region, correctly invalidating the first plan. It now initializes pairs only
+when absent. A retained tuple borrow during lease acquisition was split into a
+separate local. The pressure fixture initially confused requested image bytes
+with page-rounded mapped bytes; it now uses the actual mapping quota unit and
+checks the unchanged ceiling after retry. All failed logs remain retained.
+
+GNU and musl focused runs each pass **64 executions**, zero failures, two
+ignored diagnostics and no Rust warnings. Native Memcheck passes all 26
+backend/region/failure checks with zero errors or definite/indirect losses;
+the possible 48-byte test-harness TLS allocation remains unsuppressed.
+Evidence and full source hashes/archive are retained as `native-region-cache-*`
+under short-slice performance evidence.
+GNU all-target JIT checking and the complete Auto workspace/all-target suite
+also pass: **1,223 executions in eighty suites**, zero failures, six ignores
+and no Rust warnings. The recorded source hashes still match after validation.
+
+Cache installation/lease acquisition is explicit in these tests. Production
+hotness/service scheduling, public installation accounting and Executor region
+selection are **not yet wired**. No cache speedup or production-performance
+acceptance is claimed; the original failed/open gates remain unchanged.
+The current `Region::new`/`Code::new` constructors still compile inside the test
+arena mutation. Production service wiring must first split snapshot/dependency
+admission from GC-free compilation outside the arena, then revalidate owners at
+installation; moving those constructors directly into an Executor step is not
+an acceptable shortcut.
+
 #### GC-free compiled-region ownership — 2026-10-06
 
 The next production-integration prerequisite separates compiled ownership from
