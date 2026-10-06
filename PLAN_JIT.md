@@ -11,6 +11,36 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Frame-width resident scratch candidate — 2026-10-06
+
+`5d4155e` reintroduces scoped production resident execution with scratch classes
+8/16/32/64/128/256 selected from actual frame width. Flush reads the shadow in
+place before clearing it instead of taking an owned snapshot. The VM remains
+one function; the bounded scheduler has capacity-specialized entries. A later
+wider frame falls back canonically rather than indexing past the selected
+capacity. Tests cover all six classes at two budgets and a wider callee with
+full canonical trace equality and actual native work.
+
+GNU/musl focused checks pass 102 executions. GNU Off/Auto/Force, musl Auto and
+baseline/docs pass **5,121 executions in 403 suites**, zero failures, twenty
+existing/repeated ignores and no Rust warnings. Native Memcheck passes 67
+executions with zero errors or definite/indirect losses, retaining the possible
+48-byte TLS loss per harness. Fourteen Miri model executions and i686-musl
+checking pass (71 library/nine library-test warnings). Source manifests match;
+immutable speed/shipping artifacts and independent no-feature controls built.
+
+Eight `resident-width-profile-v2` Callgrind runs completed with verified source
+and binary archives. Callback Auto collected instructions fall from 200,835,860
+in the rejected fixed-capacity candidate to **70,221,629**; upvalue Auto falls
+from 192,609,796 to **181,698,997**. Callback memcpy is now 0.39% of collected
+instructions and memset is absent from the 99%-coverage annotation. These are
+instruction observations, not wall-clock acceptance. Original thresholds and
+native coverage remain unchanged; repeated timing collection is still required.
+The initial profile-v1 process was deliberately stopped while awaiting its
+first Cargo lock, before compilation: release artifact build scripts share
+post-build copy paths and must run serially. Its terminal143 evidence is retained;
+only the subsequently serialized v2 profile is accepted as a profile capture.
+
 #### Production resident-caller candidate — 2026-10-06
 
 **Rejected by performance measurements; production routing restored in
