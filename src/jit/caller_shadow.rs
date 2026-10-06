@@ -74,6 +74,7 @@ impl<'gc, const N: usize> Shadow<'gc, N> {
         true
     }
 
+    #[cfg(test)]
     pub(super) fn slots_mut(&mut self) -> &mut [Slot] {
         assert!(self.ready);
         &mut self.slots[..self.count]
@@ -100,10 +101,13 @@ impl<'gc, const N: usize> Shadow<'gc, N> {
         }
         host.with_registers(|closure, mut registers| {
             let code = &prepared.code;
+            #[cfg(test)]
+            if code.scalar_leaf.is_some() {
+                return None;
+            }
             if !self.matches(closure, &registers)
                 || code.registers != self.count
                 || code.projected_upvalues
-                || code.scalar_leaf.is_some()
                 || !code.entries.get(*registers.pc).copied().unwrap_or(false)
             {
                 return None;

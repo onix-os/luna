@@ -38,7 +38,6 @@ pub(super) struct Program {
 }
 
 impl Program {
-    #[cfg(test)]
     pub(super) fn prepare_shadow<'a, 'gc, const N: usize>(
         &self,
         ctx: Context<'gc>,
