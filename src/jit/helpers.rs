@@ -868,6 +868,103 @@ slot_count: slots.len(),
     }
 
     #[test]
+    fn table_guards_preserve_self_metatables_readonly_and_pending_keys() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = Closure::load(ctx, None, b"return 42").unwrap();
+            for flags in 0..16 {
+                let self_meta = flags & 1 != 0;
+                let hooks = flags & 2 != 0;
+                let existing = flags & 4 != 0;
+                let readonly = flags & 8 != 0;
+                let table = Table::new(&ctx);
+                let mt = if self_meta { table } else { Table::new(&ctx) };
+                if hooks {
+                    mt.set(ctx, MetaMethod::Index, true).unwrap();
+                    mt.set(ctx, MetaMethod::NewIndex, true).unwrap();
+                }
+                if existing {
+                    table.set(ctx, 1, 7).unwrap();
+                }
+                table.set_metatable(ctx, Some(mt));
+                table.set_readonly(&ctx, readonly);
+                let old = if existing {
+                    Value::Integer(7)
+                } else {
+                    Value::Nil
+                };
+                let mut values = [
+                    Value::Table(table),
+                    Value::Integer(99),
+                    Value::Integer(42),
+                    Value::Integer(-1),
+                ];
+                let mut pc = 0;
+                LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                    let mut slots: [Slot; 4] =
+                        std::array::from_fn(|index| Slot::from_value(registers.stack_frame[index]));
+                    slots[1] = Slot::from_value(Value::Integer(1));
+                    let mut frame = Frame {
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: Counts::default(),
+                        slot_count: slots.len(),
+                        projection: None,
+                        panic: None,
+                    };
+                    let read_declined = hooks && !existing;
+                    assert_eq!(
+                        invoke::<{ abi::HELPER_GET_TABLE }>(&mut frame, &mut slots, 3, 0, 1, 17),
+                        if read_declined {
+                            abi::HELPER_DECLINED
+                        } else {
+                            abi::HELPER_COMPLETED
+                        }
+                    );
+                    assert_eq!(*frame.registers.pc, if read_declined { 17 } else { 18 });
+                    assert_identical(
+                        frame.registers.stack_frame[3],
+                        if read_declined {
+                            Value::Integer(-1)
+                        } else {
+                            old
+                        },
+                    );
+                    assert_eq!(frame.count.table_reads, u64::from(!read_declined));
+                    let write_declined = readonly || read_declined;
+                    assert_eq!(
+                        invoke::<{ abi::HELPER_SET_TABLE }>(&mut frame, &mut slots, 0, 1, 2, 21),
+                        if write_declined {
+                            abi::HELPER_DECLINED
+                        } else {
+                            abi::HELPER_COMPLETED
+                        }
+                    );
+                    assert_eq!(*frame.registers.pc, if write_declined { 21 } else { 22 });
+                    assert_eq!(frame.count.table_writes, u64::from(!write_declined));
+                    assert_eq!(frame.count.calls, 2);
+                    assert_eq!(
+                        frame.count.declined,
+                        u64::from(read_declined) + u64::from(write_declined)
+                    );
+                    assert!(frame.panic.is_none());
+                    assert_identical(
+                        table.get_raw(&ctx, Value::Integer(1)),
+                        if write_declined {
+                            old
+                        } else {
+                            Value::Integer(42)
+                        },
+                    );
+                    assert_identical(table.get_raw(&ctx, Value::Integer(99)), Value::Nil);
+                    assert_identical(frame.registers.stack_frame[1], Value::Integer(99));
+                });
+            }
+        });
+    }
+
+    #[test]
     fn fixed_symbols_have_unique_keys_and_decline_null_hosts() {
         let mut kinds = std::collections::HashSet::new();
         let mut names = std::collections::HashSet::new();
