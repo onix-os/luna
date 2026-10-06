@@ -846,6 +846,15 @@ paired trials and profile-driven scratch/Call-probe corrections are recorded
 in `PLAN_JIT.md`; upvalue, callback and compiled-Off regressions remain open.
 Do not treat this tier's correctness tests as release or performance acceptance.
 
+The scoped host reuses one paired-code lease within its activation batch. Numeric
+prototype hints select a possible hit; matching live cache ownership and all
+canonical entry guards still validate it. Retirement, replacement, foreign
+owners and Off refuse reuse. The scope drops its lease before callbacks,
+suspension or GC. `native_pair_cache_hits` counts reuse before native preflight,
+not completed Calls; `code_leases` counts new Shared clones only. Full paired
+measurements show about eight percent faster upvalue Auto execution than the
+previous candidate in both profiles, but original performance gates still fail.
+
 `make jit-mock` runs a test-only Rust slice model integrated with interpreter
 dispatch. Before/one-scalar-after exits preserve exact executor traces, errors,
 side-effect order and GC-visible state across selected callback/vararg/coroutine/

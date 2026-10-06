@@ -11,6 +11,70 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Scoped paired-code lease reuse — 2026-10-06
+
+`c38d99c` adds a one-entry cache owned by the scoped activation host. It retains
+only a paired program lease and two numeric prototype address hints, not GC
+values. Immutable program metadata supplies the source IDs and Call PC. The
+ordinary LuaFrame still carries one optional scope pointer; Off gains neither
+an extra frame field nor unconditional cache maintenance branches.
+
+Hints do not authorize native execution. Cached selection verifies the current
+cache entry owns the identical Shared program, advances the common saturated
+LRU clock and retains the complete canonical identity/provenance, capture,
+argument, mode, hook, fuel and source guards. Retirement, replacement, foreign
+owners and Off refuse reuse. Fresh successful lookup clears the old cache before
+changing hints. All leases drop with the host before callbacks, suspension or
+collection. No source-admission or native-coverage rule changed.
+
+`native_pair_cache_hits` counts scoped lease reuse before native preflight,
+including a later preflight decline; it does not count completed native Calls.
+`code_leases` continues to count new Shared lease clones, not cache hits. Public
+tests prove hits on the unchanged upvalue corpus at sufficient fuel, zero Off
+hits, exact Off slice traces through GC, unchanged retirement counters and zero
+false hits when callees alternate at one Call site. Unit tests cover recency,
+no-clone ownership, saturation, retirement, replacement and foreign roots.
+
+GNU Off/Auto/Force and musl Auto pass 4,636 test executions across 324 suites,
+zero failures and sixteen repeated existing ignores. Native Memcheck passes
+all 26 pair and eight public runtime tests with zero memory errors. The initial
+consumed-frame compile error, extra-pointer cache layout and overstrong small-
+fuel assertion for the new alternating fixture remain in the evidence directory.
+The 24-fuel alternating case proves exact fallback; existing frozen native
+coverage assertions were not weakened.
+
+Two complete 24-block/144-command comparisons were executed, with both profiles,
+all nine workloads, eleven paired samples, twelve cost batches/profile, three
+windows, contention and verified hashes. One retains the original baseline;
+the other directly pairs this cache against the previous `c1ad478` candidate.
+The direct comparison also verifies the previous candidate's archived sources.
+
+| Median direct old/new elapsed-time ratio | Speed | Shipping |
+| --- | ---: | ---: |
+| Upvalue Auto | 1.07918 | 1.08235 |
+| Upvalue Off | 1.02419 | 1.11234 |
+| Callback Auto | 0.99100 | 0.99535 |
+
+Upvalue Auto is about eight percent faster than the previous candidate in both
+profiles, not eight percent faster than the original interpreter or baseline.
+Callbacks do not show a comparable improvement. Faster shipping Off also lowers
+the scored Off/Auto ratio; do not misreport that ratio as absolute Auto slowdown.
+Native instruction coverage is unchanged; a representative upvalue sample's
+new lease clones fall from 260,205 to 136,853.
+
+**Original performance acceptance still fails.** Against the original baseline,
+the cache candidate's median speed upvalue Off/Auto is 0.58610 versus 0.74820;
+callbacks are 0.75375 versus 0.82995. Speed compiled-Off/no-feature is 1.10205
+for upvalues and 1.10130 for callbacks, above the frozen 1.05 limit. Shipping
+native ratios are 0.49305 and 0.71090. Both comparison drivers return zero for
+complete evidence, while each records 96 failed command gates and 48 successes.
+
+Evidence: `target/jit-evidence/short-slice-performance/pair-cache-compact-summary.tsv`,
+`pair-cache-compact-vs-split-summary.tsv` and matching timing, profile, source
+archive, build and validation files. Earlier cache layouts and full failed
+trials remain retained. The candidate is not release-accepted; source-bound
+lookup savings alone do not solve canonical handoff/caller invocation overhead.
+
 #### Rejected combined materialization/Return scope — 2026-10-06
 
 A bounded experiment combined scalar materialization and canonical Return in
