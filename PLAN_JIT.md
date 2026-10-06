@@ -56,6 +56,28 @@ do not explain or excuse the unrelated upvalue slowdown; that discrepancy
 needs investigation rather than another unmeasured compiler hint. All original
 performance, resource, platform and release acceptance requirements remain open.
 
+A follow-up isolates an important measurement-context difference. Six
+interleaved full-suite/single-upvalue windows use the **same frozen original
+control and candidate binaries**, alternating both context and variant order.
+The upvalue direct control/candidate median ratio is **0.9182 in the full
+suite** (all six slower), but **1.0009 standalone** (mixed windows). Full-suite
+Off median ratio is **0.9972**; compared instruction/entry/region counters are
+identical. All 24 checked commands still fail the original upvalue or aggregate
+thresholds. Standalone success relative to the control does not rescue the
+failed full-suite candidate. External contention remains recorded.
+
+Another 24-command diagnostic compares original and symbol-matched stripped
+artifacts; all fail the upvalue gate and do not isolate a layout cause.
+Candidate symbol and ordinary stripped builds have different `.text` despite
+identical source. In symbol builds, three hot upvalue routines retain function
+sizes and normalized instruction streams apart from RIP-relative data
+annotations; neither that observation nor software cache counts proves the
+hardware cause. Evidence is in `table-borrow-layout-*` and
+`table-borrow-context-*`. The next investigation must preserve paired
+**full-suite** context instead of treating standalone Auto profiles as exact
+attribution for the measured regression. Production remains restored and
+passes the 36 focused GNU checks plus formatting/all-target compilation.
+
 #### Operand conversion trial: native gains, disabled regressions — 2026-10-06
 
 The actual table profile identifies a separate `Frame::operand` conversion
