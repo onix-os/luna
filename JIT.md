@@ -841,6 +841,11 @@ Off slice traces, GC, hooks, positioned errors, foreign-capture callbacks and
 Auto-to-Off cache retirement. These counters and tests establish actual
 execution, not a measured speedup or full-plan acceptance.
 
+The production pair candidate fails the unchanged performance gates. Repeated
+paired trials and profile-driven scratch/Call-probe corrections are recorded
+in `PLAN_JIT.md`; upvalue, callback and compiled-Off regressions remain open.
+Do not treat this tier's correctness tests as release or performance acceptance.
+
 `make jit-mock` runs a test-only Rust slice model integrated with interpreter
 dispatch. Before/one-scalar-after exits preserve exact executor traces, errors,
 side-effect order and GC-visible state across selected callback/vararg/coroutine/

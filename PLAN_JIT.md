@@ -11,6 +11,60 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Profile-driven pair corrections — 2026-10-06
+
+Three incremental corrections retain the original admission, fuel, frame,
+ownership and acceptance contracts:
+
+- `c3a778b` initializes only the exposed callee scratch prefix, using the
+  existing MaybeUninit pattern. New tests cover all 256 registers and refusal
+  of a Return hook before scratch initialization.
+- `e841903` selects interpreted pairs only in the Call arm, not before every
+  interpreted opcode. A selected handoff restores the pre-Call PC and dispatch
+  count; canonical execution remains responsible for consuming the Call.
+- `c1ad478` separates scratch storage from initialized Session metadata. The
+  first rewrite alone still generated a whole-session memset; the borrowed
+  buffer prevents that clearing while keeping storage live through native hooks.
+
+The generated-code profile confirms removal of the large clearing operation:
+Auto upvalue Callgrind instructions fall from 361,744,596 to 158,659,528.
+This simulated instruction reduction is not a wall-time speedup claim. Moving
+the Call probe reduces compiled-Off upvalue instructions from 104,029,798 to
+102,629,633; callback instructions fall from 45,866,990 to 45,491,850.
+
+The final source passed GNU Off/Auto/Force and musl Auto suites: 4,624 test
+executions across 324 suites, zero failures and sixteen repeated existing
+ignores. Formatting and baseline/JIT checks passed. All eighteen canonical
+native tests also passed Valgrind Memcheck with zero memory errors, including
+the maximum-prefix, early-Return, error, panic, growth and capture cases.
+
+The unchanged full timing trial also completed for `c1ad478`: 24 blocks,
+144 commands, both profiles, all nine workloads, eleven paired samples and
+twelve cost batches/profile. Hashes verified throughout. **Performance still
+fails**, despite improvement over the first production-pair candidate:
+
+| Final median ratio | Paired original baseline | Corrected pair |
+| --- | ---: | ---: |
+| Speed upvalue Off/Auto | 0.74745 | 0.55355 |
+| Shipping upvalue Off/Auto | 0.61530 | 0.50940 |
+| Speed callbacks Off/Auto | 0.83030 | 0.73730 |
+| Speed upvalue compiled-Off/no-feature | 1.05260 | 1.10490 |
+| Speed callbacks compiled-Off/no-feature | 1.02570 | 1.12650 |
+
+The corrected pair path remains slower than the original baseline on the
+targeted workloads. No original regression is marked accepted or resolved.
+The remaining measured Auto costs include canonical leave/materialization,
+ordinary caller invocation, fresh register views and source-bound pair lookup.
+They require further profile-driven work, not relaxed gates or an assertion
+that correctness implies speed. This branch remains a candidate, not a release.
+
+All three full trial outputs, including failed commands and contention, remain
+under `target/jit-evidence/short-slice-performance/` with prefixes
+`production-pair`, `production-pair-scratch` and `production-pair-split`.
+The final trial driver returned zero for complete evidence; 96 command gates
+returned two and 48 returned zero. Scratch-only timing and the initial retained
+Force eligibility failure are not superseded or discarded.
+
 #### Production pair performance trial — 2026-10-06
 
 The immutable `4bca661` candidate completed the unchanged 24-block comparison:
