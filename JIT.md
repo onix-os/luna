@@ -870,10 +870,19 @@ unsupported, guard-error and helper-decline paths, alongside exact frame, fuel
 and dispatch traces. Resume tokens bind runtime, source, closure, thread/frame,
 PC and remaining budget; retired or Off code cannot regain native authority.
 The suite also covers GC, callback release, caught-panic lease cleanup and
-stale pair selection after fuel-limited canonical execution. The driver remains
-test-only. The VM entry uses a shared slice implementation, but production
-execution is not routed through the new driver. These tests establish neither
-a production regression fix nor a measured speedup.
+stale pair selection after fuel-limited canonical execution. `68ce077` routes
+supported-platform Auto scoped activations through this driver with the normal
+step-fuel contract. Off, unsupported platforms, initially variable frames and
+nonstandard step fuel retain canonical routing. A separate canonical entry
+prevents recursive fallback and remains the explicit test reference.
+
+Same-slice resume can hand a later paired Call to the driver's lexical scope;
+the driver consumes the handoff and preserves remaining budget and original
+fuel on refusal. This preserves cold/dynamic paired coverage after interpreted
+arithmetic. Fifteen GNU/musl chain tests, public pair coverage, activation,
+accounting and fuel gates pass 106 focused executions across eleven suites.
+Broader production validation is pending. These tests establish actual
+production routing, not a measured speedup or original regression acceptance.
 
 A unified VM execution counter (`f862a4e`) passed correctness, Miri and native
 memory checks but was reverted in `d8e2ef5` after two complete comparisons.

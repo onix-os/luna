@@ -11,6 +11,42 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Production direct caller routing candidate — 2026-10-06
+
+`68ce077` promotes the completed direct-native caller driver into supported
+Auto scoped activations with normal step fuel. Existing Off, unsupported,
+initially variable-frame and nonstandard-step routing stays canonical.
+Canonical fallback has a separate entry, avoiding recursive driver selection;
+test controls explicitly use that entry rather than comparing the driver with
+itself. The driver continues across variable-frame transitions through canonical
+fallback and preserves activation and stack-growth diagnostics.
+
+The first production attempt passed all chain tests but failed two unchanged
+public coverage assertions: interpreted modulo/comparison prefixes resumed
+without enabling a later source-bound paired Call, producing zero native pair
+work for dynamic cold callers. Resume now receives the driver's lexical
+PairScope, and the driver consumes its handoff with the original remaining
+budget and success/error fuel rules. The scope drops on return or unwind.
+The caught-native-panic fixture includes interpreted modulo before its paired
+Call, verifying cleanup after this resumed handoff rather than only direct
+prefix handoff. No corpus, threshold or coverage assertion was weakened.
+
+GNU/musl chain, public pair, activation, accounting and fuel gates pass 106
+executions in eleven suites, zero failures or ignores and no Rust warnings.
+Before promotion, full GNU Off/Auto/Force, musl Auto and no-feature baseline
+validation passed 5,026 executions in 400 suites with eighteen existing/repeated
+ignores and zero failures. Those full results belong to the pre-promotion
+revision, not this production candidate. Production native Memcheck and the
+same full matrix are running in
+`target/jit-evidence/short-slice-performance/native-chain-production-final-validation.log`.
+The failed first attempt and successful focused run remain separately scoped.
+
+This is a production routing candidate, not performance acceptance. No new
+speed/shipping timing is available. Original upvalue/callback and compiled-Off
+gates remain open. Wait for terminal validation before building immutable paired
+benchmark artifacts; owned compilation, tests and profiling must not overlap
+their timing windows. Earlier entries below document the test-only revisions.
+
 #### Shared native-prefix resume and driver fallback — 2026-10-06
 
 `20d1399` introduces a shared VM-slice continuation entry. The ordinary VM and
