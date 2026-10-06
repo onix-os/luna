@@ -11,6 +11,38 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Operand inlining still fails matched-path controls — 2026-10-07
+
+The launch-path finding warranted retesting the previously rejected operand
+inlining candidate, which had meaningful native table/callback gains. Frozen
+production and candidate images run through identical hardlink paths at two
+lengths, six alternating windows, with native and both disabled profiles.
+All **72 original checked commands fail**. Artifact hashes remain unchanged;
+the two no-feature binaries are byte-identical across variants. All compared
+native, interpreter, helper, table/upvalue and region counters match.
+
+Native direct control/candidate median times are **1.1657 / 1.1385** for tables
+and **1.1102 / 1.0712** for callbacks at the two stages. Native upvalue remains
+approximately unchanged (**1.0092 / 0.9915**) and fails its original threshold.
+These direct timing ratios are not acceptance results; large co-moving Off/Auto
+outliers, especially late in the campaign, are retained rather than removed.
+
+Disabled regressions survive the matched paths. Speed float direct medians are
+**0.9614 / 0.9639**; candidate/no-feature medians are **1.0901 / 1.0858**, with
+zero of twelve passes against seven control passes. Shipping table direct medians
+are **0.9698 / 0.9799**, with only one candidate pass against twelve control
+passes. Shipping upvalue direct medians are **0.9703 / 0.9724**; its candidate
+overhead remains about seventeen percent against the unchanged five-percent cap.
+The candidate therefore stays removed. Favorable native gains do not excuse
+compiled-Off regressions, and the path correction alone does not rescue this trial.
+
+Raw gates, telemetry, inode/hash proofs and 1,512 parsed report rows are retained
+under `target/jit-evidence/short-slice-performance/operand-balanced/`.
+The report includes native-proof worker records; disabled comparisons use only
+`feature_cost_case` records, not those untimed Auto proofs. An initial driver
+typo failed before any measurement and is retained separately. Production source
+is unchanged; performance and full-plan acceptance remain open.
+
 #### Exact-code symbols and launch-path controls — 2026-10-07
 
 The latest measurements supersede the causal interpretation of the extra
