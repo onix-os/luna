@@ -174,6 +174,10 @@ fn linked_native_calls_match_physical_frames_fuel_and_dispatches() {
         &b"local n=7 local function f(v) n=n-v end f(2) return n"[..],
         &b"local n=7 local function f(v) n=n*v end f(2) return n"[..],
         &b"local n=9223372036854775807 local function f(v) n=n+v end f(2) return n"[..],
+        &b"local n=-9223372036854775807-1 local function f(v) n=n-v end f(1) return n"[..],
+        &b"local n=9223372036854775807 local function f(v) n=n*v end f(2) return n"[..],
+        &b"local n=9223372036854775807 local function f() n=n+2 end f() return n"[..],
+        &b"local n=7 local function f(v,w,x) n=n+v end f(2,{},'keep') return n"[..],
         &b"local n=7 local function f() n=n+2 end f() return n"[..],
     ] {
         fixture(source, |lua, closure, site, code| {
