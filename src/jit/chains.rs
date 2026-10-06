@@ -60,7 +60,7 @@ fn shadow_prefix<'gc, const N: usize>(
     })
 }
 
-fn shadow_pair<'gc, const N: usize>(
+pub(super) fn shadow_pair<'gc, const N: usize>(
     ctx: Context<'gc>,
     host: &mut ActivationHost<'gc, '_>,
     pair: &super::PreparedPair,
@@ -75,7 +75,12 @@ fn shadow_pair<'gc, const N: usize>(
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         pair.invoke(ctx, host, budget, prefix)
     }));
-    if host.lua_pending() && host.frame_identity() == frame {
+    let resumable = match &result {
+        Ok(Some(outcome)) => outcome.result.is_ok(),
+        Ok(None) => true,
+        Err(_) => false,
+    };
+    if resumable && host.lua_pending() && host.frame_identity() == frame {
         assert!(host.with_registers(|closure, registers| transfer.resume(closure, &registers)));
     } else {
         assert!(transfer.recover(host, &caller));

@@ -698,6 +698,7 @@ impl OpCode {
         })
     }
 
+    #[inline(always)]
     pub fn decode(self) -> Operation {
         match self.0 {
             OpCodeRepr::MarkToBeClosed { source } => Operation::MarkToBeClosed { source },

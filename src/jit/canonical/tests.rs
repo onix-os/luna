@@ -1311,6 +1311,280 @@ fn consumed_call_vm_error_is_returned_without_charging_an_unsuccessful_prefix() 
 }
 
 #[test]
+fn resident_return_error_recovers_pending_values_and_callee_effects() {
+    resident_failure(ResidentFailure::ReturnError);
+}
+
+#[test]
+fn resident_enter_panic_recovers_pending_values_beneath_callee() {
+    resident_failure(ResidentFailure::EnterPanic);
+}
+
+#[test]
+fn resident_leave_panic_discards_uncommitted_callee_scratch() {
+    resident_failure(ResidentFailure::LeavePanic);
+}
+
+#[test]
+fn resident_post_return_panic_preserves_committed_callee_effects() {
+    resident_failure(ResidentFailure::ReturnedPanic);
+}
+
+#[derive(Clone, Copy)]
+enum ResidentFailure {
+    ReturnError,
+    EnterPanic,
+    LeavePanic,
+    ReturnedPanic,
+}
+
+fn resident_failure(failure: ResidentFailure) {
+    unsafe extern "C" fn faulty_enter(
+        data: *mut c_void,
+        pc: u64,
+        function: u32,
+        arguments: u32,
+    ) -> *mut NativeFrame {
+        let frame = unsafe { enter(data, pc, function, arguments) };
+        if !frame.is_null() {
+            unsafe { &mut *data.cast::<Session<'_, '_, '_>>() }
+                .host
+                .test_variable_stack();
+        }
+        frame
+    }
+
+    unsafe fn inject_panic(data: *mut c_void, generated: bool) {
+        let session = unsafe { &mut *data.cast::<Session<'_, '_, '_>>() };
+        session.panic = Some(
+            catch_unwind(AssertUnwindSafe(|| {
+                assert_eq!(session.calls, 1);
+                if generated {
+                    assert_eq!(session.frame.exit.instructions, 3);
+                    assert_eq!((session.view.reads, session.view.writes), (1, 1));
+                    assert_eq!(unsafe { (*session.view.cell).bits }, 17);
+                }
+                panic!("resident injected panic");
+            }))
+            .unwrap_err(),
+        );
+    }
+
+    unsafe extern "C" fn panic_enter(
+        data: *mut c_void,
+        pc: u64,
+        function: u32,
+        arguments: u32,
+    ) -> *mut NativeFrame {
+        let frame = unsafe { enter(data, pc, function, arguments) };
+        if !frame.is_null() {
+            unsafe { inject_panic(data, false) };
+        }
+        std::ptr::null_mut()
+    }
+
+    unsafe extern "C" fn panic_leave(
+        data: *mut c_void,
+        _frame: *mut NativeFrame,
+        _pc: u64,
+        _start: u32,
+    ) -> u32 {
+        unsafe { inject_panic(data, true) };
+        0
+    }
+
+    unsafe extern "C" fn panic_returned(
+        data: *mut c_void,
+        frame: *mut NativeFrame,
+        pc: u64,
+        start: u32,
+    ) -> u32 {
+        let result = unsafe { leave(data, frame, pc, start) };
+        unsafe { inject_panic(data, true) };
+        result
+    }
+
+    fixture(
+        b"local n=7 local p=10 local function f(v) n=n+v end p=99 n=12 f(5) local a,b,c,d,e=1,2,3,4,5 p=p+n return n,p,a,b,c,d,e",
+        |lua, closure, site, code| {
+            drop(code);
+            lua.set_jit_config(JitConfig {
+                mode: crate::JitMode::Auto,
+                ..JitConfig::default()
+            })
+            .unwrap();
+            lua.enter(|ctx| {
+                let prototype = ctx.fetch(&closure).prototype();
+                let (memory, metadata, limit, limits) = {
+                    let manager = ctx.jit().0.borrow();
+                    (
+                        manager.memory.clone(),
+                        manager.metadata.clone(),
+                        manager.config.max_code_bytes,
+                        work::Limits::from(&manager.config),
+                    )
+                };
+                ctx.jit()
+                    .compile(
+                        site.caller,
+                        Snapshot::new_in(&prototype, 4096, metadata.clone()).unwrap(),
+                    )
+                    .unwrap();
+                let caller_code = ctx.jit().lookup(site.caller).unwrap();
+                let start = prototype
+                    .opcodes
+                    .iter()
+                    .position(|op| matches!(op.decode(), Operation::Closure { .. }))
+                    .unwrap()
+                    + 1;
+                let caller = Snapshot::new_in(&prototype, 4096, metadata.clone()).unwrap();
+                let callee =
+                    Snapshot::new_in(&prototype.prototypes[0], 4096, metadata.clone()).unwrap();
+                let plan = Plan::new(&caller, &callee, site.pc, limits).unwrap();
+                let mapped_before = memory.requested();
+                let metadata_before = metadata.0.current();
+                let code = compile(
+                    &plan,
+                    match failure {
+                        ResidentFailure::ReturnError => Hooks { enter: faulty_enter, leave },
+                        ResidentFailure::EnterPanic => Hooks { enter: panic_enter, leave },
+                        ResidentFailure::LeavePanic => Hooks { enter, leave: panic_leave },
+                        ResidentFailure::ReturnedPanic => Hooks { enter, leave: panic_returned },
+                    },
+                    memory.clone(),
+                    limit,
+                    metadata.clone(),
+                    limits,
+                    backend::Failure::None,
+                    LinkFault::None,
+                )
+                .unwrap();
+                let pair = crate::jit::PreparedPair {
+                    program: crate::jit::owner::Shared::try_new(
+                        Program {
+                            site,
+                            code,
+                            origin: memory.clone(),
+                        },
+                        metadata.clone(),
+                    )
+                    .unwrap(),
+                };
+                let site = &pair.program.site;
+                assert!(start < site.pc);
+                let run = |native| {
+                    ctx.jit().0.borrow_mut().config.mode = crate::JitMode::Off;
+                    with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                        position(host, ctx, start);
+                        let before = stats(ctx);
+                        let native_before = ctx.jit().0.borrow().stats.native_instructions;
+                        let result = if native {
+                            ctx.jit().0.borrow_mut().config.mode = crate::JitMode::Auto;
+                            let mut shadow = Some(host.with_registers(|caller, registers| {
+                                crate::jit::caller_shadow::Shadow::<256>::capture(
+                                    caller, &registers,
+                                )
+                                .unwrap()
+                            }));
+                            let prefix = shadow
+                                .as_mut()
+                                .unwrap()
+                                .invoke(ctx, &caller_code, host, 64)
+                                .unwrap();
+                            assert_eq!(prefix as usize, site.pc - start);
+                            host.with_registers(|_, registers| {
+                                assert_eq!(*registers.pc, site.pc);
+                                assert!(matches!(registers.stack_frame[0], Value::Integer(7)));
+                                assert!(matches!(registers.stack_frame[1], Value::Integer(10)));
+                            });
+                            let leases = crate::jit::owner::Shared::strong_count(&pair.program);
+                            let mut recoveries = 0;
+                            let returned = catch_unwind(AssertUnwindSafe(|| {
+                                crate::jit::chains::shadow_pair(
+                                    ctx,
+                                    host,
+                                    &pair,
+                                    &mut shadow,
+                                    64,
+                                    prefix,
+                                    &mut recoveries,
+                                )
+                            }));
+                            let result = match failure {
+                                ResidentFailure::ReturnError => {
+                                    let outcome = returned.unwrap().unwrap();
+                                    assert_eq!((outcome.calls, outcome.returns), (1, 1));
+                                    outcome.result
+                                }
+                                _ => {
+                                    let Err(payload) = returned else {
+                                        panic!("resident driver swallowed panic");
+                                    };
+                                    assert_eq!(*payload.downcast::<&str>().unwrap(), "resident injected panic");
+                                    Ok(())
+                                }
+                            };
+                            assert_eq!(recoveries, 1);
+                            assert!(shadow.is_none());
+                            assert_eq!(
+                                crate::jit::owner::Shared::strong_count(&pair.program),
+                                leases
+                            );
+                            assert_eq!(
+                                ctx.jit().0.borrow().stats.native_instructions - native_before,
+                                u64::from(prefix + if matches!(failure, ResidentFailure::ReturnError | ResidentFailure::ReturnedPanic) { 3 } else { 0 })
+                            );
+                            result
+                        } else {
+                            host.run(ctx, 1, 64, 4).result.unwrap();
+                            let result = match failure {
+                                ResidentFailure::ReturnError => {
+                                    host.test_variable_stack();
+                                    host.run(ctx, 1, 64, 4).result
+                                }
+                                ResidentFailure::ReturnedPanic => host.run(ctx, 1, 64, 4).result,
+                                _ => Ok(()),
+                            };
+                            assert_eq!(
+                                ctx.jit().0.borrow().stats.native_instructions,
+                                native_before
+                            );
+                            result
+                        };
+                        match failure {
+                            ResidentFailure::ReturnError => assert!(matches!(
+                                result,
+                                Err(crate::thread::VMError::ExpectedVariableStack(false))
+                            )),
+                            _ => result.unwrap(),
+                        }
+                        assert!(ctx.jit().0.try_borrow_mut().is_ok());
+                        let trace = trace(ctx, host, before);
+                        let callee_instructions = match failure {
+                            ResidentFailure::ReturnedPanic => 3,
+                            ResidentFailure::ReturnError if native => 3,
+                            _ => 0,
+                        };
+                        assert_eq!(trace.instructions, (site.pc - start) as u64 + callee_instructions);
+                        (
+                            trace.frames,
+                            trace.slots,
+                            trace.open,
+                            trace.fuel,
+                            trace.dispatches,
+                        )
+                    })
+                };
+                assert_eq!(run(true), run(false));
+                drop(pair);
+                assert_eq!(memory.requested(), mapped_before);
+                assert_eq!(metadata.0.current(), metadata_before);
+            });
+        },
+    );
+}
+
+#[test]
 fn generated_return_vm_error_preserves_canonical_effects_and_fuel() {
     unsafe extern "C" fn faulty_enter(
         data: *mut c_void,

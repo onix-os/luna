@@ -11,7 +11,136 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Resident failed-Return recovery — 2026-10-06
+
+A new generated-prefix/generated-callee regression reproduces a resume assertion
+in the **test-only** resident scheduler: failed canonical Return pops the callee
+without restoring the caller's full stack width. Matching caller identity alone
+does not make the shadow resumable. Errors now recover only the witnessed caller
+prefix and discard the shadow; successful outcomes and untouched declines retain
+the existing resume path. Panic outcomes also take one-way recovery.
+
+The widened-caller fixture preserves pending `p=99` and the callee's captured
+`n=17`, with exact frames/slots/open-upvalues/fuel/dispatch parity against forced
+Off execution. Native instruction deltas prove generated prefix and callee work;
+the pair lease count is unchanged. Runtime-ledger-backed compilation is used for
+the injected Return error. The red assertion and green result are retained as
+`resident-return-red-wide.log` and `resident-return-green.log` in short-slice
+evidence. Formatting and canonical/chain/pair/public-runtime/shadow checks pass
+**96 executions in five suites**, zero failures or ignores
+(`resident-return-focused.log`). Combined panic fixtures remain next; production
+routing, original performance gates and release acceptance are unchanged.
+
+The follow-up adds generated-boundary panic fixtures after physical Call, before
+callee writeback, and after successful physical Return. Each catches the injected
+panic inside the C callback, resumes it only after the generated call returns,
+and compares recovered state/fuel/dispatches with the corresponding forced-Off
+boundary. Before-writeback scratch proves three generated instructions and
+`n=17` while canonical capture effects remain `n=12`; after Return the committed
+capture stays `n=17`. Pending `p=99` survives all cases. Exact instruction counters
+distinguish committed native work from discarded scratch and failed interpreter
+slices. Pair mapping and metadata charges return to their pre-compilation values
+after lease drop. The four combined fixtures and existing focused suites pass
+**99 executions in five suites**, zero failures or ignores
+(`resident-panic-validation.log`). This is additional correctness coverage for
+the test-only route, not production promotion or performance acceptance.
+
+Validation of `097ccac` completes GNU Auto workspace/all-target tests plus the
+musl focused suites: **1,286 executions in 85 suites**, zero failures, four
+existing ignores and no Rust warnings. Native Memcheck passes **64 executions**
+across canonical, resident-chain and public-runtime suites, with zero errors or
+definite/indirect losses; possible 48-byte Rust-harness TLS losses remain
+unsuppressed. Miri Stacked seed 1 and Tree seed 2 pass fourteen shadow-model
+executions, not generated code. i686-musl checking passes with the existing 71
+library and ten library-test warnings. Source hashes verify unchanged throughout;
+logs/exits and the manifest use `resident-failure-*` in short-slice evidence.
+The fix (`ec7ca7b`) and panic tests (`097ccac`) are separate pushed commits.
+No performance rerun is claimed: production executable source is unchanged.
+
+#### Typed decoder inlining candidate — 2026-10-06
+
+**Retained working improvement, not full performance acceptance.** Original and
+immediate-eligibility-control comparisons each completed 24 native rounds per
+profile and twelve cost rounds per profile, paired eleven-sample invocations,
+alternating order, hash checks and external contention telemetry. Direct
+control-Off/candidate-Off ratios are upvalue **1.121804/1.139790** and callback
+**1.112391/1.127235** (speed/shipping), with p10-p90 ranges wholly above one.
+The decoder hint measurably accelerates the interpreter rather than merely
+reducing a profiler instruction count.
+
+Matched upvalue compiled-Off/no-feature cost improves from **1.1196 to 1.02925**
+in speed (12/12 batches pass) and **1.1775 to 1.11435** in shipping (still fails).
+Callback cost changes **1.0757 to 1.1078** in speed (worse, all fail) and
+**1.05755 to 1.0491** in shipping (7/12 pass). Faster no-feature execution remains
+part of the control; do not keep it artificially slow to improve JIT ratios.
+Native tradeoffs remain: direct Auto upvalue **1.055464/0.980640**, callback
+**0.977019/1.001331**, table **0.971979/0.955262**. In particular, the shipping
+upvalue/table slowdowns are not acceptance simply because Off improved.
+
+Against original gates, Auto-Off upvalue ratios are **0.5455/0.47325**, callback
+**0.72025/0.7003**, table **1.09105/1.14785**, metamethod **0.78995/0.84405**,
+allocation **0.87745/0.7399**. Upvalue/callback/table fail every round in both
+profiles. Original-comparison Off upvalue costs are **1.0297/1.11285**, callbacks
+**1.1023/1.046**. Logs and 109-row summaries are `decoder-inline-timing` and
+`decoder-inline-vs-pair-eligibility-timing`; collector zero exits mean complete
+evidence, not passing workload gates. Original thresholds and full scope stay
+unchanged; native call costs and remaining Off tradeoffs still require work.
+
+The shipping Off investigation of `63f5966` versus `99c57f7` completed eight
+Make-based Callgrind runs with paired no-feature controls and verified archives.
+Both JIT-Off variants execute exactly **113,628,573** upvalue instructions and
+**55,741,490** callback instructions, with identical reads/writes and branch
+counts; simulated miss differences are negligible. This does not explain away
+the timing regressions, but does not support removing the installed-pair count
+on the theory that it added executed Off instructions. Shared preexisting costs
+include 12.10 million upvalue opcode-decoder instructions and separate VM dispatch.
+
+`9faf195` adds `#[inline(always)]` to the existing typed `OpCode::decode`, with
+no byte-layout assumptions, opcode changes, duplicated VM or disabled accounting.
+The shipping profile reduces upvalue instructions from **113,628,573 to
+96,776,633** in JIT-Off and from **102,524,372 to 86,022,477** without JIT;
+callbacks fall from **55,741,490 to 50,389,755** and **52,538,550 to 47,286,840**.
+The separate decoder disappears from the 99%-coverage annotation. JIT executable
+text grows by 5,964 bytes in speed and 7,116 bytes in shipping versus the
+eligibility candidate; instruction counts alone do not establish speedup.
+
+Baseline/focused/accounting checks pass 450 executions in 87 suites, two existing
+ignores. Full GNU Off/Auto/Force, musl Auto and JIT docs pass **4,735 executions in
+323 suites**, zero failures, eighteen existing/repeated ignores and no Rust
+warnings. Native pair/public-runtime Memcheck passes 37 executions with zero
+errors or definite/indirect losses, retaining possible 48-byte TLS losses.
+Fourteen Miri model executions and i686 checking pass. Immutable artifacts,
+source manifests and shipping profile archives are verified. Original and
+immediate-eligibility-control timing comparisons are complete with the mixed
+results above; this compiler-hint trial is not full-plan acceptance.
+
 #### Installed-pair scheduling eligibility candidate — 2026-10-06
+
+**Working candidate retained, not performance-accepted.** Both repeated
+comparisons completed 24 native rounds/profile and twelve compiled-Off rounds
+per profile, with eleven native samples/invocation, alternating order, verified
+hashes and retained contention telemetry. The immediate-parent comparison gives
+control-Auto/candidate-Auto medians **1.081299/1.059407** for callbacks
+(speed/shipping), with p10-p90 **1.058995-1.106415/1.037403-1.084704**. This is
+an incremental callback gain, not completion of the original regression work.
+Upvalue Auto direct ratios **1.009876/1.005636** have ranges crossing one.
+
+The same comparison exposes unresolved costs: shipping upvalue Off direct ratio
+**0.899337** (p10-p90 0.893351-0.905319), while compiled-Off/no-feature upvalue
+cost rises from **1.0987 to 1.12345** in speed and **1.10935 to 1.178** in shipping.
+Do not infer a particular layout cause from these timings or dismiss the costs
+because callbacks improved. The control is an independently built parent
+worktree; source, environment and binary records identify both artifacts.
+
+Against original acceptance, candidate upvalue Auto-Off ratios are
+**0.5762/0.55035**, callbacks **0.8119/0.79545**, table **1.24425/1.396**,
+metamethod **0.84695/0.93375**, allocation **0.9838/0.834**. Upvalue and callback
+gates fail all 24 rounds in both profiles. Original-comparison compiled-Off
+upvalue costs are **1.12275/1.1754**, callbacks **1.06865/1.06865**, still above
+1.05. Logs and 109-row summaries use `pair-eligibility-timing` and
+`pair-eligibility-vs-pair-eligibility-control-timing`. Collector zero exits mean
+complete evidence, not passing gates. Resolve the Off tradeoff and remaining
+native costs before treating this candidate as accepted or release-ready.
 
 `63f5966` routes execution through the scoped activation host only when at
 least one native call-pair program is installed, rather than whenever the Auto
@@ -37,8 +166,8 @@ Candidate and immediate-parent `99c57f7` controls have separately built immutabl
 speed/shipping binaries, independent no-feature binaries and verified source
 archives. Release artifact builds were serialized; the detached control checkout
 is retained under `pair-eligibility-control-worktree`. Original-control and
-immediate-parent paired timing series are required before retaining this
-candidate as a performance improvement. All original gates remain unchanged.
+immediate-parent paired timing series are complete, with the mixed results
+above. All original gates remain unchanged; the full plan remains incomplete.
 
 #### Frame-width resident scratch candidate — 2026-10-06
 
