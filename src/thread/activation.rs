@@ -287,6 +287,21 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         self.charge_native_slice(0);
         result
     }
+
+    #[cfg(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[cfg(test)]
+    pub(crate) fn test_resume_native(
+        &mut self,
+        ctx: Context<'gc>,
+        budget: u32,
+        resume: super::vm::NativeResume<'gc>,
+    ) -> Result<u32, VMError> {
+        self.with_frame(|frame| super::vm::resume_vm(ctx, frame, budget, resume))
+    }
 }
 
 impl<'gc, 'a> ActivationHost<'gc, 'a> {

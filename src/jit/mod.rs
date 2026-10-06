@@ -1558,6 +1558,20 @@ impl Runtime {
         }
     }
 
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    pub(crate) fn resume_lease(&self, id: u64, prepared: Prepared) -> Option<Prepared> {
+        let manager = self.0.borrow();
+        (manager.config.mode == JitMode::Auto
+            && manager
+                .code
+                .get(&id)
+                .is_some_and(|entry| owner::Shared::ptr_eq(&entry.code, &prepared.code)))
+        .then_some(prepared)
+    }
+
     pub(crate) fn observe(&self, id: u64) {
         #[cfg(all(
             target_os = "linux",

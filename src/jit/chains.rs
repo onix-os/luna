@@ -8,16 +8,17 @@ enum Pause {
     Unsupported { instructions: u32 },
 }
 
-struct Prefix {
+struct Prefix<'gc> {
     instructions: u32,
     transition: Option<CallTransition>,
+    resume: Option<crate::thread::NativeResume<'gc>>,
 }
 
 fn prefix<'gc>(
     ctx: Context<'gc>,
     host: &mut ActivationHost<'gc, '_>,
     budget: u32,
-) -> Option<Prefix> {
+) -> Option<Prefix<'gc>> {
     if budget == 0 || !host.lua_ready() || !ctx.jit().active() {
         return None;
     }
@@ -32,11 +33,22 @@ fn prefix<'gc>(
             .identity(ctx, closure.prototype())?;
         let code = ctx.jit().lookup(id)?;
         let instructions = ctx.jit().run(&code, ctx, closure, &mut registers, budget);
+        let transition = (instructions < budget)
+            .then(|| closure.prototype().opcodes[*registers.pc].call_transition())
+            .flatten();
         Some(Prefix {
             instructions,
-            transition: (instructions < budget)
-                .then(|| closure.prototype().opcodes[*registers.pc].call_transition())
-                .flatten(),
+            transition,
+            resume: (instructions < budget && transition.is_none()).then(|| {
+                crate::thread::NativeResume::new(
+                    ctx,
+                    closure,
+                    id,
+                    *registers.pc,
+                    instructions,
+                    code,
+                )
+            }),
         })
     })
 }
@@ -482,5 +494,45 @@ mod tests {
                 assert_eq!(super::super::owner::Shared::strong_count(&program), owners);
             });
         });
+    }
+
+    #[test]
+    fn resumed_unsupported_prefix_preserves_the_original_vm_slice() {
+        let source = b"local sum=0 local one=1 local scale=2 sum=sum+one local function add(v) sum=sum+v end for i=1,10000 do add(i) end return sum";
+        for budget in [5, 8, 64] {
+            let mut traces = Vec::new();
+            let mut statistics = Vec::new();
+            for resume in [false, true] {
+                let (mut lua, closure) = state(JitMode::Auto, source);
+                lua.enter(|ctx| {
+                    let thread = Thread::new(ctx);
+                    thread.start(ctx, ctx.fetch(&closure).into(), ()).unwrap();
+                    let mut fuel = Fuel::with(4096);
+                    crate::thread::activation::with_test_existing_thread(
+                        ctx,
+                        thread,
+                        &mut fuel,
+                        |host| {
+                            ctx.jit().0.borrow_mut().stats = Default::default();
+                            if resume {
+                                let prefix = prefix(ctx, host, budget).unwrap();
+                                assert!(prefix.instructions > 0 && prefix.instructions < budget);
+                                assert!(prefix.transition.is_none());
+                                let completed = host
+                                    .test_resume_native(ctx, budget, prefix.resume.unwrap())
+                                    .unwrap();
+                                host.charge_native_slice(completed);
+                            } else {
+                                host.run(ctx, 1, budget, 4).result.unwrap();
+                            }
+                            traces.push(trace(ctx, host));
+                            statistics.push(ctx.jit().0.borrow().stats);
+                        },
+                    );
+                });
+            }
+            assert_eq!(traces[0], traces[1], "budget={budget}");
+            assert_eq!(statistics[0], statistics[1], "budget={budget}");
+        }
     }
 }

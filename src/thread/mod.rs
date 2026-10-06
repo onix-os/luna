@@ -17,6 +17,14 @@ mod vm;
 
 #[cfg(feature = "jit")]
 pub(crate) use self::thread::LuaRegisters;
+#[cfg(all(
+    test,
+    feature = "jit",
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+pub(crate) use self::vm::NativeResume;
 
 use thiserror::Error;
 
