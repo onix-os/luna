@@ -248,7 +248,8 @@ fn leave_before_enter_is_caught_without_reading_scratch() {
         lua.enter(|ctx| {
             with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
                 position(host, ctx, site.pc);
-                let mut session = Session::new(ctx, host, &site);
+                let mut scratch = [MaybeUninit::uninit(); 256];
+                let mut session = Session::new(ctx, host, &site, &mut scratch);
                 let before = trace(ctx, session.host, stats(ctx));
                 let frame = std::ptr::addr_of_mut!(session.frame);
                 let data = std::ptr::addr_of_mut!(session).cast();
@@ -361,7 +362,8 @@ fn native_budget_declines_keep_the_callee_frame_for_interpreter_resume() {
                 with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
                     position(host, ctx, site.pc);
                     let before = stats(ctx);
-                    let mut session = Session::new(ctx, host, &site);
+                    let mut scratch = [MaybeUninit::uninit(); 256];
+                    let mut session = Session::new(ctx, host, &site, &mut scratch);
                     assert!(session.preflight(64));
                     let returned =
                         unsafe { code.invoke(std::ptr::addr_of_mut!(session).cast(), budget) };
@@ -592,7 +594,8 @@ fn mismatched_leave_is_caught_before_canonical_return_or_materialization() {
         lua.enter(|ctx| {
             with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
                 position(host, ctx, site.pc);
-                let mut session = Session::new(ctx, host, &site);
+                let mut scratch = [MaybeUninit::uninit(); 256];
+                let mut session = Session::new(ctx, host, &site, &mut scratch);
                 assert!(session.preflight(64));
                 let data = std::ptr::addr_of_mut!(session).cast();
                 let frame = unsafe {
@@ -682,7 +685,8 @@ fn panic_payload_resumes_after_session_borrow_release() {
         lua.enter(|ctx| {
             with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
                 position(host, ctx, site.pc);
-                let mut session = Session::new(ctx, host, &site);
+                let mut scratch = [MaybeUninit::uninit(); 256];
+                let mut session = Session::new(ctx, host, &site, &mut scratch);
                 session.panic = catch_unwind(AssertUnwindSafe(|| panic_any(Payload(731)))).err();
                 let payload = match catch_unwind(AssertUnwindSafe(|| session.finish())) {
                     Err(payload) => payload,

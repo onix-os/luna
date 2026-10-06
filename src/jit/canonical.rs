@@ -124,7 +124,7 @@ struct Session<'gc, 'host, 'borrow> {
     host: &'borrow mut ActivationHost<'gc, 'host>,
     site: &'borrow Site,
     frame: NativeFrame,
-    slots: [MaybeUninit<Slot>; 256],
+    slots: &'borrow mut [MaybeUninit<Slot>; 256],
     cell: Slot,
     view: leaf::View,
     target: Option<(bool, usize)>,
@@ -140,6 +140,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
         ctx: Context<'gc>,
         host: &'borrow mut ActivationHost<'gc, 'host>,
         site: &'borrow Site,
+        slots: &'borrow mut [MaybeUninit<Slot>; 256],
     ) -> Self {
         let nil = Slot::from_value(Value::Nil);
         Self {
@@ -151,7 +152,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
                 view: std::ptr::null_mut(),
                 exit: Exit::default(),
             },
-            slots: [MaybeUninit::uninit(); 256],
+            slots,
             cell: nil,
             view: leaf::View {
                 version: leaf::VERSION,
@@ -480,7 +481,8 @@ fn invoke_result<'gc>(
     budget: u32,
     prefix: u32,
 ) -> Option<super::PairOutcome> {
-    let mut session = Session::new(ctx, host, site);
+    let mut scratch = [MaybeUninit::uninit(); 256];
+    let mut session = Session::new(ctx, host, site, &mut scratch);
     session.prefix = prefix;
     if !session.preflight(budget) {
         return None;
