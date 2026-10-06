@@ -302,6 +302,19 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
     ) -> Result<u32, VMError> {
         self.with_frame(|frame| super::vm::resume_vm(ctx, frame, budget, resume))
     }
+
+    #[cfg(all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[cfg(test)]
+    pub(crate) fn test_frame_identity(&self) -> (usize, usize) {
+        (
+            std::ptr::from_ref(&*self.state) as usize,
+            self.state.frames.len(),
+        )
+    }
 }
 
 impl<'gc, 'a> ActivationHost<'gc, 'a> {

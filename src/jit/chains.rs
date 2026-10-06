@@ -26,6 +26,7 @@ fn prefix<'gc>(
     if ctx.hook_enabled() {
         return None;
     }
+    let frame = host.test_frame_identity();
     host.with_registers(|closure, mut registers| {
         let id = ctx
             .jit_registry()
@@ -44,6 +45,7 @@ fn prefix<'gc>(
                     ctx,
                     closure,
                     id,
+                    frame,
                     *registers.pc,
                     instructions,
                     code,
@@ -534,5 +536,184 @@ mod tests {
             assert_eq!(traces[0], traces[1], "budget={budget}");
             assert_eq!(statistics[0], statistics[1], "budget={budget}");
         }
+    }
+
+    fn function_state(source: &[u8]) -> (Lua, crate::StashedClosure) {
+        let mut lua = Lua::empty();
+        lua.set_jit_config(JitConfig {
+            mode: JitMode::Auto,
+            hot_threshold: 1,
+            ..JitConfig::default()
+        })
+        .unwrap();
+        let function = lua.enter(|ctx| {
+            let chunk = Closure::load(ctx, None, source).unwrap();
+            let prototype = chunk.prototype().prototypes[0];
+            assert!(prototype.upvalues.is_empty());
+            ctx.stash(Closure::from_parts(
+                &ctx,
+                prototype,
+                allocator_api2::vec::Vec::new_in(
+                    ottavino_gc_arena::allocator_api::MetricsAlloc::new(&ctx),
+                ),
+            ))
+        });
+        lua.prepare_jit().unwrap();
+        (lua, function)
+    }
+
+    #[test]
+    fn resumed_guard_error_counts_one_native_attempt_and_no_successful_prefix_fuel() {
+        let source = b"return function(a,b) local n=1 local m=2 local u=n+m return a+b end";
+        let mut traces = Vec::new();
+        let mut statistics = Vec::new();
+        let mut errors = Vec::new();
+        for resume in [false, true] {
+            let (mut lua, function) = function_state(source);
+            lua.enter(|ctx| {
+                let table = crate::Table::new(&ctx);
+                let thread = Thread::new(ctx);
+                thread
+                    .start(ctx, ctx.fetch(&function).into(), (table, 1))
+                    .unwrap();
+                let mut fuel = Fuel::with(4096);
+                crate::thread::activation::with_test_existing_thread(
+                    ctx,
+                    thread,
+                    &mut fuel,
+                    |host| {
+                        ctx.jit().0.borrow_mut().stats = Default::default();
+                        let result = if resume {
+                            let prefix = prefix(ctx, host, 64).unwrap();
+                            assert!(prefix.instructions > 0);
+                            let result = host.test_resume_native(ctx, 64, prefix.resume.unwrap());
+                            if let Ok(completed) = result {
+                                host.charge_instructions(completed);
+                            }
+                            host.charge_native_slice(0);
+                            result.map(|_| ())
+                        } else {
+                            host.run(ctx, 1, 64, 4).result
+                        };
+                        errors.push(result.unwrap_err().to_string());
+                        let stats = ctx.jit().0.borrow().stats;
+                        assert_eq!(stats.native_entries, 1);
+                        assert_eq!(stats.guard_exits, 1);
+                        assert_eq!(stats.interpreted_instructions, 0);
+                        assert_eq!(stats.interpreted_slices, 0);
+                        assert_eq!(host.fuel().remaining(), 4092);
+                        traces.push(trace(ctx, host));
+                        statistics.push(stats);
+                    },
+                );
+            });
+        }
+        assert_eq!(errors[0], errors[1]);
+        assert_eq!(traces[0], traces[1]);
+        assert_eq!(statistics[0], statistics[1]);
+    }
+
+    #[test]
+    fn resumed_declined_helper_is_not_retried_and_earlier_table_write_is_not_replayed() {
+        let source = b"return function(t) t.x=t.x+1 return t.missing end";
+        let mut traces = Vec::new();
+        let mut statistics = Vec::new();
+        let (mut lua, function) = function_state(source);
+        let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+        let counter = calls.clone();
+        let callback = lua.enter(|ctx| {
+            ctx.stash(Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+                counter.set(counter.get() + 1);
+                stack.replace(ctx, 7);
+                Ok(CallbackReturn::Return)
+            }))
+        });
+        for resume in [false, true] {
+            calls.set(0);
+            let (table, executor) = lua.enter(|ctx| {
+                let table = crate::Table::new(&ctx);
+                table.set(ctx, "x", 0).unwrap();
+                let metatable = crate::Table::new(&ctx);
+                metatable.set(ctx, "__index", ctx.fetch(&callback)).unwrap();
+                table.set_metatable(ctx, Some(metatable));
+                let thread = Thread::new(ctx);
+                thread
+                    .start(ctx, ctx.fetch(&function).into(), table)
+                    .unwrap();
+                let mut fuel = Fuel::with(4096);
+                crate::thread::activation::with_test_existing_thread(
+                    ctx,
+                    thread,
+                    &mut fuel,
+                    |host| {
+                        ctx.jit().0.borrow_mut().stats = Default::default();
+                        if resume {
+                            let prefix = prefix(ctx, host, 64).unwrap();
+                            assert!(prefix.instructions > 0);
+                            let completed = host
+                                .test_resume_native(ctx, 64, prefix.resume.unwrap())
+                                .unwrap();
+                            host.charge_native_slice(completed);
+                        } else {
+                            host.run(ctx, 1, 64, 4).result.unwrap();
+                        }
+                        let stats = ctx.jit().0.borrow().stats;
+                        assert_eq!(stats.helper_declines, 1);
+                        assert_eq!(stats.native_table_writes, 1);
+                        assert_eq!(calls.get(), 0);
+                        assert!(!host.lua_ready());
+                        traces.push(trace(ctx, host));
+                        statistics.push(stats);
+                    },
+                );
+                (
+                    ctx.stash(table),
+                    ctx.stash(Executor::run(&ctx, thread).unwrap()),
+                )
+            });
+            assert_eq!(lua.execute::<i64>(&executor).unwrap(), 7);
+            assert_eq!(calls.get(), 1);
+            lua.enter(|ctx| {
+                assert!(matches!(
+                    ctx.fetch(&table).get::<_, crate::Value>(ctx, "x").unwrap(),
+                    crate::Value::Integer(1)
+                ))
+            });
+        }
+        assert_eq!(traces[0], traces[1]);
+        assert_eq!(statistics[0], statistics[1]);
+    }
+
+    #[test]
+    fn native_resume_refuses_a_different_thread_with_the_same_closure_and_pc() {
+        let source = b"local sum=0 local one=1 local scale=2 sum=sum+one local function add(v) sum=sum+v end for i=1,10000 do add(i) end return sum";
+        let (mut lua, closure) = state(JitMode::Auto, source);
+        lua.enter(|ctx| {
+            let first = Thread::new(ctx);
+            first.start(ctx, ctx.fetch(&closure).into(), ()).unwrap();
+            let mut fuel = Fuel::with(4096);
+            let (resume, pc) = crate::thread::activation::with_test_existing_thread(
+                ctx,
+                first,
+                &mut fuel,
+                |host| {
+                    let token = prefix(ctx, host, 64).unwrap().resume.unwrap();
+                    let pc = host.with_registers(|_, registers| *registers.pc);
+                    (token, pc)
+                },
+            );
+            let second = Thread::new(ctx);
+            second.start(ctx, ctx.fetch(&closure).into(), ()).unwrap();
+            let mut fuel = Fuel::with(4096);
+            crate::thread::activation::with_test_existing_thread(ctx, second, &mut fuel, |host| {
+                host.with_registers(|_, registers| *registers.pc = pc);
+                let before = trace(ctx, host);
+                let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    host.test_resume_native(ctx, 64, resume)
+                }));
+                assert!(caught.is_err());
+                assert_eq!(trace(ctx, host), before);
+            });
+        });
     }
 }

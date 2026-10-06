@@ -90,6 +90,7 @@ pub(crate) struct NativeResume<'gc> {
     runtime: crate::jit::Runtime,
     closure: crate::Closure<'gc>,
     source: u64,
+    frame: (usize, usize),
     pc: usize,
     instructions: u32,
     code: crate::jit::Prepared,
@@ -107,6 +108,7 @@ impl<'gc> NativeResume<'gc> {
         ctx: Context<'gc>,
         closure: crate::Closure<'gc>,
         source: u64,
+        frame: (usize, usize),
         pc: usize,
         instructions: u32,
         code: crate::jit::Prepared,
@@ -115,6 +117,7 @@ impl<'gc> NativeResume<'gc> {
             runtime: ctx.jit().clone(),
             closure,
             source,
+            frame,
             pc,
             instructions,
             code,
@@ -176,6 +179,13 @@ fn run_vm_slice<'gc>(
             &ctx.jit().0,
             &resume.runtime.0
         ));
+        assert_eq!(
+            (
+                std::ptr::from_ref(&*lua_frame.state) as usize,
+                lua_frame.frame_depth()
+            ),
+            resume.frame
+        );
         assert!(ottavino_gc_arena::Gc::ptr_eq(
             current_function.into_inner(),
             resume.closure.into_inner()
