@@ -276,6 +276,37 @@ fn scoped_pair_cache_preserves_alternating_callees_at_one_callsite() {
 }
 
 #[test]
+fn scoped_pairs_preserve_owner_changes_capture_guards_and_costly_prefixes() {
+    let cases: &[&[u8]] = &[
+        b"local n=0 local function add(v) n=n+v end local function sub(v) n=n-v end for i=1,600 do local f=i%4==0 and sub or add f(i) end return n",
+        b"local n=0 local function f(v) n=n+v end for i=1,600 do if i==599 then n=n+0.5 end f(i) end return n>0 and 42 or -1",
+        b"local n=0 local function f(v) n=n+v end for i=1,300 do f(i) local t={1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20} f(t[1]) end return n",
+    ];
+    for &source in cases {
+        for prepare in [false, true] {
+            for fuel in [24, 25, 32, 48, 64, 68, 1000] {
+                let reference = run(source, JitMode::Off, prepare, fuel);
+                let native = run(source, JitMode::Auto, prepare, fuel);
+                assert_eq!(
+                    (native.0, &native.1),
+                    (reference.0, &reference.1),
+                    "prepare={prepare}, fuel={fuel}, source={}",
+                    std::string::String::from_utf8_lossy(source)
+                );
+                if fuel == 1000 {
+                    assert!(
+                        native.2.native_pair_returns > 0,
+                        "prepare={prepare}, source={}, stats={:?}",
+                        std::string::String::from_utf8_lossy(source),
+                        native.2
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn discarded_callee_results_preserve_canonical_return_values_and_fuel() {
     let source =
         b"local n=7 local function f(v) n=n+v return v end for i=1,100 do f(2) end return n";
