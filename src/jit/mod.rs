@@ -857,7 +857,9 @@ impl Manager {
                 self.record_compaction(result);
             }
             #[cfg(test)]
-            self.record_compaction(regions);
+            for result in regions {
+                self.record_compaction(result);
+            }
             #[cfg(test)]
             for result in promotions.into_iter().flatten() {
                 self.record_compaction(result);

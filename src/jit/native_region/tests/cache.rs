@@ -313,16 +313,18 @@ fn successful_dependency_replacement_invalidates_cached_regions() {
 
 #[test]
 fn region_cache_allocation_failures_preserve_installed_dependencies() {
-    for allowance in [0, 1] {
+    for (allowance, label) in [
+        (0, "region owner metadata"),
+        (1, "region cache metadata"),
+        (2, "region caller index metadata"),
+    ] {
         fixture(|ctx, _, region, _| {
             let key = region.pair.program.key();
             let metadata = ctx.jit().0.borrow().metadata.0.clone();
             let clock = ctx.jit().0.borrow().clock;
             metadata.fail_after(allowance);
             let error = ctx.jit().install_region(region).unwrap_err();
-            assert!(
-                matches!(error, JitError::ResourceLimit(label) if label == if allowance == 0 { "region owner metadata" } else { "region cache metadata" })
-            );
+            assert!(matches!(error, JitError::ResourceLimit(found) if found == label));
             metadata.fail_after(usize::MAX);
             assert_eq!(ctx.jit().0.borrow().clock, clock);
             assert!(ctx.jit().region_lease(key).is_none());
@@ -363,7 +365,7 @@ fn cache_owner_and_table_require_exact_metadata_headroom() {
             } else {
                 assert!(matches!(
                     result,
-                    Err(JitError::ResourceLimit("region cache metadata"))
+                    Err(JitError::ResourceLimit("region caller index metadata"))
                 ));
                 assert!(ctx.jit().region_lease(key).is_none());
             }
