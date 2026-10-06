@@ -11,6 +11,54 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Actual acceptance-workload profiling — 2026-10-06
+
+`7254b87` adds `make jit-bench-profile-run`, a run-only diagnostic for an
+immutable `JIT_BENCH_BINARY`. It collects `Executor::step` for eleven samples
+plus two warmups, validates the selected case/mode report and positive collected
+instructions, and verifies artifact hashes. Invalid cases/modes, missing
+binaries and unrelated executables are rejected. It does not run acceptance
+thresholds under the profiler or rebuild the input artifact.
+
+Six Off/Auto profiles use the actual `jit_bench` upvalue, callback and table
+workloads, not the feature-cost worker. Collected instruction totals are:
+
+| Case | Compiled Off | Auto |
+| --- | ---: | ---: |
+| Upvalue | 229,526,848 | 328,487,438 |
+| Rust callbacks | 107,551,301 | 135,344,264 |
+| Table | 57,620,951 | 53,169,450 |
+
+Upvalue exclusive self-cost is **15.70%** in canonical leave, **15.17%** in
+the region boundary and **9.42%** in admitted invocation. Callback costs differ:
+VM slice **16.91%**, executor **16.73%**, ordinary native invocation **14.61%**.
+Table profiles instead attribute **26.96%** to generated code and substantial
+work to table helpers and operand decoding. Function self-cost includes its
+body; generic host adapters must not be labelled pure adapter overhead.
+
+Decoded per-instruction costs reproduce both boundary-function annotation
+totals exactly, excluding inclusive call records. In this binary, the callee
+registry-validation range contributes **3.49%** of upvalue instructions,
+callee tag scan/materialization **2.09%**, and caller materialization **4.76%**.
+These binary-specific ranges include adjacent setup/checks. They are not
+hardware timings or justification to resurrect rejected cache/writeback trials.
+
+The symbol build and its derived stripped copy have byte-identical `.text`;
+the older production benchmark does not (its text is sixteen bytes shorter).
+Three alternating old/matched control windows preserve all compared execution
+counters, but all **18** original paired case checks still fail. Large table
+timing variation also appears in Off, so it is not a native-specific gain.
+A repeated upvalue profile records **328,540,243** instructions, retaining the
+small variation instead of asserting determinism. These diagnostic controls
+do not replace the full nine-case and speed/shipping acceptance campaigns.
+
+Evidence, hashes, exact assembly/counts, raw timings, telemetry and refusal
+checks are retained under
+`target/jit-evidence/short-slice-performance/acceptance-bench-profile/`.
+**No runtime change or fixed regression is claimed.** Original semantics,
+physical-frame/lifetime/resource requirements and every open acceptance gate
+remain in force.
+
 #### Rejected direct-helper ABI-hop removal — 2026-10-06
 
 The scoped helper bridge was experimentally changed to call a shared Rust
