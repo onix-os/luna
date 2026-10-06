@@ -11,6 +11,76 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Production direct caller routing candidate — 2026-10-06
+
+`68ce077` promotes the completed direct-native caller driver into supported
+Auto scoped activations with normal step fuel. Existing Off, unsupported,
+initially variable-frame and nonstandard-step routing stays canonical.
+Canonical fallback has a separate entry, avoiding recursive driver selection;
+test controls explicitly use that entry rather than comparing the driver with
+itself. The driver continues across variable-frame transitions through canonical
+fallback and preserves activation and stack-growth diagnostics.
+
+The first production attempt passed all chain tests but failed two unchanged
+public coverage assertions: interpreted modulo/comparison prefixes resumed
+without enabling a later source-bound paired Call, producing zero native pair
+work for dynamic cold callers. Resume now receives the driver's lexical
+PairScope, and the driver consumes its handoff with the original remaining
+budget and success/error fuel rules. The scope drops on return or unwind.
+The caught-native-panic fixture includes interpreted modulo before its paired
+Call, verifying cleanup after this resumed handoff rather than only direct
+prefix handoff. No corpus, threshold or coverage assertion was weakened.
+
+GNU/musl chain, public pair, activation, accounting and fuel gates pass 106
+executions in eleven suites, zero failures or ignores and no Rust warnings.
+Before promotion, full GNU Off/Auto/Force, musl Auto and no-feature baseline
+validation passed 5,026 executions in 400 suites with eighteen existing/repeated
+ignores and zero failures. Those full results belong to the pre-promotion
+revision, not this production candidate. Production native Memcheck and the
+same full matrix are running in
+`target/jit-evidence/short-slice-performance/native-chain-production-final-validation.log`.
+The failed first attempt and successful focused run remain separately scoped.
+
+This is a production routing candidate, not performance acceptance. No new
+speed/shipping timing is available. Original upvalue/callback and compiled-Off
+gates remain open. Wait for terminal validation before building immutable paired
+benchmark artifacts; owned compilation, tests and profiling must not overlap
+their timing windows. Earlier entries below document the test-only revisions.
+
+#### Shared native-prefix resume and driver fallback — 2026-10-06
+
+`20d1399` introduces a shared VM-slice continuation entry. The ordinary VM and
+test-only native resume use one interpreter implementation, not a second loop.
+`75a922d` binds tokens to the exact runtime, registered source, closure,
+thread/frame and PC. Tokens cannot be reused or resume with an exhausted
+budget. `7fe44d5` verifies that retired mappings and mode changes to Off retain
+correct interpreted continuation without executing more native instructions.
+
+`ed608bb` connects the test-only direct caller driver to unsupported-prefix tokens in
+the same original slice. It does not retry the failed first native attempt or
+replay completed writes. Whole-slice instruction fuel is charged only on
+success; errors retain the original step charge. Cold code, hook suppression
+and Off use canonical activation fallback instead of reporting a pause.
+Installation preflight avoids duplicate failed lookups on the cold path.
+
+A new exact-trace fixture reproduced stale pair selection after an earlier
+fuel-limited canonical activation: resume returned before its physical Call,
+omitting the callee frame and undercharging fuel. Resume now disables inherited
+handoff selection. The failed reproducer and corrected checks remain in
+`target/jit-evidence/short-slice-performance/native-chain-resume*`.
+
+The current chain suite passes fifteen tests on GNU and fifteen on musl.
+Fifteen additional native Memcheck executions pass with zero errors and no
+definite/indirect losses; the existing 48-byte possible test-harness TLS loss
+remains unsuppressed. Integrated unsupported,
+guard-error and helper-decline fixtures compare complete statistics and
+canonical traces; helper effects and Rust callbacks execute exactly once.
+Cold comparisons cover budgets 0/1/8/64 and limits 1/2/8 without weakening
+lookup diagnostics. The driver remains test-only: promotion, full validation
+and unchanged speed/shipping comparisons are still required. No measured
+speedup or original performance acceptance is claimed. The older prototype
+snapshot below describes its earlier, non-resuming revision.
+
 #### Test-only direct native caller continuations — 2026-10-06
 
 `602881d` introduces `src/jit/chains.rs`, a test-only driver that executes
