@@ -607,6 +607,13 @@ pub enum JitError {
 
 pub(crate) struct Manager {
     #[cfg(all(
+        test,
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    resume_scope: Option<native_region::resume::State>,
+    #[cfg(all(
         not(miri),
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
@@ -679,6 +686,13 @@ impl Default for Manager {
             pairs: None,
             #[cfg(test)]
             mock: None,
+            #[cfg(all(
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ))]
+            #[cfg(test)]
+            resume_scope: None,
             #[cfg(test)]
             before_compile: None,
             #[cfg(test)]
@@ -1619,6 +1633,10 @@ impl Runtime {
             if manager.config.mode == JitMode::Off {
                 return None;
             }
+            #[cfg(all(test, not(miri)))]
+            if let Some(prepared) = native_region::resume::lookup(&mut manager, id) {
+                return prepared;
+            }
             manager.stats.code_lookups = manager.stats.code_lookups.saturating_add(1);
             let last_used = manager.clock.saturating_add(1);
             let entry = manager.code.get_mut(&id)?;
@@ -1655,6 +1673,15 @@ impl Runtime {
 
     pub(crate) fn observe(&self, id: u64) {
         #[cfg(all(
+            test,
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ))]
+        if native_region::resume::skip_observation(&mut self.0.borrow_mut(), id) {
+            return;
+        }
+        #[cfg(all(
             target_os = "linux",
             any(target_arch = "x86_64", target_arch = "aarch64")
         ))]
@@ -1679,6 +1706,10 @@ impl Runtime {
             any(target_arch = "x86_64", target_arch = "aarch64")
         ))]
         {
+            #[cfg(all(test, not(miri)))]
+            if native_region::resume::skip(self, prepared, closure, registers) {
+                return 0;
+            }
             let code = &prepared.code;
             if !code.entries.get(*registers.pc).copied().unwrap_or(false) {
                 return 0;

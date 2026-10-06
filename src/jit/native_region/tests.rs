@@ -15,7 +15,7 @@ fn fixture(test: impl for<'gc> FnOnce(Context<'gc>, Closure<'gc>, Region, usize)
     );
 }
 
-fn fixture_source(
+pub(super) fn fixture_source(
     source: &[u8],
     test: impl for<'gc> FnOnce(Context<'gc>, Closure<'gc>, Region, usize),
 ) {
@@ -671,7 +671,7 @@ fn region_preserves_canonical_error_and_stops_before_callback_execution() {
     }
 }
 
-fn trace(
+pub(super) fn trace(
     ctx: Context<'_>,
     host: &ActivationHost<'_, '_>,
     before: (u64, u64),

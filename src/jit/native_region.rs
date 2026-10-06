@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    thread::{activation::ActivationHost, NativeResume, VMError},
+    thread::{activation::ActivationHost, VMError},
     Closure, Context,
 };
 
@@ -17,6 +17,7 @@ use super::{
 
 pub(super) mod cache;
 mod request;
+pub(super) mod resume;
 pub(super) mod schedule;
 pub(super) use request::Request;
 
@@ -224,7 +225,7 @@ impl Session<'_, '_, '_, '_> {
                 return 0;
             }
         } else {
-            let resume = NativeResume::new(
+            let resume = resume::Token::new(
                 ctx,
                 self.admitted.caller(),
                 self.region.source,
@@ -235,7 +236,7 @@ impl Session<'_, '_, '_, '_> {
                     code: self.region.ordinary.code.clone(),
                 },
             );
-            let result = self.frame.host.resume_native(ctx, self.budget, resume);
+            let result = resume.run(ctx, self.frame.host, self.budget);
             if let Ok(instructions) = result {
                 self.frame.host.charge_instructions(instructions);
             }
