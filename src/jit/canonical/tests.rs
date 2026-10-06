@@ -161,6 +161,134 @@ fn stats(ctx: Context<'_>) -> (u64, u64) {
     )
 }
 
+fn rebind<'gc>(
+    ctx: Context<'gc>,
+    callee: Closure<'gc>,
+    prototype: ottavino_gc_arena::Gc<'gc, crate::FunctionPrototype<'gc>>,
+) -> Closure<'gc> {
+    let mut upvalues =
+        allocator_api2::vec::Vec::new_in(ottavino_gc_arena::allocator_api::MetricsAlloc::new(&ctx));
+    upvalues.extend(
+        callee
+            .upvalues()
+            .iter()
+            .map(|value| ottavino_gc_arena::lock::Lock::new(value.get())),
+    );
+    Closure::from_parts(&ctx, prototype, upvalues)
+}
+
+#[test]
+fn physical_call_checks_replacements_and_refreshes_capture_after_preflight() {
+    fixture(ADD, |lua, closure, site, code| {
+        for case in 0..3 {
+            lua.enter(|ctx| {
+                with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                    position(host, ctx, site.pc);
+                    let original = host.with_registers(|_, registers| {
+                        let Value::Function(Function::Closure(callee)) =
+                            registers.stack_frame[usize::from(site.function.0)]
+                        else {
+                            panic!();
+                        };
+                        callee
+                    });
+                    let prototype = if case == 1 {
+                        Closure::load(ctx, None, ADD)
+                            .unwrap()
+                            .prototype()
+                            .prototypes[0]
+                    } else {
+                        original.prototype()
+                    };
+                    let replacement = rebind(ctx, original, prototype);
+                    assert_ne!(replacement, original);
+                    if case == 2 {
+                        replacement.set_upvalue(
+                            &ctx,
+                            usize::from(site.pattern.upvalue),
+                            crate::closure::UpValue::new(
+                                &ctx,
+                                crate::closure::UpValueState::Closed(Value::Integer(99)),
+                            ),
+                        );
+                    }
+                    let before = stats(ctx);
+                    let mut scratch = [MaybeUninit::uninit(); 256];
+                    let mut session = Session::new(ctx, host, &site, &mut scratch);
+                    assert!(session.preflight(64));
+                    session.host.with_registers(|_, registers| {
+                        registers.stack_frame[usize::from(site.function.0)] = replacement.into();
+                    });
+                    let completed = usize::from(case == 0);
+                    assert_eq!(
+                        unsafe { code.invoke(std::ptr::addr_of_mut!(session).cast(), 64) },
+                        2 * completed as u32,
+                        "case={case}"
+                    );
+                    assert_eq!((session.calls, session.returns), (1, completed));
+                    assert!(session.error.is_none() && session.panic.is_none());
+                    assert_eq!(
+                        trace(ctx, session.host, before).instructions,
+                        3 * completed as u64
+                    );
+                    if case != 0 {
+                        session
+                            .host
+                            .with_registers(|_, registers| assert_eq!(*registers.pc, 0));
+                    }
+                    if case == 2 {
+                        assert!(matches!(
+                            replacement.upvalues()[usize::from(site.pattern.upvalue)]
+                                .get()
+                                .get(),
+                            crate::closure::UpValueState::Closed(Value::Integer(99))
+                        ));
+                    }
+                });
+            });
+        }
+    });
+}
+
+#[test]
+fn changed_physical_prototype_refuses_leave_before_materialization() {
+    fixture(ADD, |lua, closure, site, _code| {
+        lua.enter(|ctx| {
+            with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                position(host, ctx, site.pc);
+                let replacement = Closure::load(ctx, None, b"return 0").unwrap();
+                let mut scratch = [MaybeUninit::uninit(); 256];
+                let mut session = Session::new(ctx, host, &site, &mut scratch);
+                assert!(session.preflight(64));
+                let data = std::ptr::addr_of_mut!(session).cast();
+                let frame = unsafe {
+                    enter(
+                        data,
+                        site.pc as u64,
+                        u32::from(site.function.0),
+                        u32::from(site.arguments),
+                    )
+                };
+                assert!(!frame.is_null());
+                session.frame.exit = Exit {
+                    pc: 3,
+                    instructions: 3,
+                    reason: Kind::Interpreter as u32,
+                };
+                session.slots[usize::from(site.pattern.result.0)]
+                    .write(Slot::from_value(Value::Integer(999)));
+                session.host.test_replace_closure(replacement);
+                let before = stats(ctx);
+                let original = trace(ctx, session.host, before);
+                assert_eq!(unsafe { leave(data, frame, 3, u32::from(site.start.0)) }, 0);
+                assert!(session.panic.is_some());
+                assert_eq!(session.returns, 0);
+                assert_eq!(trace(ctx, session.host, before), original);
+            });
+        });
+    });
+}
+
 fn position<'gc>(host: &mut ActivationHost<'gc, '_>, ctx: Context<'gc>, pc: usize) {
     let outcome = host.run(ctx, 1, pc.try_into().unwrap(), 4);
     assert!(outcome.result.is_ok());
