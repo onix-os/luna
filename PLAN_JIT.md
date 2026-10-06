@@ -11,6 +11,41 @@
 
 ### Progress snapshot — 2026-10-06
 
+#### Operand conversion trial: native gains, disabled regressions — 2026-10-06
+
+The actual table profile identifies a separate `Frame::operand` conversion
+with a caller-provided `Value` return slot. Its assembly already loads canonical
+payloads only for reference operands, so a proposed lazy-load rewrite would
+not remove eager scalar loads. An isolated `#[inline(always)]` trial instead
+exposes the conversion to its helper callers without changing helpers, guards,
+ABI, ownership, panic handling, frame layout or accounting.
+
+Table instructions fall **53,169,450 → 51,384,542** (3.36%), reads by **7.93%**
+and writes by **6.54%**. Six alternating original-gate windows then demonstrate
+native gains: median direct control/candidate ratios **1.1403** for tables and
+**1.0962** for callbacks, with all six direct ratios above one. Table Off/Auto
+ratios improve from **1.0130–1.1120** to **1.2224–1.3143**, passing three of six
+original table checks. All compared execution counters remain identical.
+
+**This forced-inline revision is not accepted.** Shipping compiled-Off table
+ratios rise to **1.0570–1.0731**, failing all six controls; direct disabled
+table/upvalue median gains are **0.9768/0.9728** (less than one means slower).
+Speed disabled integer, float and callback costs also regress. Both no-feature
+binaries are byte-identical to production controls. All **36** aggregate native
+and disabled commands fail; collection success does not mean gate acceptance.
+
+GNU Auto checks pass **1,278 executions / 82 suites** (six ignores), focused
+GNU and musl each pass **35 executions**, and Miri passes **13 tests**. Frozen
+source/binaries, full profiles, raw windows, external-contention telemetry and
+the 540-row report remain under `helper-operand-inline-*` in
+`target/jit-evidence/short-slice-performance/`. Large numeric timing variation
+that also appears in Off is not claimed as a native gain.
+
+A separately frozen ordinary `#[inline]` hint is being evaluated to let the
+optimizer decline expansion in size-oriented builds. It is not yet retained,
+and does not add profile-specific cfg, a feature or a build script. Original
+thresholds and every open performance/resource/platform/release gate remain.
+
 #### Actual acceptance-workload profiling — 2026-10-06
 
 `7254b87` adds `make jit-bench-profile-run`, a run-only diagnostic for an
