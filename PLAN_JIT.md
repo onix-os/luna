@@ -13,6 +13,25 @@
 
 #### Production resident-caller candidate — 2026-10-06
 
+**Rejected by performance measurements; production rollback pending profile
+capture.** The complete `resident-production-timing` comparison contains 24
+native rounds per profile and twelve compiled-Off rounds per profile, alternating
+candidate/original order with eleven samples per native invocation. Binary and
+source hashes passed before and after every block; external contention telemetry
+is retained. The runner's zero exit means evidence collection completed, not
+that the embedded workload gates passed.
+
+Candidate Auto/Off median speedups (speed/shipping) are upvalue **0.4692/0.4810**,
+callbacks **0.3455/0.4102**, metamethod **0.51395/0.5844**, table **1.2274/1.3357**
+and allocation **0.84775/0.7347**. Upvalue and callback gates pass zero of 24
+rounds in both profiles. Direct original-Auto/candidate-Auto ratios are
+**0.662226/0.726186** for upvalues and **0.424427/0.504875** for callbacks: this
+is a repeated regression against the immutable original, not merely a missed
+speedup target. Compiled-Off/no-feature upvalue costs are **1.09905/1.2387** and
+callback costs **1.0722/1.0865**, all above the unchanged 1.05 limit. Profiling
+must guide a different implementation; correctness acceptance does not justify
+leaving this production candidate enabled.
+
 `f68b572` moves scoped resume transport into the existing pair handoff without
 adding a VM argument. GNU/musl focused validation passes 116 executions; fourteen
 Miri model executions and i686-musl checking pass. A native Memcheck run passes
