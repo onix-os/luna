@@ -11,23 +11,60 @@
 
 ### Progress snapshot — 2026-10-07
 
-#### Experimental table operand-source specialization — 2026-10-07
+#### Rejected runtime operand-source specialization — 2026-10-07
 
-The Rust table helper now dispatches constant/register source combinations into
-const-generic readers. GET_TABLE/GET_UP_TABLE specialize the key;
-SET_TABLE/SET_UP_TABLE specialize both key and value. The existing operand flag,
-constant mask, bounds checks, helper ABI, generated source/effect verifier,
-projection synchronization, PC/panic handling and counters remain unchanged.
-This is a measured experiment, not a retained performance improvement yet.
+`5d5c2bb` dispatched constant/register source combinations into const-generic
+readers inside the Rust table helper. Reads specialized the key; writes both
+key and value. Operand flags/masks/bounds, helper ABI, generated source/effect
+proofs, projections, PC/panic handling and counters stayed unchanged. This was
+not an inline annotation or a generated source-specific import.
 
-Three independent fixtures exercise 56 source/guard/panic combinations across
-ordinary and upvalue tables: constants, pending scalar operands, reference
-identity, destination aliases, readonly/metatable declines, malformed constant
-and register indices, and panic materialization. Focused helper/scoped/source
-verifier/integer-table/heap tests pass **80 executions / nine suites**. Miri
-passes **17 / three**, including the new fixtures and both gateway families.
-Formatting and all-target/all-feature checking pass. Original-flag frozen
-builds, instruction diagnostics and unchanged paired timing gates remain pending.
+Three independent fixtures exercise 56 source/guard/panic cases across ordinary
+and upvalue tables: constants, pending scalars, reference identity, destination
+aliases, readonly/metatable declines, malformed indices and panic materialization.
+Focused suites pass **80 executions / nine suites**, Miri **17 / three**.
+Baseline/GNU Auto/docs pass **1,684 / 169**, ten ignores; musl **800 / six**,
+six ignores (the boundary target runs the broad library suite); real i686
+**583 / 84**. Formatting/all-target/all-feature checks pass. These counts do
+not claim new full GNU Off/Force execution.
+
+Five original-flag binaries and exact symbol companions produce sixteen native
+and twenty-eight disabled-cost profiles. Native table instructions fall
+**53,317,647 to 51,599,784**; callbacks **136,573,549 to 135,990,106**;
+allocation **34,757,098 to 34,485,760**. Upvalues remain near-flat. Text grows
+3,688 bytes in native/speed and 768 in shipping. Both no-feature binaries are
+**full-ELF byte-identical** to controls. Disabled integer/float/table instruction
+totals and VM sizes stay unchanged. Address-normalized VM instruction shapes
+also match, but that does not prove machine-byte identity or a hardware cause.
+
+Two twelve-window campaigns complete **288 original checked commands** across
+two matched paths; **284 fail**, four pass. All **48 complete native counter
+comparisons match**, including memory metadata; artifact hashes verify. The
+24-window table direct control/candidate medians are **1.1608 / 1.1744**,
+callbacks **1.1001 / 1.1017**, allocation **1.0695 / 1.0750**. Native gains
+remain promising in the second campaign, but tables fail 47/48 original checks,
+callbacks/upvalues 48/48, and allocation one (control zero).
+
+Speed compiled-Off float direct medians are **0.9793 / 0.9516**, about 2.1–5.1%
+more elapsed time; no-feature controls are **0.9967 / 1.0079**. Float gate
+failures rise **26 to 39 / 48**. The second twelve windows repeat float
+**0.9793 / 0.9534** against no-feature **0.9910 / 1.0060**. Disabled allocation
+also slows, direct **0.9804 / 0.9818** overall and **0.9838 / 0.9765** in the
+second campaign. Individual control swings are large under recorded external
+load; exact effect sizes remain uncertain, not grounds to waive failed gates.
+Existing shipping failures also remain.
+
+**Runtime specialization is removed; independent fixtures and Make targets
+remain.** The helper production body matches `ab090d2`; only its test-module
+registration is added. Do not repeat runtime source dispatch or operand inline
+hints as a new fix. Generated source-specific imports are a different possible
+investigation, still unimplemented and requiring complete source/effect proofs
+and resource accounting. Full performance/resource/platform/release acceptance
+remains open.
+
+Restored formatting/all-feature checks and **43 focused GNU executions / six
+suites** pass; Miri **17 / three**, musl **27 / five**, real i686 **three / one**
+also pass. All owned builds, profiles, timing campaigns and tests are terminal.
 
 Evidence prefix: `target/jit-evidence/short-slice-performance/helper-source-specialization-*`.
 
