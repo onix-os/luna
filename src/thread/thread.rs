@@ -1601,3 +1601,10 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
         )
     }
 }
+
+#[cfg(feature = "jit")]
+impl LuaRegisters<'_, '_> {
+    pub(crate) fn fuel(&self) -> &Fuel {
+        self.fuel
+    }
+}

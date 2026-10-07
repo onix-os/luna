@@ -271,21 +271,35 @@ impl Session<'_, '_, '_, '_> {
     fn complete(&mut self, view: &mut View) -> u32 {
         let ctx = self.frame.ctx;
         self.outcome.fragments += 1;
-        let transition = self.frame.host.with_registers(|closure, registers| {
-            assert_eq!(closure, self.admitted.caller());
-            for (slot, value) in self.slots.iter().zip(registers.stack_frame.iter_mut()) {
-                slot.write_back(value);
-            }
-            if self.frame.panic.is_none() {
-                *registers.pc = view.exit.pc as usize;
-            }
-            closure
-                .prototype()
-                .opcodes
-                .get(*registers.pc)
-                .and_then(|op| op.call_transition())
-        });
-        record(ctx, &view.exit, std::mem::take(&mut self.frame.count));
+        let mut transition = None;
+        let paired = self.admitted.materialize_and_invoke(
+            self.frame.host,
+            self.budget,
+            view.exit.instructions,
+            |closure, registers| {
+                assert_eq!(closure, self.admitted.caller());
+                for (slot, value) in self.slots.iter().zip(registers.stack_frame.iter_mut()) {
+                    slot.write_back(value);
+                }
+                if self.frame.panic.is_none() {
+                    *registers.pc = view.exit.pc as usize;
+                }
+                transition = closure
+                    .prototype()
+                    .opcodes
+                    .get(*registers.pc)
+                    .and_then(|op| op.call_transition());
+                record(ctx, &view.exit, std::mem::take(&mut self.frame.count));
+                if self.frame.panic.is_some() {
+                    return false;
+                }
+                assert!(view.exit.instructions <= self.budget);
+                view.exit.instructions < self.budget
+                    && transition.is_some()
+                    && self.limit - self.outcome.slices >= 2
+                    && view.exit.pc as usize == self.region.pair.program.key().pc
+            },
+        );
         if let Some(payload) = self.frame.panic.take() {
             self.panic = Some(payload);
             return 0;
@@ -295,15 +309,6 @@ impl Session<'_, '_, '_, '_> {
             self.frame.host.charge_native_slice(view.exit.instructions);
             self.outcome.slices += 1;
         } else if let Some(transition) = transition {
-            let paired = if self.limit - self.outcome.slices >= 2
-                && self.frame.host.pairing_enabled(ctx)
-                && view.exit.pc as usize == self.region.pair.program.key().pc
-            {
-                self.admitted
-                    .invoke(self.frame.host, self.budget, view.exit.instructions)
-            } else {
-                None
-            };
             if let Some(paired) = paired {
                 self.outcome.slices += 1 + paired.returns;
                 self.outcome.pairs += paired.returns;

@@ -362,6 +362,13 @@ fn admitted_pair_rechecks_dynamic_values_frames_fuel_mode_and_hooks() {
                 let before = trace(ctx, host, before_stats);
                 assert!(admitted.invoke(host, budget, 0).is_none(), "case={case}");
                 assert_eq!(trace(ctx, host, before_stats), before, "case={case}");
+                assert!(
+                    admitted
+                        .materialize_and_invoke(host, budget, 0, |_, _| true)
+                        .is_none(),
+                    "fused case={case}"
+                );
+                assert_eq!(trace(ctx, host, before_stats), before, "fused case={case}");
                 ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
                 ctx.set_debug_hook(Value::Nil, false, 0);
             });
@@ -387,6 +394,10 @@ fn admitted_pair_rechecks_dynamic_values_frames_fuel_mode_and_hooks() {
                 let before_stats = stats(ctx);
                 let before = trace(ctx, foreign, before_stats);
                 assert!(admitted.invoke(foreign, 64, 0).is_none());
+                assert_eq!(trace(ctx, foreign, before_stats), before);
+                assert!(admitted
+                    .materialize_and_invoke(foreign, 64, 0, |_, _| true)
+                    .is_none());
                 assert_eq!(trace(ctx, foreign, before_stats), before);
             });
         });
@@ -431,6 +442,106 @@ fn admitted_pair_reuses_source_binding_through_physical_call_and_return() {
         };
         assert_eq!(run(true), run(false));
     });
+}
+
+#[test]
+fn materialized_admission_observes_post_publication_values_fuel_and_policy() {
+    fixture_source(
+        b"local n=7 local function f(v) n=n+v end f(3) return n",
+        |ctx, closure, region, _| {
+            let pc = region.pair.program.key().pc;
+            let Operation::Call { func, .. } = closure.prototype().opcodes[pc].decode() else {
+                panic!()
+            };
+            for case in 0..11 {
+                let run = |fused| {
+                    with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+                        ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                        ctx.set_debug_hook(Value::Nil, false, 0);
+                        host.run(ctx, 1, pc as u32, 4).result.unwrap();
+                        ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+                        host.test_fuel(Fuel::with(100));
+                        let admitted = super::super::canonical::admission::Admitted::new(
+                            &region.pair.program,
+                            ctx,
+                            closure,
+                            host.frame_identity(),
+                        )
+                        .unwrap();
+                        let before = stats(ctx);
+                        let mut publications = 0;
+                        let mut materialize = |_: Closure<'_>,
+                                               registers: &mut crate::thread::LuaRegisters<
+                            '_,
+                            '_,
+                        >| {
+                            publications += 1;
+                            registers.stack_frame[0] = Value::Integer(11);
+                            match case {
+                                1 => return false,
+                                2 => {
+                                    registers.stack_frame[usize::from(func.0) + 1] =
+                                        Value::Number(3.0)
+                                }
+                                3 => registers.stack_frame[0] = Value::Number(11.0),
+                                4 => registers.stack_frame[usize::from(func.0)] = Value::Nil,
+                                5 => *registers.pc += 1,
+                                6 => registers.charge_fixed_list(1000),
+                                7 => ctx.jit().0.borrow_mut().config.mode = JitMode::Off,
+                                8 => {
+                                    let callback = crate::Callback::from_fn(&ctx, |_, _, _| {
+                                        panic!("materialized hook executed")
+                                    });
+                                    ctx.set_debug_hook(callback.into(), false, 1);
+                                    ctx.suppress_hook_at(1);
+                                }
+                                9 => panic!("materialization panic"),
+                                _ => {}
+                            }
+                            true
+                        };
+                        let prefix = if case == 10 { u32::MAX } else { 2 };
+                        let result = catch_unwind(AssertUnwindSafe(|| {
+                            if fused {
+                                admitted.materialize_and_invoke(host, 64, prefix, &mut materialize)
+                            } else {
+                                let eligible = host.with_registers(|caller, mut registers| {
+                                    materialize(caller, &mut registers)
+                                });
+                                if eligible && host.pairing_enabled(ctx) {
+                                    admitted.invoke(host, 64, prefix)
+                                } else {
+                                    None
+                                }
+                            }
+                        }));
+                        assert_eq!(publications, 1);
+                        let result = match result {
+                            Ok(Some(outcome)) => {
+                                assert_eq!(case, 0);
+                                assert_eq!((outcome.calls, outcome.returns), (1, 1));
+                                outcome.result.unwrap();
+                                "pair"
+                            }
+                            Ok(None) => {
+                                assert!((1..=8).contains(&case));
+                                "refused"
+                            }
+                            Err(_) => {
+                                assert!(case >= 9);
+                                "panic"
+                            }
+                        };
+                        let result = (result, trace(ctx, host, before));
+                        ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                        ctx.set_debug_hook(Value::Nil, false, 0);
+                        result
+                    })
+                };
+                assert_eq!(run(true), run(false), "case={case}");
+            }
+        },
+    );
 }
 
 #[test]
