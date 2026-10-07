@@ -35,11 +35,45 @@ A separate 576-command/two-path context timing diagnostic retains 2,880 verified
 case reports, but one worker observation per window gives large path/half-run
 movement and no reliable attribution. It also used redundant explicit Off
 arguments rather than the original comparator's default-Off worker arguments.
-An eleven-sample repeat now uses the original full-worker argument form, two
+An eleven-sample repeat uses the original full-worker argument form, two
 matched paths, alternating order, 24 windows and all three controls, with
-contention and artifact telemetry. It is still running, not an accepted fix.
+contention and artifact telemetry. It completes **6,336 worker commands /
+31,680 verified case reports**. Per-window eleven-sample medians still show
+path/context/half-run movement: speed full-worker float direct ratios are
+**0.96530 / 0.94908**, while shipping single-float gives **0.92103 / 1.05612**.
+This diagnostic does not replace original checked commands or establish cause.
 No owned profiler/build/test overlaps that repeat. Ignored diagnostic evidence:
 `target/jit-evidence/short-slice-performance/disabled-context-*`.
+
+#### Core-controlled original comparison — in progress
+
+The host permits CPUs 0–23 across unlike topology classes. Earlier worker logs
+do not record actual scheduled CPU, so this is a confound, not proof that
+migration caused a regression. Before timing, CPU0 and CPU16 were selected as
+the lowest allowed representatives of their respective classes. Only the new
+driver and its descendants receive affinity; outside workloads, governor and
+kernel settings are unchanged. Original binaries, flags, eleven samples, cost
+iterations, cases, both invocation paths and acceptance thresholds are preserved.
+
+CPU0 finishes **144 original checked commands / 2,160 parsed rows** across
+twelve alternating windows. All aggregate gates fail. All **24 execution/
+resident counter comparisons** and independently modeled compiler-reservation
+deltas match; immutable artifact hashes verify. Speed compiled-Off float direct
+control/candidate medians are **0.931096 / 0.935522**, about **7.4% / 6.9%**
+longer candidate time, against no-feature **1.001977 / 0.998490**. Control
+passes all 24 float cost checks; candidate fails all 24. Speed integer also
+slows: **0.934419 / 0.929309**, with both variants already failing the limit.
+Shipping cold failures rise from **two to nineteen / 24**. Native upvalue
+ratios remain around **0.65**, not the required 1.25; all upvalue/table/callback
+checks still fail for both variants.
+
+Thus unlike-core migration is not necessary to reproduce the float regression.
+This does not isolate its hardware cause or eliminate outside contention.
+The generic-import candidate remains rejected and production remains restored.
+CPU16 now runs sequentially after CPU0, with affinity verified as exactly 16;
+its result is pending. Neither one core nor pooled class results establish
+universal acceptance. Evidence:
+`target/jit-evidence/short-slice-performance/disabled-core-*`.
 
 #### Rejected generic import selection — 2026-10-07
 
