@@ -115,10 +115,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         &mut self,
         f: impl for<'frame> FnOnce(crate::Closure<'gc>, crate::thread::LuaRegisters<'gc, 'frame>) -> R,
     ) -> R {
-        self.with_frame(|mut frame| {
-            let (closure, registers) = frame.closure_registers();
-            f(closure, registers)
-        })
+        self.with_frame(|mut frame| f(frame.closure(), frame.registers()))
     }
 
     #[cfg(test)]

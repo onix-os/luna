@@ -917,35 +917,27 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
 
     /// returns a view of the Lua frame's registers
     pub(super) fn registers<'b>(&'b mut self) -> LuaRegisters<'gc, 'b> {
-        self.closure_registers().1
-    }
-
-    pub(super) fn closure_registers<'b>(&'b mut self) -> (Closure<'gc>, LuaRegisters<'gc, 'b>) {
         match self.state.frames.last_mut() {
             Some(Frame::Lua {
-                closure,
                 base,
                 pc,
                 is_variable: _is_variable,
                 ..
             }) => {
                 let (upper_stack, stack_frame) = self.stack[..].split_at_mut(*base);
-                (
-                    *closure,
-                    LuaRegisters {
-                        pc,
-                        stack_frame,
-                        upper_stack,
-                        base: *base,
-                        open_upvalues: &mut self.state.open_upvalues,
-                        to_be_closed: &mut self.state.to_be_closed,
-                        stack: self.state.stack,
-                        #[cfg(feature = "jit")]
-                        fuel: self.fuel,
-                        #[cfg(feature = "jit")]
-                        variable: *_is_variable,
-                    },
-                )
+                LuaRegisters {
+                    pc,
+                    stack_frame,
+                    upper_stack,
+                    base: *base,
+                    open_upvalues: &mut self.state.open_upvalues,
+                    to_be_closed: &mut self.state.to_be_closed,
+                    stack: self.state.stack,
+                    #[cfg(feature = "jit")]
+                    fuel: self.fuel,
+                    #[cfg(feature = "jit")]
+                    variable: *_is_variable,
+                }
             }
             _ => panic!("top frame is not lua frame"),
         }

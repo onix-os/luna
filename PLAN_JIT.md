@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-07
 
-#### Single physical-frame view — runtime candidate
+#### Single physical-frame view — rejected runtime trial
 
 The activation host now obtains the active closure and its register view from
 one match of the current physical Lua frame, rather than resolving the frame
@@ -24,8 +24,25 @@ Formatting/all-feature checking and **197 test executions / twenty suites**
 pass, two ignored: call resolution across baseline/Off/Auto/Force, canonical
 calls, regions, stack-growth/GC/callback activation tests and baseline activation.
 Existing adversarial physical-prototype tests cover fresh closure identity.
-This refactor is not a measured speedup yet. Compare frozen original gates
-against the admitted-binding candidate, not the rejected resolver shortcut.
+The Rust activation-host/nested-executor model also passes under Miri Stacked
+Borrows seed 1 and Tree Borrows seed 2; this is not generated execution in Miri.
+Five frozen original-flag binaries and sequential three-window screens on both
+cores complete **72 commands / 1,080 rows**, all aggregate gates failing.
+All twelve complete execution/resource comparisons and artifact hashes match.
+Neither builds nor Miri overlap timing.
+
+Native upvalue changes are small and reverse by core: direct **0.9896 / 0.9871**
+on CPU0, **1.0108 / 1.0086** on CPU16. Shipping disabled upvalues regress badly:
+direct **0.7495 / 0.7709** on CPU0 and **0.8459 / 0.8446** on CPU16, against
+near-flat no-feature controls. Shipping callbacks also regress, with direct
+ratios **0.8878 / 0.8922** and **0.9163 / 0.9373**. Gains in other cases do not
+justify those costs. Both accessor changes are removed; the runtime again
+matches the admitted-callee-binding candidate. Do not repeat tuple/view
+repackaging as though it demonstrated a native call-cost reduction.
+Restored formatting/all-feature checks and the same **197 executions / twenty
+suites** pass, two ignored. Production `src/` exactly matches `ee7acb2`, retaining
+only the admitted-callee identity optimization; the new general call regression
+and Make target remain outside production source.
 Evidence: `target/jit-evidence/short-slice-performance/physical-frame-view-*`.
 
 #### Direct physical-call resolution — rejected runtime trial
