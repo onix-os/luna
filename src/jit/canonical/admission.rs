@@ -77,94 +77,65 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
         })
     }
 
-    #[cfg(test)]
     fn preflight(&self, host: &mut ActivationHost<'gc, '_>, budget: u32, prefix: u32) -> bool {
-        if !self.preflight_state(
-            host.lua_ready(),
-            host.frame_identity(),
-            host.fuel(),
-            budget,
-            prefix,
-        ) {
+        if !host.lua_ready() {
             return false;
         }
-        host.with_registers(|caller, registers| self.preflight_registers(caller, &registers))
-    }
-
-    fn preflight_state(
-        &self,
-        ready: bool,
-        identity: (usize, usize),
-        available: &crate::Fuel,
-        budget: u32,
-        prefix: u32,
-    ) -> bool {
-        if !ready {
-            return false;
-        }
-        self.ctx.clear_hook_at(identity.1);
+        host.clear_hook(self.ctx);
         if budget < 4
             || self.ctx.hook_enabled()
             || self.ctx.jit().0.borrow().config.mode != crate::JitMode::Auto
-            || identity != self.identity
+            || host.frame_identity() != self.identity
         {
             return false;
         }
         let site = &self.program.site;
-        let mut fuel = available.clone();
+        let mut fuel = host.fuel().clone();
         fuel.consume(prefix.try_into().unwrap());
         fuel.consume(8 + i32::from(site.arguments));
         if !fuel.should_continue() {
             return false;
         }
-        true
+        host.with_registers(|caller, registers| {
+            if caller != self.caller || *registers.pc != site.pc {
+                return false;
+            }
+            let index = usize::from(site.function.0);
+            let Some(Value::Function(Function::Closure(callee))) =
+                registers.stack_frame.get(index).copied()
+            else {
+                return false;
+            };
+            if !Gc::ptr_eq(callee.prototype(), self.callee) {
+                return false;
+            }
+            let Some(upvalue) = callee.upvalues().get(usize::from(site.pattern.upvalue)) else {
+                return false;
+            };
+            let Some(origin) = registers.projection_origin(upvalue.get()) else {
+                return false;
+            };
+            let capture = match origin {
+                Origin::Upper(_, value) | Origin::Register(_, value) => value,
+                Origin::Closed(_) => return false,
+            };
+            if !matches!(capture, Value::Integer(_))
+                || index + 1 + usize::from(site.arguments) > registers.stack_frame.len()
+            {
+                return false;
+            }
+            match site.pattern.right {
+                Operand::Register(register) if register != site.pattern.read => matches!(
+                    registers
+                        .stack_frame
+                        .get(index + 1 + usize::from(register.0)),
+                    Some(Value::Integer(_))
+                ),
+                _ => true,
+            }
+        })
     }
 
-    fn preflight_registers(
-        &self,
-        caller: Closure<'gc>,
-        registers: &crate::thread::LuaRegisters<'gc, '_>,
-    ) -> bool {
-        let site = &self.program.site;
-        if caller != self.caller || *registers.pc != site.pc {
-            return false;
-        }
-        let index = usize::from(site.function.0);
-        let Some(Value::Function(Function::Closure(callee))) =
-            registers.stack_frame.get(index).copied()
-        else {
-            return false;
-        };
-        if !Gc::ptr_eq(callee.prototype(), self.callee) {
-            return false;
-        }
-        let Some(upvalue) = callee.upvalues().get(usize::from(site.pattern.upvalue)) else {
-            return false;
-        };
-        let Some(origin) = registers.projection_origin(upvalue.get()) else {
-            return false;
-        };
-        let capture = match origin {
-            Origin::Upper(_, value) | Origin::Register(_, value) => value,
-            Origin::Closed(_) => return false,
-        };
-        if !matches!(capture, Value::Integer(_))
-            || index + 1 + usize::from(site.arguments) > registers.stack_frame.len()
-        {
-            return false;
-        }
-        match site.pattern.right {
-            Operand::Register(register) if register != site.pattern.read => matches!(
-                registers
-                    .stack_frame
-                    .get(index + 1 + usize::from(register.0)),
-                Some(Value::Integer(_))
-            ),
-            _ => true,
-        }
-    }
-
-    #[cfg(test)]
     pub(in crate::jit) fn invoke(
         &self,
         host: &mut ActivationHost<'gc, '_>,
@@ -174,42 +145,6 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
         if !self.preflight(host, budget, prefix) {
             return None;
         }
-        self.invoke_preflighted(host, budget, prefix)
-    }
-
-    pub(in crate::jit) fn materialize_and_invoke(
-        &self,
-        host: &mut ActivationHost<'gc, '_>,
-        budget: u32,
-        prefix: u32,
-        materialize: impl FnOnce(Closure<'gc>, &mut crate::thread::LuaRegisters<'gc, '_>) -> bool,
-    ) -> Option<crate::jit::PairOutcome> {
-        let ready = host.lua_ready();
-        let identity = host.frame_identity();
-        #[cfg(test)]
-        let declined = host.test_pairs_declined();
-        #[cfg(not(test))]
-        let declined = false;
-        let admitted = host.with_registers(|caller, mut registers| {
-            materialize(caller, &mut registers)
-                && !declined
-                && self.ctx.jit().call_pairs_enabled()
-                && self.preflight_state(ready, identity, registers.fuel(), budget, prefix)
-                && self.preflight_registers(caller, &registers)
-        });
-        if !admitted {
-            return None;
-        }
-        self.invoke_preflighted(host, budget, prefix)
-    }
-
-    #[inline(never)]
-    fn invoke_preflighted(
-        &self,
-        host: &mut ActivationHost<'gc, '_>,
-        budget: u32,
-        prefix: u32,
-    ) -> Option<crate::jit::PairOutcome> {
         let mut scratch = [MaybeUninit::uninit(); 256];
         let mut session = Session::new(self.ctx, host, &self.program.site, &mut scratch);
         session.callee = Some(self.callee);

@@ -753,15 +753,3 @@ pub(crate) fn with_test_existing_thread<'gc, R>(
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod return_tests;
-
-#[cfg(all(
-    test,
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
-impl ActivationHost<'_, '_> {
-    pub(crate) fn test_pairs_declined(&self) -> bool {
-        self.decline_pairs
-    }
-}
