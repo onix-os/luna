@@ -147,6 +147,7 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
         }
         let mut scratch = [MaybeUninit::uninit(); 256];
         let mut session = Session::new(self.ctx, host, &self.program.site, &mut scratch);
+        session.callee = Some(self.callee);
         session.prefix = prefix;
         unsafe {
             self.program

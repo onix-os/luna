@@ -11,6 +11,34 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Admitted callee identity reuse — runtime candidate
+
+The native region already binds its exact callee prototype once on admission.
+Physical Call entry and pre-writeback Return now reuse that arena-scoped binding
+for fresh prototype comparisons instead of repeating weak-registry lookups on
+every invocation. Ordinary, non-admitted sessions retain registry validation.
+No physical frame, source/capture/fuel guard, materialization, panic boundary,
+statistics update or code-owner accounting is removed. This differs from the
+earlier rejected per-session binding: no new resolution is added per call.
+
+Focused formatting/all-feature checking and **104 test executions / seven
+suites** pass, two ignored. Both existing adversarial transition tests now
+exercise registry and bound identity: same-prototype replacement, foreign
+prototype, closed capture and replacement before materialization. A new native
+test keeps the registry mutably borrowed after admission and executes a real
+generated callee through physical Call/Return, with exact Off trace/fuel parity.
+The expanded region gate passes **60 executions / five suites**, two ignored.
+Removing only the binding transfer makes that new test fail with a registry
+borrow panic; the other 36 region tests pass. The transfer is restored; final
+formatting/all-feature checks and **94 executions / six suites** pass, two
+ignored. An initial extra Cargo filter was rejected
+before tests; its log is preserved separately.
+
+This is a performance implementation candidate, **not a measured speedup or
+accepted fix**. Next are frozen native and compiled-Off measurements of this
+runtime change. No further campaigns on rejected import pruning are planned.
+Evidence: `target/jit-evidence/short-slice-performance/admitted-callee-binding-*`.
+
 #### Disabled-runtime attribution — diagnostic in progress
 
 The restored runtime remains unchanged. Exact symbol companions of the rejected
@@ -45,7 +73,7 @@ This diagnostic does not replace original checked commands or establish cause.
 No owned profiler/build/test overlaps that repeat. Ignored diagnostic evidence:
 `target/jit-evidence/short-slice-performance/disabled-context-*`.
 
-#### Core-controlled original comparison — in progress
+#### Core-controlled original comparison — complete diagnostic
 
 The host permits CPUs 0–23 across unlike topology classes. Earlier worker logs
 do not record actual scheduled CPU, so this is a confound, not proof that
@@ -70,9 +98,15 @@ checks still fail for both variants.
 Thus unlike-core migration is not necessary to reproduce the float regression.
 This does not isolate its hardware cause or eliminate outside contention.
 The generic-import candidate remains rejected and production remains restored.
-CPU16 now runs sequentially after CPU0, with affinity verified as exactly 16;
-its result is pending. Neither one core nor pooled class results establish
-universal acceptance. Evidence:
+CPU16 also completes 144 commands / 2,160 rows, with all 24 modeled counter
+comparisons and artifact hashes verified. Its speed compiled-Off float direct
+medians reverse direction: **1.042935 / 1.037628**, against no-feature
+**1.001413 / 0.999896**. Candidate still fails eight of 24 float checks; the
+control fails all 24. Native upvalue remains about 0.68–0.69 versus required
+1.25. Thus the candidate's relative timing depends on core class; its clear
+CPU0 regression remains disqualifying. No observation or failure is discarded.
+Neither one core nor pooled class results establish universal acceptance.
+Both campaigns are terminal. Evidence:
 `target/jit-evidence/short-slice-performance/disabled-core-*`.
 
 #### Rejected generic import selection — 2026-10-07

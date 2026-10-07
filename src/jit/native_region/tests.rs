@@ -330,6 +330,46 @@ fn admitted_pair_rechecks_dynamic_values_frames_fuel_mode_and_hooks() {
 }
 
 #[test]
+fn admitted_pair_reuses_source_binding_through_physical_call_and_return() {
+    let source = b"local n=0 local function f(v) n=n+v end f(3) return n";
+    fixture_source(source, |ctx, closure, region, _| {
+        let pc = region.pair.program.key().pc;
+        let run = |native| {
+            with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+                ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                host.run(ctx, 1, pc as u32, 4).result.unwrap();
+                assert!(host.with_registers(|_, registers| *registers.pc == pc));
+                let before = stats(ctx);
+                if native {
+                    ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+                    let admitted = super::super::canonical::admission::Admitted::new(
+                        &region.pair.program,
+                        ctx,
+                        closure,
+                        host.frame_identity(),
+                    )
+                    .unwrap();
+                    let native_before = ctx.jit().0.borrow().stats.native_instructions;
+                    let registry = ctx.jit_registry().borrow_mut(&ctx);
+                    let outcome = admitted.invoke(host, 64, 0).unwrap();
+                    drop(registry);
+                    assert_eq!((outcome.calls, outcome.returns), (1, 1));
+                    outcome.result.unwrap();
+                    assert_eq!(
+                        ctx.jit().0.borrow().stats.native_instructions - native_before,
+                        3
+                    );
+                } else {
+                    host.run(ctx, 2, 64, 4).result.unwrap();
+                }
+                trace(ctx, host, before)
+            })
+        };
+        assert_eq!(run(true), run(false));
+    });
+}
+
+#[test]
 fn admitted_pair_accepts_rebound_closure_but_not_identical_foreign_prototype() {
     let source = b"local n=0 local function f(v) n=n+v end f(3) return n";
     fixture_source(source, |ctx, closure, region, start| {

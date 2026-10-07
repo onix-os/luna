@@ -613,7 +613,8 @@ fn rebind<'gc>(
 #[test]
 fn physical_call_checks_replacements_and_refreshes_capture_after_preflight() {
     fixture(ADD, |lua, closure, site, code| {
-        for case in 0..3 {
+        for scenario in 0..6 {
+            let case = scenario % 3;
             lua.enter(|ctx| {
                 with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
                     position(host, ctx, site.pc);
@@ -649,6 +650,9 @@ fn physical_call_checks_replacements_and_refreshes_capture_after_preflight() {
                     let mut scratch = [MaybeUninit::uninit(); 256];
                     let mut session = Session::new(ctx, host, &site, &mut scratch);
                     assert!(session.preflight(64));
+                    if scenario >= 3 {
+                        session.callee = Some(original.prototype());
+                    }
                     session.host.with_registers(|_, registers| {
                         registers.stack_frame[usize::from(site.function.0)] = replacement.into();
                     });
@@ -686,39 +690,49 @@ fn physical_call_checks_replacements_and_refreshes_capture_after_preflight() {
 #[test]
 fn changed_physical_prototype_refuses_leave_before_materialization() {
     fixture(ADD, |lua, closure, site, _code| {
-        lua.enter(|ctx| {
-            with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
-                position(host, ctx, site.pc);
-                let replacement = Closure::load(ctx, None, b"return 0").unwrap();
-                let mut scratch = [MaybeUninit::uninit(); 256];
-                let mut session = Session::new(ctx, host, &site, &mut scratch);
-                assert!(session.preflight(64));
-                let data = std::ptr::addr_of_mut!(session).cast();
-                let frame = unsafe {
-                    enter(
-                        data,
-                        site.pc as u64,
-                        u32::from(site.function.0),
-                        u32::from(site.arguments),
-                    )
-                };
-                assert!(!frame.is_null());
-                session.frame.exit = Exit {
-                    pc: 3,
-                    instructions: 3,
-                    reason: Kind::Interpreter as u32,
-                };
-                session.slots[usize::from(site.pattern.result.0)]
-                    .write(Slot::from_value(Value::Integer(999)));
-                session.host.test_replace_closure(replacement);
-                let before = stats(ctx);
-                let original = trace(ctx, session.host, before);
-                assert_eq!(unsafe { leave(data, frame, 3, u32::from(site.start.0)) }, 0);
-                assert!(session.panic.is_some());
-                assert_eq!(session.returns, 0);
-                assert_eq!(trace(ctx, session.host, before), original);
+        for bound in [false, true] {
+            lua.enter(|ctx| {
+                with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                    position(host, ctx, site.pc);
+                    let replacement = Closure::load(ctx, None, b"return 0").unwrap();
+                    let mut scratch = [MaybeUninit::uninit(); 256];
+                    let mut session = Session::new(ctx, host, &site, &mut scratch);
+                    assert!(session.preflight(64));
+                    if bound {
+                        session.callee = Some(
+                            ctx.jit_registry()
+                                .borrow()
+                                .resolve(ctx, site.callee)
+                                .unwrap(),
+                        );
+                    }
+                    let data = std::ptr::addr_of_mut!(session).cast();
+                    let frame = unsafe {
+                        enter(
+                            data,
+                            site.pc as u64,
+                            u32::from(site.function.0),
+                            u32::from(site.arguments),
+                        )
+                    };
+                    assert!(!frame.is_null());
+                    session.frame.exit = Exit {
+                        pc: 3,
+                        instructions: 3,
+                        reason: Kind::Interpreter as u32,
+                    };
+                    session.slots[usize::from(site.pattern.result.0)]
+                        .write(Slot::from_value(Value::Integer(999)));
+                    session.host.test_replace_closure(replacement);
+                    let before = stats(ctx);
+                    let original = trace(ctx, session.host, before);
+                    assert_eq!(unsafe { leave(data, frame, 3, u32::from(site.start.0)) }, 0);
+                    assert!(session.panic.is_some());
+                    assert_eq!(session.returns, 0);
+                    assert_eq!(trace(ctx, session.host, before), original);
+                });
             });
-        });
+        }
     });
 }
 
