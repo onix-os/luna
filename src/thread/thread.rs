@@ -1085,10 +1085,7 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
             .map(|c| c as usize)
             .unwrap_or(self.stack.len() - function_index - 1);
 
-        let call = match self.stack[function_index] {
-            Value::Function(function) => function,
-            value => meta_ops::call(ctx, value)?,
-        };
+        let call = meta_ops::call(ctx, self.stack[function_index])?;
         *expected_return = Some(LuaReturn::Normal(returns));
 
         self.fuel

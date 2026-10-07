@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-07
 
-#### Direct physical-call resolution — runtime candidate
+#### Direct physical-call resolution — rejected runtime trial
 
 `LuaFrame::call_function` now takes `Value::Function` directly, rather than
 calling the generic resolver only to receive that same closure or Rust callback.
@@ -25,9 +25,20 @@ variable arguments, multiple results and noncallable errors. New
 `make vm-call-resolution` runs callbacks/metamethods/panic cleanup without JIT
 and with Off/Auto/Force. Formatting/all-feature checks plus that gate and the
 canonical/region gates pass **182 executions / eighteen suites**, two ignored.
-Performance is not yet measured. Frozen comparisons will use the preceding
-admitted-binding candidate as the control and preserve all original thresholds;
-no-feature binaries may change because this optimizes their call path too.
+Five original-flag binaries and sequential three-window screens on CPU0/CPU16
+finish **72 checked commands / 1,080 rows**. All twelve complete counter
+comparisons and artifact hashes match. No-feature binaries change because this
+modifies their call path too. All aggregate gates still fail.
+
+Compiled-Off callbacks improve about **1–3%**, and CPU0 shipping upvalues about
+**4.4%**, but native upvalue changes are small and reverse between core classes.
+More importantly, shipping no-feature float direct control/candidate ratios fall
+to **0.9558 / 0.9587** on CPU0 and **0.9467 / 0.9494** on CPU16. Its improved
+relative feature-cost ratio partly comes from slowing the interpreter baseline,
+not fixing JIT overhead. Speed CPU0 compiled-Off float also slows about 3–4%,
+and CPU16 integer about 5–8%. These costs do not justify the small call gains.
+The resolver shortcut is removed; mixed-call coverage and its Make gate remain.
+The admitted-callee binding candidate is unchanged and still unaccepted.
 
 Evidence: `target/jit-evidence/short-slice-performance/direct-call-resolution-*`.
 
