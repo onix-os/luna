@@ -62,6 +62,29 @@ as do all eight frame-view/list Miri tests. Evidence is under
 `target/jit-evidence/short-slice-performance/pc-only-projection-*`. No overall
 performance or release acceptance is claimed.
 
+#### Retained-baseline table and callback attribution — 2026-10-07
+
+After the PC-only campaign terminates, four new exact-image profiles use the
+retained fixed-list runtime, not the rejected candidate. Each uses the original
+eleven-sample Make profile command, one matched invocation path and verified
+artifact hashes. These are instruction diagnostics, not new timing acceptance.
+
+Array-table Off/Auto totals are **54,511,247 / 53,257,432** instructions. Auto
+spends **5,674,590 / 5,460,000** in write/read helper gateways, **4,615,000**
+in `table_read` and **4,204,244** in operand decoding; native generated work
+accounts for **14,336,517**. The actual workload has separate table-population
+and summation loops, not adjacent write/read pairs. Further work should inspect
+typed-key/helper operand costs without bypassing table semantics or GC roots.
+
+Callback Off/Auto totals are **105,796,028 / 136,573,549**. Auto spends
+**19,779,292** in `Runtime::invoke<7,true>` and **5,322,374** in lookup, on top
+of **24,118,657** VM and **22,648,223** Executor self-work. The callback body,
+physical call/return and raw lookup self-work are unchanged. This points to
+resume/invocation/helper overhead, not a slower host callback. Previously
+rejected lease/cache/resume experiments remain exclusions, and no native borrow
+may survive the callback. Evidence and next-hypothesis constraints are under
+`target/jit-evidence/short-slice-performance/fixed-list-followup-*`.
+
 #### Rejected register-view constructor inlining — 2026-10-07
 
 `e18d4f7` kept the separate fuel/variable fields and marked only
