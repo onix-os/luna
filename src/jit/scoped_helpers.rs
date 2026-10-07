@@ -290,23 +290,24 @@ unsafe extern "C" fn call<const KIND: u32>(
     let result = catch_unwind(AssertUnwindSafe(|| {
         scoped.kinds |= 1 << (KIND - 1);
         scoped.host.with_registers(|closure, mut registers| {
-            let mut frame = helpers::Frame {
+            let mut invocation = helpers::Invocation {
                 ctx: scoped.ctx,
                 closure,
                 registers: &mut registers,
-                count: std::mem::take(&mut scoped.count),
+                count: &mut scoped.count,
                 slot_count: scoped.slot_count,
-                panic: None,
                 projection: None,
             };
-            let mut host = abi::Host {
-                data: std::ptr::from_mut(&mut frame).cast(),
-                projection: std::ptr::null_mut(),
-            };
-            let result = unsafe { helpers::call::<KIND>(&mut host, slots, a, b, c, pc) };
-            scoped.count = frame.count;
-            scoped.panic = frame.panic;
-            result
+            match unsafe { invocation.invoke::<KIND>(slots, a, b, c, pc) } {
+                Ok(result) => {
+                    scoped.panic = None;
+                    result
+                }
+                Err(payload) => {
+                    scoped.panic = Some(payload);
+                    abi::HELPER_PANICKED
+                }
+            }
         })
     }));
     match result {

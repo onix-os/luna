@@ -58,7 +58,16 @@ pub(super) struct Frame<'gc, 'a, 'b, 'p> {
     pub projection: Option<&'p mut dyn projection::Bridge<'gc>>,
 }
 
-impl<'gc> Frame<'gc, '_, '_, '_> {
+pub(super) struct Invocation<'gc, 'a, 'b, 'p> {
+    pub ctx: Context<'gc>,
+    pub closure: Closure<'gc>,
+    pub registers: &'a mut LuaRegisters<'gc, 'b>,
+    pub count: &'a mut Counts,
+    pub slot_count: usize,
+    pub projection: Option<&'p mut dyn projection::Bridge<'gc>>,
+}
+
+impl<'gc> Invocation<'gc, '_, '_, '_> {
     fn register(&self, slots: &[Slot], index: u32) -> Value<'gc> {
         slots[index as usize].value(self.registers.stack_frame[index as usize])
     }
@@ -231,6 +240,62 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
             _ => false,
         }
     }
+    /// # Safety
+    /// `slots` covers the initialized prefix and is reborrowed only between projection calls.
+    pub(super) unsafe fn invoke<const KIND: u32>(
+        &mut self,
+        slots: *mut Slot,
+        a: u32,
+        b: u32,
+        c: u32,
+        pc: u32,
+    ) -> Result<u32, Box<dyn Any + Send>> {
+        self.count.calls += 1;
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            *self.registers.pc = pc as usize + 1;
+            if let Some(projection) = self.projection.as_deref_mut() {
+                projection
+                    .flush(self.ctx, self.registers)
+                    .expect("invalid pending projection");
+            }
+            let completed = {
+                let slots = unsafe { std::slice::from_raw_parts_mut(slots, self.slot_count) };
+                self.operation::<KIND>(slots, a, b, c)
+            };
+            if let Some(projection) = self.projection.as_deref_mut() {
+                projection
+                    .refresh(self.registers, self.closure.upvalues())
+                    .expect("invalid refreshed projection");
+            }
+            if !completed {
+                *self.registers.pc = pc as usize;
+                return abi::HELPER_DECLINED;
+            }
+            *self.registers.pc = pc as usize + 1;
+            abi::HELPER_COMPLETED
+        }));
+        match result {
+            Ok(abi::HELPER_COMPLETED) => {
+                self.count.completed += 1;
+                Ok(abi::HELPER_COMPLETED)
+            }
+            Ok(_) => {
+                self.count.declined += 1;
+                Ok(abi::HELPER_DECLINED)
+            }
+            Err(payload) => {
+                let slots = unsafe { std::slice::from_raw_parts_mut(slots, self.slot_count) };
+                for (slot, dest) in slots
+                    .iter()
+                    .copied()
+                    .zip(self.registers.stack_frame.iter_mut())
+                {
+                    slot.write_back(dest);
+                }
+                Err(payload)
+            }
+        }
+    }
 }
 
 pub(super) unsafe extern "C" fn call<const KIND: u32>(
@@ -246,48 +311,17 @@ pub(super) unsafe extern "C" fn call<const KIND: u32>(
     }
     let data = unsafe { (*host).data };
     let frame = unsafe { &mut *data.cast::<Frame<'_, '_, '_, '_>>() };
-    frame.count.calls += 1;
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        *frame.registers.pc = pc as usize + 1;
-        if let Some(projection) = frame.projection.as_deref_mut() {
-            projection
-                .flush(frame.ctx, frame.registers)
-                .expect("invalid pending projection");
-        }
-        let completed = {
-            let slots = unsafe { std::slice::from_raw_parts_mut(slots, frame.slot_count) };
-            frame.operation::<KIND>(slots, a, b, c)
-        };
-        if let Some(projection) = frame.projection.as_deref_mut() {
-            projection
-                .refresh(frame.registers, frame.closure.upvalues())
-                .expect("invalid refreshed projection");
-        }
-        if !completed {
-            *frame.registers.pc = pc as usize;
-            return abi::HELPER_DECLINED;
-        }
-        *frame.registers.pc = pc as usize + 1;
-        abi::HELPER_COMPLETED
-    }));
-    match result {
-        Ok(abi::HELPER_COMPLETED) => {
-            frame.count.completed += 1;
-            abi::HELPER_COMPLETED
-        }
-        Ok(_) => {
-            frame.count.declined += 1;
-            abi::HELPER_DECLINED
-        }
+    let mut invocation = Invocation {
+        ctx: frame.ctx,
+        closure: frame.closure,
+        registers: frame.registers,
+        count: &mut frame.count,
+        slot_count: frame.slot_count,
+        projection: frame.projection.as_deref_mut(),
+    };
+    match unsafe { invocation.invoke::<KIND>(slots, a, b, c, pc) } {
+        Ok(result) => result,
         Err(payload) => {
-            let slots = unsafe { std::slice::from_raw_parts_mut(slots, frame.slot_count) };
-            for (slot, dest) in slots
-                .iter()
-                .copied()
-                .zip(frame.registers.stack_frame.iter_mut())
-            {
-                slot.write_back(dest);
-            }
             frame.panic = Some(payload);
             abi::HELPER_PANICKED
         }
