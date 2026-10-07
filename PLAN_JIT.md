@@ -11,6 +11,162 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Rust call boundary — runtime trial, not accepted
+
+Admitted pairs now invoke physical Call and Return through ordinary Rust
+`Session` methods, entering generated code only for the verified arithmetic
+callee. One Rust unwind boundary surrounds the sequence; generated frames never
+contain calls into panicking Rust. Ordinary aggregate invocation is unchanged.
+The code owner retains the callee entry and immutable source-bound operands,
+with allocation charging derived from its actual size. All physical-frame,
+capture, prototype, fuel and materialization checks remain in place.
+
+Focused backend, canonical and native-region checks pass **104 executions /
+seven suites**, two ignored. New direct-path tests
+check callback bypass, budget refusal, matching full traces, call errors and
+panic transport before native execution and before writeback. Existing custom
+callback fault fixtures explicitly retain their aggregate path in test builds;
+they are not claimed as coverage of the new direct path. The full source/fuel
+matrix additionally compares the Rust bridge with interpreted execution.
+Five frozen original-flag binaries and three alternating windows on CPU0 and
+CPU16 complete **72 checked commands / 1,080 parsed rows**. All aggregate gates
+still fail. Both no-feature binaries are byte-identical to the admitted-callee
+control. Twelve complete counter comparisons match exactly except the predicted
+**24-byte** retained/peak metadata increase for the upvalue Auto pair; artifact
+hashes verify. Builds and tests did not overlap the timing runs.
+
+Native upvalue direct control/candidate ratios are **0.9982 / 1.0051** on CPU0
+and **1.0274 / 1.0258** on CPU16: essentially flat on the first core class and
+about 2.6% faster on the second. Own-Off/Auto ratios remain **0.7034–0.7769**,
+far below the frozen 1.25 requirement. Shipping compiled-Off float direct ratios
+improve to **1.0883 / 1.0911** and **1.0925 / 1.1075**; shipping integers and
+upvalues also improve. This disabled-mode effect cannot be attributed to the
+new bridge executing, since it is not executed with JIT Off.
+
+Tradeoffs remain: speed-profile CPU0 compiled-Off integer/float timings worsen
+about 2–2.5%; CPU16 native array/metamethod results worsen about 4–5% on one
+path. The candidate is retained only as **unaccepted experimental work**, not a
+resolved regression or accepted tradeoff. GNU baseline, all-feature Auto and
+documentation gates pass **1,714 executions / 172 suites**, ten ignored and no
+failures, after timing completes. This does not establish a new Off/Force,
+musl, ARM64 or generated-code safety-platform matrix. Resolve the new cost and
+native regressions before promoting this candidate; do not call the bridge
+change a general performance fix.
+Evidence: `target/jit-evidence/short-slice-performance/rust-call-boundary-*`.
+
+#### Single physical-frame view — rejected runtime trial
+
+The activation host now obtains the active closure and its register view from
+one match of the current physical Lua frame, rather than resolving the frame
+separately through `closure()` and `registers()`. The registers-only accessor
+uses the same construction. All returned fields, stack splitting, lifetimes,
+non-Lua panic behavior and fresh resolution after Call/Return remain unchanged;
+no view is cached across transitions and no unsafe access or inline hint is added.
+
+Formatting/all-feature checking and **197 test executions / twenty suites**
+pass, two ignored: call resolution across baseline/Off/Auto/Force, canonical
+calls, regions, stack-growth/GC/callback activation tests and baseline activation.
+Existing adversarial physical-prototype tests cover fresh closure identity.
+The Rust activation-host/nested-executor model also passes under Miri Stacked
+Borrows seed 1 and Tree Borrows seed 2; this is not generated execution in Miri.
+Five frozen original-flag binaries and sequential three-window screens on both
+cores complete **72 commands / 1,080 rows**, all aggregate gates failing.
+All twelve complete execution/resource comparisons and artifact hashes match.
+Neither builds nor Miri overlap timing.
+
+Native upvalue changes are small and reverse by core: direct **0.9896 / 0.9871**
+on CPU0, **1.0108 / 1.0086** on CPU16. Shipping disabled upvalues regress badly:
+direct **0.7495 / 0.7709** on CPU0 and **0.8459 / 0.8446** on CPU16, against
+near-flat no-feature controls. Shipping callbacks also regress, with direct
+ratios **0.8878 / 0.8922** and **0.9163 / 0.9373**. Gains in other cases do not
+justify those costs. Both accessor changes are removed; the runtime again
+matches the admitted-callee-binding candidate. Do not repeat tuple/view
+repackaging as though it demonstrated a native call-cost reduction.
+Restored formatting/all-feature checks and the same **197 executions / twenty
+suites** pass, two ignored. Production `src/` exactly matches `ee7acb2`, retaining
+only the admitted-callee identity optimization; the new general call regression
+and Make target remain outside production source.
+Evidence: `target/jit-evidence/short-slice-performance/physical-frame-view-*`.
+
+#### Direct physical-call resolution — rejected runtime trial
+
+`LuaFrame::call_function` now takes `Value::Function` directly, rather than
+calling the generic resolver only to receive that same closure or Rust callback.
+All other values still use `meta_ops::call`; frame/variable-stack validation,
+PC/fuel ordering, arguments, depth limits and physical frame construction are
+unchanged. This is shared interpreter/native runtime work, not an inline hint
+or a source-specific benchmark exception.
+
+A mixed-call regression checks closure/callback/metatable calls, fixed and
+variable arguments, multiple results and noncallable errors. New
+`make vm-call-resolution` runs callbacks/metamethods/panic cleanup without JIT
+and with Off/Auto/Force. Formatting/all-feature checks plus that gate and the
+canonical/region gates pass **182 executions / eighteen suites**, two ignored.
+Five original-flag binaries and sequential three-window screens on CPU0/CPU16
+finish **72 checked commands / 1,080 rows**. All twelve complete counter
+comparisons and artifact hashes match. No-feature binaries change because this
+modifies their call path too. All aggregate gates still fail.
+
+Compiled-Off callbacks improve about **1–3%**, and CPU0 shipping upvalues about
+**4.4%**, but native upvalue changes are small and reverse between core classes.
+More importantly, shipping no-feature float direct control/candidate ratios fall
+to **0.9558 / 0.9587** on CPU0 and **0.9467 / 0.9494** on CPU16. Its improved
+relative feature-cost ratio partly comes from slowing the interpreter baseline,
+not fixing JIT overhead. Speed CPU0 compiled-Off float also slows about 3–4%,
+and CPU16 integer about 5–8%. These costs do not justify the small call gains.
+The resolver shortcut is removed; mixed-call coverage and its Make gate remain.
+The admitted-callee binding candidate is unchanged and still unaccepted.
+
+Evidence: `target/jit-evidence/short-slice-performance/direct-call-resolution-*`.
+
+#### Admitted callee identity reuse — runtime candidate
+
+The native region already binds its exact callee prototype once on admission.
+Physical Call entry and pre-writeback Return now reuse that arena-scoped binding
+for fresh prototype comparisons instead of repeating weak-registry lookups on
+every invocation. Ordinary, non-admitted sessions retain registry validation.
+No physical frame, source/capture/fuel guard, materialization, panic boundary,
+statistics update or code-owner accounting is removed. This differs from the
+earlier rejected per-session binding: no new resolution is added per call.
+
+Focused formatting/all-feature checking and **104 test executions / seven
+suites** pass, two ignored. Both existing adversarial transition tests now
+exercise registry and bound identity: same-prototype replacement, foreign
+prototype, closed capture and replacement before materialization. A new native
+test keeps the registry mutably borrowed after admission and executes a real
+generated callee through physical Call/Return, with exact Off trace/fuel parity.
+The expanded region gate passes **60 executions / five suites**, two ignored.
+Removing only the binding transfer makes that new test fail with a registry
+borrow panic; the other 36 region tests pass. The transfer is restored; final
+formatting/all-feature checks and **94 executions / six suites** pass, two
+ignored. An initial extra Cargo filter was rejected
+before tests; its log is preserved separately.
+
+Five original-flag binaries are frozen; both no-feature binaries are byte-for-
+byte identical to the fixed-set-list controls. A three-window initial screen
+on each of CPU0 and CPU16, two matched paths and unchanged eleven-sample gates,
+completes **72 checked commands / 1,080 parsed rows**. All twelve complete
+execution/resource counter comparisons and immutable hashes match. No owned
+build, profiler or correctness job overlaps timing.
+
+Native upvalue direct control/candidate speedups are **1.0821 / 1.0920** on
+CPU0 and **1.1007 / 1.1051** on CPU16, with corresponding Off controls close
+to one. This is an initial **8–10% native gain**, not the required overall
+speedup: own Off/Auto ratios remain **0.707–0.751**, below 1.25, and every
+aggregate gate still fails. Shipping compiled-Off float worsens on both cores:
+direct **0.9458 / 0.9481** on CPU0 and **0.9604 / 0.9729** on CPU16 against
+near-flat no-feature controls. CPU0 shipping integer introduces six failed cost
+checks, where all six controls passed. Native callback results vary by path and
+include slowdowns. These regressions remain visible, not accepted tradeoffs.
+
+Keep this as an explicitly **unaccepted work-in-progress runtime candidate**
+while addressing the remaining overhead and shipping regressions. Correctness
+coverage now also includes completed GNU baseline/all-feature Auto/docs:
+**1,708 executions / 172 suites**, ten ignored, zero failures. This is not a
+full new platform/release qualification. No
+further campaigns on rejected import pruning are planned.
+Evidence: `target/jit-evidence/short-slice-performance/admitted-callee-binding-*`.
+
 #### Disabled-runtime attribution — diagnostic in progress
 
 The restored runtime remains unchanged. Exact symbol companions of the rejected
@@ -35,11 +191,51 @@ A separate 576-command/two-path context timing diagnostic retains 2,880 verified
 case reports, but one worker observation per window gives large path/half-run
 movement and no reliable attribution. It also used redundant explicit Off
 arguments rather than the original comparator's default-Off worker arguments.
-An eleven-sample repeat now uses the original full-worker argument form, two
+An eleven-sample repeat uses the original full-worker argument form, two
 matched paths, alternating order, 24 windows and all three controls, with
-contention and artifact telemetry. It is still running, not an accepted fix.
+contention and artifact telemetry. It completes **6,336 worker commands /
+31,680 verified case reports**. Per-window eleven-sample medians still show
+path/context/half-run movement: speed full-worker float direct ratios are
+**0.96530 / 0.94908**, while shipping single-float gives **0.92103 / 1.05612**.
+This diagnostic does not replace original checked commands or establish cause.
 No owned profiler/build/test overlaps that repeat. Ignored diagnostic evidence:
 `target/jit-evidence/short-slice-performance/disabled-context-*`.
+
+#### Core-controlled original comparison — complete diagnostic
+
+The host permits CPUs 0–23 across unlike topology classes. Earlier worker logs
+do not record actual scheduled CPU, so this is a confound, not proof that
+migration caused a regression. Before timing, CPU0 and CPU16 were selected as
+the lowest allowed representatives of their respective classes. Only the new
+driver and its descendants receive affinity; outside workloads, governor and
+kernel settings are unchanged. Original binaries, flags, eleven samples, cost
+iterations, cases, both invocation paths and acceptance thresholds are preserved.
+
+CPU0 finishes **144 original checked commands / 2,160 parsed rows** across
+twelve alternating windows. All aggregate gates fail. All **24 execution/
+resident counter comparisons** and independently modeled compiler-reservation
+deltas match; immutable artifact hashes verify. Speed compiled-Off float direct
+control/candidate medians are **0.931096 / 0.935522**, about **7.4% / 6.9%**
+longer candidate time, against no-feature **1.001977 / 0.998490**. Control
+passes all 24 float cost checks; candidate fails all 24. Speed integer also
+slows: **0.934419 / 0.929309**, with both variants already failing the limit.
+Shipping cold failures rise from **two to nineteen / 24**. Native upvalue
+ratios remain around **0.65**, not the required 1.25; all upvalue/table/callback
+checks still fail for both variants.
+
+Thus unlike-core migration is not necessary to reproduce the float regression.
+This does not isolate its hardware cause or eliminate outside contention.
+The generic-import candidate remains rejected and production remains restored.
+CPU16 also completes 144 commands / 2,160 rows, with all 24 modeled counter
+comparisons and artifact hashes verified. Its speed compiled-Off float direct
+medians reverse direction: **1.042935 / 1.037628**, against no-feature
+**1.001413 / 0.999896**. Candidate still fails eight of 24 float checks; the
+control fails all 24. Native upvalue remains about 0.68–0.69 versus required
+1.25. Thus the candidate's relative timing depends on core class; its clear
+CPU0 regression remains disqualifying. No observation or failure is discarded.
+Neither one core nor pooled class results establish universal acceptance.
+Both campaigns are terminal. Evidence:
+`target/jit-evidence/short-slice-performance/disabled-core-*`.
 
 #### Rejected generic import selection — 2026-10-07
 

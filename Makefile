@@ -444,6 +444,13 @@ jit-runtime-projection:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::runtime_projection_tests $(ARGS)
 
 .PHONY: vm-activation-tests jit-activation-tests vm-activation-miri
+.PHONY: vm-call-resolution
+vm-call-resolution:
+	@$(CARGO) test --locked -p luna --no-default-features --test callback --test metamethods --test tail_call_stack_panic $(TARGET_ARG)
+	@for mode in off auto force; do \
+		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test callback --test metamethods --test tail_call_stack_panic $(TARGET_ARG) || exit $$?; \
+	done
+
 vm-activation-tests:
 	@$(CARGO) test --locked -p luna --lib $(TARGET_ARG) thread::executor::activation_tests $(ARGS)
 

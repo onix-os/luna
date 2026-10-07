@@ -5,9 +5,11 @@ use std::{
     panic::{catch_unwind, AssertUnwindSafe},
 };
 
+use ottavino_gc_arena::Gc;
+
 use crate::{
-    opcode::Operation, thread::activation::ActivationHost, types::RegisterIndex, Context, Function,
-    Value,
+    opcode::Operation, thread::activation::ActivationHost, types::RegisterIndex, Closure, Context,
+    Function, FunctionPrototype, Value,
 };
 
 use super::{
@@ -35,6 +37,8 @@ pub(super) struct Program {
     pub site: Site,
     pub code: CallCode,
     origin: super::resources::MappingCounter,
+    #[cfg(test)]
+    custom_hooks: bool,
 }
 
 impl Program {
@@ -138,7 +142,13 @@ impl Program {
             #[cfg(test)]
             super::backend::calls::LinkFault::None,
         )?;
-        Ok(Self { site, code, origin })
+        Ok(Self {
+            site,
+            code,
+            origin,
+            #[cfg(test)]
+            custom_hooks: false,
+        })
     }
 
     #[cfg(test)]
@@ -174,6 +184,7 @@ struct Session<'gc, 'host, 'borrow> {
     ctx: Context<'gc>,
     host: &'borrow mut ActivationHost<'gc, 'host>,
     site: &'borrow Site,
+    callee: Option<Gc<'gc, FunctionPrototype<'gc>>>,
     frame: NativeFrame,
     slots: &'borrow mut [MaybeUninit<Slot>; 256],
     cell: Slot,
@@ -198,6 +209,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             ctx,
             host,
             site,
+            callee: None,
             frame: NativeFrame {
                 slots: std::ptr::null_mut(),
                 view: std::ptr::null_mut(),
@@ -339,13 +351,10 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             return std::ptr::null_mut();
         }
         let site = self.site;
+        let callee = self.callee;
         let prepared = self.host.with_registers(|closure, registers| {
             if *registers.pc != 0
-                || ctx
-                    .jit_registry()
-                    .borrow()
-                    .identity(ctx, closure.prototype())
-                    != Some(site.callee)
+                || !matches_callee(ctx, site, callee, closure)
                 || registers.stack_frame.len() < site.registers
             {
                 return None;
@@ -406,15 +415,11 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
         assert!(self.frame.exit.pc <= 3 && self.frame.exit.instructions <= 3);
         let ctx = self.ctx;
         let site = self.site;
+        let callee = self.callee;
         let cell = unsafe { cell.read() };
         assert_eq!(cell.tag, abi::INTEGER);
         self.host.with_registers(|closure, mut registers| {
-            assert_eq!(
-                ctx.jit_registry()
-                    .borrow()
-                    .identity(ctx, closure.prototype()),
-                Some(site.callee)
-            );
+            assert!(matches_callee(ctx, site, callee, closure));
             assert_eq!(*registers.pc, 0);
             assert!(registers.projection_read(upper, index).is_some());
             // Enter initializes the entire prefix before publishing the native frame.
@@ -468,6 +473,20 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
         2
     }
 
+    fn invoke_leaf(&mut self, code: &CallCode, budget: u32) {
+        let (pc, function, arguments, start) = code.operands();
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let frame = self.enter(pc, u32::from(function), u32::from(arguments));
+            if !frame.is_null() {
+                unsafe { code.invoke_leaf(frame, budget) };
+                self.leave(frame, 3, u32::from(start));
+            }
+        }));
+        if let Err(payload) = result {
+            self.panic = Some(payload);
+        }
+    }
+
     fn finish(mut self) -> super::PairOutcome {
         let payload = self.panic.take();
         let outcome = super::PairOutcome {
@@ -480,6 +499,23 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             std::panic::resume_unwind(payload);
         }
         outcome
+    }
+}
+
+fn matches_callee<'gc>(
+    ctx: Context<'gc>,
+    site: &Site,
+    bound: Option<Gc<'gc, FunctionPrototype<'gc>>>,
+    closure: Closure<'gc>,
+) -> bool {
+    match bound {
+        Some(prototype) => Gc::ptr_eq(prototype, closure.prototype()),
+        None => {
+            ctx.jit_registry()
+                .borrow()
+                .identity(ctx, closure.prototype())
+                == Some(site.callee)
+        }
     }
 }
 

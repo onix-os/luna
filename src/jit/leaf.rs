@@ -98,7 +98,6 @@ pub(super) struct View {
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
-#[cfg(test)]
 pub(super) type CellEntry =
     unsafe extern "C" fn(*mut abi::Slot, u64, u32, *mut abi::Exit, *mut View);
 

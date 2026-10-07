@@ -14,6 +14,165 @@ use crate::{thread::activation::with_test_thread, Closure, Fuel, JitConfig, Lua}
 const ADD: &[u8] = b"local n=7 local function f(v) n=n+v end f(2) return n";
 
 #[test]
+fn rust_bridge_bypasses_callbacks_and_preserves_partial_native_exits() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static CALLBACKS: AtomicUsize = AtomicUsize::new(0);
+    unsafe extern "C" fn counted_enter(
+        data: *mut c_void,
+        pc: u64,
+        function: u32,
+        arguments: u32,
+    ) -> *mut NativeFrame {
+        CALLBACKS.fetch_add(1, Ordering::Relaxed);
+        unsafe { enter(data, pc, function, arguments) }
+    }
+    unsafe extern "C" fn counted_leave(
+        data: *mut c_void,
+        frame: *mut NativeFrame,
+        pc: u64,
+        start: u32,
+    ) -> u32 {
+        CALLBACKS.fetch_add(1, Ordering::Relaxed);
+        unsafe { leave(data, frame, pc, start) }
+    }
+    fixture_hooks(
+        ADD,
+        Hooks {
+            enter: counted_enter,
+            leave: counted_leave,
+        },
+        |lua, closure, site, code| {
+            for budget in [0, 1, 2, 3, 4, 64] {
+                lua.enter(|ctx| {
+                    let run = |native| {
+                        with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                            position(host, ctx, site.pc);
+                            let before = stats(ctx);
+                            let mut scratch = [MaybeUninit::uninit(); 256];
+                            let mut session = Session::new(ctx, host, &site, &mut scratch);
+                            let callbacks = CALLBACKS.load(Ordering::Relaxed);
+                            if native {
+                                session.invoke_leaf(&code, budget);
+                                assert_eq!(CALLBACKS.load(Ordering::Relaxed), callbacks);
+                            } else {
+                                unsafe {
+                                    code.invoke(std::ptr::addr_of_mut!(session).cast(), budget);
+                                }
+                                assert_eq!(CALLBACKS.load(Ordering::Relaxed), callbacks + 2);
+                            }
+                            assert_eq!(
+                                session.frame.exit.instructions,
+                                if budget > 3 { 3 } else { 0 }
+                            );
+                            let outcome = session.finish();
+                            outcome.result.unwrap();
+                            assert_eq!(
+                                (outcome.calls, outcome.returns),
+                                (1, usize::from(budget > 3))
+                            );
+                            trace(ctx, host, before)
+                        })
+                    };
+                    assert_eq!(run(true), run(false), "budget={budget}");
+                });
+            }
+            assert_eq!(CALLBACKS.load(Ordering::Relaxed), 12);
+        },
+    );
+}
+
+#[test]
+fn rust_bridge_transports_enter_panic_without_entering_native_code() {
+    fixture(ADD, |lua, closure, site, code| {
+        lua.enter(|ctx| {
+            with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                position(host, ctx, site.pc);
+                let mut scratch = [MaybeUninit::uninit(); 256];
+                let mut session = Session::new(ctx, host, &site, &mut scratch);
+                let registry = ctx.jit_registry().borrow_mut(&ctx);
+                session.invoke_leaf(&code, 64);
+                drop(registry);
+                assert!(session.panic.is_some());
+                assert_eq!((session.calls, session.returns), (1, 0));
+                assert_eq!(session.frame.exit.instructions, 0);
+                assert!(catch_unwind(AssertUnwindSafe(|| session.finish())).is_err());
+                host.with_registers(|_, registers| assert_eq!(*registers.pc, 0));
+                assert!(ctx.jit_registry().try_borrow().is_ok());
+            });
+        });
+    });
+}
+
+#[test]
+fn rust_bridge_transports_leave_panic_before_writeback() {
+    fixture(ADD, |lua, closure, mut site, code| {
+        site.start.0 += 1;
+        lua.enter(|ctx| {
+            with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                position(host, ctx, site.pc);
+                let mut scratch = [MaybeUninit::uninit(); 256];
+                let mut session = Session::new(ctx, host, &site, &mut scratch);
+                session.invoke_leaf(&code, 64);
+                assert!(session.panic.is_some());
+                assert_eq!((session.calls, session.returns), (1, 0));
+                assert_eq!(session.frame.exit.instructions, 3);
+                session.host.with_registers(|_, registers| {
+                    assert_eq!(*registers.pc, 0);
+                    let (upper, index) = session.target.unwrap();
+                    assert!(matches!(
+                        registers.projection_read(upper, index),
+                        Some(Value::Integer(7))
+                    ));
+                });
+                let payload = catch_unwind(AssertUnwindSafe(|| session.finish()))
+                    .err()
+                    .unwrap();
+                assert!(payload
+                    .downcast_ref::<String>()
+                    .unwrap()
+                    .contains("assertion"));
+                assert!(ctx.jit().0.try_borrow_mut().is_ok());
+            });
+        });
+    });
+}
+
+#[test]
+fn rust_bridge_preserves_call_error_and_source_operand_refusal() {
+    fixture(ADD, |lua, closure, mut site, code| {
+        lua.enter(|ctx| {
+            for mismatch in [false, true] {
+                with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                    position(host, ctx, site.pc);
+                    let before = trace(ctx, host, stats(ctx));
+                    if mismatch {
+                        site.arguments += 1;
+                    } else {
+                        host.test_variable_stack();
+                    }
+                    let mut scratch = [MaybeUninit::uninit(); 256];
+                    let mut session = Session::new(ctx, host, &site, &mut scratch);
+                    session.prefix = 4;
+                    session.invoke_leaf(&code, 64);
+                    let outcome = session.finish();
+                    if mismatch {
+                        assert_eq!((outcome.calls, outcome.returns), (0, 0));
+                        assert_eq!(trace(ctx, host, stats(ctx)), before);
+                    } else {
+                        assert_eq!((outcome.calls, outcome.returns), (1, 0));
+                        assert!(matches!(
+                            outcome.result,
+                            Err(crate::thread::VMError::ExpectedVariableStack(false))
+                        ));
+                        assert_eq!(host.fuel().remaining(), before.fuel - 4);
+                    }
+                });
+            }
+        });
+    });
+}
+
+#[test]
 fn generated_shadow_entry_rejects_hooks_owner_source_and_stale_code() {
     fixture(ADD, |lua, closure, site, _code| {
         lua.set_jit_config(JitConfig {
@@ -613,7 +772,8 @@ fn rebind<'gc>(
 #[test]
 fn physical_call_checks_replacements_and_refreshes_capture_after_preflight() {
     fixture(ADD, |lua, closure, site, code| {
-        for case in 0..3 {
+        for scenario in 0..6 {
+            let case = scenario % 3;
             lua.enter(|ctx| {
                 with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
                     position(host, ctx, site.pc);
@@ -649,6 +809,9 @@ fn physical_call_checks_replacements_and_refreshes_capture_after_preflight() {
                     let mut scratch = [MaybeUninit::uninit(); 256];
                     let mut session = Session::new(ctx, host, &site, &mut scratch);
                     assert!(session.preflight(64));
+                    if scenario >= 3 {
+                        session.callee = Some(original.prototype());
+                    }
                     session.host.with_registers(|_, registers| {
                         registers.stack_frame[usize::from(site.function.0)] = replacement.into();
                     });
@@ -686,39 +849,49 @@ fn physical_call_checks_replacements_and_refreshes_capture_after_preflight() {
 #[test]
 fn changed_physical_prototype_refuses_leave_before_materialization() {
     fixture(ADD, |lua, closure, site, _code| {
-        lua.enter(|ctx| {
-            with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
-                position(host, ctx, site.pc);
-                let replacement = Closure::load(ctx, None, b"return 0").unwrap();
-                let mut scratch = [MaybeUninit::uninit(); 256];
-                let mut session = Session::new(ctx, host, &site, &mut scratch);
-                assert!(session.preflight(64));
-                let data = std::ptr::addr_of_mut!(session).cast();
-                let frame = unsafe {
-                    enter(
-                        data,
-                        site.pc as u64,
-                        u32::from(site.function.0),
-                        u32::from(site.arguments),
-                    )
-                };
-                assert!(!frame.is_null());
-                session.frame.exit = Exit {
-                    pc: 3,
-                    instructions: 3,
-                    reason: Kind::Interpreter as u32,
-                };
-                session.slots[usize::from(site.pattern.result.0)]
-                    .write(Slot::from_value(Value::Integer(999)));
-                session.host.test_replace_closure(replacement);
-                let before = stats(ctx);
-                let original = trace(ctx, session.host, before);
-                assert_eq!(unsafe { leave(data, frame, 3, u32::from(site.start.0)) }, 0);
-                assert!(session.panic.is_some());
-                assert_eq!(session.returns, 0);
-                assert_eq!(trace(ctx, session.host, before), original);
+        for bound in [false, true] {
+            lua.enter(|ctx| {
+                with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                    position(host, ctx, site.pc);
+                    let replacement = Closure::load(ctx, None, b"return 0").unwrap();
+                    let mut scratch = [MaybeUninit::uninit(); 256];
+                    let mut session = Session::new(ctx, host, &site, &mut scratch);
+                    assert!(session.preflight(64));
+                    if bound {
+                        session.callee = Some(
+                            ctx.jit_registry()
+                                .borrow()
+                                .resolve(ctx, site.callee)
+                                .unwrap(),
+                        );
+                    }
+                    let data = std::ptr::addr_of_mut!(session).cast();
+                    let frame = unsafe {
+                        enter(
+                            data,
+                            site.pc as u64,
+                            u32::from(site.function.0),
+                            u32::from(site.arguments),
+                        )
+                    };
+                    assert!(!frame.is_null());
+                    session.frame.exit = Exit {
+                        pc: 3,
+                        instructions: 3,
+                        reason: Kind::Interpreter as u32,
+                    };
+                    session.slots[usize::from(site.pattern.result.0)]
+                        .write(Slot::from_value(Value::Integer(999)));
+                    session.host.test_replace_closure(replacement);
+                    let before = stats(ctx);
+                    let original = trace(ctx, session.host, before);
+                    assert_eq!(unsafe { leave(data, frame, 3, u32::from(site.start.0)) }, 0);
+                    assert!(session.panic.is_some());
+                    assert_eq!(session.returns, 0);
+                    assert_eq!(trace(ctx, session.host, before), original);
+                });
             });
-        });
+        }
     });
 }
 
@@ -756,21 +929,42 @@ fn linked_native_calls_match_physical_frames_fuel_and_dispatches() {
                             trace(ctx, host, before)
                         })
                     });
-                    let native = lua.enter(|ctx| {
-                        with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
-                            position(host, ctx, site.pc);
-                            host.test_fuel(fuel.clone());
-                            let before = stats(ctx);
-                            let result = invoke(ctx, host, &site, &code, 64);
-                            if result.is_none() {
-                                assert!(host.run(ctx, 2, 64, 4).result.is_ok());
-                            } else {
-                                assert_eq!(result, Some((1, 1)));
-                            }
-                            trace(ctx, host, before)
-                        })
-                    });
-                    assert_eq!(native, interpreted, "source={source:?}, fuel={fuel:?}");
+                    for direct in [false, true] {
+                        let native = lua.enter(|ctx| {
+                            with_test_thread(
+                                ctx,
+                                ctx.fetch(&closure),
+                                &mut Fuel::with(10000),
+                                |host| {
+                                    position(host, ctx, site.pc);
+                                    host.test_fuel(fuel.clone());
+                                    let before = stats(ctx);
+                                    let result = if direct {
+                                        let mut scratch = [MaybeUninit::uninit(); 256];
+                                        let mut session =
+                                            Session::new(ctx, host, &site, &mut scratch);
+                                        if session.preflight(64) {
+                                            session.invoke_leaf(&code, 64);
+                                            let outcome = session.finish();
+                                            outcome.result.unwrap();
+                                            Some((outcome.calls, outcome.returns))
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        invoke(ctx, host, &site, &code, 64)
+                                    };
+                                    if result.is_none() {
+                                        assert!(host.run(ctx, 2, 64, 4).result.is_ok());
+                                    } else {
+                                        assert_eq!(result, Some((1, 1)));
+                                    }
+                                    trace(ctx, host, before)
+                                },
+                            )
+                        });
+                        assert_eq!(native, interpreted, "source={source:?}, fuel={fuel:?}");
+                    }
                 }
             }
         });
@@ -1534,6 +1728,7 @@ fn resident_failure_path(failure: ResidentFailure, connected: bool, fallback: bo
                             site,
                             code,
                             origin: memory.clone(),
+                            custom_hooks: true,
                         },
                         metadata.clone(),
                     )
