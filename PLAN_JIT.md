@@ -11,6 +11,48 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Physical return specialization — measured and rejected
+
+Two fixed-return candidates were implemented and measured against `9ea54b9`'s
+frozen executables, then removed from production. They retained actual frame
+pop, capture closing, overlapping result copies, caller restoration and fuel;
+the second skipped valid zero-length copies. Differential tests and the latter
+implementation remain **test-only** in `5077029`, under
+`make jit-in-place-return`. They cover zero/multiple results, closure identity,
+open/closed captures, fuel saturation/interruption, capacity/return-kind refusal,
+invalid spans/counts and committed state when capture closing or fuel conversion
+panics. Production still uses the original generic return path.
+
+Four native comparisons and three speed/shipping feature-cost comparisons ran
+all nine workloads, three alternating windows on CPU0/16, with 11 samples per
+command (20 iterations in cost samples). Of 120 aggregate gate commands, 118
+failed; two speed-cost commands passed in the high-dispersion CPU0 repeat, for
+both control and candidate. These isolated passes do not establish acceptance.
+No gates or native work were relaxed. Native execution/resource counters match
+their controls and frozen artifact/source hashes verify. Ordinary host contention
+was retained, including a particularly noisy second CPU0 cost comparison.
+
+The refined candidate's upvalue control/candidate throughput ratios were
+1.0450/1.0483 initially and 1.0334/1.0670 on repeat. Exact-image instruction
+profiles fell from 276,871,067 to 270,527,397, then 266,300,474 (3.8% below the
+baseline). This did **not** fix the overall regression: refined shipping
+compiled-Off CPU16 ratios were 0.9549 integer, 0.9510 float and 0.9217 upvalue
+(about 8.5% extra elapsed time for upvalues); speed CPU0 float was 0.9459.
+No-feature binaries remained byte-identical in both profiles. The smaller
+native cost does not justify these disabled/shipping regressions.
+
+Evidence is under `target/jit-evidence/short-slice-performance/in-place-return*`:
+raw windows, summaries, linker-verified profiles, rejected binaries and restored
+validation logs. Admission and caller-boundary/materialization remain the larger
+profile costs. Performance, shipping cost and full-plan acceptance remain open.
+
+Restored GNU validation passes: 103 focused executions (two ignored), and
+1,741 baseline/all-feature-Auto/doc executions across 172 suites (ten ignored).
+The three return tests also pass Memcheck with zero errors and zero definite or
+indirect leaks; the harness retains 48 possibly-lost and 632 reachable bytes.
+The rebuilt optimized benchmark executable is byte-identical to the frozen
+`9ea54b9` baseline. No production performance change from this trial remains.
+
 #### Signed jump domain and disabled-cost diagnosis — implemented, gates open
 
 Exact original-flag speed cost executables were rebuilt with linker-symbol
