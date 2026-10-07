@@ -1249,12 +1249,64 @@ fn run_vm_slice<'gc>(
 }
 
 fn add_offset(pc: usize, offset: i16) -> usize {
-    if offset > 0 {
-        pc.checked_add(offset as usize).unwrap()
-    } else if offset < 0 {
-        pc.checked_sub(-offset as usize).unwrap()
-    } else {
-        pc
+    pc.checked_add_signed(isize::from(offset)).unwrap()
+}
+
+#[cfg(test)]
+mod offset_tests {
+    use super::add_offset;
+
+    #[test]
+    fn signed_offsets_match_wide_arithmetic() {
+        for pc in [0, 1, 32767, 32768, 65535, usize::MAX - 32767, usize::MAX] {
+            for offset in i16::MIN..=i16::MAX {
+                let expected = pc as i128 + i128::from(offset);
+                if let Ok(expected) = usize::try_from(expected) {
+                    assert_eq!(add_offset(pc, offset), expected, "pc={pc}, offset={offset}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn minimum_signed_offset_reaches_zero() {
+        assert_eq!(add_offset(32768, i16::MIN), 0);
+    }
+
+    #[test]
+    fn maximum_backward_loop_executes_in_the_interpreter() {
+        let source = format!(
+            "local x=0 for i=1,1 do {} end return x",
+            "x=x+1 ".repeat(32767)
+        );
+        let mut lua = crate::Lua::empty();
+        #[cfg(feature = "jit")]
+        lua.set_jit_config(crate::JitConfig {
+            mode: crate::JitMode::Off,
+            ..crate::JitConfig::default()
+        })
+        .unwrap();
+        let executor = lua.enter(|ctx| {
+            let closure = crate::Closure::load(ctx, None, source.as_bytes()).unwrap();
+            assert!(closure.prototype().opcodes.iter().any(|op| matches!(
+                op.decode(),
+                crate::opcode::Operation::NumericForLoop { jump: i16::MIN, .. }
+            )));
+            ctx.stash(crate::Executor::start(ctx, closure.into(), ()))
+        });
+        assert_eq!(lua.execute::<i64>(&executor).unwrap(), 32767);
+    }
+
+    #[test]
+    #[should_panic]
+    fn signed_offset_underflow_is_rejected() {
+        add_offset(32767, i16::MIN);
+    }
+
+    #[test]
+    #[should_panic]
+    fn signed_offset_overflow_is_rejected() {
+        add_offset(usize::MAX, 1);
     }
 }
 

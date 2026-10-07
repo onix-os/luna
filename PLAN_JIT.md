@@ -11,6 +11,132 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Combined materialization/admission — measured and reverted
+
+`d0a5d9d` combined full caller publication and dynamic call admission in one
+exclusive host borrow. No prechecked token escaped; fuel, mode, hooks, function,
+capture and argument checks observed post-publication state. Physical Call,
+fresh post-Call validation, native execution, Return and full refresh remained.
+Direct mutation/refusal tests and canonical/activation checks passed.
+
+The initial combined body reduced profile instructions from 276,871,067 to
+274,774,914 but increased data accesses and gave mixed upvalue timings:
+CPU0/16 ratios 0.9877/0.9809 initially, then 1.0199/1.0094 on repeat.
+The compiler merged the former admission body into the caller boundary. An
+outlined execution-body variant used 275,074,025 instructions; its initial
+CPU16 gain did not repeat. Repeated upvalue control/candidate ratios were
+0.9645 on CPU0 and 0.9966 on CPU16. The initial CPU0 apparent 1.94x gain came
+with broad control slowdowns and is not credible optimization evidence.
+
+Outlined feature-cost comparisons also regressed: speed CPU0 float ratio
+0.8881, shipping CPU16 integer/upvalue 0.9699/0.9708. Both no-feature profiles
+remained byte-identical. All cases, failed gates and noisy windows are retained.
+`1aa1baa` restores all five source files, including removing candidate-only
+APIs and tests; the experiment remains inspectable in Git history.
+
+A scalar-only `Slot::write_back` recheck removed proven redundant reference
+loads/stores and reduced the profile by 0.47%, but upvalue ratios were
+0.9967/0.9943. This repeats the previously rejected scalar-only-writeback
+mechanism recorded below; both the edit and redundant test were removed.
+
+These five native comparisons and one full speed/shipping cost comparison
+contain 84 checked commands, all aggregate gates failing. Native counters and
+artifact/source hashes match their controls. Evidence is under
+`target/jit-evidence/short-slice-performance/materialized-*` and
+`reference-writeback-*`. No production performance change is retained.
+The remaining work is the full performance goal, not another local wrapper
+rewrite; source-verified caller/callee execution boundaries need structural work.
+
+The restored GNU baseline/all-feature-Auto/doc run passes 1,741 executions
+across 172 suites, ten ignored, zero failures. Formatting/all-feature checks
+pass, runtime source matches `756187d`, and the rebuilt optimized benchmark
+is byte-identical to the frozen `9ea54b9` executable. Acceptance remains open.
+
+#### Physical return specialization — measured and rejected
+
+Two fixed-return candidates were implemented and measured against `9ea54b9`'s
+frozen executables, then removed from production. They retained actual frame
+pop, capture closing, overlapping result copies, caller restoration and fuel;
+the second skipped valid zero-length copies. Differential tests and the latter
+implementation remain **test-only** in `5077029`, under
+`make jit-in-place-return`. They cover zero/multiple results, closure identity,
+open/closed captures, fuel saturation/interruption, capacity/return-kind refusal,
+invalid spans/counts and committed state when capture closing or fuel conversion
+panics. Production still uses the original generic return path.
+
+Four native comparisons and three speed/shipping feature-cost comparisons ran
+all nine workloads, three alternating windows on CPU0/16, with 11 samples per
+command (20 iterations in cost samples). Of 120 aggregate gate commands, 118
+failed; two speed-cost commands passed in the high-dispersion CPU0 repeat, for
+both control and candidate. These isolated passes do not establish acceptance.
+No gates or native work were relaxed. Native execution/resource counters match
+their controls and frozen artifact/source hashes verify. Ordinary host contention
+was retained, including a particularly noisy second CPU0 cost comparison.
+
+The refined candidate's upvalue control/candidate throughput ratios were
+1.0450/1.0483 initially and 1.0334/1.0670 on repeat. Exact-image instruction
+profiles fell from 276,871,067 to 270,527,397, then 266,300,474 (3.8% below the
+baseline). This did **not** fix the overall regression: refined shipping
+compiled-Off CPU16 ratios were 0.9549 integer, 0.9510 float and 0.9217 upvalue
+(about 8.5% extra elapsed time for upvalues); speed CPU0 float was 0.9459.
+No-feature binaries remained byte-identical in both profiles. The smaller
+native cost does not justify these disabled/shipping regressions.
+
+Evidence is under `target/jit-evidence/short-slice-performance/in-place-return*`:
+raw windows, summaries, linker-verified profiles, rejected binaries and restored
+validation logs. Admission and caller-boundary/materialization remain the larger
+profile costs. Performance, shipping cost and full-plan acceptance remain open.
+
+Restored GNU validation passes: 103 focused executions (two ignored), and
+1,741 baseline/all-feature-Auto/doc executions across 172 suites (ten ignored).
+The three return tests also pass Memcheck with zero errors and zero definite or
+indirect leaks; the harness retains 48 possibly-lost and 632 reachable bytes.
+The rebuilt optimized benchmark executable is byte-identical to the frozen
+`9ea54b9` baseline. No production performance change from this trial remains.
+
+#### Signed jump domain and disabled-cost diagnosis — implemented, gates open
+
+Exact original-flag speed cost executables were rebuilt with linker-symbol
+replays. Rebuilds match the frozen pre-call-change and fixed-call binaries;
+every loaded section and program header matches its symbol replay. Their
+compiled-Off integer profiles both execute 23,343,705 instructions; float
+profiles both execute 30,745,755. Dynamic read/write counts also match. The VM
+has 10,903 identical address-normalized assembly instructions and unchanged
+0xd40b size, but moves from 0x590550 to 0x590b30. This rules out extra executed
+VM work in these workloads; it does not establish a hardware timing cause.
+Hardware performance counters were unavailable, and no system setting changed.
+
+Inspection of the hot jump helper found two real signed-domain bugs. The
+compiler converted a backward distance to positive i16 before negation, so it
+rejected -32768. The interpreter negated i16 before widening, overflowing for
+that same valid offset. Compiler differences now use checked wide arithmetic;
+the interpreter uses checked_add_signed, matching existing JIT/model behavior.
+Tests exhaust every i16 offset at boundary PCs, retain invalid overflow/
+underflow rejection, and compile/run a Lua loop with an actual -32768 backedge
+and 32,767 additions. Both no-feature and JIT builds execute that regression.
+
+All 113 focused executions pass, with two ignored. The GNU baseline, full
+all-feature Auto, and documentation validation run passes 1,738 executions
+across 172 suites, with ten ignored. Commit 74c29d1 contains the correctness
+fix; it is retained independently of performance acceptance.
+
+The new native screen contains 324 rows against the fixed-call build, and the
+speed/shipping cost screen has 216 comparison rows against the pre-call-change
+control. Both use three alternating windows on CPU0/16 and unchanged full
+workload/sample/check settings. Execution/resource counters match throughout.
+CPU0 speed compiled-Off integer returns to pre-call-change timing (direct
+control/candidate 0.9999); CPU16 is 1.0556. However, CPU0 shipping float regresses
+(0.9540), native array on CPU16 is 0.9678 versus the fixed-call build, and other
+gates still fail. Faster no-feature observations are not evidence of lower JIT
+feature overhead. The CPU16 no-feature integer control has a broad timing range;
+do not treat its large ratio as a certified optimization gain. All 36 aggregate
+commands fail. No new overall performance or shipping acceptance is claimed.
+
+Evidence: `target/jit-evidence/short-slice-performance/fixed-call-cost-profile/`
+contains exact-image profiles/assembly, and `signed-offset-*` contains the fix,
+validation, native screen, cost screen, hashes and telemetry. Physical-call
+optimization remains WIP; the full plan and all other open gates remain open.
+
 #### Fixed-capacity physical calls — measured, unaccepted WIP
 
 The JIT activation host now has an allocation-free fixed-argument closure-call

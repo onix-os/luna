@@ -2682,9 +2682,25 @@ impl<S: Clone> CompilerFunction<S> {
 }
 
 fn jump_offset(source: usize, target: usize) -> Option<i16> {
-    if target > source {
-        (target - (source + 1)).try_into().ok()
-    } else {
-        ((source + 1) - target).try_into().ok().map(|i: i16| -i)
+    let next = i128::try_from(source).ok()?.checked_add(1)?;
+    let offset = i128::try_from(target).ok()?.checked_sub(next)?;
+    offset.try_into().ok()
+}
+
+#[cfg(test)]
+mod jump_offset_tests {
+    use super::jump_offset;
+
+    #[test]
+    fn signed_jump_boundaries_are_symmetric() {
+        assert_eq!(jump_offset(32767, 0), Some(i16::MIN));
+        assert_eq!(jump_offset(32768, 0), None);
+        assert_eq!(jump_offset(0, 32768), Some(i16::MAX));
+        assert_eq!(jump_offset(0, 32769), None);
+        assert_eq!(jump_offset(0, 1), Some(0));
+        for offset in i16::MIN..=i16::MAX {
+            let target = usize::try_from(32768_i64 + i64::from(offset)).unwrap();
+            assert_eq!(jump_offset(32767, target), Some(offset));
+        }
     }
 }

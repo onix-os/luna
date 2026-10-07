@@ -745,3 +745,11 @@ pub(crate) fn with_test_existing_thread<'gc, R>(
     let mut host = ActivationHost::new(&mut state, stack.borrow_mut(&ctx), fuel);
     test(&mut host)
 }
+
+#[cfg(all(
+    test,
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod return_tests;
