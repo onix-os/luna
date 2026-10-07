@@ -11,6 +11,40 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Borrowed helper invocation — rejected runtime trial
+
+Two measured variants removed the scoped bridge's temporary owning helper
+frame and counter copies, using a shared borrowed invocation. The second
+forced that invocation inline. Both retained actual helper operations,
+projection reborrowing, PC publication, panic transport and counters. The
+first passed 132 focused checks; the second passed the helper suites and
+all-feature checks. A new retained test checks accumulated counters across
+success, decline and panic, committed scalar state, and original panic payload.
+
+Each variant was measured against the frozen retained compact runtime in
+three alternating windows on CPU0 and CPU16: all nine workloads, eleven
+paired samples, unchanged checks, 324 rows per screen, no concurrent owned
+build/test/profile work. All execution/resource counters match. All 24
+aggregate gate commands failed. The first variant's direct upvalue
+control/candidate ratios were 1.0243/0.9992, but array ratios were
+0.8793/0.9095; inlining gave upvalue 0.9986/0.9987 and array 0.8948/0.8842.
+Neither is an accepted optimization; both production changes are reverted.
+
+Restored production passes formatting, all-feature checking, the 132 focused
+executions and the full GNU all-feature Auto suite (1,321 passes, six ignored).
+
+Original-flag symbol replays verified all loaded sections and program headers.
+Upvalue instruction totals were 293,398,137 and 294,232,768 versus retained
+294,367,740. These small instruction changes did not resolve elapsed-time
+regressions. This also revisits the earlier rejected direct-helper approach;
+borrowing counters rather than moving them did not make it viable. Do not
+repeat helper-wrapper or inlining variants as a route to full acceptance.
+
+Evidence: `target/jit-evidence/short-slice-performance/helper-invocation-*`
+and `helper-borrowed-inline-*`, including source patches, binary hashes,
+profiles, telemetry, complete checked outputs and screen summaries.
+Performance and all other previously open acceptance gates remain open.
+
 #### Compact session cold fallback — rejected runtime trial
 
 The retained compact executable is byte-identical to a fresh original-flag
