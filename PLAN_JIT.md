@@ -11,6 +11,29 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Placement screen and matched accounting recheck — 2026-10-07
+
+A Linux-only `.text.hot.luna_vm` directive on `run_vm_slice` passes fifteen
+focused baseline/JIT tests, but linker evidence screens it out before timing:
+the VM has **identical addresses and sizes in all five release images** versus
+production. The input section is renamed, yet the pinned linker does not provide
+the intended placement isolation. No writable/executable LOAD segment appears.
+The directive is removed; no linker script or downstream build requirement is
+adopted. Full binaries differ, so this is not a byte-identity or timing claim.
+
+The earlier shared-work-accounting trial used distinct variant invocation paths.
+Its frozen binaries are therefore rechecked at two common paths across six
+alternating windows: **72 unchanged checked commands**, all aggregate gates fail,
+all twelve native counter comparisons agree, and immutable hashes verify.
+The shipping regressions survive path control: direct control/candidate medians
+are **0.8577 / 0.8347** for integer, **0.9153 / 0.9124** for table and
+**0.9225 / 0.9253** for upvalue. Shipping table fails all twelve candidate checks
+while all twelve controls pass. Speed float improves and passes all twelve checks,
+but does not justify those shipping costs. The accounting candidate remains
+rejected; its source is not restored. Raw controls, outliers and external contention
+remain in `vm-work-accounting-balanced/`; placement maps and source are in
+`vm-hot-section-candidate/`, under `target/jit-evidence/short-slice-performance/`.
+
 #### Exact attribution of the source-lease slowdown — 2026-10-07
 
 The rejected trial's speed/shipping feature probes have exact symbol companions:
@@ -29,7 +52,8 @@ event sums, independent exclusive costs and raw/artifact hashes verify.
 in both variants: **181,688,298 instructions speed / 201,516,502 shipping**.
 Every individual function's float self-instruction count also matches. Integer
 and callback aggregate work is identical. Small metamethod/allocation differences
-remain: selected function deltas are in allocator/libc routines, not Luna's VM.
+remain: selected function deltas are almost entirely in allocator/libc routines,
+with two instructions also differing in an unnamed symbol, not Luna's VM.
 Thus extra interpreter instructions do not explain the reproduced float timing
 regression. This does not prove a particular hardware/layout cause or erase the
 failed original timing gates. Evidence is under `source-lease-link-capture/` in
