@@ -1666,6 +1666,7 @@ fn resident_failure_path(failure: ResidentFailure, connected: bool, fallback: bo
                             _ => result.unwrap(),
                         }
                         assert!(ctx.jit().0.try_borrow_mut().is_ok());
+                        assert!(ctx.jit_registry().try_borrow_mut(&ctx).is_ok());
                         let trace = trace(ctx, host, before);
                         let callee_instructions = match failure {
                             ResidentFailure::ReturnedPanic => 3,

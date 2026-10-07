@@ -2,6 +2,7 @@ use super::*;
 
 mod cache;
 mod cost;
+mod registration;
 mod request;
 mod service;
 use crate::{
@@ -631,6 +632,8 @@ fn region_preserves_canonical_error_and_stops_before_callback_execution() {
                     assert_eq!(outcome.pairs, 1);
                     assert!(outcome.fragments >= 2);
                     assert_eq!(outcome.result.is_err(), error);
+                    assert!(ctx.jit_registry().try_borrow_mut(&ctx).is_ok());
+                    assert!(Closure::load(ctx, None, b"return 42").is_ok());
                     if !error {
                         assert!(!host.lua_ready());
                     }

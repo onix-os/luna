@@ -11,6 +11,200 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Placement screen and matched accounting recheck — 2026-10-07
+
+A Linux-only `.text.hot.luna_vm` directive on `run_vm_slice` passes fifteen
+focused baseline/JIT tests, but linker evidence screens it out before timing:
+the VM has **identical addresses and sizes in all five release images** versus
+production. The input section is renamed, yet the pinned linker does not provide
+the intended placement isolation. No writable/executable LOAD segment appears.
+The directive is removed; no linker script or downstream build requirement is
+adopted. Full binaries differ, so this is not a byte-identity or timing claim.
+
+The earlier shared-work-accounting trial used distinct variant invocation paths.
+Its frozen binaries are therefore rechecked at two common paths across six
+alternating windows: **72 unchanged checked commands**, all aggregate gates fail,
+all twelve native counter comparisons agree, and immutable hashes verify.
+The shipping regressions survive path control: direct control/candidate medians
+are **0.8577 / 0.8347** for integer, **0.9153 / 0.9124** for table and
+**0.9225 / 0.9253** for upvalue. Shipping table fails all twelve candidate checks
+while all twelve controls pass. Speed float improves and passes all twelve checks,
+but does not justify those shipping costs. The accounting candidate remains
+rejected; its source is not restored. Raw controls, outliers and external contention
+remain in `vm-work-accounting-balanced/`; placement maps and source are in
+`vm-hot-section-candidate/`, under `target/jit-evidence/short-slice-performance/`.
+
+#### Exact attribution of the source-lease slowdown — 2026-10-07
+
+The rejected trial's speed/shipping feature probes have exact symbol companions:
+original compiler flags and linker inputs are retained, both stripped feature
+images byte-match the frozen timing artifacts, and all program headers, allocated
+metadata and 26 nonempty file-backed sections match their symbol-bearing images.
+The no-feature probes also byte-match the frozen controls. Temporary source
+reconstruction is removed immediately after capture; production runtime is unchanged.
+
+Four complete compiled-Off workers (control/candidate in each profile) run at one
+matched invocation path with original `--worker --iterations 20` arguments.
+Nine verified reports, native-zero work, two empty boundary intervals, all thirteen
+event sums, independent exclusive costs and raw/artifact hashes verify.
+
+**Disabled float executes identical instruction, data-read/write and branch counts**
+in both variants: **181,688,298 instructions speed / 201,516,502 shipping**.
+Every individual function's float self-instruction count also matches. Integer
+and callback aggregate work is identical. Small metamethod/allocation differences
+remain: selected function deltas are almost entirely in allocator/libc routines,
+with two instructions also differing in an unnamed symbol, not Luna's VM.
+Thus extra interpreter instructions do not explain the reproduced float timing
+regression. This does not prove a particular hardware/layout cause or erase the
+failed original timing gates. Evidence is under `source-lease-link-capture/` in
+`target/jit-evidence/short-slice-performance/`.
+
+#### Scoped source-registration lease trial rejected — 2026-10-07
+
+Trial `497c7b7` holds an immutable registry borrow across an admitted native region.
+Paired sessions borrow that witness and compare the fresh physical callee against
+the resolved prototype after Call and before materialization. Unbound sessions
+retain registry lookups; frames, capture refresh, full writeback, fuel and native
+coverage remain unchanged. The pinned collector supports this scoped guard without
+unsafe lifetime extension, new allocation or an escaping GC pointer.
+
+The trial passes **94 focused executions** (two ignored) and **1,281 GNU Auto
+executions / 82 suites** (six ignored). Adversarial tests cover both source paths,
+registration exclusion, stale-source refusal, and release on return/error/panic.
+An integrated test collects twice after native return and then resumes a callback
+that loads new registered source, including a canonical-fallback case.
+
+Two batches at the **same two invocation paths** complete **144 original checked
+commands**, across twelve alternating windows. All aggregate gates fail. All
+24 matched native counter comparisons agree, artifact hashes verify, and both
+no-feature binaries are byte-identical to the production controls. No owned
+build/test/profile runs overlap timing; external workloads and outliers remain.
+
+Native upvalue gains repeat: combined direct control/candidate median ratios are
+**1.0624 / 1.0675**. However, its own Off/Auto speedups are only **0.6974 / 0.7035**
+against the original **1.25** target. Native table direct ratios instead fall to
+**0.9808 / 0.9758**. Most decisively, speed-profile disabled float fails **all 24**
+candidate checks versus **10/24** control passes. Candidate paired overhead ratios
+are **1.0921 / 1.0897**, above the unchanged **1.05** cap; repeat-only direct ratios
+**0.9665 / 0.9566** reproduce the slowdown. Shipping metamethod timings also worsen.
+The first batch's disabled shipping-upvalue improvement does not repeat, so it is
+not accepted as a gain.
+
+**The runtime trial is removed**, rather than exchanging these regressions for a
+partial upvalue improvement. General callback/GC and error/panic registration-release
+coverage is retained; **108 restored focused executions** and formatting pass.
+Frozen source, binaries, both batches and the 2,160-row combined
+report remain under `target/jit-evidence/short-slice-performance/source-lease-*`.
+The original performance, resource, platform and release gates remain open.
+
+#### Ordinary executor adapter trial rejected — 2026-10-07
+
+The exact compiled-Off profiles below motivated moving the ordinary slice closure
+to an explicitly inlined private associated function. Its body, cfg branches,
+stack borrow, physical frame, VM granularity and accounting remain equivalent;
+comparison of the moved body allows only formatting/trailing-comma differences.
+The interpreter loop, scheduling and JIT selection do not change.
+
+The trial passes **1,279 GNU Auto executions / 82 suites** (six ignores), plus
+**15 focused baseline/JIT activation tests**. An initial full-build attempt failed
+because the diagnostic linker wrapper also intercepted an unstripped debug example;
+the wrapper is restricted to release outputs and the full gate is rerun in a fresh
+shell without the override. That failed attempt is retained, not counted as passing.
+
+Exact-code full cost-worker profiling removes the outlined closure and reduces
+disabled upvalue instructions **386,571,040 → 379,010,055 (1.96%)** and callbacks
+**181,129,784 → 177,939,344 (1.76%)**. Allocation instructions instead increase
+about **1.06%**. Report order, native-zero work, all event sums, independent self
+costs and binary/raw hashes verify. No profiled wall time is used for acceptance.
+
+The unchanged full native and both disabled gates then run **72 checked commands**,
+at two matched invocation paths across six alternating windows. All aggregate gates
+fail; all compared native/interpreter/helper/region counters match and frozen hashes
+remain unchanged. Native table direct control/candidate medians are **0.9786 / 0.9622**,
+while upvalue is essentially unchanged (**0.9941 / 0.9976**). Speed disabled float
+passes only **one of twelve** candidate runs versus **six** control runs. Its candidate
+median overhead ratios are **1.0635 / 1.0590**, above the unchanged five-percent cap.
+Speed callbacks improve about 1.7%, but their median overhead still exceeds seven
+percent. Shipping upvalue remains about fourteen percent above no-feature.
+
+**The trial is removed.** Small instruction savings do not justify worse native table
+timing and disabled float failures. Production source is restored byte-for-byte;
+the restored 15 activation checks and formatting pass. Source/archive, exact symbols,
+profiles, failed build, full tests and the 1,512-row timing report remain under
+`executor-ordinary-inline-*` and `ordinary-balanced/` in
+`target/jit-evidence/short-slice-performance/`. This does not fix the original
+regressions or close performance, resource, platform or release acceptance.
+
+#### Exact compiled-Off attribution — 2026-10-07
+
+Linker-boundary replay now also recovers symbols for the original feature-cost
+probes. All eight rebuilt stripped images (production/operand trial, both profiles,
+with/without JIT) byte-match their frozen originals. Symbol companions match
+program headers, allocated metadata and every nonempty allocated payload. The
+temporary trial attribute is removed; 36 restored focused tests and formatting pass.
+
+Six unchanged **complete** cost workers run under Callgrind with their original
+`--worker --iterations 20` arguments. Dumps before `std::io::stdio::_print`
+partition the nine reports without changing benchmark source. Collection is
+limited to executor steps. Empty initial/final intervals, ordered verified reports,
+zero native work, all thirteen total event sums, independent exclusive self costs
+and binary/raw hashes verify. These are diagnostic instruction counts, not timings.
+
+For all seven warm cases in both profiles, production and the rejected operand
+trial execute **identical instructions, data reads/writes and branch counts**.
+Their VM functions have equal sizes and normalized instruction sequences; speed
+retains 35 differing read-only-data annotations, so this does not establish binary
+identity across variants. Shipping predicate/cold totals differ by +18/-42
+instructions and remain recorded. The measured candidate-specific slowdown is
+not extra interpreter instruction work. No specific hardware cause is proven;
+the original timing failures and rejection still stand.
+
+The feature itself does add work relative to no-JIT: upvalue instruction overhead
+is **14.05% speed / 12.13% shipping**, callbacks **8.73% / 6.09%**. Speed upvalue
+VM self costs rise **158,858,612 → 189,661,252**. The feature build also outlines
+the ordinary executor-slice closure, with **13,800,690** self instructions absent
+as a separate function in the no-feature profile. That cost includes required
+frame/borrow work, not just adapter overhead. This motivates testing whether the
+ordinary adapter can be folded into the executor without changing slices, frames,
+statistics, panic behavior or the interpreter loop itself.
+
+Evidence: `target/jit-evidence/short-slice-performance/cost-link-capture/`, including
+link inputs/maps, allocation proofs, complete raw profiles, normalized assembly,
+`verified-full-profiles.json` and `function-costs.json`. Performance acceptance
+and the full original plan remain incomplete.
+
+#### Operand inlining still fails matched-path controls — 2026-10-07
+
+The launch-path finding warranted retesting the previously rejected operand
+inlining candidate, which had meaningful native table/callback gains. Frozen
+production and candidate images run through identical hardlink paths at two
+lengths, six alternating windows, with native and both disabled profiles.
+All **72 original checked commands fail**. Artifact hashes remain unchanged;
+the two no-feature binaries are byte-identical across variants. All compared
+native, interpreter, helper, table/upvalue and region counters match.
+
+Native direct control/candidate median times are **1.1657 / 1.1385** for tables
+and **1.1102 / 1.0712** for callbacks at the two stages. Native upvalue remains
+approximately unchanged (**1.0092 / 0.9915**) and fails its original threshold.
+These direct timing ratios are not acceptance results; large co-moving Off/Auto
+outliers, especially late in the campaign, are retained rather than removed.
+
+Disabled regressions survive the matched paths. Speed float direct medians are
+**0.9614 / 0.9639**; candidate/no-feature medians are **1.0901 / 1.0858**, with
+zero of twelve passes against seven control passes. Shipping table direct medians
+are **0.9698 / 0.9799**, with only one candidate pass against twelve control
+passes. Shipping upvalue direct medians are **0.9703 / 0.9724**; its candidate
+overhead remains about seventeen percent against the unchanged five-percent cap.
+The candidate therefore stays removed. Favorable native gains do not excuse
+compiled-Off regressions, and the path correction alone does not rescue this trial.
+
+Raw gates, telemetry, inode/hash proofs and 1,512 parsed report rows are retained
+under `target/jit-evidence/short-slice-performance/operand-balanced/`.
+The report includes native-proof worker records; disabled comparisons use only
+`feature_cost_case` records, not those untimed Auto proofs. An initial driver
+typo failed before any measurement and is retained separately. Production source
+is unchanged; performance and full-plan acceptance remain open.
+
 #### Exact-code symbols and launch-path controls — 2026-10-07
 
 The latest measurements supersede the causal interpretation of the extra
