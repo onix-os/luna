@@ -13,6 +13,38 @@ fn eval(source: &str) -> Result<bool, ExternError> {
 
 mod common;
 
+#[test]
+fn function_and_metamethod_calls_preserve_arguments_results_and_errors() -> Result<(), ExternError>
+{
+    assert!(eval(
+        r#"
+        local calls = 0
+        local function direct(a, b)
+            calls = calls + 1
+            return a + b, a - b
+        end
+        local a, b = direct(7, 3)
+        local callback = math.abs(-9)
+        local object = setmetatable({ value = 10 }, {
+            __call = function(self, x, y)
+                calls = calls + 1
+                return self.value + x + y, x - y
+            end,
+        })
+        local c, d = object(2, 3)
+        local function values() return 4, 5, 6 end
+        local function identity(...) return ... end
+        local x, y, z = identity(values())
+        local ok_table = pcall(function() local bad = {}; bad() end)
+        local ok_number = pcall(function() local bad = 3; bad() end)
+        return calls == 2 and a == 10 and b == 4 and callback == 9
+            and c == 15 and d == -1 and x == 4 and y == 5 and z == 6
+            and not ok_table and not ok_number
+        "#
+    )?);
+    Ok(())
+}
+
 /// The only mechanism a library has to make a metatable tamper-proof.
 #[test]
 fn metatable_field_protects_the_metatable() -> Result<(), ExternError> {

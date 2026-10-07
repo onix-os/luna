@@ -11,6 +11,26 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Direct physical-call resolution — runtime candidate
+
+`LuaFrame::call_function` now takes `Value::Function` directly, rather than
+calling the generic resolver only to receive that same closure or Rust callback.
+All other values still use `meta_ops::call`; frame/variable-stack validation,
+PC/fuel ordering, arguments, depth limits and physical frame construction are
+unchanged. This is shared interpreter/native runtime work, not an inline hint
+or a source-specific benchmark exception.
+
+A mixed-call regression checks closure/callback/metatable calls, fixed and
+variable arguments, multiple results and noncallable errors. New
+`make vm-call-resolution` runs callbacks/metamethods/panic cleanup without JIT
+and with Off/Auto/Force. Formatting/all-feature checks plus that gate and the
+canonical/region gates pass **182 executions / eighteen suites**, two ignored.
+Performance is not yet measured. Frozen comparisons will use the preceding
+admitted-binding candidate as the control and preserve all original thresholds;
+no-feature binaries may change because this optimizes their call path too.
+
+Evidence: `target/jit-evidence/short-slice-performance/direct-call-resolution-*`.
+
 #### Admitted callee identity reuse — runtime candidate
 
 The native region already binds its exact callee prototype once on admission.
@@ -53,7 +73,9 @@ include slowdowns. These regressions remain visible, not accepted tradeoffs.
 
 Keep this as an explicitly **unaccepted work-in-progress runtime candidate**
 while addressing the remaining overhead and shipping regressions. Correctness
-coverage is focused, not yet a full new platform/release qualification. No
+coverage now also includes completed GNU baseline/all-feature Auto/docs:
+**1,708 executions / 172 suites**, ten ignored, zero failures. This is not a
+full new platform/release qualification. No
 further campaigns on rejected import pruning are planned.
 Evidence: `target/jit-evidence/short-slice-performance/admitted-callee-binding-*`.
 
