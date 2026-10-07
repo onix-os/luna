@@ -8,6 +8,14 @@ use super::{
     VMError,
 };
 
+#[cfg(all(
+    test,
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod call_tests;
+
 pub(crate) struct ActivationHost<'gc, 'a> {
     #[cfg(all(
         not(miri),
@@ -256,6 +264,74 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
     }
 
     pub(crate) fn call(
+        &mut self,
+        ctx: Context<'gc>,
+        function: crate::types::RegisterIndex,
+        arguments: u8,
+    ) -> Result<(), VMError> {
+        if self.call_in_place(function, arguments) {
+            return Ok(());
+        }
+        self.call_generic(ctx, function, arguments)
+    }
+
+    fn call_in_place(&mut self, function: crate::types::RegisterIndex, arguments: u8) -> bool {
+        use super::thread::LuaReturn;
+        use crate::{Function, Value};
+
+        if self.state.frames.len() >= self.state.max_call_depth
+            || self.state.frames.len() == self.state.frames.capacity()
+        {
+            return false;
+        }
+        let Some(Frame::Lua {
+            base,
+            is_variable: false,
+            pc,
+            expected_return,
+            ..
+        }) = self.state.frames.last_mut()
+        else {
+            return false;
+        };
+        let bottom = *base + usize::from(function.0);
+        let Some(Value::Function(Function::Closure(closure))) = self.stack.get(bottom).copied()
+        else {
+            return false;
+        };
+        let prototype = closure.prototype();
+        let count = usize::from(arguments);
+        let width = usize::from(prototype.stack_size);
+        let top = bottom + width;
+        if arguments > prototype.fixed_params
+            || count > width
+            || bottom + 1 + count > self.stack.len()
+            || top > self.stack.capacity()
+        {
+            return false;
+        }
+        *pc += 1;
+        self.fuel.consume(4);
+        *expected_return = Some(LuaReturn::Normal(crate::types::VarCount::constant(0)));
+        self.fuel.consume(i32::from(arguments));
+        self.stack
+            .copy_within(bottom + 1..bottom + 1 + count, bottom);
+        self.stack.resize(top, Value::Nil);
+        self.stack[bottom + count..top].fill(Value::Nil);
+        self.state.frames.push(Frame::Lua {
+            bottom,
+            closure,
+            base: bottom,
+            is_variable: false,
+            pc: 0,
+            stack_size: width,
+            expected_return: None,
+        });
+        self.fuel.consume(4);
+        true
+    }
+
+    fn call_generic(
         &mut self,
         ctx: Context<'gc>,
         function: crate::types::RegisterIndex,
