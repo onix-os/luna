@@ -270,6 +270,7 @@ impl Session<'_, '_, '_, '_> {
 
     fn complete(&mut self, view: &mut View) -> u32 {
         let ctx = self.frame.ctx;
+        let mut returned_pair = false;
         self.outcome.fragments += 1;
         let transition = self.frame.host.with_registers(|closure, registers| {
             assert_eq!(closure, self.admitted.caller());
@@ -305,6 +306,7 @@ impl Session<'_, '_, '_, '_> {
                 None
             };
             if let Some(paired) = paired {
+                returned_pair = paired.returns == 1 && paired.result.is_ok();
                 self.outcome.slices += 1 + paired.returns;
                 self.outcome.pairs += paired.returns;
                 self.outcome.result = paired.result;
@@ -338,12 +340,17 @@ impl Session<'_, '_, '_, '_> {
             {
                 return None;
             }
-            for (slot, value) in self
-                .slots
-                .iter_mut()
-                .zip(registers.stack_frame.iter().copied())
-            {
-                *slot = abi::Slot::from_value(value);
+            if returned_pair {
+                self.admitted
+                    .refresh_returned(self.slots, registers.stack_frame);
+            } else {
+                for (slot, value) in self
+                    .slots
+                    .iter_mut()
+                    .zip(registers.stack_frame.iter().copied())
+                {
+                    *slot = abi::Slot::from_value(value);
+                }
             }
             Some(*registers.pc)
         });

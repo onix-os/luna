@@ -11,6 +11,26 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Bound-tail caller refresh — runtime trial
+
+After a successfully returned admitted pair, caller refresh now covers the
+source-bound function-register tail and any captured caller prefix slot.
+Existing preflight records the freshly resolved capture index in the bounded
+admission object; no refresh descriptor is constructed or transported through
+the return ABI. This differs from the earlier rejected selective-refresh
+variants. All pre-Call materialization, fresh source/capture checks, physical
+frames and error/panic handling remain unchanged. Partial calls, errors and
+other transitions retain full refresh. No new heap owner or unsafe access is
+introduced. This is an unaccepted trial pending original-flag measurements.
+
+New coverage rebinds the same closure's capture across three actual native
+calls, compares the complete result/frame/fuel/dispatch trace to Off, and uses
+ignored reference payload bits to prove untouched prefix slots are not copied.
+Existing wide-prefix, upper-frame, argument-tail-alias, partial-call, fallback,
+panic, GC and activation checks remain enabled. Formatting/all-feature checks
+and **117 executions / eight suites** pass, two ignored.
+Evidence: `target/jit-evidence/short-slice-performance/bound-tail-refresh-*`.
+
 #### Open-capture suffix check — rejected runtime trial
 
 The trial made `ThreadState::close_upvalues` check the highest open capture before
