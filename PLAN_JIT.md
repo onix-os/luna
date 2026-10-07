@@ -11,6 +11,25 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Rust call boundary — runtime trial, not accepted
+
+Admitted pairs now invoke physical Call and Return through ordinary Rust
+`Session` methods, entering generated code only for the verified arithmetic
+callee. One Rust unwind boundary surrounds the sequence; generated frames never
+contain calls into panicking Rust. Ordinary aggregate invocation is unchanged.
+The code owner retains the callee entry and immutable source-bound operands,
+with allocation charging derived from its actual size. All physical-frame,
+capture, prototype, fuel and materialization checks remain in place.
+
+Focused backend, canonical and native-region tests pass. New direct-path tests
+check callback bypass, budget refusal, matching full traces, call errors and
+panic transport before native execution and before writeback. Existing custom
+callback fault fixtures explicitly retain their aggregate path in test builds;
+they are not claimed as coverage of the new direct path. The full source/fuel
+matrix additionally compares the Rust bridge with interpreted execution.
+Performance and broader validation are pending; this is not an accepted speedup.
+Evidence: `target/jit-evidence/short-slice-performance/rust-call-boundary-*`.
+
 #### Single physical-frame view — rejected runtime trial
 
 The activation host now obtains the active closure and its register view from

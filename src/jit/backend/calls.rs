@@ -17,6 +17,8 @@ pub(crate) struct Hooks {
 pub(crate) struct CallCode {
     _memory: Memory,
     entry: unsafe extern "C" fn(*mut c_void, u32) -> u32,
+    leaf: crate::jit::leaf::CellEntry,
+    operands: (u64, u8, u8, u8),
     #[cfg(test)]
     pub relocations: usize,
     #[cfg(test)]
@@ -24,6 +26,26 @@ pub(crate) struct CallCode {
 }
 
 impl CallCode {
+    pub(crate) fn operands(&self) -> (u64, u8, u8, u8) {
+        self.operands
+    }
+
+    /// Invokes the verified callee without the aggregate callbacks.
+    ///
+    /// # Safety
+    /// The frame, slots, view and capture must remain valid and exclusive.
+    pub unsafe fn invoke_leaf(&self, frame: *mut NativeFrame, budget: u32) {
+        unsafe {
+            (self.leaf)(
+                (*frame).slots,
+                0,
+                budget,
+                std::ptr::addr_of_mut!((*frame).exit),
+                (*frame).view,
+            );
+        }
+    }
+
     /// Invokes the linked aggregate entry.
     ///
     /// # Safety
@@ -270,6 +292,7 @@ pub(crate) fn compile(
     }
     module.finalize_definitions().map_err(fail)?;
     let pointer = module.get_finalized_function(entry);
+    let leaf_pointer = module.get_finalized_function(leaf);
     let image = memory
         .take()
         .ok_or_else(|| JitError::Compilation("missing aggregate mappings".into()))?;
@@ -280,6 +303,10 @@ pub(crate) fn compile(
     Ok(CallCode {
         _memory: image,
         entry,
+        leaf: unsafe {
+            std::mem::transmute::<*const u8, crate::jit::leaf::CellEntry>(leaf_pointer)
+        },
+        operands: plan.operands(),
         #[cfg(test)]
         relocations,
         #[cfg(test)]

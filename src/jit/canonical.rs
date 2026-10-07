@@ -37,6 +37,8 @@ pub(super) struct Program {
     pub site: Site,
     pub code: CallCode,
     origin: super::resources::MappingCounter,
+    #[cfg(test)]
+    custom_hooks: bool,
 }
 
 impl Program {
@@ -140,7 +142,13 @@ impl Program {
             #[cfg(test)]
             super::backend::calls::LinkFault::None,
         )?;
-        Ok(Self { site, code, origin })
+        Ok(Self {
+            site,
+            code,
+            origin,
+            #[cfg(test)]
+            custom_hooks: false,
+        })
     }
 
     #[cfg(test)]
@@ -463,6 +471,20 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             self.error = Some(error);
         }
         2
+    }
+
+    fn invoke_leaf(&mut self, code: &CallCode, budget: u32) {
+        let (pc, function, arguments, start) = code.operands();
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let frame = self.enter(pc, u32::from(function), u32::from(arguments));
+            if !frame.is_null() {
+                unsafe { code.invoke_leaf(frame, budget) };
+                self.leave(frame, 3, u32::from(start));
+            }
+        }));
+        if let Err(payload) = result {
+            self.panic = Some(payload);
+        }
     }
 
     fn finish(mut self) -> super::PairOutcome {

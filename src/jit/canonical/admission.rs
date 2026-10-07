@@ -149,11 +149,18 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
         let mut session = Session::new(self.ctx, host, &self.program.site, &mut scratch);
         session.callee = Some(self.callee);
         session.prefix = prefix;
-        unsafe {
-            self.program
-                .code
-                .invoke(std::ptr::addr_of_mut!(session).cast(), budget.min(64));
+        #[cfg(test)]
+        if self.program.custom_hooks {
+            unsafe {
+                self.program
+                    .code
+                    .invoke(std::ptr::addr_of_mut!(session).cast(), budget.min(64));
+            }
+        } else {
+            session.invoke_leaf(&self.program.code, budget.min(64));
         }
+        #[cfg(not(test))]
+        session.invoke_leaf(&self.program.code, budget.min(64));
         let outcome = session.finish();
         if outcome.calls == 0 {
             return None;
