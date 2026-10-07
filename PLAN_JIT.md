@@ -50,7 +50,8 @@ The runtime trial is removed; the generic nonzero Return-operand fixture and
 exact owner-allocation assertion remain. Restored-source formatting, all-target
 checking and **1,380 test executions** pass again (89 suites, eight ignores).
 The six restored backend tests also pass Memcheck with zero reported errors
-and zero definite, indirect or possible losses. The four production runtime
+and zero definite/indirect losses; a 48-byte possible test-harness allocation
+remains visible in this restored run too. The four production runtime
 files exactly match pre-trial `ff3afc4`; only generic test additions remain.
 Both harnesses score the original ratio-of-medians, not the separately reported
 median paired ratio; native `oslo_predicate` remains unscored. Neither thresholds
