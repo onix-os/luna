@@ -91,10 +91,7 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
         let Value::Table(table) = table else {
             return false;
         };
-        let value = match key {
-            Value::Integer(key) => table.get_integer_raw(&self.ctx, key),
-            key => table.get_raw(&self.ctx, key),
-        };
+        let value = table.get_raw(&self.ctx, key);
         if value.is_nil()
             && table
                 .metatable()

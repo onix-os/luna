@@ -11,25 +11,58 @@
 
 ### Progress snapshot — 2026-10-07
 
-#### Typed integer table-read trial — 2026-10-07
+#### Rejected typed integer table reads — 2026-10-07
 
-The existing native read helper now selects a private typed integer lookup for
-integer keys. `RawTable::get_integer` checks the same positive/representable
-index domain and existing `array_answers` predicate, then falls back to the
-unchanged generic lookup for misses, hash keys and weak-table map entries.
-All noninteger keys retain the original path. Nil/metatable decline, pending
-scratch operands, reference identity, helper ABI, fuel and counters are unchanged.
-There is no new public API, unsafe code, compiler hint or generated GC layout.
+`c363317` added private integer lookups in RawTable/Table and selected them in
+the existing native read helper. Positive/representable indices used the existing
+`array_answers` guard; misses, hash keys and weak-table entries retained generic
+lookup. Noninteger keys, nil/metatable decline, pending scratch values, reference
+identity, helper ABI, fuel and counters were unchanged. No new public API,
+unsafe code, compiler hint or generated GC layout was introduced. This is
+distinct from previously rejected operand inlining and borrow consolidation.
 
-Three pure fixtures cover array/hash/bounds, negative zero, live/dead weak values,
-pending keys, aliases and metamethod misses. Five integrated source families
-compare exact Off/Auto slices at seven budgets with collection between steps
-and positive native table-read counters. `make jit-integer-table` and
-`make jit-integer-table-miri` expose focused gates. Format/check and 29 focused
-executions across six suites pass. Broader validation, Miri and paired timing
-remain pending; operand inlining and borrow consolidation remain rejected rather
-than being silently retried. Evidence uses
-`target/jit-evidence/short-slice-performance/integer-table-read-*`.
+Three pure fixtures cover signed/platform bounds, array/hash/nil, numeric aliases,
+negative zero, live/dead weak values after actual collection, pending keys,
+destination aliases and metamethod misses. Five integrated families compare
+exact Off/Auto slices at seven budgets with collection between steps and require
+native reads. Format/check and **31 focused executions / seven suites** pass;
+the initial hand count omitted the second async region invocation and is corrected
+here. Miri passes **13** tests. Baseline/GNU Auto/docs pass **1,702 / 170**, ten
+ignores; musl **76 / ten** and real i686 **594 / 84**, with no failures.
+
+Twenty-eight cost profiles and sixteen native profiles use exact symbol
+companions of five frozen original-flag binaries. Native table instructions
+fall **53,256,651 to 51,241,641**, about 3.8%, while allocation falls
+**34,742,890 to 33,945,787**. Callback work rises slightly from the additional
+noninteger branch. Compiled-Off integer/float instructions are unchanged in
+both profiles. VM size/stack reservations are unchanged; text grows 208 bytes
+in speed/native and 216 in shipping. These are diagnostics, not timing acceptance.
+
+Twelve alternating windows/two matched paths complete **144 checked commands**;
+all aggregate gates fail. All **24 complete native non-timing counter comparisons
+match exactly**, including resource metadata; artifact hashes verify. Native
+table direct control/candidate medians are **0.9910 / 0.9911**, slightly slower
+despite instruction savings. Table/upvalue/callback gates still fail all 24
+checks. Allocation direct medians **1.0023 / 1.0050** do not establish a
+substantial gain; all allocation checks remain passing.
+
+Speed compiled-Off float direct medians are **0.9335 / 0.9402**, about 6.4–7.1%
+more elapsed time, against no-feature **0.9999 / 1.0025**. Its cost ratios
+**1.0923 / 1.0856** exceed 1.05, with failures rising **2/24 to 24/24**.
+Shipping table direct medians are **0.9621 / 0.9581**, versus no-feature
+**1.0002 / 1.0006**; failures rise **1/24 to 24/24** and cost ratios reach
+**1.0613 / 1.0637**. Shipping upvalues regress approximately 1%. All windows,
+controls and contention outliers are retained; no hardware cause is established.
+
+Reject the typed runtime methods/branch and restore generic lookup. Retain the
+independent unit fixtures against explicit expected results and the integrated
+fuel/GC cases under `make jit-integer-table` and `make jit-integer-table-miri`.
+Restored production lookup code matches the retained runtime. Format/check and
+31 focused GNU executions across seven suites pass; Miri passes 13, musl's
+integer/heap selection passes 20, and real i686 passes three pure fixtures
+(the native-only integration file has zero tests there).
+Evidence is under `target/jit-evidence/short-slice-performance/integer-table-read-*`.
+This does not close the remaining performance/resource/platform/release gates.
 
 #### Rejected checked PC-only projection — 2026-10-07
 

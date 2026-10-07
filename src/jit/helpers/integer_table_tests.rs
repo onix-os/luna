@@ -1,7 +1,7 @@
 use super::{tests::assert_identical, tests::invoke, *};
 
 #[test]
-fn integer_reads_match_raw_lookup_across_array_and_hash_keys() {
+fn integer_reads_preserve_array_hash_bounds_and_numeric_aliases() {
     crate::Lua::empty().enter(|ctx| {
         let table = Table::from_parts(&ctx, RawTable::with_capacity(&ctx, 8, 0), None);
         let marker = Value::Table(Table::new(&ctx));
@@ -29,14 +29,15 @@ fn integer_reads_match_raw_lookup_across_array_and_hash_keys() {
             1 << 32,
             i64::MAX,
         ] {
-            assert_identical(
-                table.get_integer_raw(&ctx, key),
-                table.get_raw(&ctx, Value::Integer(key)),
-            );
+            let expected = if key == 2 {
+                Value::Number(-0.0)
+            } else if [i64::MIN, -1, 0, 1, 8, 9, 256, 1 << 32, i64::MAX].contains(&key) {
+                marker
+            } else {
+                Value::Nil
+            };
+            assert_identical(table.get_raw(&ctx, Value::Integer(key)), expected);
         }
-        assert_identical(table.get_integer_raw(&ctx, 1), marker);
-        assert_identical(table.get_integer_raw(&ctx, 2), Value::Number(-0.0));
-        assert!(table.get_integer_raw(&ctx, 4).is_nil());
     });
 }
 
@@ -52,25 +53,24 @@ fn integer_reads_upgrade_live_weak_values_and_drop_dead_entries() {
         table.set(ctx, 2, Table::new(&ctx)).unwrap();
         table.set_metatable(ctx, Some(meta));
         table.set(ctx, 3, 42).unwrap();
-        assert_identical(table.get_integer_raw(&ctx, 1), Value::Table(live));
-        assert!(matches!(table.get_integer_raw(&ctx, 2), Value::Table(_)));
+        assert_identical(table.get_raw(&ctx, Value::Integer(1)), Value::Table(live));
+        assert!(matches!(
+            table.get_raw(&ctx, Value::Integer(2)),
+            Value::Table(_)
+        ));
         (ctx.stash(table), ctx.stash(live))
     });
     lua.gc_collect();
     lua.gc_collect();
     lua.enter(|ctx| {
         let table = ctx.fetch(&table);
-        assert_identical(
-            table.get_integer_raw(&ctx, 1),
-            Value::Table(ctx.fetch(&live)),
-        );
-        assert!(table.get_integer_raw(&ctx, 2).is_nil());
-        assert_identical(table.get_integer_raw(&ctx, 3), Value::Integer(42));
         for key in [1, 2, 3, 4, i64::MAX] {
-            assert_identical(
-                table.get_integer_raw(&ctx, key),
-                table.get_raw(&ctx, Value::Integer(key)),
-            );
+            let expected = match key {
+                1 => Value::Table(ctx.fetch(&live)),
+                3 => Value::Integer(42),
+                _ => Value::Nil,
+            };
+            assert_identical(table.get_raw(&ctx, Value::Integer(key)), expected);
         }
     });
 }

@@ -1135,7 +1135,7 @@ help:
 	@echo "  jit-vm-dispatch Check per-slice dispatch selection and code ownership"
 	@echo "  jit-set-list Check fixed-list native writes, fuel, and fallback"
 	@echo "  jit-frame-view Check current-frame views and bounds guards"
-	@echo "  jit-integer-table Check typed integer reads and weak fallback"
+	@echo "  jit-integer-table Check integer reads, weak values, and fallback"
 	@echo "  test-doc     Run doc tests alone"
 	@echo "  check        Run cargo check on all targets"
 	@echo "  check-all    Run cargo check on all targets/all features"
