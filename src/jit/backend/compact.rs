@@ -220,11 +220,13 @@ impl Entry {
             .prepare_indices(registers, capture, upper, indices)
     }
 
+    #[inline(always)]
     pub(in crate::jit) fn invoke(&self, frame: &mut Frame<'_>) -> Result<Outputs, JitError> {
         invoke(self.entry, &self.binding, frame)
     }
 }
 
+#[inline(always)]
 fn invoke(
     entry: CompactEntry,
     binding: &Binding,
