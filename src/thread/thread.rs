@@ -916,7 +916,6 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
     }
 
     /// returns a view of the Lua frame's registers
-    #[inline(always)]
     pub(super) fn registers<'b>(&'b mut self) -> LuaRegisters<'gc, 'b> {
         match self.state.frames.last_mut() {
             Some(Frame::Lua {

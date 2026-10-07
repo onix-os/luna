@@ -11,23 +11,52 @@
 
 ### Progress snapshot — 2026-10-07
 
-#### Register-view constructor inline trial — 2026-10-07
+#### Rejected register-view constructor inlining — 2026-10-07
 
-After rejecting the optional fuel representation, this experiment keeps the
-original separate fuel/variable fields and marks only `LuaFrame::registers`
-`inline(always)`. Exact fixed-list shipping assembly materializes the complete
-view across an out-of-line ABI and saves extra registers, even for callers
-which only need the PC. Constructor visibility may eliminate unused fields;
-it must be verified rather than assumed. This is not executor-adapter inlining,
-VM duplication or the previously rejected canonical live-prototype binding.
+`e18d4f7` kept the separate fuel/variable fields and marked only
+`LuaFrame::registers` `inline(always)`. The hypothesis was to eliminate unused
+view fields at callers rather than materializing the whole view across an
+out-of-line ABI. It changed no physical frames, fuel/GC/panic semantics,
+coverage, accounting or thresholds. This is distinct from executor-adapter
+inlining and previously rejected canonical live-prototype binding.
 
-All borrow lifetimes, physical frames, helper/fuel/GC/panic semantics, native
-coverage and accounting remain unchanged. The control is the frozen fixed-list
-candidate. Format/check, 22 focused executions across five suites and four Miri
-helper tests pass. Broader validation, exact original-flag image/stack/size
-inspection and the unchanged paired campaign are pending. No performance
-acceptance is claimed.
-Evidence uses `target/jit-evidence/short-slice-performance/register-view-inline-*`.
+Format/check and 22 focused executions across five suites pass. Baseline/GNU
+Auto/docs pass **1,694 executions / 168 suites**, ten ignores; musl passes
+**67 / eight**, unsupported i686 **587 / 83**, and Miri **four**. Exact symbol
+companions match five frozen original-flag timing binaries. The standalone
+constructor disappears, but shipping feature-Off text grows **4,316 bytes** and
+speed feature-Off text **644 bytes**. Native text falls 172 bytes. VM stack
+reservations stay below a probe page: shipping no-feature rises 0x5e8 to 0x618,
+shipping feature-Off stays 0x648, speed feature-Off falls 0x658 to 0x648, and
+native stays 0x648. These are diagnostics, not complete release-size acceptance.
+
+Instruction profiles are mixed: speed feature-Off integer/float totals are
+unchanged; shipping feature-Off integer/float totals rise, while upvalues fall
+**97,326,706 to 96,626,651**. Native upvalue/allocation totals are nearly flat.
+Changes to shared interpreter code also affect no-feature controls.
+
+Twelve alternating windows/two matched paths complete **144 checked commands**.
+Two candidate shipping commands pass (both paths in window five); 70 candidate
+and all 72 control commands fail their aggregate gates. All **24 complete native
+non-timing counter comparisons match exactly**, including resource metadata;
+source/artifact hashes verify. Every window and contention observation is retained.
+
+Shipping float direct control/candidate medians improve **1.1146 / 1.1151**,
+with no-feature controls **1.0726 / 1.0618**. Shipping allocation improves
+**1.0766 / 1.0859**, with no-feature controls **1.0679 / 1.0590**. Shipping float
+still fails **16/24** original checks versus 22 controls. These gains are not
+free: speed feature-Off float direct medians are **0.8820 / 0.8854** (about
+13% more time), versus no-feature **0.9752 / 0.9706**. Its original cost ratios
+worsen to **1.1285 / 1.1233**, with failures **7/24 to 21/24**. Native table,
+upvalue and callbacks still fail all 24 checks; allocation retains all passes.
+
+Reject unconditional constructor inlining rather than trading shipping gains
+for a large speed-profile regression. Restore the fixed-list runtime and retain
+all tests, immutable binaries, counters, assembly and per-window results under
+`target/jit-evidence/short-slice-performance/register-view-inline-*`. Restored
+runtime source matches `90c027f`; format/check and 22 focused executions across
+five suites pass. The full
+performance/resource/platform/release objective remains open.
 
 #### Rejected optional fixed-list fuel borrow — 2026-10-07
 
