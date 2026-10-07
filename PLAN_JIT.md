@@ -11,6 +11,166 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Rejected checked PC-only projection — 2026-10-07
+
+`ce84bcc` replaced full register views at PC-only activation call/return/native
+transitions and VM pair handoff with private `LuaFrame::pc_mut`. It retained
+the physical top-Lua and `split_at_mut(base)` checks, mutation/fuel order and
+scoped borrows. No cached pointer, wider lifetime or full-constructor inlining
+was introduced. Four pure tests cover current-only mutation, fixed/variable
+stacks including base equal to length, invalid bases including `usize::MAX`,
+absent/non-Lua frames and rebinding after stack/frame changes. An initial
+assertion borrowed both views simultaneously; copying the first counter fixed
+that test compilation error without changing runtime behavior.
+
+Format/check and **26 focused executions / six suites** pass; Miri passes the
+four projection and four fixed-list helper tests. Baseline/GNU Auto/docs pass
+**1,698 / 168**, ten ignores; GNU Off and Force each pass **1,298 / 83**, six
+ignores. Musl passes **71 / nine** and unsupported i686 **591 / 83**. No failed
+lane is counted as accepted; the initial compile failure remains archived.
+
+Original-flag images retain both accessor guards. Its size is 0x5c bytes in
+speed/native and 0x62 in shipping; full constructor sizes and VM reservations
+are unchanged. Feature-Off text grows 200 bytes in speed and 176 in shipping;
+native grows 184. No-feature `.text` is byte-identical to control in both
+profiles, but the complete ELFs differ. Collected cost instruction totals are
+unchanged for integer/float in both profiles and shipping upvalues. Native
+upvalue Auto falls **329,541,973 to 328,643,856** instructions; allocation Auto
+stays **34,757,098**. These diagnostics do not establish elapsed-time benefit.
+
+The twelve-window/two-path comparison completes **144 checked commands**, all
+failing aggregate gates. All **24 complete native non-timing counter comparisons
+match exactly**, including resource metadata; artifact hashes verify. Native
+upvalue direct control/candidate medians improve **1.0091 / 1.0070**, but its
+Off/Auto ratios remain **0.6484 / 0.6511**, below 1.25. Native table, upvalue
+and callbacks still fail all 24 checks, while allocation retains all passes.
+
+New regressions dominate: speed feature-Off float direct medians are
+**0.8986 / 0.8994**, about 11.2% more time, against no-feature controls
+**1.0004 / 0.9957**. Its original cost ratios are **1.1290 / 1.1322**, with
+failures rising **1/24 to 24/24**. Shipping table direct medians are
+**0.9430 / 0.9470**, against no-feature **1.0031 / 1.0027**; failures rise
+**0/24 to 24/24**. Shipping upvalues measure **0.9810 / 0.9784**. Integer
+path variation and every contention outlier remain in the full analysis.
+
+Reject the PC-only runtime change and restore production `registers()` accesses.
+Retain the four independent boundary fixtures against the original API in
+`src/thread/register_view_tests.rs`, with `make jit-frame-view` and
+`make jit-frame-view-miri`. Restored production files match the fixed-list
+runtime exactly; format/check and 26 focused executions across six suites pass,
+as do all eight frame-view/list Miri tests. Evidence is under
+`target/jit-evidence/short-slice-performance/pc-only-projection-*`. No overall
+performance or release acceptance is claimed.
+
+#### Retained-baseline table and callback attribution — 2026-10-07
+
+After the PC-only campaign terminates, four new exact-image profiles use the
+retained fixed-list runtime, not the rejected candidate. Each uses the original
+eleven-sample Make profile command, one matched invocation path and verified
+artifact hashes. These are instruction diagnostics, not new timing acceptance.
+
+Array-table Off/Auto totals are **54,511,247 / 53,257,432** instructions. Auto
+spends **5,674,590 / 5,460,000** in write/read helper gateways, **4,615,000**
+in `table_read` and **4,204,244** in operand decoding; native generated work
+accounts for **14,336,517**. The actual workload has separate table-population
+and summation loops, not adjacent write/read pairs. Further work should inspect
+typed-key/helper operand costs without bypassing table semantics or GC roots.
+
+Callback Off/Auto totals are **105,796,028 / 136,573,549**. Auto spends
+**19,779,292** in `Runtime::invoke<7,true>` and **5,322,374** in lookup, on top
+of **24,118,657** VM and **22,648,223** Executor self-work. The callback body,
+physical call/return and raw lookup self-work are unchanged. This points to
+resume/invocation/helper overhead, not a slower host callback. Previously
+rejected lease/cache/resume experiments remain exclusions, and no native borrow
+may survive the callback. Evidence and next-hypothesis constraints are under
+`target/jit-evidence/short-slice-performance/fixed-list-followup-*`.
+
+#### Rejected register-view constructor inlining — 2026-10-07
+
+`e18d4f7` kept the separate fuel/variable fields and marked only
+`LuaFrame::registers` `inline(always)`. The hypothesis was to eliminate unused
+view fields at callers rather than materializing the whole view across an
+out-of-line ABI. It changed no physical frames, fuel/GC/panic semantics,
+coverage, accounting or thresholds. This is distinct from executor-adapter
+inlining and previously rejected canonical live-prototype binding.
+
+Format/check and 22 focused executions across five suites pass. Baseline/GNU
+Auto/docs pass **1,694 executions / 168 suites**, ten ignores; musl passes
+**67 / eight**, unsupported i686 **587 / 83**, and Miri **four**. Exact symbol
+companions match five frozen original-flag timing binaries. The standalone
+constructor disappears, but shipping feature-Off text grows **4,316 bytes** and
+speed feature-Off text **644 bytes**. Native text falls 172 bytes. VM stack
+reservations stay below a probe page: shipping no-feature rises 0x5e8 to 0x618,
+shipping feature-Off stays 0x648, speed feature-Off falls 0x658 to 0x648, and
+native stays 0x648. These are diagnostics, not complete release-size acceptance.
+
+Instruction profiles are mixed: speed feature-Off integer/float totals are
+unchanged; shipping feature-Off integer/float totals rise, while upvalues fall
+**97,326,706 to 96,626,651**. Native upvalue/allocation totals are nearly flat.
+Changes to shared interpreter code also affect no-feature controls.
+
+Twelve alternating windows/two matched paths complete **144 checked commands**.
+Two candidate shipping commands pass (both paths in window five); 70 candidate
+and all 72 control commands fail their aggregate gates. All **24 complete native
+non-timing counter comparisons match exactly**, including resource metadata;
+source/artifact hashes verify. Every window and contention observation is retained.
+
+Shipping float direct control/candidate medians improve **1.1146 / 1.1151**,
+with no-feature controls **1.0726 / 1.0618**. Shipping allocation improves
+**1.0766 / 1.0859**, with no-feature controls **1.0679 / 1.0590**. Shipping float
+still fails **16/24** original checks versus 22 controls. These gains are not
+free: speed feature-Off float direct medians are **0.8820 / 0.8854** (about
+13% more time), versus no-feature **0.9752 / 0.9706**. Its original cost ratios
+worsen to **1.1285 / 1.1233**, with failures **7/24 to 21/24**. Native table,
+upvalue and callbacks still fail all 24 checks; allocation retains all passes.
+
+Reject unconditional constructor inlining rather than trading shipping gains
+for a large speed-profile regression. Restore the fixed-list runtime and retain
+all tests, immutable binaries, counters, assembly and per-window results under
+`target/jit-evidence/short-slice-performance/register-view-inline-*`. Restored
+runtime source matches `90c027f`; format/check and 22 focused executions across
+five suites pass. The full
+performance/resource/platform/release objective remains open.
+
+#### Rejected optional fixed-list fuel borrow — 2026-10-07
+
+`e6f364a` replaced the register view's separate fuel reference and variable-stack
+flag with one `Option<&mut Fuel>`. Only fixed-stack views carried the borrow;
+variable-stack helpers still declined before effects or extra charges. All
+fixed-list coverage, per-call/per-item fuel rules and scoped lifetimes remained.
+No raw-pointer tagging, allocation, cache or weakened gate was introduced.
+
+Focused tests passed 22 executions, baseline/GNU Auto/docs **1,694** across 168
+suites with ten ignores, musl **67**, unsupported i686 **587**, and Miri **four**.
+Original-flag symbol companions match the frozen timing images. The smaller view
+retains two callee-saved register pairs and adds an explicit fuel-pointer branch.
+Shipping upvalue instruction totals rise **97,326,298 to 97,426,303**, with exactly
+one extra instruction per constructor call; VM/Executor self-work is unchanged.
+
+Twelve alternating windows at two matched paths complete **144 checked commands**;
+every aggregate command fails its original gate. The direct control is the
+fixed-list candidate, not an older slower build. All **24 complete non-timing
+counter comparisons match exactly**, including memory metadata, and artifact
+hashes verify. All windows, no-feature controls and contention outliers remain.
+
+Shipping table direct control/candidate medians are **0.9569 / 0.9626** and gate
+failures rise **1/24 to 17/24**. Shipping upvalues measure **0.9582 / 0.9720**;
+their compiled-Off/no-feature ratios worsen from **1.0963 / 1.0996** to
+**1.1387 / 1.1347**, above the unchanged 1.05 limit. Speed float measures
+**0.9734 / 0.9783**, with failures rising **1/24 to 7/24**. Corresponding
+no-feature controls remain near unity. Integer results vary substantially by
+path and remain in the report; they are not evidence of universal improvement.
+
+Native table, upvalue and allocation direct medians improve modestly, but table,
+upvalue and callbacks still fail all 24 original checks. Allocation retains
+24/24 passes. These gains do not offset the new shipping regressions: reject the
+optional representation and restore separate fuel/variable fields, retaining
+fixed-list native execution and all semantic tests. Restored runtime source
+matches the fixed-list parent exactly; format/check and 22 focused executions
+across five suites pass. Evidence is under
+`target/jit-evidence/short-slice-performance/optional-list-fuel-*`, including
+`optional-list-fuel-balanced/analysis.json`. This is not full-plan acceptance.
+
 #### Fixed-list native coverage trial — 2026-10-07
 
 Exact-image profiling of the current dispatch candidate identifies repeated
