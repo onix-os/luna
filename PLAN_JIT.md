@@ -13,7 +13,7 @@
 
 #### Shared numeric conversion trial — 2026-10-07
 
-`Constant::to_number` now handles existing integers and numbers directly while
+The first candidate (`2f8b142`) makes `Constant::to_number` handle existing integers and numbers directly while
 numeric strings still use the unchanged normalization/parser path. This targets
 measured shared interpreter work, not native frame or ownership shortcuts:
 the earlier exact speed compiled-Off float profile attributes 35,200,396
@@ -24,10 +24,41 @@ calling `to_number`, which previously normalized them again.
 JIT Off/Auto/Force integration. New differential tests cover numeric bit patterns,
 integer rounding boundaries, signed zero, infinities/NaNs, valid/invalid numeric
 strings, one string-byte borrow, arithmetic subtypes, wrapping and zero-divisor
-results. Full workspace and original native/compiled-Off performance checks are
-pending. This shared change affects no-feature controls too; both absolute times
-and each variant's unchanged acceptance ratios must be compared. No performance
-fix or full-plan acceptance is claimed. Evidence is under
+results. Baseline/full GNU Auto, docs, checks and formatting additionally pass
+**1,681 executions** across 163 suites, eight ignores and zero failures.
+
+Twelve alternating windows at two common paths complete **144 unchanged checked
+commands**, all failing their aggregate gates. All 24 native counter comparisons
+match exactly; immutable hashes verify. Float direct control/candidate medians
+are **1.1611 / 1.1685** for speed compiled-Off and **1.2099 / 1.2082** shipping.
+Both no-feature controls also improve: **1.1585 / 1.1564** speed and
+**1.2226 / 1.2247** shipping. Native Auto float is essentially unchanged;
+its lower Off/Auto speedup reflects the faster interpreter, not lost native work.
+
+However, speed no-feature integer medians worsen to **0.9317 / 0.9171**,
+native table to **0.9649 / 0.9615**, and shipping compiled-Off upvalue to
+**0.9752 / 0.9768**. Native integer fails three of 24 checks versus zero
+control failures. These regressions and external-contention outliers are retained,
+not masked by the float gains or by improved ratios against slower baselines.
+Exact-image attribution confirms roughly 10–11% fewer collected float
+instructions, with normalization self-work halved. Speed no-feature integer
+instructions are nearly unchanged overall, but arithmetic gains an extra
+callee-saved register push/pop; its `add` self-work rises 2.3M to 2.5M while VM
+self-work falls about 0.2M. Shipping integer/upvalue instruction totals barely
+change. These are selected-worker diagnostics, not timing acceptance or proof
+of a native-table hardware cause. All eight symbol companions match their
+stripped timing images' program headers and allocated contents. An initial
+cache-hit capture produced no linker inputs and failed; the preserved retry
+cleans only Luna's release package through Make and keeps compiler flags intact.
+
+The public `to_number` change is now replaced with a private non-coercing numeric
+extractor used only after arithmetic operands have already passed `to_numeric`.
+This preserves the original public conversion path and removes its redundant
+string-capable fallback from normalized arithmetic. The differential tests also
+check exact numeric bits and that the private extractor never reads string bytes.
+Refined-source correctness and full unchanged timing controls remain pending;
+its evidence uses `numeric-normalized-*`, separate from the first candidate.
+No overall regression fix or full-plan acceptance is claimed. Evidence is under
 `target/jit-evidence/short-slice-performance/numeric-number-*`.
 
 #### Direct admitted-pair driver rejected — 2026-10-07

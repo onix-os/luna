@@ -18,6 +18,14 @@ fn assert_conversion(value: Value) {
         normalized_number(&value).map(f64::to_bits),
         "{value:?}"
     );
+    let extracted = match value {
+        Constant::Integer(_) | Constant::Number(_) => normalized_number(&value),
+        _ => None,
+    };
+    assert_eq!(
+        value.as_number().map(f64::to_bits),
+        extracted.map(f64::to_bits)
+    );
 }
 
 fn values() -> Vec<Value> {
@@ -133,11 +141,13 @@ fn numeric_string_conversion_borrows_bytes_once() {
             continue;
         };
         let reads = Cell::new(0);
-        let actual = Constant::String(Counted {
+        let counted = Constant::String(Counted {
             bytes,
             reads: &reads,
-        })
-        .to_number();
+        });
+        assert_eq!(counted.as_number(), None);
+        assert_eq!(reads.get(), 0);
+        let actual = counted.to_number();
         assert_eq!(reads.get(), 1);
         assert_eq!(
             actual.map(f64::to_bits),
