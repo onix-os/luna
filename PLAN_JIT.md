@@ -40,8 +40,55 @@ An initial test fixture used zero fuel, which correctly prevents call-region
 admission; the region-specific proof uses a positive budget and retains its native
 entry assertion. Initial command/test-construction failures remain in evidence.
 
-Broader validation and paired benchmarking are pending; this is an unaccepted
-coverage/performance trial, not overall regression or release acceptance.
+The implementation is committed as `2eb60f0`. Frozen-source baseline/GNU Auto
+and docs pass **1,694 executions across 168 suites**, ten ignores and zero
+failures. Admission/resource/scoped-helper tests pass **385 executions**; focused
+musl passes **67**, unsupported i686 **587**, and the four helper tests pass Miri.
+The initial broad run containing the zero-fuel region fixture fails that proof;
+the frozen-source rerun passes without removing the native-entry assertion.
+
+Twelve alternating windows at two common paths complete **144 unchanged checked
+commands**. All 72 candidate commands fail their aggregate gates; one speed
+control command passes. Native allocation/GC improves directly by **1.1310 /
+1.1304**, about 11.5% less elapsed time, and passes **24/24** original checks
+versus nine control passes. Its own Off/Auto medians remain **0.9533 / 0.9367**:
+this clears its original allowed-regression limit, not a claim that Auto is
+faster than the interpreter. Speed compiled-Off float improves **1.0514 / 1.0511**,
+with failures reduced from 22/24 to four; speed upvalue failures fall from eleven
+to four. Unscored native predicate status and all external-contention outliers
+are retained.
+
+Other results prevent acceptance. Shipping compiled-Off integer direct medians
+are **0.8855 / 0.8784**, float **0.9540 / 0.9405**; float fails all 24 checks
+versus fifteen controls. Native table is roughly 2–3% slower, and native
+metamethod is roughly 1–1.5% slower. Native upvalue/callback/table still fail all
+checks; upvalue remains **0.6559 / 0.6450 Off/Auto**, below the required 1.25.
+All per-window results and no-feature controls remain in `analysis.json`.
+
+All **24 complete counter comparisons** conserve total logical dispatches.
+Allocation/GC gains 25,713 completed native bytecodes and loses the same number
+of interpreted ones; helper instructions rise by 25,713 and native table writes
+by 51,426. Native entries fall **28,940 to 3,227**, with unchanged allocations,
+table reads, lookups, leases, installed code bytes, and metadata. Interpreter-
+bearing slices fall 3,263 to 49. Charged snapshot peaks rise by 432 bytes for
+allocation/GC and 216 in several other cases; all other fields match. Every
+window's complete non-timing records match its variant's first-window record.
+
+Exact original-flag image validation covers native and eight cost symbol
+companions. Eight matched-path native worker profiles and twenty cost profiles
+verify their results, exclusive totals and hashes. Native allocation/GC
+instructions fall **47.43M to 34.76M**; invocation self-work falls **11.87M to
+1.32M**, VM self-work **8.47M to 1.30M**, while raw-table allocation/write work
+stays unchanged. Speed compiled-Off float/integer each lose about 0.78M VM
+instructions. Shipping upvalue instead gains about 0.95M overall: register-view
+construction alone gains **1,000,050 instructions**, or ten per construction.
+Shipping integer/float lose a small number of collected instructions despite
+their timing regressions; instruction counts do not prove a hardware cause.
+
+Retain this as an **unaccepted work-in-progress coverage improvement**, not
+overall regression or release acceptance. The next refinement must reduce the
+new register-view overhead and address the remaining timing failures without
+removing list coverage, extra fuel charging, or any existing acceptance gate.
 Evidence: `target/jit-evidence/short-slice-performance/dispatch-native-link*`
 and `fixed-set-list-*`.
 
