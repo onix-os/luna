@@ -441,11 +441,6 @@ registration. Helper imports remain named. A separate reservation covers their
 three retained name payloads and one largest-name sequential lookup temporary,
 before builder construction and through module destruction. Initial strings use
 fallible exact reservation; refusal reports `native symbols` without eviction.
-Compilation selects only generic helpers required by source operations, including
-potential reference Move paths and projected-upvalue fallbacks. Scalar constants
-and variable SetList do not request their corresponding helpers. Empty selections
-are valid. Symbol/signature reservations count the selected imports; helper ABI,
-runtime bodies and independent source/effect verification are unchanged.
 Private symbol/declaration map capacities and dynamic libcall names are not
 covered. Returned `JitError::Compilation` strings and diagnostic formatting are
 also outside the ledger; Manager/cache do not retain these caller-owned errors.

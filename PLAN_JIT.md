@@ -11,28 +11,63 @@
 
 ### Progress snapshot — 2026-10-07
 
-#### Generic import selection — validation in progress
+#### Rejected generic import selection — 2026-10-07
 
-The current candidate keeps the ten generic helper names, ABI and runtime
-bodies. It registers and declares only helpers required by the source snapshot;
-scalar-only chunks can have no imports. Reference constants, potential
-reference Moves, fixed SetList and projected-upvalue fallback imports remain
-selected whenever their emitted paths require them. Bounded stack arrays expose
-only their initialized prefix. Name/signature reservations cover the actual
-selected imports without changing ceilings, refusal behavior or retention rules.
+`f54b9d5` kept the ten generic names, ABI and runtime helper bodies, but registered
+and declared only imports required by source operations. Scalar-only chunks
+could have no imports; reference constants, potential reference Moves, fixed
+SetList and projected-upvalue fallback imports remained selected as required.
+Bounded arrays exposed only initialized prefixes; actual selected names and
+signatures remained charged under unchanged ceilings/refusal/retention gates.
 
 Focused formatting/all-feature checks and **793 test executions / seven suites**
-pass, six ignored. Rust-only Miri passes **18 / six**, none ignored. Baseline/GNU
-Auto/all-feature/docs pass **1,708 / 172**, ten ignored. Off/Force and platform
-checks are still in progress. These are execution counts, not unique tests or
-performance acceptance. The declaration-refusal fixture now contains a real
-Move import possibility; its result, peer/recovery and reclamation checks remain.
+pass, six ignored; Rust-only Miri **18 / six**, none ignored. Baseline/GNU
+Auto/all-feature/docs pass **1,708 / 172**, ten ignored. Off and Force each pass
+**1,287 / 84**, six ignored; musl **809 / eight**, six ignored; real i686
+**583 / 86**, none ignored. These are execution counts, not unique tests or
+i686 native proof. The initial table-based declaration fixture failed its
+hostless scalar driver; a scalar Move replacement passed. This did not prove
+the original fixture defective and is not retained as an independent bug fix.
 
-This is a distinct experiment from the rejected source-specialized helper
-trials below. No timing benefit is established yet. Fresh frozen artifacts and
-the original paired gates must determine retention. Evidence prefix:
+Five frozen original-flag binaries, sixteen native profiles and twenty-eight
+disabled profiles have exact verified symbol companions. Both no-feature ELF
+images are byte-identical to the controls. Native text grows **716 bytes**.
+Scalar disabled instruction counts match controls in both profiles; simulated
+instructions/cache events do not establish elapsed performance or its cause.
+
+Two complete twelve-window campaigns, two matched paths and alternating order
+finish **288 original commands / 4,320 parsed rows**. All aggregate gates fail.
+All observations, external-contention telemetry and artifact identities remain.
+No owned build/test/profile overlaps timing. The extension confirms speed
+compiled-Off float direct control/candidate medians **0.955254 / 0.955889**,
+about **4.6% longer elapsed time**, against no-feature **1.001117 / 0.998423**.
+Its cost ratios rise from **1.01395 / 1.01875** to **1.06455 / 1.06870**;
+failures rise from **two to 45 / 48**. Shipping cold failures rise from
+**seven to 40 / 48**. Shipping float and tables also slow. Native callback
+direct **0.97905 / 0.98499** accompanies Off **0.99021 / 0.99139**; upvalues
+and allocation are near-flat. All 48 upvalue/table/callback native gates fail.
+Large path/control movement in native scalar timings is retained, not treated
+as clean candidate effects or discarded to improve the result.
+
+All **48 execution/resident counter comparisons match**. Compiler snapshot
+peak reductions exactly match independently derived source/import reservations:
+integer -2,003 bytes, float -2,219, tables -1,341, callbacks -1,767, predicate
+-1,971, allocation -1,344 and polymorphic -1,110; upvalue/cold unchanged. This
+is real compiler-reservation reduction, **not an accepted performance tradeoff**
+or complete compiler accounting.
+
+The candidate is rejected. Runtime, selection-only tests, Make wrapper and
+public import documentation are restored to `42c06af`; no unrelated fixture
+rewrite is retained. Restored formatting/all-feature checks, GNU and musl each
+pass **44 focused executions / six suites**, Miri **17 / five**, and real i686
+checking plus **three / two** pass; all have zero ignored/failed tests. The
+i686 native-only integration executes zero tests. The exact original lifetime
+source's opcode dump confirms it already contained a Move import possibility.
+All owned validation/profile/timing jobs are terminal. Hosted run `37577897444`
+for the rejected candidate was still running at the last observation and is not
+claimed as completed platform evidence. Full performance, compiler-accounting,
+platform and release acceptance remain open. Evidence prefix:
 `target/jit-evidence/short-slice-performance/generic-import-selection-*`.
-The full performance, compiler-accounting, platform and release gates remain open.
 
 #### Rejected generated source-specific imports — 2026-10-07
 
