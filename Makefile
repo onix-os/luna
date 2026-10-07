@@ -1013,7 +1013,14 @@ r: run
 repl:
 	@$(CARGO) run --example interpreter -- $(ARGS)
 
-.PHONY: numeric-conversions jit-vm-dispatch jit-set-list jit-set-list-miri jit-frame-view jit-frame-view-miri
+.PHONY: numeric-conversions jit-vm-dispatch jit-set-list jit-set-list-miri jit-frame-view jit-frame-view-miri jit-integer-table jit-integer-table-miri
+jit-integer-table:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::integer_table_tests
+	@$(CARGO) test --locked -p luna --features jit --test jit_integer_table $(TARGET_ARG)
+
+jit-integer-table-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::integer_table_tests
+
 jit-frame-view:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::register_view_tests
 
@@ -1128,6 +1135,7 @@ help:
 	@echo "  jit-vm-dispatch Check per-slice dispatch selection and code ownership"
 	@echo "  jit-set-list Check fixed-list native writes, fuel, and fallback"
 	@echo "  jit-frame-view Check current-frame views and bounds guards"
+	@echo "  jit-integer-table Check typed integer reads and weak fallback"
 	@echo "  test-doc     Run doc tests alone"
 	@echo "  check        Run cargo check on all targets"
 	@echo "  check-all    Run cargo check on all targets/all features"

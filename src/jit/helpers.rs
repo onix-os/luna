@@ -13,6 +13,9 @@ use super::{
 #[cfg(test)]
 mod set_list_tests;
 
+#[cfg(test)]
+mod integer_table_tests;
+
 const fn symbol<const KIND: u32>(name: &'static str) -> (u32, &'static str, abi::HelperEntry) {
     (KIND, name, call::<KIND>)
 }
@@ -88,7 +91,10 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
         let Value::Table(table) = table else {
             return false;
         };
-        let value = table.get_raw(&self.ctx, key);
+        let value = match key {
+            Value::Integer(key) => table.get_integer_raw(&self.ctx, key),
+            key => table.get_raw(&self.ctx, key),
+        };
         if value.is_nil()
             && table
                 .metatable()
@@ -312,7 +318,7 @@ mod tests {
         }
     }
 
-    fn invoke<const KIND: u32>(
+    pub(super) fn invoke<const KIND: u32>(
         frame: &mut Frame<'_, '_, '_, '_>,
         slots: &mut [Slot],
         a: u32,

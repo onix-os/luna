@@ -11,6 +11,26 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Typed integer table-read trial — 2026-10-07
+
+The existing native read helper now selects a private typed integer lookup for
+integer keys. `RawTable::get_integer` checks the same positive/representable
+index domain and existing `array_answers` predicate, then falls back to the
+unchanged generic lookup for misses, hash keys and weak-table map entries.
+All noninteger keys retain the original path. Nil/metatable decline, pending
+scratch operands, reference identity, helper ABI, fuel and counters are unchanged.
+There is no new public API, unsafe code, compiler hint or generated GC layout.
+
+Three pure fixtures cover array/hash/bounds, negative zero, live/dead weak values,
+pending keys, aliases and metamethod misses. Five integrated source families
+compare exact Off/Auto slices at seven budgets with collection between steps
+and positive native table-read counters. `make jit-integer-table` and
+`make jit-integer-table-miri` expose focused gates. Format/check and 29 focused
+executions across six suites pass. Broader validation, Miri and paired timing
+remain pending; operand inlining and borrow consolidation remain rejected rather
+than being silently retried. Evidence uses
+`target/jit-evidence/short-slice-performance/integer-table-read-*`.
+
 #### Rejected checked PC-only projection — 2026-10-07
 
 `ce84bcc` replaced full register views at PC-only activation call/return/native

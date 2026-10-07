@@ -167,6 +167,19 @@ impl<'gc> RawTable<'gc> {
         index < self.array.len() && (!self.weak_values || !self.array[index].is_nil())
     }
 
+    #[cfg(feature = "jit")]
+    pub(crate) fn get_integer(&self, mc: &Mutation<'gc>, key: i64) -> Value<'gc> {
+        if key > 0 {
+            if let Ok(index) = usize::try_from(key) {
+                let index = index - 1;
+                if self.array_answers(index) {
+                    return self.array[index];
+                }
+            }
+        }
+        self.get(mc, Value::Integer(key))
+    }
+
     pub fn get(&self, mc: &Mutation<'gc>, key: Value<'gc>) -> Value<'gc> {
         if let Some(index) = to_array_index(key) {
             if self.array_answers(index) {

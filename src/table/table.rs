@@ -121,6 +121,11 @@ impl<'gc> Table<'gc> {
         self.0.borrow().raw_table.get(mc, key)
     }
 
+    #[cfg(feature = "jit")]
+    pub(crate) fn get_integer_raw(self, mc: &Mutation<'gc>, key: i64) -> Value<'gc> {
+        self.0.borrow().raw_table.get_integer(mc, key)
+    }
+
     /// Set a value in this table without any automatic type conversion.
     pub fn set_raw(
         self,
