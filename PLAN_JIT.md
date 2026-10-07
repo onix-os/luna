@@ -11,6 +11,45 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Same-Call compact input reuse — measured and rejected
+
+The trial prepared compact integer cells during fresh call admission when the
+capture was strictly below the Call's function/argument tail. Physical Call
+cannot modify that prefix; argument-tail aliases retained post-Call preparation.
+The scoped payload held values and a stack index, not a relocatable stack pointer
+or cross-call binding cache. Actual frames, fresh callee checks, fuel, native
+work, writeback, Return and panic transport remained unchanged.
+
+The expanded compact alias matrix and integrated constant/vararg/argument-shift
+tests passed. Focused checks passed 117 executions, two ignored; the integrated
+eligibility test also passed Memcheck with zero errors and zero definite or
+indirect leaks (48 possibly lost and 632 reachable harness bytes retained).
+Exact-image profiling reduced upvalue work from 276,871,067 to 275,423,028
+instructions (0.52%), but increased data reads and writes.
+
+Two complete native comparisons used all nine cases, three alternating windows
+on CPU0/16 and eleven paired samples: 24 commands, 648 rows, all aggregate gates
+failed. Initial upvalue control/candidate ratios were 1.0358/0.9451; repeat ratios
+were 1.0433/1.0077. CPU0 compiled-Off integer regressed consistently
+(0.8643, then 0.8575), as did native array (0.9710, then 0.9752).
+The modest CPU0 upvalue improvement does not justify these regressions.
+No speed/shipping cost build or performance acceptance is claimed.
+
+The runtime changes are removed; an admission-versus-canonical differential for
+shifted capture arguments, vararg rotation and constant operands remains.
+Candidate patches, frozen images, exact-image profiles, raw results, source/
+artifact hashes and contention telemetry are under
+`target/jit-evidence/short-slice-performance/precall-inputs*`.
+Native counters match every control. No owned builds, tests or profiles
+overlapped timing. This input-transport mechanism should not be repeated without
+new evidence; it does not remove the dominant per-call execution-boundary cost.
+
+Restored formatting/all-feature checks and 62 focused executions pass, two
+ignored. GNU baseline/all-feature-Auto/documentation validation passes 1,742
+executions across 172 suites, ten ignored, zero failures. Production runtime
+source is unchanged from `a3f6173`; the retained differential is test-only.
+Full performance, shipping-cost, platform and resource-policy gates remain open.
+
 #### Combined materialization/admission — measured and reverted
 
 `d0a5d9d` combined full caller publication and dynamic call admission in one
