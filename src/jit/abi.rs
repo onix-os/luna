@@ -73,6 +73,7 @@ pub(super) const HELPER_GET_UP_TABLE: u32 = 6;
 pub(super) const HELPER_SET_UP_TABLE: u32 = 7;
 pub(super) const HELPER_GET_UPVALUE: u32 = 8;
 pub(super) const HELPER_SET_UPVALUE: u32 = 9;
+pub(super) const HELPER_SET_LIST: u32 = 10;
 
 pub(super) const HELPER_DECLINED: u32 = 0;
 pub(super) const HELPER_COMPLETED: u32 = 1;

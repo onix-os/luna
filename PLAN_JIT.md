@@ -11,6 +11,288 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Fixed-list native coverage trial — 2026-10-07
+
+Exact-image profiling of the current dispatch candidate identifies repeated
+ordinary invocation work in allocation/GC: **11,865,748 collected instructions**
+in `Runtime::invoke<16,false>`, versus **8,466,369** in VM self-work.
+Fixed-count `SetList` previously forced an interpreter exit and another scratch
+packing pass on every table construction. The new trial lowers fixed-count lists
+through the existing helper ABI, retaining variable-list fallback and all
+original performance gates.
+
+The helper validates fixed-stack and table/integer-index state before effects,
+uses pending scalar operands and normal raw-table barriers, stops on signed
+index overflow, and charges existing per-call/per-item fuel through a scoped
+register-view borrow. The index is committed only after the writes finish.
+Panic containment preserves partial writes and materializes pending scalars.
+Source effects/access and emitted helper-call verification now admit the tenth
+helper; scoped call regions use the same implementation. New coverage intentionally
+changes completed native work and helper/table-write counters for list construction.
+
+Focused tests pass four helper cases and three integrated cases: exact slice/fuel
+traces across seven budgets and fixed/variable/multi-chunk/reference lists with
+GC, one uninterrupted 64-instruction native slice, and actual native call-region
+execution. All four helper cases also pass Miri. The existing lease-reuse test
+retains its assertions and now uses an unsupported unary-minus operation to
+exercise interpreter fragments instead of relying on fixed lists being unsupported.
+An initial test fixture used zero fuel, which correctly prevents call-region
+admission; the region-specific proof uses a positive budget and retains its native
+entry assertion. Initial command/test-construction failures remain in evidence.
+
+The implementation is committed as `2eb60f0`. Frozen-source baseline/GNU Auto
+and docs pass **1,694 executions across 168 suites**, ten ignores and zero
+failures. Admission/resource/scoped-helper tests pass **385 executions**; focused
+musl passes **67**, unsupported i686 **587**, and the four helper tests pass Miri.
+The initial broad run containing the zero-fuel region fixture fails that proof;
+the frozen-source rerun passes without removing the native-entry assertion.
+
+Twelve alternating windows at two common paths complete **144 unchanged checked
+commands**. All 72 candidate commands fail their aggregate gates; one speed
+control command passes. Native allocation/GC improves directly by **1.1310 /
+1.1304**, about 11.5% less elapsed time, and passes **24/24** original checks
+versus nine control passes. Its own Off/Auto medians remain **0.9533 / 0.9367**:
+this clears its original allowed-regression limit, not a claim that Auto is
+faster than the interpreter. Speed compiled-Off float improves **1.0514 / 1.0511**,
+with failures reduced from 22/24 to four; speed upvalue failures fall from eleven
+to four. Unscored native predicate status and all external-contention outliers
+are retained.
+
+Other results prevent acceptance. Shipping compiled-Off integer direct medians
+are **0.8855 / 0.8784**, float **0.9540 / 0.9405**; float fails all 24 checks
+versus fifteen controls. Native table is roughly 2–3% slower, and native
+metamethod is roughly 1–1.5% slower. Native upvalue/callback/table still fail all
+checks; upvalue remains **0.6559 / 0.6450 Off/Auto**, below the required 1.25.
+All per-window results and no-feature controls remain in `analysis.json`.
+
+All **24 complete counter comparisons** conserve total logical dispatches.
+Allocation/GC gains 25,713 completed native bytecodes and loses the same number
+of interpreted ones; helper instructions rise by 25,713 and native table writes
+by 51,426. Native entries fall **28,940 to 3,227**, with unchanged allocations,
+table reads, lookups, leases, installed code bytes, and metadata. Interpreter-
+bearing slices fall 3,263 to 49. Charged snapshot peaks rise by 432 bytes for
+allocation/GC and 216 in several other cases; all other fields match. Every
+window's complete non-timing records match its variant's first-window record.
+
+Exact original-flag image validation covers native and eight cost symbol
+companions. Eight matched-path native worker profiles and twenty cost profiles
+verify their results, exclusive totals and hashes. Native allocation/GC
+instructions fall **47.43M to 34.76M**; invocation self-work falls **11.87M to
+1.32M**, VM self-work **8.47M to 1.30M**, while raw-table allocation/write work
+stays unchanged. Speed compiled-Off float/integer each lose about 0.78M VM
+instructions. Shipping upvalue instead gains about 0.95M overall: register-view
+construction alone gains **1,000,050 instructions**, or ten per construction.
+Shipping integer/float lose a small number of collected instructions despite
+their timing regressions; instruction counts do not prove a hardware cause.
+
+Retain this as an **unaccepted work-in-progress coverage improvement**, not
+overall regression or release acceptance. The next refinement must reduce the
+new register-view overhead and address the remaining timing failures without
+removing list coverage, extra fuel charging, or any existing acceptance gate.
+Evidence: `target/jit-evidence/short-slice-performance/dispatch-native-link*`
+and `fixed-set-list-*`.
+
+#### Per-slice dispatch state trial — 2026-10-07
+
+The next candidate represents interpreted, observing, and compiled execution
+with one per-slice state instead of independently checking optional native code
+and source identity on each opcode. Exact-image instruction attribution found
+both checks in the current speed compiled-Off loop, together with additional
+spilled state. This motivates the trial, but does not establish its timing benefit.
+
+The compiled state moves the existing `Prepared` owner without adding a lookup,
+lease, allocation, or native entry. Compiled code retains precedence over optional
+source identity. Observation frequency, resume/mock handling, physical frames,
+fuel, GC, error paths, accounting, and native coverage remain unchanged.
+`make jit-vm-dispatch` passes both state-selection and owner-retirement/GC tests;
+JIT checks, mode tests, and forced script/string suites also pass.
+
+The trial is committed as `d099c79`. Baseline/GNU Auto and doc tests pass
+**1,686 executions** across 166 suites (ten ignores); the separate all-feature
+default/Off/doc/check/format run passes **2,578 executions** across 170 suites
+(16 ignores). These include repeated executions, not that many unique tests.
+The i686 unsupported-target check/focused/full-Auto run passes **583 executions**;
+focused native musl dispatch/activation/region/resource tests pass **62**, and
+the Miri state-selection test passes. These do not constitute full platform or
+release acceptance.
+
+All eight symbol companions match their timing images' program headers and
+allocated contents. Twenty selected diagnostic workers verify results, exclusive
+instruction totals, zero native work, and hashes. Speed compiled-Off integer
+instructions fall **24,793,900 to 24,125,075**, float **32,196,145 to 31,527,225**;
+all of that reduction is VM self-work. The emitted interpreted path tests one
+state and branches to the existing hook check, without the old source-id check.
+Its prototype remains in a register, though other spills remain. Shipping
+compiled-Off also loses instructions; all selected no-feature instruction totals
+are unchanged. These are instruction diagnostics, not hardware-time acceptance.
+
+Twelve alternating windows at two common invocation paths complete **144 unchanged
+checked commands**, all still failing their aggregate gates. The direct control
+is the retained numeric refinement, not the older slower interpreter. All **24
+complete native counter comparisons** match, including metadata; immutable
+artifact hashes verify. Direct control/candidate medians greater than one mean
+the candidate is faster:
+
+| Case | Direct medians, two paths | Failed checks: control → candidate |
+| --- | --- | --- |
+| Speed compiled-Off float | 1.0722 / 1.0716 | 24/24 → 24/24 |
+| Speed compiled-Off predicate | 1.0273 / 1.0258 | 24/24 → 0/24 |
+| Speed compiled-Off allocation/GC | 1.0366 / 1.0380 | 12/24 → 0/24 |
+| Shipping compiled-Off float | 1.0664 / 1.0665 | 24/24 → 10/24 |
+| Shipping compiled-Off table | 1.0455 / 1.0439 | 24/24 → 0/24 |
+| Shipping compiled-Off upvalue | 1.0434 / 1.0370 | 24/24 → 24/24 |
+| Native allocation/GC | 0.9988 / 0.9910 | 4/24 → 14/24 |
+
+Native upvalue remains **0.6437 / 0.6421 Off/Auto**, far below 1.25; native
+table and callbacks still fail all checks. Native integer fails 24/24 versus
+23/24 controls, with direct medians **0.9297 / 0.7501**. Its per-window direct
+ratios vary from approximately 0.25 to 2.65 and its Off controls move similarly;
+retain these unfavorable results without claiming a hardware cause or a proven
+25% intrinsic slowdown. Native float improves directly but has one failed check
+versus zero controls. Speed compiled-Off upvalue is roughly 1% slower, while
+shipping cold-config failures rise from one to seven. No outliers are removed;
+external I/O contention is retained in telemetry.
+
+The dispatch trial remains an **unaccepted work-in-progress candidate**: it fixes
+several measured compiled-Off regressions without reducing native work, but
+other failures and new regressions require further work. Thresholds and full-plan
+scope are unchanged. Analysis preserves every window, both baseline timings,
+ratio-of-medians gates, paired ratios, and unscored native predicate status.
+Evidence is under
+`target/jit-evidence/short-slice-performance/vm-dispatch-state-*`.
+
+#### Shared numeric conversion trial — 2026-10-07
+
+The first candidate (`2f8b142`) makes `Constant::to_number` handle existing integers and numbers directly while
+numeric strings still use the unchanged normalization/parser path. This targets
+measured shared interpreter work, not native frame or ownership shortcuts:
+the earlier exact speed compiled-Off float profile attributes 35,200,396
+instructions to `to_numeric`. Arithmetic fallbacks normalize values before
+calling `to_number`, which previously normalized them again.
+
+`make numeric-conversions` passes **74 test executions** across baseline and
+JIT Off/Auto/Force integration. New differential tests cover numeric bit patterns,
+integer rounding boundaries, signed zero, infinities/NaNs, valid/invalid numeric
+strings, one string-byte borrow, arithmetic subtypes, wrapping and zero-divisor
+results. Baseline/full GNU Auto, docs, checks and formatting additionally pass
+**1,681 executions** across 163 suites, eight ignores and zero failures.
+
+Twelve alternating windows at two common paths complete **144 unchanged checked
+commands**, all failing their aggregate gates. All 24 native counter comparisons
+match exactly; immutable hashes verify. Float direct control/candidate medians
+are **1.1611 / 1.1685** for speed compiled-Off and **1.2099 / 1.2082** shipping.
+Both no-feature controls also improve: **1.1585 / 1.1564** speed and
+**1.2226 / 1.2247** shipping. Native Auto float is essentially unchanged;
+its lower Off/Auto speedup reflects the faster interpreter, not lost native work.
+
+However, speed no-feature integer medians worsen to **0.9317 / 0.9171**,
+native table to **0.9649 / 0.9615**, and shipping compiled-Off upvalue to
+**0.9752 / 0.9768**. Native integer fails three of 24 checks versus zero
+control failures. These regressions and external-contention outliers are retained,
+not masked by the float gains or by improved ratios against slower baselines.
+Exact-image attribution confirms roughly 10–11% fewer collected float
+instructions, with normalization self-work halved. Speed no-feature integer
+instructions are nearly unchanged overall, but arithmetic gains an extra
+callee-saved register push/pop; its `add` self-work rises 2.3M to 2.5M while VM
+self-work falls about 0.2M. Shipping integer/upvalue instruction totals barely
+change. These are selected-worker diagnostics, not timing acceptance or proof
+of a native-table hardware cause. All eight symbol companions match their
+stripped timing images' program headers and allocated contents. An initial
+cache-hit capture produced no linker inputs and failed; the preserved retry
+cleans only Luna's release package through Make and keeps compiler flags intact.
+
+The public `to_number` change is now replaced with a private non-coercing numeric
+extractor used only after arithmetic operands have already passed `to_numeric`.
+This preserves the original public conversion path and removes its redundant
+string-capable fallback from normalized arithmetic. The differential tests also
+check exact numeric bits and that the private extractor never reads string bytes.
+The refined source (`4124dd7`) passes **74 focused** and **1,681 baseline/full
+GNU Auto/doc test executions** again. Its own twelve-window, two-path campaign
+completes **144 unchanged checked commands**, all aggregate gates failing;
+all 24 complete native counter comparisons and immutable artifact hashes verify.
+Speed compiled-Off float direct medians improve to **1.4033 / 1.3972** and
+shipping to **1.2753 / 1.2751**. No-feature float improves even more:
+**1.5394 / 1.5418** speed and **1.4845 / 1.4668** shipping. Speed integer
+also improves in both compiled-Off and no-feature builds rather than retaining
+the first candidate's baseline slowdown.
+
+Those absolute gains do not satisfy the original relative limits. Compiled-Off
+float fails **23/24 speed and 24/24 shipping** checks against its faster baseline;
+native integer fails **21/24** versus two control failures. Actual regressions
+also remain: native table direct medians **0.9810 / 0.9782**, path-sensitive
+native float **1.0021 / 0.8904**, and speed compiled-Off predicate
+**0.9749 / 0.9732** (22/24 failed checks versus one control failure).
+Shipping table fails all 24 checks versus three controls, with near-unchanged
+compiled-Off times but faster no-feature execution. Native upvalue remains near
+**0.6511 / 0.6506**, not its required 1.25 speedup.
+
+The refinement remains an explicitly unaccepted work-in-progress candidate:
+keep the shared speed gains visible without restoring a slower interpreter to
+make ratios look better, and continue fixing the JIT-specific overhead and
+actual regressions. No gate or scope is changed. Exact-image attribution now
+verifies all eight symbol companions and twenty selected worker profiles.
+Speed float instructions drop **39.54M to 29.53M** no-feature and
+**41.29M to 32.20M** compiled-Off; integer drops **25.24M to 22.03M** and
+**26.89M to 24.79M**. The standalone speed `Constant::add` symbol disappears,
+consistent with inlining its simplified body. However, the compiled-Off
+instruction gap grows **1.76M to 2.67M** for float and **1.65M to 2.77M** for
+integer, matching increased VM self-work gaps. Shipping float saves 9.2M
+instructions in each build; shipping integer/upvalue work is unchanged.
+These diagnostics identify real shared gains and remaining VM overhead, not a
+hardware explanation for every timing change or performance acceptance.
+Evidence uses `numeric-normalized-*`, separate from the first trial.
+No overall regression fix or full-plan acceptance is claimed. Evidence is under
+`target/jit-evidence/short-slice-performance/numeric-number-*`.
+
+#### Direct admitted-pair driver rejected — 2026-10-07
+
+The `a7fedd7` trial invokes the already-owned native callee from Rust between the
+same source-bound Enter/Leave hooks, bypassing the generated aggregate wrapper
+only for admitted regions. It preserves physical calls/returns, frame
+materialization, fuel, guards, panic transport and existing generated payloads.
+Its new callee pointer, hooks and operands remain charged to the code owner.
+
+Correctness passes **1,380 executions**: 99 focused and 1,281 full GNU Auto,
+89 suite invocations and eight ignores. Both drivers exercise the backend
+budget/alias/wrapping/refusal/lifetime matrix and a nonzero source Return fixture.
+An initial fixture emitted extra callee operations and was correctly rejected;
+its failed draft log remains separate from the final passing tests.
+Memcheck completes **65 passing executions**, two ignores, zero reported errors
+and zero definite/indirect losses. Two test processes each report 48 possibly
+lost bytes through Rust thread-current/MPMC test-harness setup; these unsuppressed
+records remain visible, not a blanket zero-leak claim.
+
+Five original-flag binaries are frozen with source and artifact manifests.
+Both no-feature probes are byte-identical to production controls. Twelve
+alternating windows run at two common hardlink invocation paths, with eleven
+samples and original checks: **144 commands; all aggregate gates fail**.
+Across all 24 native comparisons, execution and mapping counters match exactly;
+only upvalue Auto current/peak metadata increases, **2,762 to 2,802 bytes**.
+
+Native upvalue direct control/candidate medians are **0.9957 / 0.9936** across
+the two paths: no demonstrated improvement. Its own Off/Auto ratio-of-medians
+medians are **0.6571 / 0.6547**, far below the unchanged 1.25 target, failing
+all 24 checks. Native table direct medians are **0.9801 / 0.9841** and callbacks
+**0.9794 / 0.9858**. Speed-profile disabled float direct medians are
+**0.9692 / 0.9718**; candidate fails **21/24** checks versus control **17/24**.
+Some shipping controls improve, but do not justify the absent upvalue benefit,
+extra owner metadata and speed-profile costs. External contention and all
+outliers are retained; no particular hardware cause is claimed.
+
+The runtime trial is removed; the generic nonzero Return-operand fixture and
+exact owner-allocation assertion remain. Restored-source formatting, all-target
+checking and **1,380 test executions** pass again (89 suites, eight ignores).
+The six restored backend tests also pass Memcheck with zero reported errors
+and zero definite/indirect losses; a 48-byte possible test-harness allocation
+remains visible in this restored run too. The four production runtime
+files exactly match pre-trial `ff3afc4`; only generic test additions remain.
+Both harnesses score the original ratio-of-medians, not the separately reported
+median paired ratio; native `oslo_predicate` remains unscored. Neither thresholds
+nor native coverage were relaxed. The original performance/platform/resource/
+release gates remain open. Complete evidence, per-window ratios and counter
+verification are under
+`target/jit-evidence/short-slice-performance/direct-pair-driver-*`.
+
 #### Placement screen and matched accounting recheck — 2026-10-07
 
 A Linux-only `.text.hot.luna_vm` directive on `run_vm_slice` passes fifteen

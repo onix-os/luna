@@ -14,6 +14,7 @@ struct Bridge {
     cell: Slot,
     view: leaf::View,
     expected: (u64, u32, u32),
+    return_start: u32,
     entered: usize,
     left: usize,
     valid: bool,
@@ -43,6 +44,7 @@ impl Bridge {
                 dirty: 0,
             },
             expected,
+            return_start: 0,
             entered: 0,
             left: 0,
             valid: true,
@@ -80,7 +82,8 @@ unsafe extern "C" fn enter(
 unsafe extern "C" fn leave(data: *mut c_void, frame: *mut NativeFrame, pc: u64, start: u32) -> u32 {
     let bridge = unsafe { &mut *data.cast::<Bridge>() };
     bridge.left += 1;
-    bridge.valid &= frame == std::ptr::addr_of_mut!(bridge.frame) && pc == 3 && start == 0;
+    bridge.valid &=
+        frame == std::ptr::addr_of_mut!(bridge.frame) && pc == 3 && start == bridge.return_start;
     u32::from(bridge.frame.exit.pc == 3 && bridge.frame.exit.instructions == 3) + 1
 }
 
@@ -111,6 +114,45 @@ fn fixture(
 }
 
 const ADD: &[u8] = b"local n=7 local function f(v) n=n+v end f(2) return n";
+
+#[test]
+fn native_entry_uses_nonzero_source_return_operand() {
+    fixture(
+        b"local n=7 local function f(v,w) n=n+v end f(2,99) return n",
+        |caller, mut callee, pc, metadata, mappings| {
+            callee.operations[3] = Operation::Return {
+                start: crate::types::RegisterIndex(1),
+                count: crate::types::VarCount::constant(1),
+            };
+            callee.verify().unwrap();
+            let limits = work::Limits::from(&JitConfig::default());
+            let plan = Plan::new(&caller, &callee, pc, limits).unwrap();
+            assert_eq!(plan.arguments, 2);
+            let code = compile(
+                &plan,
+                hooks(),
+                mappings,
+                2 * 1024 * 1024,
+                metadata,
+                limits,
+                Failure::None,
+                LinkFault::None,
+            )
+            .unwrap();
+            let mut bridge = Bridge::new((pc as u64, plan.function.0.into(), 2));
+            bridge.return_start = 1;
+            bridge.slots[1] = Slot::from_value(Value::Integer(99));
+            assert_eq!(
+                unsafe { code.invoke(std::ptr::addr_of_mut!(bridge).cast(), 64) },
+                2
+            );
+            assert!(bridge.valid);
+            assert_eq!((bridge.entered, bridge.left), (1, 1));
+            assert_eq!(bridge.cell.bits, 9);
+            assert_eq!(bridge.slots[1].bits, 99);
+        },
+    );
+}
 
 #[test]
 fn native_entry_calls_verified_callee_and_both_typed_hooks() {
@@ -390,7 +432,12 @@ fn linked_target_mutations_and_late_refusals_keep_peer_mappings_and_leases() {
         };
         let code = build(Failure::None, LinkFault::None, limits, 2 * 1024 * 1024).unwrap();
         let actual_relocations = code.relocations;
+        let before_owner = metadata.0.current();
         let peer = owner::Shared::try_new(code, metadata.clone()).unwrap();
+        assert_eq!(
+            metadata.0.current() - before_owner,
+            owner::Shared::<CallCode>::allocation_bytes()
+        );
         let lease = peer.clone();
         drop(peer);
         let workspace = caller.operations.allocator().0.clone();

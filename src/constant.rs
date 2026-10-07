@@ -4,6 +4,9 @@ use ottavino_gc_arena::Collect;
 
 use crate::compiler::string_utils::{read_float, read_integer, trim_whitespace};
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug, Copy, Clone, Collect)]
 #[collect(no_drop)]
 pub enum Constant<S> {
@@ -86,6 +89,14 @@ fn float_modulo(a: f64, b: f64) -> f64 {
 }
 
 impl<S> Constant<S> {
+    fn as_number(&self) -> Option<f64> {
+        match self {
+            Self::Integer(value) => Some(*value as f64),
+            Self::Number(value) => Some(*value),
+            _ => None,
+        }
+    }
+
     pub fn to_bool(&self) -> bool {
         match self {
             Self::Nil => false,
@@ -175,7 +186,7 @@ impl<S: AsRef<[u8]>> Constant<S> {
             (&Self::Integer(a), &Self::Integer(b)) => Self::Integer(a.wrapping_add(b)),
             (a, b) => match (a.to_numeric()?, b.to_numeric()?) {
                 (Self::Integer(x), Self::Integer(y)) => Self::Integer(x.wrapping_add(y)),
-                (x, y) => Self::Number(x.to_number()? + y.to_number()?),
+                (x, y) => Self::Number(x.as_number()? + y.as_number()?),
             },
         })
     }
@@ -185,7 +196,7 @@ impl<S: AsRef<[u8]>> Constant<S> {
             (&Self::Integer(a), &Self::Integer(b)) => Self::Integer(a.wrapping_sub(b)),
             (a, b) => match (a.to_numeric()?, b.to_numeric()?) {
                 (Self::Integer(x), Self::Integer(y)) => Self::Integer(x.wrapping_sub(y)),
-                (x, y) => Self::Number(x.to_number()? - y.to_number()?),
+                (x, y) => Self::Number(x.as_number()? - y.as_number()?),
             },
         })
     }
@@ -195,7 +206,7 @@ impl<S: AsRef<[u8]>> Constant<S> {
             (&Self::Integer(a), &Self::Integer(b)) => Self::Integer(a.wrapping_mul(b)),
             (a, b) => match (a.to_numeric()?, b.to_numeric()?) {
                 (Self::Integer(x), Self::Integer(y)) => Self::Integer(x.wrapping_mul(y)),
-                (x, y) => Self::Number(x.to_number()? * y.to_number()?),
+                (x, y) => Self::Number(x.as_number()? * y.as_number()?),
             },
         })
     }
@@ -214,7 +225,7 @@ impl<S: AsRef<[u8]>> Constant<S> {
                 (Self::Integer(x), Self::Integer(y)) => {
                     integer_floor_divide(x, y).map(Self::Integer)
                 }
-                (x, y) => Some(Self::Number((x.to_number()? / y.to_number()?).floor())),
+                (x, y) => Some(Self::Number((x.as_number()? / y.as_number()?).floor())),
             },
         }
     }
@@ -226,7 +237,7 @@ impl<S: AsRef<[u8]>> Constant<S> {
             (&Self::Integer(a), &Self::Integer(b)) => integer_modulo(a, b).map(Self::Integer),
             (a, b) => match (a.to_numeric()?, b.to_numeric()?) {
                 (Self::Integer(x), Self::Integer(y)) => integer_modulo(x, y).map(Self::Integer),
-                (x, y) => Some(Self::Number(float_modulo(x.to_number()?, y.to_number()?))),
+                (x, y) => Some(Self::Number(float_modulo(x.as_number()?, y.as_number()?))),
             },
         }
     }

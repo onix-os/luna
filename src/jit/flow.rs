@@ -196,6 +196,11 @@ fn description(op: Operation) -> (Lowering, Effects, Effects) {
             E::READ_HEAP | E::READ_UPVALUE | E::WRITE_UPVALUE | E::ALLOCATE | E::ERROR,
             0,
         ),
+        SetList { count, .. } if !count.is_variable() => (
+            L::Helper(abi::HELPER_SET_LIST),
+            E::READ_HEAP | E::WRITE_HEAP | E::ALLOCATE | E::ERROR,
+            E::READ_HEAP | E::WRITE_HEAP | E::ALLOCATE | E::PANIC,
+        ),
         SetList { .. } => (
             L::Interpreter,
             E::READ_HEAP | E::WRITE_HEAP | E::ALLOCATE | E::RESHAPE_STACK | E::ERROR,
@@ -845,6 +850,14 @@ mod tests {
                 abi::HELPER_SET_UPVALUE,
                 Effects::WRITE_UPVALUE,
             ),
+            (
+                SetList {
+                    base: RegisterIndex(0),
+                    count: VarCount::constant(2),
+                },
+                abi::HELPER_SET_LIST,
+                Effects::READ_HEAP | Effects::WRITE_HEAP | Effects::ALLOCATE,
+            ),
         ];
         for (op, helper, required) in helpers {
             let (lowering, effects, native) = description(op);
@@ -974,7 +987,7 @@ mod tests {
         for op in [
             SetList {
                 base: RegisterIndex(0),
-                count: VarCount::constant(1),
+                count: VarCount::variable(),
             },
             Call {
                 func: RegisterIndex(0),

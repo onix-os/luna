@@ -221,6 +221,21 @@ impl Access {
                 result.tags = NUMERIC;
             }
             Test { value, .. } => result.reads.insert(value.0),
+            SetList { base, count } if !count.is_variable() => {
+                let count = count.to_constant().unwrap();
+                result.reads.range(
+                    usize::from(base.0),
+                    usize::from(base.0) + 2 + usize::from(count),
+                );
+                result.writes.insert(base.0 + 1);
+                result.tags = 1 << abi::INTEGER;
+                result.helper = Some(Helper::new(
+                    abi::HELPER_SET_LIST,
+                    base.0,
+                    u32::from(count),
+                    0,
+                ));
+            }
             Jump { close_upvalues, .. } if close_upvalues.is_none() => {}
             SetList { .. }
             | Call { .. }
@@ -273,6 +288,35 @@ mod tests {
     use crate::types::{
         ConstantIndex16, ConstantIndex8, Opt254, RegisterIndex as R, UpValueIndex as U, VarCount,
     };
+
+    #[test]
+    fn fixed_lists_read_the_entire_range_and_only_write_the_index() {
+        for (base, count) in [(0, 0), (0, 1), (0, 254), (127, 127), (254, 0)] {
+            let reads: Vec<_> = (usize::from(base)..usize::from(base) + 2 + usize::from(count))
+                .map(|index| index as u8)
+                .collect();
+            check(
+                Operation::SetList {
+                    base: R(base),
+                    count: VarCount::constant(count),
+                },
+                &reads,
+                &[base + 1],
+                &[abi::INTEGER],
+                Some(Helper::new(abi::HELPER_SET_LIST, base, u32::from(count), 0)),
+            );
+        }
+        let variable = Access::new(
+            Operation::SetList {
+                base: R(0),
+                count: VarCount::variable(),
+            },
+            &snapshot(),
+        );
+        assert!(variable.helper.is_none());
+        assert_eq!(variable.reads.count(), 256);
+        assert_eq!(variable.writes.count(), 256);
+    }
 
     fn snapshot() -> Snapshot {
         Snapshot {
