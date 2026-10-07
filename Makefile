@@ -485,6 +485,12 @@ jit-activation-tests:
 jit-in-place-call:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::activation::call_tests $(ARGS)
 
+.PHONY: vm-jump-offset
+vm-jump-offset:
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) compiler::compiler::jump_offset_tests $(ARGS)
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::vm::offset_tests $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::offset_tests $(ARGS)
+
 .PHONY: jit-activation-host-miri
 jit-activation-host-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::executor::activation_tests::scoped_activation_host_releases_before_nested_executor_callbacks -- --exact --test-threads=1
