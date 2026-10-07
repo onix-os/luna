@@ -40,13 +40,6 @@ pub(super) struct Program {
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 impl Plan<'_> {
-    pub fn operands(&self) -> (u64, u8, u8, u8) {
-        let Operation::Return { start, .. } = self.callee.operations[3] else {
-            unreachable!()
-        };
-        (self.pc as u64, self.function.0, self.arguments, start.0)
-    }
-
     pub fn allocator(&self) -> super::resources::BudgetAllocator {
         self.caller.operations.allocator().clone()
     }

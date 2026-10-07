@@ -11,26 +11,52 @@
 
 ### Progress snapshot — 2026-10-07
 
-#### Direct admitted-pair driver trial — 2026-10-07
+#### Direct admitted-pair driver rejected — 2026-10-07
 
-An experimental Rust driver calls the already-owned native callee between the
-same source-bound Enter/Leave hooks, avoiding the generated aggregate wrapper
-for admitted regions. Ordinary pairs retain that wrapper. No new native payload
-is compiled; both paths retain identical physical calls, frame materialization,
-fuel, capture/type/budget guards, panic transport and source-derived operands.
-The additional callee pointer/hook/operand fields remain inside the charged
-code owner, whose exact allocation size is tested rather than omitted.
+The `a7fedd7` trial invokes the already-owned native callee from Rust between the
+same source-bound Enter/Leave hooks, bypassing the generated aggregate wrapper
+only for admitted regions. It preserves physical calls/returns, frame
+materialization, fuel, guards, panic transport and existing generated payloads.
+Its new callee pointer, hooks and operands remain charged to the code owner.
 
-Both drivers pass the existing backend budget/alias/wrapping/refusal/lifetime
-matrix and a nonzero Return-operand fixture. The final focused gates pass
-**99 executions** (two ignored), including connected region error/panic and
-callback/GC tests. An initial new fixture emitted more than the supported four
-callee operations and was rejected; the corrected fixture uses a verified owned
-snapshot with an explicit nonzero Return operand. That failed draft remains in
-the evidence and is not counted as passing.
+Correctness passes **1,380 executions**: 99 focused and 1,281 full GNU Auto,
+89 suite invocations and eight ignores. Both drivers exercise the backend
+budget/alias/wrapping/refusal/lifetime matrix and a nonzero source Return fixture.
+An initial fixture emitted extra callee operations and was correctly rejected;
+its failed draft log remains separate from the final passing tests.
+Memcheck completes **65 passing executions**, two ignores, zero reported errors
+and zero definite/indirect losses. Two test processes each report 48 possibly
+lost bytes through Rust thread-current/MPMC test-harness setup; these unsuppressed
+records remain visible, not a blanket zero-leak claim.
 
-Full tests, memory checking and original matched native/compiled-Off performance
-acceptance are pending. This is not an accepted regression fix. Evidence is under
+Five original-flag binaries are frozen with source and artifact manifests.
+Both no-feature probes are byte-identical to production controls. Twelve
+alternating windows run at two common hardlink invocation paths, with eleven
+samples and original checks: **144 commands; all aggregate gates fail**.
+Across all 24 native comparisons, execution and mapping counters match exactly;
+only upvalue Auto current/peak metadata increases, **2,762 to 2,802 bytes**.
+
+Native upvalue direct control/candidate medians are **0.9957 / 0.9936** across
+the two paths: no demonstrated improvement. Its own Off/Auto ratio-of-medians
+medians are **0.6571 / 0.6547**, far below the unchanged 1.25 target, failing
+all 24 checks. Native table direct medians are **0.9801 / 0.9841** and callbacks
+**0.9794 / 0.9858**. Speed-profile disabled float direct medians are
+**0.9692 / 0.9718**; candidate fails **21/24** checks versus control **17/24**.
+Some shipping controls improve, but do not justify the absent upvalue benefit,
+extra owner metadata and speed-profile costs. External contention and all
+outliers are retained; no particular hardware cause is claimed.
+
+The runtime trial is removed; the generic nonzero Return-operand fixture and
+exact owner-allocation assertion remain. Restored-source formatting, all-target
+checking and **1,380 test executions** pass again (89 suites, eight ignores).
+The six restored backend tests also pass Memcheck with zero reported errors
+and zero definite, indirect or possible losses. The four production runtime
+files exactly match pre-trial `ff3afc4`; only generic test additions remain.
+Both harnesses score the original ratio-of-medians, not the separately reported
+median paired ratio; native `oslo_predicate` remains unscored. Neither thresholds
+nor native coverage were relaxed. The original performance/platform/resource/
+release gates remain open. Complete evidence, per-window ratios and counter
+verification are under
 `target/jit-evidence/short-slice-performance/direct-pair-driver-*`.
 
 #### Placement screen and matched accounting recheck — 2026-10-07

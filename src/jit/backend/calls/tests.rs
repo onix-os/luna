@@ -8,9 +8,6 @@ use crate::{
     Closure, JitConfig, Lua, Value,
 };
 
-type Driver = unsafe fn(&CallCode, *mut c_void, u32) -> u32;
-const DRIVERS: [Driver; 2] = [CallCode::invoke, CallCode::invoke_direct];
-
 struct Bridge {
     frame: NativeFrame,
     slots: [Slot; 3],
@@ -119,7 +116,7 @@ fn fixture(
 const ADD: &[u8] = b"local n=7 local function f(v) n=n+v end f(2) return n";
 
 #[test]
-fn both_drivers_use_nonzero_source_return_operand() {
+fn native_entry_uses_nonzero_source_return_operand() {
     fixture(
         b"local n=7 local function f(v,w) n=n+v end f(2,99) return n",
         |caller, mut callee, pc, metadata, mappings| {
@@ -131,7 +128,6 @@ fn both_drivers_use_nonzero_source_return_operand() {
             let limits = work::Limits::from(&JitConfig::default());
             let plan = Plan::new(&caller, &callee, pc, limits).unwrap();
             assert_eq!(plan.arguments, 2);
-            assert_eq!(plan.operands().3, 1);
             let code = compile(
                 &plan,
                 hooks(),
@@ -143,31 +139,23 @@ fn both_drivers_use_nonzero_source_return_operand() {
                 LinkFault::None,
             )
             .unwrap();
-            for invoke in DRIVERS {
-                let mut bridge = Bridge::new((pc as u64, plan.function.0.into(), 2));
-                bridge.return_start = 1;
-                bridge.slots[1] = Slot::from_value(Value::Integer(99));
-                assert_eq!(
-                    unsafe { invoke(&code, std::ptr::addr_of_mut!(bridge).cast(), 64) },
-                    2
-                );
-                assert!(bridge.valid);
-                assert_eq!((bridge.entered, bridge.left), (1, 1));
-                assert_eq!(bridge.cell.bits, 9);
-                assert_eq!(bridge.slots[1].bits, 99);
-            }
+            let mut bridge = Bridge::new((pc as u64, plan.function.0.into(), 2));
+            bridge.return_start = 1;
+            bridge.slots[1] = Slot::from_value(Value::Integer(99));
+            assert_eq!(
+                unsafe { code.invoke(std::ptr::addr_of_mut!(bridge).cast(), 64) },
+                2
+            );
+            assert!(bridge.valid);
+            assert_eq!((bridge.entered, bridge.left), (1, 1));
+            assert_eq!(bridge.cell.bits, 9);
+            assert_eq!(bridge.slots[1].bits, 99);
         },
     );
 }
 
 #[test]
 fn native_entry_calls_verified_callee_and_both_typed_hooks() {
-    for invoke in DRIVERS {
-        exercise_entries(invoke);
-    }
-}
-
-fn exercise_entries(invoke: Driver) {
     for (source, expected) in [
         (ADD, 9),
         (
@@ -206,7 +194,7 @@ fn exercise_entries(invoke: Driver) {
                 u32::from(plan.arguments),
             ));
             assert_eq!(
-                unsafe { invoke(&code, std::ptr::addr_of_mut!(bridge).cast(), 64) },
+                unsafe { code.invoke(std::ptr::addr_of_mut!(bridge).cast(), 64) },
                 2
             );
             assert!(bridge.valid);
@@ -241,12 +229,6 @@ fn exercise_entries(invoke: Driver) {
 
 #[test]
 fn native_entry_refusal_and_callee_guards_preserve_buffers() {
-    for invoke in DRIVERS {
-        exercise_refusals(invoke);
-    }
-}
-
-fn exercise_refusals(invoke: Driver) {
     fixture(ADD, |caller, callee, pc, metadata, mappings| {
         let limits = work::Limits::from(&JitConfig::default());
         let plan = Plan::new(&caller, &callee, pc, limits).unwrap();
@@ -277,7 +259,7 @@ fn exercise_refusals(invoke: Driver) {
             let before = bridge.slots.map(|slot| (slot.tag, slot.bits));
             let budget = if fault == 4 { 3 } else { 64 };
             assert_eq!(
-                unsafe { invoke(&code, std::ptr::addr_of_mut!(bridge).cast(), budget) },
+                unsafe { code.invoke(std::ptr::addr_of_mut!(bridge).cast(), budget) },
                 if fault < 2 { 0 } else { 1 }
             );
             assert_eq!(bridge.entered, 1);
@@ -299,12 +281,6 @@ fn exercise_refusals(invoke: Driver) {
 
 #[test]
 fn native_budgets_aliases_and_wrapping_extremes_are_source_exact() {
-    for invoke in DRIVERS {
-        exercise_budgets(invoke);
-    }
-}
-
-fn exercise_budgets(invoke: Driver) {
     fixture(ADD, |caller, callee, pc, metadata, mappings| {
         let limits = work::Limits::from(&JitConfig::default());
         let plan = Plan::new(&caller, &callee, pc, limits).unwrap();
@@ -339,7 +315,7 @@ fn exercise_budgets(invoke: Driver) {
                     }
                     let before = bridge.slots.map(|slot| (slot.tag, slot.bits));
                     let result =
-                        unsafe { invoke(&code, std::ptr::addr_of_mut!(bridge).cast(), budget) };
+                        unsafe { code.invoke(std::ptr::addr_of_mut!(bridge).cast(), budget) };
                     assert!(bridge.valid);
                     assert_eq!((bridge.entered, bridge.left), (1, 1));
                     if budget <= 3 {
@@ -399,12 +375,6 @@ fn exercise_budgets(invoke: Driver) {
 
 #[test]
 fn owned_native_code_outlives_both_compiler_snapshots() {
-    for invoke in DRIVERS {
-        exercise_snapshot_lifetime(invoke);
-    }
-}
-
-fn exercise_snapshot_lifetime(invoke: Driver) {
     fixture(ADD, |caller, callee, pc, metadata, mappings| {
         let workspace = caller.operations.allocator().0.clone();
         let limits = work::Limits::from(&JitConfig::default());
@@ -431,7 +401,7 @@ fn exercise_snapshot_lifetime(invoke: Driver) {
         assert_eq!(workspace.current(), 0);
         let mut bridge = Bridge::new(expected);
         assert_eq!(
-            unsafe { invoke(&code, std::ptr::addr_of_mut!(bridge).cast(), 64) },
+            unsafe { code.invoke(std::ptr::addr_of_mut!(bridge).cast(), 64) },
             2
         );
         assert!(bridge.valid);
@@ -445,12 +415,6 @@ fn exercise_snapshot_lifetime(invoke: Driver) {
 
 #[test]
 fn linked_target_mutations_and_late_refusals_keep_peer_mappings_and_leases() {
-    for invoke in DRIVERS {
-        exercise_refusal_lifetime(invoke);
-    }
-}
-
-fn exercise_refusal_lifetime(invoke: Driver) {
     fixture(ADD, |caller, callee, pc, metadata, mappings| {
         let limits = work::Limits::from(&JitConfig::default());
         let plan = Plan::new(&caller, &callee, pc, limits).unwrap();
@@ -552,7 +516,7 @@ fn exercise_refusal_lifetime(invoke: Driver) {
             u32::from(plan.arguments),
         ));
         assert_eq!(
-            unsafe { invoke(&lease, std::ptr::addr_of_mut!(bridge).cast(), 64) },
+            unsafe { lease.invoke(std::ptr::addr_of_mut!(bridge).cast(), 64) },
             2
         );
         assert_eq!(bridge.cell.bits, 9);
