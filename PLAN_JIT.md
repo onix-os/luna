@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-07
 
-#### Compact session cold fallback — measurement pending
+#### Compact session cold fallback — rejected runtime trial
 
 The retained compact executable is byte-identical to a fresh original-flag
 build whose symbol replay matches every loaded section and program header.
@@ -20,15 +20,31 @@ Its upvalue profile uses 294,367,740 instructions versus the earlier runtime's
 Disassembly identifies another concrete cost: admitted calls reserve 0x12b8
 stack bytes and initialize the generic frame/view on every compact invocation.
 
-The compact physical-call session is now separate from the legacy frame/view.
-Its 256-slot scratch exists only in a non-inlined fallback, after the already
-consumed Call. Both sessions share the physical Call/fuel/statistics helper.
-The compact path retains its full post-native validation; this does not revive
-the rejected single-scope writeback trial. Existing differentials execute this
-production session, including a new float/reference, partial-budget, exhausted
-fuel and prefix-charge matrix against the generic path. Focused compiler/call/
-region checks pass; the expanded 39-test canonical suite also passes Memcheck
-with zero errors and zero definite/indirect leaks. Performance remains pending.
+The trial separated the compact physical-call session from the legacy frame/
+view and put its 256-slot scratch in a non-inlined fallback after the consumed
+Call. Physical Call/fuel/statistics remained shared, and full post-native
+validation remained enabled. Expanded differentials cover float/reference
+operands, partial budgets, exhausted fuel and prefix charges. Focused compiler/
+call/region checks pass; all 39 canonical tests pass Memcheck with zero errors
+and zero definite/indirect leaks.
+
+The hot stack reservation drops from 0x12b8 to 0x278 bytes, but changed inlining
+raises profile work to 298,387,309 instructions. Wrapper-only and full compact
+entry inlining yield 298,648,180 and 295,947,522 instructions respectively.
+Each variant completes twelve checked commands, 324 parsed rows, three windows
+on CPU0/CPU16, nine workloads and eleven samples. All 36 aggregate checks fail.
+Upvalue direct control/candidate ratios are **0.9462 / 0.9500**, then
+**0.9622 / 0.9735**, then **0.9415 / 0.9655**. All execution/resource counters
+and frozen hashes match. Builds and profiles finish before timing.
+
+Neither lower stack usage nor explicit inlining produced an accepted speedup.
+The entire runtime trial is removed, restoring the `78219ea` production path;
+the new fallback differential remains. Restored formatting/all-feature checks,
+111 focused executions across eight suites (two ignored), and all 39 canonical
+Memcheck tests pass; zero memory errors and zero definite/indirect leaks.
+No additional shipping/no-feature or
+platform acceptance is claimed. Evidence lives under `compact-retained-*` and
+`compact-cold-{fallback,inline,direct}-*` in the short-slice evidence directory.
 
 #### Compact callee frames — integrated, performance unaccepted
 
