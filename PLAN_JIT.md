@@ -11,6 +11,27 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Per-slice dispatch state trial — 2026-10-07
+
+The next candidate represents interpreted, observing, and compiled execution
+with one per-slice state instead of independently checking optional native code
+and source identity on each opcode. Exact-image instruction attribution found
+both checks in the current speed compiled-Off loop, together with additional
+spilled state. This motivates the trial, but does not establish its timing benefit.
+
+The compiled state moves the existing `Prepared` owner without adding a lookup,
+lease, allocation, or native entry. Compiled code retains precedence over optional
+source identity. Observation frequency, resume/mock handling, physical frames,
+fuel, GC, error paths, accounting, and native coverage remain unchanged.
+`make jit-vm-dispatch` passes both state-selection and owner-retirement/GC tests;
+JIT checks, mode tests, and forced script/string suites also pass.
+
+Broader regression tests and unchanged paired performance gates are pending.
+The direct control is the retained numeric refinement, not the older slower
+interpreter. This is an unaccepted optimization trial, not a completed regression
+fix. Evidence is under
+`target/jit-evidence/short-slice-performance/vm-dispatch-state-*`.
+
 #### Shared numeric conversion trial — 2026-10-07
 
 The first candidate (`2f8b142`) makes `Constant::to_number` handle existing integers and numbers directly while

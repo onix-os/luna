@@ -1013,7 +1013,10 @@ r: run
 repl:
 	@$(CARGO) run --example interpreter -- $(ARGS)
 
-.PHONY: numeric-conversions
+.PHONY: numeric-conversions jit-vm-dispatch
+jit-vm-dispatch:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::dispatch::tests
+
 numeric-conversions:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) constant::tests
 	@$(CARGO) test --locked -p luna --no-default-features --test numeric_semantics $(TARGET_ARG)
@@ -1109,6 +1112,7 @@ help:
 	@echo "  test         Run all tests, including doc tests"
 	@echo "  test-all     Run all tests with every feature enabled"
 	@echo "  numeric-conversions Check numeric coercion and arithmetic in all runtime modes"
+	@echo "  jit-vm-dispatch Check per-slice dispatch selection and code ownership"
 	@echo "  test-doc     Run doc tests alone"
 	@echo "  check        Run cargo check on all targets"
 	@echo "  check-all    Run cargo check on all targets/all features"
