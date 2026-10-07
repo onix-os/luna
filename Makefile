@@ -500,6 +500,7 @@ jit-helper-flow-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::helper_flow_tests -- --test-threads=1
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::lifetime_tests::symbol_layout_counts_registration_declarations_and_lookup_temporary -- --exact --test-threads=1
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::lifetime_tests::signature_layout_counts_initial_declaration_and_import_vectors -- --exact --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::lifetime_tests::source_helper_selection_preserves_all_semantic_kinds_and_empty_sets -- --exact --test-threads=1
 
 jit-transfer-source:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::transfer_tests

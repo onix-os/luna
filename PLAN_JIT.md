@@ -11,6 +11,29 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Generic import selection — validation in progress
+
+The current candidate keeps the ten generic helper names, ABI and runtime
+bodies. It registers and declares only helpers required by the source snapshot;
+scalar-only chunks can have no imports. Reference constants, potential
+reference Moves, fixed SetList and projected-upvalue fallback imports remain
+selected whenever their emitted paths require them. Bounded stack arrays expose
+only their initialized prefix. Name/signature reservations cover the actual
+selected imports without changing ceilings, refusal behavior or retention rules.
+
+Focused formatting/all-feature checks and **793 test executions / seven suites**
+pass, six ignored. Rust-only Miri passes **18 / six**, none ignored. Baseline/GNU
+Auto/all-feature/docs pass **1,708 / 172**, ten ignored. Off/Force and platform
+checks are still in progress. These are execution counts, not unique tests or
+performance acceptance. The declaration-refusal fixture now contains a real
+Move import possibility; its result, peer/recovery and reclamation checks remain.
+
+This is a distinct experiment from the rejected source-specialized helper
+trials below. No timing benefit is established yet. Fresh frozen artifacts and
+the original paired gates must determine retention. Evidence prefix:
+`target/jit-evidence/short-slice-performance/generic-import-selection-*`.
+The full performance, compiler-accounting, platform and release gates remain open.
+
 #### Rejected generated source-specific imports — 2026-10-07
 
 `55aa5d2` selected register/constant table sources at emission through eighteen

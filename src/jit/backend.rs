@@ -748,7 +748,16 @@ fn compile_selected(
     } else {
         helper_symbols
     };
-    let symbol_bytes = symbol_storage_bytes(helper_symbols.map(|(_, name, _)| name.len()))?;
+    let mut selected_symbols = helper_symbols;
+    let mut helper_count = 0;
+    for symbol in helper_symbols {
+        if helper_needed(symbol.0, snapshot) {
+            selected_symbols[helper_count] = symbol;
+            helper_count += 1;
+        }
+    }
+    let helper_symbols = &selected_symbols[..helper_count];
+    let symbol_bytes = symbol_storage_bytes(helper_symbols.iter().map(|(_, name, _)| name.len()))?;
     #[cfg(test)]
     if failure == Failure::RefuseSymbols {
         let ledger = &snapshot.operations.allocator().0;
@@ -765,7 +774,7 @@ fn compile_selected(
     #[cfg(not(test))]
     let native_isa = cranelift_native::builder();
     let mut jit = native_builder(native_isa)?;
-    for (_, name, entry) in helper_symbols {
+    for &(_, name, entry) in helper_symbols {
         jit.symbol(owned_symbol(name)?, entry as *const u8);
     }
     jit.memory_provider(provider);
@@ -798,7 +807,7 @@ fn compile_selected(
         entry_types.len(),
         helper_types.len(),
         helper_returns.len(),
-        helpers::SYMBOLS.len() + 2 * projection_count,
+        helper_count + 2 * projection_count,
     )?;
     #[cfg(test)]
     let signature_bytes = signature_bytes
@@ -835,10 +844,12 @@ fn compile_selected(
     fill_signature(&mut helper_signature.params, helper_types)?;
     fill_signature(&mut helper_signature.returns, helper_returns)?;
     let helper_ids = super::arrays::try_array::<_, _, { helpers::SYMBOLS.len() }>(|index| {
-        let (kind, name, _) = helper_symbols[index];
+        let Some(&(kind, name, _)) = helper_symbols.get(index) else {
+            return Ok(None);
+        };
         module
             .declare_function(name, Linkage::Import, &helper_signature)
-            .map(|id| (kind, id))
+            .map(|id| Some((kind, id)))
     })
     .map_err(fail)?;
     let projection_ids = super::arrays::try_array::<_, _, 2>(|index| {
@@ -855,7 +866,9 @@ fn compile_selected(
     let mut context = module.make_context();
     context.func.signature = signature;
     let mut fb_context = FunctionBuilderContext::new();
-    let (fallback, guard, exhausted, panicked, helper_refs, root);
+    let (fallback, guard, exhausted, panicked, root);
+    let mut helper_refs =
+        [(0, cranelift_codegen::ir::FuncRef::from_u32(0)); helpers::SYMBOLS.len()];
     {
         let mut builder = FunctionBuilder::new(&mut context.func, &mut fb_context);
         let entry = builder.create_block();
@@ -886,15 +899,16 @@ fn compile_selected(
         }
         root = paths.emit_entry(&mut builder, &blocks, fallback);
         {
-            helper_refs = std::array::from_fn::<_, { helpers::SYMBOLS.len() }, _>(|index| {
-                let (kind, id) = helper_ids[index];
+            for (destination, (kind, id)) in
+                helper_refs.iter_mut().zip(helper_ids.into_iter().flatten())
+            {
                 let id = match kind {
                     abi::HELPER_GET_UPVALUE => projection_ids[0].unwrap_or(id),
                     abi::HELPER_SET_UPVALUE => projection_ids[1].unwrap_or(id),
                     _ => id,
                 };
-                (kind, module.declare_func_in_func(id, builder.func))
-            });
+                *destination = (kind, module.declare_func_in_func(id, builder.func));
+            }
             let mut emitter = Emitter {
                 builder: &mut builder,
                 snapshot,
@@ -905,7 +919,7 @@ fn compile_selected(
                 guard,
                 panicked,
                 host: arguments[4],
-                helpers: &helper_refs,
+                helpers: &helper_refs[..helper_count],
                 count: arguments[2],
                 pc: 0,
                 written: false,
@@ -963,6 +977,7 @@ fn compile_selected(
         builder.finalize(module.target_config());
     }
     drop(fb_context);
+    let helper_refs = &helper_refs[..helper_count];
     #[cfg(test)]
     if failure == Failure::CorruptTag {
         stores.corrupt_first(&mut context.func);
@@ -1138,6 +1153,7 @@ fn compile_selected(
         let kind = [abi::HELPER_GET_UPVALUE, abi::HELPER_SET_UPVALUE][index];
         let fallback_id = helper_ids
             .iter()
+            .flatten()
             .find(|&&(candidate, _)| candidate == kind)
             .unwrap()
             .1;
@@ -1590,6 +1606,28 @@ fn native_builder(
         .finish(settings::Flags::new(flags))
         .map_err(|error| JitError::Compilation(error.to_string()))?;
     Ok(JITBuilder::with_isa(isa, default_libcall_names()))
+}
+
+fn helper_needed(kind: u32, snapshot: &Snapshot) -> bool {
+    snapshot
+        .operations
+        .iter()
+        .any(|operation| match (kind, *operation) {
+            (abi::HELPER_MOVE, Operation::Move { .. })
+            | (abi::HELPER_NEW_TABLE, Operation::NewTable { .. })
+            | (abi::HELPER_GET_TABLE, Operation::GetTable { .. })
+            | (abi::HELPER_SET_TABLE, Operation::SetTable { .. })
+            | (abi::HELPER_GET_UP_TABLE, Operation::GetUpTable { .. })
+            | (abi::HELPER_SET_UP_TABLE, Operation::SetUpTable { .. })
+            | (abi::HELPER_GET_UPVALUE, Operation::GetUpValue { .. })
+            | (abi::HELPER_SET_UPVALUE, Operation::SetUpValue { .. }) => true,
+            (abi::HELPER_CONSTANT, Operation::LoadConstant { constant, .. }) => snapshot
+                .constants
+                .get(usize::from(constant.0))
+                .is_some_and(|slot| slot.tag == abi::REFERENCE),
+            (abi::HELPER_SET_LIST, Operation::SetList { count, .. }) => !count.is_variable(),
+            _ => false,
+        })
 }
 
 fn symbol_storage_bytes(lengths: impl IntoIterator<Item = usize>) -> Result<usize, JitError> {
@@ -3438,7 +3476,7 @@ mod helper_flow_tests {
         VarCount,
     };
 
-    fn operations() -> [Operation; 10] {
+    pub(super) fn operations() -> [Operation; 10] {
         [
             Operation::Move {
                 dest: R(0),

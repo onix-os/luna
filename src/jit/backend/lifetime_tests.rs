@@ -155,6 +155,62 @@ fn symbol_layout_counts_registration_declarations_and_lookup_temporary() {
 }
 
 #[test]
+fn source_helper_selection_preserves_all_semantic_kinds_and_empty_sets() {
+    use crate::types::{ConstantIndex16, RegisterIndex, VarCount};
+    let selected = |source: &Snapshot| {
+        helpers::SYMBOLS
+            .iter()
+            .filter_map(|(kind, _, _)| helper_needed(*kind, source).then_some(*kind))
+            .collect::<Vec<_>>()
+    };
+    let mut source = snapshot(b"return 42");
+    assert!(selected(&source).is_empty());
+    assert_eq!(selected(&snapshot(b"return 'key'")), [2]);
+    assert!(!helper_needed(
+        abi::HELPER_SET_LIST,
+        &snapshot(b"return {...}")
+    ));
+    source.constants = super::super::resources::owned(&[
+        Slot {
+            tag: abi::INTEGER,
+            bits: 42,
+        },
+        Slot {
+            tag: abi::REFERENCE,
+            bits: 0,
+        },
+    ]);
+    source.registers = 4;
+    source.upvalues = 1;
+    for (index, operation) in super::helper_flow_tests::operations()
+        .into_iter()
+        .enumerate()
+    {
+        source.operations = super::super::resources::owned(&[
+            operation,
+            Operation::Return {
+                start: RegisterIndex(0),
+                count: VarCount::constant(0),
+            },
+        ]);
+        source.verify().unwrap();
+        assert_eq!(selected(&source), [index as u32 + 1]);
+    }
+    source.operations = super::super::resources::owned(&[
+        Operation::LoadConstant {
+            dest: RegisterIndex(0),
+            constant: ConstantIndex16(0),
+        },
+        Operation::Return {
+            start: RegisterIndex(0),
+            count: VarCount::constant(1),
+        },
+    ]);
+    source.verify().unwrap();
+    assert!(selected(&source).is_empty());
+}
+
+#[test]
 fn signature_layout_counts_initial_declaration_and_import_vectors() {
     let element = std::mem::size_of::<AbiParam>();
     for helpers in [0, 1, helpers::SYMBOLS.len()] {
@@ -194,7 +250,8 @@ fn signature_layout_counts_initial_declaration_and_import_vectors() {
 
 #[test]
 fn declaration_refusals_preserve_peer_and_reservations_outlive_compiler_owners() {
-    let source = snapshot(b"local sum=0 for i=1,100 do sum=sum+i end return sum");
+    let source = snapshot(b"local sum=0 for i=1,100 do sum=sum+i end local copy=sum return copy");
+    assert!(helper_needed(abi::HELPER_MOVE, &source));
     let snapshots = source.operations.allocator().0.clone();
     let baseline = snapshots.current();
     let total = MappingCounter::new(Ledger::new(usize::MAX));
