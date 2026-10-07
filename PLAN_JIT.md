@@ -21,13 +21,37 @@ The code owner retains the callee entry and immutable source-bound operands,
 with allocation charging derived from its actual size. All physical-frame,
 capture, prototype, fuel and materialization checks remain in place.
 
-Focused backend, canonical and native-region tests pass. New direct-path tests
+Focused backend, canonical and native-region checks pass **104 executions /
+seven suites**, two ignored. New direct-path tests
 check callback bypass, budget refusal, matching full traces, call errors and
 panic transport before native execution and before writeback. Existing custom
 callback fault fixtures explicitly retain their aggregate path in test builds;
 they are not claimed as coverage of the new direct path. The full source/fuel
 matrix additionally compares the Rust bridge with interpreted execution.
-Performance and broader validation are pending; this is not an accepted speedup.
+Five frozen original-flag binaries and three alternating windows on CPU0 and
+CPU16 complete **72 checked commands / 1,080 parsed rows**. All aggregate gates
+still fail. Both no-feature binaries are byte-identical to the admitted-callee
+control. Twelve complete counter comparisons match exactly except the predicted
+**24-byte** retained/peak metadata increase for the upvalue Auto pair; artifact
+hashes verify. Builds and tests did not overlap the timing runs.
+
+Native upvalue direct control/candidate ratios are **0.9982 / 1.0051** on CPU0
+and **1.0274 / 1.0258** on CPU16: essentially flat on the first core class and
+about 2.6% faster on the second. Own-Off/Auto ratios remain **0.7034–0.7769**,
+far below the frozen 1.25 requirement. Shipping compiled-Off float direct ratios
+improve to **1.0883 / 1.0911** and **1.0925 / 1.1075**; shipping integers and
+upvalues also improve. This disabled-mode effect cannot be attributed to the
+new bridge executing, since it is not executed with JIT Off.
+
+Tradeoffs remain: speed-profile CPU0 compiled-Off integer/float timings worsen
+about 2–2.5%; CPU16 native array/metamethod results worsen about 4–5% on one
+path. The candidate is retained only as **unaccepted experimental work**, not a
+resolved regression or accepted tradeoff. GNU baseline, all-feature Auto and
+documentation gates pass **1,714 executions / 172 suites**, ten ignored and no
+failures, after timing completes. This does not establish a new Off/Force,
+musl, ARM64 or generated-code safety-platform matrix. Resolve the new cost and
+native regressions before promoting this candidate; do not call the bridge
+change a general performance fix.
 Evidence: `target/jit-evidence/short-slice-performance/rust-call-boundary-*`.
 
 #### Single physical-frame view — rejected runtime trial
