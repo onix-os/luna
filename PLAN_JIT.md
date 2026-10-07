@@ -11,6 +11,23 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Single physical-frame view — runtime candidate
+
+The activation host now obtains the active closure and its register view from
+one match of the current physical Lua frame, rather than resolving the frame
+separately through `closure()` and `registers()`. The registers-only accessor
+uses the same construction. All returned fields, stack splitting, lifetimes,
+non-Lua panic behavior and fresh resolution after Call/Return remain unchanged;
+no view is cached across transitions and no unsafe access or inline hint is added.
+
+Formatting/all-feature checking and **197 test executions / twenty suites**
+pass, two ignored: call resolution across baseline/Off/Auto/Force, canonical
+calls, regions, stack-growth/GC/callback activation tests and baseline activation.
+Existing adversarial physical-prototype tests cover fresh closure identity.
+This refactor is not a measured speedup yet. Compare frozen original gates
+against the admitted-binding candidate, not the rejected resolver shortcut.
+Evidence: `target/jit-evidence/short-slice-performance/physical-frame-view-*`.
+
 #### Direct physical-call resolution — rejected runtime trial
 
 `LuaFrame::call_function` now takes `Value::Function` directly, rather than
