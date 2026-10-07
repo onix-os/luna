@@ -2,6 +2,66 @@ use super::*;
 use crate::{opcode::Operation, Closure, JitConfig, JitMode, Lua, Value};
 
 #[test]
+fn in_place_growth_refusal_preserves_caller_before_generic_allocation() {
+    let locals = (0..64)
+        .map(|i| format!("v{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let source = format!("local function f() local {locals} return {locals} end f() return 5");
+    let mut lua = Lua::empty();
+    lua.set_jit_config(JitConfig {
+        mode: JitMode::Off,
+        ..JitConfig::default()
+    })
+    .unwrap();
+    lua.enter(|ctx| {
+        let closure = Closure::load(ctx, None, source.as_bytes()).unwrap();
+        let (pc, function) = closure
+            .prototype()
+            .opcodes
+            .iter()
+            .enumerate()
+            .find_map(|(pc, op)| {
+                if let Operation::Call { func, .. } = op.decode() {
+                    Some((pc, func))
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        let run = |fast| {
+            with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+                host.run(ctx, 1, pc as u32, 4).result.unwrap();
+                host.state.frames.reserve(8);
+                host.stack.shrink_to_fit();
+                let capacity = host.stack.capacity();
+                if fast {
+                    let before = format!("{:?}", host.test_trace());
+                    assert!(!host.call_in_place(function, 0));
+                    assert_eq!(before, format!("{:?}", host.test_trace()));
+                    host.call(ctx, function, 0).unwrap();
+                } else {
+                    host.call_generic(ctx, function, 0).unwrap();
+                }
+                assert!(host.stack.capacity() > capacity);
+                let (frames, values, open, fuel) = host.test_trace();
+                (
+                    frames,
+                    values
+                        .iter()
+                        .copied()
+                        .map(Value::type_name)
+                        .collect::<Vec<_>>(),
+                    open,
+                    fuel,
+                )
+            })
+        };
+        assert_eq!(run(true), run(false));
+    });
+}
+
+#[test]
 fn in_place_calls_match_generic_frames_slots_fuel_and_refusals() {
     let sources: &[&[u8]] = &[
         b"local function f(a,b,c) local d=7 return a,b,c,d end f(1) return 5",

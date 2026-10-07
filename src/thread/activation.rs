@@ -311,9 +311,10 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
             return false;
         }
         *pc += 1;
-        self.fuel.consume(4);
+        self.fuel.consume(LuaFrame::FUEL_PER_CALL);
         *expected_return = Some(LuaReturn::Normal(crate::types::VarCount::constant(0)));
-        self.fuel.consume(i32::from(arguments));
+        self.fuel
+            .consume(crate::fuel::count_fuel(LuaFrame::FUEL_PER_ITEM, count));
         self.stack
             .copy_within(bottom + 1..bottom + 1 + count, bottom);
         self.stack.resize(top, Value::Nil);
