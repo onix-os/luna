@@ -11,6 +11,24 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Optional fixed-list fuel borrow trial — 2026-10-07
+
+The next refinement replaces the register view's separate fuel reference and
+variable-stack flag with one `Option<&mut Fuel>`. Only a fixed-stack view carries
+the borrow; variable-stack helpers still decline before effects or extra charges.
+This retains all fixed-list coverage and the existing per-call/per-item fuel
+rules without raw-pointer tagging, allocation, or a new cache.
+
+The original fixed-list shipping assembly adds two callee-saved register pairs
+and reads the enclosing LuaFrame where the earlier compiler scalarized its
+state/stack arguments. Combined with ten extra instructions per register-view
+construction, this motivates a smaller representation; it does not prove timing
+benefit. Focused JIT/list/activation/region tests and four Miri helper tests pass.
+Broader validation, original-flag image inspection and unchanged paired benchmarks
+remain pending. The direct control is `fixed-set-list-candidate`, preserving its
+allocation/GC gains rather than comparing against an older slower implementation.
+Evidence uses `target/jit-evidence/short-slice-performance/optional-list-fuel-*`.
+
 #### Fixed-list native coverage trial — 2026-10-07
 
 Exact-image profiling of the current dispatch candidate identifies repeated

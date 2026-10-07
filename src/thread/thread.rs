@@ -934,9 +934,7 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
                     to_be_closed: &mut self.state.to_be_closed,
                     stack: self.state.stack,
                     #[cfg(feature = "jit")]
-                    fuel: self.fuel,
-                    #[cfg(feature = "jit")]
-                    variable: *_is_variable,
+                    list_fuel: (!*_is_variable).then_some(&mut *self.fuel),
                 }
             }
             _ => panic!("top frame is not lua frame"),
@@ -1293,22 +1291,23 @@ pub(crate) struct LuaRegisters<'gc, 'a> {
     to_be_closed: &'a mut vec::Vec<usize, MetricsAlloc<'gc>>,
     stack: Gc<'gc, RefLock<StackVec<'gc>>>,
     #[cfg(feature = "jit")]
-    fuel: &'a mut Fuel,
-    #[cfg(feature = "jit")]
-    variable: bool,
+    list_fuel: Option<&'a mut Fuel>,
 }
 
 impl<'gc, 'a> LuaRegisters<'gc, 'a> {
     #[cfg(feature = "jit")]
     pub(crate) fn fixed_list_stack(&self) -> bool {
-        !self.variable
+        self.list_fuel.is_some()
     }
 
     #[cfg(feature = "jit")]
     pub(crate) fn charge_fixed_list(&mut self, count: usize) {
-        self.fuel.consume(LuaFrame::FUEL_PER_CALL);
-        self.fuel
-            .consume(count_fuel(LuaFrame::FUEL_PER_ITEM, count));
+        let fuel = self
+            .list_fuel
+            .as_deref_mut()
+            .expect("fixed list on variable stack");
+        fuel.consume(LuaFrame::FUEL_PER_CALL);
+        fuel.consume(count_fuel(LuaFrame::FUEL_PER_ITEM, count));
     }
 
     #[cfg(all(
@@ -1356,8 +1355,7 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
             open_upvalues: &mut open_upvalues,
             to_be_closed: &mut to_be_closed,
             stack: Gc::new(&ctx, RefLock::new(vec::Vec::new_in(allocator))),
-            fuel,
-            variable,
+            list_fuel: (!variable).then_some(fuel),
         })
     }
 
@@ -1583,8 +1581,7 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
             open_upvalues: &mut open_upvalues,
             to_be_closed: &mut to_be_closed,
             stack: Gc::new(&ctx, RefLock::new(vec::Vec::new_in(allocator))),
-            fuel: &mut Fuel::empty(),
-            variable: false,
+            list_fuel: Some(&mut Fuel::empty()),
         })
     }
 
