@@ -11,9 +11,9 @@
 
 ### Progress snapshot — 2026-10-07
 
-#### Open-capture suffix check — runtime trial
+#### Open-capture suffix check — rejected runtime trial
 
-`ThreadState::close_upvalues` now checks the highest open capture before
+The trial made `ThreadState::close_upvalues` check the highest open capture before
 binary-searching the suffix to close. The list is maintained in ascending stack
 index order, so an empty list or highest index below the returning frame means
 there is nothing to close. Exact-boundary captures still follow the original
@@ -24,7 +24,27 @@ A new unit matrix covers empty/single/sparse lists, exact boundaries and
 `usize::MAX`, then mutates the stack and closes the remaining captures to check
 which values remained live. `make vm-upvalue-returns` adds baseline and
 Off/Auto/Force close-handler/error-return coverage. Focused checks pass **174
-executions / sixteen suites**, two ignored. Original-flag timing is pending.
+executions / sixteen suites**, two ignored. The boundary matrix also passes
+Miri Stacked Borrows seed 1 and Tree Borrows seed 2, one test each; these are
+Rust capture-state tests, not generated execution in Miri.
+
+Five frozen original-flag artifacts and sequential three-window/two-path
+screens on CPU0/CPU16 complete **72 checked commands / 1,080 parsed rows**;
+every aggregate gate still fails. Twelve complete counter comparisons and all
+artifact hashes match. Profiling and builds finished before timing began.
+The targeted function drops from **4,550,715 to 3,120,754** instructions;
+whole-profile work drops from **310,777,895 to 309,397,134** (0.44%).
+
+This does not translate to a useful runtime result. Native upvalue direct
+control/candidate ratios are **0.9840 / 0.9856** on CPU0 and **1.0038 / 1.0051**
+on CPU16. Shipping CPU0 compiled-Off integer ratios fall to **0.8636 / 0.8629**,
+floats **0.9011 / 0.8975**, arrays **0.8971 / 0.8965**; CPU16 shipping floats
+also fall to **0.9095 / 0.9145**. Both no-feature images change too; apparent
+feature-cost gains in the speed profile partly come from slowing no-feature
+controls and are not accepted fixes. The runtime early-return check is removed.
+The boundary regression and Make gates remain; production behavior returns to
+the preceding unaccepted Rust-bridge candidate. Restored formatting/all-feature
+checks and the same **174 executions / sixteen suites** pass, two ignored.
 
 The new frozen bridge executable's loaded sections and program headers match
 its symbol replay exactly. Its upvalue profile records **310,777,895**

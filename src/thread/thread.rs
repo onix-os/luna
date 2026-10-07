@@ -730,13 +730,6 @@ impl<'gc> ThreadState<'gc> {
         stack: &StackVec<'gc>,
         bottom: usize,
     ) {
-        if self
-            .open_upvalues
-            .last()
-            .is_none_or(|&upvalue| open_upvalue_ind(upvalue) < bottom)
-        {
-            return;
-        }
         let start = match self
             .open_upvalues
             .binary_search_by(|&u| open_upvalue_ind(u).cmp(&bottom))
