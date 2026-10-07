@@ -84,7 +84,7 @@ pub(super) fn try_scalar_activation<'gc>(
     let Operation::Return { start, count } = prototype.opcodes[3].decode() else {
         panic!("scalar activation has no canonical return");
     };
-    *frame.pc_mut() += 1;
+    *frame.registers().pc += 1;
     Some((completed, start, count))
 }
 
@@ -235,7 +235,7 @@ fn run_vm_slice<'gc>(
             current_function.into_inner(),
             resume.closure.into_inner()
         ));
-        assert_eq!(*lua_frame.pc_mut(), resume.pc);
+        assert_eq!(*lua_frame.registers().pc, resume.pc);
         assert_eq!(
             ctx.jit_registry().borrow().identity(ctx, current_prototype),
             Some(resume.source)
@@ -621,7 +621,7 @@ fn run_vm_slice<'gc>(
                     ) {
                         drop(registers);
                         if lua_frame.pair_fixed_stack() {
-                            *lua_frame.pc_mut() = pc;
+                            *lua_frame.registers().pc = pc;
                             interpreter_stats.dispatches -= 1;
                             pair_scope.as_deref_mut().unwrap().handoff = Some(pair);
                             break;

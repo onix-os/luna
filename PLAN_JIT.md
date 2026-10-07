@@ -11,29 +11,56 @@
 
 ### Progress snapshot — 2026-10-07
 
-#### Checked PC-only projection trial — 2026-10-07
+#### Rejected checked PC-only projection — 2026-10-07
 
-Production activation call/return/native transitions and VM pair handoff use
-the full register view only to update its PC. A private `LuaFrame::pc_mut`
-projection now reads the physical top Lua frame and retains the same
-`split_at_mut(base)` bounds check before lending only its counter. It does not
-cache pointers, extend borrows, alter mutation/fuel order, or expand the full
-register constructor. Test-only scalar activation/resume use the same accessor.
+`ce84bcc` replaced full register views at PC-only activation call/return/native
+transitions and VM pair handoff with private `LuaFrame::pc_mut`. It retained
+the physical top-Lua and `split_at_mut(base)` checks, mutation/fuel order and
+scoped borrows. No cached pointer, wider lifetime or full-constructor inlining
+was introduced. Four pure tests cover current-only mutation, fixed/variable
+stacks including base equal to length, invalid bases including `usize::MAX`,
+absent/non-Lua frames and rebinding after stack/frame changes. An initial
+assertion borrowed both views simultaneously; copying the first counter fixed
+that test compilation error without changing runtime behavior.
 
-Four pure tests exercise current-only mutation, fixed/variable stacks including
-base equal to length, invalid bases including `usize::MAX`, absent/non-Lua
-frames and rebinding after stack growth/frame replacement. Fuel, interruption,
-stack values and close metadata remain unchanged. `make jit-pc-projection` and
-`make jit-pc-projection-miri` provide focused gates. Initial test compilation
-exposed an assertion borrowing both views simultaneously; copying the first
-counter before comparison preserves the intended sequential borrowing test.
+Format/check and **26 focused executions / six suites** pass; Miri passes the
+four projection and four fixed-list helper tests. Baseline/GNU Auto/docs pass
+**1,698 / 168**, ten ignores; GNU Off and Force each pass **1,298 / 83**, six
+ignores. Musl passes **71 / nine** and unsupported i686 **591 / 83**. No failed
+lane is counted as accepted; the initial compile failure remains archived.
 
-Format/check and 26 focused executions across six suites pass; the four pure
-projection tests and four fixed-list helper tests also pass Miri. Broader
-correctness, original-flag image attribution and unchanged paired performance
-acceptance remain pending. The direct control remains the fixed-list candidate;
-neither of the preceding rejected optimizations is included. Evidence uses
-`target/jit-evidence/short-slice-performance/pc-only-projection-*`.
+Original-flag images retain both accessor guards. Its size is 0x5c bytes in
+speed/native and 0x62 in shipping; full constructor sizes and VM reservations
+are unchanged. Feature-Off text grows 200 bytes in speed and 176 in shipping;
+native grows 184. No-feature `.text` is byte-identical to control in both
+profiles, but the complete ELFs differ. Collected cost instruction totals are
+unchanged for integer/float in both profiles and shipping upvalues. Native
+upvalue Auto falls **329,541,973 to 328,643,856** instructions; allocation Auto
+stays **34,757,098**. These diagnostics do not establish elapsed-time benefit.
+
+The twelve-window/two-path comparison completes **144 checked commands**, all
+failing aggregate gates. All **24 complete native non-timing counter comparisons
+match exactly**, including resource metadata; artifact hashes verify. Native
+upvalue direct control/candidate medians improve **1.0091 / 1.0070**, but its
+Off/Auto ratios remain **0.6484 / 0.6511**, below 1.25. Native table, upvalue
+and callbacks still fail all 24 checks, while allocation retains all passes.
+
+New regressions dominate: speed feature-Off float direct medians are
+**0.8986 / 0.8994**, about 11.2% more time, against no-feature controls
+**1.0004 / 0.9957**. Its original cost ratios are **1.1290 / 1.1322**, with
+failures rising **1/24 to 24/24**. Shipping table direct medians are
+**0.9430 / 0.9470**, against no-feature **1.0031 / 1.0027**; failures rise
+**0/24 to 24/24**. Shipping upvalues measure **0.9810 / 0.9784**. Integer
+path variation and every contention outlier remain in the full analysis.
+
+Reject the PC-only runtime change and restore production `registers()` accesses.
+Retain the four independent boundary fixtures against the original API in
+`src/thread/register_view_tests.rs`, with `make jit-frame-view` and
+`make jit-frame-view-miri`. Restored production files match the fixed-list
+runtime exactly; format/check and 26 focused executions across six suites pass,
+as do all eight frame-view/list Miri tests. Evidence is under
+`target/jit-evidence/short-slice-performance/pc-only-projection-*`. No overall
+performance or release acceptance is claimed.
 
 #### Rejected register-view constructor inlining — 2026-10-07
 

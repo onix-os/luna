@@ -55,7 +55,7 @@ fn unchanged_payload(frame: &LuaFrame<'_, '_>) {
 }
 
 #[test]
-fn pc_projection_mutates_only_the_current_counter() {
+fn register_view_pc_mutates_only_the_current_counter() {
     Lua::core().enter(|ctx| {
         with_frame(ctx, |frame| {
             for variable in [false, true] {
@@ -63,9 +63,8 @@ fn pc_projection_mutates_only_the_current_counter() {
                     let closure = frame.closure();
                     *frame.state.frames.last_mut().unwrap() =
                         lua_frame(closure, base, 19, variable);
-                    let projected = *frame.pc_mut();
-                    assert_eq!(projected, *frame.registers().pc);
-                    *frame.pc_mut() += 3;
+                    assert_eq!(*frame.registers().pc, 19);
+                    *frame.registers().pc += 3;
                     assert_eq!(*frame.registers().pc, 22);
                     assert_eq!(frame.registers().fixed_list_stack(), !variable);
                     assert!(matches!(frame.state.frames[0], Frame::Lua { pc: 17, .. }));
@@ -77,7 +76,7 @@ fn pc_projection_mutates_only_the_current_counter() {
 }
 
 #[test]
-fn pc_projection_retains_register_view_bounds_checks() {
+fn register_view_rejects_out_of_bounds_frame_bases() {
     Lua::core().enter(|ctx| {
         with_frame(ctx, |frame| {
             for base in [4, usize::MAX] {
@@ -85,10 +84,6 @@ fn pc_projection_retains_register_view_bounds_checks() {
                     let closure = frame.closure();
                     *frame.state.frames.last_mut().unwrap() =
                         lua_frame(closure, base, 19, variable);
-                    assert!(catch_unwind(AssertUnwindSafe(|| {
-                        let _ = frame.pc_mut();
-                    }))
-                    .is_err());
                     assert!(catch_unwind(AssertUnwindSafe(|| {
                         let _ = frame.registers();
                     }))
@@ -105,7 +100,7 @@ fn pc_projection_retains_register_view_bounds_checks() {
 }
 
 #[test]
-fn pc_projection_rejects_missing_and_non_lua_top_frames() {
+fn register_view_rejects_missing_and_non_lua_top_frames() {
     Lua::core().enter(|ctx| {
         with_frame(ctx, |frame| {
             for top in [
@@ -117,39 +112,32 @@ fn pc_projection_rejects_missing_and_non_lua_top_frames() {
                 if let Some(top) = top {
                     frame.state.frames.push(top);
                 }
-                for projection in [false, true] {
-                    let panic = catch_unwind(AssertUnwindSafe(|| {
-                        if projection {
-                            let _ = frame.pc_mut();
-                        } else {
-                            let _ = frame.registers();
-                        }
-                    }))
-                    .unwrap_err();
-                    assert_eq!(
-                        panic.downcast_ref::<&str>(),
-                        Some(&"top frame is not lua frame")
-                    );
-                    unchanged_payload(frame);
-                }
+                let panic = catch_unwind(AssertUnwindSafe(|| {
+                    let _ = frame.registers();
+                }))
+                .unwrap_err();
+                assert_eq!(
+                    panic.downcast_ref::<&str>(),
+                    Some(&"top frame is not lua frame")
+                );
+                unchanged_payload(frame);
             }
         });
     });
 }
 
 #[test]
-fn pc_projection_rebinds_after_frame_and_stack_changes() {
+fn register_view_rebinds_after_frame_and_stack_changes() {
     Lua::core().enter(|ctx| {
         with_frame(ctx, |frame| {
-            *frame.pc_mut() = 23;
+            *frame.registers().pc = 23;
             let closure = frame.closure();
             frame.stack.resize(1024, Value::Nil);
             frame.state.frames.push(lua_frame(closure, 1024, 31, true));
-            *frame.pc_mut() = 37;
+            *frame.registers().pc = 37;
             assert_eq!(*frame.registers().pc, 37);
             frame.state.frames.pop();
             frame.stack.truncate(3);
-            assert_eq!(*frame.pc_mut(), 23);
             assert_eq!(*frame.registers().pc, 23);
             unchanged_payload(frame);
         });

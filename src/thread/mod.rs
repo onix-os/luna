@@ -13,7 +13,7 @@ pub(crate) mod activation;
 mod close;
 mod executor;
 #[cfg(all(test, feature = "jit"))]
-mod pc_tests;
+mod register_view_tests;
 mod thread;
 mod vm;
 
