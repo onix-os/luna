@@ -11,23 +11,44 @@
 
 ### Progress snapshot — 2026-10-07
 
-#### Optional fixed-list fuel borrow trial — 2026-10-07
+#### Rejected optional fixed-list fuel borrow — 2026-10-07
 
-The next refinement replaces the register view's separate fuel reference and
-variable-stack flag with one `Option<&mut Fuel>`. Only a fixed-stack view carries
-the borrow; variable-stack helpers still decline before effects or extra charges.
-This retains all fixed-list coverage and the existing per-call/per-item fuel
-rules without raw-pointer tagging, allocation, or a new cache.
+`e6f364a` replaced the register view's separate fuel reference and variable-stack
+flag with one `Option<&mut Fuel>`. Only fixed-stack views carried the borrow;
+variable-stack helpers still declined before effects or extra charges. All
+fixed-list coverage, per-call/per-item fuel rules and scoped lifetimes remained.
+No raw-pointer tagging, allocation, cache or weakened gate was introduced.
 
-The original fixed-list shipping assembly adds two callee-saved register pairs
-and reads the enclosing LuaFrame where the earlier compiler scalarized its
-state/stack arguments. Combined with ten extra instructions per register-view
-construction, this motivates a smaller representation; it does not prove timing
-benefit. Focused JIT/list/activation/region tests and four Miri helper tests pass.
-Broader validation, original-flag image inspection and unchanged paired benchmarks
-remain pending. The direct control is `fixed-set-list-candidate`, preserving its
-allocation/GC gains rather than comparing against an older slower implementation.
-Evidence uses `target/jit-evidence/short-slice-performance/optional-list-fuel-*`.
+Focused tests passed 22 executions, baseline/GNU Auto/docs **1,694** across 168
+suites with ten ignores, musl **67**, unsupported i686 **587**, and Miri **four**.
+Original-flag symbol companions match the frozen timing images. The smaller view
+retains two callee-saved register pairs and adds an explicit fuel-pointer branch.
+Shipping upvalue instruction totals rise **97,326,298 to 97,426,303**, with exactly
+one extra instruction per constructor call; VM/Executor self-work is unchanged.
+
+Twelve alternating windows at two matched paths complete **144 checked commands**;
+every aggregate command fails its original gate. The direct control is the
+fixed-list candidate, not an older slower build. All **24 complete non-timing
+counter comparisons match exactly**, including memory metadata, and artifact
+hashes verify. All windows, no-feature controls and contention outliers remain.
+
+Shipping table direct control/candidate medians are **0.9569 / 0.9626** and gate
+failures rise **1/24 to 17/24**. Shipping upvalues measure **0.9582 / 0.9720**;
+their compiled-Off/no-feature ratios worsen from **1.0963 / 1.0996** to
+**1.1387 / 1.1347**, above the unchanged 1.05 limit. Speed float measures
+**0.9734 / 0.9783**, with failures rising **1/24 to 7/24**. Corresponding
+no-feature controls remain near unity. Integer results vary substantially by
+path and remain in the report; they are not evidence of universal improvement.
+
+Native table, upvalue and allocation direct medians improve modestly, but table,
+upvalue and callbacks still fail all 24 original checks. Allocation retains
+24/24 passes. These gains do not offset the new shipping regressions: reject the
+optional representation and restore separate fuel/variable fields, retaining
+fixed-list native execution and all semantic tests. Restored runtime source
+matches the fixed-list parent exactly; format/check and 22 focused executions
+across five suites pass. Evidence is under
+`target/jit-evidence/short-slice-performance/optional-list-fuel-*`, including
+`optional-list-fuel-balanced/analysis.json`. This is not full-plan acceptance.
 
 #### Fixed-list native coverage trial — 2026-10-07
 
