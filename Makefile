@@ -1013,6 +1013,15 @@ r: run
 repl:
 	@$(CARGO) run --example interpreter -- $(ARGS)
 
+.PHONY: numeric-conversions
+numeric-conversions:
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) constant::tests
+	@$(CARGO) test --locked -p luna --no-default-features --test numeric_semantics $(TARGET_ARG)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) constant::tests
+	@for mode in off auto force; do \
+		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test numeric_semantics $(TARGET_ARG) || exit $$?; \
+	done
+
 # `--all-targets` covers the integration suites under tests/, which are the ones that actually
 # exercise the Lua scripts; it does *not* cover doc tests, so `test-doc` runs beside it.
 test:
@@ -1099,6 +1108,7 @@ help:
 	@echo "  repl         Run the interpreter example"
 	@echo "  test         Run all tests, including doc tests"
 	@echo "  test-all     Run all tests with every feature enabled"
+	@echo "  numeric-conversions Check numeric coercion and arithmetic in all runtime modes"
 	@echo "  test-doc     Run doc tests alone"
 	@echo "  check        Run cargo check on all targets"
 	@echo "  check-all    Run cargo check on all targets/all features"

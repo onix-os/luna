@@ -4,6 +4,9 @@ use ottavino_gc_arena::Collect;
 
 use crate::compiler::string_utils::{read_float, read_integer, trim_whitespace};
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug, Copy, Clone, Collect)]
 #[collect(no_drop)]
 pub enum Constant<S> {
@@ -141,9 +144,14 @@ impl<S: AsRef<[u8]>> Constant<S> {
 
     /// Interprets Numbers, Integers, and Strings as a Number, if possible.
     pub fn to_number(&self) -> Option<f64> {
-        match self.to_numeric() {
-            Some(Self::Integer(a)) => Some(a as f64),
-            Some(Self::Number(a)) => Some(a),
+        match self {
+            Self::Integer(a) => Some(*a as f64),
+            Self::Number(a) => Some(*a),
+            Self::String(_) => match self.to_numeric() {
+                Some(Self::Integer(a)) => Some(a as f64),
+                Some(Self::Number(a)) => Some(a),
+                _ => None,
+            },
             _ => None,
         }
     }

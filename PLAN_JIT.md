@@ -11,6 +11,25 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Shared numeric conversion trial — 2026-10-07
+
+`Constant::to_number` now handles existing integers and numbers directly while
+numeric strings still use the unchanged normalization/parser path. This targets
+measured shared interpreter work, not native frame or ownership shortcuts:
+the earlier exact speed compiled-Off float profile attributes 35,200,396
+instructions to `to_numeric`. Arithmetic fallbacks normalize values before
+calling `to_number`, which previously normalized them again.
+
+`make numeric-conversions` passes **74 test executions** across baseline and
+JIT Off/Auto/Force integration. New differential tests cover numeric bit patterns,
+integer rounding boundaries, signed zero, infinities/NaNs, valid/invalid numeric
+strings, one string-byte borrow, arithmetic subtypes, wrapping and zero-divisor
+results. Full workspace and original native/compiled-Off performance checks are
+pending. This shared change affects no-feature controls too; both absolute times
+and each variant's unchanged acceptance ratios must be compared. No performance
+fix or full-plan acceptance is claimed. Evidence is under
+`target/jit-evidence/short-slice-performance/numeric-number-*`.
+
 #### Direct admitted-pair driver rejected — 2026-10-07
 
 The `a7fedd7` trial invokes the already-owned native callee from Rust between the
