@@ -262,7 +262,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         arguments: u8,
     ) -> Result<(), VMError> {
         let result = self.with_frame(|mut frame| {
-            *frame.registers().pc += 1;
+            *frame.pc_mut() += 1;
             frame.call_function(
                 ctx,
                 function,
@@ -282,7 +282,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         instructions: u32,
     ) -> Result<(), VMError> {
         let result = self.with_frame(|mut frame| {
-            *frame.registers().pc += 1;
+            *frame.pc_mut() += 1;
             frame.return_upper(&ctx, start, crate::types::VarCount::constant(count))
         });
         if result.is_ok() {
@@ -372,7 +372,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         prefix: u32,
     ) -> Result<(), VMError> {
         let result = self.with_frame(|mut frame| {
-            *frame.registers().pc += 1;
+            *frame.pc_mut() += 1;
             match transition {
                 crate::opcode::CallTransition::Call {
                     func,

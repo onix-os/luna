@@ -11,6 +11,30 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Checked PC-only projection trial — 2026-10-07
+
+Production activation call/return/native transitions and VM pair handoff use
+the full register view only to update its PC. A private `LuaFrame::pc_mut`
+projection now reads the physical top Lua frame and retains the same
+`split_at_mut(base)` bounds check before lending only its counter. It does not
+cache pointers, extend borrows, alter mutation/fuel order, or expand the full
+register constructor. Test-only scalar activation/resume use the same accessor.
+
+Four pure tests exercise current-only mutation, fixed/variable stacks including
+base equal to length, invalid bases including `usize::MAX`, absent/non-Lua
+frames and rebinding after stack growth/frame replacement. Fuel, interruption,
+stack values and close metadata remain unchanged. `make jit-pc-projection` and
+`make jit-pc-projection-miri` provide focused gates. Initial test compilation
+exposed an assertion borrowing both views simultaneously; copying the first
+counter before comparison preserves the intended sequential borrowing test.
+
+Format/check and 26 focused executions across six suites pass; the four pure
+projection tests and four fixed-list helper tests also pass Miri. Broader
+correctness, original-flag image attribution and unchanged paired performance
+acceptance remain pending. The direct control remains the fixed-list candidate;
+neither of the preceding rejected optimizations is included. Evidence uses
+`target/jit-evidence/short-slice-performance/pc-only-projection-*`.
+
 #### Rejected register-view constructor inlining — 2026-10-07
 
 `e18d4f7` kept the separate fuel/variable fields and marked only

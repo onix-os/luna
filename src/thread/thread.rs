@@ -915,6 +915,27 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
         Ok(true)
     }
 
+    #[cfg(all(
+        feature = "jit",
+        any(
+            test,
+            all(
+                not(miri),
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            )
+        )
+    ))]
+    pub(super) fn pc_mut(&mut self) -> &mut usize {
+        match self.state.frames.last_mut() {
+            Some(Frame::Lua { base, pc, .. }) => {
+                let _ = self.stack[..].split_at_mut(*base);
+                pc
+            }
+            _ => panic!("top frame is not lua frame"),
+        }
+    }
+
     /// returns a view of the Lua frame's registers
     pub(super) fn registers<'b>(&'b mut self) -> LuaRegisters<'gc, 'b> {
         match self.state.frames.last_mut() {
