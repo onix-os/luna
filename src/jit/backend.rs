@@ -2103,6 +2103,12 @@ impl Emitter<'_, '_> {
                 left,
                 right,
             } => self.compare(op, skip_if, left, right),
+            SetList { base, count } if !count.is_variable() => self.helper(
+                abi::HELPER_SET_LIST,
+                u32::from(base.0),
+                u32::from(count.to_constant().unwrap()),
+                0,
+            ),
             SetList { .. }
             | Call { .. }
             | TailCall { .. }
@@ -3432,7 +3438,7 @@ mod helper_flow_tests {
         VarCount,
     };
 
-    fn operations() -> [Operation; 9] {
+    fn operations() -> [Operation; 10] {
         [
             Operation::Move {
                 dest: R(0),
@@ -3475,6 +3481,10 @@ mod helper_flow_tests {
                 dest: U(0),
                 source: R(3),
             },
+            Operation::SetList {
+                base: R(0),
+                count: VarCount::constant(2),
+            },
         ]
     }
 
@@ -3515,7 +3525,7 @@ mod helper_flow_tests {
         }
         helper_signature.returns.push(AbiParam::new(types::I32));
         let signature = function.import_signature(helper_signature);
-        let imports: [_; 9] = std::array::from_fn(|index| {
+        let imports: [_; helpers::SYMBOLS.len()] = std::array::from_fn(|index| {
             let helper = function.import_function(cranelift_codegen::ir::ExtFuncData {
                 name: cranelift_codegen::ir::ExternalName::testcase(format!("helper_{index}")),
                 signature,
@@ -3768,7 +3778,7 @@ mod ownership_tests {
         signature.params.extend([types::I32; 4].map(AbiParam::new));
         signature.returns.push(AbiParam::new(types::I32));
         let signature = function.import_signature(signature);
-        let imports: [_; 9] = std::array::from_fn(|index| {
+        let imports: [_; helpers::SYMBOLS.len()] = std::array::from_fn(|index| {
             let func = function.import_function(cranelift_codegen::ir::ExtFuncData {
                 name: cranelift_codegen::ir::ExternalName::testcase(format!(
                     "owned_helper_{index}"

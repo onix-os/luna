@@ -918,7 +918,12 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
     /// returns a view of the Lua frame's registers
     pub(super) fn registers<'b>(&'b mut self) -> LuaRegisters<'gc, 'b> {
         match self.state.frames.last_mut() {
-            Some(Frame::Lua { base, pc, .. }) => {
+            Some(Frame::Lua {
+                base,
+                pc,
+                is_variable: _is_variable,
+                ..
+            }) => {
                 let (upper_stack, stack_frame) = self.stack[..].split_at_mut(*base);
                 LuaRegisters {
                     pc,
@@ -928,6 +933,10 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
                     open_upvalues: &mut self.state.open_upvalues,
                     to_be_closed: &mut self.state.to_be_closed,
                     stack: self.state.stack,
+                    #[cfg(feature = "jit")]
+                    fuel: self.fuel,
+                    #[cfg(feature = "jit")]
+                    variable: *_is_variable,
                 }
             }
             _ => panic!("top frame is not lua frame"),
@@ -1283,9 +1292,25 @@ pub(crate) struct LuaRegisters<'gc, 'a> {
     open_upvalues: &'a mut vec::Vec<UpValue<'gc>, MetricsAlloc<'gc>>,
     to_be_closed: &'a mut vec::Vec<usize, MetricsAlloc<'gc>>,
     stack: Gc<'gc, RefLock<StackVec<'gc>>>,
+    #[cfg(feature = "jit")]
+    fuel: &'a mut Fuel,
+    #[cfg(feature = "jit")]
+    variable: bool,
 }
 
 impl<'gc, 'a> LuaRegisters<'gc, 'a> {
+    #[cfg(feature = "jit")]
+    pub(crate) fn fixed_list_stack(&self) -> bool {
+        !self.variable
+    }
+
+    #[cfg(feature = "jit")]
+    pub(crate) fn charge_fixed_list(&mut self, count: usize) {
+        self.fuel.consume(LuaFrame::FUEL_PER_CALL);
+        self.fuel
+            .consume(count_fuel(LuaFrame::FUEL_PER_ITEM, count));
+    }
+
     #[cfg(all(
         feature = "jit",
         any(
@@ -1308,6 +1333,18 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
         stack_frame: &mut [Value<'gc>],
         call: impl FnOnce(LuaRegisters<'gc, '_>) -> R,
     ) -> R {
+        Self::with_test_frame_state(ctx, pc, stack_frame, &mut Fuel::empty(), false, call)
+    }
+
+    #[cfg(all(test, feature = "jit"))]
+    pub(crate) fn with_test_frame_state<R>(
+        ctx: Context<'gc>,
+        pc: &mut usize,
+        stack_frame: &mut [Value<'gc>],
+        fuel: &mut Fuel,
+        variable: bool,
+        call: impl FnOnce(LuaRegisters<'gc, '_>) -> R,
+    ) -> R {
         let allocator = MetricsAlloc::new(&ctx);
         let mut open_upvalues = vec::Vec::new_in(allocator.clone());
         let mut to_be_closed = vec::Vec::new_in(allocator.clone());
@@ -1319,6 +1356,8 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
             open_upvalues: &mut open_upvalues,
             to_be_closed: &mut to_be_closed,
             stack: Gc::new(&ctx, RefLock::new(vec::Vec::new_in(allocator))),
+            fuel,
+            variable,
         })
     }
 
@@ -1544,6 +1583,8 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
             open_upvalues: &mut open_upvalues,
             to_be_closed: &mut to_be_closed,
             stack: Gc::new(&ctx, RefLock::new(vec::Vec::new_in(allocator))),
+            fuel: &mut Fuel::empty(),
+            variable: false,
         })
     }
 

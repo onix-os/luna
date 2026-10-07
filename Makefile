@@ -1013,7 +1013,14 @@ r: run
 repl:
 	@$(CARGO) run --example interpreter -- $(ARGS)
 
-.PHONY: numeric-conversions jit-vm-dispatch
+.PHONY: numeric-conversions jit-vm-dispatch jit-set-list jit-set-list-miri
+jit-set-list-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::set_list_tests
+
+jit-set-list:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::set_list_tests
+	@$(CARGO) test --locked -p luna --features jit --test jit_set_list $(TARGET_ARG)
+
 jit-vm-dispatch:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::dispatch::tests
 
@@ -1113,6 +1120,7 @@ help:
 	@echo "  test-all     Run all tests with every feature enabled"
 	@echo "  numeric-conversions Check numeric coercion and arithmetic in all runtime modes"
 	@echo "  jit-vm-dispatch Check per-slice dispatch selection and code ownership"
+	@echo "  jit-set-list Check fixed-list native writes, fuel, and fallback"
 	@echo "  test-doc     Run doc tests alone"
 	@echo "  check        Run cargo check on all targets"
 	@echo "  check-all    Run cargo check on all targets/all features"

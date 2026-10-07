@@ -10,11 +10,14 @@ use super::{
     projection,
 };
 
+#[cfg(test)]
+mod set_list_tests;
+
 const fn symbol<const KIND: u32>(name: &'static str) -> (u32, &'static str, abi::HelperEntry) {
     (KIND, name, call::<KIND>)
 }
 
-pub(super) const SYMBOLS: [(u32, &str, abi::HelperEntry); 9] = [
+pub(super) const SYMBOLS: [(u32, &str, abi::HelperEntry); 10] = [
     symbol::<{ abi::HELPER_MOVE }>("luna_move_v4"),
     symbol::<{ abi::HELPER_CONSTANT }>("luna_constant_v4"),
     symbol::<{ abi::HELPER_NEW_TABLE }>("luna_new_table_v4"),
@@ -24,6 +27,7 @@ pub(super) const SYMBOLS: [(u32, &str, abi::HelperEntry); 9] = [
     symbol::<{ abi::HELPER_SET_UP_TABLE }>("luna_set_up_table_v4"),
     symbol::<{ abi::HELPER_GET_UPVALUE }>("luna_get_upvalue_v4"),
     symbol::<{ abi::HELPER_SET_UPVALUE }>("luna_set_upvalue_v4"),
+    symbol::<{ abi::HELPER_SET_LIST }>("luna_set_list_v1"),
 ];
 
 #[derive(Default)]
@@ -191,6 +195,33 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
                 self.count.upvalue_writes += 1;
                 true
             }
+            abi::HELPER_SET_LIST => {
+                if !self.registers.fixed_list_stack() {
+                    return false;
+                }
+                let (Value::Table(table), Value::Integer(mut index)) =
+                    (self.register(slots, a), self.register(slots, a + 1))
+                else {
+                    return false;
+                };
+                self.registers.charge_fixed_list(b as usize);
+                for offset in 0..b {
+                    let Some(next) = index.checked_add(1) else {
+                        break;
+                    };
+                    index = next;
+                    table
+                        .set_raw(
+                            &self.ctx,
+                            index.into(),
+                            self.register(slots, a + 2 + offset),
+                        )
+                        .unwrap();
+                    self.count.table_writes += 1;
+                }
+                self.store(slots, a + 1, Value::Integer(index));
+                true
+            }
             _ => false,
         }
     }
@@ -261,7 +292,7 @@ pub(super) unsafe extern "C" fn call<const KIND: u32>(
 mod tests {
     use super::*;
 
-    fn assert_identical<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
+    pub(super) fn assert_identical<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
         match (actual, expected) {
             (Value::Nil, Value::Nil) => {}
             (Value::Boolean(a), Value::Boolean(b)) => assert_eq!(a, b),

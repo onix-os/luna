@@ -581,6 +581,14 @@ fn expected(op: Operation, snapshot: &Snapshot) -> Option<(u32, [u32; 3])> {
             abi::HELPER_SET_UPVALUE,
             [u32::from(dest.0), u32::from(source.0), 0],
         ),
+        SetList { base, count } if !count.is_variable() => (
+            abi::HELPER_SET_LIST,
+            [
+                u32::from(base.0),
+                u32::from(count.to_constant().unwrap()),
+                0,
+            ],
+        ),
         _ => return None,
     })
 }

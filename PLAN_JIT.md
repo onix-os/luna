@@ -11,6 +11,40 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Fixed-list native coverage trial — 2026-10-07
+
+Exact-image profiling of the current dispatch candidate identifies repeated
+ordinary invocation work in allocation/GC: **11,865,748 collected instructions**
+in `Runtime::invoke<16,false>`, versus **8,466,369** in VM self-work.
+Fixed-count `SetList` previously forced an interpreter exit and another scratch
+packing pass on every table construction. The new trial lowers fixed-count lists
+through the existing helper ABI, retaining variable-list fallback and all
+original performance gates.
+
+The helper validates fixed-stack and table/integer-index state before effects,
+uses pending scalar operands and normal raw-table barriers, stops on signed
+index overflow, and charges existing per-call/per-item fuel through a scoped
+register-view borrow. The index is committed only after the writes finish.
+Panic containment preserves partial writes and materializes pending scalars.
+Source effects/access and emitted helper-call verification now admit the tenth
+helper; scoped call regions use the same implementation. New coverage intentionally
+changes completed native work and helper/table-write counters for list construction.
+
+Focused tests pass four helper cases and three integrated cases: exact slice/fuel
+traces across seven budgets and fixed/variable/multi-chunk/reference lists with
+GC, one uninterrupted 64-instruction native slice, and actual native call-region
+execution. All four helper cases also pass Miri. The existing lease-reuse test
+retains its assertions and now uses an unsupported unary-minus operation to
+exercise interpreter fragments instead of relying on fixed lists being unsupported.
+An initial test fixture used zero fuel, which correctly prevents call-region
+admission; the region-specific proof uses a positive budget and retains its native
+entry assertion. Initial command/test-construction failures remain in evidence.
+
+Broader validation and paired benchmarking are pending; this is an unaccepted
+coverage/performance trial, not overall regression or release acceptance.
+Evidence: `target/jit-evidence/short-slice-performance/dispatch-native-link*`
+and `fixed-set-list-*`.
+
 #### Per-slice dispatch state trial — 2026-10-07
 
 The next candidate represents interpreted, observing, and compiled execution

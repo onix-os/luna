@@ -39,7 +39,7 @@ const _: () = {
 #[cfg(not(miri))]
 use super::{backend, ir::Snapshot, resources::MappingCounter, work, JitError};
 
-pub(super) const SYMBOLS: [(u32, &str, abi::HelperEntry); 9] = [
+pub(super) const SYMBOLS: [(u32, &str, abi::HelperEntry); 10] = [
     (
         abi::HELPER_MOVE,
         "luna_scoped_move_v1",
@@ -84,6 +84,11 @@ pub(super) const SYMBOLS: [(u32, &str, abi::HelperEntry); 9] = [
         abi::HELPER_SET_UPVALUE,
         "luna_scoped_set_upvalue_v1",
         call::<{ abi::HELPER_SET_UPVALUE }>,
+    ),
+    (
+        abi::HELPER_SET_LIST,
+        "luna_scoped_set_list_v1",
+        call::<{ abi::HELPER_SET_LIST }>,
     ),
 ];
 

@@ -236,6 +236,16 @@ Generated code handles scalar move/load, truth testing, integer/float add/subtra
 
 Native code also calls scoped, barrier-aware helpers for reference move/constant load, table allocation/read/write, and open/closed upvalue access. Fresh raw-value, metatable, readonly, and interception checks admit operations that need no user callback; all operations requiring metamethod dispatch decline before effects. Weak table accesses use the same weak-upgrade/store APIs as the interpreter. Dedicated counters and tests prove successful native heap operations, not just scalar prefixes.
 
+Fixed-count `SetList` uses a raw-list helper on fixed stacks. It reads pending
+scalar values, retains raw-table barriers and signed-index overflow behavior,
+and charges the interpreter's additional per-call/per-item fuel through a
+scoped borrow. Variable lists and invalid table/index types retain interpreter
+fallback before effects or extra fuel charges. Panics retain partial writes and
+materialize pending scalars without retrying the operation. Table-write counters
+include each successful list element. `make jit-set-list` checks fuel/GC parity,
+native full-slice and call-region execution, and helper panic/decline boundaries;
+`make jit-set-list-miri` checks the Rust helper boundary under Miri.
+
 Upvalue joins can target the executing frame's own locals. Same-stack access
 uses the register split at `base`, not an assumption that all cells precede the
 frame. Native helpers read the current scratch value for such aliases and write
@@ -305,11 +315,11 @@ targets and one fuel increment. Empty nil ranges still require a checked edge.
 Move's direct path requires its actual non-reference split. Unexpected stores
 in these scalar finish blocks are refused. Write/edge records are exact-counted
 and snapshot-quota-charged.
-Helper records independently decode all nine source helper kinds, including
+Helper records independently decode all ten source helper kinds, including
 reference moves/constants, and bind each physical direct call to its imported
 function, host/slot pointers, six-argument ABI, operand encodings and source PC.
 Completion/panic tests must use the actual returned status; success edges require
-the decoded next PC and one-step fuel, while panic/decline edges preserve the
+the decoded next PC and one completed-bytecode increment, while panic/decline edges preserve the
 source PC and unchanged count. Missing/extra calls, unexpected stores in helper
 call/status blocks, and record growth are refused before code generation.
 Exact-counted helper records use the snapshot ledger and can refuse with

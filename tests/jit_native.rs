@@ -539,7 +539,7 @@ fn one_vm_slice_reuses_its_lease_across_interpreted_fragments() -> Result<(), Ex
     let mut lua = native_empty();
     let executor = source(
         &mut lua,
-        b"local sum=0 for i=1,100 do local t={i,i+1} sum=sum+t[1] end return sum",
+        b"local sum=0 for i=1,100 do local t={i,i+1} local n=-i sum=sum+t[1]+n+i end return sum",
     )?;
     assert_eq!(lua.prepare_jit().unwrap(), 1);
     lua.enter(|ctx| {
