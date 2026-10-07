@@ -11,6 +11,54 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Scoped reference-index moves — retained development WIP
+
+`4de2044` removes Rust helper crossings for reference Moves in source-certified
+native callers. Generated code copies tag/index pairs referring to a bounded
+typed snapshot, never GC pointers or Rust enum layouts. The snapshot stays inside the
+activation's arena mutation and is rebuilt after canonical transitions. Callers
+with reference constants or other native helpers keep their original backend;
+no native workload is disabled. Physical Call/Return, fresh admission guards,
+full materialization, fuel and panic transport remain.
+
+Transfer verification checks exact source/payload/destination, continuation and
+instruction count; helper verification rejects any generated call in this mode.
+Tests cover closure copies after overwriting their original slot, every value
+kind and register boundaries, malformed indices/tags, every native entry/budget,
+and corrupt source/destination/payload/ownership/continuation rejection.
+
+Two frozen nine-case comparisons, three alternating windows on CPU0/16 and
+eleven paired samples, show repeated upvalue control/candidate throughput ratios
+**1.0856/1.0300**, then **1.0689/1.0385**. Exact-image work falls from 276,871,067
+to 265,823,119 instructions (3.99%). Logical native work remains **778,484**;
+helper-backed work falls from **134,406 to 5,132**. Only live/peak owner metadata
+changes, by eight bytes, among the other reported counters. Mappings remain
+28,672 bytes. This is structural progress, not full performance acceptance.
+
+**Tradeoffs remain unresolved.** Native-harness CPU0 compiled-Off integer and
+callback timings regress on repeat (ratios 0.9079/0.8875). A separate full
+speed/shipping cost comparison reports CPU0 speed float 0.9574, CPU0 shipping
+integer 0.9734 and CPU16 shipping upvalue 0.9856. Both no-feature images are
+byte-identical to their controls. All **48 aggregate commands / 864 rows** fail
+the unchanged gates. The native upvalue Off/Auto ratio is still about 0.77–0.83,
+below 1.25. Keeping the development candidate is not approval of these
+regressions or permission to release it; disabled cost and the remaining native
+gap stay on the active work list.
+
+GNU rooted/baseline/all-feature-Auto/doc checks pass **1,755 executions in 174
+suites**, ten ignored, zero failures. Three pure snapshot Miri tests pass with
+21 warnings. Four native Memcheck checks pass with zero errors and zero definite/
+indirect leaks; 48 possibly lost and 632 reachable harness bytes remain visible.
+Initial test-only equality/GC-lifetime compilation errors are retained alongside
+their corrected runs. A final optimized rebuild after test additions is
+byte-identical to the frozen candidate image.
+
+Evidence is under `target/jit-evidence/short-slice-performance/rooted-moves*`:
+source patches/hashes, exact-image profiles, all raw windows, counter changes,
+contention telemetry and checks. No owned tests/builds/profiles overlapped
+timing; all invocation aliases are removed. Full performance, shipping-cost,
+platform/release and compiler-resource-policy acceptance remain open.
+
 #### Same-Call compact input reuse — measured and rejected
 
 The trial prepared compact integer cells during fresh call admission when the

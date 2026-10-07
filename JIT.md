@@ -477,6 +477,25 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 
 ## Verification and remaining work
 
+### Scoped reference-index caller moves (development WIP)
+
+Eligible native-region callers move references by copying bounded indices into
+a typed `Value` snapshot. Generated code never reads that snapshot or stores GC
+pointers. The snapshot lives only within the activation's arena mutation and is
+refreshed after each canonical transition. Before fallback or a physical Call,
+all slots are materialized through the snapshot. Existing fresh admission,
+physical-frame, fuel, lease and panic checks remain.
+
+Source admission excludes reference constants and every native helper other
+than Move; ineligible callers retain their original native/helper backend.
+Independent transfer verification binds tag/payload loads, stores, continuation
+and instruction count to the source. Helper verification requires no generated
+calls in this mode. `make jit-rooted-moves` checks the snapshot model and actual
+generated code; `make jit-rooted-moves-miri` checks the pure Rust snapshot model.
+Native-region differentials exercise physical transitions and overwritten
+closure-source slots. This candidate improves measured upvalue timing but still
+fails full performance and disabled-cost gates; see `PLAN_JIT.md`.
+
 Current-frame alias repair (`710dd33`) passes full GNU/musl
 `nix develop -c make jit-verify clippy jit-clippy`: each reports 4941 passing
 executions across 434 suites, with 24 ignored tests. Existing 141 lib-test
