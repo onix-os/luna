@@ -11,6 +11,24 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Register-view constructor inline trial — 2026-10-07
+
+After rejecting the optional fuel representation, this experiment keeps the
+original separate fuel/variable fields and marks only `LuaFrame::registers`
+`inline(always)`. Exact fixed-list shipping assembly materializes the complete
+view across an out-of-line ABI and saves extra registers, even for callers
+which only need the PC. Constructor visibility may eliminate unused fields;
+it must be verified rather than assumed. This is not executor-adapter inlining,
+VM duplication or the previously rejected canonical live-prototype binding.
+
+All borrow lifetimes, physical frames, helper/fuel/GC/panic semantics, native
+coverage and accounting remain unchanged. The control is the frozen fixed-list
+candidate. Format/check, 22 focused executions across five suites and four Miri
+helper tests pass. Broader validation, exact original-flag image/stack/size
+inspection and the unchanged paired campaign are pending. No performance
+acceptance is claimed.
+Evidence uses `target/jit-evidence/short-slice-performance/register-view-inline-*`.
+
 #### Rejected optional fixed-list fuel borrow — 2026-10-07
 
 `e6f364a` replaced the register view's separate fuel reference and variable-stack
