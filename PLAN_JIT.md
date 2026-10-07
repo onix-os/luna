@@ -11,6 +11,36 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Disabled-runtime attribution — diagnostic in progress
+
+The restored runtime remains unchanged. Exact symbol companions of the rejected
+`f54b9d5` and fixed-set-list control support twelve corrected step profiles:
+speed/shipping, no-feature/control/candidate, full-worker/single-float contexts,
+twenty iterations plus two warmups. Print-boundary dumps independently reconcile
+every part/event total with the profiler's collected totals and verify actual
+feature/mode/results/native-zero reports. The initial batch selected no-feature
+images under JIT labels because a shell cleanup variable clobbered the selected
+name; independent protocol checks rejected it. Its evidence is not attributed
+to JIT-Off. Corrected selection uses a local cleanup variable and per-run checks.
+
+Float step work is identical across full/single and control/candidate contexts:
+**135,281,322 instructions** in speed, **159,042,774** in shipping; reads, writes
+and branch counts also match. Six whole-worker profiles check work outside
+Executor steps. Float totals are **136,531,536 / 136,532,014** control/candidate
+in speed and **160,468,376 / 160,467,212** in shipping. These broader intervals
+also include untimed setup/destruction; neither scope proves hardware causality
+or replaces elapsed acceptance. Original candidate rejection remains in force.
+
+A separate 576-command/two-path context timing diagnostic retains 2,880 verified
+case reports, but one worker observation per window gives large path/half-run
+movement and no reliable attribution. It also used redundant explicit Off
+arguments rather than the original comparator's default-Off worker arguments.
+An eleven-sample repeat now uses the original full-worker argument form, two
+matched paths, alternating order, 24 windows and all three controls, with
+contention and artifact telemetry. It is still running, not an accepted fix.
+No owned profiler/build/test overlaps that repeat. Ignored diagnostic evidence:
+`target/jit-evidence/short-slice-performance/disabled-context-*`.
+
 #### Rejected generic import selection — 2026-10-07
 
 `f54b9d5` kept the ten generic names, ABI and runtime helper bodies, but registered
