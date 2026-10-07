@@ -37,8 +37,39 @@ Existing rebound-capture and native-region tests now exercise this path. The
 GNU baseline, all-feature default-Off and documentation run passes **1,722 test
 executions / 172 suites**, ten ignored; this is not a new full platform matrix.
 Compiler Memcheck again reports zero errors and zero definite/indirect leaks.
-Performance is not accepted; repeated paired measurements remain required.
+Canonical-call Memcheck also passes all 38 tests with zero errors and zero
+definite/indirect leaks (48 possibly lost and 632 reachable harness bytes).
+
+Three implementation screens each finish twelve checked commands, three
+alternating windows on CPU0/CPU16, all nine cases and eleven samples per case.
+All **36 aggregate checks fail**. Comparisons use the previously frozen restored
+runtime, not a new matched no-feature/shipping campaign; they are diagnostic,
+not release acceptance. Every screen retains all 324 data rows, environment
+telemetry, source and executable hashes. No owned tests/builds overlap timing.
+
+Initial compact upvalue control/candidate ratios are **0.9382 / 0.9720**
+(CPU0/CPU16). Lifetime-bound frames, byte cell indices and cached upper-capture
+alias maps reduce that regression to **0.9877 / 1.0042**, not a demonstrated win.
+An additional single-scope materialization trial regresses to **0.9263 / 0.9879**
+and is reverted. The retained implementation is the lifetime-bound frame WIP;
+the full post-native canonical validation remains.
+
+After restoration, formatting/all-feature checks and the full all-feature Auto
+suite pass **1,320 executions / 85 suites**, six ignored. The final compiler
+Memcheck run passes with zero errors and zero definite/indirect leaks. Its alias
+matrix now runs both direct and cached-entry paths (2,592 native invocations
+across 1,296 cases), and an equal-valued but different binding is refused before
+entry. These checks do not turn the failed performance screens into acceptance.
+
+All execution counters match the control across these runs. The retained WIP
+adds **4,096 code bytes**, **96 live/peak metadata bytes** and **288 snapshot-peak
+bytes** on the upvalue workload; these costs are charged, not omitted. Its
+own interpreter/native upvalue ratios remain about **0.70 / 0.77**, below the
+unchanged 1.25 target. It is not an accepted performance fix, and compiled-Off,
+shipping, full platform and resource-policy acceptance remain open. Avoid
+claiming reduced copying alone solves the dominant per-call transition cost.
 Evidence: `target/jit-evidence/short-slice-performance/compact-callee-*`.
+Timing evidence: `compact-{integrated,bound-frame,scoped}-screen/` in that directory.
 
 #### Bound-tail caller refresh — rejected runtime trial
 

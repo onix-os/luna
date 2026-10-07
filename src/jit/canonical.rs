@@ -509,7 +509,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             let ctx = self.ctx;
             let site = self.site;
             let callee = self.callee;
-            let completed = self.host.with_registers(|closure, mut registers| {
+            let prepared = self.host.with_registers(|closure, registers| {
                 if *registers.pc != 0
                     || !matches_callee(ctx, site, callee, closure)
                     || registers.stack_frame.len() < site.registers
@@ -527,38 +527,45 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
                     }
                     _ => return None,
                 };
-                let mut frame = code.compact().prepare(
+                let frame = code.compact().prepare(
                     registers.stack_frame,
                     (!target.0).then_some(target.1),
                     value,
                 )?;
-                self.target = Some(target);
-                let output = code
-                    .compact()
-                    .invoke(&mut frame)
-                    .expect("compact source binding");
-                self.frame.exit = Exit {
-                    pc: 3,
-                    instructions: 3,
-                    reason: Kind::Interpreter as u32,
-                };
-                assert_eq!((start, self.calls, self.returns), (site.start.0, 1, 0));
-                registers.stack_frame[usize::from(site.pattern.read.0)] =
-                    Value::Integer(output.read);
-                registers.stack_frame[usize::from(site.pattern.result.0)] =
-                    Value::Integer(output.result);
-                registers.projection_write(target.0, target.1, Value::Integer(output.capture));
-                *registers.pc = 3;
-                Some(())
+                Some((target, frame))
             });
-            if completed.is_none() {
+            let Some((target, mut frame)) = prepared else {
                 let frame = self.prepare_leaf();
                 if !frame.is_null() {
                     unsafe { code.invoke_leaf(frame, budget) };
                     self.leave(frame, 3, u32::from(start));
                 }
                 return;
-            }
+            };
+            self.target = Some(target);
+            let output = code
+                .compact()
+                .invoke(&mut frame)
+                .expect("compact source binding");
+            self.frame.exit = Exit {
+                pc: 3,
+                instructions: 3,
+                reason: Kind::Interpreter as u32,
+            };
+            assert_eq!((start, self.calls, self.returns), (site.start.0, 1, 0));
+            let (upper, index) = target;
+            self.host.with_registers(|closure, mut registers| {
+                assert!(matches_callee(ctx, site, callee, closure));
+                assert_eq!(*registers.pc, 0);
+                assert!(registers.stack_frame.len() >= site.registers);
+                assert!(registers.projection_read(upper, index).is_some());
+                registers.stack_frame[usize::from(site.pattern.read.0)] =
+                    Value::Integer(output.read);
+                registers.stack_frame[usize::from(site.pattern.result.0)] =
+                    Value::Integer(output.result);
+                registers.projection_write(upper, index, Value::Integer(output.capture));
+                *registers.pc = 3;
+            });
             {
                 let mut manager = ctx.jit().0.borrow_mut();
                 manager.stats.native_upvalue_reads =
