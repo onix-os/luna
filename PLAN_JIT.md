@@ -34,9 +34,27 @@ formatting/all-feature checks and **94 executions / six suites** pass, two
 ignored. An initial extra Cargo filter was rejected
 before tests; its log is preserved separately.
 
-This is a performance implementation candidate, **not a measured speedup or
-accepted fix**. Next are frozen native and compiled-Off measurements of this
-runtime change. No further campaigns on rejected import pruning are planned.
+Five original-flag binaries are frozen; both no-feature binaries are byte-for-
+byte identical to the fixed-set-list controls. A three-window initial screen
+on each of CPU0 and CPU16, two matched paths and unchanged eleven-sample gates,
+completes **72 checked commands / 1,080 parsed rows**. All twelve complete
+execution/resource counter comparisons and immutable hashes match. No owned
+build, profiler or correctness job overlaps timing.
+
+Native upvalue direct control/candidate speedups are **1.0821 / 1.0920** on
+CPU0 and **1.1007 / 1.1051** on CPU16, with corresponding Off controls close
+to one. This is an initial **8–10% native gain**, not the required overall
+speedup: own Off/Auto ratios remain **0.707–0.751**, below 1.25, and every
+aggregate gate still fails. Shipping compiled-Off float worsens on both cores:
+direct **0.9458 / 0.9481** on CPU0 and **0.9604 / 0.9729** on CPU16 against
+near-flat no-feature controls. CPU0 shipping integer introduces six failed cost
+checks, where all six controls passed. Native callback results vary by path and
+include slowdowns. These regressions remain visible, not accepted tradeoffs.
+
+Keep this as an explicitly **unaccepted work-in-progress runtime candidate**
+while addressing the remaining overhead and shipping regressions. Correctness
+coverage is focused, not yet a full new platform/release qualification. No
+further campaigns on rejected import pruning are planned.
 Evidence: `target/jit-evidence/short-slice-performance/admitted-callee-binding-*`.
 
 #### Disabled-runtime attribution — diagnostic in progress
