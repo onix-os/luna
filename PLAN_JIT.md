@@ -11,9 +11,9 @@
 
 ### Progress snapshot — 2026-10-07
 
-#### Compact callee compiler — integration pending
+#### Compact callee frames — integrated, performance unaccepted
 
-The test-only compiler emits the actual GetUpValue, integer arithmetic and
+The compact compiler emits the actual GetUpValue, integer arithmetic and
 SetUpValue operations through four alias-preserving integer cells, avoiding a
 full register-prefix representation. Five tests pass, including 1,296 native
 alias combinations, register 255, source/IR tampering, allocation/protection
@@ -21,9 +21,23 @@ failures, quota refusal and retained code leases. Formatting and all-feature
 checks pass. Memcheck reports zero errors and zero definite/indirect leaks;
 48 possibly lost and 544 reachable bytes originate in the Rust test harness.
 
-This checkpoint is not connected to production execution and establishes no
-speedup. The next change must integrate physical Call/Return, fresh capture
-guards, fuel, errors and fallback without copying the full callee register frame.
+The initial compiler checkpoint is `f504275`. Production admitted calls now use
+the compact function in the existing owned executable image. The generic entry
+remains for partial budgets, post-Call guard failure and custom fault fixtures.
+Physical Call/Return, fresh capture/prototype checks, fuel and panic transport
+remain; only affected callee registers/capture are materialized. Full caller
+refresh is unchanged. Extra code, owner bytes, signatures and actual IR remain
+within the existing accounting and limits.
+
+Compact/generic/interpreter differentials cover full frame/fuel/dispatch traces,
+wrapping arithmetic, interrupted fuel, argument-shift aliases and late refusal,
+fixed return counts, enter/leave panics and consumed-Call errors. A 256-register
+sentinel proves the compact path does not touch the legacy scratch prefix.
+Existing rebound-capture and native-region tests now exercise this path. The
+GNU baseline, all-feature default-Off and documentation run passes **1,722 test
+executions / 172 suites**, ten ignored; this is not a new full platform matrix.
+Compiler Memcheck again reports zero errors and zero definite/indirect leaks.
+Performance is not accepted; repeated paired measurements remain required.
 Evidence: `target/jit-evidence/short-slice-performance/compact-callee-*`.
 
 #### Bound-tail caller refresh — rejected runtime trial

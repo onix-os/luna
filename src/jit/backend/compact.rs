@@ -5,39 +5,45 @@ use cranelift_codegen::ir::{Function, Signature, UserFuncName};
 type CompactEntry = unsafe extern "C" fn(*mut i64, *mut i64, *mut i64, *mut i64);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Binding {
+pub(super) struct Binding {
     pattern: Pattern,
     constant: Option<i64>,
     registers: usize,
     returns: (u8, u8),
 }
 
-struct Program {
+pub(super) struct Program {
     binding: Binding,
-    function: Function,
+    pub function: Function,
 }
 
+#[cfg(test)]
 pub(super) struct Code {
     _memory: Memory,
     entry: CompactEntry,
     binding: Binding,
 }
 
-struct Frame {
+pub(in crate::jit) struct Frame {
     binding: Binding,
     cells: [i64; 4],
     indices: [usize; 4],
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct Outputs {
-    capture: i64,
-    read: i64,
-    result: i64,
+pub(in crate::jit) struct Outputs {
+    pub capture: i64,
+    pub read: i64,
+    pub result: i64,
+}
+
+pub(in crate::jit) struct Entry {
+    entry: CompactEntry,
+    binding: Binding,
 }
 
 impl Binding {
-    fn new(source: &Snapshot) -> Result<Self, JitError> {
+    pub(super) fn new(source: &Snapshot) -> Result<Self, JitError> {
         let pattern = Pattern::recognize(source)
             .ok_or_else(|| JitError::Compilation("compact callee source".into()))?;
         let Operation::Return { start, count } = source.operations[3] else {
@@ -64,7 +70,7 @@ impl Binding {
         })
     }
 
-    fn program(self, isa: &dyn cranelift_codegen::isa::TargetIsa) -> Program {
+    pub(super) fn program(self, isa: &dyn cranelift_codegen::isa::TargetIsa) -> Program {
         let mut signature = Signature::new(isa.default_call_conv());
         signature
             .params
@@ -100,7 +106,7 @@ impl Binding {
         }
     }
 
-    fn verify(
+    pub(super) fn verify(
         self,
         program: &Program,
         isa: &dyn cranelift_codegen::isa::TargetIsa,
@@ -162,8 +168,28 @@ impl Binding {
     }
 }
 
-impl Code {
-    fn invoke(&self, frame: &mut Frame) -> Result<Outputs, JitError> {
+impl Entry {
+    /// Binds a verified compact function to its live executable image.
+    ///
+    /// # Safety
+    /// The pointer must implement the binding and remain executable while used.
+    pub(super) unsafe fn new(binding: Binding, pointer: *const u8) -> Self {
+        Self {
+            binding,
+            entry: unsafe { std::mem::transmute::<*const u8, CompactEntry>(pointer) },
+        }
+    }
+
+    pub(in crate::jit) fn prepare(
+        &self,
+        registers: &[crate::Value<'_>],
+        capture: Option<usize>,
+        upper: i64,
+    ) -> Option<Frame> {
+        self.binding.prepare(registers, capture, upper)
+    }
+
+    pub(in crate::jit) fn invoke(&self, frame: &mut Frame) -> Result<Outputs, JitError> {
         if frame.binding != self.binding || frame.indices.iter().any(|&index| index >= 4) {
             return Err(JitError::Compilation("compact invocation binding".into()));
         }
@@ -185,6 +211,18 @@ impl Code {
     }
 }
 
+#[cfg(test)]
+impl Code {
+    fn invoke(&self, frame: &mut Frame) -> Result<Outputs, JitError> {
+        Entry {
+            binding: self.binding,
+            entry: self.entry,
+        }
+        .invoke(frame)
+    }
+}
+
+#[cfg(test)]
 fn compile(
     source: &Snapshot,
     total: MappingCounter,

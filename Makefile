@@ -361,13 +361,14 @@ jit-compact-callee:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::compact::tests $(ARGS)
 
 COMPACT_CALLEE_DIR ?= target/jit-evidence/compact-callee
+COMPACT_CALLEE_FILTER ?= jit::backend::compact::tests
 .PHONY: jit-compact-callee-memcheck
 jit-compact-callee-memcheck:
 	@mkdir -p '$(COMPACT_CALLEE_DIR)'
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) --no-run --message-format=json-render-diagnostics > '$(COMPACT_CALLEE_DIR)/build.jsonl'
 	@jq -r 'select(.reason == "compiler-artifact" and .target.name == "luna" and .profile.test and .executable != null) | .executable' '$(COMPACT_CALLEE_DIR)/build.jsonl' > '$(COMPACT_CALLEE_DIR)/binary-path'
 	@test "$$(wc -l < '$(COMPACT_CALLEE_DIR)/binary-path')" -eq 1
-	@valgrind --tool=memcheck --error-exitcode=99 --leak-check=full --show-leak-kinds=all --errors-for-leak-kinds=definite,indirect "$$(cat '$(COMPACT_CALLEE_DIR)/binary-path')" jit::backend::compact::tests --test-threads=1 > '$(COMPACT_CALLEE_DIR)/memcheck.log' 2>&1
+	@valgrind --tool=memcheck --error-exitcode=99 --leak-check=full --show-leak-kinds=all --errors-for-leak-kinds=definite,indirect "$$(cat '$(COMPACT_CALLEE_DIR)/binary-path')" '$(COMPACT_CALLEE_FILTER)' --test-threads=1 > '$(COMPACT_CALLEE_DIR)/memcheck.log' 2>&1
 
 .PHONY: jit-call-canonical
 jit-call-canonical:
