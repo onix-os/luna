@@ -81,6 +81,65 @@ fn build_dependencies<'gc>(ctx: Context<'gc>, closure: Closure<'gc>) -> (Prepare
 }
 
 #[test]
+fn admitted_pair_matches_canonical_with_shifted_capture_arguments() {
+    for source in [
+        &b"local n=7 local function f(v) n=n+v end f(3) return n"[..],
+        &b"local n=7 local function f(v,...) n=n+v end f(3,4,5) return n"[..],
+        &b"local n=7 local function f() n=n+2 end f() return n"[..],
+    ] {
+        fixture_source(source, |ctx, closure, region, _| {
+            let pc = region.pair.program.key().pc;
+            let Operation::Call { func, args, .. } = closure.prototype().opcodes[pc].decode()
+            else {
+                panic!()
+            };
+            for argument_capture in [false, true] {
+                if argument_capture && args.to_constant() == Some(0) {
+                    continue;
+                }
+                let run = |admission| {
+                    with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+                        ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                        host.run(ctx, 1, pc as u32, 4).result.unwrap();
+                        if argument_capture {
+                            host.with_registers(|_, mut registers| {
+                                let Value::Function(crate::Function::Closure(callee)) =
+                                    registers.stack_frame[usize::from(func.0)]
+                                else {
+                                    panic!()
+                                };
+                                let upvalue = registers.open_test_upvalue(
+                                    &ctx,
+                                    crate::types::RegisterIndex(func.0 + 1),
+                                );
+                                callee.set_upvalue(&ctx, 0, upvalue);
+                            });
+                        }
+                        ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+                        let before = stats(ctx);
+                        let outcome = if admission {
+                            let admitted = super::super::canonical::admission::Admitted::new(
+                                &region.pair.program,
+                                ctx,
+                                closure,
+                                host.frame_identity(),
+                            )
+                            .unwrap();
+                            admitted.invoke(host, 64, 0).unwrap()
+                        } else {
+                            region.pair.program.invoke_result(ctx, host, 64, 0).unwrap()
+                        };
+                        outcome.result.unwrap();
+                        ((outcome.calls, outcome.returns), trace(ctx, host, before))
+                    })
+                };
+                assert_eq!(run(true), run(false));
+            }
+        });
+    }
+}
+
+#[test]
 fn admitted_pair_tracks_rebound_capture_across_repeated_calls() {
     let source =
         b"local n=7 local m=11 local keep={} local function f(v) n=n+v end f(3) return n,m,keep";
