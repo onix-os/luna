@@ -11,6 +11,25 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Compact session cold fallback — measurement pending
+
+The retained compact executable is byte-identical to a fresh original-flag
+build whose symbol replay matches every loaded section and program header.
+Its upvalue profile uses 294,367,740 instructions versus the earlier runtime's
+310,773,850, but this previously did not establish an elapsed-time win.
+Disassembly identifies another concrete cost: admitted calls reserve 0x12b8
+stack bytes and initialize the generic frame/view on every compact invocation.
+
+The compact physical-call session is now separate from the legacy frame/view.
+Its 256-slot scratch exists only in a non-inlined fallback, after the already
+consumed Call. Both sessions share the physical Call/fuel/statistics helper.
+The compact path retains its full post-native validation; this does not revive
+the rejected single-scope writeback trial. Existing differentials execute this
+production session, including a new float/reference, partial-budget, exhausted
+fuel and prefix-charge matrix against the generic path. Focused compiler/call/
+region checks pass; the expanded 39-test canonical suite also passes Memcheck
+with zero errors and zero definite/indirect leaks. Performance remains pending.
+
 #### Compact callee frames — integrated, performance unaccepted
 
 The compact compiler emits the actual GetUpValue, integer arithmetic and

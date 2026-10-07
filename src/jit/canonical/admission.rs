@@ -145,23 +145,23 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
         if !self.preflight(host, budget, prefix) {
             return None;
         }
-        let mut scratch = [MaybeUninit::uninit(); 256];
-        let mut session = Session::new(self.ctx, host, &self.program.site, &mut scratch);
-        session.callee = Some(self.callee);
-        session.prefix = prefix;
         #[cfg(test)]
-        if self.program.custom_hooks {
+        let outcome = if self.program.custom_hooks {
+            let mut scratch = [MaybeUninit::uninit(); 256];
+            let mut session = Session::new(self.ctx, host, &self.program.site, &mut scratch);
+            session.callee = Some(self.callee);
+            session.prefix = prefix;
             unsafe {
                 self.program
                     .code
                     .invoke(std::ptr::addr_of_mut!(session).cast(), budget.min(64));
             }
+            session.finish()
         } else {
-            session.invoke_compact(&self.program.code, budget.min(64));
-        }
+            self.invoke_compact(host, budget, prefix)
+        };
         #[cfg(not(test))]
-        session.invoke_compact(&self.program.code, budget.min(64));
-        let outcome = session.finish();
+        let outcome = self.invoke_compact(host, budget, prefix);
         if outcome.calls == 0 {
             return None;
         }
@@ -174,5 +174,22 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
             },
         );
         Some(outcome)
+    }
+
+    fn invoke_compact(
+        &self,
+        host: &mut ActivationHost<'gc, '_>,
+        budget: u32,
+        prefix: u32,
+    ) -> crate::jit::PairOutcome {
+        let mut session = compact::CompactSession::new(
+            self.ctx,
+            host,
+            &self.program.site,
+            Some(self.callee),
+            prefix,
+        );
+        session.invoke(&self.program.code, budget.min(64));
+        session.finish()
     }
 }

@@ -342,19 +342,14 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
         {
             return false;
         }
-        let ctx = self.ctx;
         self.calls = 1;
-        let result = self.host.call(ctx, self.site.function, self.site.arguments);
-        let mut stats = ctx.jit().interpreter_stats();
-        stats.dispatches = 1;
-        stats.reported_instructions = result.as_ref().ok().map(|_| 0);
-        drop(stats);
-        if let Err(error) = result {
-            self.error = Some(error);
-            return false;
+        match physical_call(self.ctx, self.host, self.site, self.prefix) {
+            Ok(ready) => ready,
+            Err(error) => {
+                self.error = Some(error);
+                false
+            }
         }
-        self.host.charge_instructions(self.prefix);
-        self.host.lua_ready() && self.host.fuel().should_continue()
     }
 
     fn prepare_leaf(&mut self) -> *mut NativeFrame {
@@ -482,6 +477,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
         2
     }
 
+    #[cfg(test)]
     fn invoke_leaf(&mut self, code: &CallCode, budget: u32) {
         let (pc, function, arguments, start) = code.operands();
         let result = catch_unwind(AssertUnwindSafe(|| {
@@ -496,97 +492,20 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
         }
     }
 
+    #[cfg(test)]
     fn invoke_compact(&mut self, code: &CallCode, budget: u32) {
-        if budget <= 3 {
-            self.invoke_leaf(code, budget);
+        if self.calls != 0 {
             return;
         }
-        let (pc, function, arguments, start) = code.operands();
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            if !self.enter_call(pc, u32::from(function), u32::from(arguments)) {
-                return;
-            }
-            let ctx = self.ctx;
-            let site = self.site;
-            let callee = self.callee;
-            let prepared = self.host.with_registers(|closure, registers| {
-                if *registers.pc != 0
-                    || !matches_callee(ctx, site, callee, closure)
-                    || registers.stack_frame.len() < site.registers
-                {
-                    return None;
-                }
-                let upvalue = closure
-                    .upvalues()
-                    .get(usize::from(site.pattern.upvalue))?
-                    .get();
-                let (target, value) = match registers.projection_origin(upvalue)? {
-                    Origin::Upper(index, Value::Integer(value)) => ((true, index), value),
-                    Origin::Register(index, Value::Integer(value)) if index < site.registers => {
-                        ((false, index), value)
-                    }
-                    _ => return None,
-                };
-                let frame = code.compact().prepare(
-                    registers.stack_frame,
-                    (!target.0).then_some(target.1),
-                    value,
-                )?;
-                Some((target, frame))
-            });
-            let Some((target, mut frame)) = prepared else {
-                let frame = self.prepare_leaf();
-                if !frame.is_null() {
-                    unsafe { code.invoke_leaf(frame, budget) };
-                    self.leave(frame, 3, u32::from(start));
-                }
-                return;
-            };
-            self.target = Some(target);
-            let output = code
-                .compact()
-                .invoke(&mut frame)
-                .expect("compact source binding");
-            self.frame.exit = Exit {
-                pc: 3,
-                instructions: 3,
-                reason: Kind::Interpreter as u32,
-            };
-            assert_eq!((start, self.calls, self.returns), (site.start.0, 1, 0));
-            let (upper, index) = target;
-            self.host.with_registers(|closure, mut registers| {
-                assert!(matches_callee(ctx, site, callee, closure));
-                assert_eq!(*registers.pc, 0);
-                assert!(registers.stack_frame.len() >= site.registers);
-                assert!(registers.projection_read(upper, index).is_some());
-                registers.stack_frame[usize::from(site.pattern.read.0)] =
-                    Value::Integer(output.read);
-                registers.stack_frame[usize::from(site.pattern.result.0)] =
-                    Value::Integer(output.result);
-                registers.projection_write(upper, index, Value::Integer(output.capture));
-                *registers.pc = 3;
-            });
-            {
-                let mut manager = ctx.jit().0.borrow_mut();
-                manager.stats.native_upvalue_reads =
-                    manager.stats.native_upvalue_reads.saturating_add(1);
-                manager.stats.native_upvalue_writes =
-                    manager.stats.native_upvalue_writes.saturating_add(1);
-                manager.stats.record_native_exit(&self.frame.exit);
-            }
-            self.returns = 1;
-            let result = self.host.return_fixed(ctx, site.start, site.returns, 3);
-            let mut stats = ctx.jit().interpreter_stats();
-            stats.dispatches = 1;
-            stats.reported_instructions = result.as_ref().ok().map(|_| 0);
-            drop(stats);
-            if let Err(error) = result {
-                self.error = Some(error);
-            }
-        }));
-        if let Err(payload) = result {
-            self.panic = Some(payload);
-        }
+        let mut session =
+            compact::CompactSession::new(self.ctx, self.host, self.site, self.callee, self.prefix);
+        session.invoke(code, budget);
+        self.calls = session.calls;
+        self.returns = session.returns;
+        self.error = session.error.take();
+        self.panic = session.panic.take();
+        self.frame.exit = std::mem::take(&mut session.exit);
+        self.target = session.target;
     }
 
     fn finish(mut self) -> super::PairOutcome {
@@ -602,6 +521,22 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
         }
         outcome
     }
+}
+
+fn physical_call<'gc>(
+    ctx: Context<'gc>,
+    host: &mut ActivationHost<'gc, '_>,
+    site: &Site,
+    prefix: u32,
+) -> Result<bool, crate::thread::VMError> {
+    let result = host.call(ctx, site.function, site.arguments);
+    let mut stats = ctx.jit().interpreter_stats();
+    stats.dispatches = 1;
+    stats.reported_instructions = result.as_ref().ok().map(|_| 0);
+    drop(stats);
+    result?;
+    host.charge_instructions(prefix);
+    Ok(host.lua_ready() && host.fuel().should_continue())
 }
 
 fn matches_callee<'gc>(
@@ -687,3 +622,4 @@ fn invoke_result<'gc>(
 mod tests;
 
 pub(super) mod admission;
+mod compact;

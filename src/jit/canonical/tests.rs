@@ -14,6 +14,66 @@ use crate::{thread::activation::with_test_thread, Closure, Fuel, JitConfig, Lua}
 const ADD: &[u8] = b"local n=7 local function f(v) n=n+v end f(2) return n";
 
 #[test]
+fn compact_cold_fallback_preserves_consumed_calls_and_partial_native_work() {
+    for source in [
+        ADD,
+        &b"local n=7.5 local function f(v) n=n+v end f(2) return n"[..],
+        &b"local n=7 local function f(v) n=n+v end f(2.5) return n"[..],
+        &b"local n=7 local function f(v) n=n+v end f({}) return n"[..],
+    ] {
+        fixture(source, |lua, closure, site, code| {
+            lua.enter(|ctx| {
+                for budget in [0, 3, 4, 64] {
+                    for fuel in [-1, 0, 8, 9, 10, 1000] {
+                        for prefix in [0, 4] {
+                            let run = |compact| {
+                                with_test_thread(
+                                    ctx,
+                                    ctx.fetch(&closure),
+                                    &mut Fuel::with(10000),
+                                    |host| {
+                                        position(host, ctx, site.pc);
+                                        host.test_fuel(Fuel::with(fuel));
+                                        let before = stats(ctx);
+                                        let mut slots = [MaybeUninit::uninit(); 256];
+                                        let mut session =
+                                            Session::new(ctx, host, &site, &mut slots);
+                                        session.prefix = prefix;
+                                        if compact {
+                                            session.invoke_compact(&code, budget);
+                                        } else {
+                                            session.invoke_leaf(&code, budget);
+                                        }
+                                        let exit = (
+                                            session.frame.exit.pc,
+                                            session.frame.exit.instructions,
+                                            session.frame.exit.reason,
+                                        );
+                                        let outcome = session.finish();
+                                        outcome.result.unwrap();
+                                        (
+                                            trace(ctx, host, before),
+                                            outcome.calls,
+                                            outcome.returns,
+                                            exit,
+                                        )
+                                    },
+                                )
+                            };
+                            assert_eq!(
+                                run(true),
+                                run(false),
+                                "budget={budget}, fuel={fuel}, prefix={prefix}, source={source:?}"
+                            );
+                        }
+                    }
+                }
+            });
+        });
+    }
+}
+
+#[test]
 fn rust_bridge_bypasses_callbacks_and_preserves_partial_native_exits() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static CALLBACKS: AtomicUsize = AtomicUsize::new(0);
