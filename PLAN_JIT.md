@@ -11,6 +11,51 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Fixed-capacity physical calls — measured, unaccepted WIP
+
+The JIT activation host now has an allocation-free fixed-argument closure-call
+path. It requires a fresh closure, a non-variable caller, sufficient value/frame
+capacity, arguments within the fixed parameter/register bounds, and room below
+the depth limit. It moves arguments and initializes the remaining registers in
+place, preserving the real callee frame, caller PC/return expectation, shared
+VM fuel constants and interpreter dispatch accounting. Refusal has no effects;
+allocation, excess arguments, depth limits and other calls stay on the original
+path. Ordinary VM and no-feature execution sources are otherwise unchanged.
+
+Initial focused validation passed 101 executions. Expanded validation passed
+52 focused executions and 1,324 full GNU all-feature Auto executions (six
+ignored). Two dedicated physical-call differential tests pass Memcheck with
+zero errors and zero definite/indirect leaks; harness reports retain 48 possibly
+lost and 632 reachable bytes. Cases include missing/excess arguments, zero-width
+frames, frame/value capacity refusal, depth errors and saturated/interrupted
+fuel. Native call, alias, error and panic tests remain enabled.
+
+Two frozen native screens each contain 324 rows: all nine workloads, three
+alternating windows per CPU0/CPU16, eleven paired samples and unchanged gates.
+The final shared-fuel-constant build improves direct upvalue control/candidate
+ratios to **1.0410/1.0457**, with all execution/resource counters identical.
+The initial original-flag symbol profile used 276,717,634 instructions versus
+294,367,740 for retained control; that profile predates the shared-constant
+follow-up and is not a profile of the final executable. Native acceptance still
+fails: the upvalue speedup over its own interpreter remains below 1.25.
+
+The final change is **not accepted**. A separate 216-row speed/shipping cost
+screen used fresh pre-change and candidate artifacts built at the same repo
+path, identical common invocation paths, three alternating windows on both
+cores, eleven samples and twenty iterations. No-feature binaries are
+byte-identical in both profiles. Speed compiled-Off integer direct ratios are
+**0.9119/1.0024**; float ratios are **0.9801/0.9758**, with CPU0 float failures
+increasing from 0/3 to 3/3. Shipping timings are broadly near control, but
+existing failures remain. All 24 cost gate commands and all 24 native gate
+commands failed. No threshold, workload or native coverage requirement changed.
+
+This source remains feature-branch WIP while the new disabled-path regression
+is investigated; the native gain alone does not justify release acceptance.
+Next inspect the actual speed compiled-Off executable/code generation before
+adding layout or inlining hints. Evidence is retained under
+`target/jit-evidence/short-slice-performance/in-place-call-*`, especially
+`in-place-call-final-screen/` and `in-place-call-cost/screen/`.
+
 #### Borrowed helper invocation — rejected runtime trial
 
 Two measured variants removed the scoped bridge's temporary owning helper
