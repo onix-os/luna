@@ -11,6 +11,30 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Exact attribution of the source-lease slowdown — 2026-10-07
+
+The rejected trial's speed/shipping feature probes have exact symbol companions:
+original compiler flags and linker inputs are retained, both stripped feature
+images byte-match the frozen timing artifacts, and all program headers, allocated
+metadata and 26 nonempty file-backed sections match their symbol-bearing images.
+The no-feature probes also byte-match the frozen controls. Temporary source
+reconstruction is removed immediately after capture; production runtime is unchanged.
+
+Four complete compiled-Off workers (control/candidate in each profile) run at one
+matched invocation path with original `--worker --iterations 20` arguments.
+Nine verified reports, native-zero work, two empty boundary intervals, all thirteen
+event sums, independent exclusive costs and raw/artifact hashes verify.
+
+**Disabled float executes identical instruction, data-read/write and branch counts**
+in both variants: **181,688,298 instructions speed / 201,516,502 shipping**.
+Every individual function's float self-instruction count also matches. Integer
+and callback aggregate work is identical. Small metamethod/allocation differences
+remain: selected function deltas are in allocator/libc routines, not Luna's VM.
+Thus extra interpreter instructions do not explain the reproduced float timing
+regression. This does not prove a particular hardware/layout cause or erase the
+failed original timing gates. Evidence is under `source-lease-link-capture/` in
+`target/jit-evidence/short-slice-performance/`.
+
 #### Scoped source-registration lease trial rejected — 2026-10-07
 
 Trial `497c7b7` holds an immutable registry borrow across an admitted native region.
