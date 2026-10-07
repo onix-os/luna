@@ -11,6 +11,49 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Signed jump domain and disabled-cost diagnosis — implemented, gates open
+
+Exact original-flag speed cost executables were rebuilt with linker-symbol
+replays. Rebuilds match the frozen pre-call-change and fixed-call binaries;
+every loaded section and program header matches its symbol replay. Their
+compiled-Off integer profiles both execute 23,343,705 instructions; float
+profiles both execute 30,745,755. Dynamic read/write counts also match. The VM
+has 10,903 identical address-normalized assembly instructions and unchanged
+0xd40b size, but moves from 0x590550 to 0x590b30. This rules out extra executed
+VM work in these workloads; it does not establish a hardware timing cause.
+Hardware performance counters were unavailable, and no system setting changed.
+
+Inspection of the hot jump helper found two real signed-domain bugs. The
+compiler converted a backward distance to positive i16 before negation, so it
+rejected -32768. The interpreter negated i16 before widening, overflowing for
+that same valid offset. Compiler differences now use checked wide arithmetic;
+the interpreter uses checked_add_signed, matching existing JIT/model behavior.
+Tests exhaust every i16 offset at boundary PCs, retain invalid overflow/
+underflow rejection, and compile/run a Lua loop with an actual -32768 backedge
+and 32,767 additions. Both no-feature and JIT builds execute that regression.
+
+All 113 focused executions pass, with two ignored. The GNU baseline, full
+all-feature Auto, and documentation validation run passes 1,738 executions
+across 172 suites, with ten ignored. Commit 74c29d1 contains the correctness
+fix; it is retained independently of performance acceptance.
+
+The new native screen contains 324 rows against the fixed-call build, and the
+speed/shipping cost screen has 216 comparison rows against the pre-call-change
+control. Both use three alternating windows on CPU0/16 and unchanged full
+workload/sample/check settings. Execution/resource counters match throughout.
+CPU0 speed compiled-Off integer returns to pre-call-change timing (direct
+control/candidate 0.9999); CPU16 is 1.0556. However, CPU0 shipping float regresses
+(0.9540), native array on CPU16 is 0.9678 versus the fixed-call build, and other
+gates still fail. Faster no-feature observations are not evidence of lower JIT
+feature overhead. The CPU16 no-feature integer control has a broad timing range;
+do not treat its large ratio as a certified optimization gain. All 36 aggregate
+commands fail. No new overall performance or shipping acceptance is claimed.
+
+Evidence: `target/jit-evidence/short-slice-performance/fixed-call-cost-profile/`
+contains exact-image profiles/assembly, and `signed-offset-*` contains the fix,
+validation, native screen, cost screen, hashes and telemetry. Physical-call
+optimization remains WIP; the full plan and all other open gates remain open.
+
 #### Fixed-capacity physical calls — measured, unaccepted WIP
 
 The JIT activation host now has an allocation-free fixed-argument closure-call
