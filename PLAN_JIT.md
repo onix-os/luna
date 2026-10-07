@@ -11,6 +11,29 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Open-capture suffix check — runtime trial
+
+`ThreadState::close_upvalues` now checks the highest open capture before
+binary-searching the suffix to close. The list is maintained in ascending stack
+index order, so an empty list or highest index below the returning frame means
+there is nothing to close. Exact-boundary captures still follow the original
+closing path. Frame construction, returned values, capture mutation and fuel
+are unchanged. This affects baseline and JIT-enabled runtimes alike.
+
+A new unit matrix covers empty/single/sparse lists, exact boundaries and
+`usize::MAX`, then mutates the stack and closes the remaining captures to check
+which values remained live. `make vm-upvalue-returns` adds baseline and
+Off/Auto/Force close-handler/error-return coverage. Focused checks pass **174
+executions / sixteen suites**, two ignored. Original-flag timing is pending.
+
+The new frozen bridge executable's loaded sections and program headers match
+its symbol replay exactly. Its upvalue profile records **310,777,895**
+instructions, including **4,550,715** in `close_upvalues`. Caller synchronization
+and physical transitions remain much larger combined costs; this bounded trial
+cannot by itself close the full performance gap. Profiling is diagnostic, not
+wall-clock acceptance. Evidence prefixes: `rust-call-boundary-native*` and
+`upvalue-close-range-*` under `target/jit-evidence/short-slice-performance/`.
+
 #### Rust call boundary — runtime trial, not accepted
 
 Admitted pairs now invoke physical Call and Return through ordinary Rust
