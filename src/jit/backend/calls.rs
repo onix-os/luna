@@ -17,6 +17,9 @@ pub(crate) struct Hooks {
 pub(crate) struct CallCode {
     _memory: Memory,
     entry: unsafe extern "C" fn(*mut c_void, u32) -> u32,
+    callee: crate::jit::leaf::CellEntry,
+    hooks: Hooks,
+    operands: (u64, u8, u8, u8),
     #[cfg(test)]
     pub relocations: usize,
     #[cfg(test)]
@@ -31,6 +34,28 @@ impl CallCode {
     /// for the call. The hooks must not unwind.
     pub unsafe fn invoke(&self, data: *mut c_void, budget: u32) -> u32 {
         unsafe { (self.entry)(data, budget) }
+    }
+
+    /// Invokes the owned callee between its source-bound hooks.
+    /// # Safety
+    /// Hook data, frames, slots, views and cells must remain valid and exclusive.
+    /// The hooks must not unwind.
+    pub unsafe fn invoke_direct(&self, data: *mut c_void, budget: u32) -> u32 {
+        let (pc, function, arguments, start) = self.operands;
+        let frame = unsafe { (self.hooks.enter)(data, pc, function.into(), arguments.into()) };
+        if frame.is_null() {
+            return 0;
+        }
+        unsafe {
+            (self.callee)(
+                (*frame).slots,
+                0,
+                budget,
+                std::ptr::addr_of_mut!((*frame).exit),
+                (*frame).view,
+            );
+            (self.hooks.leave)(data, frame, 3, start.into())
+        }
     }
 }
 
@@ -270,6 +295,7 @@ pub(crate) fn compile(
     }
     module.finalize_definitions().map_err(fail)?;
     let pointer = module.get_finalized_function(entry);
+    let callee = module.get_finalized_function(leaf);
     let image = memory
         .take()
         .ok_or_else(|| JitError::Compilation("missing aggregate mappings".into()))?;
@@ -277,9 +303,13 @@ pub(crate) fn compile(
     let entry = unsafe {
         std::mem::transmute::<*const u8, unsafe extern "C" fn(*mut c_void, u32) -> u32>(pointer)
     };
+    let callee = unsafe { std::mem::transmute::<*const u8, crate::jit::leaf::CellEntry>(callee) };
     Ok(CallCode {
         _memory: image,
         entry,
+        callee,
+        hooks,
+        operands: plan.operands(),
         #[cfg(test)]
         relocations,
         #[cfg(test)]

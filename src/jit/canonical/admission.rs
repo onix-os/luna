@@ -151,7 +151,7 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
         unsafe {
             self.program
                 .code
-                .invoke(std::ptr::addr_of_mut!(session).cast(), budget.min(64));
+                .invoke_direct(std::ptr::addr_of_mut!(session).cast(), budget.min(64));
         }
         let outcome = session.finish();
         if outcome.calls == 0 {
