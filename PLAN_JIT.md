@@ -11,9 +11,9 @@
 
 ### Progress snapshot — 2026-10-07
 
-#### Bound-tail caller refresh — runtime trial
+#### Bound-tail caller refresh — rejected runtime trial
 
-After a successfully returned admitted pair, caller refresh now covers the
+The trial refreshed, after a successfully returned admitted pair, only the
 source-bound function-register tail and any captured caller prefix slot.
 Existing preflight records the freshly resolved capture index in the bounded
 admission object; no refresh descriptor is constructed or transported through
@@ -21,14 +21,35 @@ the return ABI. This differs from the earlier rejected selective-refresh
 variants. All pre-Call materialization, fresh source/capture checks, physical
 frames and error/panic handling remain unchanged. Partial calls, errors and
 other transitions retain full refresh. No new heap owner or unsafe access is
-introduced. This is an unaccepted trial pending original-flag measurements.
+introduced.
 
-New coverage rebinds the same closure's capture across three actual native
-calls, compares the complete result/frame/fuel/dispatch trace to Off, and uses
+Trial coverage rebound the same closure's capture across three actual native
+calls, compared the complete result/frame/fuel/dispatch trace to Off, and used
 ignored reference payload bits to prove untouched prefix slots are not copied.
 Existing wide-prefix, upper-frame, argument-tail-alias, partial-call, fallback,
 panic, GC and activation checks remain enabled. Formatting/all-feature checks
 and **117 executions / eight suites** pass, two ignored.
+
+A freshly rebuilt restored control avoids unrelated source-location changes
+from the retained thread tests; both no-feature binaries match the candidate
+byte for byte. Control/candidate symbol replays match all loaded sections and
+program headers of their frozen originals. Upvalue profile work falls from
+**310,773,850 to 307,175,654 instructions** (1.16%); all execution/resource
+counters match. Profiles and builds finish before the timing campaign.
+
+Three alternating windows on CPU0/CPU16, two paths and all nine workloads finish
+**72 checked commands / 1,080 parsed rows**, with every aggregate gate failing.
+All twelve complete counter comparisons and artifact hashes verify. Native
+upvalue direct control/candidate ratios are **0.9931 / 0.9868** on CPU0 and
+**0.9915 / 1.0085** on CPU16. Shipping CPU0 compiled-Off integers fall to
+**0.8799 / 0.8835** and arrays to **0.9141 / 0.9114** against near-flat,
+byte-identical no-feature controls. CPU16 speed compiled-Off integers fall to
+**0.9530 / 0.9518**. These regressions are not justified by the profile reduction.
+Full refresh is restored. The repeated capture-rebinding differential remains;
+the optimization-only reference-payload canary is removed with the trial.
+Restored formatting/all-feature checks and the same **117 executions / eight
+suites** pass, two ignored. Production source matches the restored `adaf003`
+runtime; only the new test remains under `src/`.
 Evidence: `target/jit-evidence/short-slice-performance/bound-tail-refresh-*`.
 
 #### Open-capture suffix check — rejected runtime trial

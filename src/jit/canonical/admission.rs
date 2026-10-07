@@ -1,7 +1,6 @@
 use super::*;
 use crate::{Closure, FunctionPrototype};
 use ottavino_gc_arena::Gc;
-use std::cell::Cell;
 
 pub(in crate::jit) struct Admitted<'program, 'gc> {
     program: &'program Program,
@@ -9,7 +8,6 @@ pub(in crate::jit) struct Admitted<'program, 'gc> {
     caller: Closure<'gc>,
     callee: Gc<'gc, FunctionPrototype<'gc>>,
     identity: (usize, usize),
-    capture: Cell<usize>,
 }
 
 impl<'program, 'gc> Admitted<'program, 'gc> {
@@ -76,7 +74,6 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
             caller,
             callee,
             identity,
-            capture: Cell::new(usize::MAX),
         })
     }
 
@@ -119,14 +116,7 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
                 return false;
             };
             let capture = match origin {
-                Origin::Upper(_, value) => {
-                    self.capture.set(usize::MAX);
-                    value
-                }
-                Origin::Register(index, value) => {
-                    self.capture.set(index);
-                    value
-                }
+                Origin::Upper(_, value) | Origin::Register(_, value) => value,
                 Origin::Closed(_) => return false,
             };
             if !matches!(capture, Value::Integer(_))
@@ -184,16 +174,5 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
             },
         );
         Some(outcome)
-    }
-
-    pub(in crate::jit) fn refresh_returned(&self, slots: &mut [Slot], values: &[Value<'gc>]) {
-        let tail = usize::from(self.program.site.function.0);
-        let capture = self.capture.get();
-        if capture < tail {
-            slots[capture] = Slot::from_value(values[capture]);
-        }
-        for (slot, value) in slots[tail..].iter_mut().zip(values[tail..].iter().copied()) {
-            *slot = Slot::from_value(value);
-        }
     }
 }

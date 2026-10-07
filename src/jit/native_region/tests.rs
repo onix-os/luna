@@ -81,7 +81,7 @@ fn build_dependencies<'gc>(ctx: Context<'gc>, closure: Closure<'gc>) -> (Prepare
 }
 
 #[test]
-fn returned_refresh_tracks_rebound_capture_without_rewriting_reference_prefix() {
+fn admitted_pair_tracks_rebound_capture_across_repeated_calls() {
     let source =
         b"local n=7 local m=11 local keep={} local function f(v) n=n+v end f(3) return n,m,keep";
     fixture_source(source, |ctx, closure, region, _| {
@@ -112,42 +112,18 @@ fn returned_refresh_tracks_rebound_capture_without_rewriting_reference_prefix() 
                 let before = stats(ctx);
                 let native_before = ctx.jit().0.borrow().stats.native_instructions;
                 for capture in [0, 1, 0] {
-                    let mut slots = host.with_registers(|_, mut registers| {
+                    host.with_registers(|_, mut registers| {
                         *registers.pc = pc;
                         registers.stack_frame[usize::from(func.0)] = callee.into();
                         registers.stack_frame[usize::from(func.0) + 1] = Value::Integer(3);
                         let upvalue =
                             registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(capture));
                         callee.set_upvalue(&ctx, 0, upvalue);
-                        registers
-                            .stack_frame
-                            .iter()
-                            .copied()
-                            .map(abi::Slot::from_value)
-                            .collect::<Vec<_>>()
                     });
-                    assert!(2 < usize::from(func.0));
-                    assert_eq!(slots[2].tag, abi::REFERENCE);
-                    slots[2].bits = 777;
                     if native {
                         let outcome = admitted.invoke(host, 64, 0).unwrap();
                         outcome.result.unwrap();
                         assert_eq!((outcome.calls, outcome.returns), (1, 1));
-                        host.with_registers(|_, registers| {
-                            admitted.refresh_returned(&mut slots, registers.stack_frame);
-                            assert_eq!(slots[2].bits, 777);
-                            for (index, (slot, value)) in slots
-                                .iter()
-                                .zip(registers.stack_frame.iter().copied())
-                                .enumerate()
-                            {
-                                let expected = abi::Slot::from_value(value);
-                                assert_eq!(slot.tag, expected.tag, "register={index}");
-                                if index != 2 {
-                                    assert_eq!(slot.bits, expected.bits, "register={index}");
-                                }
-                            }
-                        });
                     } else {
                         ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
                         host.run(ctx, 2, 64, 4).result.unwrap();
