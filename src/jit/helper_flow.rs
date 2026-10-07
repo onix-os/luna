@@ -35,6 +35,8 @@ pub(super) struct Boundary<'a> {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Fault {
     Symbol,
+    SourceSymbol,
+    ValueSourceSymbol,
     Pointer,
     Operand,
     ConstantFlag,
@@ -129,7 +131,7 @@ impl Calls {
             ir::InstBuilder,
         };
         use Fault::*;
-        let record = if fault == ConstantFlag {
+        let record = if matches!(fault, ConstantFlag | SourceSymbol | ValueSourceSymbol) {
             *self
                 .records
                 .iter()
@@ -138,9 +140,16 @@ impl Calls {
                     else {
                         return false;
                     };
-                    imports.iter().any(|(kind, target)| {
-                        matches!(*kind, abi::HELPER_SET_TABLE | abi::HELPER_SET_UP_TABLE)
-                            && *target == func_ref
+                    imports.iter().any(|(symbol, target)| {
+                        let kind = abi::helper_kind(*symbol);
+                        let eligible =
+                            matches!(kind, abi::HELPER_SET_TABLE | abi::HELPER_SET_UP_TABLE)
+                                || (fault == SourceSymbol
+                                    && matches!(
+                                        kind,
+                                        abi::HELPER_GET_TABLE | abi::HELPER_GET_UP_TABLE
+                                    ));
+                        eligible && *target == func_ref
                     })
                 })
                 .expect("missing constant-key helper")
@@ -167,6 +176,32 @@ impl Calls {
         };
         let args: [Value; 6] = function.dfg.inst_args(record.call).try_into().unwrap();
         match fault {
+            SourceSymbol | ValueSourceSymbol => {
+                let symbol = imports
+                    .iter()
+                    .find(|(_, target)| *target == func_ref)
+                    .unwrap()
+                    .0;
+                let source = if fault == ValueSourceSymbol
+                    || matches!(
+                        abi::helper_kind(symbol),
+                        abi::HELPER_GET_TABLE | abi::HELPER_GET_UP_TABLE
+                    ) {
+                    abi::HELPER_C_CONSTANT
+                } else {
+                    abi::HELPER_B_CONSTANT
+                };
+                let wrong = imports
+                    .iter()
+                    .find(|(key, _)| *key == (symbol ^ source))
+                    .unwrap()
+                    .1;
+                let InstructionData::Call { func_ref, .. } = &mut function.dfg.insts[record.call]
+                else {
+                    unreachable!()
+                };
+                *func_ref = wrong;
+            }
             Symbol => {
                 let wrong = imports
                     .iter()
@@ -525,6 +560,10 @@ impl Calls {
 
 fn expected(op: Operation, snapshot: &Snapshot) -> Option<(u32, [u32; 3])> {
     use Operation::*;
+    let source = |operand, flag| match operand {
+        RCIndex::Register(_) => 0,
+        RCIndex::Constant(_) => flag,
+    };
     let rc = |operand| match operand {
         RCIndex::Register(index) => u32::from(index.0),
         RCIndex::Constant(index) => abi::CONSTANT_OPERAND | u32::from(index.0),
@@ -558,19 +597,23 @@ fn expected(op: Operation, snapshot: &Snapshot) -> Option<(u32, [u32; 3])> {
             ],
         ),
         GetTable { dest, table, key } => (
-            abi::HELPER_GET_TABLE,
+            abi::HELPER_GET_TABLE | source(key, abi::HELPER_C_CONSTANT),
             [u32::from(dest.0), u32::from(table.0), rc(key)],
         ),
         SetTable { table, key, value } => (
-            abi::HELPER_SET_TABLE,
+            abi::HELPER_SET_TABLE
+                | source(key, abi::HELPER_B_CONSTANT)
+                | source(value, abi::HELPER_C_CONSTANT),
             [u32::from(table.0), rc(key), rc(value)],
         ),
         GetUpTable { dest, table, key } => (
-            abi::HELPER_GET_UP_TABLE,
+            abi::HELPER_GET_UP_TABLE | source(key, abi::HELPER_C_CONSTANT),
             [u32::from(dest.0), u32::from(table.0), rc(key)],
         ),
         SetUpTable { table, key, value } => (
-            abi::HELPER_SET_UP_TABLE,
+            abi::HELPER_SET_UP_TABLE
+                | source(key, abi::HELPER_B_CONSTANT)
+                | source(value, abi::HELPER_C_CONSTANT),
             [u32::from(table.0), rc(key), rc(value)],
         ),
         GetUpValue { dest, source } => (

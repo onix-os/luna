@@ -23,14 +23,26 @@ const fn symbol<const KIND: u32>(name: &'static str) -> (u32, &'static str, abi:
     (KIND, name, call::<KIND>)
 }
 
-pub(super) const SYMBOLS: [(u32, &str, abi::HelperEntry); 10] = [
+pub(super) const SYMBOLS: [(u32, &str, abi::HelperEntry); 18] = [
     symbol::<{ abi::HELPER_MOVE }>("luna_move_v4"),
     symbol::<{ abi::HELPER_CONSTANT }>("luna_constant_v4"),
     symbol::<{ abi::HELPER_NEW_TABLE }>("luna_new_table_v4"),
-    symbol::<{ abi::HELPER_GET_TABLE }>("luna_get_table_v4"),
-    symbol::<{ abi::HELPER_SET_TABLE }>("luna_set_table_v4"),
-    symbol::<{ abi::HELPER_GET_UP_TABLE }>("luna_get_up_table_v4"),
-    symbol::<{ abi::HELPER_SET_UP_TABLE }>("luna_set_up_table_v4"),
+    symbol::<{ abi::HELPER_GET_TABLE }>("luna_get_table_r_v5"),
+    symbol::<{ abi::HELPER_GET_TABLE | abi::HELPER_C_CONSTANT }>("luna_get_table_c_v5"),
+    symbol::<{ abi::HELPER_SET_TABLE }>("luna_set_table_rr_v5"),
+    symbol::<{ abi::HELPER_SET_TABLE | abi::HELPER_C_CONSTANT }>("luna_set_table_rc_v5"),
+    symbol::<{ abi::HELPER_SET_TABLE | abi::HELPER_B_CONSTANT }>("luna_set_table_cr_v5"),
+    symbol::<{ abi::HELPER_SET_TABLE | abi::HELPER_B_CONSTANT | abi::HELPER_C_CONSTANT }>(
+        "luna_set_table_cc_v5",
+    ),
+    symbol::<{ abi::HELPER_GET_UP_TABLE }>("luna_get_up_table_r_v5"),
+    symbol::<{ abi::HELPER_GET_UP_TABLE | abi::HELPER_C_CONSTANT }>("luna_get_up_table_c_v5"),
+    symbol::<{ abi::HELPER_SET_UP_TABLE }>("luna_set_up_table_rr_v5"),
+    symbol::<{ abi::HELPER_SET_UP_TABLE | abi::HELPER_C_CONSTANT }>("luna_set_up_table_rc_v5"),
+    symbol::<{ abi::HELPER_SET_UP_TABLE | abi::HELPER_B_CONSTANT }>("luna_set_up_table_cr_v5"),
+    symbol::<{ abi::HELPER_SET_UP_TABLE | abi::HELPER_B_CONSTANT | abi::HELPER_C_CONSTANT }>(
+        "luna_set_up_table_cc_v5",
+    ),
     symbol::<{ abi::HELPER_GET_UPVALUE }>("luna_get_upvalue_v4"),
     symbol::<{ abi::HELPER_SET_UPVALUE }>("luna_set_upvalue_v4"),
     symbol::<{ abi::HELPER_SET_LIST }>("luna_set_list_v1"),
@@ -68,8 +80,12 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
         slots[index as usize] = Slot::from_value(value);
     }
 
-    fn operand(&self, slots: &[Slot], operand: u32) -> Value<'gc> {
-        if operand & abi::CONSTANT_OPERAND != 0 {
+    fn operand<const SYMBOL: u32, const SOURCE: u32>(
+        &self,
+        slots: &[Slot],
+        operand: u32,
+    ) -> Value<'gc> {
+        if SYMBOL & SOURCE != 0 {
             self.closure.prototype().constants[(operand & !abi::CONSTANT_OPERAND) as usize].into()
         } else {
             self.register(slots, operand)
@@ -131,7 +147,7 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
     }
 
     fn operation<const KIND: u32>(&mut self, slots: &mut [Slot], a: u32, b: u32, c: u32) -> bool {
-        match KIND {
+        match abi::helper_kind(KIND) {
             abi::HELPER_MOVE => {
                 self.store(slots, a, self.register(slots, b));
                 true
@@ -156,26 +172,26 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
             }
             abi::HELPER_GET_TABLE => {
                 let table = self.register(slots, b);
-                let key = self.operand(slots, c);
+                let key = self.operand::<KIND, { abi::HELPER_C_CONSTANT }>(slots, c);
                 self.table_read(slots, a, table, key)
             }
             abi::HELPER_SET_TABLE => {
                 let table = self.register(slots, a);
-                let key = self.operand(slots, b);
-                let value = self.operand(slots, c);
+                let key = self.operand::<KIND, { abi::HELPER_B_CONSTANT }>(slots, b);
+                let value = self.operand::<KIND, { abi::HELPER_C_CONSTANT }>(slots, c);
                 self.table_write(table, key, value)
             }
             abi::HELPER_GET_UP_TABLE => {
                 let table = self.upvalue(slots, b);
-                let key = self.operand(slots, c);
+                let key = self.operand::<KIND, { abi::HELPER_C_CONSTANT }>(slots, c);
                 let completed = self.table_read(slots, a, table, key);
                 self.count.upvalue_reads += u64::from(completed);
                 completed
             }
             abi::HELPER_SET_UP_TABLE => {
                 let table = self.upvalue(slots, a);
-                let key = self.operand(slots, b);
-                let value = self.operand(slots, c);
+                let key = self.operand::<KIND, { abi::HELPER_B_CONSTANT }>(slots, b);
+                let value = self.operand::<KIND, { abi::HELPER_C_CONSTANT }>(slots, c);
                 let completed = self.table_write(table, key, value);
                 self.count.upvalue_reads += u64::from(completed);
                 completed
@@ -233,6 +249,11 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
     }
 }
 
+/// Calls the helper selected by its semantic kind and operand-source flags.
+///
+/// # Safety
+/// Host and scratch storage must remain live and exclusively accessible. Table
+/// operands must match the register/constant source flags encoded in `KIND`.
 pub(super) unsafe extern "C" fn call<const KIND: u32>(
     host: *mut abi::Host,
     slots: *mut Slot,
@@ -331,7 +352,9 @@ mod tests {
             data: (frame as *mut Frame<'_, '_, '_, '_>).cast(),
             projection: std::ptr::null_mut(),
         };
-        unsafe { call::<KIND>(&mut host, slots.as_mut_ptr(), a, b, c, pc) }
+        let symbol = abi::helper_symbol(KIND, b, c);
+        let entry = SYMBOLS.iter().find(|(key, _, _)| *key == symbol).unwrap().2;
+        unsafe { entry(&mut host, slots.as_mut_ptr(), a, b, c, pc) }
     }
 
     #[test]

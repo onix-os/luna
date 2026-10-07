@@ -1716,7 +1716,7 @@ impl Emitter<'_, '_> {
         let helper = self
             .helpers
             .iter()
-            .find_map(|(key, helper)| (*key == kind).then_some(*helper))
+            .find_map(|(key, helper)| (*key == abi::helper_symbol(kind, b, c)).then_some(*helper))
             .expect("missing native helper symbol");
         let call = self.builder.ins().call(
             helper,
@@ -3649,6 +3649,44 @@ mod helper_flow_tests {
         }
     }
     #[test]
+    fn helper_source_imports_match_each_register_constant_combination() {
+        for key in [RCIndex::Register(R(1)), RCIndex::Constant(C8(0))] {
+            for value in [RCIndex::Register(R(2)), RCIndex::Constant(C8(1))] {
+                let reads = [
+                    Operation::GetTable {
+                        dest: R(3),
+                        table: R(0),
+                        key,
+                    },
+                    Operation::GetUpTable {
+                        dest: R(3),
+                        table: U(0),
+                        key,
+                    },
+                ];
+                let writes = [
+                    Operation::SetTable {
+                        table: R(0),
+                        key,
+                        value,
+                    },
+                    Operation::SetUpTable {
+                        table: U(0),
+                        key,
+                        value,
+                    },
+                ];
+                for op in reads.into_iter().chain(writes) {
+                    fixture(op, None).unwrap();
+                    refused(fixture(op, Some(Fault::SourceSymbol)));
+                }
+                for op in writes {
+                    refused(fixture(op, Some(Fault::ValueSourceSymbol)));
+                }
+            }
+        }
+    }
+    #[test]
     fn completed_status_target_and_fuel_corruption_is_refused() {
         for fault in [
             Fault::CompletedTest,
@@ -4734,6 +4772,14 @@ mod memory_tests {
     helper_flow_corruption!(
         corrupted_helper_flow_symbol_is_refused_before_codegen_and_mapping,
         Symbol
+    );
+    helper_flow_corruption!(
+        corrupted_helper_flow_source_symbol_is_refused_before_codegen_and_mapping,
+        SourceSymbol
+    );
+    helper_flow_corruption!(
+        corrupted_helper_flow_value_source_symbol_is_refused_before_codegen_and_mapping,
+        ValueSourceSymbol
     );
     helper_flow_corruption!(
         corrupted_helper_flow_pointer_is_refused_before_codegen_and_mapping,

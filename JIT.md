@@ -318,6 +318,13 @@ and snapshot-quota-charged.
 Helper records independently decode all ten source helper kinds, including
 reference moves/constants, and bind each physical direct call to its imported
 function, host/slot pointers, six-argument ABI, operand encodings and source PC.
+Table calls select register/constant source forms at emission: twelve table
+imports plus six other helpers in each ordinary/scoped registry. The verifier
+derives source forms from decoded opcodes independently of emission and rejects
+a same-kind import with different key/value sources. Each selected helper reads
+its declared sources; encoded constant indices retain the constant-bit mask and
+all index bounds checks. Scoped kind counters use semantic kinds, not source IDs.
+Symbol/signature reservations include every source-specific import.
 Completion/panic tests must use the actual returned status; success edges require
 the decoded next PC and one completed-bytecode increment, while panic/decline edges preserve the
 source PC and unchanged count. Missing/extra calls, unexpected stores in helper

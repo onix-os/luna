@@ -11,6 +11,35 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Experimental generated source-specific imports — 2026-10-07
+
+Emission selects the table helper's register/constant source form instead of
+branching on operand flags inside the Rust gateway. Both ordinary and scoped
+registries now have eighteen entries: twelve table variants and six unchanged
+semantic helpers. The six-argument ABI, encoded indices and masks, projections,
+PC/panic behavior, canonical roots and instruction counters remain unchanged.
+Scoped helper-kind bitsets strip source flags. Symbol/signature reservations
+use the expanded registry length and actual ordinary/scoped name lengths.
+
+The source/effect verifier derives import flags independently from decoded
+opcodes, rather than trusting the emitter's encoded operands. New wrong-source,
+same-kind import corruption tests cover read keys, write keys and write values;
+backend refusal precedes code generation/mapping. The registry has a literal-ID
+golden check. Existing 56 helper cases now invoke registry-selected entries;
+an additional scoped fixture executes all twelve table imports. Three integrated
+families compare every Off/Auto fuel/GC boundary at seven budgets and require
+native table reads/writes (and closed-table upvalue reads where applicable).
+
+Focused helper/verifier/lifetime/resource/heap suites pass **139 executions /
+thirteen suites**; format/all-target/all-feature checks and the added integrated
+and lifetime run pass **12 / three**. Gateway/source Miri passes **19 / three**.
+Proof/layout Miri additionally passes **10 / three**; broader/platform suites
+are running. Frozen
+original-flag binaries and timing/resource acceptance remain pending. This is
+an experiment, not an accepted performance improvement or completed JIT plan.
+
+Evidence prefix: `target/jit-evidence/short-slice-performance/source-import-specialization-*`.
+
 #### Rejected runtime operand-source specialization — 2026-10-07
 
 `5d5c2bb` dispatched constant/register source combinations into const-generic

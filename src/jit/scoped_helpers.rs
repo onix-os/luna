@@ -39,7 +39,7 @@ const _: () = {
 #[cfg(not(miri))]
 use super::{backend, ir::Snapshot, resources::MappingCounter, work, JitError};
 
-pub(super) const SYMBOLS: [(u32, &str, abi::HelperEntry); 10] = [
+pub(super) const SYMBOLS: [(u32, &str, abi::HelperEntry); 18] = [
     (
         abi::HELPER_MOVE,
         "luna_scoped_move_v1",
@@ -57,23 +57,63 @@ pub(super) const SYMBOLS: [(u32, &str, abi::HelperEntry); 10] = [
     ),
     (
         abi::HELPER_GET_TABLE,
-        "luna_scoped_get_table_v1",
+        "luna_scoped_get_table_r_v2",
         call::<{ abi::HELPER_GET_TABLE }>,
     ),
     (
+        abi::HELPER_GET_TABLE | abi::HELPER_C_CONSTANT,
+        "luna_scoped_get_table_c_v2",
+        call::<{ abi::HELPER_GET_TABLE | abi::HELPER_C_CONSTANT }>,
+    ),
+    (
         abi::HELPER_SET_TABLE,
-        "luna_scoped_set_table_v1",
+        "luna_scoped_set_table_rr_v2",
         call::<{ abi::HELPER_SET_TABLE }>,
     ),
     (
+        abi::HELPER_SET_TABLE | abi::HELPER_C_CONSTANT,
+        "luna_scoped_set_table_rc_v2",
+        call::<{ abi::HELPER_SET_TABLE | abi::HELPER_C_CONSTANT }>,
+    ),
+    (
+        abi::HELPER_SET_TABLE | abi::HELPER_B_CONSTANT,
+        "luna_scoped_set_table_cr_v2",
+        call::<{ abi::HELPER_SET_TABLE | abi::HELPER_B_CONSTANT }>,
+    ),
+    (
+        abi::HELPER_SET_TABLE | abi::HELPER_B_CONSTANT | abi::HELPER_C_CONSTANT,
+        "luna_scoped_set_table_cc_v2",
+        call::<{ abi::HELPER_SET_TABLE | abi::HELPER_B_CONSTANT | abi::HELPER_C_CONSTANT }>,
+    ),
+    (
         abi::HELPER_GET_UP_TABLE,
-        "luna_scoped_get_up_table_v1",
+        "luna_scoped_get_up_table_r_v2",
         call::<{ abi::HELPER_GET_UP_TABLE }>,
     ),
     (
+        abi::HELPER_GET_UP_TABLE | abi::HELPER_C_CONSTANT,
+        "luna_scoped_get_up_table_c_v2",
+        call::<{ abi::HELPER_GET_UP_TABLE | abi::HELPER_C_CONSTANT }>,
+    ),
+    (
         abi::HELPER_SET_UP_TABLE,
-        "luna_scoped_set_up_table_v1",
+        "luna_scoped_set_up_table_rr_v2",
         call::<{ abi::HELPER_SET_UP_TABLE }>,
+    ),
+    (
+        abi::HELPER_SET_UP_TABLE | abi::HELPER_C_CONSTANT,
+        "luna_scoped_set_up_table_rc_v2",
+        call::<{ abi::HELPER_SET_UP_TABLE | abi::HELPER_C_CONSTANT }>,
+    ),
+    (
+        abi::HELPER_SET_UP_TABLE | abi::HELPER_B_CONSTANT,
+        "luna_scoped_set_up_table_cr_v2",
+        call::<{ abi::HELPER_SET_UP_TABLE | abi::HELPER_B_CONSTANT }>,
+    ),
+    (
+        abi::HELPER_SET_UP_TABLE | abi::HELPER_B_CONSTANT | abi::HELPER_C_CONSTANT,
+        "luna_scoped_set_up_table_cc_v2",
+        call::<{ abi::HELPER_SET_UP_TABLE | abi::HELPER_B_CONSTANT | abi::HELPER_C_CONSTANT }>,
     ),
     (
         abi::HELPER_GET_UPVALUE,
@@ -288,7 +328,7 @@ unsafe extern "C" fn call<const KIND: u32>(
     }
     let scoped = unsafe { &mut *(*host).data.cast::<Frame<'_, '_, '_>>() };
     let result = catch_unwind(AssertUnwindSafe(|| {
-        scoped.kinds |= 1 << (KIND - 1);
+        scoped.kinds |= 1 << (abi::helper_kind(KIND) - 1);
         scoped.host.with_registers(|closure, mut registers| {
             let mut frame = helpers::Frame {
                 ctx: scoped.ctx,
