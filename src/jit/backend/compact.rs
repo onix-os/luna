@@ -24,10 +24,10 @@ pub(super) struct Code {
     binding: Binding,
 }
 
-pub(in crate::jit) struct Frame {
-    binding: Binding,
+pub(in crate::jit) struct Frame<'code> {
+    binding: &'code Binding,
     cells: [i64; 4],
-    indices: [usize; 4],
+    indices: [u8; 4],
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -40,6 +40,7 @@ pub(in crate::jit) struct Outputs {
 pub(in crate::jit) struct Entry {
     entry: CompactEntry,
     binding: Binding,
+    upper_indices: [u8; 4],
 }
 
 impl Binding {
@@ -118,42 +119,65 @@ impl Binding {
             .map_err(|error| JitError::Compilation(error.to_string()))
     }
 
+    fn indices(&self, capture: Option<usize>) -> [u8; 4] {
+        let read = usize::from(self.pattern.read.0);
+        let result = usize::from(self.pattern.result.0);
+        let right = match self.pattern.right {
+            Operand::Register(index) => Some(usize::from(index.0)),
+            Operand::Constant(_) => None,
+        };
+        let read_cell = if capture == Some(read) { 0 } else { 1 };
+        let right_cell = if right.is_some() && right == capture {
+            0
+        } else if right == Some(read) {
+            read_cell
+        } else {
+            2
+        };
+        let result_cell = if capture == Some(result) {
+            0
+        } else if result == read {
+            read_cell
+        } else if right == Some(result) {
+            right_cell
+        } else {
+            3
+        };
+        [0, read_cell, right_cell, result_cell]
+    }
+
+    #[cfg(test)]
     fn prepare(
-        self,
+        &self,
         registers: &[crate::Value<'_>],
         capture: Option<usize>,
         upper: i64,
-    ) -> Option<Frame> {
+    ) -> Option<Frame<'_>> {
+        self.prepare_indices(registers, capture, upper, self.indices(capture))
+    }
+
+    fn prepare_indices(
+        &self,
+        registers: &[crate::Value<'_>],
+        capture: Option<usize>,
+        upper: i64,
+        indices: [u8; 4],
+    ) -> Option<Frame<'_>> {
         if registers.len() < self.registers || capture.is_some_and(|index| index >= self.registers)
         {
             return None;
         }
         let p = self.pattern;
-        let keys = [
-            capture.unwrap_or(usize::MAX),
-            usize::from(p.read.0),
-            match p.right {
-                Operand::Register(index) => usize::from(index.0),
-                Operand::Constant(_) => usize::MAX - 1,
-            },
-            usize::from(p.result.0),
-        ];
-        let indices = std::array::from_fn(|i| {
-            keys[..i]
-                .iter()
-                .position(|&key| key == keys[i])
-                .unwrap_or(i)
-        });
         let mut cells = [0; 4];
         if let Operand::Register(right) = p.right {
             if right != p.read {
                 let crate::Value::Integer(value) = registers[usize::from(right.0)] else {
                     return None;
                 };
-                cells[indices[2]] = value;
+                cells[usize::from(indices[2])] = value;
             }
         }
-        cells[indices[0]] = match capture {
+        cells[usize::from(indices[0])] = match capture {
             Some(index) => match registers[index] {
                 crate::Value::Integer(value) => value,
                 _ => return None,
@@ -176,6 +200,7 @@ impl Entry {
     pub(super) unsafe fn new(binding: Binding, pointer: *const u8) -> Self {
         Self {
             binding,
+            upper_indices: binding.indices(None),
             entry: unsafe { std::mem::transmute::<*const u8, CompactEntry>(pointer) },
         }
     }
@@ -185,40 +210,50 @@ impl Entry {
         registers: &[crate::Value<'_>],
         capture: Option<usize>,
         upper: i64,
-    ) -> Option<Frame> {
-        self.binding.prepare(registers, capture, upper)
+    ) -> Option<Frame<'_>> {
+        let indices = if capture.is_none() {
+            self.upper_indices
+        } else {
+            self.binding.indices(capture)
+        };
+        self.binding
+            .prepare_indices(registers, capture, upper, indices)
     }
 
-    pub(in crate::jit) fn invoke(&self, frame: &mut Frame) -> Result<Outputs, JitError> {
-        if frame.binding != self.binding || frame.indices.iter().any(|&index| index >= 4) {
-            return Err(JitError::Compilation("compact invocation binding".into()));
-        }
-        let base = frame.cells.as_mut_ptr();
-        let [capture, read, right, dest] = frame.indices;
-        unsafe {
-            (self.entry)(
-                base.add(capture),
-                base.add(read),
-                base.add(right),
-                base.add(dest),
-            )
-        };
-        Ok(Outputs {
-            capture: frame.cells[capture],
-            read: frame.cells[read],
-            result: frame.cells[dest],
-        })
+    pub(in crate::jit) fn invoke(&self, frame: &mut Frame<'_>) -> Result<Outputs, JitError> {
+        invoke(self.entry, &self.binding, frame)
     }
+}
+
+fn invoke(
+    entry: CompactEntry,
+    binding: &Binding,
+    frame: &mut Frame<'_>,
+) -> Result<Outputs, JitError> {
+    if !std::ptr::eq(frame.binding, binding) || frame.indices.iter().any(|&index| index >= 4) {
+        return Err(JitError::Compilation("compact invocation binding".into()));
+    }
+    let base = frame.cells.as_mut_ptr();
+    let [capture, read, right, dest] = frame.indices.map(usize::from);
+    unsafe {
+        (entry)(
+            base.add(capture),
+            base.add(read),
+            base.add(right),
+            base.add(dest),
+        )
+    };
+    Ok(Outputs {
+        capture: frame.cells[capture],
+        read: frame.cells[read],
+        result: frame.cells[dest],
+    })
 }
 
 #[cfg(test)]
 impl Code {
-    fn invoke(&self, frame: &mut Frame) -> Result<Outputs, JitError> {
-        Entry {
-            binding: self.binding,
-            entry: self.entry,
-        }
-        .invoke(frame)
+    fn invoke(&self, frame: &mut Frame<'_>) -> Result<Outputs, JitError> {
+        invoke(self.entry, &self.binding, frame)
     }
 }
 
