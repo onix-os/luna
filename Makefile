@@ -485,6 +485,10 @@ jit-activation-tests:
 jit-in-place-call:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::activation::call_tests $(ARGS)
 
+.PHONY: jit-in-place-return
+jit-in-place-return:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::activation::return_tests $(ARGS)
+
 .PHONY: vm-jump-offset
 vm-jump-offset:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) compiler::compiler::jump_offset_tests $(ARGS)
