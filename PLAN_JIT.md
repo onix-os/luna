@@ -26,10 +26,58 @@ fuel, GC, error paths, accounting, and native coverage remain unchanged.
 `make jit-vm-dispatch` passes both state-selection and owner-retirement/GC tests;
 JIT checks, mode tests, and forced script/string suites also pass.
 
-Broader regression tests and unchanged paired performance gates are pending.
-The direct control is the retained numeric refinement, not the older slower
-interpreter. This is an unaccepted optimization trial, not a completed regression
-fix. Evidence is under
+The trial is committed as `d099c79`. Baseline/GNU Auto and doc tests pass
+**1,686 executions** across 166 suites (ten ignores); the separate all-feature
+default/Off/doc/check/format run passes **2,578 executions** across 170 suites
+(16 ignores). These include repeated executions, not that many unique tests.
+The i686 unsupported-target check/focused/full-Auto run passes **583 executions**;
+focused native musl dispatch/activation/region/resource tests pass **62**, and
+the Miri state-selection test passes. These do not constitute full platform or
+release acceptance.
+
+All eight symbol companions match their timing images' program headers and
+allocated contents. Twenty selected diagnostic workers verify results, exclusive
+instruction totals, zero native work, and hashes. Speed compiled-Off integer
+instructions fall **24,793,900 to 24,125,075**, float **32,196,145 to 31,527,225**;
+all of that reduction is VM self-work. The emitted interpreted path tests one
+state and branches to the existing hook check, without the old source-id check.
+Its prototype remains in a register, though other spills remain. Shipping
+compiled-Off also loses instructions; all selected no-feature instruction totals
+are unchanged. These are instruction diagnostics, not hardware-time acceptance.
+
+Twelve alternating windows at two common invocation paths complete **144 unchanged
+checked commands**, all still failing their aggregate gates. The direct control
+is the retained numeric refinement, not the older slower interpreter. All **24
+complete native counter comparisons** match, including metadata; immutable
+artifact hashes verify. Direct control/candidate medians greater than one mean
+the candidate is faster:
+
+| Case | Direct medians, two paths | Failed checks: control → candidate |
+| --- | --- | --- |
+| Speed compiled-Off float | 1.0722 / 1.0716 | 24/24 → 24/24 |
+| Speed compiled-Off predicate | 1.0273 / 1.0258 | 24/24 → 0/24 |
+| Speed compiled-Off allocation/GC | 1.0366 / 1.0380 | 12/24 → 0/24 |
+| Shipping compiled-Off float | 1.0664 / 1.0665 | 24/24 → 10/24 |
+| Shipping compiled-Off table | 1.0455 / 1.0439 | 24/24 → 0/24 |
+| Shipping compiled-Off upvalue | 1.0434 / 1.0370 | 24/24 → 24/24 |
+| Native allocation/GC | 0.9988 / 0.9910 | 4/24 → 14/24 |
+
+Native upvalue remains **0.6437 / 0.6421 Off/Auto**, far below 1.25; native
+table and callbacks still fail all checks. Native integer fails 24/24 versus
+23/24 controls, with direct medians **0.9297 / 0.7501**. Its per-window direct
+ratios vary from approximately 0.25 to 2.65 and its Off controls move similarly;
+retain these unfavorable results without claiming a hardware cause or a proven
+25% intrinsic slowdown. Native float improves directly but has one failed check
+versus zero controls. Speed compiled-Off upvalue is roughly 1% slower, while
+shipping cold-config failures rise from one to seven. No outliers are removed;
+external I/O contention is retained in telemetry.
+
+The dispatch trial remains an **unaccepted work-in-progress candidate**: it fixes
+several measured compiled-Off regressions without reducing native work, but
+other failures and new regressions require further work. Thresholds and full-plan
+scope are unchanged. Analysis preserves every window, both baseline timings,
+ratio-of-medians gates, paired ratios, and unscored native predicate status.
+Evidence is under
 `target/jit-evidence/short-slice-performance/vm-dispatch-state-*`.
 
 #### Shared numeric conversion trial — 2026-10-07
