@@ -11,6 +11,119 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Compact callee frames — integrated, performance unaccepted
+
+The compact compiler emits the actual GetUpValue, integer arithmetic and
+SetUpValue operations through four alias-preserving integer cells, avoiding a
+full register-prefix representation. Five tests pass, including 1,296 native
+alias combinations, register 255, source/IR tampering, allocation/protection
+failures, quota refusal and retained code leases. Formatting and all-feature
+checks pass. Memcheck reports zero errors and zero definite/indirect leaks;
+48 possibly lost and 544 reachable bytes originate in the Rust test harness.
+
+The initial compiler checkpoint is `f504275`. Production admitted calls now use
+the compact function in the existing owned executable image. The generic entry
+remains for partial budgets, post-Call guard failure and custom fault fixtures.
+Physical Call/Return, fresh capture/prototype checks, fuel and panic transport
+remain; only affected callee registers/capture are materialized. Full caller
+refresh is unchanged. Extra code, owner bytes, signatures and actual IR remain
+within the existing accounting and limits.
+
+Compact/generic/interpreter differentials cover full frame/fuel/dispatch traces,
+wrapping arithmetic, interrupted fuel, argument-shift aliases and late refusal,
+fixed return counts, enter/leave panics and consumed-Call errors. A 256-register
+sentinel proves the compact path does not touch the legacy scratch prefix.
+Existing rebound-capture and native-region tests now exercise this path. The
+GNU baseline, all-feature default-Off and documentation run passes **1,722 test
+executions / 172 suites**, ten ignored; this is not a new full platform matrix.
+Compiler Memcheck again reports zero errors and zero definite/indirect leaks.
+Performance is not accepted; repeated paired measurements remain required.
+Evidence: `target/jit-evidence/short-slice-performance/compact-callee-*`.
+
+#### Bound-tail caller refresh — rejected runtime trial
+
+The trial refreshed, after a successfully returned admitted pair, only the
+source-bound function-register tail and any captured caller prefix slot.
+Existing preflight records the freshly resolved capture index in the bounded
+admission object; no refresh descriptor is constructed or transported through
+the return ABI. This differs from the earlier rejected selective-refresh
+variants. All pre-Call materialization, fresh source/capture checks, physical
+frames and error/panic handling remain unchanged. Partial calls, errors and
+other transitions retain full refresh. No new heap owner or unsafe access is
+introduced.
+
+Trial coverage rebound the same closure's capture across three actual native
+calls, compared the complete result/frame/fuel/dispatch trace to Off, and used
+ignored reference payload bits to prove untouched prefix slots are not copied.
+Existing wide-prefix, upper-frame, argument-tail-alias, partial-call, fallback,
+panic, GC and activation checks remain enabled. Formatting/all-feature checks
+and **117 executions / eight suites** pass, two ignored.
+
+A freshly rebuilt restored control avoids unrelated source-location changes
+from the retained thread tests; both no-feature binaries match the candidate
+byte for byte. Control/candidate symbol replays match all loaded sections and
+program headers of their frozen originals. Upvalue profile work falls from
+**310,773,850 to 307,175,654 instructions** (1.16%); all execution/resource
+counters match. Profiles and builds finish before the timing campaign.
+
+Three alternating windows on CPU0/CPU16, two paths and all nine workloads finish
+**72 checked commands / 1,080 parsed rows**, with every aggregate gate failing.
+All twelve complete counter comparisons and artifact hashes verify. Native
+upvalue direct control/candidate ratios are **0.9931 / 0.9868** on CPU0 and
+**0.9915 / 1.0085** on CPU16. Shipping CPU0 compiled-Off integers fall to
+**0.8799 / 0.8835** and arrays to **0.9141 / 0.9114** against near-flat,
+byte-identical no-feature controls. CPU16 speed compiled-Off integers fall to
+**0.9530 / 0.9518**. These regressions are not justified by the profile reduction.
+Full refresh is restored. The repeated capture-rebinding differential remains;
+the optimization-only reference-payload canary is removed with the trial.
+Restored formatting/all-feature checks and the same **117 executions / eight
+suites** pass, two ignored. Production source matches the restored `adaf003`
+runtime; only the new test remains under `src/`.
+Evidence: `target/jit-evidence/short-slice-performance/bound-tail-refresh-*`.
+
+#### Open-capture suffix check — rejected runtime trial
+
+The trial made `ThreadState::close_upvalues` check the highest open capture before
+binary-searching the suffix to close. The list is maintained in ascending stack
+index order, so an empty list or highest index below the returning frame means
+there is nothing to close. Exact-boundary captures still follow the original
+closing path. Frame construction, returned values, capture mutation and fuel
+are unchanged. This affects baseline and JIT-enabled runtimes alike.
+
+A new unit matrix covers empty/single/sparse lists, exact boundaries and
+`usize::MAX`, then mutates the stack and closes the remaining captures to check
+which values remained live. `make vm-upvalue-returns` adds baseline and
+Off/Auto/Force close-handler/error-return coverage. Focused checks pass **174
+executions / sixteen suites**, two ignored. The boundary matrix also passes
+Miri Stacked Borrows seed 1 and Tree Borrows seed 2, one test each; these are
+Rust capture-state tests, not generated execution in Miri.
+
+Five frozen original-flag artifacts and sequential three-window/two-path
+screens on CPU0/CPU16 complete **72 checked commands / 1,080 parsed rows**;
+every aggregate gate still fails. Twelve complete counter comparisons and all
+artifact hashes match. Profiling and builds finished before timing began.
+The targeted function drops from **4,550,715 to 3,120,754** instructions;
+whole-profile work drops from **310,777,895 to 309,397,134** (0.44%).
+
+This does not translate to a useful runtime result. Native upvalue direct
+control/candidate ratios are **0.9840 / 0.9856** on CPU0 and **1.0038 / 1.0051**
+on CPU16. Shipping CPU0 compiled-Off integer ratios fall to **0.8636 / 0.8629**,
+floats **0.9011 / 0.8975**, arrays **0.8971 / 0.8965**; CPU16 shipping floats
+also fall to **0.9095 / 0.9145**. Both no-feature images change too; apparent
+feature-cost gains in the speed profile partly come from slowing no-feature
+controls and are not accepted fixes. The runtime early-return check is removed.
+The boundary regression and Make gates remain; production behavior returns to
+the preceding unaccepted Rust-bridge candidate. Restored formatting/all-feature
+checks and the same **174 executions / sixteen suites** pass, two ignored.
+
+The new frozen bridge executable's loaded sections and program headers match
+its symbol replay exactly. Its upvalue profile records **310,777,895**
+instructions, including **4,550,715** in `close_upvalues`. Caller synchronization
+and physical transitions remain much larger combined costs; this bounded trial
+cannot by itself close the full performance gap. Profiling is diagnostic, not
+wall-clock acceptance. Evidence prefixes: `rust-call-boundary-native*` and
+`upvalue-close-range-*` under `target/jit-evidence/short-slice-performance/`.
+
 #### Rust call boundary — runtime trial, not accepted
 
 Admitted pairs now invoke physical Call and Return through ordinary Rust

@@ -520,6 +520,11 @@ fn linked_target_mutations_and_late_refusals_keep_peer_mappings_and_leases() {
             2
         );
         assert_eq!(bridge.cell.bits, 9);
+        let mut compact = lease
+            .compact()
+            .prepare(&[Value::Integer(2), Value::Nil, Value::Nil], None, 7)
+            .unwrap();
+        assert_eq!(lease.compact().invoke(&mut compact).unwrap().capture, 9);
         drop(lease);
         assert_eq!(metadata.0.current(), 0);
         assert_eq!(mappings.load(Ordering::Relaxed), 0);

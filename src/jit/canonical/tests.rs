@@ -44,15 +44,19 @@ fn rust_bridge_bypasses_callbacks_and_preserves_partial_native_exits() {
         |lua, closure, site, code| {
             for budget in [0, 1, 2, 3, 4, 64] {
                 lua.enter(|ctx| {
-                    let run = |native| {
+                    let run = |mode| {
                         with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
                             position(host, ctx, site.pc);
                             let before = stats(ctx);
                             let mut scratch = [MaybeUninit::uninit(); 256];
                             let mut session = Session::new(ctx, host, &site, &mut scratch);
                             let callbacks = CALLBACKS.load(Ordering::Relaxed);
-                            if native {
-                                session.invoke_leaf(&code, budget);
+                            if mode != 0 {
+                                if mode == 2 {
+                                    session.invoke_compact(&code, budget);
+                                } else {
+                                    session.invoke_leaf(&code, budget);
+                                }
                                 assert_eq!(CALLBACKS.load(Ordering::Relaxed), callbacks);
                             } else {
                                 unsafe {
@@ -73,7 +77,9 @@ fn rust_bridge_bypasses_callbacks_and_preserves_partial_native_exits() {
                             trace(ctx, host, before)
                         })
                     };
-                    assert_eq!(run(true), run(false), "budget={budget}");
+                    let expected = run(0);
+                    assert_eq!(run(1), expected, "budget={budget}");
+                    assert_eq!(run(2), expected, "compact budget={budget}");
                 });
             }
             assert_eq!(CALLBACKS.load(Ordering::Relaxed), 12);
@@ -83,93 +89,111 @@ fn rust_bridge_bypasses_callbacks_and_preserves_partial_native_exits() {
 
 #[test]
 fn rust_bridge_transports_enter_panic_without_entering_native_code() {
-    fixture(ADD, |lua, closure, site, code| {
-        lua.enter(|ctx| {
-            with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
-                position(host, ctx, site.pc);
-                let mut scratch = [MaybeUninit::uninit(); 256];
-                let mut session = Session::new(ctx, host, &site, &mut scratch);
-                let registry = ctx.jit_registry().borrow_mut(&ctx);
-                session.invoke_leaf(&code, 64);
-                drop(registry);
-                assert!(session.panic.is_some());
-                assert_eq!((session.calls, session.returns), (1, 0));
-                assert_eq!(session.frame.exit.instructions, 0);
-                assert!(catch_unwind(AssertUnwindSafe(|| session.finish())).is_err());
-                host.with_registers(|_, registers| assert_eq!(*registers.pc, 0));
-                assert!(ctx.jit_registry().try_borrow().is_ok());
+    for compact in [false, true] {
+        fixture(ADD, |lua, closure, site, code| {
+            lua.enter(|ctx| {
+                with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                    position(host, ctx, site.pc);
+                    let mut scratch = [MaybeUninit::uninit(); 256];
+                    let mut session = Session::new(ctx, host, &site, &mut scratch);
+                    let registry = ctx.jit_registry().borrow_mut(&ctx);
+                    if compact {
+                        session.invoke_compact(&code, 64);
+                    } else {
+                        session.invoke_leaf(&code, 64);
+                    }
+                    drop(registry);
+                    assert!(session.panic.is_some());
+                    assert_eq!((session.calls, session.returns), (1, 0));
+                    assert_eq!(session.frame.exit.instructions, 0);
+                    assert!(catch_unwind(AssertUnwindSafe(|| session.finish())).is_err());
+                    host.with_registers(|_, registers| assert_eq!(*registers.pc, 0));
+                    assert!(ctx.jit_registry().try_borrow().is_ok());
+                });
             });
         });
-    });
+    }
 }
 
 #[test]
 fn rust_bridge_transports_leave_panic_before_writeback() {
-    fixture(ADD, |lua, closure, mut site, code| {
-        site.start.0 += 1;
-        lua.enter(|ctx| {
-            with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
-                position(host, ctx, site.pc);
-                let mut scratch = [MaybeUninit::uninit(); 256];
-                let mut session = Session::new(ctx, host, &site, &mut scratch);
-                session.invoke_leaf(&code, 64);
-                assert!(session.panic.is_some());
-                assert_eq!((session.calls, session.returns), (1, 0));
-                assert_eq!(session.frame.exit.instructions, 3);
-                session.host.with_registers(|_, registers| {
-                    assert_eq!(*registers.pc, 0);
-                    let (upper, index) = session.target.unwrap();
-                    assert!(matches!(
-                        registers.projection_read(upper, index),
-                        Some(Value::Integer(7))
-                    ));
+    for compact in [false, true] {
+        fixture(ADD, |lua, closure, mut site, code| {
+            site.start.0 += 1;
+            lua.enter(|ctx| {
+                with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                    position(host, ctx, site.pc);
+                    let mut scratch = [MaybeUninit::uninit(); 256];
+                    let mut session = Session::new(ctx, host, &site, &mut scratch);
+                    if compact {
+                        session.invoke_compact(&code, 64);
+                    } else {
+                        session.invoke_leaf(&code, 64);
+                    }
+                    assert!(session.panic.is_some());
+                    assert_eq!((session.calls, session.returns), (1, 0));
+                    assert_eq!(session.frame.exit.instructions, 3);
+                    session.host.with_registers(|_, registers| {
+                        assert_eq!(*registers.pc, 0);
+                        let (upper, index) = session.target.unwrap();
+                        assert!(matches!(
+                            registers.projection_read(upper, index),
+                            Some(Value::Integer(7))
+                        ));
+                    });
+                    let payload = catch_unwind(AssertUnwindSafe(|| session.finish()))
+                        .err()
+                        .unwrap();
+                    assert!(payload
+                        .downcast_ref::<String>()
+                        .unwrap()
+                        .contains("assertion"));
+                    assert!(ctx.jit().0.try_borrow_mut().is_ok());
                 });
-                let payload = catch_unwind(AssertUnwindSafe(|| session.finish()))
-                    .err()
-                    .unwrap();
-                assert!(payload
-                    .downcast_ref::<String>()
-                    .unwrap()
-                    .contains("assertion"));
-                assert!(ctx.jit().0.try_borrow_mut().is_ok());
             });
         });
-    });
+    }
 }
 
 #[test]
 fn rust_bridge_preserves_call_error_and_source_operand_refusal() {
-    fixture(ADD, |lua, closure, mut site, code| {
-        lua.enter(|ctx| {
-            for mismatch in [false, true] {
-                with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
-                    position(host, ctx, site.pc);
-                    let before = trace(ctx, host, stats(ctx));
-                    if mismatch {
-                        site.arguments += 1;
-                    } else {
-                        host.test_variable_stack();
-                    }
-                    let mut scratch = [MaybeUninit::uninit(); 256];
-                    let mut session = Session::new(ctx, host, &site, &mut scratch);
-                    session.prefix = 4;
-                    session.invoke_leaf(&code, 64);
-                    let outcome = session.finish();
-                    if mismatch {
-                        assert_eq!((outcome.calls, outcome.returns), (0, 0));
-                        assert_eq!(trace(ctx, host, stats(ctx)), before);
-                    } else {
-                        assert_eq!((outcome.calls, outcome.returns), (1, 0));
-                        assert!(matches!(
-                            outcome.result,
-                            Err(crate::thread::VMError::ExpectedVariableStack(false))
-                        ));
-                        assert_eq!(host.fuel().remaining(), before.fuel - 4);
-                    }
-                });
-            }
+    for compact in [false, true] {
+        fixture(ADD, |lua, closure, mut site, code| {
+            lua.enter(|ctx| {
+                for mismatch in [false, true] {
+                    with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                        position(host, ctx, site.pc);
+                        let before = trace(ctx, host, stats(ctx));
+                        if mismatch {
+                            site.arguments += 1;
+                        } else {
+                            host.test_variable_stack();
+                        }
+                        let mut scratch = [MaybeUninit::uninit(); 256];
+                        let mut session = Session::new(ctx, host, &site, &mut scratch);
+                        session.prefix = 4;
+                        if compact {
+                            session.invoke_compact(&code, 64);
+                        } else {
+                            session.invoke_leaf(&code, 64);
+                        }
+                        let outcome = session.finish();
+                        if mismatch {
+                            assert_eq!((outcome.calls, outcome.returns), (0, 0));
+                            assert_eq!(trace(ctx, host, stats(ctx)), before);
+                        } else {
+                            assert_eq!((outcome.calls, outcome.returns), (1, 0));
+                            assert!(matches!(
+                                outcome.result,
+                                Err(crate::thread::VMError::ExpectedVariableStack(false))
+                            ));
+                            assert_eq!(host.fuel().remaining(), before.fuel - 4);
+                        }
+                    });
+                }
+            });
         });
-    });
+    }
 }
 
 #[test]
@@ -929,7 +953,7 @@ fn linked_native_calls_match_physical_frames_fuel_and_dispatches() {
                             trace(ctx, host, before)
                         })
                     });
-                    for direct in [false, true] {
+                    for direct in 0..3 {
                         let native = lua.enter(|ctx| {
                             with_test_thread(
                                 ctx,
@@ -939,12 +963,16 @@ fn linked_native_calls_match_physical_frames_fuel_and_dispatches() {
                                     position(host, ctx, site.pc);
                                     host.test_fuel(fuel.clone());
                                     let before = stats(ctx);
-                                    let result = if direct {
+                                    let result = if direct != 0 {
                                         let mut scratch = [MaybeUninit::uninit(); 256];
                                         let mut session =
                                             Session::new(ctx, host, &site, &mut scratch);
                                         if session.preflight(64) {
-                                            session.invoke_leaf(&code, 64);
+                                            if direct == 2 {
+                                                session.invoke_compact(&code, 64);
+                                            } else {
+                                                session.invoke_leaf(&code, 64);
+                                            }
                                             let outcome = session.finish();
                                             outcome.result.unwrap();
                                             Some((outcome.calls, outcome.returns))
@@ -988,15 +1016,31 @@ fn largest_callee_scratch_prefix_matches_canonical_frames() {
                     trace(ctx, host, before)
                 })
             });
-            let native = lua.enter(|ctx| {
-                with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
-                    position(host, ctx, site.pc);
-                    let before = stats(ctx);
-                    assert_eq!(invoke(ctx, host, &site, &code, 64), Some((1, 1)));
-                    trace(ctx, host, before)
-                })
-            });
-            assert_eq!(native, interpreted);
+            for compact in [false, true] {
+                let native = lua.enter(|ctx| {
+                    with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                        position(host, ctx, site.pc);
+                        let before = stats(ctx);
+                        if compact {
+                            let sentinel = Slot::from_value(Value::Integer(-987));
+                            let mut scratch = [MaybeUninit::new(sentinel); 256];
+                            let mut session = Session::new(ctx, host, &site, &mut scratch);
+                            session.invoke_compact(&code, 64);
+                            let outcome = session.finish();
+                            outcome.result.unwrap();
+                            assert_eq!((outcome.calls, outcome.returns), (1, 1));
+                            for slot in scratch {
+                                let slot = unsafe { slot.assume_init() };
+                                assert_eq!((slot.tag, slot.bits), (sentinel.tag, sentinel.bits));
+                            }
+                        } else {
+                            assert_eq!(invoke(ctx, host, &site, &code, 64), Some((1, 1)));
+                        }
+                        trace(ctx, host, before)
+                    })
+                });
+                assert_eq!(native, interpreted);
+            }
         },
     );
 }
@@ -1055,7 +1099,7 @@ fn fixed_callee_result_counts_preserve_canonical_return_effects_and_fuel() {
             Some(count),
             |lua, closure, site, code| {
                 for available in [10, 11, 20, 21, 1000] {
-                    let run = |lua: &mut Lua, native: bool| {
+                    let run = |lua: &mut Lua, mode| {
                         lua.enter(|ctx| {
                             with_test_thread(
                                 ctx,
@@ -1065,7 +1109,23 @@ fn fixed_callee_result_counts_preserve_canonical_return_effects_and_fuel() {
                                     position(host, ctx, site.pc);
                                     host.test_fuel(Fuel::with(available));
                                     let before = stats(ctx);
-                                    if !native || invoke(ctx, host, &site, &code, 64).is_none() {
+                                    let completed = if mode == 2 {
+                                        let mut scratch = [MaybeUninit::uninit(); 256];
+                                        let mut session =
+                                            Session::new(ctx, host, &site, &mut scratch);
+                                        if session.preflight(64) {
+                                            session.invoke_compact(&code, 64);
+                                            let outcome = session.finish();
+                                            outcome.result.unwrap();
+                                            assert_eq!((outcome.calls, outcome.returns), (1, 1));
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    } else {
+                                        mode == 1 && invoke(ctx, host, &site, &code, 64).is_some()
+                                    };
+                                    if !completed {
                                         assert!(host.run(ctx, 2, 64, 4).result.is_ok());
                                     }
                                     trace(ctx, host, before)
@@ -1073,10 +1133,12 @@ fn fixed_callee_result_counts_preserve_canonical_return_effects_and_fuel() {
                             )
                         })
                     };
+                    let expected = run(lua, 0);
+                    assert_eq!(run(lua, 1), expected, "count={count}, fuel={available}");
                     assert_eq!(
-                        run(lua, true),
-                        run(lua, false),
-                        "count={count}, fuel={available}"
+                        run(lua, 2),
+                        expected,
+                        "compact count={count}, fuel={available}"
                     );
                 }
             },
@@ -1395,7 +1457,7 @@ fn argument_shifting_rebinds_current_frame_aliases_and_preserves_late_declines()
         ),
     ] {
         fixture(source, |lua, closure, site, code| {
-            let run = |lua: &mut Lua, native| {
+            let run = |lua: &mut Lua, mode| {
                 lua.enter(|ctx| {
                     with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
                         position(host, ctx, site.pc);
@@ -1411,7 +1473,14 @@ fn argument_shifting_rebinds_current_frame_aliases_and_preserves_late_declines()
                             capture
                         });
                         let before = stats(ctx);
-                        if native {
+                        if mode == 2 {
+                            let mut scratch = [MaybeUninit::uninit(); 256];
+                            let mut session = Session::new(ctx, host, &site, &mut scratch);
+                            session.invoke_compact(&code, 64);
+                            let outcome = session.finish();
+                            outcome.result.unwrap();
+                            assert_eq!((outcome.calls, outcome.returns), expected);
+                        } else if mode == 1 {
                             assert_eq!(invoke(ctx, host, &site, &code, 64), Some(expected));
                         } else {
                             assert!(host.run(ctx, expected.0 + expected.1, 64, 4).result.is_ok());
@@ -1434,7 +1503,9 @@ fn argument_shifting_rebinds_current_frame_aliases_and_preserves_late_declines()
                     })
                 })
             };
-            assert_eq!(run(lua, true), run(lua, false));
+            let expected = run(lua, 0);
+            assert_eq!(run(lua, 1), expected);
+            assert_eq!(run(lua, 2), expected);
         });
     }
 }

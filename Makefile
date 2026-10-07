@@ -356,6 +356,20 @@ jit-call-plans-miri:
 jit-call-native:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::calls::tests $(ARGS)
 
+.PHONY: jit-compact-callee
+jit-compact-callee:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::compact::tests $(ARGS)
+
+COMPACT_CALLEE_DIR ?= target/jit-evidence/compact-callee
+COMPACT_CALLEE_FILTER ?= jit::backend::compact::tests
+.PHONY: jit-compact-callee-memcheck
+jit-compact-callee-memcheck:
+	@mkdir -p '$(COMPACT_CALLEE_DIR)'
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) --no-run --message-format=json-render-diagnostics > '$(COMPACT_CALLEE_DIR)/build.jsonl'
+	@jq -r 'select(.reason == "compiler-artifact" and .target.name == "luna" and .profile.test and .executable != null) | .executable' '$(COMPACT_CALLEE_DIR)/build.jsonl' > '$(COMPACT_CALLEE_DIR)/binary-path'
+	@test "$$(wc -l < '$(COMPACT_CALLEE_DIR)/binary-path')" -eq 1
+	@valgrind --tool=memcheck --error-exitcode=99 --leak-check=full --show-leak-kinds=all --errors-for-leak-kinds=definite,indirect "$$(cat '$(COMPACT_CALLEE_DIR)/binary-path')" '$(COMPACT_CALLEE_FILTER)' --test-threads=1 > '$(COMPACT_CALLEE_DIR)/memcheck.log' 2>&1
+
 .PHONY: jit-call-canonical
 jit-call-canonical:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical::tests $(ARGS)
@@ -444,6 +458,16 @@ jit-runtime-projection:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::runtime_projection_tests $(ARGS)
 
 .PHONY: vm-activation-tests jit-activation-tests vm-activation-miri
+.PHONY: vm-upvalue-returns
+vm-upvalue-returns:
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::thread::tests $(ARGS)
+	@$(CARGO) test --locked -p luna --no-default-features --test close_attribute --test tail_call_stack_panic $(TARGET_ARG) $(ARGS)
+	@for mode in off auto force; do LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test close_attribute --test tail_call_stack_panic $(TARGET_ARG) $(ARGS) || exit $$?; done
+
+.PHONY: vm-upvalue-returns-miri
+vm-upvalue-returns-miri:
+	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' thread::thread::tests -- --test-threads=1
+
 .PHONY: vm-call-resolution
 vm-call-resolution:
 	@$(CARGO) test --locked -p luna --no-default-features --test callback --test metamethods --test tail_call_stack_panic $(TARGET_ARG)

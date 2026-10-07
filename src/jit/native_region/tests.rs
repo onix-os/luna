@@ -81,6 +81,70 @@ fn build_dependencies<'gc>(ctx: Context<'gc>, closure: Closure<'gc>) -> (Prepare
 }
 
 #[test]
+fn admitted_pair_tracks_rebound_capture_across_repeated_calls() {
+    let source =
+        b"local n=7 local m=11 local keep={} local function f(v) n=n+v end f(3) return n,m,keep";
+    fixture_source(source, |ctx, closure, region, _| {
+        let pc = region.pair.program.key().pc;
+        let Operation::Call { func, .. } = closure.prototype().opcodes[pc].decode() else {
+            panic!()
+        };
+        let run = |native| {
+            with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+                ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                host.run(ctx, 1, pc as u32, 4).result.unwrap();
+                ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+                let admitted = super::super::canonical::admission::Admitted::new(
+                    &region.pair.program,
+                    ctx,
+                    closure,
+                    host.frame_identity(),
+                )
+                .unwrap();
+                let callee = host.with_registers(|_, registers| {
+                    let Value::Function(crate::Function::Closure(callee)) =
+                        registers.stack_frame[usize::from(func.0)]
+                    else {
+                        panic!()
+                    };
+                    callee
+                });
+                let before = stats(ctx);
+                let native_before = ctx.jit().0.borrow().stats.native_instructions;
+                for capture in [0, 1, 0] {
+                    host.with_registers(|_, mut registers| {
+                        *registers.pc = pc;
+                        registers.stack_frame[usize::from(func.0)] = callee.into();
+                        registers.stack_frame[usize::from(func.0) + 1] = Value::Integer(3);
+                        let upvalue =
+                            registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(capture));
+                        callee.set_upvalue(&ctx, 0, upvalue);
+                    });
+                    if native {
+                        let outcome = admitted.invoke(host, 64, 0).unwrap();
+                        outcome.result.unwrap();
+                        assert_eq!((outcome.calls, outcome.returns), (1, 1));
+                    } else {
+                        ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                        host.run(ctx, 2, 64, 4).result.unwrap();
+                    }
+                }
+                if native {
+                    assert_eq!(
+                        ctx.jit().0.borrow().stats.native_instructions - native_before,
+                        9
+                    );
+                }
+                let state = trace(ctx, host, before);
+                assert_eq!(&state.1[..2], &[(abi::INTEGER, 13), (abi::INTEGER, 14)]);
+                state
+            })
+        };
+        assert_eq!(run(true), run(false));
+    });
+}
+
+#[test]
 fn returned_pair_preserves_wide_scalar_and_reference_prefixes() {
     let locals = (0..24)
         .map(|index| format!("local k{index}={} ", 100 + index))

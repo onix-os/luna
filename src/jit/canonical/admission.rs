@@ -157,10 +157,10 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
                     .invoke(std::ptr::addr_of_mut!(session).cast(), budget.min(64));
             }
         } else {
-            session.invoke_leaf(&self.program.code, budget.min(64));
+            session.invoke_compact(&self.program.code, budget.min(64));
         }
         #[cfg(not(test))]
-        session.invoke_leaf(&self.program.code, budget.min(64));
+        session.invoke_compact(&self.program.code, budget.min(64));
         let outcome = session.finish();
         if outcome.calls == 0 {
             return None;

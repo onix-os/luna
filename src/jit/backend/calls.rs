@@ -18,6 +18,7 @@ pub(crate) struct CallCode {
     _memory: Memory,
     entry: unsafe extern "C" fn(*mut c_void, u32) -> u32,
     leaf: crate::jit::leaf::CellEntry,
+    compact: super::compact::Entry,
     operands: (u64, u8, u8, u8),
     #[cfg(test)]
     pub relocations: usize,
@@ -26,6 +27,10 @@ pub(crate) struct CallCode {
 }
 
 impl CallCode {
+    pub(in crate::jit) fn compact(&self) -> &super::compact::Entry {
+        &self.compact
+    }
+
     pub(crate) fn operands(&self) -> (u64, u8, u8, u8) {
         self.operands
     }
@@ -131,7 +136,7 @@ pub(crate) fn compile(
     if failure == Failure::RefuseSignatures {
         workspace.0.set_limit(workspace.0.current());
     }
-    let signature_slots = [2usize, 5, 4, 4]
+    let signature_slots = [2usize, 5, 4, 4, 4]
         .into_iter()
         .map(|parameters| parameters.max(4) + 4)
         .sum::<usize>();
@@ -182,6 +187,17 @@ pub(crate) fn compile(
     jit.memory_provider(provider);
     let mut module = JITModule::new(jit);
     let mut program = plan.program(module.target_config(), module.isa().default_call_conv())?;
+    let compact_binding = super::compact::Binding::new(plan.callee())?;
+    let compact_program = compact_binding.program(module.isa());
+    compact_binding.verify(&compact_program, module.isa())?;
+    let functions = [&program.entry, &program.callee, &compact_program.function];
+    plan.expansion.verify_actual(
+        functions
+            .iter()
+            .flat_map(|f| f.layout.blocks().map(|b| f.layout.block_insts(b).count()))
+            .sum(),
+        functions.iter().map(|f| f.layout.blocks().count()).sum(),
+    )?;
     plan.verify_program(
         &program,
         module.target_config(),
@@ -193,7 +209,10 @@ pub(crate) fn compile(
     let leaf = module
         .declare_anonymous_function(&program.callee.signature)
         .map_err(fail)?;
-    if entry.as_u32() != 0 || leaf.as_u32() != 1 {
+    let compact = module
+        .declare_anonymous_function(&compact_program.function.signature)
+        .map_err(fail)?;
+    if entry.as_u32() != 0 || leaf.as_u32() != 1 || compact.as_u32() != 2 {
         return Err(JitError::Compilation(
             "aggregate function identities".into(),
         ));
@@ -239,13 +258,33 @@ pub(crate) fn compile(
     entry_context.func = program.entry;
     let mut leaf_context = module.make_context();
     leaf_context.func = program.callee;
+    let mut compact_context = module.make_context();
+    compact_context.func = compact_program.function;
     entry_context
         .compile(module.isa(), &mut Default::default())
         .map_err(|error| fail(error.into()))?;
     leaf_context
         .compile(module.isa(), &mut Default::default())
         .map_err(|error| fail(error.into()))?;
-    let contexts = [(entry, &entry_context), (leaf, &leaf_context)];
+    compact_context
+        .compile(module.isa(), &mut Default::default())
+        .map_err(|error| fail(error.into()))?;
+    if !compact_context
+        .compiled_code()
+        .unwrap()
+        .buffer
+        .relocs()
+        .is_empty()
+    {
+        return Err(JitError::Compilation(
+            "compact unexpected relocation".into(),
+        ));
+    }
+    let contexts = [
+        (entry, &entry_context),
+        (leaf, &leaf_context),
+        (compact, &compact_context),
+    ];
     let relocations = contexts
         .iter()
         .map(|(_, ctx)| ctx.compiled_code().unwrap().buffer.relocs().len())
@@ -293,6 +332,7 @@ pub(crate) fn compile(
     module.finalize_definitions().map_err(fail)?;
     let pointer = module.get_finalized_function(entry);
     let leaf_pointer = module.get_finalized_function(leaf);
+    let compact_pointer = module.get_finalized_function(compact);
     let image = memory
         .take()
         .ok_or_else(|| JitError::Compilation("missing aggregate mappings".into()))?;
@@ -307,6 +347,7 @@ pub(crate) fn compile(
             std::mem::transmute::<*const u8, crate::jit::leaf::CellEntry>(leaf_pointer)
         },
         operands: plan.operands(),
+        compact: unsafe { super::compact::Entry::new(compact_binding, compact_pointer) },
         #[cfg(test)]
         relocations,
         #[cfg(test)]

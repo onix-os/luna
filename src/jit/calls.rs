@@ -40,6 +40,10 @@ pub(super) struct Program {
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 impl Plan<'_> {
+    pub fn callee(&self) -> &Snapshot {
+        self.callee
+    }
+
     pub fn operands(&self) -> (u64, u8, u8, u8) {
         let Operation::Return { start, .. } = self.callee.operations[3] else {
             unreachable!()

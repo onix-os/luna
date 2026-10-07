@@ -10,6 +10,9 @@ use ottavino_gc_arena::{
 };
 use thiserror::Error;
 
+#[cfg(test)]
+mod tests;
+
 use crate::{
     closure::{UpValue, UpValueState},
     fuel::count_fuel,
