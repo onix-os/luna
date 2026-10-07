@@ -81,6 +81,36 @@ fn build_dependencies<'gc>(ctx: Context<'gc>, closure: Closure<'gc>) -> (Prepare
 }
 
 #[test]
+fn rooted_caller_moves_keep_closures_after_source_overwrite_without_helpers() {
+    let source = b"local n=0 local function f(v) n=n+v end local g=f local h=g f=nil for i=1,20 do h(i) end return n";
+    fixture_source(source, |ctx, closure, region, start| {
+        assert!(region.caller.rooted_moves());
+        let (native, slices) = with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+            ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+            host.run(ctx, 1, start as u32, 4).result.unwrap();
+            ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+            let before = stats(ctx);
+            let helpers = ctx.jit().0.borrow().stats.helper_calls;
+            let outcome = region.run(ctx, host, 64, 64).unwrap();
+            outcome.result.unwrap();
+            assert_eq!(outcome.pairs, 20);
+            assert_eq!(ctx.jit().0.borrow().stats.helper_calls, helpers);
+            let state = trace(ctx, host, before);
+            assert_eq!(state.1, vec![(abi::INTEGER, 210)]);
+            (state, outcome.slices)
+        });
+        let canonical = with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+            ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+            host.run(ctx, 1, start as u32, 4).result.unwrap();
+            let before = stats(ctx);
+            host.run(ctx, slices, 64, 4).result.unwrap();
+            trace(ctx, host, before)
+        });
+        assert_eq!(native, canonical);
+    });
+}
+
+#[test]
 fn admitted_pair_matches_canonical_with_shifted_capture_arguments() {
     for source in [
         &b"local n=7 local function f(v) n=n+v end f(3) return n"[..],

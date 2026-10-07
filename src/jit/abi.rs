@@ -1,5 +1,7 @@
 use crate::{Constant, Value};
 
+pub(super) mod roots;
+
 pub(super) const NIL: u64 = 0;
 pub(super) const BOOLEAN: u64 = 1;
 pub(super) const INTEGER: u64 = 2;

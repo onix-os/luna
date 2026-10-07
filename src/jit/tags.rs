@@ -241,6 +241,7 @@ impl Stores {
 
 pub(super) struct Stores {
     pub helper_calls: super::helper_flow::Calls,
+    pub rooted_moves: bool,
     transfer_writes: Vec<TransferWrite, BudgetAllocator>,
     transfer_edges: Vec<TransferEdge, BudgetAllocator>,
     expected_transfers: Option<(usize, usize)>,
@@ -374,6 +375,7 @@ impl Stores {
             .map_err(|_| refused())?;
         Ok(Self {
             helper_calls: super::helper_flow::Calls::new(snapshot)?,
+            rooted_moves: false,
             transfer_writes: writes,
             transfer_edges: edges,
             expected_transfers: Some((transfer_writes, transfer_edges)),
@@ -693,7 +695,7 @@ impl Stores {
             ir::InstBuilder,
         };
         use TransferCorruption::*;
-        let edge = if matches!(fault, Source | Split) {
+        let edge = if matches!(fault, Source | Split) && !self.rooted_moves {
             *self
                 .transfer_edges
                 .iter()
@@ -885,7 +887,17 @@ impl Stores {
                 return Err(invalid());
             };
             let offset = i32::from(offset);
-            if record.allowed != node.access.scalar_tags()
+            let allowed = if self.rooted_moves
+                && node
+                    .access
+                    .helper
+                    .is_some_and(|helper| helper.kind == abi::HELPER_MOVE)
+            {
+                ALL
+            } else {
+                node.access.scalar_tags()
+            };
+            if record.allowed != allowed
                 || !node.lowering.native()
                 || offset < 0
                 || offset % 16 != 0
@@ -1025,7 +1037,9 @@ impl Stores {
         blocks: &[Block],
         fallback: Block,
     ) -> Result<(), JitError> {
-        if blocks.len() != snapshot.operations.len() {
+        if blocks.len() != snapshot.operations.len()
+            || (self.rooted_moves && !super::helper_flow::rooted_moves_admitted(snapshot))
+        {
             return Err(invalid());
         }
         let cfg = if self
@@ -1072,6 +1086,17 @@ impl Stores {
                 };
                 let (tag, bits) = payload_store(function, record.inst, slots, destination)?;
                 let valid = match op {
+                    Operation::Move { source, .. } if self.rooted_moves => {
+                        edge.split.is_none()
+                            && source_operand(
+                                function,
+                                slots,
+                                snapshot,
+                                RCIndex::Register(source),
+                                tag,
+                                bits,
+                            )
+                    }
                     Operation::Move { source, .. } => {
                         let split = edge.split.ok_or_else(invalid)?;
                         let InstructionData::Brif {
@@ -1129,7 +1154,8 @@ impl Stores {
                     return Err(invalid());
                 }
             }
-            if matches!(op, Operation::Move { .. }) != edge.split.is_some() {
+            if (matches!(op, Operation::Move { .. }) && !self.rooted_moves) != edge.split.is_some()
+            {
                 return Err(invalid());
             }
             for inst in function.layout.block_insts(block) {
@@ -2991,6 +3017,7 @@ mod tests {
         records.try_reserve_exact(8).unwrap();
         let mut stores = Stores {
             helper_calls: super::super::helper_flow::Calls::empty(records.allocator().clone()),
+            rooted_moves: false,
             transfer_writes: Vec::new_in(records.allocator().clone()),
             transfer_edges: Vec::new_in(records.allocator().clone()),
             expected_transfers: None,

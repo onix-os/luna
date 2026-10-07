@@ -650,8 +650,9 @@ pub(super) fn compile_scoped_in(
     limit: usize,
     metadata: BudgetAllocator,
     work: super::work::Limits,
+    rooted_moves: bool,
 ) -> Result<Code, JitError> {
-    compile_selected(
+    compile_selected_rooted(
         snapshot,
         total,
         limit,
@@ -669,6 +670,7 @@ pub(super) fn compile_scoped_in(
             #[cfg(test)]
             failure: Failure::None,
         },
+        rooted_moves,
     )
 }
 
@@ -679,6 +681,18 @@ fn compile_selected(
     metadata: BudgetAllocator,
     work: super::work::Limits,
     selection: Selection,
+) -> Result<Code, JitError> {
+    compile_selected_rooted(snapshot, total, limit, metadata, work, selection, false)
+}
+
+fn compile_selected_rooted(
+    snapshot: &Snapshot,
+    total: MappingCounter,
+    limit: usize,
+    metadata: BudgetAllocator,
+    work: super::work::Limits,
+    selection: Selection,
+    rooted_moves: bool,
 ) -> Result<Code, JitError> {
     #[cfg(test)]
     let failure = selection.failure;
@@ -694,6 +708,10 @@ fn compile_selected(
     let expansion = super::work::Expansion::admit(snapshot, work)?;
     let graph = super::flow::FlowGraph::new(snapshot)?;
     let mut stores = super::tags::Stores::new(&graph, snapshot)?;
+    if rooted_moves {
+        stores.helper_calls = super::helper_flow::Calls::rooted(snapshot)?;
+        stores.rooted_moves = true;
+    }
     let mut blocks = BudgetVec::new_in(snapshot.operations.allocator().clone());
     blocks
         .try_reserve_exact(snapshot.operations.len())
@@ -1661,6 +1679,9 @@ mod relocation_tests;
 #[cfg(test)]
 mod lifetime_tests;
 
+#[cfg(all(test, not(miri)))]
+mod rooted_moves_tests;
+
 struct Emitter<'a, 'b> {
     builder: &'a mut FunctionBuilder<'b>,
     snapshot: &'a Snapshot,
@@ -1816,11 +1837,14 @@ impl Emitter<'_, '_> {
             self.slots,
             i32::from(register) * 16,
         );
-        self.stores.record_at(
-            self.pc,
-            inst,
-            self.graph.nodes[self.pc].access.scalar_tags(),
-        );
+        let allowed = if self.stores.rooted_moves
+            && matches!(self.snapshot.operations[self.pc], Operation::Move { .. })
+        {
+            (1 << (abi::REFERENCE + 1)) - 1
+        } else {
+            self.graph.nodes[self.pc].access.scalar_tags()
+        };
+        self.stores.record_at(self.pc, inst, allowed);
         self.builder.ins().store(
             MemFlagsData::new(),
             bits,
@@ -1948,6 +1972,13 @@ impl Emitter<'_, '_> {
     fn emit(&mut self, op: Operation) {
         use Operation::*;
         match op {
+            Move { dest, source } if self.stores.rooted_moves => {
+                let (tag, bits) = self.load(source.0);
+                let store = self.store(dest.0, tag, bits);
+                self.stores.transfer_write(self.pc, 0, store);
+                let next = self.advance_point(self.pc + 1);
+                self.stores.transfer_edge(self.pc, next, None);
+            }
             Move { dest, source } => {
                 let (tag, bits) = self.load(source.0);
                 let scalar =

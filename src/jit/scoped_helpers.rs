@@ -97,6 +97,7 @@ pub(super) struct Code {
     code: backend::Code,
     source: u64,
     origin: MappingCounter,
+    rooted_moves: bool,
 }
 
 #[cfg(not(miri))]
@@ -131,6 +132,7 @@ impl Code {
         Self::compile(&snapshot, identity, memory, metadata, &config)
     }
 
+    #[cfg(test)]
     pub(super) fn compile(
         snapshot: &Snapshot,
         identity: u64,
@@ -138,18 +140,46 @@ impl Code {
         metadata: super::resources::BudgetAllocator,
         config: &super::JitConfig,
     ) -> Result<Self, JitError> {
+        Self::compile_selected(snapshot, identity, memory, metadata, config, false)
+    }
+
+    pub(super) fn compile_region(
+        snapshot: &Snapshot,
+        identity: u64,
+        memory: MappingCounter,
+        metadata: super::resources::BudgetAllocator,
+        config: &super::JitConfig,
+    ) -> Result<Self, JitError> {
+        let rooted_moves = super::helper_flow::rooted_moves_admitted(snapshot);
+        Self::compile_selected(snapshot, identity, memory, metadata, config, rooted_moves)
+    }
+
+    fn compile_selected(
+        snapshot: &Snapshot,
+        identity: u64,
+        memory: MappingCounter,
+        metadata: super::resources::BudgetAllocator,
+        config: &super::JitConfig,
+        rooted_moves: bool,
+    ) -> Result<Self, JitError> {
         let code = backend::compile_scoped_in(
             snapshot,
             memory.clone(),
             config.max_code_bytes,
             metadata,
             work::Limits::from(config),
+            rooted_moves,
         )?;
         Ok(Self {
             code,
             source: identity,
             origin: memory,
+            rooted_moves,
         })
+    }
+
+    pub(super) fn rooted_moves(&self) -> bool {
+        self.rooted_moves
     }
 
     pub(super) fn bind<'gc>(

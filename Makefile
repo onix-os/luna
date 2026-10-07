@@ -668,6 +668,15 @@ jit-gc-requests:
 jit-abi:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests
 
+.PHONY: jit-rooted-moves
+jit-rooted-moves:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::roots::tests $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::rooted_moves_tests $(ARGS)
+
+.PHONY: jit-rooted-moves-miri
+jit-rooted-moves-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::roots::tests -- --test-threads=1
+
 jit-config:
 	@$(CARGO) test -p luna --features jit --test jit_config $(TARGET_ARG) $(ARGS)
 
