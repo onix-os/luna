@@ -27,6 +27,8 @@ use crate::opcode::{Operation, RCIndex};
 
 #[cfg(not(miri))]
 pub(super) mod calls;
+#[cfg(all(test, not(miri)))]
+pub(super) mod compact;
 #[cfg(not(miri))]
 pub(super) mod region;
 

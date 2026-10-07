@@ -11,6 +11,21 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Compact callee compiler — integration pending
+
+The test-only compiler emits the actual GetUpValue, integer arithmetic and
+SetUpValue operations through four alias-preserving integer cells, avoiding a
+full register-prefix representation. Five tests pass, including 1,296 native
+alias combinations, register 255, source/IR tampering, allocation/protection
+failures, quota refusal and retained code leases. Formatting and all-feature
+checks pass. Memcheck reports zero errors and zero definite/indirect leaks;
+48 possibly lost and 544 reachable bytes originate in the Rust test harness.
+
+This checkpoint is not connected to production execution and establishes no
+speedup. The next change must integrate physical Call/Return, fresh capture
+guards, fuel, errors and fallback without copying the full callee register frame.
+Evidence: `target/jit-evidence/short-slice-performance/compact-callee-*`.
+
 #### Bound-tail caller refresh — rejected runtime trial
 
 The trial refreshed, after a successfully returned admitted pair, only the
