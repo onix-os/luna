@@ -1014,6 +1014,13 @@ repl:
 	@$(CARGO) run --example interpreter -- $(ARGS)
 
 .PHONY: numeric-conversions jit-vm-dispatch jit-set-list jit-set-list-miri jit-frame-view jit-frame-view-miri jit-integer-table jit-integer-table-miri
+.PHONY: jit-operand-sources jit-operand-sources-miri
+jit-operand-sources:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::operand_source_tests
+
+jit-operand-sources-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::helpers::operand_source_tests -- --test-threads=1
+
 jit-integer-table:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::integer_table_tests
 	@$(CARGO) test --locked -p luna --features jit --test jit_integer_table $(TARGET_ARG)
@@ -1136,6 +1143,7 @@ help:
 	@echo "  jit-set-list Check fixed-list native writes, fuel, and fallback"
 	@echo "  jit-frame-view Check current-frame views and bounds guards"
 	@echo "  jit-integer-table Check integer reads, weak values, and fallback"
+	@echo "  jit-operand-sources Check constant/register helper sources"
 	@echo "  test-doc     Run doc tests alone"
 	@echo "  check        Run cargo check on all targets"
 	@echo "  check-all    Run cargo check on all targets/all features"

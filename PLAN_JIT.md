@@ -11,6 +11,26 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Experimental table operand-source specialization — 2026-10-07
+
+The Rust table helper now dispatches constant/register source combinations into
+const-generic readers. GET_TABLE/GET_UP_TABLE specialize the key;
+SET_TABLE/SET_UP_TABLE specialize both key and value. The existing operand flag,
+constant mask, bounds checks, helper ABI, generated source/effect verifier,
+projection synchronization, PC/panic handling and counters remain unchanged.
+This is a measured experiment, not a retained performance improvement yet.
+
+Three independent fixtures exercise 56 source/guard/panic combinations across
+ordinary and upvalue tables: constants, pending scalar operands, reference
+identity, destination aliases, readonly/metatable declines, malformed constant
+and register indices, and panic materialization. Focused helper/scoped/source
+verifier/integer-table/heap tests pass **80 executions / nine suites**. Miri
+passes **17 / three**, including the new fixtures and both gateway families.
+Formatting and all-target/all-feature checking pass. Original-flag frozen
+builds, instruction diagnostics and unchanged paired timing gates remain pending.
+
+Evidence prefix: `target/jit-evidence/short-slice-performance/helper-source-specialization-*`.
+
 #### Rejected typed integer table reads — 2026-10-07
 
 `c363317` added private integer lookups in RawTable/Table and selected them in

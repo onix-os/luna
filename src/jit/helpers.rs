@@ -16,6 +16,9 @@ mod set_list_tests;
 #[cfg(test)]
 mod integer_table_tests;
 
+#[cfg(test)]
+mod operand_source_tests;
+
 const fn symbol<const KIND: u32>(name: &'static str) -> (u32, &'static str, abi::HelperEntry) {
     (KIND, name, call::<KIND>)
 }
@@ -65,8 +68,8 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
         slots[index as usize] = Slot::from_value(value);
     }
 
-    fn operand(&self, slots: &[Slot], operand: u32) -> Value<'gc> {
-        if operand & abi::CONSTANT_OPERAND != 0 {
+    fn operand<const CONSTANT: bool>(&self, slots: &[Slot], operand: u32) -> Value<'gc> {
+        if CONSTANT {
             self.closure.prototype().constants[(operand & !abi::CONSTANT_OPERAND) as usize].into()
         } else {
             self.register(slots, operand)
@@ -129,6 +132,36 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
 
     fn operation<const KIND: u32>(&mut self, slots: &mut [Slot], a: u32, b: u32, c: u32) -> bool {
         match KIND {
+            abi::HELPER_GET_TABLE | abi::HELPER_GET_UP_TABLE => {
+                if c & abi::CONSTANT_OPERAND != 0 {
+                    self.operation_sources::<KIND, false, true>(slots, a, b, c)
+                } else {
+                    self.operation_sources::<KIND, false, false>(slots, a, b, c)
+                }
+            }
+            abi::HELPER_SET_TABLE | abi::HELPER_SET_UP_TABLE => {
+                match (
+                    b & abi::CONSTANT_OPERAND != 0,
+                    c & abi::CONSTANT_OPERAND != 0,
+                ) {
+                    (false, false) => self.operation_sources::<KIND, false, false>(slots, a, b, c),
+                    (false, true) => self.operation_sources::<KIND, false, true>(slots, a, b, c),
+                    (true, false) => self.operation_sources::<KIND, true, false>(slots, a, b, c),
+                    (true, true) => self.operation_sources::<KIND, true, true>(slots, a, b, c),
+                }
+            }
+            _ => self.operation_sources::<KIND, false, false>(slots, a, b, c),
+        }
+    }
+
+    fn operation_sources<const KIND: u32, const B_CONSTANT: bool, const C_CONSTANT: bool>(
+        &mut self,
+        slots: &mut [Slot],
+        a: u32,
+        b: u32,
+        c: u32,
+    ) -> bool {
+        match KIND {
             abi::HELPER_MOVE => {
                 self.store(slots, a, self.register(slots, b));
                 true
@@ -153,26 +186,26 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
             }
             abi::HELPER_GET_TABLE => {
                 let table = self.register(slots, b);
-                let key = self.operand(slots, c);
+                let key = self.operand::<C_CONSTANT>(slots, c);
                 self.table_read(slots, a, table, key)
             }
             abi::HELPER_SET_TABLE => {
                 let table = self.register(slots, a);
-                let key = self.operand(slots, b);
-                let value = self.operand(slots, c);
+                let key = self.operand::<B_CONSTANT>(slots, b);
+                let value = self.operand::<C_CONSTANT>(slots, c);
                 self.table_write(table, key, value)
             }
             abi::HELPER_GET_UP_TABLE => {
                 let table = self.upvalue(slots, b);
-                let key = self.operand(slots, c);
+                let key = self.operand::<C_CONSTANT>(slots, c);
                 let completed = self.table_read(slots, a, table, key);
                 self.count.upvalue_reads += u64::from(completed);
                 completed
             }
             abi::HELPER_SET_UP_TABLE => {
                 let table = self.upvalue(slots, a);
-                let key = self.operand(slots, b);
-                let value = self.operand(slots, c);
+                let key = self.operand::<B_CONSTANT>(slots, b);
+                let value = self.operand::<C_CONSTANT>(slots, c);
                 let completed = self.table_write(table, key, value);
                 self.count.upvalue_reads += u64::from(completed);
                 completed
