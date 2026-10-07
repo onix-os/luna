@@ -13,6 +13,12 @@ use super::{
 #[cfg(test)]
 mod set_list_tests;
 
+#[cfg(test)]
+mod integer_table_tests;
+
+#[cfg(test)]
+mod operand_source_tests;
+
 const fn symbol<const KIND: u32>(name: &'static str) -> (u32, &'static str, abi::HelperEntry) {
     (KIND, name, call::<KIND>)
 }
@@ -312,7 +318,7 @@ mod tests {
         }
     }
 
-    fn invoke<const KIND: u32>(
+    pub(super) fn invoke<const KIND: u32>(
         frame: &mut Frame<'_, '_, '_, '_>,
         slots: &mut [Slot],
         a: u32,

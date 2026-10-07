@@ -125,6 +125,13 @@ fn host_isa_refusal_preserves_public_execution_cached_peer_and_recovery() {
 #[test]
 fn symbol_layout_counts_registration_declarations_and_lookup_temporary() {
     let names = helpers::SYMBOLS.map(|(_, name, _)| name);
+    let scoped = super::super::scoped_helpers::SYMBOLS.map(|(_, name, _)| name);
+    assert_eq!(scoped.len(), names.len());
+    assert_eq!(
+        symbol_storage_bytes(scoped.map(str::len)).unwrap(),
+        3 * scoped.iter().map(|name| name.len()).sum::<usize>()
+            + scoped.iter().map(|name| name.len()).max().unwrap()
+    );
     assert_eq!(
         symbol_storage_bytes(names.map(str::len)).unwrap(),
         3 * names.iter().map(|name| name.len()).sum::<usize>()

@@ -11,6 +11,277 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Disabled-runtime attribution — diagnostic in progress
+
+The restored runtime remains unchanged. Exact symbol companions of the rejected
+`f54b9d5` and fixed-set-list control support twelve corrected step profiles:
+speed/shipping, no-feature/control/candidate, full-worker/single-float contexts,
+twenty iterations plus two warmups. Print-boundary dumps independently reconcile
+every part/event total with the profiler's collected totals and verify actual
+feature/mode/results/native-zero reports. The initial batch selected no-feature
+images under JIT labels because a shell cleanup variable clobbered the selected
+name; independent protocol checks rejected it. Its evidence is not attributed
+to JIT-Off. Corrected selection uses a local cleanup variable and per-run checks.
+
+Float step work is identical across full/single and control/candidate contexts:
+**135,281,322 instructions** in speed, **159,042,774** in shipping; reads, writes
+and branch counts also match. Six whole-worker profiles check work outside
+Executor steps. Float totals are **136,531,536 / 136,532,014** control/candidate
+in speed and **160,468,376 / 160,467,212** in shipping. These broader intervals
+also include untimed setup/destruction; neither scope proves hardware causality
+or replaces elapsed acceptance. Original candidate rejection remains in force.
+
+A separate 576-command/two-path context timing diagnostic retains 2,880 verified
+case reports, but one worker observation per window gives large path/half-run
+movement and no reliable attribution. It also used redundant explicit Off
+arguments rather than the original comparator's default-Off worker arguments.
+An eleven-sample repeat now uses the original full-worker argument form, two
+matched paths, alternating order, 24 windows and all three controls, with
+contention and artifact telemetry. It is still running, not an accepted fix.
+No owned profiler/build/test overlaps that repeat. Ignored diagnostic evidence:
+`target/jit-evidence/short-slice-performance/disabled-context-*`.
+
+#### Rejected generic import selection — 2026-10-07
+
+`f54b9d5` kept the ten generic names, ABI and runtime helper bodies, but registered
+and declared only imports required by source operations. Scalar-only chunks
+could have no imports; reference constants, potential reference Moves, fixed
+SetList and projected-upvalue fallback imports remained selected as required.
+Bounded arrays exposed only initialized prefixes; actual selected names and
+signatures remained charged under unchanged ceilings/refusal/retention gates.
+
+Focused formatting/all-feature checks and **793 test executions / seven suites**
+pass, six ignored; Rust-only Miri **18 / six**, none ignored. Baseline/GNU
+Auto/all-feature/docs pass **1,708 / 172**, ten ignored. Off and Force each pass
+**1,287 / 84**, six ignored; musl **809 / eight**, six ignored; real i686
+**583 / 86**, none ignored. These are execution counts, not unique tests or
+i686 native proof. The initial table-based declaration fixture failed its
+hostless scalar driver; a scalar Move replacement passed. This did not prove
+the original fixture defective and is not retained as an independent bug fix.
+
+Five frozen original-flag binaries, sixteen native profiles and twenty-eight
+disabled profiles have exact verified symbol companions. Both no-feature ELF
+images are byte-identical to the controls. Native text grows **716 bytes**.
+Scalar disabled instruction counts match controls in both profiles; simulated
+instructions/cache events do not establish elapsed performance or its cause.
+
+Two complete twelve-window campaigns, two matched paths and alternating order
+finish **288 original commands / 4,320 parsed rows**. All aggregate gates fail.
+All observations, external-contention telemetry and artifact identities remain.
+No owned build/test/profile overlaps timing. The extension confirms speed
+compiled-Off float direct control/candidate medians **0.955254 / 0.955889**,
+about **4.6% longer elapsed time**, against no-feature **1.001117 / 0.998423**.
+Its cost ratios rise from **1.01395 / 1.01875** to **1.06455 / 1.06870**;
+failures rise from **two to 45 / 48**. Shipping cold failures rise from
+**seven to 40 / 48**. Shipping float and tables also slow. Native callback
+direct **0.97905 / 0.98499** accompanies Off **0.99021 / 0.99139**; upvalues
+and allocation are near-flat. All 48 upvalue/table/callback native gates fail.
+Large path/control movement in native scalar timings is retained, not treated
+as clean candidate effects or discarded to improve the result.
+
+All **48 execution/resident counter comparisons match**. Compiler snapshot
+peak reductions exactly match independently derived source/import reservations:
+integer -2,003 bytes, float -2,219, tables -1,341, callbacks -1,767, predicate
+-1,971, allocation -1,344 and polymorphic -1,110; upvalue/cold unchanged. This
+is real compiler-reservation reduction, **not an accepted performance tradeoff**
+or complete compiler accounting.
+
+The candidate is rejected. Runtime, selection-only tests, Make wrapper and
+public import documentation are restored to `42c06af`; no unrelated fixture
+rewrite is retained. Restored formatting/all-feature checks, GNU and musl each
+pass **44 focused executions / six suites**, Miri **17 / five**, and real i686
+checking plus **three / two** pass; all have zero ignored/failed tests. The
+i686 native-only integration executes zero tests. The exact original lifetime
+source's opcode dump confirms it already contained a Move import possibility.
+All owned validation/profile/timing jobs are terminal. Hosted run `37577897444`
+for the rejected candidate was still running at the last observation and is not
+claimed as completed platform evidence. Full performance, compiler-accounting,
+platform and release acceptance remain open. Evidence prefix:
+`target/jit-evidence/short-slice-performance/generic-import-selection-*`.
+
+#### Rejected generated source-specific imports — 2026-10-07
+
+`55aa5d2` selected register/constant table sources at emission through eighteen
+ordinary/scoped imports: twelve table variants and six other helpers. The
+source/effect verifier independently derived source flags from decoded opcodes
+and rejected same-kind wrong-source imports before codegen/mapping. Encoded
+indices, bounds, PC/panic/projection ordering, canonical roots and counters
+remained intact. Scoped kind bitsets stripped source flags.
+
+Full all-feature testing caught three unchanged **4 KiB snapshot-budget**
+failures: declaring all variants exhausted native signature reservations even
+for scalar chunks. `eae6644` excluded unused table variants, using bounded stack
+arrays and charging only selected names/signatures. No quota or retention
+assertion was raised. Focused corrected checks pass **801 executions / seven
+suites**, six ignores; Miri **30 / seven**. Baseline/GNU Auto/all-feature/docs
+pass **1,712 / 172**, ten ignores; GNU Off **1,291 / 84**, six ignores; Force
+**1,291 / 84**, six ignores; musl **817 / eight**, six ignores; real i686
+**585 / 86**. These are execution counts, not unique tests or i686 native proof.
+
+Five original-flag binaries, sixteen native profiles and twenty-eight disabled
+profiles use exact symbol companions. Native table instructions fall
+**53,256,651 to 51,306,510**, callbacks **136,573,549 to 135,795,517**,
+allocation **34,757,098 to 34,425,825**; upvalues remain near-flat. Native text
+grows **18,468 bytes**. Both no-feature images are full-ELF byte-identical to
+controls. Original unpruned image extraction failed before profiling because
+Cargo reused no-feature artifacts without fresh linker captures; corrected
+builds force package-only release rebuilds through Make. No initial timing
+result is attributed to those unpruned artifacts.
+
+Twelve alternating windows/two matched paths finish **144 checked commands**;
+all aggregate gates fail. Native table direct control/candidate medians are
+**1.2252 / 1.2199**, but table checks still fail **21 / 24**. Polymorphic direct
+**1.0539 / 1.0501** passes 23/24 checks versus zero control. Callback direct
+**1.0202 / 1.0291** accompanies Off **0.8800 / 0.8829**: most ratio improvement
+is a slower interpreter control, not a comparable native gain. Callback checks
+still fail 24/24. Allocation direct **1.0850 / 1.0877** passes all 24.
+
+**This runtime trial is rejected.** Native upvalue direct **0.9813 / 0.9752**
+regresses against Off **1.0013 / 1.0014**. Speed compiled-Off float direct
+**0.8988 / 0.9022** means about **11% more elapsed time**, against no-feature
+**1.0057 / 1.0011**. Its cost ratios are **1.1309 / 1.1271**, versus control
+**1.0123 / 1.0192**; failures rise **two to all 24**. Speed disabled callbacks
+and allocation also slow. Shipping allocation direct **0.9795 / 0.9800**
+introduces two failures on one path. Original thresholds and every observation
+remain intact.
+
+All **24 execution/resident counter comparisons match**. Compiler snapshot
+peaks change by independently modeled name/signature reservations: integer/
+float -895 bytes, tables -441, callbacks/predicate -658, allocation -670,
+upvalues/cold unchanged. Polymorphic root keeps ten imports but longer names
+add **23 bytes**, exactly explaining its 16,101 to 16,124 peak. The first
+monotonic-resource diagnostic rejected that increase; its script/output remain.
+The subsequent diagnostic requires each exact modeled delta, not a blanket
+resource-field omission. Original allocation caps/refusal/retention gates remain
+unchanged and passing; this accounting result is not performance acceptance.
+
+Production helper/import/verifier code is restored to `3f495af`. Retained
+coverage includes three integrated source families at seven fuel budgets with
+GC between slices; twelve scoped operand-source combinations and semantic-kind
+counters; ordinary/scoped name accounting; and pure helper-flow/layout Miri
+wrappers. Trial-only static-ID/selection assertions are removed with the trial.
+A generic-helper import-pruning-only comparison is a distinct possible next
+investigation, not an accepted optimization. Full performance/resource/platform/
+release acceptance remains open.
+
+Restored formatting/all-feature checks and **60 focused GNU executions / seven
+suites** pass; Miri **27 / six**, musl **22 / four**, and real i686 **three /
+three** pass (two i686 native-only suites execute zero tests). All owned jobs
+are terminal; no timings or validation remain running for this experiment.
+
+Evidence prefixes: `target/jit-evidence/short-slice-performance/source-import-specialization-*`
+(initial quota failure) and `source-import-pruned-*` (corrected frozen campaign).
+
+#### Rejected runtime operand-source specialization — 2026-10-07
+
+`5d5c2bb` dispatched constant/register source combinations into const-generic
+readers inside the Rust table helper. Reads specialized the key; writes both
+key and value. Operand flags/masks/bounds, helper ABI, generated source/effect
+proofs, projections, PC/panic handling and counters stayed unchanged. This was
+not an inline annotation or a generated source-specific import.
+
+Three independent fixtures exercise 56 source/guard/panic cases across ordinary
+and upvalue tables: constants, pending scalars, reference identity, destination
+aliases, readonly/metatable declines, malformed indices and panic materialization.
+Focused suites pass **80 executions / nine suites**, Miri **17 / three**.
+Baseline/GNU Auto/docs pass **1,684 / 169**, ten ignores; musl **800 / six**,
+six ignores (the boundary target runs the broad library suite); real i686
+**583 / 84**. Formatting/all-target/all-feature checks pass. These counts do
+not claim new full GNU Off/Force execution.
+
+Five original-flag binaries and exact symbol companions produce sixteen native
+and twenty-eight disabled-cost profiles. Native table instructions fall
+**53,317,647 to 51,599,784**; callbacks **136,573,549 to 135,990,106**;
+allocation **34,757,098 to 34,485,760**. Upvalues remain near-flat. Text grows
+3,688 bytes in native/speed and 768 in shipping. Both no-feature binaries are
+**full-ELF byte-identical** to controls. Disabled integer/float/table instruction
+totals and VM sizes stay unchanged. Address-normalized VM instruction shapes
+also match, but that does not prove machine-byte identity or a hardware cause.
+
+Two twelve-window campaigns complete **288 original checked commands** across
+two matched paths; **284 fail**, four pass. All **48 complete native counter
+comparisons match**, including memory metadata; artifact hashes verify. The
+24-window table direct control/candidate medians are **1.1608 / 1.1744**,
+callbacks **1.1001 / 1.1017**, allocation **1.0695 / 1.0750**. Native gains
+remain promising in the second campaign, but tables fail 47/48 original checks,
+callbacks/upvalues 48/48, and allocation one (control zero).
+
+Speed compiled-Off float direct medians are **0.9793 / 0.9516**, about 2.1–5.1%
+more elapsed time; no-feature controls are **0.9967 / 1.0079**. Float gate
+failures rise **26 to 39 / 48**. The second twelve windows repeat float
+**0.9793 / 0.9534** against no-feature **0.9910 / 1.0060**. Disabled allocation
+also slows, direct **0.9804 / 0.9818** overall and **0.9838 / 0.9765** in the
+second campaign. Individual control swings are large under recorded external
+load; exact effect sizes remain uncertain, not grounds to waive failed gates.
+Existing shipping failures also remain.
+
+**Runtime specialization is removed; independent fixtures and Make targets
+remain.** The helper production body matches `ab090d2`; only its test-module
+registration is added. Do not repeat runtime source dispatch or operand inline
+hints as a new fix. Generated source-specific imports are a different possible
+investigation, still unimplemented and requiring complete source/effect proofs
+and resource accounting. Full performance/resource/platform/release acceptance
+remains open.
+
+Restored formatting/all-feature checks and **43 focused GNU executions / six
+suites** pass; Miri **17 / three**, musl **27 / five**, real i686 **three / one**
+also pass. All owned builds, profiles, timing campaigns and tests are terminal.
+
+Evidence prefix: `target/jit-evidence/short-slice-performance/helper-source-specialization-*`.
+
+#### Rejected typed integer table reads — 2026-10-07
+
+`c363317` added private integer lookups in RawTable/Table and selected them in
+the existing native read helper. Positive/representable indices used the existing
+`array_answers` guard; misses, hash keys and weak-table entries retained generic
+lookup. Noninteger keys, nil/metatable decline, pending scratch values, reference
+identity, helper ABI, fuel and counters were unchanged. No new public API,
+unsafe code, compiler hint or generated GC layout was introduced. This is
+distinct from previously rejected operand inlining and borrow consolidation.
+
+Three pure fixtures cover signed/platform bounds, array/hash/nil, numeric aliases,
+negative zero, live/dead weak values after actual collection, pending keys,
+destination aliases and metamethod misses. Five integrated families compare
+exact Off/Auto slices at seven budgets with collection between steps and require
+native reads. Format/check and **31 focused executions / seven suites** pass;
+the initial hand count omitted the second async region invocation and is corrected
+here. Miri passes **13** tests. Baseline/GNU Auto/docs pass **1,702 / 170**, ten
+ignores; musl **76 / ten** and real i686 **594 / 84**, with no failures.
+
+Twenty-eight cost profiles and sixteen native profiles use exact symbol
+companions of five frozen original-flag binaries. Native table instructions
+fall **53,256,651 to 51,241,641**, about 3.8%, while allocation falls
+**34,742,890 to 33,945,787**. Callback work rises slightly from the additional
+noninteger branch. Compiled-Off integer/float instructions are unchanged in
+both profiles. VM size/stack reservations are unchanged; text grows 208 bytes
+in speed/native and 216 in shipping. These are diagnostics, not timing acceptance.
+
+Twelve alternating windows/two matched paths complete **144 checked commands**;
+all aggregate gates fail. All **24 complete native non-timing counter comparisons
+match exactly**, including resource metadata; artifact hashes verify. Native
+table direct control/candidate medians are **0.9910 / 0.9911**, slightly slower
+despite instruction savings. Table/upvalue/callback gates still fail all 24
+checks. Allocation direct medians **1.0023 / 1.0050** do not establish a
+substantial gain; all allocation checks remain passing.
+
+Speed compiled-Off float direct medians are **0.9335 / 0.9402**, about 6.4–7.1%
+more elapsed time, against no-feature **0.9999 / 1.0025**. Its cost ratios
+**1.0923 / 1.0856** exceed 1.05, with failures rising **2/24 to 24/24**.
+Shipping table direct medians are **0.9621 / 0.9581**, versus no-feature
+**1.0002 / 1.0006**; failures rise **1/24 to 24/24** and cost ratios reach
+**1.0613 / 1.0637**. Shipping upvalues regress approximately 1%. All windows,
+controls and contention outliers are retained; no hardware cause is established.
+
+Reject the typed runtime methods/branch and restore generic lookup. Retain the
+independent unit fixtures against explicit expected results and the integrated
+fuel/GC cases under `make jit-integer-table` and `make jit-integer-table-miri`.
+Restored production lookup code matches the retained runtime. Format/check and
+31 focused GNU executions across seven suites pass; Miri passes 13, musl's
+integer/heap selection passes 20, and real i686 passes three pure fixtures
+(the native-only integration file has zero tests there).
+Evidence is under `target/jit-evidence/short-slice-performance/integer-table-read-*`.
+This does not close the remaining performance/resource/platform/release gates.
+
 #### Rejected checked PC-only projection — 2026-10-07
 
 `ce84bcc` replaced full register views at PC-only activation call/return/native

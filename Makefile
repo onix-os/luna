@@ -66,7 +66,7 @@ $(info ------------------------------------------)
 .PHONY: jit-input jit-float-input jit-arithmetic jit-truth jit-comparison jit-comparison-backend
 .PHONY: jit-loop-source jit-loop-source-backend
 .PHONY: jit-transfer-source jit-transfer-source-backend
-.PHONY: jit-helper-flow jit-helper-flow-backend
+.PHONY: jit-helper-flow jit-helper-flow-backend jit-helper-flow-miri
 .PHONY: jit-exit-flow jit-exit-flow-backend
 .PHONY: jit-entry-flow jit-entry-flow-backend
 .PHONY: jit-region-flow jit-region-flow-backend
@@ -495,6 +495,11 @@ jit-helper-flow:
 
 jit-helper-flow-backend:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::corrupted_helper_flow_
+
+jit-helper-flow-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::helper_flow_tests -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::lifetime_tests::symbol_layout_counts_registration_declarations_and_lookup_temporary -- --exact --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::lifetime_tests::signature_layout_counts_initial_declaration_and_import_vectors -- --exact --test-threads=1
 
 jit-transfer-source:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::transfer_tests
@@ -1013,7 +1018,22 @@ r: run
 repl:
 	@$(CARGO) run --example interpreter -- $(ARGS)
 
-.PHONY: numeric-conversions jit-vm-dispatch jit-set-list jit-set-list-miri jit-frame-view jit-frame-view-miri
+.PHONY: numeric-conversions jit-vm-dispatch jit-set-list jit-set-list-miri jit-frame-view jit-frame-view-miri jit-integer-table jit-integer-table-miri
+.PHONY: jit-operand-sources jit-operand-sources-miri
+jit-operand-sources:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::operand_source_tests
+	@$(CARGO) test --locked -p luna --features jit --test jit_operand_sources $(TARGET_ARG)
+
+jit-operand-sources-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::helpers::operand_source_tests -- --test-threads=1
+
+jit-integer-table:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::integer_table_tests
+	@$(CARGO) test --locked -p luna --features jit --test jit_integer_table $(TARGET_ARG)
+
+jit-integer-table-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::integer_table_tests
+
 jit-frame-view:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::register_view_tests
 
@@ -1128,6 +1148,9 @@ help:
 	@echo "  jit-vm-dispatch Check per-slice dispatch selection and code ownership"
 	@echo "  jit-set-list Check fixed-list native writes, fuel, and fallback"
 	@echo "  jit-frame-view Check current-frame views and bounds guards"
+	@echo "  jit-integer-table Check integer reads, weak values, and fallback"
+	@echo "  jit-operand-sources Check constant/register helper sources"
+	@echo "  jit-helper-flow-miri Check pure source flow and import layouts"
 	@echo "  test-doc     Run doc tests alone"
 	@echo "  check        Run cargo check on all targets"
 	@echo "  check-all    Run cargo check on all targets/all features"

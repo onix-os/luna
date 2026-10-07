@@ -318,6 +318,10 @@ and snapshot-quota-charged.
 Helper records independently decode all ten source helper kinds, including
 reference moves/constants, and bind each physical direct call to its imported
 function, host/slot pointers, six-argument ABI, operand encodings and source PC.
+`make jit-operand-sources` checks constant/register operands, pending scalars,
+reference values and aliases, plus integrated Off/Auto fuel traces with GC at
+every slice. Scoped helper tests cover the same source combinations and kind
+counters; `make jit-helper-flow-miri` checks source flow and import layouts.
 Completion/panic tests must use the actual returned status; success edges require
 the decoded next PC and one completed-bytecode increment, while panic/decline edges preserve the
 source PC and unchanged count. Missing/extra calls, unexpected stores in helper
