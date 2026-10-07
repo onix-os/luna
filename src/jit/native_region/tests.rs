@@ -2,9 +2,9 @@ use super::*;
 
 mod cache;
 mod cost;
+mod registration;
 mod request;
 mod service;
-mod source_lease;
 use crate::{
     opcode::Operation, thread::activation::with_test_thread, Fuel, JitConfig, JitMode, Lua, Value,
 };
@@ -333,10 +333,6 @@ fn admitted_pair_rechecks_dynamic_values_frames_fuel_mode_and_hooks() {
 fn admitted_pair_accepts_rebound_closure_but_not_identical_foreign_prototype() {
     let source = b"local n=0 local function f(v) n=n+v end f(3) return n";
     fixture_source(source, |ctx, closure, region, start| {
-        let foreign = Closure::load(ctx, None, &source[..])
-            .unwrap()
-            .prototype()
-            .prototypes[0];
         let pc = region.pair.program.key().pc;
         let Operation::Call { func, .. } = closure.prototype().opcodes[pc].decode() else {
             panic!()
@@ -362,7 +358,14 @@ fn admitted_pair_accepts_rebound_closure_but_not_identical_foreign_prototype() {
                         else {
                             panic!()
                         };
-                        let prototype = if same { original.prototype() } else { foreign };
+                        let prototype = if same {
+                            original.prototype()
+                        } else {
+                            Closure::load(ctx, None, &source[..])
+                                .unwrap()
+                                .prototype()
+                                .prototypes[0]
+                        };
                         let mut upvalues = allocator_api2::vec::Vec::new_in(
                             ottavino_gc_arena::allocator_api::MetricsAlloc::new(&ctx),
                         );

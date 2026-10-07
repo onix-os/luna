@@ -11,25 +11,43 @@
 
 ### Progress snapshot — 2026-10-07
 
-#### Scoped source-registration lease trial — 2026-10-07
+#### Scoped source-registration lease trial rejected — 2026-10-07
 
-The admitted native region now experimentally owns an immutable registry borrow.
-Each paired session borrows that witness and compares the fresh physical callee
-against its resolved prototype after Call and before materialization. Ordinary
-unbound sessions retain registry identity lookups. The registration cannot change
-while the witness exists; no GC pointer escapes its arena scope. Frame transfer,
-capture refresh, full-prefix writeback, fuel, native coverage and slice limits are
-unchanged. This is a trial, not performance acceptance.
+Trial `497c7b7` holds an immutable registry borrow across an admitted native region.
+Paired sessions borrow that witness and compare the fresh physical callee against
+the resolved prototype after Call and before materialization. Unbound sessions
+retain registry lookups; frames, capture refresh, full writeback, fuel and native
+coverage remain unchanged. The pinned collector supports this scoped guard without
+unsafe lifetime extension, new allocation or an escaping GC pointer.
 
-Focused canonical/region/resume/cache gates pass **94 test executions** (two
-ignored). Changed-prototype adversarial checks cover both source paths. Added
-checks prove registry mutation is excluded during admission, available after
-return/error/panic, and rejects a stale source after reset. An integrated test
-collects twice after region return, then resumes the pending callback and loads
-new registered source successfully, including a canonical-fallback case.
+The trial passes **94 focused executions** (two ignored) and **1,281 GNU Auto
+executions / 82 suites** (six ignored). Adversarial tests cover both source paths,
+registration exclusion, stale-source refusal, and release on return/error/panic.
+An integrated test collects twice after native return and then resumes a callback
+that loads new registered source, including a canonical-fallback case.
 
-Full-suite and original native/compiled-Off performance acceptance are pending.
-Evidence is under `target/jit-evidence/short-slice-performance/source-lease-*`.
+Two batches at the **same two invocation paths** complete **144 original checked
+commands**, across twelve alternating windows. All aggregate gates fail. All
+24 matched native counter comparisons agree, artifact hashes verify, and both
+no-feature binaries are byte-identical to the production controls. No owned
+build/test/profile runs overlap timing; external workloads and outliers remain.
+
+Native upvalue gains repeat: combined direct control/candidate median ratios are
+**1.0624 / 1.0675**. However, its own Off/Auto speedups are only **0.6974 / 0.7035**
+against the original **1.25** target. Native table direct ratios instead fall to
+**0.9808 / 0.9758**. Most decisively, speed-profile disabled float fails **all 24**
+candidate checks versus **10/24** control passes. Candidate paired overhead ratios
+are **1.0921 / 1.0897**, above the unchanged **1.05** cap; repeat-only direct ratios
+**0.9665 / 0.9566** reproduce the slowdown. Shipping metamethod timings also worsen.
+The first batch's disabled shipping-upvalue improvement does not repeat, so it is
+not accepted as a gain.
+
+**The runtime trial is removed**, rather than exchanging these regressions for a
+partial upvalue improvement. General callback/GC and error/panic registration-release
+coverage is retained; **108 restored focused executions** and formatting pass.
+Frozen source, binaries, both batches and the 2,160-row combined
+report remain under `target/jit-evidence/short-slice-performance/source-lease-*`.
+The original performance, resource, platform and release gates remain open.
 
 #### Ordinary executor adapter trial rejected — 2026-10-07
 

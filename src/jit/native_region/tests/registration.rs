@@ -1,29 +1,4 @@
 use super::*;
-use crate::jit::canonical::admission::Admitted;
-
-#[test]
-fn admitted_source_lease_freezes_registration_and_releases_on_drop() {
-    fixture(|ctx, closure, region, _| {
-        with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
-            let admitted =
-                Admitted::new(&region.pair.program, ctx, closure, host.frame_identity()).unwrap();
-            assert!(ctx.jit_registry().try_borrow_mut(&ctx).is_err());
-            assert!(ctx.jit_registry().try_borrow().is_ok());
-            assert!(ctx.jit().0.try_borrow_mut().is_ok());
-            assert!(admitted.invoke(host, 64, 0).is_none());
-            drop(admitted);
-            assert!(ctx.jit_registry().try_borrow_mut(&ctx).is_ok());
-            ctx.jit_registry().borrow_mut(&ctx).reset(ctx);
-            ctx.jit_registry()
-                .borrow_mut(&ctx)
-                .register(ctx, closure.prototype());
-            assert!(
-                Admitted::new(&region.pair.program, ctx, closure, host.frame_identity(),).is_none()
-            );
-            assert!(ctx.jit_registry().try_borrow_mut(&ctx).is_ok());
-        });
-    });
-}
 
 #[test]
 fn region_releases_registration_before_gc_and_source_loading_callback() {

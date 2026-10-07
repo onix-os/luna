@@ -1,36 +1,12 @@
 use super::*;
 use crate::{Closure, FunctionPrototype};
 use ottavino_gc_arena::Gc;
-use std::cell::Ref;
-
-pub(super) struct BoundSource<'gc> {
-    _registry: Ref<'gc, crate::jit::registry::Registrations<'gc>>,
-    prototype: Gc<'gc, FunctionPrototype<'gc>>,
-}
-
-impl<'gc> BoundSource<'gc> {
-    pub(super) fn new(
-        ctx: Context<'gc>,
-        registry: Ref<'gc, crate::jit::registry::Registrations<'gc>>,
-        identity: u64,
-    ) -> Option<Self> {
-        let prototype = registry.resolve(ctx, identity)?;
-        Some(Self {
-            _registry: registry,
-            prototype,
-        })
-    }
-
-    pub(super) fn matches(&self, prototype: Gc<'gc, FunctionPrototype<'gc>>) -> bool {
-        Gc::ptr_eq(self.prototype, prototype)
-    }
-}
 
 pub(in crate::jit) struct Admitted<'program, 'gc> {
     program: &'program Program,
     ctx: Context<'gc>,
     caller: Closure<'gc>,
-    source: BoundSource<'gc>,
+    callee: Gc<'gc, FunctionPrototype<'gc>>,
     identity: (usize, usize),
 }
 
@@ -58,8 +34,7 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
         if registry.identity(ctx, caller.prototype()) != Some(site.caller) || site.registers > 256 {
             return None;
         }
-        let source = BoundSource::new(ctx, registry, site.callee)?;
-        let callee = source.prototype;
+        let callee = registry.resolve(ctx, site.callee)?;
         if usize::from(callee.stack_size) != site.registers {
             return None;
         }
@@ -97,7 +72,7 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
             program,
             ctx,
             caller,
-            source,
+            callee,
             identity,
         })
     }
@@ -131,7 +106,7 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
             else {
                 return false;
             };
-            if !self.source.matches(callee.prototype()) {
+            if !Gc::ptr_eq(callee.prototype(), self.callee) {
                 return false;
             }
             let Some(upvalue) = callee.upvalues().get(usize::from(site.pattern.upvalue)) else {
@@ -172,7 +147,6 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
         }
         let mut scratch = [MaybeUninit::uninit(); 256];
         let mut session = Session::new(self.ctx, host, &self.program.site, &mut scratch);
-        session.source = Some(&self.source);
         session.prefix = prefix;
         unsafe {
             self.program

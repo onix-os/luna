@@ -612,12 +612,6 @@ fn rebind<'gc>(
 
 #[test]
 fn physical_call_checks_replacements_and_refreshes_capture_after_preflight() {
-    for bound in [false, true] {
-        physical_call_replacements(bound);
-    }
-}
-
-fn physical_call_replacements(bound: bool) {
     fixture(ADD, |lua, closure, site, code| {
         for case in 0..3 {
             lua.enter(|ctx| {
@@ -652,13 +646,8 @@ fn physical_call_replacements(bound: bool) {
                         );
                     }
                     let before = stats(ctx);
-                    let source = bound.then(|| {
-                        admission::BoundSource::new(ctx, ctx.jit_registry().borrow(), site.callee)
-                            .unwrap()
-                    });
                     let mut scratch = [MaybeUninit::uninit(); 256];
                     let mut session = Session::new(ctx, host, &site, &mut scratch);
-                    session.source = source.as_ref();
                     assert!(session.preflight(64));
                     session.host.with_registers(|_, registers| {
                         registers.stack_frame[usize::from(site.function.0)] = replacement.into();
@@ -696,24 +685,13 @@ fn physical_call_replacements(bound: bool) {
 
 #[test]
 fn changed_physical_prototype_refuses_leave_before_materialization() {
-    for bound in [false, true] {
-        changed_physical_prototype(bound);
-    }
-}
-
-fn changed_physical_prototype(bound: bool) {
     fixture(ADD, |lua, closure, site, _code| {
         lua.enter(|ctx| {
             with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
                 position(host, ctx, site.pc);
                 let replacement = Closure::load(ctx, None, b"return 0").unwrap();
-                let source = bound.then(|| {
-                    admission::BoundSource::new(ctx, ctx.jit_registry().borrow(), site.callee)
-                        .unwrap()
-                });
                 let mut scratch = [MaybeUninit::uninit(); 256];
                 let mut session = Session::new(ctx, host, &site, &mut scratch);
-                session.source = source.as_ref();
                 assert!(session.preflight(64));
                 let data = std::ptr::addr_of_mut!(session).cast();
                 let frame = unsafe {
