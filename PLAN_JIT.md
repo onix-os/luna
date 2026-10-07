@@ -11,6 +11,47 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Combined materialization/admission — measured and reverted
+
+`d0a5d9d` combined full caller publication and dynamic call admission in one
+exclusive host borrow. No prechecked token escaped; fuel, mode, hooks, function,
+capture and argument checks observed post-publication state. Physical Call,
+fresh post-Call validation, native execution, Return and full refresh remained.
+Direct mutation/refusal tests and canonical/activation checks passed.
+
+The initial combined body reduced profile instructions from 276,871,067 to
+274,774,914 but increased data accesses and gave mixed upvalue timings:
+CPU0/16 ratios 0.9877/0.9809 initially, then 1.0199/1.0094 on repeat.
+The compiler merged the former admission body into the caller boundary. An
+outlined execution-body variant used 275,074,025 instructions; its initial
+CPU16 gain did not repeat. Repeated upvalue control/candidate ratios were
+0.9645 on CPU0 and 0.9966 on CPU16. The initial CPU0 apparent 1.94x gain came
+with broad control slowdowns and is not credible optimization evidence.
+
+Outlined feature-cost comparisons also regressed: speed CPU0 float ratio
+0.8881, shipping CPU16 integer/upvalue 0.9699/0.9708. Both no-feature profiles
+remained byte-identical. All cases, failed gates and noisy windows are retained.
+`1aa1baa` restores all five source files, including removing candidate-only
+APIs and tests; the experiment remains inspectable in Git history.
+
+A scalar-only `Slot::write_back` recheck removed proven redundant reference
+loads/stores and reduced the profile by 0.47%, but upvalue ratios were
+0.9967/0.9943. This repeats the previously rejected scalar-only-writeback
+mechanism recorded below; both the edit and redundant test were removed.
+
+These five native comparisons and one full speed/shipping cost comparison
+contain 84 checked commands, all aggregate gates failing. Native counters and
+artifact/source hashes match their controls. Evidence is under
+`target/jit-evidence/short-slice-performance/materialized-*` and
+`reference-writeback-*`. No production performance change is retained.
+The remaining work is the full performance goal, not another local wrapper
+rewrite; source-verified caller/callee execution boundaries need structural work.
+
+The restored GNU baseline/all-feature-Auto/doc run passes 1,741 executions
+across 172 suites, ten ignored, zero failures. Formatting/all-feature checks
+pass, runtime source matches `756187d`, and the rebuilt optimized benchmark
+is byte-identical to the frozen `9ea54b9` executable. Acceptance remains open.
+
 #### Physical return specialization — measured and rejected
 
 Two fixed-return candidates were implemented and measured against `9ea54b9`'s
