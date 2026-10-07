@@ -56,8 +56,41 @@ extractor used only after arithmetic operands have already passed `to_numeric`.
 This preserves the original public conversion path and removes its redundant
 string-capable fallback from normalized arithmetic. The differential tests also
 check exact numeric bits and that the private extractor never reads string bytes.
-Refined-source correctness and full unchanged timing controls remain pending;
-its evidence uses `numeric-normalized-*`, separate from the first candidate.
+The refined source (`4124dd7`) passes **74 focused** and **1,681 baseline/full
+GNU Auto/doc test executions** again. Its own twelve-window, two-path campaign
+completes **144 unchanged checked commands**, all aggregate gates failing;
+all 24 complete native counter comparisons and immutable artifact hashes verify.
+Speed compiled-Off float direct medians improve to **1.4033 / 1.3972** and
+shipping to **1.2753 / 1.2751**. No-feature float improves even more:
+**1.5394 / 1.5418** speed and **1.4845 / 1.4668** shipping. Speed integer
+also improves in both compiled-Off and no-feature builds rather than retaining
+the first candidate's baseline slowdown.
+
+Those absolute gains do not satisfy the original relative limits. Compiled-Off
+float fails **23/24 speed and 24/24 shipping** checks against its faster baseline;
+native integer fails **21/24** versus two control failures. Actual regressions
+also remain: native table direct medians **0.9810 / 0.9782**, path-sensitive
+native float **1.0021 / 0.8904**, and speed compiled-Off predicate
+**0.9749 / 0.9732** (22/24 failed checks versus one control failure).
+Shipping table fails all 24 checks versus three controls, with near-unchanged
+compiled-Off times but faster no-feature execution. Native upvalue remains near
+**0.6511 / 0.6506**, not its required 1.25 speedup.
+
+The refinement remains an explicitly unaccepted work-in-progress candidate:
+keep the shared speed gains visible without restoring a slower interpreter to
+make ratios look better, and continue fixing the JIT-specific overhead and
+actual regressions. No gate or scope is changed. Exact-image attribution now
+verifies all eight symbol companions and twenty selected worker profiles.
+Speed float instructions drop **39.54M to 29.53M** no-feature and
+**41.29M to 32.20M** compiled-Off; integer drops **25.24M to 22.03M** and
+**26.89M to 24.79M**. The standalone speed `Constant::add` symbol disappears,
+consistent with inlining its simplified body. However, the compiled-Off
+instruction gap grows **1.76M to 2.67M** for float and **1.65M to 2.77M** for
+integer, matching increased VM self-work gaps. Shipping float saves 9.2M
+instructions in each build; shipping integer/upvalue work is unchanged.
+These diagnostics identify real shared gains and remaining VM overhead, not a
+hardware explanation for every timing change or performance acceptance.
+Evidence uses `numeric-normalized-*`, separate from the first trial.
 No overall regression fix or full-plan acceptance is claimed. Evidence is under
 `target/jit-evidence/short-slice-performance/numeric-number-*`.
 
