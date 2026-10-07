@@ -75,11 +75,14 @@ fn generated_compact_cells_preserve_all_register_and_capture_aliases() {
                         Failure::None,
                     )
                     .unwrap();
+                    let cached = unsafe { Entry::new(code.binding, code.entry as *const u8) };
                     for capture in [None, Some(0), Some(1), Some(2)] {
                         for initial in [[3, 5, 11], [i64::MAX, i64::MIN, -1], [-1, 0, i64::MAX]] {
                             let values = initial.map(Value::Integer);
                             let mut frame = code.binding.prepare(&values, capture, 13).unwrap();
                             let output = code.invoke(&mut frame).unwrap();
+                            let mut cached_frame = cached.prepare(&values, capture, 13).unwrap();
+                            assert_eq!(cached.invoke(&mut cached_frame).unwrap(), output);
                             let mut expected = initial;
                             let mut upper = 13;
                             expected[usize::from(read)] =
@@ -355,6 +358,11 @@ fn compact_owners_and_failed_compilation_preserve_live_leases() {
     ))
     .unwrap();
     let mut frame = other.prepare(&[Value::Integer(3); 3], None, 7).unwrap();
+    assert!(lease.invoke(&mut frame).is_err());
+    let equivalent = lease.binding;
+    let mut frame = equivalent
+        .prepare(&[Value::Integer(3); 3], None, 7)
+        .unwrap();
     assert!(lease.invoke(&mut frame).is_err());
     drop(lease);
     assert_eq!(workspace.current(), initial);

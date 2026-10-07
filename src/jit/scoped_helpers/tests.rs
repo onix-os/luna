@@ -693,6 +693,58 @@ fn generated_scoped_decline_preserves_pending_values_and_canonical_error() {
 }
 
 #[test]
+fn scoped_invocation_retains_counters_across_success_decline_and_panic() {
+    Lua::empty().enter(|ctx| {
+        let closure = Closure::load(ctx, None, &b"local a,b,c=0,0,0 return a,b,c"[..]).unwrap();
+        with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+            let mut scratch = slots(host);
+            scratch[0] = abi::Slot::from_value(Value::Integer(73));
+            let mut frame = Frame::new(ctx, host);
+            frame.count.calls = 11;
+            frame.count.completed = 7;
+            frame.count.declined = 4;
+            frame.count.table_reads = 3;
+            frame.count.upvalue_writes = 2;
+            let mut native = frame.publish(scratch.len());
+            for (kind, a, b, expected) in [
+                (abi::HELPER_MOVE, 1, 0, abi::HELPER_COMPLETED),
+                (abi::HELPER_GET_TABLE, 2, 0, abi::HELPER_DECLINED),
+                (abi::HELPER_MOVE, u32::MAX, 0, abi::HELPER_PANICKED),
+            ] {
+                let entry = SYMBOLS.iter().find(|symbol| symbol.0 == kind).unwrap().2;
+                assert_eq!(
+                    unsafe { entry(&mut native, scratch.as_mut_ptr(), a, b, 0, 9) },
+                    expected
+                );
+            }
+            assert_eq!(
+                (
+                    frame.count.calls,
+                    frame.count.completed,
+                    frame.count.declined
+                ),
+                (14, 8, 5)
+            );
+            assert_eq!(
+                (frame.count.table_reads, frame.count.upvalue_writes),
+                (3, 2)
+            );
+            let payload = frame.panic.take().unwrap();
+            frame.host.with_registers(|_, registers| {
+                assert_eq!(*registers.pc, 10);
+                assert!(matches!(registers.stack_frame[0], Value::Integer(73)));
+                assert!(matches!(registers.stack_frame[1], Value::Integer(73)));
+            });
+            let pointer = payload.as_ref() as *const dyn Any as *const ();
+            let propagated =
+                catch_unwind(AssertUnwindSafe(|| std::panic::resume_unwind(payload))).unwrap_err();
+            assert_eq!(propagated.as_ref() as *const dyn Any as *const (), pointer);
+            assert!(ctx.jit().0.try_borrow_mut().is_ok());
+        });
+    });
+}
+
+#[test]
 fn scoped_helper_panic_materializes_pending_slots_and_releases_register_borrow() {
     let mut lua = Lua::empty();
     lua.enter(|ctx| {

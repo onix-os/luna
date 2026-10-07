@@ -11,6 +11,120 @@
 
 ### Progress snapshot — 2026-10-07
 
+#### Fixed-capacity physical calls — measured, unaccepted WIP
+
+The JIT activation host now has an allocation-free fixed-argument closure-call
+path. It requires a fresh closure, a non-variable caller, sufficient value/frame
+capacity, arguments within the fixed parameter/register bounds, and room below
+the depth limit. It moves arguments and initializes the remaining registers in
+place, preserving the real callee frame, caller PC/return expectation, shared
+VM fuel constants and interpreter dispatch accounting. Refusal has no effects;
+allocation, excess arguments, depth limits and other calls stay on the original
+path. Ordinary VM and no-feature execution sources are otherwise unchanged.
+
+Initial focused validation passed 101 executions. Expanded validation passed
+52 focused executions and 1,324 full GNU all-feature Auto executions (six
+ignored). Two dedicated physical-call differential tests pass Memcheck with
+zero errors and zero definite/indirect leaks; harness reports retain 48 possibly
+lost and 632 reachable bytes. Cases include missing/excess arguments, zero-width
+frames, frame/value capacity refusal, depth errors and saturated/interrupted
+fuel. Native call, alias, error and panic tests remain enabled.
+
+Two frozen native screens each contain 324 rows: all nine workloads, three
+alternating windows per CPU0/CPU16, eleven paired samples and unchanged gates.
+The final shared-fuel-constant build improves direct upvalue control/candidate
+ratios to **1.0410/1.0457**, with all execution/resource counters identical.
+The initial original-flag symbol profile used 276,717,634 instructions versus
+294,367,740 for retained control; that profile predates the shared-constant
+follow-up and is not a profile of the final executable. Native acceptance still
+fails: the upvalue speedup over its own interpreter remains below 1.25.
+
+The final change is **not accepted**. A separate 216-row speed/shipping cost
+screen used fresh pre-change and candidate artifacts built at the same repo
+path, identical common invocation paths, three alternating windows on both
+cores, eleven samples and twenty iterations. No-feature binaries are
+byte-identical in both profiles. Speed compiled-Off integer direct ratios are
+**0.9119/1.0024**; float ratios are **0.9801/0.9758**, with CPU0 float failures
+increasing from 0/3 to 3/3. Shipping timings are broadly near control, but
+existing failures remain. All 24 cost gate commands and all 24 native gate
+commands failed. No threshold, workload or native coverage requirement changed.
+
+This source remains feature-branch WIP while the new disabled-path regression
+is investigated; the native gain alone does not justify release acceptance.
+Next inspect the actual speed compiled-Off executable/code generation before
+adding layout or inlining hints. Evidence is retained under
+`target/jit-evidence/short-slice-performance/in-place-call-*`, especially
+`in-place-call-final-screen/` and `in-place-call-cost/screen/`.
+
+#### Borrowed helper invocation — rejected runtime trial
+
+Two measured variants removed the scoped bridge's temporary owning helper
+frame and counter copies, using a shared borrowed invocation. The second
+forced that invocation inline. Both retained actual helper operations,
+projection reborrowing, PC publication, panic transport and counters. The
+first passed 122 focused checks; the second passed the helper suites and
+all-feature checks. A new retained test checks accumulated counters across
+success, decline and panic, committed scalar state, and original panic payload.
+
+Each variant was measured against the frozen retained compact runtime in
+three alternating windows on CPU0 and CPU16: all nine workloads, eleven
+paired samples, unchanged checks, 324 rows per screen, no concurrent owned
+build/test/profile work. All execution/resource counters match. All 24
+aggregate gate commands failed. The first variant's direct upvalue
+control/candidate ratios were 1.0243/0.9992, but array ratios were
+0.8793/0.9095; inlining gave upvalue 0.9986/0.9987 and array 0.8948/0.8842.
+Neither is an accepted optimization; both production changes are reverted.
+
+Restored production passes formatting, all-feature checking, the 122 focused
+executions and the full GNU all-feature Auto suite (1,322 passes, six ignored).
+
+Original-flag symbol replays verified all loaded sections and program headers.
+Upvalue instruction totals were 293,398,137 and 294,232,768 versus retained
+294,367,740. These small instruction changes did not resolve elapsed-time
+regressions. This also revisits the earlier rejected direct-helper approach;
+borrowing counters rather than moving them did not make it viable. Do not
+repeat helper-wrapper or inlining variants as a route to full acceptance.
+
+Evidence: `target/jit-evidence/short-slice-performance/helper-invocation-*`
+and `helper-borrowed-inline-*`, including source patches, binary hashes,
+profiles, telemetry, complete checked outputs and screen summaries.
+Performance and all other previously open acceptance gates remain open.
+
+#### Compact session cold fallback — rejected runtime trial
+
+The retained compact executable is byte-identical to a fresh original-flag
+build whose symbol replay matches every loaded section and program header.
+Its upvalue profile uses 294,367,740 instructions versus the earlier runtime's
+310,773,850, but this previously did not establish an elapsed-time win.
+Disassembly identifies another concrete cost: admitted calls reserve 0x12b8
+stack bytes and initialize the generic frame/view on every compact invocation.
+
+The trial separated the compact physical-call session from the legacy frame/
+view and put its 256-slot scratch in a non-inlined fallback after the consumed
+Call. Physical Call/fuel/statistics remained shared, and full post-native
+validation remained enabled. Expanded differentials cover float/reference
+operands, partial budgets, exhausted fuel and prefix charges. Focused compiler/
+call/region checks pass; all 39 canonical tests pass Memcheck with zero errors
+and zero definite/indirect leaks.
+
+The hot stack reservation drops from 0x12b8 to 0x278 bytes, but changed inlining
+raises profile work to 298,387,309 instructions. Wrapper-only and full compact
+entry inlining yield 298,648,180 and 295,947,522 instructions respectively.
+Each variant completes twelve checked commands, 324 parsed rows, three windows
+on CPU0/CPU16, nine workloads and eleven samples. All 36 aggregate checks fail.
+Upvalue direct control/candidate ratios are **0.9462 / 0.9500**, then
+**0.9622 / 0.9735**, then **0.9415 / 0.9655**. All execution/resource counters
+and frozen hashes match. Builds and profiles finish before timing.
+
+Neither lower stack usage nor explicit inlining produced an accepted speedup.
+The entire runtime trial is removed, restoring the `78219ea` production path;
+the new fallback differential remains. Restored formatting/all-feature checks,
+111 focused executions across eight suites (two ignored), and all 39 canonical
+Memcheck tests pass; zero memory errors and zero definite/indirect leaks.
+No additional shipping/no-feature or
+platform acceptance is claimed. Evidence lives under `compact-retained-*` and
+`compact-cold-{fallback,inline,direct}-*` in the short-slice evidence directory.
+
 #### Compact callee frames — integrated, performance unaccepted
 
 The compact compiler emits the actual GetUpValue, integer arithmetic and
@@ -37,8 +151,39 @@ Existing rebound-capture and native-region tests now exercise this path. The
 GNU baseline, all-feature default-Off and documentation run passes **1,722 test
 executions / 172 suites**, ten ignored; this is not a new full platform matrix.
 Compiler Memcheck again reports zero errors and zero definite/indirect leaks.
-Performance is not accepted; repeated paired measurements remain required.
+Canonical-call Memcheck also passes all 38 tests with zero errors and zero
+definite/indirect leaks (48 possibly lost and 632 reachable harness bytes).
+
+Three implementation screens each finish twelve checked commands, three
+alternating windows on CPU0/CPU16, all nine cases and eleven samples per case.
+All **36 aggregate checks fail**. Comparisons use the previously frozen restored
+runtime, not a new matched no-feature/shipping campaign; they are diagnostic,
+not release acceptance. Every screen retains all 324 data rows, environment
+telemetry, source and executable hashes. No owned tests/builds overlap timing.
+
+Initial compact upvalue control/candidate ratios are **0.9382 / 0.9720**
+(CPU0/CPU16). Lifetime-bound frames, byte cell indices and cached upper-capture
+alias maps reduce that regression to **0.9877 / 1.0042**, not a demonstrated win.
+An additional single-scope materialization trial regresses to **0.9263 / 0.9879**
+and is reverted. The retained implementation is the lifetime-bound frame WIP;
+the full post-native canonical validation remains.
+
+After restoration, formatting/all-feature checks and the full all-feature Auto
+suite pass **1,320 executions / 85 suites**, six ignored. The final compiler
+Memcheck run passes with zero errors and zero definite/indirect leaks. Its alias
+matrix now runs both direct and cached-entry paths (2,592 native invocations
+across 1,296 cases), and an equal-valued but different binding is refused before
+entry. These checks do not turn the failed performance screens into acceptance.
+
+All execution counters match the control across these runs. The retained WIP
+adds **4,096 code bytes**, **96 live/peak metadata bytes** and **288 snapshot-peak
+bytes** on the upvalue workload; these costs are charged, not omitted. Its
+own interpreter/native upvalue ratios remain about **0.70 / 0.77**, below the
+unchanged 1.25 target. It is not an accepted performance fix, and compiled-Off,
+shipping, full platform and resource-policy acceptance remain open. Avoid
+claiming reduced copying alone solves the dominant per-call transition cost.
 Evidence: `target/jit-evidence/short-slice-performance/compact-callee-*`.
+Timing evidence: `compact-{integrated,bound-frame,scoped}-screen/` in that directory.
 
 #### Bound-tail caller refresh — rejected runtime trial
 

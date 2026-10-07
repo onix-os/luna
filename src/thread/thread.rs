@@ -828,8 +828,8 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
         )
     }
 
-    const FUEL_PER_CALL: i32 = 4;
-    const FUEL_PER_ITEM: i32 = 1;
+    pub(super) const FUEL_PER_CALL: i32 = 4;
+    pub(super) const FUEL_PER_ITEM: i32 = 1;
 
     // Returns the active closure for this Lua frame
     pub(super) fn closure(&self) -> Closure<'gc> {
