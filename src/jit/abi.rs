@@ -80,28 +80,6 @@ pub(super) const HELPER_COMPLETED: u32 = 1;
 pub(super) const HELPER_PANICKED: u32 = 2;
 pub(super) const CONSTANT_OPERAND: u32 = 1 << 16;
 
-pub(super) const HELPER_B_CONSTANT: u32 = 1 << 8;
-pub(super) const HELPER_C_CONSTANT: u32 = 1 << 9;
-
-pub(super) const fn helper_kind(symbol: u32) -> u32 {
-    symbol & 0xff
-}
-
-pub(super) fn helper_symbol(kind: u32, b: u32, c: u32) -> u32 {
-    let mut symbol = kind;
-    if matches!(kind, HELPER_SET_TABLE | HELPER_SET_UP_TABLE) && b & CONSTANT_OPERAND != 0 {
-        symbol |= HELPER_B_CONSTANT;
-    }
-    if matches!(
-        kind,
-        HELPER_GET_TABLE | HELPER_GET_UP_TABLE | HELPER_SET_TABLE | HELPER_SET_UP_TABLE
-    ) && c & CONSTANT_OPERAND != 0
-    {
-        symbol |= HELPER_C_CONSTANT;
-    }
-    symbol
-}
-
 pub(super) type HelperEntry = unsafe extern "C" fn(*mut Host, *mut Slot, u32, u32, u32, u32) -> u32;
 
 #[repr(C)]

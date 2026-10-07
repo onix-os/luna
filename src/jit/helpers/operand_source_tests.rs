@@ -1,32 +1,5 @@
 use super::{tests::assert_identical, tests::invoke, *};
 
-#[test]
-fn registry_source_ids_cover_exactly_the_declared_operand_forms() {
-    let mut ids = SYMBOLS.map(|entry| entry.0);
-    ids.sort();
-    assert_eq!(
-        ids,
-        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 261, 263, 516, 517, 518, 519, 773, 775]
-    );
-    for kind in 1..=10 {
-        for (b, b_source) in [(3, 0), (abi::CONSTANT_OPERAND | 3, 256)] {
-            for (c, c_source) in [(7, 0), (abi::CONSTANT_OPERAND | 7, 512)] {
-                let expected = match kind {
-                    4 | 6 => kind | c_source,
-                    5 | 7 => kind | b_source | c_source,
-                    _ => kind,
-                };
-                assert_eq!(abi::helper_symbol(kind, b, c), expected);
-                assert_eq!(abi::helper_kind(expected), kind);
-                assert_eq!(
-                    SYMBOLS.iter().filter(|entry| entry.0 == expected).count(),
-                    1
-                );
-            }
-        }
-    }
-}
-
 fn constant(closure: Closure<'_>, bytes: &[u8]) -> u32 {
     abi::CONSTANT_OPERAND
         | closure

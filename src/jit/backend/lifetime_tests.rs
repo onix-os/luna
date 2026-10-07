@@ -155,34 +155,6 @@ fn symbol_layout_counts_registration_declarations_and_lookup_temporary() {
 }
 
 #[test]
-fn unused_table_source_variants_do_not_expand_scalar_import_reservations() {
-    let selected = |source: &Snapshot| {
-        let mut ids = helpers::SYMBOLS
-            .iter()
-            .filter_map(|(symbol, _, _)| helper_needed(*symbol, source).then_some(*symbol))
-            .collect::<Vec<_>>();
-        ids.sort();
-        ids
-    };
-    let scalar = snapshot(b"return 42");
-    assert_eq!(selected(&scalar), [1, 2, 3, 8, 9, 10]);
-    let tables = snapshot(b"local t={} local k='key' local v=42 t[k]=v t[k]=42 t.field=v t.field=43 local a=t[k] return a,t.field");
-    assert_eq!(
-        selected(&tables),
-        [1, 2, 3, 4, 5, 8, 9, 10, 261, 516, 517, 773]
-    );
-    let upvalues = snapshot(b"local k='key' local v=42 _ENV[k]=v _ENV[k]=42 field=v field=43 local a=_ENV[k] return a,field");
-    assert_eq!(
-        selected(&upvalues),
-        [1, 2, 3, 6, 7, 8, 9, 10, 263, 518, 519, 775]
-    );
-    assert!(
-        signature_storage_bytes(5, 6, 1, selected(&scalar).len()).unwrap()
-            < signature_storage_bytes(5, 6, 1, 10).unwrap()
-    );
-}
-
-#[test]
 fn signature_layout_counts_initial_declaration_and_import_vectors() {
     let element = std::mem::size_of::<AbiParam>();
     for helpers in [0, 1, helpers::SYMBOLS.len()] {

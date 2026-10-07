@@ -87,111 +87,115 @@ fn scoped_symbols_are_distinct_and_decline_null_hosts() {
 }
 
 #[test]
-fn scoped_table_source_imports_preserve_pending_values_and_semantic_kind_bits() {
+fn scoped_table_sources_preserve_pending_values_and_semantic_kind_bits() {
     Lua::empty().enter(|ctx| {
-        for (symbol, _, entry) in SYMBOLS {
-            let kind = abi::helper_kind(symbol);
+        for (kind, _, entry) in SYMBOLS {
             if !matches!(kind, 4..=7) {
                 continue;
             }
             let write = matches!(kind, 5 | 7);
             let upvalue = matches!(kind, 6 | 7);
-            let table = crate::Table::new(&ctx);
-            let closure = Closure::load_with_env(
-                ctx,
-                None,
-                b"local a,b,c,d=0,0,0,0 return _ENV,'key','value',a,b,c,d",
-                table,
-            )
-            .unwrap();
-            let constant = |bytes: &[u8]| {
-                closure.prototype().constants.iter().position(|value| {
+            for key_constant in [false, true] {
+                for value_constant in [false, true] {
+                    if !write && value_constant {
+                        continue;
+                    }
+                    let table = crate::Table::new(&ctx);
+                    let closure = Closure::load_with_env(
+                        ctx,
+                        None,
+                        b"local a,b,c,d=0,0,0,0 return _ENV,'key','value',a,b,c,d",
+                        table,
+                    )
+                    .unwrap();
+                    let constant = |bytes: &[u8]| {
+                        closure.prototype().constants.iter().position(|value| {
                     matches!(value, crate::Constant::String(value) if value.as_bytes() == bytes)
                 }).unwrap() as u32
-            };
-            let key_constant = symbol & if write { 256 } else { 512 } != 0;
-            let value_constant = write && symbol & 512 != 0;
-            let key = if key_constant {
-                closure.prototype().constants[constant(b"key") as usize].into()
-            } else {
-                Value::Integer(7)
-            };
-            let value = if value_constant {
-                closure.prototype().constants[constant(b"value") as usize].into()
-            } else {
-                Value::Number(-0.0)
-            };
-            let key_operand = if key_constant {
-                abi::CONSTANT_OPERAND | constant(b"key")
-            } else {
-                1
-            };
-            let value_operand = if value_constant {
-                abi::CONSTANT_OPERAND | constant(b"value")
-            } else {
-                2
-            };
-            if !write {
-                table.set_raw(&ctx, key, value).unwrap();
-            }
-            with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
-                host.with_registers(|_, registers| {
-                    registers.stack_frame[0] = table.into();
-                    registers.stack_frame[1] = Value::Integer(99);
-                    registers.stack_frame[2] = Value::Nil;
-                });
-                let mut scratch = slots(host);
-                scratch[1] = abi::Slot::from_value(Value::Integer(7));
-                scratch[2] = abi::Slot::from_value(Value::Number(-0.0));
-                let mut frame = Frame::new(ctx, host);
-                let mut native = frame.publish(scratch.len());
-                let (a, b, c) = if write {
-                    (0, key_operand, value_operand)
-                } else {
-                    (2, 0, key_operand)
-                };
-                assert_eq!(
-                    unsafe { entry(&mut native, scratch.as_mut_ptr(), a, b, c, 17) },
-                    abi::HELPER_COMPLETED
-                );
-                let actual = if write {
-                    table.get_raw(&ctx, key)
-                } else {
-                    frame
-                        .host
-                        .with_registers(|_, registers| registers.stack_frame[2])
-                };
-                match (actual, value) {
-                    (Value::Number(actual), Value::Number(expected)) => {
-                        assert_eq!(actual.to_bits(), expected.to_bits())
+                    };
+                    let key = if key_constant {
+                        closure.prototype().constants[constant(b"key") as usize].into()
+                    } else {
+                        Value::Integer(7)
+                    };
+                    let value = if value_constant {
+                        closure.prototype().constants[constant(b"value") as usize].into()
+                    } else {
+                        Value::Number(-0.0)
+                    };
+                    let key_operand = if key_constant {
+                        abi::CONSTANT_OPERAND | constant(b"key")
+                    } else {
+                        1
+                    };
+                    let value_operand = if value_constant {
+                        abi::CONSTANT_OPERAND | constant(b"value")
+                    } else {
+                        2
+                    };
+                    if !write {
+                        table.set_raw(&ctx, key, value).unwrap();
                     }
-                    (Value::String(actual), Value::String(expected)) => {
-                        assert_eq!(actual.as_bytes(), expected.as_bytes())
-                    }
-                    pair => panic!("unexpected table values: {pair:?}"),
+                    with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+                        host.with_registers(|_, registers| {
+                            registers.stack_frame[0] = table.into();
+                            registers.stack_frame[1] = Value::Integer(99);
+                            registers.stack_frame[2] = Value::Nil;
+                        });
+                        let mut scratch = slots(host);
+                        scratch[1] = abi::Slot::from_value(Value::Integer(7));
+                        scratch[2] = abi::Slot::from_value(Value::Number(-0.0));
+                        let mut frame = Frame::new(ctx, host);
+                        let mut native = frame.publish(scratch.len());
+                        let (a, b, c) = if write {
+                            (0, key_operand, value_operand)
+                        } else {
+                            (2, 0, key_operand)
+                        };
+                        assert_eq!(
+                            unsafe { entry(&mut native, scratch.as_mut_ptr(), a, b, c, 17) },
+                            abi::HELPER_COMPLETED
+                        );
+                        let actual = if write {
+                            table.get_raw(&ctx, key)
+                        } else {
+                            frame
+                                .host
+                                .with_registers(|_, registers| registers.stack_frame[2])
+                        };
+                        match (actual, value) {
+                            (Value::Number(actual), Value::Number(expected)) => {
+                                assert_eq!(actual.to_bits(), expected.to_bits())
+                            }
+                            (Value::String(actual), Value::String(expected)) => {
+                                assert_eq!(actual.as_bytes(), expected.as_bytes())
+                            }
+                            pair => panic!("unexpected table values: {pair:?}"),
+                        }
+                        assert_eq!(frame.kinds, 1 << (kind - 1));
+                        assert_eq!(
+                            (
+                                frame.count.calls,
+                                frame.count.completed,
+                                frame.count.declined
+                            ),
+                            (1, 1, 0)
+                        );
+                        assert_eq!(
+                            (
+                                frame.count.table_reads,
+                                frame.count.table_writes,
+                                frame.count.upvalue_reads
+                            ),
+                            (u64::from(!write), u64::from(write), u64::from(upvalue))
+                        );
+                        frame
+                            .host
+                            .with_registers(|_, registers| assert_eq!(*registers.pc, 18));
+                        assert!(frame.panic.is_none());
+                    });
                 }
-                assert_eq!(frame.kinds, 1 << (kind - 1));
-                assert_eq!(
-                    (
-                        frame.count.calls,
-                        frame.count.completed,
-                        frame.count.declined
-                    ),
-                    (1, 1, 0)
-                );
-                assert_eq!(
-                    (
-                        frame.count.table_reads,
-                        frame.count.table_writes,
-                        frame.count.upvalue_reads
-                    ),
-                    (u64::from(!write), u64::from(write), u64::from(upvalue))
-                );
-                frame
-                    .host
-                    .with_registers(|_, registers| assert_eq!(*registers.pc, 18));
-                assert!(frame.panic.is_none());
-            });
+            }
         }
     });
 }

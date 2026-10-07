@@ -748,16 +748,7 @@ fn compile_selected(
     } else {
         helper_symbols
     };
-    let mut selected_symbols = helper_symbols;
-    let mut helper_count = 0;
-    for symbol in helper_symbols {
-        if helper_needed(symbol.0, snapshot) {
-            selected_symbols[helper_count] = symbol;
-            helper_count += 1;
-        }
-    }
-    let helper_symbols = &selected_symbols[..helper_count];
-    let symbol_bytes = symbol_storage_bytes(helper_symbols.iter().map(|(_, name, _)| name.len()))?;
+    let symbol_bytes = symbol_storage_bytes(helper_symbols.map(|(_, name, _)| name.len()))?;
     #[cfg(test)]
     if failure == Failure::RefuseSymbols {
         let ledger = &snapshot.operations.allocator().0;
@@ -774,7 +765,7 @@ fn compile_selected(
     #[cfg(not(test))]
     let native_isa = cranelift_native::builder();
     let mut jit = native_builder(native_isa)?;
-    for &(_, name, entry) in helper_symbols {
+    for (_, name, entry) in helper_symbols {
         jit.symbol(owned_symbol(name)?, entry as *const u8);
     }
     jit.memory_provider(provider);
@@ -807,7 +798,7 @@ fn compile_selected(
         entry_types.len(),
         helper_types.len(),
         helper_returns.len(),
-        helper_count + 2 * projection_count,
+        helpers::SYMBOLS.len() + 2 * projection_count,
     )?;
     #[cfg(test)]
     let signature_bytes = signature_bytes
@@ -844,12 +835,10 @@ fn compile_selected(
     fill_signature(&mut helper_signature.params, helper_types)?;
     fill_signature(&mut helper_signature.returns, helper_returns)?;
     let helper_ids = super::arrays::try_array::<_, _, { helpers::SYMBOLS.len() }>(|index| {
-        let Some(&(kind, name, _)) = helper_symbols.get(index) else {
-            return Ok(None);
-        };
+        let (kind, name, _) = helper_symbols[index];
         module
             .declare_function(name, Linkage::Import, &helper_signature)
-            .map(|id| Some((kind, id)))
+            .map(|id| (kind, id))
     })
     .map_err(fail)?;
     let projection_ids = super::arrays::try_array::<_, _, 2>(|index| {
@@ -866,9 +855,7 @@ fn compile_selected(
     let mut context = module.make_context();
     context.func.signature = signature;
     let mut fb_context = FunctionBuilderContext::new();
-    let (fallback, guard, exhausted, panicked, root);
-    let mut helper_refs =
-        [(0, cranelift_codegen::ir::FuncRef::from_u32(0)); helpers::SYMBOLS.len()];
+    let (fallback, guard, exhausted, panicked, helper_refs, root);
     {
         let mut builder = FunctionBuilder::new(&mut context.func, &mut fb_context);
         let entry = builder.create_block();
@@ -899,16 +886,15 @@ fn compile_selected(
         }
         root = paths.emit_entry(&mut builder, &blocks, fallback);
         {
-            for (destination, (kind, id)) in
-                helper_refs.iter_mut().zip(helper_ids.into_iter().flatten())
-            {
+            helper_refs = std::array::from_fn::<_, { helpers::SYMBOLS.len() }, _>(|index| {
+                let (kind, id) = helper_ids[index];
                 let id = match kind {
                     abi::HELPER_GET_UPVALUE => projection_ids[0].unwrap_or(id),
                     abi::HELPER_SET_UPVALUE => projection_ids[1].unwrap_or(id),
                     _ => id,
                 };
-                *destination = (kind, module.declare_func_in_func(id, builder.func));
-            }
+                (kind, module.declare_func_in_func(id, builder.func))
+            });
             let mut emitter = Emitter {
                 builder: &mut builder,
                 snapshot,
@@ -919,7 +905,7 @@ fn compile_selected(
                 guard,
                 panicked,
                 host: arguments[4],
-                helpers: &helper_refs[..helper_count],
+                helpers: &helper_refs,
                 count: arguments[2],
                 pc: 0,
                 written: false,
@@ -977,7 +963,6 @@ fn compile_selected(
         builder.finalize(module.target_config());
     }
     drop(fb_context);
-    let helper_refs = &helper_refs[..helper_count];
     #[cfg(test)]
     if failure == Failure::CorruptTag {
         stores.corrupt_first(&mut context.func);
@@ -1153,7 +1138,6 @@ fn compile_selected(
         let kind = [abi::HELPER_GET_UPVALUE, abi::HELPER_SET_UPVALUE][index];
         let fallback_id = helper_ids
             .iter()
-            .flatten()
             .find(|&&(candidate, _)| candidate == kind)
             .unwrap()
             .1;
@@ -1608,40 +1592,6 @@ fn native_builder(
     Ok(JITBuilder::with_isa(isa, default_libcall_names()))
 }
 
-fn helper_needed(symbol: u32, snapshot: &Snapshot) -> bool {
-    if !matches!(
-        abi::helper_kind(symbol),
-        abi::HELPER_GET_TABLE
-            | abi::HELPER_SET_TABLE
-            | abi::HELPER_GET_UP_TABLE
-            | abi::HELPER_SET_UP_TABLE
-    ) {
-        return true;
-    }
-    snapshot.operations.iter().any(|operation| {
-        let (kind, b, c) = match *operation {
-            Operation::GetTable { key, .. } => {
-                (abi::HELPER_GET_TABLE, 0, Emitter::operand_index(key))
-            }
-            Operation::GetUpTable { key, .. } => {
-                (abi::HELPER_GET_UP_TABLE, 0, Emitter::operand_index(key))
-            }
-            Operation::SetTable { key, value, .. } => (
-                abi::HELPER_SET_TABLE,
-                Emitter::operand_index(key),
-                Emitter::operand_index(value),
-            ),
-            Operation::SetUpTable { key, value, .. } => (
-                abi::HELPER_SET_UP_TABLE,
-                Emitter::operand_index(key),
-                Emitter::operand_index(value),
-            ),
-            _ => return false,
-        };
-        symbol == abi::helper_symbol(kind, b, c)
-    })
-}
-
 fn symbol_storage_bytes(lengths: impl IntoIterator<Item = usize>) -> Result<usize, JitError> {
     let total = lengths
         .into_iter()
@@ -1766,7 +1716,7 @@ impl Emitter<'_, '_> {
         let helper = self
             .helpers
             .iter()
-            .find_map(|(key, helper)| (*key == abi::helper_symbol(kind, b, c)).then_some(*helper))
+            .find_map(|(key, helper)| (*key == kind).then_some(*helper))
             .expect("missing native helper symbol");
         let call = self.builder.ins().call(
             helper,
@@ -3699,44 +3649,6 @@ mod helper_flow_tests {
         }
     }
     #[test]
-    fn helper_source_imports_match_each_register_constant_combination() {
-        for key in [RCIndex::Register(R(1)), RCIndex::Constant(C8(0))] {
-            for value in [RCIndex::Register(R(2)), RCIndex::Constant(C8(1))] {
-                let reads = [
-                    Operation::GetTable {
-                        dest: R(3),
-                        table: R(0),
-                        key,
-                    },
-                    Operation::GetUpTable {
-                        dest: R(3),
-                        table: U(0),
-                        key,
-                    },
-                ];
-                let writes = [
-                    Operation::SetTable {
-                        table: R(0),
-                        key,
-                        value,
-                    },
-                    Operation::SetUpTable {
-                        table: U(0),
-                        key,
-                        value,
-                    },
-                ];
-                for op in reads.into_iter().chain(writes) {
-                    fixture(op, None).unwrap();
-                    refused(fixture(op, Some(Fault::SourceSymbol)));
-                }
-                for op in writes {
-                    refused(fixture(op, Some(Fault::ValueSourceSymbol)));
-                }
-            }
-        }
-    }
-    #[test]
     fn completed_status_target_and_fuel_corruption_is_refused() {
         for fault in [
             Fault::CompletedTest,
@@ -4790,7 +4702,7 @@ mod memory_tests {
             let prototype = crate::FunctionPrototype::compile(
                 ctx,
                 "helper-flow-corruption",
-                b"local t={} local k='y' local v=1 t[k]=v t[k]=42 t.x=v t.x=42 return t.x",
+                b"local t={} t.x=42 return t.x",
             )
             .unwrap();
             Snapshot::new(&prototype, 4096, 2 * 1024 * 1024).unwrap()
@@ -4822,14 +4734,6 @@ mod memory_tests {
     helper_flow_corruption!(
         corrupted_helper_flow_symbol_is_refused_before_codegen_and_mapping,
         Symbol
-    );
-    helper_flow_corruption!(
-        corrupted_helper_flow_source_symbol_is_refused_before_codegen_and_mapping,
-        SourceSymbol
-    );
-    helper_flow_corruption!(
-        corrupted_helper_flow_value_source_symbol_is_refused_before_codegen_and_mapping,
-        ValueSourceSymbol
     );
     helper_flow_corruption!(
         corrupted_helper_flow_pointer_is_refused_before_codegen_and_mapping,

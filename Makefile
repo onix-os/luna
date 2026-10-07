@@ -500,7 +500,6 @@ jit-helper-flow-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::helper_flow_tests -- --test-threads=1
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::lifetime_tests::symbol_layout_counts_registration_declarations_and_lookup_temporary -- --exact --test-threads=1
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::lifetime_tests::signature_layout_counts_initial_declaration_and_import_vectors -- --exact --test-threads=1
-	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::lifetime_tests::unused_table_source_variants_do_not_expand_scalar_import_reservations -- --exact --test-threads=1
 
 jit-transfer-source:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::transfer_tests
@@ -1151,6 +1150,7 @@ help:
 	@echo "  jit-frame-view Check current-frame views and bounds guards"
 	@echo "  jit-integer-table Check integer reads, weak values, and fallback"
 	@echo "  jit-operand-sources Check constant/register helper sources"
+	@echo "  jit-helper-flow-miri Check pure source flow and import layouts"
 	@echo "  test-doc     Run doc tests alone"
 	@echo "  check        Run cargo check on all targets"
 	@echo "  check-all    Run cargo check on all targets/all features"

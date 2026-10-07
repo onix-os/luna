@@ -11,45 +11,78 @@
 
 ### Progress snapshot — 2026-10-07
 
-#### Experimental generated source-specific imports — 2026-10-07
+#### Rejected generated source-specific imports — 2026-10-07
 
-Emission selects the table helper's register/constant source form instead of
-branching on operand flags inside the Rust gateway. Both ordinary and scoped
-registries now have eighteen entries: twelve table variants and six unchanged
-semantic helpers. The six-argument ABI, encoded indices and masks, projections,
-PC/panic behavior, canonical roots and instruction counters remain unchanged.
-Scoped helper-kind bitsets strip source flags. Symbol/signature reservations
-use the selected import count and actual ordinary/scoped name lengths.
+`55aa5d2` selected register/constant table sources at emission through eighteen
+ordinary/scoped imports: twelve table variants and six other helpers. The
+source/effect verifier independently derived source flags from decoded opcodes
+and rejected same-kind wrong-source imports before codegen/mapping. Encoded
+indices, bounds, PC/panic/projection ordering, canonical roots and counters
+remained intact. Scoped kind bitsets stripped source flags.
 
-The source/effect verifier derives import flags independently from decoded
-opcodes, rather than trusting the emitter's encoded operands. New wrong-source,
-same-kind import corruption tests cover read keys, write keys and write values;
-backend refusal precedes code generation/mapping. The registry has a literal-ID
-golden check. Existing 56 helper cases now invoke registry-selected entries;
-an additional scoped fixture executes all twelve table imports. Three integrated
-families compare every Off/Auto fuel/GC boundary at seven budgets and require
-native table reads/writes (and closed-table upvalue reads where applicable).
+Full all-feature testing caught three unchanged **4 KiB snapshot-budget**
+failures: declaring all variants exhausted native signature reservations even
+for scalar chunks. `eae6644` excluded unused table variants, using bounded stack
+arrays and charging only selected names/signatures. No quota or retention
+assertion was raised. Focused corrected checks pass **801 executions / seven
+suites**, six ignores; Miri **30 / seven**. Baseline/GNU Auto/all-feature/docs
+pass **1,712 / 172**, ten ignores; GNU Off **1,291 / 84**, six ignores; Force
+**1,291 / 84**, six ignores; musl **817 / eight**, six ignores; real i686
+**585 / 86**. These are execution counts, not unique tests or i686 native proof.
 
-Initial helper/verifier/lifetime/resource/heap suites pass **139 executions /
-thirteen suites**; format/all-target/all-feature checks and the added integrated
-and lifetime run pass **12 / three**. Gateway/source Miri passes **19 / three**.
-Proof/layout Miri additionally passes **10 / three**. Frozen original-flag
-binaries and timing/resource acceptance remain pending. This is
-an experiment, not an accepted performance improvement or completed JIT plan.
+Five original-flag binaries, sixteen native profiles and twenty-eight disabled
+profiles use exact symbol companions. Native table instructions fall
+**53,256,651 to 51,306,510**, callbacks **136,573,549 to 135,795,517**,
+allocation **34,757,098 to 34,425,825**; upvalues remain near-flat. Native text
+grows **18,468 bytes**. Both no-feature images are full-ELF byte-identical to
+controls. Original unpruned image extraction failed before profiling because
+Cargo reused no-feature artifacts without fresh linker captures; corrected
+builds force package-only release rebuilds through Make. No initial timing
+result is attributed to those unpruned artifacts.
 
-Evidence prefix: `target/jit-evidence/short-slice-performance/source-import-specialization-*`.
+Twelve alternating windows/two matched paths finish **144 checked commands**;
+all aggregate gates fail. Native table direct control/candidate medians are
+**1.2252 / 1.2199**, but table checks still fail **21 / 24**. Polymorphic direct
+**1.0539 / 1.0501** passes 23/24 checks versus zero control. Callback direct
+**1.0202 / 1.0291** accompanies Off **0.8800 / 0.8829**: most ratio improvement
+is a slower interpreter control, not a comparable native gain. Callback checks
+still fail 24/24. Allocation direct **1.0850 / 1.0877** passes all 24.
 
-The first full all-feature GNU Auto run found three unchanged 4 KiB snapshot
-budget failures: declaring all eighteen signatures made even scalar chunks
-refuse. No budget or retention assertion is raised. Selection now excludes
-unused table source variants, keeps six non-table imports, and charges only
-the initialized selected prefix. A literal selection fixture covers scalar,
-ordinary-table and upvalue-table chunks. Wrong-source corruption fixtures
-contain the alternative variants they intentionally swap. Corrected validation
-uses `source-import-pruned-*`; the original trial has no timing acceptance.
-Corrected format/all-feature checks and **801 focused executions / seven
-suites**, six ignores, pass, including the unchanged resource regression tests.
-Corrected full-mode/platform and Miri runs are in progress.
+**This runtime trial is rejected.** Native upvalue direct **0.9813 / 0.9752**
+regresses against Off **1.0013 / 1.0014**. Speed compiled-Off float direct
+**0.8988 / 0.9022** means about **11% more elapsed time**, against no-feature
+**1.0057 / 1.0011**. Its cost ratios are **1.1309 / 1.1271**, versus control
+**1.0123 / 1.0192**; failures rise **two to all 24**. Speed disabled callbacks
+and allocation also slow. Shipping allocation direct **0.9795 / 0.9800**
+introduces two failures on one path. Original thresholds and every observation
+remain intact.
+
+All **24 execution/resident counter comparisons match**. Compiler snapshot
+peaks change by independently modeled name/signature reservations: integer/
+float -895 bytes, tables -441, callbacks/predicate -658, allocation -670,
+upvalues/cold unchanged. Polymorphic root keeps ten imports but longer names
+add **23 bytes**, exactly explaining its 16,101 to 16,124 peak. The first
+monotonic-resource diagnostic rejected that increase; its script/output remain.
+The subsequent diagnostic requires each exact modeled delta, not a blanket
+resource-field omission. Original allocation caps/refusal/retention gates remain
+unchanged and passing; this accounting result is not performance acceptance.
+
+Production helper/import/verifier code is restored to `3f495af`. Retained
+coverage includes three integrated source families at seven fuel budgets with
+GC between slices; twelve scoped operand-source combinations and semantic-kind
+counters; ordinary/scoped name accounting; and pure helper-flow/layout Miri
+wrappers. Trial-only static-ID/selection assertions are removed with the trial.
+A generic-helper import-pruning-only comparison is a distinct possible next
+investigation, not an accepted optimization. Full performance/resource/platform/
+release acceptance remains open.
+
+Restored formatting/all-feature checks and **60 focused GNU executions / seven
+suites** pass; Miri **27 / six**, musl **22 / four**, and real i686 **three /
+three** pass (two i686 native-only suites execute zero tests). All owned jobs
+are terminal; no timings or validation remain running for this experiment.
+
+Evidence prefixes: `target/jit-evidence/short-slice-performance/source-import-specialization-*`
+(initial quota failure) and `source-import-pruned-*` (corrected frozen campaign).
 
 #### Rejected runtime operand-source specialization — 2026-10-07
 
