@@ -19,7 +19,7 @@ registries now have eighteen entries: twelve table variants and six unchanged
 semantic helpers. The six-argument ABI, encoded indices and masks, projections,
 PC/panic behavior, canonical roots and instruction counters remain unchanged.
 Scoped helper-kind bitsets strip source flags. Symbol/signature reservations
-use the expanded registry length and actual ordinary/scoped name lengths.
+use the selected import count and actual ordinary/scoped name lengths.
 
 The source/effect verifier derives import flags independently from decoded
 opcodes, rather than trusting the emitter's encoded operands. New wrong-source,
@@ -30,15 +30,26 @@ an additional scoped fixture executes all twelve table imports. Three integrated
 families compare every Off/Auto fuel/GC boundary at seven budgets and require
 native table reads/writes (and closed-table upvalue reads where applicable).
 
-Focused helper/verifier/lifetime/resource/heap suites pass **139 executions /
+Initial helper/verifier/lifetime/resource/heap suites pass **139 executions /
 thirteen suites**; format/all-target/all-feature checks and the added integrated
 and lifetime run pass **12 / three**. Gateway/source Miri passes **19 / three**.
-Proof/layout Miri additionally passes **10 / three**; broader/platform suites
-are running. Frozen
-original-flag binaries and timing/resource acceptance remain pending. This is
+Proof/layout Miri additionally passes **10 / three**. Frozen original-flag
+binaries and timing/resource acceptance remain pending. This is
 an experiment, not an accepted performance improvement or completed JIT plan.
 
 Evidence prefix: `target/jit-evidence/short-slice-performance/source-import-specialization-*`.
+
+The first full all-feature GNU Auto run found three unchanged 4 KiB snapshot
+budget failures: declaring all eighteen signatures made even scalar chunks
+refuse. No budget or retention assertion is raised. Selection now excludes
+unused table source variants, keeps six non-table imports, and charges only
+the initialized selected prefix. A literal selection fixture covers scalar,
+ordinary-table and upvalue-table chunks. Wrong-source corruption fixtures
+contain the alternative variants they intentionally swap. Corrected validation
+uses `source-import-pruned-*`; the original trial has no timing acceptance.
+Corrected format/all-feature checks and **801 focused executions / seven
+suites**, six ignores, pass, including the unchanged resource regression tests.
+Corrected full-mode/platform and Miri runs are in progress.
 
 #### Rejected runtime operand-source specialization — 2026-10-07
 
