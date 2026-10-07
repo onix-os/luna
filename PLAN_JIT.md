@@ -17,7 +17,7 @@ Two measured variants removed the scoped bridge's temporary owning helper
 frame and counter copies, using a shared borrowed invocation. The second
 forced that invocation inline. Both retained actual helper operations,
 projection reborrowing, PC publication, panic transport and counters. The
-first passed 132 focused checks; the second passed the helper suites and
+first passed 122 focused checks; the second passed the helper suites and
 all-feature checks. A new retained test checks accumulated counters across
 success, decline and panic, committed scalar state, and original panic payload.
 
@@ -30,8 +30,8 @@ control/candidate ratios were 1.0243/0.9992, but array ratios were
 0.8793/0.9095; inlining gave upvalue 0.9986/0.9987 and array 0.8948/0.8842.
 Neither is an accepted optimization; both production changes are reverted.
 
-Restored production passes formatting, all-feature checking, the 132 focused
-executions and the full GNU all-feature Auto suite (1,321 passes, six ignored).
+Restored production passes formatting, all-feature checking, the 122 focused
+executions and the full GNU all-feature Auto suite (1,322 passes, six ignored).
 
 Original-flag symbol replays verified all loaded sections and program headers.
 Upvalue instruction totals were 293,398,137 and 294,232,768 versus retained
