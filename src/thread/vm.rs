@@ -333,6 +333,7 @@ fn run_vm_slice<'gc>(
     #[cfg(feature = "jit")]
     let mut instructions_run = prefix_instructions;
 
+    #[cfg_attr(feature = "jit", inline(always))]
     fn get_rc<'gc>(
         stack_frame: &[Value<'gc>],
         constants: &[Constant<String<'gc>>],
