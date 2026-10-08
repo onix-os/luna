@@ -9,6 +9,73 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Progress snapshot — 2026-10-09
+
+#### Guarded integer-loop region — promising measured prototype, test-only
+
+The new experiment keeps a separate typed loop graph alongside the entire
+generic native graph instead of transporting scalar state through arbitrary-PC
+joins. It recognizes bounded contiguous Add/Sub/Mul/Move/integer-constant bodies
+ending in NumericForLoop: at most 32 operations, sixteen frame registers and
+eight region registers. Fresh PC, nonzero-fuel and integer-tag guards control
+entry; incompatible values retain the original implementation. Every source
+opcode still checks fuel. Budget exits flush mutable state, and loop completion
+rejoins the original suffix with the accumulated logical count.
+
+The initial version improves integer control/candidate throughput
+**2.183416 / 2.131504 on CPU16**. CPU0 shows **2.613977 / 1.821089**, alongside
+large reversed noninteger timing movement that is preserved, not filtered.
+The refined version requires conservative source-known integer initialization
+as an eligibility filter, avoiding a useless fast region for dynamic arithmetic
+inputs. It does **not** replace live tag guards or reduce generic native coverage.
+
+The refined version repeats integer gains of **1.797425 / 1.799825 on CPU0**
+and **2.106078 / 2.206807 on CPU16**. All twelve refined candidate windows pass
+the unchanged integer **2× interpreter** gate, with ratios **2.4256–3.4500**.
+Profiled generated integer self-instructions fall from **22,000,801 to
+6,587,558**. These are measurements of experimental binaries, not a speedup
+already enabled in the committed production runtime.
+
+Other results are not universally positive: refined CPU16 table throughput is
+**0.987644 / 0.978808**, polymorphic **0.981513 / 0.971405**; CPU0 upvalue is
+**0.977752 / 0.989104** and predicate **0.990940 / 0.985873**. Across the two
+variants, four full native comparisons retain **48 commands / 1,296 reported
+rows** on CPUs 0/16, three alternating windows and eleven samples. All aggregate
+commands still fail unchanged gates. All **432 paired case rows** match in
+non-timing fields, including native/logical/helper counters and resources.
+No feature-cost or full performance acceptance is claimed.
+
+Both experimental variants pass **1,592 executions / 115 suites**, zero failures
+and six existing ignores. `make jit-integer-loop`, included in `jit-tags`, checks
+source recognition/refusal and actual generated execution against the boundary
+model for three loop bodies, every entry, extreme integer values and nine
+budgets. A separate native probe confirms fast entry and nil/boolean/float,
+zero-budget and unknown-PC fallback. Overflow stores the wrapped internal index
+without incorrectly changing the visible variable; direct zero-step latch
+entry preserves the original bounded semantics. Mappings are reclaimed.
+
+The retained implementation is **test-only**, requiring explicit
+`RequireIntegerLoop` or `ProbeIntegerLoop` selection. Production activation is
+removed until an independent checker validates the new region, its source
+binding, unchanged generic graph and exact guards/state transfers, with mutation
+and resource-bound tests. Cranelift structural verification and model examples
+alone are not that translation proof. This is now the next implementation task,
+followed by fresh full native/feature-cost comparisons—not another cache-width
+experiment. Full-plan resource/platform/release gates also remain open.
+`00f31e8` retains the prototype and native-entry/model tests. The restored
+format/check/focused/baseline/all-feature Auto/doc run passes **2,005 executions
+/ 202 suites**, zero failures and ten existing ignores.
+The freshly rebuilt restored native benchmark has identical `.text` to the
+frozen control. Whole images differ in 46 u32 words, with deltas of 8 and 70
+matching source-line movement; before/after hashes pass. No new restored
+feature-cost build or whole-image identity is claimed.
+
+Evidence is under `target/jit-evidence/short-slice-performance/integer-loop-*`
+and `seeded-integer-loop-*`: rejected/intermediate source patches, exact-image
+profiles, all favorable/adverse medians, source/artifact manifests, counter
+comparisons and contention telemetry. No owned builds/tests/profiles overlapped
+timing, and unrelated workloads remained running.
+
 ### Progress snapshot — 2026-10-08
 
 #### Deferred scalar writeback — both variants rejected in production
