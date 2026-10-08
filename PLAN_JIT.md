@@ -11,6 +11,177 @@
 
 ### Progress snapshot — 2026-10-08
 
+#### Scalar SSA trials — rejected in production; test-only groundwork
+
+Six further candidates each completed two native comparisons: all nine cases,
+CPUs 0/16, three alternating windows and eleven samples. The retained evidence
+contains **144 commands / 3,888 native and paired reported rows**. None earned
+production retention. No feature-cost acceptance is claimed for these trials;
+unchanged gates and adverse samples remain in the evidence.
+
+| Trial | Repeated direct throughput evidence against retention |
+| --- | --- |
+| Integer-bit float selection | CPU16 float **0.748062 / 0.742954**, despite confirmed conditional-move lowering. |
+| Per-slot alias metadata | CPU16 table **0.935061 / 0.929092**, allocation **0.923192 / 0.919626**; generated self-instruction counts unchanged. |
+| Full-word SSA read cache | CPU0 integer **0.849829 / 0.849299**; scalar stack frame grows from 48 to 176 bytes. |
+| Liveness-guided full-word cache | CPU16 float **0.763192 / 0.751024**; frame remains 128 bytes. |
+| Live payload-only cache | CPU16 integer **0.899002 / 0.895023**; frame falls to 80 bytes. |
+| Two mutable payloads | CPU16 integer **0.926717 / 0.936550**, float **0.848920 / 0.839033**; frame remains 64 bytes. |
+
+Ratios are control/candidate throughput from window medians, not acceptance
+thresholds. All Off/Auto comparisons, profiles, source patches and hashes are
+retained under `target/jit-evidence/short-slice-performance/`, with prefixes
+`payload-select`, `scalar-alias`, `read-cache`, `live-read-cache`,
+`payload-read-cache` and `bounded-read-cache`. Owned builds, tests and profiles
+did not overlap timing runs; unrelated workloads were left running.
+
+`82b6d33` retains only **test-only** bounded SSA groundwork. It preserves every
+canonical store, reloads live payloads after opaque calls, carries live values
+on control-flow edges and leaves tag reads fresh. Workspace reservations are
+fallible and ledger-accounted; state expansion is bounded, and the transformed
+instruction count is rechecked. Existing source/effect/exit proofs precede the
+transformation. This is **not** an independent translation proof or a completed
+optimizing-IR implementation.
+
+`make jit-read-cache`, also included in `jit-tags`, covers canonical stores,
+edge transport, unsupported writes/accesses, helper reloads and allocation
+rollback. A generated-code model test requires the transformation to apply
+and checks three scalar programs across entries, budgets and value seeds,
+including exact exits and mapping reclamation. Production compilation and
+ordinary integration tests do not activate this prototype.
+
+The final retained-code format/check/focused/baseline/all-feature Auto/doc run
+passes **1,989 executions / 198 suites**, zero failures and ten existing ignores.
+Fresh speed/shipping no-feature images are byte-identical to the controls.
+All three JIT-enabled images have identical `.text`, but are **not** wholly
+byte-identical: each has 46 changed u32 words, with deltas of 3 or 29 matching
+the source-line shifts introduced by the test-only additions. Image comparisons
+are retained under `read-cache-retained-image-check/`; the initial whole-image
+comparison failure is preserved rather than reported as a pass.
+The remaining performance regressions are **not fixed**. Read-only caching
+still pays for immediate stores and extra value residency; narrower caches
+did not remove the measured losses. Controlled writeback is a future hypothesis,
+requiring independently checked synchronization at every helper and native exit,
+exact partial-fuel state, corruption tests and fresh performance evidence before
+any production promotion. Existing resource/platform/release gates remain open.
+
+#### Native float-arm trials — rejected; arithmetic coverage retained
+
+Tested a freshly guarded Number/Number arithmetic arm that avoids the mixed
+path's eager integer conversions. The verifier required exact Number tags,
+source payloads, bitcast flags/types and explicit input records. Corrupted
+guards, markers and payloads were rejected before code generation/mapping.
+The trial passed **1,982 test executions / 196 suites**, zero failures and ten
+existing ignores, including baseline, all-feature Auto and documentation tests.
+
+Two full comparisons retained **72 commands / 1,080 reported rows**, all nine
+cases, CPUs 0/16, alternating windows and both feature-cost profiles. Float
+throughput improved roughly **1.7–2.6%**, but CPU16 integer throughput fell
+roughly **10% in both comparisons**. CPU0 table/upvalue losses also repeated.
+Cost-case failures rose **23 → 34**, then **28 → 30**, per 108 checks/variant.
+All aggregate commands failed unchanged gates. No-feature binaries were
+byte-identical to controls. Only snapshot peak accounting changed among
+216 paired non-timing row comparisons; logical/native counters matched.
+
+Disassembly exposed added register shuffling in the integer loop. A second
+trial short-circuited the Number guards instead of materializing both boolean
+predicates. Two native-only screens retained another **24 commands / 648
+rows**. The initial CPU16 integer ratio improved to **0.994068**, but repeated
+integer/predicate and other losses still outweighed small float gains. CPU0
+repeat timings nearly doubled for both variants; contention remains visible
+and no measurements were discarded. No feature-cost acceptance is claimed
+for this follow-up. Neither production optimization is retained.
+
+A third, independent trial short-circuited the existing Integer/Integer guard
+on the original two-arm runtime, without extra Number arms or verifier changes.
+Two native screens retained **24 commands / 648 rows**. CPU0 integer improved
+**1.058025 / 1.055792**, but CPU16 integer fell **0.943375 / 0.936859** and
+float fell **0.967294 / 0.957932**. It too was rejected; fewer materialized
+booleans did not make extra conditional branches universally cheaper. Evidence
+uses `short-integer-guard-*`; no feature-cost acceptance is claimed for it.
+
+`e2bf323` retains **185,856** generated arithmetic/model comparisons covering
+all four operators, mixed numeric and invalid scalar values, special floats,
+integer extremes, constant/register operands, destination aliasing, both entry
+PCs and four budgets. Non-NaNs compare by exact bits; NaNs by category.
+Evidence and rejected patches use `native-float-arm-*` / `short-float-arm-*`
+under `target/jit-evidence/short-slice-performance/`. Owned builds, tests and
+profiles did not overlap timing runs. Performance acceptance remains open.
+
+The restored runtime plus retained tests passes **1,770 executions / 172
+suites**, zero failures and ten existing ignores, in baseline/all-feature Auto
+and documentation checks, plus **27 focused executions** including native
+disassembly. All three rejected runtime patches are preserved separately.
+Five freshly rebuilt restored benchmark images (native and speed/shipping
+no-feature/compiled-Off) are byte-identical to the retained lazy-limit controls.
+
+#### Exact ordering trials — rejected; profiling corrected
+
+The broad trial added direct primitive less-than/less-equal paths and removed
+the explicit float truncation from the shared mixed comparator. The narrower
+trial restored the meta-operators and changed only the comparator. Both kept
+NaN/range checks, exact fractional ties, string/metamethod fallback and all
+native contracts. **Neither production optimization is retained.**
+
+An independent IEEE-bit/u128 oracle now checks **438,272** mixed comparisons,
+including every exponent class, signed zeros, infinities/NaNs, integer extremes,
+precision boundaries and deterministic random values with adjacent integer
+ties. Operator/Constant agreement expands to **92,965** evaluations per test,
+and Lua fixtures check fallback operand order, left-side priority, strings and
+errors. This coverage is retained in `c405df4`. Each trial passes focused/full
+checks; the restored runtime passes **1,857 executions / 178 suites**, ten
+ignored, plus profiler-affinity regression checks. No new platform/Miri
+acceptance is claimed.
+
+Each trial finishes two full comparisons against the lazy-limit baseline:
+three alternating windows on CPUs 0/16, eleven native/cost samples, both cost
+profiles and twenty cost iterations. Across both trials, **144 commands /
+2,160 reported rows** are retained. The sole aggregate pass is the narrower
+trial's initial CPU0/window1/shipping **control**, not a candidate. All 24
+complete native non-timing counter comparisons match, including resources.
+No owned builds/tests/profiles overlap timings; unrelated workloads remain
+running and all aliases/manifests are checked.
+
+| Trial | Evidence against retention |
+| --- | --- |
+| Broad direct operators | Shipping CPU0 float direct throughput **0.930150 / 0.932563**; native CPU0 predicate **0.994479 / 0.983991**. Shipping predicate is **1.024014 / 0.918524** on CPU0 and **1.003587 / 1.011111** on CPU16. Cost-case failures change **22 → 15**, then **31 → 33**, per 108 checks/variant. |
+| Comparator only | Shipping CPU16 integer **0.979644 / 0.984208**, allocation **0.985687 / 0.981325**; small/inconsistent predicate gains. Cost-case failures worsen **19 → 34** and **20 → 26**. Severe initial CPU0 timing/reference movement and all repeat losses are retained, not filtered. |
+
+Ratios are direct control/candidate throughput from three window medians, not
+feature-cost gates. Full native Off/Auto, no-feature and compiled-Off medians
+and all failures are in each trial's initial/repeat summary TSVs.
+
+Fresh shipping reconstruction first matched the retained frozen binaries.
+Its JIT-Off integer/float instruction totals remain **19,540,710 / 20,842,770**,
+so the preceding timing losses do not establish increased runtime instruction
+work. Upvalue remains **91,826,728** versus no-feature **82,022,467**: short-slice
+VM/setup cost remains material. Previously rejected return/constructor/counter
+experiments are not new optimization candidates.
+
+The investigation also found a real profiling mismatch: unpinned Callgrind on
+this hybrid host auto-selected **32 KiB/8-way I1, 48 KiB/12-way D1** or
+**64 KiB/8-way I1, 32 KiB/8-way D1**. Historical cache-miss totals with different
+geometry are not matched evidence of a code-placement regression. Instruction
+counts remain diagnostic, not hardware timing acceptance.
+
+`dcb0f12` makes `jit-bench-profile-run` and `jit-cost-profile-run` validate and
+pin one `PROFILE_CPU`, defaulting to the first allowed CPU, and record it.
+`make jit-profile-cpu-tests` checks explicit/default affinity, six invalid
+selections, both recipes and early rejection. Six real full-suite cost profiles
+use the same invocation paths on CPU0; a retained native predicate profile
+also passes. All seven have identical recorded cache geometry. Matched JIT-Off
+instruction totals are **317,231,817** control, **312,781,781** broad and
+**316,132,322** narrow. No-feature totals are **302,390,646 / 300,065,636 /
+301,290,429**. These reductions do not reverse the timing-based rejections.
+
+All production Rust source is restored. Fresh native, speed no-feature/JIT-Off
+and shipping no-feature/JIT-Off executables are **byte-identical** to the
+retained lazy-limit baseline. Only test and profiling improvements ship.
+Evidence: `target/jit-evidence/short-slice-performance/loop-followup-*`,
+`primitive-compare-*`, `mixed-order-*`, `profile-affinity-check*` and
+`comparison-restored-*`. Existing performance/resource/platform/release
+failures remain open; investigate a different measured bottleneck next.
+
 #### Lazy numeric-loop limit checks — retained development WIP
 
 `39dfdce` branches on the freshly guarded limit tag inside the integer

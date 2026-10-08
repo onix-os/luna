@@ -4,6 +4,102 @@ use super::{float_modulo, integer_floor_divide, integer_modulo, Constant};
 
 type Value = Constant<&'static [u8]>;
 
+fn binary_float_order(integer: i64, bits: u64) -> Option<std::cmp::Ordering> {
+    use std::cmp::Ordering;
+    let negative = bits >> 63 != 0;
+    let exponent = (bits >> 52) & 0x7ff;
+    let fraction = bits & ((1 << 52) - 1);
+    if exponent == 0x7ff {
+        return (fraction == 0).then_some(if negative {
+            Ordering::Greater
+        } else {
+            Ordering::Less
+        });
+    }
+    if exponent == 0 && fraction == 0 {
+        return Some(integer.cmp(&0));
+    }
+    if (integer < 0) != negative {
+        return Some(if negative {
+            Ordering::Greater
+        } else {
+            Ordering::Less
+        });
+    }
+    let magnitude = u128::from(integer.unsigned_abs());
+    let significand = u128::from(fraction | if exponent == 0 { 0 } else { 1 << 52 });
+    let shift = if exponent == 0 {
+        -1074
+    } else {
+        exponent as i32 - 1075
+    };
+    let order = if shift >= 64 {
+        Ordering::Less
+    } else if shift >= 0 {
+        magnitude.cmp(&(significand << shift))
+    } else if magnitude == 0 {
+        Ordering::Less
+    } else if shift <= -64 {
+        Ordering::Greater
+    } else {
+        (magnitude << -shift).cmp(&significand)
+    };
+    Some(if negative { order.reverse() } else { order })
+}
+
+#[test]
+fn mixed_order_matches_independent_binary_float_oracle() {
+    let integers = [
+        i64::MIN,
+        i64::MIN + 1,
+        -9_007_199_254_740_993,
+        -2,
+        -1,
+        0,
+        1,
+        2,
+        9_007_199_254_740_991,
+        9_007_199_254_740_992,
+        9_007_199_254_740_993,
+        i64::MAX - 1,
+        i64::MAX,
+    ];
+    let check = |integer, bits| {
+        assert_eq!(
+            super::cmp_int_float(integer, f64::from_bits(bits)),
+            binary_float_order(integer, bits),
+            "integer={integer} bits={bits:#018x}"
+        );
+    };
+    for exponent in 0..2048 {
+        for fraction in [0, 1, (1 << 52) - 1] {
+            for sign in [0, 1 << 63] {
+                let bits = sign | (exponent << 52) | fraction;
+                for integer in integers {
+                    check(integer, bits);
+                }
+            }
+        }
+    }
+    let mut state = 0x2348_690a_bcef_d123u64;
+    for _ in 0..16_384 {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        for integer in integers.into_iter().chain([state as i64]) {
+            check(integer, state);
+        }
+        let integral = f64::from_bits(state) as i64;
+        for integer in [
+            integral,
+            integral.saturating_sub(1),
+            integral.saturating_add(1),
+        ] {
+            check(integer, state);
+        }
+    }
+}
+
 fn normalized_number<S: AsRef<[u8]>>(value: &Constant<S>) -> Option<f64> {
     match value.to_numeric() {
         Some(Constant::Integer(value)) => Some(value as f64),
