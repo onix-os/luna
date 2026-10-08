@@ -11,10 +11,19 @@ region execution; `make jit-regions` tests the non-test library with `jit` and
 `jit,async`, including interrupted fuel traces, GC, callbacks and unwind.
 This is implementation progress, **not performance or release acceptance**.
 
-The 2026-10-08 dispatch refinement (`ecb7180`) combines hook and native selection
+The 2026-10-08 operand refinement (`96367b2`) inlines register/constant lookup
+only in JIT-enabled builds, preserving the original no-feature machine code.
+Repeated shipping CPU16 comparisons improve integer throughput about 12%,
+float about 10% and predicate about 4% against the preceding dispatch version.
+A direct comparison also recovers the earlier shipping float timing loss.
+Float feature overhead nevertheless remains about 7–9%, above the 5% limit;
+upvalue, callback and other acceptance gaps remain. See `PLAN_JIT.md` for the
+complete comparisons, rejected broad annotation and unfavorable results.
+
+The preceding dispatch refinement (`ecb7180`) combines hook and native selection
 into one per-slice state. Repeated speed-profile disabled integer/float timings
 improve, with unchanged native-work counters and passing correctness checks.
-Shipping CPU16 float instead regresses about 6%, and predicate about 3–4%;
+At that checkpoint shipping CPU16 float regressed about 6%, and predicate about 3–4%;
 native upvalue and other cost gates remain open. This is retained development
 WIP, not approval of those tradeoffs. `PLAN_JIT.md` records both complete
 comparisons, exact-image profiles and all unfavorable samples.
