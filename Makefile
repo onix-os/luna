@@ -35,6 +35,7 @@ COST_ITERATIONS ?= 20
 COST_STRIP ?= true
 PROFILE_CASE ?= float_loop
 PROFILE_MODE ?= off
+PROFILE_CPU ?= $(shell awk '/^Cpus_allowed_list:/{split($$2, cpus, /[-,]/); print cpus[1]}' /proc/self/status)
 BENCH_PROFILE_DIR ?= target/jit-evidence/bench-profile/$(PROFILE_CASE)/$(PROFILE_MODE)
 PAIRED_PROFILE_DIR ?= target/jit-evidence/paired-profile
 COST_DIR := target/jit-evidence/feature-cost/$(SIZE_PROFILE)$(if $(TARGET),-$(TARGET),)$(if $(filter false,$(COST_STRIP)),-symbols,)
@@ -161,8 +162,15 @@ jit-bench-paired-profile-annotate:
 jit-bench-paired-profile-tests:
 	@bash tests/test-jit-paired-profile.sh
 
-.PHONY: jit-bench-profile-run
-jit-bench-profile-run:
+.PHONY: jit-bench-profile-run jit-profile-cpu-check jit-profile-cpu-tests
+jit-profile-cpu-check:
+	@case '$(PROFILE_CPU)' in ''|*[!0-9]*) echo 'PROFILE_CPU must select one CPU' >&2; exit 2;; esac
+	@taskset -c '$(PROFILE_CPU)' true
+
+jit-profile-cpu-tests:
+	@bash tests/test-jit-profile-cpu.sh
+
+jit-bench-profile-run: jit-profile-cpu-check
 	@case '$(PROFILE_CASE)' in integer_loop|float_loop|array_table|closure_upvalue|polymorphic_metamethod|rust_callbacks|allocation_gc|oslo_predicate) ;; *) echo 'Unknown warm benchmark case' >&2; exit 2;; esac
 	@case '$(PROFILE_MODE)' in off|auto) ;; *) echo 'PROFILE_MODE must be off|auto' >&2; exit 2;; esac
 	@test -x '$(JIT_BENCH_BINARY)'
@@ -170,8 +178,9 @@ jit-bench-profile-run:
 	@{ rustc -vV; $(CARGO) --version; uname -sm; } > '$(BENCH_PROFILE_DIR)/environment.log'
 	@sha256sum '$(JIT_BENCH_BINARY)' > '$(BENCH_PROFILE_DIR)/binary-sha256.log'
 	@valgrind --version > '$(BENCH_PROFILE_DIR)/profiler.log'
+	@printf 'cpu=%s\n' '$(PROFILE_CPU)' >> '$(BENCH_PROFILE_DIR)/profiler.log'
 	@printf 'case=%s\nmode=%s\nsamples=11\nwarmups=2\ncollection=*Executor>::step\n' '$(PROFILE_CASE)' '$(PROFILE_MODE)' >> '$(BENCH_PROFILE_DIR)/profiler.log'
-	@valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*Executor>::step' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file='$(BENCH_PROFILE_DIR)/profile.callgrind' '$(JIT_BENCH_BINARY)' --mode '$(PROFILE_MODE)' --case '$(PROFILE_CASE)' --samples 11 > '$(BENCH_PROFILE_DIR)/run.log' 2>&1
+	@taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*Executor>::step' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file='$(BENCH_PROFILE_DIR)/profile.callgrind' '$(JIT_BENCH_BINARY)' --mode '$(PROFILE_MODE)' --case '$(PROFILE_CASE)' --samples 11 > '$(BENCH_PROFILE_DIR)/run.log' 2>&1
 	@grep -Eq '^summary: [1-9][0-9]*' '$(BENCH_PROFILE_DIR)/profile.callgrind'
 	@grep -Eq '^case=$(PROFILE_CASE) mode=$(PROFILE_MODE) samples=11 ' '$(BENCH_PROFILE_DIR)/run.log'
 	@callgrind_annotate --inclusive=no --threshold=99 '$(BENCH_PROFILE_DIR)/profile.callgrind' > '$(BENCH_PROFILE_DIR)/annotation.log'
@@ -258,16 +267,17 @@ jit-cost-profile:
 	@$(MAKE) --no-print-directory jit-cost-profile-run SIZE_PROFILE=speed COST_STRIP=false
 
 .PHONY: jit-cost-profile-run
-jit-cost-profile-run:
+jit-cost-profile-run: jit-profile-cpu-check
 	@case '$(PROFILE_CASE)' in integer_loop|float_loop|array_table|closure_upvalue|polymorphic_metamethod|rust_callbacks|allocation_gc|all) ;; *) echo 'Unknown profiling case' >&2; exit 2;; esac
 	@case '$(PROFILE_MODE)' in off|auto) ;; *) echo 'PROFILE_MODE must be off|auto' >&2; exit 2;; esac
 	@mkdir -p $(COST_PROFILE_DIR)
 	@cp $(COST_DIR)/environment.log $(COST_DIR)/binary-sha256.log $(COST_PROFILE_DIR)/
 	@valgrind --version > $(COST_PROFILE_DIR)/profiler.log
+	@printf 'cpu=%s\n' '$(PROFILE_CPU)' >> $(COST_PROFILE_DIR)/profiler.log
 	@printf 'case=%s\niterations=3\nwarmups=2\ncollection=*Executor>::step\nno_jit_mode=off\njit_mode=%s\n' '$(PROFILE_CASE)' '$(PROFILE_MODE)' >> $(COST_PROFILE_DIR)/profiler.log
 	@set -e; selected=(); if test '$(PROFILE_CASE)' != all; then selected=(--case '$(PROFILE_CASE)'); fi; for variant in no-jit jit-off; do \
 		mode=off; if test "$$variant" = jit-off; then mode='$(PROFILE_MODE)'; fi; \
-		valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*Executor>::step' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file=$(COST_PROFILE_DIR)/$$variant.callgrind \
+		taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*Executor>::step' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file=$(COST_PROFILE_DIR)/$$variant.callgrind \
 			$(COST_DIR)/$$variant --worker --mode "$$mode" "$${selected[@]}" --iterations 3 > $(COST_PROFILE_DIR)/$$variant-profile.log 2>&1; \
 		if test '$(PROFILE_CASE)' = all; then \
 			for name in integer_loop float_loop array_table closure_upvalue polymorphic_metamethod rust_callbacks allocation_gc oslo_predicate cold_config; do \
@@ -1260,6 +1270,7 @@ help:
 	@echo "  jit-bench-build Build the benchmark without timing"
 	@echo "  jit-bench-run Time an existing artifact (JIT_BENCH_BINARY=path)"
 	@echo "  jit-bench-profile-run Profile a frozen warm benchmark (PROFILE_CASE=... PROFILE_MODE=off|auto)"
+	@echo "  PROFILE_CPU Select one allowed CPU for native/cost profiles (default: first allowed)"
 	@echo "  jit-bench-paired-profile-run Profile a frozen full paired suite (new PAIRED_PROFILE_DIR=path)"
 	@echo "  jit-bench-paired-profile-tests Test full-suite profile partition verification"
 	@echo "  jit-metrics  Observe cold compilation, coverage and host slice costs"
