@@ -11,6 +11,72 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Typed Number bodies — both numeric gates now pass
+
+`061c9cc` extends the verified integer-controlled loop region with stable
+Number registers carried as F64 block arguments. Add/Sub/Mul use the matching
+floating operations, mixed operands use signed integer conversion, and Move
+and numeric constants preserve their exact types. Fresh entry tags still guard
+every selected register. Each operation must preserve the chosen type map;
+fractional loop controls, unsupported effects and unstable assignments retain
+the generic implementation. An initial Integer-to-Number promotion may execute
+generically before a later matching entry takes the typed path.
+
+The independent checker validates the source-derived result types, typed block
+arguments, loads/stores, float constants/opcodes and signed conversions. It
+retains transactional publication, generic-graph preservation and simultaneous
+IR expansion bounds. Mutation checks reject 534/629 corruptions in two float
+sources, including 486/571 structurally valid variants. Four actual native
+float/mixed bodies are checked at every PC and budget with NaNs, infinities,
+signed zero, subnormals, extreme integer controls and signed conversion edges.
+Probes confirm actual fast entry and tag/fuel/PC fallback; integer-only latch
+exits preserve untouched NaN payloads. Existing integer tests still pass.
+
+Format/check/focused/all-feature Auto validation passes **1,382 executions /
+87 suites**, zero failures and six existing ignores. Seven further focused
+executions pass after strengthening payload and type-mask mutation assertions.
+An earlier failed probe fixture incorrectly classified a Number accumulator as
+an invalid tag; the corrected fixture and original failed log are retained.
+
+Two fresh native comparisons use the frozen verified-integer-loop build as
+control. Control/candidate ratios are medians of three eleven-sample windows:
+
+| Native Auto workload | CPU0 initial / repeat | CPU16 initial / repeat |
+| --- | --- | --- |
+| Integer | 0.997251 / 0.986213 | 1.005713 / 1.004417 |
+| Float | **1.662695 / 2.963716** | **1.927023 / 2.036187** |
+| Table | **0.940458 / 1.049559** | 1.013843 / 1.061079 |
+| Upvalue | 0.993240 / 2.083468 | **0.986899 / 0.992915** |
+| Polymorphic | 1.013320 / 1.038211 | 1.017645 / 1.024719 |
+| Callback | 1.005886 / 1.001180 | 0.990503 / 1.015447 |
+
+The anomalous repeat CPU0 control slowdown also affects unrelated upvalue work;
+it is retained as contention evidence, not attributed to this optimization.
+All **12 float candidate windows** pass the unchanged 2× interpreter gate at
+**3.0941–3.8534**. All **12 integer windows** still pass at **2.7456–3.7648**.
+Exact-image generated float self-instructions drop **19,106,650 → 7,059,624**;
+integer stays **6,587,558**. All **216 matched native case pairs** preserve
+non-timing counters and resource fields. All 24 aggregate commands still exit
+2 because table, upvalue, polymorphic and callback gates remain unsatisfied.
+
+Two feature-cost comparisons retain **48 commands / 432 case rows**. Candidate
+gates pass **167/216** and fail **49/216**; all aggregates exit 2. Adverse results
+include repeated shipping CPU0 compiled-Off throughput losses: integer
+**0.919713 / 0.922604**, float **0.941781 / 0.941029** versus the preceding
+compiled-Off build. Those shipping numeric cases still pass the no-JIT gate,
+but one speed CPU0 float window fails. Speed CPU0 callback overhead is
+**1.1185 / 1.0722**; shipping CPU16 upvalue is **1.1991 / 1.1998**. No disabled-cost
+acceptance or absence of regressions is claimed.
+
+No-JIT images remain byte-identical to the preceding controls. Enabled text
+grows 5,304 bytes in speed and 3,408 in shipping. All source/artifact checks and
+symbol/stripped loaded-section comparisons pass. No owned build/test/profile
+overlapped timings; unrelated workloads continued. Full measurements, adverse
+samples and telemetry are in `target/jit-evidence/short-slice-performance/typed-number-loop-*`,
+including `typed-number-loop-summary.json`. The numeric optimization is retained;
+remaining work is helper-heavy native performance, compiled-Off regressions,
+and the unchanged resource/platform/release gates.
+
 #### Verified integer-loop path enabled and measured
 
 `58a3fcf` adds a separate source/IR checker for the measured typed-loop
