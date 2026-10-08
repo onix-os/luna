@@ -14,23 +14,34 @@ fn eval(source: &str) -> Result<bool, ExternError> {
 mod common;
 
 #[test]
-fn direct_arithmetic_matches_constant_coercion() {
+fn direct_operators_match_constant_semantics() {
     use luna::{meta_ops, Context, Value};
 
     fn check<'gc>(ctx: Context<'gc>, a: Value<'gc>, b: Value<'gc>) {
         let left = a.to_constant().unwrap();
         let right = b.to_constant().unwrap();
-        for operation in 0..3 {
+        for operation in 0..5 {
             let (actual, expected) = match operation {
                 0 => (meta_ops::add(ctx, a, b), left.add(&right)),
                 1 => (meta_ops::subtract(ctx, a, b), left.subtract(&right)),
-                _ => (meta_ops::multiply(ctx, a, b), left.multiply(&right)),
+                2 => (meta_ops::multiply(ctx, a, b), left.multiply(&right)),
+                3 => (
+                    meta_ops::less_than(ctx, a, b),
+                    left.less_than(&right).map(luna::Constant::Boolean),
+                ),
+                _ => (
+                    meta_ops::less_equal(ctx, a, b),
+                    left.less_equal(&right).map(luna::Constant::Boolean),
+                ),
             };
             match (actual, expected.map(Value::from)) {
                 (Ok(meta_ops::MetaResult::Value(Value::Number(a))), Some(Value::Number(b))) => {
                     assert!(a.to_bits() == b.to_bits() || (a.is_nan() && b.is_nan()));
                 }
                 (Ok(meta_ops::MetaResult::Value(Value::Integer(a))), Some(Value::Integer(b))) => {
+                    assert_eq!(a, b);
+                }
+                (Ok(meta_ops::MetaResult::Value(Value::Boolean(a))), Some(Value::Boolean(b))) => {
                     assert_eq!(a, b);
                 }
                 (Err(_), None) => {}
@@ -110,6 +121,36 @@ fn direct_arithmetic_matches_constant_coercion() {
             }
         }
     });
+}
+
+#[test]
+fn comparison_fallback_preserves_metamethod_order_and_errors() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local left, right = {}, {}
+        local calls = 0
+        local function less(a, b)
+            calls = calls + 1
+            assert(a == left and b == right)
+            return true
+        end
+        setmetatable(left, { __lt=less, __le=less })
+        setmetatable(right, { __lt=function() error('wrong side') end,
+                              __le=function() error('wrong side') end })
+        assert(left < right and left <= right)
+        setmetatable(left, {})
+        setmetatable(right, { __lt=less, __le=less })
+        assert(left < right and left <= right)
+        assert(calls == 4)
+        assert('10' < '2' and '2' <= '2')
+        assert(not pcall(function() return '2' < 3 end))
+        assert(not pcall(function() return 3 <= '4' end))
+        assert(not pcall(function() return nil < 0 end))
+        assert(not pcall(function() return false <= true end))
+        return true
+    "#
+    )?);
+    Ok(())
 }
 
 #[test]
