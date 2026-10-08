@@ -11,6 +11,73 @@
 
 ### Progress snapshot — 2026-10-08
 
+#### Exact ordering trials — rejected; profiling corrected
+
+The broad trial added direct primitive less-than/less-equal paths and removed
+the explicit float truncation from the shared mixed comparator. The narrower
+trial restored the meta-operators and changed only the comparator. Both kept
+NaN/range checks, exact fractional ties, string/metamethod fallback and all
+native contracts. **Neither production optimization is retained.**
+
+An independent IEEE-bit/u128 oracle now checks **438,272** mixed comparisons,
+including every exponent class, signed zeros, infinities/NaNs, integer extremes,
+precision boundaries and deterministic random values with adjacent integer
+ties. Operator/Constant agreement expands to **92,965** evaluations per test,
+and Lua fixtures check fallback operand order, left-side priority, strings and
+errors. This coverage is retained in `c405df4`. Each trial passes focused/full
+checks; the restored runtime passes **1,857 executions / 178 suites**, ten
+ignored, plus profiler-affinity regression checks. No new platform/Miri
+acceptance is claimed.
+
+Each trial finishes two full comparisons against the lazy-limit baseline:
+three alternating windows on CPUs 0/16, eleven native/cost samples, both cost
+profiles and twenty cost iterations. Across both trials, **144 commands /
+2,160 reported rows** are retained. The sole aggregate pass is the narrower
+trial's initial CPU0/window1/shipping **control**, not a candidate. All 24
+complete native non-timing counter comparisons match, including resources.
+No owned builds/tests/profiles overlap timings; unrelated workloads remain
+running and all aliases/manifests are checked.
+
+| Trial | Evidence against retention |
+| --- | --- |
+| Broad direct operators | Shipping CPU0 float direct throughput **0.930150 / 0.932563**; native CPU0 predicate **0.994479 / 0.983991**. Shipping predicate is **1.024014 / 0.918524** on CPU0 and **1.003587 / 1.011111** on CPU16. Cost-case failures change **22 → 15**, then **31 → 33**, per 108 checks/variant. |
+| Comparator only | Shipping CPU16 integer **0.979644 / 0.984208**, allocation **0.985687 / 0.981325**; small/inconsistent predicate gains. Cost-case failures worsen **19 → 34** and **20 → 26**. Severe initial CPU0 timing/reference movement and all repeat losses are retained, not filtered. |
+
+Ratios are direct control/candidate throughput from three window medians, not
+feature-cost gates. Full native Off/Auto, no-feature and compiled-Off medians
+and all failures are in each trial's initial/repeat summary TSVs.
+
+Fresh shipping reconstruction first matched the retained frozen binaries.
+Its JIT-Off integer/float instruction totals remain **19,540,710 / 20,842,770**,
+so the preceding timing losses do not establish increased runtime instruction
+work. Upvalue remains **91,826,728** versus no-feature **82,022,467**: short-slice
+VM/setup cost remains material. Previously rejected return/constructor/counter
+experiments are not new optimization candidates.
+
+The investigation also found a real profiling mismatch: unpinned Callgrind on
+this hybrid host auto-selected **32 KiB/8-way I1, 48 KiB/12-way D1** or
+**64 KiB/8-way I1, 32 KiB/8-way D1**. Historical cache-miss totals with different
+geometry are not matched evidence of a code-placement regression. Instruction
+counts remain diagnostic, not hardware timing acceptance.
+
+`dcb0f12` makes `jit-bench-profile-run` and `jit-cost-profile-run` validate and
+pin one `PROFILE_CPU`, defaulting to the first allowed CPU, and record it.
+`make jit-profile-cpu-tests` checks explicit/default affinity, six invalid
+selections, both recipes and early rejection. Six real full-suite cost profiles
+use the same invocation paths on CPU0; a retained native predicate profile
+also passes. All seven have identical recorded cache geometry. Matched JIT-Off
+instruction totals are **317,231,817** control, **312,781,781** broad and
+**316,132,322** narrow. No-feature totals are **302,390,646 / 300,065,636 /
+301,290,429**. These reductions do not reverse the timing-based rejections.
+
+All production Rust source is restored. Fresh native, speed no-feature/JIT-Off
+and shipping no-feature/JIT-Off executables are **byte-identical** to the
+retained lazy-limit baseline. Only test and profiling improvements ship.
+Evidence: `target/jit-evidence/short-slice-performance/loop-followup-*`,
+`primitive-compare-*`, `mixed-order-*`, `profile-affinity-check*` and
+`comparison-restored-*`. Existing performance/resource/platform/release
+failures remain open; investigate a different measured bottleneck next.
+
 #### Lazy numeric-loop limit checks — retained development WIP
 
 `39dfdce` branches on the freshly guarded limit tag inside the integer

@@ -11,6 +11,15 @@ region execution; `make jit-regions` tests the non-test library with `jit` and
 `jit,async`, including interrupted fuel traces, GC, callbacks and unwind.
 This is implementation progress, **not performance or release acceptance**.
 
+Two subsequent exact-ordering optimizations were tested and rejected for
+performance regressions. The runtime remains the lazy-limit version below;
+all five rebuilt benchmark executables are byte-identical to that baseline.
+Independent ordering/fallback tests are retained (`c405df4`). Native and
+feature-cost profiling now pin and record one `PROFILE_CPU` (`dcb0f12`), since
+unpinned runs selected different cache models on the hybrid host. Use
+`make jit-profile-cpu-tests` to check that selection; the default is the first
+allowed CPU. `PLAN_JIT.md` records both rejected trials and remaining failures.
+
 The 2026-10-08 loop-limit refinement (`39dfdce`) avoids eager floating limit
 checks on integer loops. Repeated native throughput improves integer 9.3–9.5%
 and float 7.4–10.3% on CPU0; CPU16 gains are 0.8–3.9% and 1.4–4.2%.
