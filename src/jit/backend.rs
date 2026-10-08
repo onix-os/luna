@@ -1891,9 +1891,10 @@ impl Emitter<'_, '_> {
         if self.omit_numeric_guards {
             return;
         }
-        let int = self.tag_is(tag, abi::INTEGER);
-        let float = self.tag_is(tag, abi::NUMBER);
-        let numeric = self.builder.ins().bor(int, float);
+        const { assert!(abi::INTEGER & 1 == 0 && abi::NUMBER == (abi::INTEGER | 1)) };
+        let mask = self.constant(!1);
+        let kind = self.builder.ins().band(tag, mask);
+        let numeric = self.tag_is(kind, abi::INTEGER);
         self.require(numeric);
     }
 
@@ -4692,6 +4693,152 @@ mod memory_tests {
             matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")
         );
         assert_eq!(total.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn numeric_guards_reject_all_nonnumeric_tag_bits_without_effects() {
+        use crate::types::{RegisterIndex as R, VarCount};
+        let left = RCIndex::Register(R(0));
+        let right = RCIndex::Register(R(1));
+        let tags = [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            255,
+            256,
+            1 << 32,
+            (1 << 32) | 2,
+            1 << 63,
+            (1 << 63) | 3,
+            u64::MAX - 1,
+            u64::MAX,
+        ];
+        for (operation, kind) in [
+            (
+                Operation::Add {
+                    dest: R(2),
+                    left,
+                    right,
+                },
+                0,
+            ),
+            (
+                Operation::Sub {
+                    dest: R(2),
+                    left,
+                    right,
+                },
+                1,
+            ),
+            (
+                Operation::Mul {
+                    dest: R(2),
+                    left,
+                    right,
+                },
+                2,
+            ),
+        ] {
+            let snapshot = Snapshot {
+                operations: super::super::resources::owned(&[
+                    operation,
+                    Operation::Return {
+                        start: R(2),
+                        count: VarCount::constant(1),
+                    },
+                ]),
+                constants: super::super::resources::owned(&[]),
+                registers: 3,
+                upvalues: 0,
+                prototypes: 0,
+            };
+            let total = MappingCounter::new(super::super::resources::Ledger::new(usize::MAX));
+            let code = compile(&snapshot, total.clone(), 1024 * 1024).unwrap();
+            for a in tags {
+                for b in tags {
+                    let initial = [
+                        Slot {
+                            tag: a,
+                            bits: if a == abi::NUMBER {
+                                0.5f64.to_bits()
+                            } else {
+                                3
+                            },
+                        },
+                        Slot {
+                            tag: b,
+                            bits: if b == abi::NUMBER {
+                                1.25f64.to_bits()
+                            } else {
+                                5
+                            },
+                        },
+                        Slot {
+                            tag: abi::REFERENCE,
+                            bits: 0x1234,
+                        },
+                    ];
+                    for budget in [0, 1, 2, 64] {
+                        let mut slots = initial;
+                        let exit = code.invoke(&mut slots, 0, budget);
+                        let numeric = matches!(a, abi::INTEGER | abi::NUMBER)
+                            && matches!(b, abi::INTEGER | abi::NUMBER);
+                        if budget == 0 || !numeric {
+                            let reason = if budget == 0 {
+                                ExitKind::Budget
+                            } else {
+                                ExitKind::Guard
+                            };
+                            assert_eq!(
+                                (exit.pc, exit.instructions, exit.reason),
+                                (0, 0, reason as u32)
+                            );
+                            assert_eq!(
+                                slots.map(|slot| (slot.tag, slot.bits)),
+                                initial.map(|slot| (slot.tag, slot.bits))
+                            );
+                        } else {
+                            let reason = if budget == 1 {
+                                ExitKind::Budget
+                            } else {
+                                ExitKind::Interpreter
+                            };
+                            assert_eq!(
+                                (exit.pc, exit.instructions, exit.reason),
+                                (1, 1, reason as u32)
+                            );
+                            let expected = if a == abi::INTEGER && b == abi::INTEGER {
+                                (
+                                    abi::INTEGER,
+                                    match kind {
+                                        0 => 8,
+                                        1 => (-2i64) as u64,
+                                        _ => 15,
+                                    },
+                                )
+                            } else {
+                                let left = if a == abi::NUMBER { 0.5 } else { 3.0 };
+                                let right = if b == abi::NUMBER { 1.25 } else { 5.0 };
+                                let value: f64 = match kind {
+                                    0 => left + right,
+                                    1 => left - right,
+                                    _ => left * right,
+                                };
+                                (abi::NUMBER, value.to_bits())
+                            };
+                            assert_eq!((slots[2].tag, slots[2].bits), expected);
+                        }
+                    }
+                }
+            }
+            drop(code);
+            assert_eq!(total.load(Ordering::Relaxed), 0);
+        }
     }
 
     #[test]

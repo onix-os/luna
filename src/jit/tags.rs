@@ -2823,8 +2823,8 @@ impl Analysis<'_> {
         };
         match self.function.dfg.insts[inst] {
             InstructionData::IntCompare { cond, args, .. } => {
-                let left = self.literal(args[0], queried, tag);
-                let right = self.literal(args[1], queried, tag);
+                let left = self.literal(args[0], queried, tag, remaining);
+                let right = self.literal(args[1], queried, tag, remaining);
                 Some(match (left, right, cond) {
                     (Some(left), Some(right), IntCC::Equal) => Some(left == right),
                     (Some(left), Some(right), IntCC::NotEqual) => Some(left != right),
@@ -2853,21 +2853,35 @@ impl Analysis<'_> {
         }
     }
 
-    fn literal(&self, value: Value, queried: Option<Value>, tag: u64) -> Option<u64> {
-        if queried.is_some_and(|queried| self.function.dfg.resolve_aliases(value) == queried) {
+    fn literal(
+        &self,
+        value: Value,
+        queried: Option<Value>,
+        tag: u64,
+        remaining: &mut usize,
+    ) -> Option<u64> {
+        *remaining = remaining.checked_sub(1)?;
+        let value = self.function.dfg.resolve_aliases(value);
+        if queried.is_some_and(|queried| value == queried) {
             return Some(tag);
         }
         let ValueDef::Result(inst, 0) = self.function.dfg.value_def(value) else {
             return None;
         };
-        let InstructionData::UnaryImm {
-            opcode: Opcode::Iconst,
-            imm,
-        } = self.function.dfg.insts[inst]
-        else {
-            return None;
-        };
-        Some(imm.bits() as u64)
+        match self.function.dfg.insts[inst] {
+            InstructionData::UnaryImm {
+                opcode: Opcode::Iconst,
+                imm,
+            } => Some(imm.bits() as u64),
+            InstructionData::Binary {
+                opcode: Opcode::Band,
+                args,
+            } if self.function.dfg.value_type(value) == types::I64 => Some(
+                self.literal(args[0], queried, tag, remaining)?
+                    & self.literal(args[1], queried, tag, remaining)?,
+            ),
+            _ => None,
+        }
     }
 
     fn unreachable(&self, mut block: Block) -> bool {
@@ -3420,6 +3434,62 @@ mod tests {
                 builder.ins().return_(&[]);
             })
             .unwrap();
+        }
+    }
+
+    #[test]
+    fn masked_numeric_guards_keep_both_polarities_and_refuse_wider_sets() {
+        for (mask, expected, inverted, depth, wrong_source, accepted) in [
+            (!1, abi::INTEGER, false, 1, false, true),
+            (!1, abi::INTEGER, true, 1, false, true),
+            (!1, abi::INTEGER, false, 8, false, true),
+            (!1, abi::INTEGER, false, 80, false, false),
+            (!1, abi::INTEGER, false, 1, true, false),
+            (1, 0, false, 1, false, false),
+            (!3, 0, false, 1, false, false),
+            (!1, 0, false, 1, false, false),
+            (!1, abi::REFERENCE, false, 1, false, false),
+        ] {
+            let result = fixture(|builder, slots, choice, stores| {
+                let tag = builder
+                    .ins()
+                    .load(types::I64, MemFlagsData::new(), slots, 0);
+                let bits = builder
+                    .ins()
+                    .load(types::I64, MemFlagsData::new(), slots, 8);
+                let mask = builder.ins().iconst(types::I64, mask as i64);
+                let mut masked = if wrong_source { choice } else { tag };
+                for _ in 0..depth {
+                    masked = builder.ins().band(masked, mask);
+                }
+                let condition = builder.ins().icmp_imm_s(
+                    if inverted {
+                        IntCC::NotEqual
+                    } else {
+                        IntCC::Equal
+                    },
+                    masked,
+                    expected as i64,
+                );
+                let accept = builder.create_block();
+                let reject = builder.create_block();
+                let (yes, no) = if inverted {
+                    (reject, accept)
+                } else {
+                    (accept, reject)
+                };
+                builder.ins().brif(condition, yes, &[], no, &[]);
+                builder.switch_to_block(accept);
+                numeric_use(builder, stores, tag, bits, false);
+                builder.ins().return_(&[]);
+                builder.switch_to_block(reject);
+                builder.ins().return_(&[]);
+            });
+            if accepted {
+                result.unwrap();
+            } else {
+                rejected(result);
+            }
         }
     }
 

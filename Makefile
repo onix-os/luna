@@ -529,7 +529,7 @@ jit-tags:
 	@$(MAKE) --no-print-directory jit-input
 
 jit-input:
-	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::omitted_numeric_guards_are_refused_before_codegen_and_mapping
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) numeric_guards
 	@$(MAKE) --no-print-directory jit-float-input
 	@$(MAKE) --no-print-directory jit-arithmetic
 	@$(MAKE) --no-print-directory jit-truth
