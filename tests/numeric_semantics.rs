@@ -13,6 +13,134 @@ fn eval(source: &str) -> Result<bool, ExternError> {
 
 mod common;
 
+#[test]
+fn direct_arithmetic_matches_constant_coercion() {
+    use luna::{meta_ops, Context, Value};
+
+    fn check<'gc>(ctx: Context<'gc>, a: Value<'gc>, b: Value<'gc>) {
+        let left = a.to_constant().unwrap();
+        let right = b.to_constant().unwrap();
+        for operation in 0..3 {
+            let (actual, expected) = match operation {
+                0 => (meta_ops::add(ctx, a, b), left.add(&right)),
+                1 => (meta_ops::subtract(ctx, a, b), left.subtract(&right)),
+                _ => (meta_ops::multiply(ctx, a, b), left.multiply(&right)),
+            };
+            match (actual, expected.map(Value::from)) {
+                (Ok(meta_ops::MetaResult::Value(Value::Number(a))), Some(Value::Number(b))) => {
+                    assert!(a.to_bits() == b.to_bits() || (a.is_nan() && b.is_nan()));
+                }
+                (Ok(meta_ops::MetaResult::Value(Value::Integer(a))), Some(Value::Integer(b))) => {
+                    assert_eq!(a, b);
+                }
+                (Err(_), None) => {}
+                result => panic!("operation={operation} operands={a:?},{b:?}: {result:?}"),
+            }
+        }
+    }
+
+    let mut lua = luna::Lua::empty();
+    lua.enter(|ctx| {
+        let mut values = vec![Value::Nil, Value::Boolean(false), Value::Boolean(true)];
+        for integer in [
+            i64::MIN,
+            i64::MAX,
+            -9_007_199_254_740_993,
+            9_007_199_254_740_993,
+            -1,
+            0,
+            1,
+        ] {
+            values.push(Value::Integer(integer));
+            values.push(Value::Number(integer as f64));
+        }
+        for bits in [
+            0,
+            1,
+            0x000f_ffff_ffff_ffff,
+            0x0010_0000_0000_0000,
+            0x3fe0_0000_0000_0000,
+            0x7fef_ffff_ffff_ffff,
+            0x7ff0_0000_0000_0000,
+            0x7ff0_0000_0000_0001,
+            0x7ff8_0000_0000_1234,
+        ] {
+            values.push(Value::Number(f64::from_bits(bits)));
+            values.push(Value::Number(f64::from_bits(bits | (1 << 63))));
+        }
+        for bytes in [
+            &b""[..],
+            b" \t42\n",
+            b"-0.0",
+            b"0x1.8p+2",
+            b"1e400",
+            b"1e-400",
+            b"9223372036854775808",
+            b"9007199254740993",
+            b"nan",
+            b"inf",
+            b"1x",
+            b"\xff",
+        ] {
+            values.push(Value::String(ctx.intern(bytes)));
+        }
+        for &a in &values {
+            for &b in &values {
+                check(ctx, a, b);
+            }
+        }
+        let mut state = 0x2348_690a_bcef_d123u64;
+        for _ in 0..4096 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let left = [
+                Value::Integer(state as i64),
+                Value::Number(f64::from_bits(state)),
+            ];
+            state = state.rotate_left(19).wrapping_add(0x9e37_79b9_7f4a_7c15);
+            let right = [
+                Value::Integer(state as i64),
+                Value::Number(f64::from_bits(state)),
+            ];
+            for a in left {
+                for b in right {
+                    check(ctx, a, b);
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn arithmetic_fallback_preserves_metamethod_operands() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local count = 0
+        local object = {}
+        local function operand(value)
+            if value == object then return 7 end
+            assert(value == 2)
+            return value
+        end
+        setmetatable(object, {
+            __add = function(a, b) count=count+1; return operand(a)+operand(b) end,
+            __sub = function(a, b) count=count+1; return operand(a)-operand(b) end,
+            __mul = function(a, b) count=count+1; return operand(a)*operand(b) end,
+        })
+        assert(object+2 == 9 and 2+object == 9)
+        assert(object-2 == 5 and 2-object == -5)
+        assert(object*2 == 14 and 2*object == 14)
+        assert(count == 6)
+        assert(not pcall(function() return true+2 end))
+        assert(not pcall(function() return 2-"invalid" end))
+        assert(not pcall(function() return nil*2 end))
+        return true
+        "#
+    )?);
+    Ok(())
+}
+
 /// `i as f64` loses precision above 2^53, which corrupted sorts and range checks on large ids.
 #[test]
 fn integers_and_floats_compare_exactly() -> Result<(), ExternError> {

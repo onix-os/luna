@@ -1891,9 +1891,10 @@ impl Emitter<'_, '_> {
         if self.omit_numeric_guards {
             return;
         }
-        let int = self.tag_is(tag, abi::INTEGER);
-        let float = self.tag_is(tag, abi::NUMBER);
-        let numeric = self.builder.ins().bor(int, float);
+        const { assert!(abi::INTEGER & 1 == 0 && abi::NUMBER == (abi::INTEGER | 1)) };
+        let mask = self.constant(!1);
+        let kind = self.builder.ins().band(tag, mask);
+        let numeric = self.tag_is(kind, abi::INTEGER);
         self.require(numeric);
     }
 
@@ -2397,6 +2398,16 @@ impl Emitter<'_, '_> {
         self.numeric_input(index, it, ib);
         self.numeric_input(index, st, sb);
         let negative = self.builder.ins().icmp_imm_s(IntCC::SignedLessThan, sb, 0);
+        let not_overflow = self.builder.ins().bxor_imm_u(overflow, 1);
+        let tag = self.constant(abi::INTEGER);
+        let integer_limit = self.builder.create_block();
+        let float_limit = self.builder.create_block();
+        let li = self.tag_is(lt, abi::INTEGER);
+        let limit_split = self
+            .builder
+            .ins()
+            .brif(li, integer_limit, &[], float_limit, &[]);
+        self.builder.switch_to_block(integer_limit);
         let ge = self
             .builder
             .ins()
@@ -2406,6 +2417,19 @@ impl Emitter<'_, '_> {
             .ins()
             .icmp(IntCC::SignedLessThanOrEqual, index, lb);
         let int_in_range = self.builder.ins().select(negative, ge, le);
+        let condition = self.builder.ins().band(not_overflow, int_in_range);
+        self.numeric_input(condition, lt, lb);
+        let integer_next = self
+            .builder
+            .ins()
+            .jump(join, &[tag.into(), index.into(), condition.into()]);
+        let integer_arm = super::tags::LoopArm {
+            tag,
+            bits: index,
+            condition,
+            next: integer_next,
+        };
+        self.builder.switch_to_block(float_limit);
         let index_float = self.builder.ins().fcvt_from_sint(types::F64, index);
         let limit_float = self
             .builder
@@ -2420,21 +2444,17 @@ impl Emitter<'_, '_> {
             .ins()
             .fcmp(FloatCC::LessThanOrEqual, index_float, limit_float);
         let float_in_range = self.builder.ins().select(negative, ge, le);
-        let li = self.tag_is(lt, abi::INTEGER);
-        let in_range = self.builder.ins().select(li, int_in_range, float_in_range);
-        self.numeric_input(in_range, lt, lb);
-        let not_overflow = self.builder.ins().bxor_imm_u(overflow, 1);
-        let condition = self.builder.ins().band(not_overflow, in_range);
-        let tag = self.constant(abi::INTEGER);
-        let integer_next = self
+        let condition = self.builder.ins().band(not_overflow, float_in_range);
+        self.numeric_input(condition, lt, lb);
+        let mixed_next = self
             .builder
             .ins()
             .jump(join, &[tag.into(), index.into(), condition.into()]);
-        let integer_arm = super::tags::LoopArm {
+        let mixed_arm = super::tags::LoopArm {
             tag,
             bits: index,
             condition,
-            next: integer_next,
+            next: mixed_next,
         };
         self.builder.switch_to_block(float);
         let index = self.as_float(it, ib);
@@ -2485,7 +2505,8 @@ impl Emitter<'_, '_> {
             pc: self.pc,
             inputs: [(it, ib), (lt, lb), (st, sb)],
             split,
-            arms: [integer_arm, float_arm],
+            limit_split,
+            arms: [integer_arm, mixed_arm, float_arm],
             store,
             branch,
             visible_store,
@@ -3103,7 +3124,16 @@ mod loop_tests {
     }
     #[test]
     fn split_and_phi_corruption_is_refused() {
-        for fault in [Fault::Split, Fault::Phi] {
+        for fault in [
+            Fault::Split,
+            Fault::Phi,
+            Fault::LimitSplit,
+            Fault::LimitCondition,
+            Fault::LimitSource,
+            Fault::MixedPhi,
+            Fault::MixedOverflow,
+            Fault::LimitExtraEdge,
+        ] {
             refused(fixture(false, 0, 1, Some(fault)));
         }
     }
@@ -4695,6 +4725,152 @@ mod memory_tests {
     }
 
     #[test]
+    fn numeric_guards_reject_all_nonnumeric_tag_bits_without_effects() {
+        use crate::types::{RegisterIndex as R, VarCount};
+        let left = RCIndex::Register(R(0));
+        let right = RCIndex::Register(R(1));
+        let tags = [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            255,
+            256,
+            1 << 32,
+            (1 << 32) | 2,
+            1 << 63,
+            (1 << 63) | 3,
+            u64::MAX - 1,
+            u64::MAX,
+        ];
+        for (operation, kind) in [
+            (
+                Operation::Add {
+                    dest: R(2),
+                    left,
+                    right,
+                },
+                0,
+            ),
+            (
+                Operation::Sub {
+                    dest: R(2),
+                    left,
+                    right,
+                },
+                1,
+            ),
+            (
+                Operation::Mul {
+                    dest: R(2),
+                    left,
+                    right,
+                },
+                2,
+            ),
+        ] {
+            let snapshot = Snapshot {
+                operations: super::super::resources::owned(&[
+                    operation,
+                    Operation::Return {
+                        start: R(2),
+                        count: VarCount::constant(1),
+                    },
+                ]),
+                constants: super::super::resources::owned(&[]),
+                registers: 3,
+                upvalues: 0,
+                prototypes: 0,
+            };
+            let total = MappingCounter::new(super::super::resources::Ledger::new(usize::MAX));
+            let code = compile(&snapshot, total.clone(), 1024 * 1024).unwrap();
+            for a in tags {
+                for b in tags {
+                    let initial = [
+                        Slot {
+                            tag: a,
+                            bits: if a == abi::NUMBER {
+                                0.5f64.to_bits()
+                            } else {
+                                3
+                            },
+                        },
+                        Slot {
+                            tag: b,
+                            bits: if b == abi::NUMBER {
+                                1.25f64.to_bits()
+                            } else {
+                                5
+                            },
+                        },
+                        Slot {
+                            tag: abi::REFERENCE,
+                            bits: 0x1234,
+                        },
+                    ];
+                    for budget in [0, 1, 2, 64] {
+                        let mut slots = initial;
+                        let exit = code.invoke(&mut slots, 0, budget);
+                        let numeric = matches!(a, abi::INTEGER | abi::NUMBER)
+                            && matches!(b, abi::INTEGER | abi::NUMBER);
+                        if budget == 0 || !numeric {
+                            let reason = if budget == 0 {
+                                ExitKind::Budget
+                            } else {
+                                ExitKind::Guard
+                            };
+                            assert_eq!(
+                                (exit.pc, exit.instructions, exit.reason),
+                                (0, 0, reason as u32)
+                            );
+                            assert_eq!(
+                                slots.map(|slot| (slot.tag, slot.bits)),
+                                initial.map(|slot| (slot.tag, slot.bits))
+                            );
+                        } else {
+                            let reason = if budget == 1 {
+                                ExitKind::Budget
+                            } else {
+                                ExitKind::Interpreter
+                            };
+                            assert_eq!(
+                                (exit.pc, exit.instructions, exit.reason),
+                                (1, 1, reason as u32)
+                            );
+                            let expected = if a == abi::INTEGER && b == abi::INTEGER {
+                                (
+                                    abi::INTEGER,
+                                    match kind {
+                                        0 => 8,
+                                        1 => (-2i64) as u64,
+                                        _ => 15,
+                                    },
+                                )
+                            } else {
+                                let left = if a == abi::NUMBER { 0.5 } else { 3.0 };
+                                let right = if b == abi::NUMBER { 1.25 } else { 5.0 };
+                                let value: f64 = match kind {
+                                    0 => left + right,
+                                    1 => left - right,
+                                    _ => left * right,
+                                };
+                                (abi::NUMBER, value.to_bits())
+                            };
+                            assert_eq!((slots[2].tag, slots[2].bits), expected);
+                        }
+                    }
+                }
+            }
+            drop(code);
+            assert_eq!(total.load(Ordering::Relaxed), 0);
+        }
+    }
+
+    #[test]
     fn block_map_quota_refuses_before_host_setup_and_releases_storage() {
         let mut lua = crate::Lua::empty();
         let snapshot = lua.enter(|ctx| {
@@ -4932,6 +5108,36 @@ mod memory_tests {
         };
     }
 
+    loop_corruption!(
+        corrupted_loop_limit_split_is_refused_before_codegen_and_mapping,
+        false,
+        LimitSplit
+    );
+    loop_corruption!(
+        corrupted_loop_limit_condition_is_refused_before_codegen_and_mapping,
+        false,
+        LimitCondition
+    );
+    loop_corruption!(
+        corrupted_loop_limit_source_is_refused_before_codegen_and_mapping,
+        false,
+        LimitSource
+    );
+    loop_corruption!(
+        corrupted_loop_mixed_phi_is_refused_before_codegen_and_mapping,
+        false,
+        MixedPhi
+    );
+    loop_corruption!(
+        corrupted_loop_mixed_overflow_is_refused_before_codegen_and_mapping,
+        false,
+        MixedOverflow
+    );
+    loop_corruption!(
+        corrupted_loop_limit_extra_edge_is_refused_before_codegen_and_mapping,
+        false,
+        LimitExtraEdge
+    );
     loop_corruption!(
         corrupted_loop_prep_index_is_refused_before_codegen_and_mapping,
         true,

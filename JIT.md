@@ -11,7 +11,45 @@ region execution; `make jit-regions` tests the non-test library with `jit` and
 `jit,async`, including interrupted fuel traces, GC, callbacks and unwind.
 This is implementation progress, **not performance or release acceptance**.
 
-The 2026-10-08 operand refinement (`96367b2`) inlines register/constant lookup
+The 2026-10-08 loop-limit refinement (`39dfdce`) avoids eager floating limit
+checks on integer loops. Repeated native throughput improves integer 9.3–9.5%
+and float 7.4–10.3% on CPU0; CPU16 gains are 0.8–3.9% and 1.4–4.2%.
+CPU0 float passes its 2x gate in all six candidate windows, but CPU16 float,
+integer and upvalue gates still fail. Native CPU0 callbacks and several
+shipping compiled-Off cases regress; this is development WIP, not acceptance.
+Final correctness gates pass 1,964 executions, including a 292,008-invocation
+numeric-loop differential fixture. `PLAN_JIT.md` retains all results and the
+charged proof-workspace increases.
+
+The preceding 2026-10-08 numeric-guard refinement (`9aa2e25`) uses one full-width
+mask/comparison instead of two tag comparisons and an OR. It retains the same
+numeric guards and logical work. Two complete comparisons improve native CPU16
+integer throughput 17.6–18.7% and float 29.4–29.7%; no-feature executables are
+byte-identical to their controls. The native 2x gates still fail, upvalue and
+other gaps remain, and shipping CPU0 predicate regresses. Validation passes
+1,950 executions; `PLAN_JIT.md` records all results and resource-counter changes.
+
+The preceding 2026-10-08 primitive-arithmetic refinement (`0a01bb3`) handles integer,
+float and mixed-tag add/subtract/multiply directly, retaining coercion and
+metamethod fallback. Two full comparisons improve shipping compiled-Off integer
+throughput 1.40–1.50x and float 1.74–1.79x; no-feature numerics also improve.
+Shipping numeric overhead checks pass, including the previously failing float
+case. This accelerates interpretation, not native arithmetic: native counters
+are unchanged and native float now misses its 2x gate against the faster
+interpreter. Native allocation and predicate/other cost gaps remain explicit
+in `PLAN_JIT.md`. Correctness checks pass 1,838 executions; full acceptance is open.
+
+The preceding 2026-10-08 compact-callee refinement (`a56939c`) passes two integer values
+to generated arithmetic and returns one value, replacing four aliased pointers.
+Physical Call/Return, fresh source/capture guards, fallback and accounting remain.
+Two complete comparisons improve native upvalue throughput 7.5–8.0% on CPU16
+and 12.8–13.6% on CPU0 against the preceding runtime. Upvalue Auto still trails
+the interpreter and fails its gate. Shipping CPU0 integer/float and CPU16
+predicate regress; the full results in `PLAN_JIT.md` remain development WIP,
+not acceptance. Correctness checks pass 1,865 executions; compact Memcheck has
+zero errors, with its residual allocation report retained.
+
+The preceding 2026-10-08 operand refinement (`96367b2`) inlines register/constant lookup
 only in JIT-enabled builds, preserving the original no-feature machine code.
 Repeated shipping CPU16 comparisons improve integer throughput about 12%,
 float about 10% and predicate about 4% against the preceding dispatch version.

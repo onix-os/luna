@@ -667,9 +667,18 @@ pub fn add<'gc>(
     lhs: Value<'gc>,
     rhs: Value<'gc>,
 ) -> Result<MetaResult<'gc, 2>, MetaOperatorError> {
-    meta_metaop(ctx, lhs, rhs, MetaMethod::Add, |_, a, b| {
-        Some(a.to_constant()?.add(&b.to_constant()?)?.into())
-    })
+    let value = match (lhs, rhs) {
+        (Value::Integer(a), Value::Integer(b)) => Value::Integer(a.wrapping_add(b)),
+        (Value::Number(a), Value::Number(b)) => Value::Number(a + b),
+        (Value::Integer(a), Value::Number(b)) => Value::Number(a as f64 + b),
+        (Value::Number(a), Value::Integer(b)) => Value::Number(a + b as f64),
+        _ => {
+            return meta_metaop(ctx, lhs, rhs, MetaMethod::Add, |_, a, b| {
+                Some(a.to_constant()?.add(&b.to_constant()?)?.into())
+            });
+        }
+    };
+    Ok(value.into())
 }
 
 pub fn subtract<'gc>(
@@ -677,9 +686,18 @@ pub fn subtract<'gc>(
     lhs: Value<'gc>,
     rhs: Value<'gc>,
 ) -> Result<MetaResult<'gc, 2>, MetaOperatorError> {
-    meta_metaop(ctx, lhs, rhs, MetaMethod::Sub, |_, a, b| {
-        Some(a.to_constant()?.subtract(&b.to_constant()?)?.into())
-    })
+    let value = match (lhs, rhs) {
+        (Value::Integer(a), Value::Integer(b)) => Value::Integer(a.wrapping_sub(b)),
+        (Value::Number(a), Value::Number(b)) => Value::Number(a - b),
+        (Value::Integer(a), Value::Number(b)) => Value::Number(a as f64 - b),
+        (Value::Number(a), Value::Integer(b)) => Value::Number(a - b as f64),
+        _ => {
+            return meta_metaop(ctx, lhs, rhs, MetaMethod::Sub, |_, a, b| {
+                Some(a.to_constant()?.subtract(&b.to_constant()?)?.into())
+            });
+        }
+    };
+    Ok(value.into())
 }
 
 pub fn multiply<'gc>(
@@ -687,9 +705,18 @@ pub fn multiply<'gc>(
     lhs: Value<'gc>,
     rhs: Value<'gc>,
 ) -> Result<MetaResult<'gc, 2>, MetaOperatorError> {
-    meta_metaop(ctx, lhs, rhs, MetaMethod::Mul, |_, a, b| {
-        Some(a.to_constant()?.multiply(&b.to_constant()?)?.into())
-    })
+    let value = match (lhs, rhs) {
+        (Value::Integer(a), Value::Integer(b)) => Value::Integer(a.wrapping_mul(b)),
+        (Value::Number(a), Value::Number(b)) => Value::Number(a * b),
+        (Value::Integer(a), Value::Number(b)) => Value::Number(a as f64 * b),
+        (Value::Number(a), Value::Integer(b)) => Value::Number(a * b as f64),
+        _ => {
+            return meta_metaop(ctx, lhs, rhs, MetaMethod::Mul, |_, a, b| {
+                Some(a.to_constant()?.multiply(&b.to_constant()?)?.into())
+            });
+        }
+    };
+    Ok(value.into())
 }
 
 pub fn float_divide<'gc>(

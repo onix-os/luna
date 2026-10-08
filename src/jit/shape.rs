@@ -251,12 +251,14 @@ pub(super) fn comparison(
 pub(super) enum LoopExpression {
     PrepSplit,
     StepSplit,
+    LimitSplit,
     Nonzero,
     PrepInteger,
     PrepFloat,
     StepInteger,
     StepFloat,
     ConditionInteger,
+    ConditionMixedLimit,
     ConditionFloat,
 }
 
@@ -325,8 +327,8 @@ pub(super) fn numeric_loop(
     let ge = Expr::FloatCompare(FloatCC::GreaterThanOrEqual, &converted_index, &cast_limit);
     let le = Expr::FloatCompare(FloatCC::LessThanOrEqual, &converted_index, &cast_limit);
     let float_range = Expr::Select(types::I8, &negative, &ge, &le);
-    let range = Expr::Select(types::I8, &limit_integer, &int_range, &float_range);
-    let condition = Expr::Binary(Opcode::Band, types::I8, &not_overflow, &range);
+    let condition = Expr::Binary(Opcode::Band, types::I8, &not_overflow, &int_range);
+    let mixed_condition = Expr::Binary(Opcode::Band, types::I8, &not_overflow, &float_range);
     let limit_signed = Expr::Unary(Opcode::FcvtFromSint, types::F64, &limit_bits);
     let limit_float = Expr::Select(types::F64, &limit_integer, &limit_signed, &cast_limit);
     let float_negative = Expr::FloatCompare(FloatCC::LessThan, &step_float, &zero);
@@ -338,8 +340,10 @@ pub(super) fn numeric_loop(
         value,
         match part {
             StepInteger => &index,
+            LimitSplit => &limit_integer,
             StepFloat => &float_bits,
             ConditionInteger => &condition,
+            ConditionMixedLimit => &mixed_condition,
             ConditionFloat => &float_condition,
             _ => return false,
         },

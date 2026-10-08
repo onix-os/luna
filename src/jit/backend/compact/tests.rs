@@ -53,7 +53,7 @@ fn resources() -> (BudgetAllocator, MappingCounter) {
 }
 
 #[test]
-fn generated_compact_cells_preserve_all_register_and_capture_aliases() {
+fn generated_compact_values_preserve_all_register_and_capture_aliases() {
     let mut invocations = 0;
     for arithmetic in [Arithmetic::Add, Arithmetic::Sub, Arithmetic::Mul] {
         for read in 0..3 {
@@ -80,44 +80,46 @@ fn generated_compact_cells_preserve_all_register_and_capture_aliases() {
                         for initial in [[3, 5, 11], [i64::MAX, i64::MIN, -1], [-1, 0, i64::MAX]] {
                             let values = initial.map(Value::Integer);
                             let mut frame = code.binding.prepare(&values, capture, 13).unwrap();
-                            let output = code.invoke(&mut frame).unwrap();
                             let mut cached_frame = cached.prepare(&values, capture, 13).unwrap();
-                            assert_eq!(cached.invoke(&mut cached_frame).unwrap(), output);
                             let mut expected = initial;
                             let mut upper = 13;
-                            expected[usize::from(read)] =
-                                capture.map(|i| expected[i]).unwrap_or(upper);
-                            let right = match right {
-                                RCIndex::Register(index) => expected[usize::from(index.0)],
-                                RCIndex::Constant(_) => -7,
-                            };
-                            let left = expected[usize::from(read)];
-                            let value = match arithmetic {
-                                Arithmetic::Add => left.wrapping_add(right),
-                                Arithmetic::Sub => left.wrapping_sub(right),
-                                Arithmetic::Mul => left.wrapping_mul(right),
-                            };
-                            expected[usize::from(result)] = value;
-                            if let Some(index) = capture {
-                                expected[index] = expected[usize::from(result)];
-                            } else {
-                                upper = expected[usize::from(result)];
-                            }
                             let mut actual = initial;
-                            actual[usize::from(read)] = output.read;
-                            actual[usize::from(result)] = output.result;
-                            if let Some(index) = capture {
-                                actual[index] = output.capture;
-                            }
-                            assert_eq!(
+                            for _ in 0..3 {
+                                let output = code.invoke(&mut frame).unwrap();
+                                assert_eq!(cached.invoke(&mut cached_frame).unwrap(), output);
+                                expected[usize::from(read)] =
+                                    capture.map(|i| expected[i]).unwrap_or(upper);
+                                let right = match right {
+                                    RCIndex::Register(index) => expected[usize::from(index.0)],
+                                    RCIndex::Constant(_) => -7,
+                                };
+                                let left = expected[usize::from(read)];
+                                let value = match arithmetic {
+                                    Arithmetic::Add => left.wrapping_add(right),
+                                    Arithmetic::Sub => left.wrapping_sub(right),
+                                    Arithmetic::Mul => left.wrapping_mul(right),
+                                };
+                                expected[usize::from(result)] = value;
+                                if let Some(index) = capture {
+                                    expected[index] = expected[usize::from(result)];
+                                } else {
+                                    upper = expected[usize::from(result)];
+                                }
+                                actual[usize::from(read)] = output.read;
+                                actual[usize::from(result)] = output.result;
+                                if let Some(index) = capture {
+                                    actual[index] = output.capture;
+                                }
+                                assert_eq!(
                                 actual, expected,
                                 "{arithmetic:?} read={read} result={result} capture={capture:?}"
                             );
-                            assert_eq!(
-                                output.capture,
-                                capture.map(|i| expected[i]).unwrap_or(upper)
-                            );
-                            invocations += 1;
+                                assert_eq!(
+                                    output.capture,
+                                    capture.map(|i| expected[i]).unwrap_or(upper)
+                                );
+                                invocations += 1;
+                            }
                         }
                     }
                     drop(code);
@@ -128,11 +130,11 @@ fn generated_compact_cells_preserve_all_register_and_capture_aliases() {
             }
         }
     }
-    assert_eq!(invocations, 1296);
+    assert_eq!(invocations, 3888);
 }
 
 #[test]
-fn compact_cells_support_register_255_without_copying_reference_prefixes() {
+fn compact_values_support_register_255_without_copying_reference_prefixes() {
     let mut snapshot = source(
         255,
         255,
@@ -152,7 +154,7 @@ fn compact_cells_support_register_255_without_copying_reference_prefixes() {
     .unwrap();
     let values = [Value::Nil; 256];
     let mut frame = code.binding.prepare(&values, None, i64::MIN).unwrap();
-    assert_eq!(frame.cells.len(), 4);
+    assert_eq!(frame.capture, i64::MIN);
     let expected = i64::MIN.wrapping_sub(-7);
     assert_eq!(
         code.invoke(&mut frame).unwrap(),
@@ -162,7 +164,8 @@ fn compact_cells_support_register_255_without_copying_reference_prefixes() {
             result: expected
         }
     );
-    frame.indices[0] = 4;
+    let other = code.binding;
+    frame.binding = &other;
     assert!(code.invoke(&mut frame).is_err());
     drop(code);
     assert_eq!(metadata.0.current(), 0);
@@ -209,7 +212,7 @@ fn compact_preparation_rejects_unreadable_inputs_but_allows_overwritten_values()
 
 #[test]
 fn compact_verifier_rejects_ir_signature_and_source_binding_changes() {
-    use cranelift_codegen::ir::InstructionData;
+    use cranelift_codegen::ir::{InstructionData, Opcode};
     let isa = native_builder(cranelift_native::builder()).unwrap();
     let module = JITModule::new(isa);
     let source = source(1, 2, RCIndex::Register(RegisterIndex(0)), Arithmetic::Sub);
@@ -220,9 +223,14 @@ fn compact_verifier_rejects_ir_signature_and_source_binding_changes() {
     for block in original.function.layout.blocks() {
         for inst in original.function.layout.block_insts(block) {
             let mut program = binding.program(module.isa());
-            let changed = match &mut program.function.dfg.insts[inst] {
-                InstructionData::Load { offset, .. } | InstructionData::Store { offset, .. } => {
-                    *offset = 8.into();
+            let mut instruction = program.function.dfg.insts[inst].clone();
+            let changed = match &mut instruction {
+                InstructionData::MultiAry {
+                    opcode: Opcode::Return,
+                    args,
+                } => {
+                    args.as_mut_slice(&mut program.function.dfg.value_lists)[0] =
+                        original.function.dfg.block_params(block)[0];
                     true
                 }
                 InstructionData::Binary { args, .. } => {
@@ -232,12 +240,13 @@ fn compact_verifier_rejects_ir_signature_and_source_binding_changes() {
                 _ => false,
             };
             if changed {
+                program.function.dfg.insts[inst] = instruction;
                 assert!(binding.verify(&program, module.isa()).is_err());
                 mutations += 1;
             }
         }
     }
-    assert_eq!(mutations, 8);
+    assert_eq!(mutations, 2);
     for field in 0..6 {
         let mut program = binding.program(module.isa());
         match field {
