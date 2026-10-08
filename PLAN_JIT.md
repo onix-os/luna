@@ -11,6 +11,71 @@
 
 ### Progress snapshot — 2026-10-08
 
+#### Deferred scalar writeback — both variants rejected in production
+
+Two further candidates removed intermediate canonical stores, synchronizing
+selected state before every opaque call and native Return. The first deferred
+two payload words; the second carried both tag and payload for those registers.
+Observer liveness includes all selected fields, even when no later native load
+needs them. Helpers reload live state after returning. Unknown reads/writes,
+non-memory trapping instructions and unsupported terminators refuse the pass.
+
+Both candidates pass **1,591 test executions / 115 suites**, six existing ignores,
+including all-feature Auto integration. New generated-code tests require the
+transformation to apply and compare scalar entries/budgets against the model.
+A separate differential compares ordinary and transformed execution across
+every entry and six budgets with real table helpers, successful and declined
+calls, scratch/canonical state, table effects, counters and exact native exits.
+Structural tests cover store removal, edge transport, call/return synchronization
+and unchanged refusal. This is not an independent translation proof.
+
+Each variant completed two native comparisons: nine cases, CPUs 0/16, three
+alternating windows and eleven samples. Across both variants, **48 commands /
+1,296 reported native/paired rows** are retained; every aggregate command fails
+unchanged gates. No feature-cost acceptance is claimed. Across **432** paired
+case rows, non-timing fields match except full-slot polymorphic code size,
+which grows from **8,192 to 12,288 bytes** in twelve rows. Logical/native/helper
+counters match; this does not excuse the throughput losses.
+
+| Variant | Repeated direct control/candidate throughput |
+| --- | --- |
+| Payload writeback | CPU16 integer **0.952472 / 0.937771**, float **0.973734 / 0.970188**; CPU0 upvalue **0.969529 / 0.970052**, despite float **1.038739 / 1.015455**. |
+| Full-slot writeback | CPU16 integer **0.944636 / 0.966986**, float **0.876490 / 0.881395**; CPU0 upvalue **0.946195 / 0.983946** and predicate **0.977870 / 0.984875**. |
+
+Generated integer/float self-instruction totals are **22,549,197 / 19,155,073**
+for payload writeback and **22,581,541 / 19,985,725** for full-slot writeback,
+versus **22,000,801 / 19,106,650** for the retained runtime. Removing stores
+did not offset state transport under the existing per-PC entry graph. Neither
+candidate is enabled in production. The writeback prototype is test-only,
+explicitly selected by `RequireWriteback`; no runtime speedup is claimed.
+`b0b7fc4` retains that explicit experiment and boundary/helper coverage. The
+restored format/check/focused/baseline/all-feature Auto/doc run passes **2,004
+executions / 202 suites**, zero failures and ten existing ignores.
+Fresh speed/shipping no-feature images are byte-identical to the frozen
+controls. All three JIT-enabled images retain identical `.text`; whole-image
+comparisons differ in 46 u32 words, with deltas of 4 and 38 matching source-line
+movement. Read-only extraction and before/after hashes are recorded in
+`writeback-retained-image-check-verified.log`; no whole-image JIT identity is
+claimed.
+
+Evidence prefixes are `writeback-*` and `slot-writeback-*` under
+`target/jit-evidence/short-slice-performance/`, including patches, profiles,
+source/image hashes, complete Off/Auto medians and contention telemetry.
+No owned builds/tests/profiles overlapped timing. Before the first screen, a
+control-hash check caught ELF packaging rewritten by the preceding checkpoint's
+`objcopy --dump-section` invocation without a separate output ELF. That refused
+screen issued no timing commands. Modified controls were preserved, restored
+from existing byte-identical copies and checked against the original manifests;
+thresholds and manifests were not changed. Section extraction must use a read-only
+method or explicitly separate output file. The corrected comparisons retain
+their own successful before/after source and image checks.
+
+Performance, independent optimizing-IR validation, resource policy and release
+acceptance remain open. Further cache-width/tag variations are not fresh
+optimization hypotheses. Guarded typed-loop versioning that separates arbitrary
+entry state from loop-carried state is an unimplemented structural hypothesis,
+not accepted performance evidence or permission to remove source/fuel guards.
+
 #### Scalar SSA trials — rejected in production; test-only groundwork
 
 Six further candidates each completed two native comparisons: all nine cases,
