@@ -29,6 +29,8 @@ use crate::opcode::{Operation, RCIndex};
 pub(super) mod calls;
 #[cfg(not(miri))]
 pub(super) mod compact;
+#[cfg(test)]
+mod read_cache;
 #[cfg(not(miri))]
 pub(super) mod region;
 
@@ -314,6 +316,7 @@ impl Code {
 #[cfg(test)]
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum Failure {
+    RequireReadCache,
     RequireReleasedWorkspace(usize),
     RequireReleasedSnapshot,
     DetectHostSetup,
@@ -1149,6 +1152,32 @@ fn compile_selected_rooted(
         stores.corrupt_binding(&mut context.func, parameters[0], fault);
     }
     stores.verify_bindings(&context.func, parameters[0], &paths, &graph)?;
+    #[cfg(test)]
+    let instructions = if failure == Failure::RequireReadCache {
+        if !read_cache::promote(
+            &mut context.func,
+            parameters[0],
+            parameters[3],
+            snapshot.registers,
+            snapshot.operations.allocator().clone(),
+        )? {
+            return Err(JitError::Compilation(
+                "scalar read cache was not applied".into(),
+            ));
+        }
+        cranelift_codegen::verify_function(&context.func, module.isa())
+            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        let actual = context
+            .func
+            .layout
+            .blocks()
+            .map(|block| context.func.layout.block_insts(block).count())
+            .sum();
+        expansion.verify_actual(actual, block_count)?;
+        actual
+    } else {
+        instructions
+    };
     drop((stores, paths, graph, blocks));
     let mut projection_contexts = [None, None];
     let mut projection_instructions = 0;

@@ -264,6 +264,15 @@ mod tests {
 
     #[test]
     fn every_entry_and_budget_matches_the_rust_boundary_model() {
+        boundary_model(false);
+    }
+
+    #[test]
+    fn cached_scalar_regions_match_the_boundary_model() {
+        boundary_model(true);
+    }
+
+    fn boundary_model(cached: bool) {
         let programs: &[&[u8]] = &[
             b"local s=0 for i=1,100 do s=s+i end return s",
             b"local s=0.0 for i=10.5,1.5,-0.5 do s=s+i*0.5 end return s",
@@ -288,11 +297,27 @@ mod tests {
                 bits: 0,
             },
         ];
-        for program in programs {
+        for program in programs
+            .iter()
+            .take(if cached { 3 } else { programs.len() })
+        {
             let snapshot = snapshot(program);
             let memory = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
-            let code =
-                super::super::backend::compile(&snapshot, memory.clone(), 8 * 1024 * 1024).unwrap();
+            let code = if cached {
+                super::super::backend::compile_in(
+                    &snapshot,
+                    memory.clone(),
+                    8 * 1024 * 1024,
+                    super::super::resources::BudgetAllocator(super::super::resources::Ledger::new(
+                        2 * 1024 * 1024,
+                    )),
+                    super::super::work::Limits::from(&super::super::JitConfig::default()),
+                    super::super::backend::Failure::RequireReadCache,
+                )
+            } else {
+                super::super::backend::compile(&snapshot, memory.clone(), 8 * 1024 * 1024)
+            }
+            .unwrap();
             for pc in 0..snapshot.operations.len() {
                 for budget in [0, 1, 2, 3, 63, 64, 1000] {
                     for seed in 0..values.len() {
