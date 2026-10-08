@@ -11,6 +11,106 @@
 
 ### Progress snapshot — 2026-10-08
 
+#### Direct primitive arithmetic — retained development WIP
+
+`0a01bb3` adds typed integer/number/mixed-tag paths to shared `meta_ops` add,
+subtract and multiply. Integer arithmetic wraps; mixed inputs use the same
+integer-to-float cast and operand order as before. Nonnumeric operands retain
+the original constant-coercion/metamethod/error path. Constant folding and
+public conversion methods do not change. There is no feature-dependent semantic
+branch, changed native source admission, reduced coverage or relaxed threshold.
+
+This follows exact-image investigation of the preceding compact ABI. Shipping
+integer/float instruction totals and VM attribution were identical before and
+after that change; full-worker VM self-work was also identical. Those profiles
+do not explain its timing losses or establish a hardware cause. They expose
+costly Value-to-Constant handling and string-capable normalization for operands
+already known to be numeric. Direct typed arithmetic removes that work.
+
+New differential coverage performs **55,779 operator evaluations per test**
+against unchanged Constant operations: integer extremes and rounding boundaries,
+all numeric tag pairings, signed zero, subnormals, infinities/NaNs, numeric and
+invalid strings. Float bits match except NaN payloads, compared by category.
+An integrated fixture checks both metamethod operand orders and invalid operand
+errors. Focused no-feature/JIT Off/Auto/Force checks pass **82 executions / six
+suites**. Baseline/all-feature Auto/docs pass **1,756 / 172**, ten ignored.
+The initial test mistakenly compared `Value` with `PartialEq`; its compile
+failure is retained and corrected by explicit variant comparison before these
+gates. No new platform or Miri acceptance is claimed.
+
+Original-flag symbol companions match allocated bytes and program headers of
+the actual timing binaries. Shipping whole-executor instruction counts fall:
+
+| Case | No-feature before → after | JIT-Off before → after |
+| --- | --- | --- |
+| Integer | 26,976,780 → 20,276,770 | 26,240,715 → 19,540,710 |
+| Float | 33,778,810 → 21,878,770 | 32,842,795 → 20,842,770 |
+
+Two complete comparisons use all nine workloads, both cost profiles, three
+alternating windows on CPU0/16 and eleven paired samples. Direct ratios mean
+control time / candidate time, relative to the retained compact-value runtime:
+
+| Compiled-Off case | CPU | Initial | Repeat |
+| --- | --- | --- | --- |
+| Shipping integer | 0 | **1.483965** | **1.496842** |
+| Shipping float | 0 | **1.777216** | **1.787230** |
+| Shipping integer | 16 | **1.395634** | **1.395587** |
+| Shipping float | 16 | **1.747756** | **1.742104** |
+| Shipping table | 16 | 1.103859 | 1.093777 |
+| Shipping callback | 16 | 1.065792 | 1.041325 |
+| Shipping upvalue | 16 | 1.062356 | 1.061354 |
+| Speed integer | 16 | 1.239881 | 1.215933 |
+| Speed float | 16 | 1.519740 | 1.481779 |
+| Speed predicate | 16 | 1.024543 | 1.024322 |
+| Speed metamethod | 16 | **0.960529** | **0.982348** |
+
+No-feature numerics also improve: shipping CPU0 integer 1.068965/1.064861,
+float 1.441662/1.450218; CPU16 integer 1.171193/1.174326, float
+1.350373/1.349142. Shipping integer/float cost gates pass all twelve candidate
+checks per CPU over both comparisons. CPU16 float cost is **0.8308/0.8241**,
+versus controls 1.0731/1.0739 and the unchanged 1.05 limit. This is not a pass
+fabricated by slowing the reference interpreter.
+
+**Native acceleration is not fixed by a faster interpreter.** All execution
+and resource counters match in every native comparison. Auto numeric timings
+are broadly unchanged, so native float fails all twelve candidate 2x checks
+where all twelve controls passed. Upvalue, callback and other native gates
+remain open. Native CPU16 allocation directly regresses **0.955969/0.952122**;
+its exact profile nevertheless decreases total instructions 34,707,277 →
+34,689,196 with identical leading helper/native/table costs. Keep the measured
+loss; neither fewer instructions nor cache simulation dismisses it.
+
+Other unfavorable results remain: native-harness CPU16 Off metamethod
+0.982997/0.969473; shipping CPU16 no-feature table 0.986151/0.985989;
+native-harness CPU0 Off cold 0.986204/0.989180. Shipping CPU16 predicate cost
+still fails at **1.0550/1.0637**. Shipping upvalue cost worsens to
+**1.1937/1.1982** despite faster absolute execution, because its reference
+improves more. Speed CPU0 integer is faster absolutely but has one then two
+failed cost checks out of three, versus zero controls. All **72 aggregate
+commands / 1,080 reported rows** retain failed acceptance; cost-case failures
+change **22 → 25**, then **38 → 26**, across 108 checks per variant.
+
+A supplemental full shipping comparison directly checks the earlier
+`jit-inline-rc` runtime, before the compact ABI losses. CPU0 integer/float
+ratios are **1.361475/1.686149**, CPU16 **1.431878/1.731106**, confirming
+numeric recovery against that control as well. CPU16 predicate remains
+**0.972963**, with cost 1.0560; its regression is not recovered. All twelve
+supplemental aggregate commands / 108 case rows still fail overall acceptance.
+
+`b34e01c` adds `PROFILE_CASE=all` to `make jit-cost-profile-run` and verifies
+actual worker result lines. The worker supports selected warm numeric/heap cases,
+but predicate/cold only through the full suite; an attempted predicate selection
+failed and is not evidence. Full profiles retain two warmups per warm case and
+no cold warmups. Both old/new full-worker pairs and a selected-case recheck pass.
+This changes profiling only, not workload binaries, scoring or thresholds.
+
+Evidence is under `target/jit-evidence/short-slice-performance/direct-numeric-*`
+and `compact-values-shipping-profile/`. All builds/tests/profiles are terminal
+before timings, unrelated applications remain running, source/artifact hashes
+verify and invocation aliases are removed. The next work is native boundary/
+helper cost and the repeated allocation/predicate gaps; this remains development
+WIP, not full performance, resource, platform or release acceptance.
+
 #### Compact callee value ABI — retained development WIP
 
 `a56939c` replaces the private four-pointer compact ABI with two `i64` inputs

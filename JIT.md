@@ -11,7 +11,17 @@ region execution; `make jit-regions` tests the non-test library with `jit` and
 `jit,async`, including interrupted fuel traces, GC, callbacks and unwind.
 This is implementation progress, **not performance or release acceptance**.
 
-The 2026-10-08 compact-callee refinement (`a56939c`) passes two integer values
+The 2026-10-08 primitive-arithmetic refinement (`0a01bb3`) handles integer,
+float and mixed-tag add/subtract/multiply directly, retaining coercion and
+metamethod fallback. Two full comparisons improve shipping compiled-Off integer
+throughput 1.40–1.50x and float 1.74–1.79x; no-feature numerics also improve.
+Shipping numeric overhead checks pass, including the previously failing float
+case. This accelerates interpretation, not native arithmetic: native counters
+are unchanged and native float now misses its 2x gate against the faster
+interpreter. Native allocation and predicate/other cost gaps remain explicit
+in `PLAN_JIT.md`. Correctness checks pass 1,838 executions; full acceptance is open.
+
+The preceding 2026-10-08 compact-callee refinement (`a56939c`) passes two integer values
 to generated arithmetic and returns one value, replacing four aliased pointers.
 Physical Call/Return, fresh source/capture guards, fallback and accounting remain.
 Two complete comparisons improve native upvalue throughput 7.5–8.0% on CPU16
