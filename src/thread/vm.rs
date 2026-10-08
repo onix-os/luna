@@ -13,7 +13,6 @@ use crate::{
 
 use super::{thread::LuaFrame, VMError};
 
-#[cfg(feature = "jit")]
 mod dispatch;
 
 // Runs the VM for the given number of instructions or until the current LuaFrame may have been
@@ -300,7 +299,9 @@ fn run_vm_slice<'gc>(
     #[cfg(all(not(test), feature = "jit"))]
     let native_code = native_id.and_then(|id| ctx.jit().lookup(id));
     #[cfg(feature = "jit")]
-    let native_dispatch = dispatch::Dispatch::new(native_id, native_code);
+    let native_dispatch = dispatch::Dispatch::new(native_id, native_code, hook_enabled);
+    #[cfg(not(feature = "jit"))]
+    let native_dispatch = dispatch::Dispatch::interpreted(hook_enabled);
     #[cfg(feature = "jit")]
     let mut native_instructions = prefix_instructions;
     #[cfg(feature = "jit")]
@@ -345,7 +346,7 @@ fn run_vm_slice<'gc>(
 
     loop {
         #[cfg(feature = "jit")]
-        if {
+        let run_native = {
             #[cfg(test)]
             {
                 !std::mem::replace(&mut skip_native_first, false)
@@ -354,7 +355,9 @@ fn run_vm_slice<'gc>(
             {
                 true
             }
-        } {
+        };
+        #[cfg(all(test, feature = "jit"))]
+        if run_native {
             #[cfg(all(test, feature = "jit"))]
             if let Some(snapshot) = &mock {
                 let completed = ctx.jit().run_mock(snapshot, &mut registers);
@@ -367,116 +370,117 @@ fn run_vm_slice<'gc>(
                     continue;
                 }
             }
-            #[cfg(feature = "jit")]
-            match &native_dispatch {
-                dispatch::Dispatch::Compiled(code) => {
-                    let completed = ctx.jit().run(
-                        code,
-                        ctx,
-                        current_function,
-                        &mut registers,
-                        max_instructions - instructions_run,
-                    );
-                    instructions_run += completed;
-                    native_instructions += completed;
-                    if instructions_run >= max_instructions {
-                        break;
-                    }
-                    #[cfg(test)]
-                    let transition = ctx
-                        .jit()
-                        .call_transition(code, *registers.pc)
-                        .or_else(|| current_prototype.opcodes[*registers.pc].call_transition());
-                    #[cfg(not(test))]
-                    let transition = current_prototype.opcodes[*registers.pc].call_transition();
-                    if let Some(transition) = transition {
-                        #[cfg(all(
-                            feature = "jit",
-                            not(miri),
-                            target_os = "linux",
-                            any(target_arch = "x86_64", target_arch = "aarch64")
-                        ))]
-                        if pair_handoff
-                            && matches!(transition, crate::opcode::CallTransition::Call { .. })
-                        {
-                            if let Some(pair) = ctx.jit().prepare_call_at(
-                                ctx,
-                                current_function,
-                                &registers,
-                                *registers.pc,
-                                pair_scope.as_deref_mut().unwrap(),
-                            ) {
-                                drop(registers);
-                                if lua_frame.pair_fixed_stack() {
-                                    pair_scope.as_deref_mut().unwrap().handoff = Some(pair);
-                                    break;
-                                }
-                                registers = lua_frame.registers();
-                            }
-                        }
-                        *registers.pc += 1;
-                        interpreter_stats.dispatches += 1;
-                        match transition {
-                            crate::opcode::CallTransition::Call {
-                                func,
-                                args,
-                                returns,
-                            } => {
-                                #[cfg(all(
-                                    feature = "jit",
-                                    not(miri),
-                                    target_os = "linux",
-                                    any(target_arch = "x86_64", target_arch = "aarch64")
-                                ))]
-                                if observe_pairs {
-                                    ctx.jit().observe_call(
-                                        ctx,
-                                        current_function,
-                                        &registers,
-                                        func,
-                                        args,
-                                        returns,
-                                    );
-                                }
-                                lua_frame.call_function(ctx, func, args, returns)?;
-                            }
-                            crate::opcode::CallTransition::TailCall { func, args } => {
-                                lua_frame.tail_call_function(ctx, func, args)?;
-                            }
-                            crate::opcode::CallTransition::Return { start, count } => {
-                                lua_frame.return_upper(&ctx, start, count)?;
-                            }
-                        }
-                        break;
-                    }
-                }
-                dispatch::Dispatch::Observing(id) => ctx.jit().observe(*id),
-                dispatch::Dispatch::Interpreted => {}
-            }
         }
-        // Before the instruction, not after: a line hook reports the line that is *about* to run,
-        // and firing pushes a call, so the instruction has to still be there when we come back.
-        if hook_enabled {
-            let line = ctx
-                .hook_line()
-                .then(|| line_of(&current_prototype, *registers.pc));
-            let fire_line = line.is_some_and(|line| ctx.hook_line_changed(frame_depth, line.0));
-            let fire_count = ctx.hook_tick();
-
-            if fire_line || fire_count {
-                let (event, line) = if fire_line {
-                    ("line", line)
-                } else {
-                    ("count", None)
-                };
-                if lua_frame.fire_hook(ctx, event, line)? {
-                    // Fired: a call frame is on top, so this slice is over — the same exit a
-                    // metamethod call takes.
+        match &native_dispatch {
+            #[cfg(feature = "jit")]
+            dispatch::Dispatch::Compiled(code) if run_native => {
+                let completed = ctx.jit().run(
+                    code,
+                    ctx,
+                    current_function,
+                    &mut registers,
+                    max_instructions - instructions_run,
+                );
+                instructions_run += completed;
+                native_instructions += completed;
+                if instructions_run >= max_instructions {
                     break;
                 }
-                // Declined, but the frame was still borrowed mutably to find that out.
-                registers = lua_frame.registers();
+                #[cfg(test)]
+                let transition = ctx
+                    .jit()
+                    .call_transition(code, *registers.pc)
+                    .or_else(|| current_prototype.opcodes[*registers.pc].call_transition());
+                #[cfg(not(test))]
+                let transition = current_prototype.opcodes[*registers.pc].call_transition();
+                if let Some(transition) = transition {
+                    #[cfg(all(
+                        feature = "jit",
+                        not(miri),
+                        target_os = "linux",
+                        any(target_arch = "x86_64", target_arch = "aarch64")
+                    ))]
+                    if pair_handoff
+                        && matches!(transition, crate::opcode::CallTransition::Call { .. })
+                    {
+                        if let Some(pair) = ctx.jit().prepare_call_at(
+                            ctx,
+                            current_function,
+                            &registers,
+                            *registers.pc,
+                            pair_scope.as_deref_mut().unwrap(),
+                        ) {
+                            drop(registers);
+                            if lua_frame.pair_fixed_stack() {
+                                pair_scope.as_deref_mut().unwrap().handoff = Some(pair);
+                                break;
+                            }
+                            registers = lua_frame.registers();
+                        }
+                    }
+                    *registers.pc += 1;
+                    interpreter_stats.dispatches += 1;
+                    match transition {
+                        crate::opcode::CallTransition::Call {
+                            func,
+                            args,
+                            returns,
+                        } => {
+                            #[cfg(all(
+                                feature = "jit",
+                                not(miri),
+                                target_os = "linux",
+                                any(target_arch = "x86_64", target_arch = "aarch64")
+                            ))]
+                            if observe_pairs {
+                                ctx.jit().observe_call(
+                                    ctx,
+                                    current_function,
+                                    &registers,
+                                    func,
+                                    args,
+                                    returns,
+                                );
+                            }
+                            lua_frame.call_function(ctx, func, args, returns)?;
+                        }
+                        crate::opcode::CallTransition::TailCall { func, args } => {
+                            lua_frame.tail_call_function(ctx, func, args)?;
+                        }
+                        crate::opcode::CallTransition::Return { start, count } => {
+                            lua_frame.return_upper(&ctx, start, count)?;
+                        }
+                    }
+                    break;
+                }
             }
+            #[cfg(feature = "jit")]
+            dispatch::Dispatch::Observing(id) if run_native => ctx.jit().observe(*id),
+            dispatch::Dispatch::Hooked => {
+                let line = ctx
+                    .hook_line()
+                    .then(|| line_of(&current_prototype, *registers.pc));
+                let fire_line = line.is_some_and(|line| ctx.hook_line_changed(frame_depth, line.0));
+                let fire_count = ctx.hook_tick();
+
+                if fire_line || fire_count {
+                    let (event, line) = if fire_line {
+                        ("line", line)
+                    } else {
+                        ("count", None)
+                    };
+                    if lua_frame.fire_hook(ctx, event, line)? {
+                        // Fired: a call frame is on top, so this slice is over — the same exit a
+                        // metamethod call takes.
+                        break;
+                    }
+                    // Declined, but the frame was still borrowed mutably to find that out.
+                    registers = lua_frame.registers();
+                }
+            }
+            dispatch::Dispatch::Interpreted => {}
+            #[cfg(feature = "jit")]
+            _ => {}
         }
 
         let op = current_prototype.opcodes[*registers.pc].decode();
