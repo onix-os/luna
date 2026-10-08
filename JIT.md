@@ -11,7 +11,17 @@ region execution; `make jit-regions` tests the non-test library with `jit` and
 `jit,async`, including interrupted fuel traces, GC, callbacks and unwind.
 This is implementation progress, **not performance or release acceptance**.
 
-The 2026-10-08 numeric-guard refinement (`9aa2e25`) uses one full-width
+The 2026-10-08 loop-limit refinement (`39dfdce`) avoids eager floating limit
+checks on integer loops. Repeated native throughput improves integer 9.3–9.5%
+and float 7.4–10.3% on CPU0; CPU16 gains are 0.8–3.9% and 1.4–4.2%.
+CPU0 float passes its 2x gate in all six candidate windows, but CPU16 float,
+integer and upvalue gates still fail. Native CPU0 callbacks and several
+shipping compiled-Off cases regress; this is development WIP, not acceptance.
+Final correctness gates pass 1,964 executions, including a 292,008-invocation
+numeric-loop differential fixture. `PLAN_JIT.md` retains all results and the
+charged proof-workspace increases.
+
+The preceding 2026-10-08 numeric-guard refinement (`9aa2e25`) uses one full-width
 mask/comparison instead of two tag comparisons and an OR. It retains the same
 numeric guards and logical work. Two complete comparisons improve native CPU16
 integer throughput 17.6–18.7% and float 29.4–29.7%; no-feature executables are

@@ -11,6 +11,89 @@
 
 ### Progress snapshot — 2026-10-08
 
+#### Lazy numeric-loop limit checks — retained development WIP
+
+`39dfdce` branches on the freshly guarded limit tag inside the integer
+index/step path. It executes only the applicable integer or floating limit
+comparison instead of eagerly evaluating both. The floating index/step path,
+integer overflow handling, result tags, canonical stores, logical fuel,
+physical calls/returns and fallback remain unchanged. The exact loop verifier
+checks the new nested split and three incoming arms; numeric-input obligations
+increase from six to seven, with the additional record/storage fully charged.
+
+New model differential coverage executes **292,008 generated invocations**:
+23 index/limit/step values, including integer extremes, precision boundaries,
+signed zero, subnormal, infinities, NaN and nonnumeric refusals; two register
+bases, three entry PCs and four budgets. Exit PCs, reasons, logical counts and
+all register values match. Six added backend mutations reject wrong nested
+targets, constant conditions, unrelated tag sources, mixed-arm phi/overflow
+corruption and duplicate incoming edges before code generation/mapping.
+Final focused format/check/tags/numeric gates pass **199 executions / 22 suites**;
+baseline/all-feature Auto/docs pass **1,765 / 172**, ten ignored.
+No new Miri or supported-platform acceptance is claimed.
+
+Verified original-image profiles reduce integer generated work
+**24,839,482 → 22,000,801** instructions and float **21,429,217 → 19,106,650**.
+Total work falls **32,356,270 → 29,517,589** and
+**28,973,136 → 26,650,569**; leading VM/invoke/Executor self-work is unchanged.
+Symbol companions match original program headers and allocated bytes.
+These profiles support the selected optimization; simulated instruction counts
+are not hardware-performance acceptance.
+
+Two complete comparisons use the preceding masked-numeric artifacts,
+alternating control/candidate order in three windows on CPUs 0/16, eleven
+samples, both disabled-cost profiles and twenty cost iterations. All owned
+builds, tests and profiles finish before timing; unrelated applications remain
+running. Both no-feature cost executables are byte-identical to controls.
+All **72 commands / 1,080 reported rows** are retained; every aggregate command
+fails at least one unchanged gate. The table is direct control/candidate
+throughput using medians of three window medians; above one is faster, not
+a gate pass.
+
+| Native Auto case | CPU0 initial / repeat | CPU16 initial / repeat |
+| --- | ---: | ---: |
+| integer_loop | 1.0950 / 1.0931 | 1.0082 / 1.0391 |
+| float_loop | 1.1026 / 1.0744 | 1.0415 / 1.0140 |
+| array_table | 1.0538 / 1.0624 | 1.0221 / 0.9883 |
+| closure_upvalue | 1.0069 / 1.0131 | 1.0047 / 0.9951 |
+| polymorphic_metamethod | 0.9826 / 0.9982 | 1.0234 / 1.0156 |
+| rust_callbacks | 0.9707 / 0.9697 | 0.9968 / 1.0119 |
+| allocation_gc | 0.9996 / 0.9928 | 0.9965 / 1.0217 |
+| oslo_predicate | 0.9942 / 0.9986 | 1.0077 / 1.0225 |
+| cold_config | 0.9848 / 1.0060 | 0.9970 / 1.0045 |
+
+CPU0 float now passes its 2x interpreter/Auto gate in all six candidate windows
+(2.0431–2.1133). CPU16 float remains below 2x; integer remains below 2x on both
+CPUs and upvalue below 1.25x. Native CPU0 callback throughput regresses about 3%
+in both comparisons. No whole-suite native acceptance is claimed.
+
+Disabled-cost failures improve **24 → 20** initially and **27 → 22** on repeat,
+per 108 checks/variant. However shipping CPU16 direct throughput regresses:
+integer **0.977554 / 0.948046**, float **0.965123 / 0.959676**, upvalue
+**0.973520 / 0.955106**. Numeric cost gates still pass; upvalue still fails.
+Shipping CPU16 predicate improves **1.036650 / 1.015021** and passes all six
+candidate cost windows, versus one/three control failures. CPU0 initial
+shipping integer is **0.929878** and cold cost fails all three candidate
+windows versus one control window. CPU0 repeat shipping timings deteriorate
+heavily for both candidate and byte-identical no-feature reference; candidate
+callback/allocation/cold cost failures are also retained. This temporal
+variation does not establish a source-level cause and is not discarded.
+Full native Off, cost, reference medians and failures remain in both summary TSVs.
+
+All reported native counters match across twelve comparisons except
+`snapshot_peak_bytes`: integer 9,039 → 9,147; float 12,777 → 12,885;
+table 14,557 → 14,773; metamethod 16,045 → 16,153;
+callback 10,597 → 10,705; allocation 12,647 → 12,755.
+These are charged proof/IR workspace increases, not unaccounted allocation;
+upvalue/predicate/cold peaks and other reported counters are unchanged.
+The optimization is retained as **development WIP**, with callback,
+disabled-cost, upvalue and overall resource/platform/release gates still open.
+
+Evidence is under `target/jit-evidence/short-slice-performance/lazy-limit-*`:
+`gates.log`, `full.log`, native exact-image profiles, source/artifact manifests,
+initial/repeat native and cost screens, telemetry, full summary TSVs and
+`decision.md`. Timing aliases were removed and manifests verified after runs.
+
 #### Masked native numeric guards — retained development WIP
 
 `9aa2e25` replaces `(tag == INTEGER) || (tag == NUMBER)` with the equivalent
