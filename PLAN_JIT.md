@@ -11,6 +11,79 @@
 
 ### Progress snapshot — 2026-10-08
 
+#### Compact callee value ABI — retained development WIP
+
+`a56939c` replaces the private four-pointer compact ABI with two `i64` inputs
+and one `i64` result. Generated code still executes the recognized arithmetic;
+typed host state preserves GetUpValue/SetUpValue aliases and repeated prepared
+frame invocation. There is no generated memory indexing in this kernel. Source
+binding, register bounds/types, live code ownership, fresh capture/source
+guards, canonical materialization, physical Call/Return, panic transport, fuel
+and native accounting remain. No capture-route cache or reduced coverage was
+introduced. The generic fallback and custom-hook path are unchanged.
+
+The exhaustive arithmetic/register/capture/wrapping matrix now checks three
+successive invocations per prepared frame: **3,888 scenarios / 7,776 native
+invocations** across direct and cached entries. Obsolete generated-memory-offset
+mutations are replaced by return-flow mutation; subtraction operand, signature,
+source and binding-identity rejection remain. Focused GNU checks pass **113
+executions / eight suites**, two ignored. Baseline, all-feature Auto and docs
+pass **1,752 / 172**, ten ignored. Five compact tests pass Memcheck with zero
+errors and zero definite/indirect leaks; it reports 48 possibly-lost bytes in
+Rust thread initialization and 544 reachable bytes, not a zero-allocation exit.
+A test-only mutable-borrow compilation failure during return-mutation coverage
+was corrected before these final gates. Rebuilt native and both cost-profile
+images match the frozen candidate byte-for-byte after the correction.
+
+Exact-image whole-executor profiling decreases upvalue instruction count
+**265,953,552 → 257,914,304** (3.02%). Admission invocation self-work decreases
+68,441,030 → 63,100,226 and compact preparation 7,375,396 → 5,467,966.
+The symbol companion has matching program headers and allocated section bytes.
+Simulated instruction-cache events worsen; neither simulation nor instruction
+count identifies a hardware cause or substitutes for wall-clock measurements.
+
+Two complete all-case comparisons use three alternating windows on CPU0/16,
+eleven paired samples, matching invocation paths, and immediate `jit-inline-rc`
+controls. All native execution/resource counters match in every window; both
+no-feature cost executables are byte-identical to their controls. Direct ratios
+below are control time / candidate time: above one is faster.
+
+| Case | CPU | Initial ratio | Repeat ratio |
+| --- | --- | --- | --- |
+| Native Auto upvalue | 0 | **1.128345** | **1.135808** |
+| Native Auto upvalue | 16 | **1.074653** | **1.079914** |
+| Shipping Off upvalue | 16 | 1.010676 | 1.013675 |
+| Speed Off float | 16 | 1.020353 | 1.046392 |
+| Shipping Off integer | 0 | **0.918527** | **0.870286** |
+| Shipping Off float | 0 | **0.945396** | **0.937573** |
+| Shipping Off predicate | 16 | **0.970242** | **0.974803** |
+| Speed Off predicate | 16 | **0.977334** | **0.978534** |
+| Native-harness Off float | 16 | **0.960318** | **0.971723** |
+| Native Auto allocation | 0 | **0.980122** | **0.970221** |
+| Native-harness Off predicate | 0 | **0.975090** | **0.966797** |
+| Native Auto metamethod | 0 | **0.988560** | **0.979473** |
+
+The upvalue gain repeats, but Auto still takes more time than Off: candidate
+Off/Auto ratios are approximately 0.82 on CPU0 and 0.85–0.86 on CPU16, below
+the unchanged 1.25 gate. The first shipping CPU16 float cost ratio is 1.0394;
+the repeat is **1.0813**, failing the 1.05 limit. Do not report that overhead
+fixed. Cost-case failures change **21 → 22** initially and **42 → 37** on
+repeat, across 108 checks per variant. All **72 aggregate commands / 1,080
+reported rows** retain failed acceptance. Full summaries preserve all other
+cases, window variation and no-feature medians, including an unfavorable
+0.948899 repeat shipping CPU0 cold ratio and unstable control timings.
+
+This is retained performance-development work, not approval of the new losses.
+Shipping CPU0 integer/float and CPU16 predicate regressions require follow-up;
+native upvalue/callback, compiled-Off, resource and platform acceptance remain
+open. No owned build, test or profile overlapped either timing comparison;
+unrelated applications remained running. Source/artifact hashes verify and all
+hardlink invocation aliases were removed. Evidence lives under
+`target/jit-evidence/short-slice-performance/compact-values-*`; current exact
+control profiling is under `operand-native-control-*`. The next investigation
+must distinguish shipping interpreter work from placement/context effects,
+without relaxing gates, slowing the reference, or discarding unfavorable runs.
+
 #### Shipping operand resolution — retained development WIP
 
 `96367b2` inlines the existing register/constant operand resolver in JIT-enabled

@@ -11,7 +11,17 @@ region execution; `make jit-regions` tests the non-test library with `jit` and
 `jit,async`, including interrupted fuel traces, GC, callbacks and unwind.
 This is implementation progress, **not performance or release acceptance**.
 
-The 2026-10-08 operand refinement (`96367b2`) inlines register/constant lookup
+The 2026-10-08 compact-callee refinement (`a56939c`) passes two integer values
+to generated arithmetic and returns one value, replacing four aliased pointers.
+Physical Call/Return, fresh source/capture guards, fallback and accounting remain.
+Two complete comparisons improve native upvalue throughput 7.5–8.0% on CPU16
+and 12.8–13.6% on CPU0 against the preceding runtime. Upvalue Auto still trails
+the interpreter and fails its gate. Shipping CPU0 integer/float and CPU16
+predicate regress; the full results in `PLAN_JIT.md` remain development WIP,
+not acceptance. Correctness checks pass 1,865 executions; compact Memcheck has
+zero errors, with its residual allocation report retained.
+
+The preceding 2026-10-08 operand refinement (`96367b2`) inlines register/constant lookup
 only in JIT-enabled builds, preserving the original no-feature machine code.
 Repeated shipping CPU16 comparisons improve integer throughput about 12%,
 float about 10% and predicate about 4% against the preceding dispatch version.
