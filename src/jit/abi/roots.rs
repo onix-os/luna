@@ -69,6 +69,65 @@ mod tests {
     }
 
     #[test]
+    fn reference_densities_rebinding_and_shrinking_preserve_values() {
+        Lua::empty().enter(|ctx| {
+            let a = Value::Table(Table::new(&ctx));
+            let b = Value::Table(Table::new(&ctx));
+            for width in [0, 1, 2, 255, 256] {
+                for stride in [0, 1, 2, 3, 8, 257] {
+                    let initial: Vec<_> = (0..width)
+                        .map(|index| {
+                            if stride != 0 && index % stride == 0 {
+                                a
+                            } else {
+                                Value::Integer(index as i64)
+                            }
+                        })
+                        .collect();
+                    let mut roots = vec![Value::Nil; width];
+                    let mut slots = vec![Slot::from_value(Value::Nil); width];
+                    assert!(capture(&mut roots, &mut slots, &initial));
+                    let mut actual = vec![Value::Nil; width];
+                    assert!(materialize(&roots, &slots, &mut actual));
+                    for (value, expected) in actual.iter().copied().zip(initial) {
+                        identical(value, expected);
+                    }
+                    if width != 0 {
+                        slots.swap(0, width - 1);
+                        actual.swap(0, width - 1);
+                        let mut moved = vec![Value::Nil; width];
+                        assert!(materialize(&roots, &slots, &mut moved));
+                        for (value, expected) in moved.into_iter().zip(actual) {
+                            identical(value, expected);
+                        }
+                    }
+                    let mut scalars = vec![Value::Integer(-1); width];
+                    assert!(capture(&mut roots, &mut slots, &scalars));
+                    assert!(roots
+                        .iter()
+                        .all(|value| Slot::from_value(*value).tag != REFERENCE));
+                    if width != 0 {
+                        slots[0] = Slot {
+                            tag: REFERENCE,
+                            bits: 0,
+                        };
+                        assert!(!materialize(&roots, &slots, &mut scalars));
+                        assert!(scalars
+                            .iter()
+                            .all(|value| matches!(value, Value::Integer(-1))));
+                        scalars[width - 1] = b;
+                        assert!(capture(&mut roots, &mut slots, &scalars));
+                        assert_eq!(slots[width - 1].bits, (width - 1) as u64);
+                        let mut rebound = vec![Value::Nil; width];
+                        assert!(materialize(&roots, &slots, &mut rebound));
+                        identical(rebound[width - 1], b);
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
     fn all_value_kinds_preserve_identity_and_bits_at_register_boundaries() {
         Lua::empty().enter(|ctx| {
             let values = [
