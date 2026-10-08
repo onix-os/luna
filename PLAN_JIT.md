@@ -11,6 +11,60 @@
 
 ### Progress snapshot — 2026-10-08
 
+#### Scalar SSA trials — rejected in production; test-only groundwork
+
+Six further candidates each completed two native comparisons: all nine cases,
+CPUs 0/16, three alternating windows and eleven samples. The retained evidence
+contains **144 commands / 3,888 native and paired reported rows**. None earned
+production retention. No feature-cost acceptance is claimed for these trials;
+unchanged gates and adverse samples remain in the evidence.
+
+| Trial | Repeated direct throughput evidence against retention |
+| --- | --- |
+| Integer-bit float selection | CPU16 float **0.748062 / 0.742954**, despite confirmed conditional-move lowering. |
+| Per-slot alias metadata | CPU16 table **0.935061 / 0.929092**, allocation **0.923192 / 0.919626**; generated self-instruction counts unchanged. |
+| Full-word SSA read cache | CPU0 integer **0.849829 / 0.849299**; scalar stack frame grows from 48 to 176 bytes. |
+| Liveness-guided full-word cache | CPU16 float **0.763192 / 0.751024**; frame remains 128 bytes. |
+| Live payload-only cache | CPU16 integer **0.899002 / 0.895023**; frame falls to 80 bytes. |
+| Two mutable payloads | CPU16 integer **0.926717 / 0.936550**, float **0.848920 / 0.839033**; frame remains 64 bytes. |
+
+Ratios are control/candidate throughput from window medians, not acceptance
+thresholds. All Off/Auto comparisons, profiles, source patches and hashes are
+retained under `target/jit-evidence/short-slice-performance/`, with prefixes
+`payload-select`, `scalar-alias`, `read-cache`, `live-read-cache`,
+`payload-read-cache` and `bounded-read-cache`. Owned builds, tests and profiles
+did not overlap timing runs; unrelated workloads were left running.
+
+`82b6d33` retains only **test-only** bounded SSA groundwork. It preserves every
+canonical store, reloads live payloads after opaque calls, carries live values
+on control-flow edges and leaves tag reads fresh. Workspace reservations are
+fallible and ledger-accounted; state expansion is bounded, and the transformed
+instruction count is rechecked. Existing source/effect/exit proofs precede the
+transformation. This is **not** an independent translation proof or a completed
+optimizing-IR implementation.
+
+`make jit-read-cache`, also included in `jit-tags`, covers canonical stores,
+edge transport, unsupported writes/accesses, helper reloads and allocation
+rollback. A generated-code model test requires the transformation to apply
+and checks three scalar programs across entries, budgets and value seeds,
+including exact exits and mapping reclamation. Production compilation and
+ordinary integration tests do not activate this prototype.
+
+The final retained-code format/check/focused/baseline/all-feature Auto/doc run
+passes **1,989 executions / 198 suites**, zero failures and ten existing ignores.
+Fresh speed/shipping no-feature images are byte-identical to the controls.
+All three JIT-enabled images have identical `.text`, but are **not** wholly
+byte-identical: each has 46 changed u32 words, with deltas of 3 or 29 matching
+the source-line shifts introduced by the test-only additions. Image comparisons
+are retained under `read-cache-retained-image-check/`; the initial whole-image
+comparison failure is preserved rather than reported as a pass.
+The remaining performance regressions are **not fixed**. Read-only caching
+still pays for immediate stores and extra value residency; narrower caches
+did not remove the measured losses. Controlled writeback is a future hypothesis,
+requiring independently checked synchronization at every helper and native exit,
+exact partial-fuel state, corruption tests and fresh performance evidence before
+any production promotion. Existing resource/platform/release gates remain open.
+
 #### Native float-arm trials — rejected; arithmetic coverage retained
 
 Tested a freshly guarded Number/Number arithmetic arm that avoids the mixed
