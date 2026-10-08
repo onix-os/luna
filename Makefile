@@ -259,16 +259,21 @@ jit-cost-profile:
 
 .PHONY: jit-cost-profile-run
 jit-cost-profile-run:
-	@case '$(PROFILE_CASE)' in integer_loop|float_loop|array_table|closure_upvalue|polymorphic_metamethod|rust_callbacks|allocation_gc) ;; *) echo 'Unknown warm profiling case' >&2; exit 2;; esac
+	@case '$(PROFILE_CASE)' in integer_loop|float_loop|array_table|closure_upvalue|polymorphic_metamethod|rust_callbacks|allocation_gc|all) ;; *) echo 'Unknown profiling case' >&2; exit 2;; esac
 	@case '$(PROFILE_MODE)' in off|auto) ;; *) echo 'PROFILE_MODE must be off|auto' >&2; exit 2;; esac
 	@mkdir -p $(COST_PROFILE_DIR)
 	@cp $(COST_DIR)/environment.log $(COST_DIR)/binary-sha256.log $(COST_PROFILE_DIR)/
 	@valgrind --version > $(COST_PROFILE_DIR)/profiler.log
 	@printf 'case=%s\niterations=3\nwarmups=2\ncollection=*Executor>::step\nno_jit_mode=off\njit_mode=%s\n' '$(PROFILE_CASE)' '$(PROFILE_MODE)' >> $(COST_PROFILE_DIR)/profiler.log
-	@set -e; for variant in no-jit jit-off; do \
+	@set -e; selected=(); if test '$(PROFILE_CASE)' != all; then selected=(--case '$(PROFILE_CASE)'); fi; for variant in no-jit jit-off; do \
 		mode=off; if test "$$variant" = jit-off; then mode='$(PROFILE_MODE)'; fi; \
 		valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*Executor>::step' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file=$(COST_PROFILE_DIR)/$$variant.callgrind \
-			$(COST_DIR)/$$variant --worker --mode "$$mode" --case '$(PROFILE_CASE)' --iterations 3 > $(COST_PROFILE_DIR)/$$variant-profile.log 2>&1; \
+			$(COST_DIR)/$$variant --worker --mode "$$mode" "$${selected[@]}" --iterations 3 > $(COST_PROFILE_DIR)/$$variant-profile.log 2>&1; \
+		if test '$(PROFILE_CASE)' = all; then \
+			for name in integer_loop float_loop array_table closure_upvalue polymorphic_metamethod rust_callbacks allocation_gc oslo_predicate cold_config; do \
+				grep -Eq "^case=$$name ns=[0-9]+ iterations=3 verified=1 native_instructions=[0-9]+$$" $(COST_PROFILE_DIR)/$$variant-profile.log; \
+			done; \
+		else grep -Eq '^case=$(PROFILE_CASE) ns=[0-9]+ iterations=3 verified=1 native_instructions=[0-9]+$$' $(COST_PROFILE_DIR)/$$variant-profile.log; fi; \
 		grep -Eq '^summary: [1-9][0-9]*' $(COST_PROFILE_DIR)/$$variant.callgrind; \
 		callgrind_annotate --inclusive=no --threshold=99 $(COST_PROFILE_DIR)/$$variant.callgrind > $(COST_PROFILE_DIR)/$$variant-annotation.log; \
 	done
