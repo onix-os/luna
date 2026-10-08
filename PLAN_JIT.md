@@ -9,7 +9,277 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Progress snapshot — 2026-10-09
+
+#### Typed Number bodies — both numeric gates now pass
+
+`061c9cc` extends the verified integer-controlled loop region with stable
+Number registers carried as F64 block arguments. Add/Sub/Mul use the matching
+floating operations, mixed operands use signed integer conversion, and Move
+and numeric constants preserve their exact types. Fresh entry tags still guard
+every selected register. Each operation must preserve the chosen type map;
+fractional loop controls, unsupported effects and unstable assignments retain
+the generic implementation. An initial Integer-to-Number promotion may execute
+generically before a later matching entry takes the typed path.
+
+The independent checker validates the source-derived result types, typed block
+arguments, loads/stores, float constants/opcodes and signed conversions. It
+retains transactional publication, generic-graph preservation and simultaneous
+IR expansion bounds. Mutation checks reject 534/629 corruptions in two float
+sources, including 486/571 structurally valid variants. Four actual native
+float/mixed bodies are checked at every PC and budget with NaNs, infinities,
+signed zero, subnormals, extreme integer controls and signed conversion edges.
+Probes confirm actual fast entry and tag/fuel/PC fallback; integer-only latch
+exits preserve untouched NaN payloads. Existing integer tests still pass.
+
+Format/check/focused/all-feature Auto validation passes **1,382 executions /
+87 suites**, zero failures and six existing ignores. Seven further focused
+executions pass after strengthening payload and type-mask mutation assertions.
+An earlier failed probe fixture incorrectly classified a Number accumulator as
+an invalid tag; the corrected fixture and original failed log are retained.
+
+Two fresh native comparisons use the frozen verified-integer-loop build as
+control. Control/candidate ratios are medians of three eleven-sample windows:
+
+| Native Auto workload | CPU0 initial / repeat | CPU16 initial / repeat |
+| --- | --- | --- |
+| Integer | 0.997251 / 0.986213 | 1.005713 / 1.004417 |
+| Float | **1.662695 / 2.963716** | **1.927023 / 2.036187** |
+| Table | **0.940458 / 1.049559** | 1.013843 / 1.061079 |
+| Upvalue | 0.993240 / 2.083468 | **0.986899 / 0.992915** |
+| Polymorphic | 1.013320 / 1.038211 | 1.017645 / 1.024719 |
+| Callback | 1.005886 / 1.001180 | 0.990503 / 1.015447 |
+
+The anomalous repeat CPU0 control slowdown also affects unrelated upvalue work;
+it is retained as contention evidence, not attributed to this optimization.
+All **12 float candidate windows** pass the unchanged 2× interpreter gate at
+**3.0941–3.8534**. All **12 integer windows** still pass at **2.7456–3.7648**.
+Exact-image generated float self-instructions drop **19,106,650 → 7,059,624**;
+integer stays **6,587,558**. All **216 matched native case pairs** preserve
+non-timing counters and resource fields. All 24 aggregate commands still exit
+2 because table, upvalue, polymorphic and callback gates remain unsatisfied.
+
+Two feature-cost comparisons retain **48 commands / 432 case rows**. Candidate
+gates pass **167/216** and fail **49/216**; all aggregates exit 2. Adverse results
+include repeated shipping CPU0 compiled-Off throughput losses: integer
+**0.919713 / 0.922604**, float **0.941781 / 0.941029** versus the preceding
+compiled-Off build. Those shipping numeric cases still pass the no-JIT gate,
+but one speed CPU0 float window fails. Speed CPU0 callback overhead is
+**1.1185 / 1.0722**; shipping CPU16 upvalue is **1.1991 / 1.1998**. No disabled-cost
+acceptance or absence of regressions is claimed.
+
+No-JIT images remain byte-identical to the preceding controls. Enabled text
+grows 5,304 bytes in speed and 3,408 in shipping. All source/artifact checks and
+symbol/stripped loaded-section comparisons pass. No owned build/test/profile
+overlapped timings; unrelated workloads continued. Full measurements, adverse
+samples and telemetry are in `target/jit-evidence/short-slice-performance/typed-number-loop-*`,
+including `typed-number-loop-summary.json`. The numeric optimization is retained;
+remaining work is helper-heavy native performance, compiled-Off regressions,
+and the unchanged resource/platform/release gates.
+
+#### Verified integer-loop path enabled and measured
+
+`58a3fcf` adds a separate source/IR checker for the measured typed-loop
+prototype. It validates fresh guards, every arithmetic operation, per-opcode
+fuel accounting, overflow behavior, state transfers and generic-graph
+preservation without invoking the emitter. Augmentation is transactional:
+the original verified function survives until the candidate passes validation.
+Instruction/block expansion bounds cover both live IR copies before cloning
+and at commit. This is not a new total-memory guarantee: third-party compiler
+workspace remains outside the existing exact Luna-owned allocation ledger.
+
+Focused tests reject mutated arithmetic, comparisons, branches, constants,
+memory offsets/flags, imports, state arguments and malformed region metadata.
+They also check exact/insufficient expansion bounds and that refusal leaves
+the original function intact with no executable mapping. The guarded native
+entry and exhaustive entry/fuel models still pass. The verifier baseline passes
+1,595 test executions across 115 suites, with zero failures and six existing
+ignores. The mutation audit rejects 520 and 610 corrupted IR variants for two
+source bodies, including 474 and 556 variants that pass structural verification.
+Additional source-constant, certificate and expansion-bound checks also pass.
+
+Normal production compilation and normal unit-test compilation now apply the
+verified augmentation when eligible; unsupported or expansion-bounded regions
+retain the generic implementation. The fresh format/check/focused/all-feature
+Auto run passes **1,378 executions / 87 suites**, zero failures and six existing
+ignores. `fed925c` enables the path and is pushed with the validator commit.
+
+Two fresh native comparisons of this production build against the frozen
+pre-loop baseline confirm the integer improvement. Ratios below are control
+median / candidate median, using the median of three eleven-sample windows:
+
+| Native Auto workload | CPU0 initial / repeat | CPU16 initial / repeat |
+| --- | --- | --- |
+| Integer loop | **1.802496 / 1.792916** | **2.094047 / 2.206084** |
+| Float loop | 1.005190 / 0.992881 | 0.995545 / 1.003475 |
+| Upvalue | 0.998430 / 0.998084 | 1.002418 / 1.004478 |
+| Polymorphic | 1.002434 / 0.996791 | **0.982154 / 0.969469** |
+| Allocation | 0.992701 / 0.993598 | **0.964236 / 0.994817** |
+| Callbacks | 1.045430 / 1.038721 | 1.009845 / 0.986691 |
+
+All **12 candidate integer windows** pass the unchanged 2× interpreter gate:
+paired Off/Auto ratios are **2.7554–3.3743**. Exact-image profiling confirms
+**6,587,558 generated integer self-instructions**, versus the frozen baseline's
+22,000,801. All **216 paired case rows** retain identical non-timing counters
+and resource fields. The 24 aggregate native commands still exit 2: float is
+1.8178–1.9629× interpreter, upvalue 0.8300–0.8503×, and callbacks
+0.6322–0.7105×. The integer gain does not resolve these other workloads.
+
+Two complete feature-cost comparisons retain **48 commands / 432 case rows**
+across both CPUs and speed/shipping builds, with eleven samples and twenty
+iterations. Candidate case gates pass **168/216**, failing **48/216**; all
+aggregate commands still exit 2. Numeric disabled-cost gates pass throughout.
+Shipping CPU16 upvalue improves against the old compiled-Off binary by
+**1.036097 / 1.034452**, but still costs **1.1927 / 1.1997** relative to its
+no-JIT control, above the unchanged 1.05 limit. Speed CPU16 polymorphic
+throughput loses **0.979369 / 0.978955** against the old compiled-Off binary.
+Speed CPU0 polymorphic overhead is **1.0838 / 1.0964**; callback, predicate,
+upvalue and some cold windows also retain failures. Adverse results are kept.
+
+Both new no-JIT images are byte-identical to their frozen controls. JIT-enabled
+text grows 93,536 bytes in speed and 63,412 bytes in shipping. Source hashes,
+before/after artifact checks and symbol/stripped loaded-section comparisons
+pass. No owned build/test/profile overlapped timing; unrelated host workloads
+remained running and telemetry is retained. Evidence and all medians are under
+`target/jit-evidence/short-slice-performance/verified-integer-loop-*`, including
+`verified-integer-loop-summary.json`.
+
+The integer optimization is retained, not a full-performance acceptance claim.
+Next work must address the still-failing float/native boundary/helper workloads
+and disabled-cost regressions without reducing native coverage or weakening
+guards. Full-plan resource/platform/release gates remain open.
+
+#### Guarded integer-loop region — earlier test-only prototype measurements
+
+The new experiment keeps a separate typed loop graph alongside the entire
+generic native graph instead of transporting scalar state through arbitrary-PC
+joins. It recognizes bounded contiguous Add/Sub/Mul/Move/integer-constant bodies
+ending in NumericForLoop: at most 32 operations, sixteen frame registers and
+eight region registers. Fresh PC, nonzero-fuel and integer-tag guards control
+entry; incompatible values retain the original implementation. Every source
+opcode still checks fuel. Budget exits flush mutable state, and loop completion
+rejoins the original suffix with the accumulated logical count.
+
+The initial version improves integer control/candidate throughput
+**2.183416 / 2.131504 on CPU16**. CPU0 shows **2.613977 / 1.821089**, alongside
+large reversed noninteger timing movement that is preserved, not filtered.
+The refined version requires conservative source-known integer initialization
+as an eligibility filter, avoiding a useless fast region for dynamic arithmetic
+inputs. It does **not** replace live tag guards or reduce generic native coverage.
+
+The refined version repeats integer gains of **1.797425 / 1.799825 on CPU0**
+and **2.106078 / 2.206807 on CPU16**. All twelve refined candidate windows pass
+the unchanged integer **2× interpreter** gate, with ratios **2.4256–3.4500**.
+Profiled generated integer self-instructions fall from **22,000,801 to
+6,587,558**. These are measurements of experimental binaries, not a speedup
+already enabled in the committed production runtime.
+
+Other results are not universally positive: refined CPU16 table throughput is
+**0.987644 / 0.978808**, polymorphic **0.981513 / 0.971405**; CPU0 upvalue is
+**0.977752 / 0.989104** and predicate **0.990940 / 0.985873**. Across the two
+variants, four full native comparisons retain **48 commands / 1,296 reported
+rows** on CPUs 0/16, three alternating windows and eleven samples. All aggregate
+commands still fail unchanged gates. All **432 paired case rows** match in
+non-timing fields, including native/logical/helper counters and resources.
+No feature-cost or full performance acceptance is claimed.
+
+Both experimental variants pass **1,592 executions / 115 suites**, zero failures
+and six existing ignores. `make jit-integer-loop`, included in `jit-tags`, checks
+source recognition/refusal and actual generated execution against the boundary
+model for three loop bodies, every entry, extreme integer values and nine
+budgets. A separate native probe confirms fast entry and nil/boolean/float,
+zero-budget and unknown-PC fallback. Overflow stores the wrapped internal index
+without incorrectly changing the visible variable; direct zero-step latch
+entry preserves the original bounded semantics. Mappings are reclaimed.
+
+At that measurement checkpoint the implementation was **test-only**, requiring explicit
+`RequireIntegerLoop` or `ProbeIntegerLoop` selection. Production activation was
+removed until an independent checker validated the new region, its source
+binding, unchanged generic graph and exact guards/state transfers, with mutation
+and resource-bound tests. Cranelift structural verification and model examples
+alone are not that translation proof. The independent checker and fresh
+native/feature-cost comparisons are now recorded above. Full-plan
+resource/platform/release gates remain open.
+`00f31e8` retains the prototype and native-entry/model tests. The restored
+format/check/focused/baseline/all-feature Auto/doc run passes **2,005 executions
+/ 202 suites**, zero failures and ten existing ignores.
+The freshly rebuilt restored native benchmark has identical `.text` to the
+frozen control. Whole images differ in 46 u32 words, with deltas of 8 and 70
+matching source-line movement; before/after hashes pass. No new restored
+feature-cost build or whole-image identity is claimed.
+
+Evidence is under `target/jit-evidence/short-slice-performance/integer-loop-*`
+and `seeded-integer-loop-*`: rejected/intermediate source patches, exact-image
+profiles, all favorable/adverse medians, source/artifact manifests, counter
+comparisons and contention telemetry. No owned builds/tests/profiles overlapped
+timing, and unrelated workloads remained running.
+
 ### Progress snapshot — 2026-10-08
+
+#### Deferred scalar writeback — both variants rejected in production
+
+Two further candidates removed intermediate canonical stores, synchronizing
+selected state before every opaque call and native Return. The first deferred
+two payload words; the second carried both tag and payload for those registers.
+Observer liveness includes all selected fields, even when no later native load
+needs them. Helpers reload live state after returning. Unknown reads/writes,
+non-memory trapping instructions and unsupported terminators refuse the pass.
+
+Both candidates pass **1,591 test executions / 115 suites**, six existing ignores,
+including all-feature Auto integration. New generated-code tests require the
+transformation to apply and compare scalar entries/budgets against the model.
+A separate differential compares ordinary and transformed execution across
+every entry and six budgets with real table helpers, successful and declined
+calls, scratch/canonical state, table effects, counters and exact native exits.
+Structural tests cover store removal, edge transport, call/return synchronization
+and unchanged refusal. This is not an independent translation proof.
+
+Each variant completed two native comparisons: nine cases, CPUs 0/16, three
+alternating windows and eleven samples. Across both variants, **48 commands /
+1,296 reported native/paired rows** are retained; every aggregate command fails
+unchanged gates. No feature-cost acceptance is claimed. Across **432** paired
+case rows, non-timing fields match except full-slot polymorphic code size,
+which grows from **8,192 to 12,288 bytes** in twelve rows. Logical/native/helper
+counters match; this does not excuse the throughput losses.
+
+| Variant | Repeated direct control/candidate throughput |
+| --- | --- |
+| Payload writeback | CPU16 integer **0.952472 / 0.937771**, float **0.973734 / 0.970188**; CPU0 upvalue **0.969529 / 0.970052**, despite float **1.038739 / 1.015455**. |
+| Full-slot writeback | CPU16 integer **0.944636 / 0.966986**, float **0.876490 / 0.881395**; CPU0 upvalue **0.946195 / 0.983946** and predicate **0.977870 / 0.984875**. |
+
+Generated integer/float self-instruction totals are **22,549,197 / 19,155,073**
+for payload writeback and **22,581,541 / 19,985,725** for full-slot writeback,
+versus **22,000,801 / 19,106,650** for the retained runtime. Removing stores
+did not offset state transport under the existing per-PC entry graph. Neither
+candidate is enabled in production. The writeback prototype is test-only,
+explicitly selected by `RequireWriteback`; no runtime speedup is claimed.
+`b0b7fc4` retains that explicit experiment and boundary/helper coverage. The
+restored format/check/focused/baseline/all-feature Auto/doc run passes **2,004
+executions / 202 suites**, zero failures and ten existing ignores.
+Fresh speed/shipping no-feature images are byte-identical to the frozen
+controls. All three JIT-enabled images retain identical `.text`; whole-image
+comparisons differ in 46 u32 words, with deltas of 4 and 38 matching source-line
+movement. Read-only extraction and before/after hashes are recorded in
+`writeback-retained-image-check-verified.log`; no whole-image JIT identity is
+claimed.
+
+Evidence prefixes are `writeback-*` and `slot-writeback-*` under
+`target/jit-evidence/short-slice-performance/`, including patches, profiles,
+source/image hashes, complete Off/Auto medians and contention telemetry.
+No owned builds/tests/profiles overlapped timing. Before the first screen, a
+control-hash check caught ELF packaging rewritten by the preceding checkpoint's
+`objcopy --dump-section` invocation without a separate output ELF. That refused
+screen issued no timing commands. Modified controls were preserved, restored
+from existing byte-identical copies and checked against the original manifests;
+thresholds and manifests were not changed. Section extraction must use a read-only
+method or explicitly separate output file. The corrected comparisons retain
+their own successful before/after source and image checks.
+
+Performance, independent optimizing-IR validation, resource policy and release
+acceptance remain open. Further cache-width/tag variations are not fresh
+optimization hypotheses. Guarded typed-loop versioning that separates arbitrary
+entry state from loop-carried state is an unimplemented structural hypothesis,
+not accepted performance evidence or permission to remove source/fuel guards.
 
 #### Scalar SSA trials — rejected in production; test-only groundwork
 

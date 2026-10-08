@@ -11,9 +11,20 @@ region execution; `make jit-regions` tests the non-test library with `jit` and
 `jit,async`, including interrupted fuel traces, GC, callbacks and unwind.
 This is implementation progress, **not performance or release acceptance**.
 
+Production Auto also includes independently verified integer-controlled typed
+loops (`fed925c`, extended by `061c9cc`). Stable Integer and Number arithmetic
+bodies keep typed state between operations, with fresh entry tags, exact fuel
+checks and canonical exits. Unsupported or type-unstable regions retain the
+generic native implementation. Two repeated comparisons pass both numeric
+2x-interpreter gates in all twelve candidate windows: integer 2.75–3.76x and
+float 3.09–3.85x. Helper-heavy workloads and compiled-Off overhead still fail
+gates; some compiled-Off cases regress. `PLAN_JIT.md` records the complete
+correctness, mutation, resource-bound and favorable/adverse timing evidence.
+
 Two subsequent exact-ordering optimizations were tested and rejected for
-performance regressions. The runtime remains the lazy-limit version below;
-all five rebuilt benchmark executables are byte-identical to that baseline.
+performance regressions before these typed-loop changes. At that checkpoint
+the runtime remained the lazy-limit version below, and all five rebuilt
+benchmark executables were byte-identical to that earlier baseline.
 Independent ordering/fallback tests are retained (`c405df4`). Native and
 feature-cost profiling now pin and record one `PROFILE_CPU` (`dcb0f12`), since
 unpinned runs selected different cache models on the hybrid host. Use
