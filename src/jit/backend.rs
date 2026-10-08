@@ -2398,6 +2398,16 @@ impl Emitter<'_, '_> {
         self.numeric_input(index, it, ib);
         self.numeric_input(index, st, sb);
         let negative = self.builder.ins().icmp_imm_s(IntCC::SignedLessThan, sb, 0);
+        let not_overflow = self.builder.ins().bxor_imm_u(overflow, 1);
+        let tag = self.constant(abi::INTEGER);
+        let integer_limit = self.builder.create_block();
+        let float_limit = self.builder.create_block();
+        let li = self.tag_is(lt, abi::INTEGER);
+        let limit_split = self
+            .builder
+            .ins()
+            .brif(li, integer_limit, &[], float_limit, &[]);
+        self.builder.switch_to_block(integer_limit);
         let ge = self
             .builder
             .ins()
@@ -2407,6 +2417,19 @@ impl Emitter<'_, '_> {
             .ins()
             .icmp(IntCC::SignedLessThanOrEqual, index, lb);
         let int_in_range = self.builder.ins().select(negative, ge, le);
+        let condition = self.builder.ins().band(not_overflow, int_in_range);
+        self.numeric_input(condition, lt, lb);
+        let integer_next = self
+            .builder
+            .ins()
+            .jump(join, &[tag.into(), index.into(), condition.into()]);
+        let integer_arm = super::tags::LoopArm {
+            tag,
+            bits: index,
+            condition,
+            next: integer_next,
+        };
+        self.builder.switch_to_block(float_limit);
         let index_float = self.builder.ins().fcvt_from_sint(types::F64, index);
         let limit_float = self
             .builder
@@ -2421,21 +2444,17 @@ impl Emitter<'_, '_> {
             .ins()
             .fcmp(FloatCC::LessThanOrEqual, index_float, limit_float);
         let float_in_range = self.builder.ins().select(negative, ge, le);
-        let li = self.tag_is(lt, abi::INTEGER);
-        let in_range = self.builder.ins().select(li, int_in_range, float_in_range);
-        self.numeric_input(in_range, lt, lb);
-        let not_overflow = self.builder.ins().bxor_imm_u(overflow, 1);
-        let condition = self.builder.ins().band(not_overflow, in_range);
-        let tag = self.constant(abi::INTEGER);
-        let integer_next = self
+        let condition = self.builder.ins().band(not_overflow, float_in_range);
+        self.numeric_input(condition, lt, lb);
+        let mixed_next = self
             .builder
             .ins()
             .jump(join, &[tag.into(), index.into(), condition.into()]);
-        let integer_arm = super::tags::LoopArm {
+        let mixed_arm = super::tags::LoopArm {
             tag,
             bits: index,
             condition,
-            next: integer_next,
+            next: mixed_next,
         };
         self.builder.switch_to_block(float);
         let index = self.as_float(it, ib);
@@ -2486,7 +2505,8 @@ impl Emitter<'_, '_> {
             pc: self.pc,
             inputs: [(it, ib), (lt, lb), (st, sb)],
             split,
-            arms: [integer_arm, float_arm],
+            limit_split,
+            arms: [integer_arm, mixed_arm, float_arm],
             store,
             branch,
             visible_store,
@@ -3104,7 +3124,16 @@ mod loop_tests {
     }
     #[test]
     fn split_and_phi_corruption_is_refused() {
-        for fault in [Fault::Split, Fault::Phi] {
+        for fault in [
+            Fault::Split,
+            Fault::Phi,
+            Fault::LimitSplit,
+            Fault::LimitCondition,
+            Fault::LimitSource,
+            Fault::MixedPhi,
+            Fault::MixedOverflow,
+            Fault::LimitExtraEdge,
+        ] {
             refused(fixture(false, 0, 1, Some(fault)));
         }
     }
@@ -5079,6 +5108,36 @@ mod memory_tests {
         };
     }
 
+    loop_corruption!(
+        corrupted_loop_limit_split_is_refused_before_codegen_and_mapping,
+        false,
+        LimitSplit
+    );
+    loop_corruption!(
+        corrupted_loop_limit_condition_is_refused_before_codegen_and_mapping,
+        false,
+        LimitCondition
+    );
+    loop_corruption!(
+        corrupted_loop_limit_source_is_refused_before_codegen_and_mapping,
+        false,
+        LimitSource
+    );
+    loop_corruption!(
+        corrupted_loop_mixed_phi_is_refused_before_codegen_and_mapping,
+        false,
+        MixedPhi
+    );
+    loop_corruption!(
+        corrupted_loop_mixed_overflow_is_refused_before_codegen_and_mapping,
+        false,
+        MixedOverflow
+    );
+    loop_corruption!(
+        corrupted_loop_limit_extra_edge_is_refused_before_codegen_and_mapping,
+        false,
+        LimitExtraEdge
+    );
     loop_corruption!(
         corrupted_loop_prep_index_is_refused_before_codegen_and_mapping,
         true,

@@ -324,6 +324,92 @@ mod tests {
     }
 
     #[test]
+    fn mixed_numeric_loop_limits_match_at_every_entry_and_budget() {
+        use crate::types::{RegisterIndex as R, VarCount};
+        let values = [
+            Constant::Integer(i64::MIN),
+            Constant::Integer(i64::MIN + 1),
+            Constant::Integer(-9_007_199_254_740_993),
+            Constant::Integer(-2),
+            Constant::Integer(-1),
+            Constant::Integer(0),
+            Constant::Integer(1),
+            Constant::Integer(2),
+            Constant::Integer(9_007_199_254_740_993),
+            Constant::Integer(i64::MAX - 1),
+            Constant::Integer(i64::MAX),
+            Constant::Number(f64::NEG_INFINITY),
+            Constant::Number(-9_223_372_036_854_775_808.0),
+            Constant::Number(-1.5),
+            Constant::Number(-0.0),
+            Constant::Number(0.0),
+            Constant::Number(f64::from_bits(1)),
+            Constant::Number(1.5),
+            Constant::Number(9_223_372_036_854_775_808.0),
+            Constant::Number(f64::INFINITY),
+            Constant::Number(f64::NAN),
+            Constant::Nil,
+            Constant::Boolean(true),
+        ]
+        .map(slot);
+        for base in [0, 4] {
+            let snapshot = Snapshot {
+                operations: super::super::resources::owned(&[
+                    Operation::NumericForLoop {
+                        base: R(base),
+                        jump: 1,
+                    },
+                    Operation::Return {
+                        start: R(base + 3),
+                        count: VarCount::constant(1),
+                    },
+                    Operation::Return {
+                        start: R(base + 3),
+                        count: VarCount::constant(1),
+                    },
+                ]),
+                constants: super::super::resources::owned(&[]),
+                registers: 8,
+                upvalues: 0,
+                prototypes: 0,
+            };
+            snapshot.verify().unwrap();
+            let memory = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
+            let code =
+                super::super::backend::compile(&snapshot, memory.clone(), 8 * 1024 * 1024).unwrap();
+            for index in values {
+                for limit in values {
+                    for step in values {
+                        for pc in 0..snapshot.operations.len() {
+                            for budget in [0, 1, 2, 64] {
+                                let mut expected = [slot(Constant::Integer(123)); 8];
+                                expected[usize::from(base)..usize::from(base) + 3]
+                                    .copy_from_slice(&[index, limit, step]);
+                                let mut actual = expected;
+                                let reference = run(&snapshot, &mut expected, pc, budget);
+                                let exit = code.invoke(&mut actual, pc, budget);
+                                assert_eq!((exit.pc, exit.instructions, exit.reason), (reference.pc, reference.instructions, reference.reason), "base={base} pc={pc} budget={budget} index={index:?} limit={limit:?} step={step:?}");
+                                for (actual, expected) in actual.iter().zip(expected) {
+                                    assert_eq!(actual.tag, expected.tag);
+                                    if actual.tag == abi::NUMBER
+                                        && f64::from_bits(expected.bits).is_nan()
+                                    {
+                                        assert!(f64::from_bits(actual.bits).is_nan());
+                                    } else {
+                                        assert_eq!(actual.bits, expected.bits);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            drop(code);
+            assert_eq!(memory.load(Ordering::Relaxed), 0);
+        }
+    }
+
+    #[test]
     fn mixed_numeric_comparisons_match_at_every_budget_and_skip_polarity() {
         use crate::types::{ConstantIndex8, RegisterIndex, VarCount};
         let integers = [

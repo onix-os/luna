@@ -92,7 +92,8 @@ pub(super) struct ForLoop {
     pub pc: usize,
     pub inputs: [(Value, Value); 3],
     pub split: Inst,
-    pub arms: [LoopArm; 2],
+    pub limit_split: Inst,
+    pub arms: [LoopArm; 3],
     pub store: Inst,
     pub branch: Inst,
     pub visible_store: Inst,
@@ -135,6 +136,12 @@ pub(super) enum LoopCorruption {
     Missing,
     ProgramCounter,
     Growth,
+    LimitSplit,
+    LimitCondition,
+    LimitSource,
+    MixedPhi,
+    MixedOverflow,
+    LimitExtraEdge,
 }
 
 #[cfg(test)]
@@ -314,7 +321,7 @@ impl Stores {
                 | Operation::LessEq { .. }
                 | Operation::NumericForPrep { .. } => 4,
                 Operation::Div { .. } => 2,
-                Operation::NumericForLoop { .. } => 6,
+                Operation::NumericForLoop { .. } => 7,
                 _ => 0,
             };
             input_capacity = input_capacity.checked_add(count).ok_or_else(refused)?;
@@ -996,6 +1003,7 @@ impl Stores {
         for record in &self.loops {
             for inst in [
                 record.split,
+                record.limit_split,
                 record.store,
                 record.branch,
                 record.visible_store,
@@ -1244,6 +1252,36 @@ impl Stores {
             (record.split, record.store, record.next[0], record.inputs[0])
         };
         match fault {
+            LimitSplit | LimitCondition | LimitSource | LimitExtraEdge => {
+                let record = self.loops[0];
+                let inst = record.limit_split;
+                if fault == LimitSource {
+                    let InstructionData::Brif { arg, .. } = function.dfg.insts[inst] else {
+                        unreachable!()
+                    };
+                    let compare = function.dfg.value_def(arg).unwrap_inst();
+                    let InstructionData::IntCompare { args, .. } = &mut function.dfg.insts[compare]
+                    else {
+                        unreachable!()
+                    };
+                    args[0] = record.inputs[0].0;
+                } else {
+                    let mut cursor = FuncCursor::new(function);
+                    cursor.goto_inst(inst);
+                    let yes = cursor.ins().iconst(types::I8, 1);
+                    let InstructionData::Brif { arg, blocks, .. } =
+                        &mut cursor.func.dfg.insts[inst]
+                    else {
+                        unreachable!()
+                    };
+                    match fault {
+                        LimitSplit => blocks.swap(0, 1),
+                        LimitCondition => *arg = yes,
+                        LimitExtraEdge => blocks[1] = blocks[0],
+                        _ => unreachable!(),
+                    }
+                }
+            }
             IndexOpcode => {
                 let value = if prep {
                     let InstructionData::Store { args, .. } = function.dfg.insts[store] else {
@@ -1272,7 +1310,7 @@ impl Stores {
                     };
                     args[0]
                 } else {
-                    self.loops[0].arms[1].bits
+                    self.loops[0].arms[2].bits
                 };
                 let cast = function.dfg.value_def(value).unwrap_inst();
                 let InstructionData::LoadNoOffset { arg, .. } = function.dfg.insts[cast] else {
@@ -1284,13 +1322,15 @@ impl Stores {
                 };
                 *opcode = if prep { Opcode::Fadd } else { Opcode::Fsub };
             }
-            Guard | Overflow => {
+            Guard | Overflow | MixedOverflow => {
                 let inst = if prep {
                     self.preps[0].nonzero
                 } else {
                     function
                         .dfg
-                        .value_def(self.loops[0].arms[0].condition)
+                        .value_def(
+                            self.loops[0].arms[usize::from(fault == MixedOverflow)].condition,
+                        )
                         .unwrap_inst()
                 };
                 let mut cursor = FuncCursor::new(function);
@@ -1310,7 +1350,12 @@ impl Stores {
             }
             Direction | Limit => {
                 let record = self.loops[0];
-                let block = function.layout.inst_block(record.arms[0].next).unwrap();
+                let inst = if fault == Direction {
+                    record.limit_split
+                } else {
+                    record.arms[0].next
+                };
+                let block = function.layout.inst_block(inst).unwrap();
                 let condition = if fault == Direction {
                     IntCC::SignedLessThan
                 } else {
@@ -1327,8 +1372,8 @@ impl Stores {
                     args[1] = record.inputs[2].1;
                 }
             }
-            Phi => {
-                let arm = self.loops[0].arms[0];
+            Phi | MixedPhi => {
+                let arm = self.loops[0].arms[usize::from(fault == MixedPhi)];
                 let mut cursor = FuncCursor::new(function);
                 cursor.goto_inst(arm.next);
                 let yes = cursor.ins().iconst(types::I8, 1);
@@ -1585,6 +1630,18 @@ impl Stores {
                     &record.inputs,
                     Part::StepSplit,
                 )?;
+                if function.layout.last_inst(arms[0]) != Some(record.limit_split) {
+                    return Err(invalid());
+                }
+                only_loop_stores(function, arms[0], &[])?;
+                let limit_arms = loop_split(
+                    function,
+                    &cfg,
+                    record.limit_split,
+                    &record.inputs,
+                    Part::LimitSplit,
+                )?;
+                let arms = [limit_arms[0], limit_arms[1], arms[1]];
                 let join = function
                     .layout
                     .inst_block(record.branch)
@@ -1599,7 +1656,7 @@ impl Stores {
                 {
                     return Err(invalid());
                 }
-                let mut seen = [false; 2];
+                let mut seen = [false; 3];
                 for predecessor in cfg.pred_iter(join) {
                     let index = record
                         .arms
@@ -1611,12 +1668,18 @@ impl Stores {
                     }
                     seen[index] = true;
                 }
-                if seen != [true, true] {
+                if seen != [true; 3] {
                     return Err(invalid());
                 }
                 for (index, tag, bits_part, condition_part) in [
                     (0, abi::INTEGER, Part::StepInteger, Part::ConditionInteger),
-                    (1, abi::NUMBER, Part::StepFloat, Part::ConditionFloat),
+                    (
+                        1,
+                        abi::INTEGER,
+                        Part::StepInteger,
+                        Part::ConditionMixedLimit,
+                    ),
+                    (2, abi::NUMBER, Part::StepFloat, Part::ConditionFloat),
                 ] {
                     let arm = record.arms[index];
                     let InstructionData::Jump { destination, .. } = function.dfg.insts[arm.next]
@@ -4228,7 +4291,7 @@ mod tests {
                 .filter(|node| node.lowering.native())
                 .map(|node| 2 * node.access.writes.count())
                 .sum::<usize>();
-            let inputs = if prep { 4 } else { 6 };
+            let inputs = if prep { 4 } else { 7 };
             let allowance =
                 stores * std::mem::size_of::<Store>() + inputs * std::mem::size_of::<Input>();
             ledger.set_limit(before + allowance);
