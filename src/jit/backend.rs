@@ -30,6 +30,8 @@ pub(super) mod calls;
 #[cfg(not(miri))]
 pub(super) mod compact;
 #[cfg(test)]
+mod integer_loop;
+#[cfg(test)]
 mod read_cache;
 #[cfg(not(miri))]
 pub(super) mod region;
@@ -318,6 +320,8 @@ impl Code {
 pub(super) enum Failure {
     RequireReadCache,
     RequireWriteback,
+    RequireIntegerLoop,
+    ProbeIntegerLoop,
     RequireReleasedWorkspace(usize),
     RequireReleasedSnapshot,
     DetectHostSetup,
@@ -1153,6 +1157,34 @@ fn compile_selected_rooted(
         stores.corrupt_binding(&mut context.func, parameters[0], fault);
     }
     stores.verify_bindings(&context.func, parameters[0], &paths, &graph)?;
+    #[cfg(test)]
+    let (instructions, block_count) = if matches!(
+        failure,
+        Failure::RequireIntegerLoop | Failure::ProbeIntegerLoop
+    ) {
+        if !integer_loop::augment(
+            &mut context.func,
+            snapshot,
+            &blocks,
+            exhausted,
+            failure == Failure::ProbeIntegerLoop,
+        )? {
+            return Err(JitError::Compilation("integer loop was not applied".into()));
+        }
+        cranelift_codegen::verify_function(&context.func, module.isa())
+            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        let instructions = context
+            .func
+            .layout
+            .blocks()
+            .map(|block| context.func.layout.block_insts(block).count())
+            .sum();
+        let count = context.func.layout.blocks().count();
+        expansion.verify_actual(instructions, count)?;
+        (instructions, count)
+    } else {
+        (instructions, block_count)
+    };
     #[cfg(test)]
     let instructions = if matches!(
         failure,

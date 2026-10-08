@@ -278,6 +278,147 @@ mod tests {
     }
 
     #[test]
+    fn integer_loop_probe_confirms_fast_entries_and_guard_fallback() {
+        use super::super::{backend, resources, work, JitConfig};
+        let snapshot = snapshot(b"local s=0 for i=1,100 do s=s+i end return s");
+        let (end, base, start) = snapshot
+            .operations
+            .iter()
+            .enumerate()
+            .find_map(|(pc, op)| match *op {
+                Operation::NumericForLoop { base, jump } => Some((
+                    pc,
+                    usize::from(base.0),
+                    (pc + 1).checked_add_signed(isize::from(jump)).unwrap(),
+                )),
+                _ => None,
+            })
+            .unwrap();
+        let accumulator = snapshot
+            .operations
+            .iter()
+            .find_map(|op| match op {
+                Operation::Add { dest, .. } => Some(usize::from(dest.0)),
+                _ => None,
+            })
+            .unwrap();
+        let memory = MappingCounter::new(resources::Ledger::new(usize::MAX));
+        let code = backend::compile_in(
+            &snapshot,
+            memory.clone(),
+            8 * 1024 * 1024,
+            resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
+            work::Limits::from(&JitConfig::default()),
+            backend::Failure::ProbeIntegerLoop,
+        )
+        .unwrap();
+        for pc in (0..=snapshot.operations.len()).chain([usize::MAX]) {
+            for budget in [0, 1, 2, 3, 63, 64] {
+                for invalid in [
+                    None,
+                    Some(base),
+                    Some(base + 1),
+                    Some(base + 2),
+                    Some(base + 3),
+                    Some(accumulator),
+                ] {
+                    for value in [
+                        Constant::Nil,
+                        Constant::Number(0.5),
+                        Constant::Boolean(false),
+                    ] {
+                        let mut expected = vec![slot(Constant::Integer(1)); snapshot.registers];
+                        if let Some(index) = invalid {
+                            expected[index] = slot(value);
+                        }
+                        let mut actual = expected.clone();
+                        let reference = run(&snapshot, &mut expected, pc, budget);
+                        let mut entered = 0u64;
+                        let mut host = abi::Host {
+                            data: std::ptr::addr_of_mut!(entered).cast(),
+                            projection: std::ptr::null_mut(),
+                        };
+                        let exit = unsafe { code.invoke_host(&mut actual, pc, budget, &mut host) };
+                        assert_eq!(
+                            entered,
+                            u64::from(
+                                (start..=end).contains(&pc) && budget > 0 && invalid.is_none()
+                            ),
+                            "pc={pc} budget={budget} invalid={invalid:?}"
+                        );
+                        assert_eq!(
+                            (exit.pc, exit.instructions, exit.reason),
+                            (reference.pc, reference.instructions, reference.reason)
+                        );
+                        assert_eq!(
+                            actual.iter().map(|s| (s.tag, s.bits)).collect::<Vec<_>>(),
+                            expected.iter().map(|s| (s.tag, s.bits)).collect::<Vec<_>>()
+                        );
+                    }
+                }
+            }
+        }
+        drop(code);
+        assert_eq!(memory.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn integer_loop_regions_match_the_model_at_every_entry_and_budget() {
+        use super::super::{backend, resources, work, JitConfig};
+        for program in [
+            &b"local s=0 for i=1,100 do s=s+i end return s"[..],
+            &b"local s=0 for i=10,1,-1 do s=s*3-i end return s"[..],
+            &b"local s=0 for i=1,100 do i=i+1 s=s+i end return s"[..],
+        ] {
+            let snapshot = snapshot(program);
+            let base = snapshot
+                .operations
+                .iter()
+                .find_map(|op| match op {
+                    Operation::NumericForLoop { base, .. } => Some(usize::from(base.0)),
+                    _ => None,
+                })
+                .unwrap();
+            let memory = MappingCounter::new(resources::Ledger::new(usize::MAX));
+            let code = backend::compile_in(
+                &snapshot,
+                memory.clone(),
+                8 * 1024 * 1024,
+                resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
+                work::Limits::from(&JitConfig::default()),
+                backend::Failure::RequireIntegerLoop,
+            )
+            .unwrap();
+            for pc in 0..=snapshot.operations.len() {
+                for budget in [0, 1, 2, 3, 5, 63, 64, 65, 1000] {
+                    for index in [i64::MIN, -2, 0, 1, i64::MAX] {
+                        for limit in [-1, 0, 2, i64::MAX] {
+                            for step in [i64::MIN, -1, 0, 1, 2] {
+                                let mut expected =
+                                    vec![slot(Constant::Integer(index)); snapshot.registers];
+                                expected[base] = slot(Constant::Integer(index));
+                                expected[base + 1] = slot(Constant::Integer(limit));
+                                expected[base + 2] = slot(Constant::Integer(step));
+                                let mut actual = expected.clone();
+                                let reference = run(&snapshot, &mut expected, pc, budget);
+                                let exit = code.invoke(&mut actual, pc, budget);
+                                assert_eq!((exit.pc, exit.instructions, exit.reason),
+                                    (reference.pc, reference.instructions, reference.reason),
+                                    "pc={pc} budget={budget} index={index} limit={limit} step={step}");
+                                assert_eq!(actual.iter().map(|s| (s.tag,s.bits)).collect::<Vec<_>>(),
+                                    expected.iter().map(|s| (s.tag,s.bits)).collect::<Vec<_>>(),
+                                    "pc={pc} budget={budget} index={index} limit={limit} step={step}");
+                            }
+                        }
+                    }
+                }
+            }
+            drop(code);
+            assert_eq!(memory.load(Ordering::Relaxed), 0);
+        }
+    }
+
+    #[test]
     fn writeback_helpers_match_canonical_execution_at_every_boundary() {
         use crate::{
             jit::{backend, helpers, resources, work},

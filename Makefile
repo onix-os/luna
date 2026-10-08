@@ -538,8 +538,14 @@ jit-tags:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::corrupted_scalar_store_is_refused_before_codegen_and_mapping
 	@$(MAKE) --no-print-directory jit-input
 	@$(MAKE) --no-print-directory jit-read-cache
+	@$(MAKE) --no-print-directory jit-integer-loop
 
 .PHONY: jit-read-cache
+.PHONY: jit-integer-loop
+jit-integer-loop:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::integer_loop::tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::model::tests::integer_loop_
+
 jit-read-cache:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::read_cache::tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::model::tests::cached_scalar_regions_match_the_boundary_model
