@@ -9,7 +9,82 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Progress snapshot — 2026-10-07
+### Progress snapshot — 2026-10-08
+
+#### Unified hook/native dispatch — retained development WIP
+
+The VM now selects hooked, observing, compiled or plain interpretation once
+per slice. Hook dispatch is part of that state rather than a second hot-loop
+check. Native execution and hooks retain their existing bodies, with one
+interpreter loop, independent test-only resume/mock handling and unchanged
+fuel, source admission, physical transitions, statistics and code ownership.
+Plain no-feature interpretation uses the same two hook states. Both speed and
+shipping no-feature `.text` sections remain byte-identical to the controls;
+full-file hashes differ and are retained with their own matched controls.
+
+Exact speed-image profiles identify a structural reduction: whole-executor
+integer instructions fall **22,843,840 → 21,903,015** (4.12%); float falls
+**30,245,910 → 29,504,975** (2.45%). VM self-work accounts for the reductions.
+The symbol companions match allocated bytes and program headers of the actual
+timing images. These instruction counts do not establish hardware speedups.
+
+Two complete comparisons use all nine native cases and both disabled-cost
+profiles, three alternating windows on CPU0/16 and eleven paired samples.
+All **72 aggregate commands / 1,080 reported rows** remain failed; this is
+development progress, not full performance or release acceptance. Every native
+execution/resource counter matches the control in all twelve comparisons.
+Direct control/candidate ratios above one mean faster:
+
+| Disabled-cost case | CPU | Initial ratio | Repeat ratio |
+| --- | --- | --- | --- |
+| Speed integer | 0 | 1.0295 | 1.0443 |
+| Speed float | 0 | 1.1531 | 1.1141 |
+| Speed integer | 16 | 1.0825 | 1.0906 |
+| Speed float | 16 | 1.0895 | 1.0577 |
+| Speed upvalue | 16 | 1.0386 | 1.0311 |
+| Shipping integer | 16 | 1.0470 | 1.0280 |
+| Shipping upvalue | 16 | 1.0510 | 1.0398 |
+| Shipping float | 16 | **0.9423** | **0.9413** |
+| Shipping predicate | 16 | **0.9639** | **0.9703** |
+
+**Unresolved regressions remain explicit.** Shipping CPU16 float loses about
+6% and predicate about 3–4%; both repeat. Native CPU16 upvalue ratios are
+0.9864 and 0.9930. CPU0's first comparison has severe timing variation,
+including unfavorable near-twofold native and shipping timings; those samples
+are retained, not excluded as noise. Its repeat speed-upvalue ratio improves
+to 1.0457 from 0.9573, so no repeated CPU0 upvalue win is claimed. Existing
+upvalue/native, disabled callback and shipping-cost gates still fail. Aggregate
+disabled-case failures decrease from **53 to 40**, then **62 to 38**, across
+108 checks per variant per comparison, but this does not approve the new losses.
+
+Focused GNU checks pass **110 executions / 11 suites**, two ignored; baseline,
+all-feature Auto and docs pass **1,752 / 172**, ten ignored. Two dispatch model
+tests pass Miri with 21 warnings. No owned builds/tests/profiles overlap timing;
+unrelated applications remain running, telemetry and unfavorable results are
+retained, source/artifact hashes verify, and all invocation aliases are removed.
+
+The first candidate used an extra outer activity flag instead of a hook state.
+It passed 1,859 focused/full executions and reduced speed numeric instructions
+by about 281,000, but its full 36-command screen mixed disabled gains with
+native callback and speed-upvalue regressions. Its code was replaced by the
+unified state, not shipped as a second dispatch layer. Evidence for both designs
+is under `target/jit-evidence/short-slice-performance/dispatch-fast-path-*`
+and `unified-dispatch-*`. Next inspect the actual shipping float/predicate
+executables; do not treat speed-profile wins as shipping acceptance.
+
+#### Packed reference-prefix snapshot — rejected
+
+Packing only reference values into a private active prefix passed 71 focused
+executions and five Miri model tests, but increased exact native upvalue work
+from **265,823,119 to 267,498,369** instructions. Initial upvalue direct ratios
+were 0.9904/0.9939 on CPU0/16; repeat ratios were 1.0163/1.0165. CPU16 native
+array and CPU0 compiled-Off float regressed in both complete comparisons.
+All 24 aggregate commands / 648 rows failed, with native/resource counters
+unchanged. The production trial was removed; the retained root-rebinding and
+density regression test is committed separately as `88795dc`. Restored checks
+pass 70 executions / seven suites. Full trial patches and measurements remain
+under `packed-roots-*`; the scoped reference Move implementation below remains
+the authoritative native backend.
 
 #### Scoped reference-index moves — retained development WIP
 

@@ -11,6 +11,14 @@ region execution; `make jit-regions` tests the non-test library with `jit` and
 `jit,async`, including interrupted fuel traces, GC, callbacks and unwind.
 This is implementation progress, **not performance or release acceptance**.
 
+The 2026-10-08 dispatch refinement (`ecb7180`) combines hook and native selection
+into one per-slice state. Repeated speed-profile disabled integer/float timings
+improve, with unchanged native-work counters and passing correctness checks.
+Shipping CPU16 float instead regresses about 6%, and predicate about 3–4%;
+native upvalue and other cost gates remain open. This is retained development
+WIP, not approval of those tradeoffs. `PLAN_JIT.md` records both complete
+comparisons, exact-image profiles and all unfavorable samples.
+
 ### Earlier experiments
 
 The same-program Session reuse (`06040e9`) and isolated activation-entry
