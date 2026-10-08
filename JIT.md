@@ -11,7 +11,15 @@ region execution; `make jit-regions` tests the non-test library with `jit` and
 `jit,async`, including interrupted fuel traces, GC, callbacks and unwind.
 This is implementation progress, **not performance or release acceptance**.
 
-The 2026-10-08 primitive-arithmetic refinement (`0a01bb3`) handles integer,
+The 2026-10-08 numeric-guard refinement (`9aa2e25`) uses one full-width
+mask/comparison instead of two tag comparisons and an OR. It retains the same
+numeric guards and logical work. Two complete comparisons improve native CPU16
+integer throughput 17.6–18.7% and float 29.4–29.7%; no-feature executables are
+byte-identical to their controls. The native 2x gates still fail, upvalue and
+other gaps remain, and shipping CPU0 predicate regresses. Validation passes
+1,950 executions; `PLAN_JIT.md` records all results and resource-counter changes.
+
+The preceding 2026-10-08 primitive-arithmetic refinement (`0a01bb3`) handles integer,
 float and mixed-tag add/subtract/multiply directly, retaining coercion and
 metamethod fallback. Two full comparisons improve shipping compiled-Off integer
 throughput 1.40–1.50x and float 1.74–1.79x; no-feature numerics also improve.

@@ -11,6 +11,87 @@
 
 ### Progress snapshot — 2026-10-08
 
+#### Masked native numeric guards — retained development WIP
+
+`9aa2e25` replaces `(tag == INTEGER) || (tag == NUMBER)` with the equivalent
+full-width `(tag & !1) == INTEGER`; a compile-time assertion checks the tag
+adjacency/alignment. No guard is omitted, hoisted, cached or moved across a
+write/helper boundary. The bounded tag verifier now evaluates I64 AND literals
+under its existing shared 64-node condition budget, resolves aliases, and
+retains conservative unknown handling. Other tag/Boolean/source/effect proofs,
+logical fuel, helpers, physical transitions and canonical exits are unchanged.
+
+Exact current-image profiling selected generated code rather than another host
+wrapper trial: integer Auto had 28,718,517 generated instructions out of
+36,235,414 total; float had 26,114,750 out of 33,658,669. The new guard lowers
+these to **24,839,482 / 32,356,270** and **21,429,217 / 28,973,136**,
+respectively. VM, invoke and Executor leading self-work is unchanged. Exact
+upvalue work falls 258,058,676 → 256,103,715; allocation 34,689,196 →
+34,172,816. Symbol companions match program headers and allocated bytes of
+the original-flag executables. Instruction/cache simulations are diagnostics,
+not independent hardware explanations or acceptance.
+
+New verifier fixtures admit both branch polarities and bounded nested masks;
+they reject wider scalar sets, unrelated queried sources and depth exhaustion.
+Actual generated add/subtract/multiply execute **3,072 invocations** over
+sixteen adversarial tags per operand and four budgets. High-bit tags sharing
+numeric low bits must decline without effects; valid tags retain exact result
+types, PCs, logical counts and budget/fallback exits. `make jit-input` runs
+these together with omitted-guard refusal tests. Focused format/check/tags/numeric
+gates pass **192 executions / 22 suites**. Baseline/all-feature Auto/docs pass
+**1,758 / 172**, ten ignored. No new Miri or supported-platform acceptance is
+claimed for this checkpoint.
+
+Two complete comparisons retain all nine cases, both cost profiles, three
+alternating windows on CPU0/16, eleven paired samples and matching invocation
+paths. Immediate controls are `direct-numeric-*`. Direct control/candidate
+ratios greater than one indicate faster execution:
+
+| Native Auto case | CPU | Initial | Repeat |
+| --- | --- | --- | --- |
+| Integer | 0 | **1.123992** | **1.122446** |
+| Float | 0 | **1.346910** | **1.192555** |
+| Integer | 16 | **1.176273** | **1.187474** |
+| Float | 16 | **1.297120** | **1.294444** |
+| Upvalue | 16 | 1.027628 | 1.009672 |
+| Allocation | 16 | 1.082135 | 1.032936 |
+| Callback | 16 | 1.018160 | 1.007799 |
+| Predicate | 16 | 1.022972 | 1.017476 |
+| Table | 16 | 1.041082 | **0.992944** |
+
+Both no-feature executables are byte-identical to their controls. All native
+execution, guard, helper, lease, code/metadata and other counters match across
+twelve complete comparisons **except `snapshot_peak_bytes`**. Smaller emitted
+IR reduces charged verification workspace: integer 9,095 → 9,039; float
+12,849 → 12,777; table 14,653 → 14,557; metamethod 16,101 → 16,045;
+callback 10,653 → 10,597; allocation 12,719 → 12,647; predicate 6,033 →
+6,017. All twelve observations agree per case. Upvalue and cold are unchanged.
+This is lower observed workspace, not proof of the full compiler-resource cap.
+
+**Frozen native gates remain unmet.** Candidate CPU16 integer Off/Auto medians
+are 1.5957/1.5478; float 1.9263/1.7894, below 2x in every window. Upvalue is
+0.8362/0.8455, below 1.25. Initial and repeat cost-case failures change
+**33 → 24** and **31 → 26**, out of 108 checks per variant. Of **72 aggregate
+commands / 1,080 reported rows**, **71 fail**; the sole pass is the initial
+CPU0/window1/shipping **control**, not candidate acceptance.
+
+Unfavorable results remain: shipping CPU0 predicate directly regresses
+**0.956778/0.969488**. CPU16 shipping integer 0.995829/0.986611 and float
+0.991950/0.982367 are slightly slower in these comparisons, though their cost
+checks remain passed. Shipping CPU16 predicate cost passes three initial
+candidate windows but fails two repeat windows, median **1.0614**; no stable
+predicate fix is claimed. Native CPU0 initial metamethod/predicate ratios
+0.952809/0.935356 and severe callback/control variation are retained. Several
+reverse in the repeat, without discarding the unfavorable first sample.
+CPU0 native-harness Off allocation declines in both (0.972292/0.981590).
+
+Source/artifact manifests verify, all invocation aliases are removed, and all
+builds/tests/profiles finish before timing. Unrelated applications remain running.
+Evidence is under `target/jit-evidence/short-slice-performance/masked-numeric-*`
+and `native-numeric-current/`. Further generated-loop and native helper cost
+reduction is required, alongside predicate/disabled-cost and remaining full-plan
+gates. This is genuine native performance progress, not release acceptance.
+
 #### Direct primitive arithmetic — retained development WIP
 
 `0a01bb3` adds typed integer/number/mixed-tag paths to shared `meta_ops` add,
