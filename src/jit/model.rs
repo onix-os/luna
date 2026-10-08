@@ -264,15 +264,131 @@ mod tests {
 
     #[test]
     fn every_entry_and_budget_matches_the_rust_boundary_model() {
-        boundary_model(false);
+        boundary_model(None);
     }
 
     #[test]
     fn cached_scalar_regions_match_the_boundary_model() {
-        boundary_model(true);
+        boundary_model(Some(super::super::backend::Failure::RequireReadCache));
     }
 
-    fn boundary_model(cached: bool) {
+    #[test]
+    fn writeback_scalar_regions_match_the_boundary_model() {
+        boundary_model(Some(super::super::backend::Failure::RequireWriteback));
+    }
+
+    #[test]
+    fn writeback_helpers_match_canonical_execution_at_every_boundary() {
+        use crate::{
+            jit::{backend, helpers, resources, work},
+            thread::LuaRegisters,
+            Closure, Table, Value,
+        };
+        crate::Lua::empty().enter(|ctx| {
+            let closure = Closure::load(
+                ctx,
+                None,
+                &b"local t,x=... x=x+1 x=x+2 t[1]=x x=t[2] x=x+3 return x"[..],
+            )
+            .unwrap();
+            let snapshot = Snapshot::new(&closure.prototype(), 4096, 2 * 1024 * 1024).unwrap();
+            let memory = MappingCounter::new(resources::Ledger::new(usize::MAX));
+            let codes =
+                [backend::Failure::None, backend::Failure::RequireWriteback].map(|failure| {
+                    backend::compile_in(
+                        &snapshot,
+                        memory.clone(),
+                        8 * 1024 * 1024,
+                        resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
+                        work::Limits::from(&super::super::JitConfig::default()),
+                        failure,
+                    )
+                    .unwrap()
+                });
+            let mut completed = 0;
+            let mut declined = 0;
+            for pc in 0..snapshot.operations.len() {
+                for budget in [0, 1, 2, 3, 63, 64] {
+                    for seed in [Value::Integer(7), Value::Number(-0.5), Value::Nil] {
+                        let results = codes.each_ref().map(|code| {
+                            let table = Table::new(&ctx);
+                            table.set(ctx, 2, 19).unwrap();
+                            let mut canonical = vec![seed; snapshot.registers];
+                            canonical[0] = if seed.is_nil() {
+                                Value::Nil
+                            } else {
+                                Value::Table(table)
+                            };
+                            let mut current_pc = pc;
+                            LuaRegisters::with_test_frame(
+                                ctx,
+                                &mut current_pc,
+                                &mut canonical,
+                                |mut registers| {
+                                    let mut slots: Vec<_> = registers
+                                        .stack_frame
+                                        .iter()
+                                        .copied()
+                                        .map(Slot::from_value)
+                                        .collect();
+                                    let mut frame = helpers::Frame {
+                                        ctx,
+                                        closure,
+                                        registers: &mut registers,
+                                        count: helpers::Counts::default(),
+                                        slot_count: slots.len(),
+                                        panic: None,
+                                        projection: None,
+                                    };
+                                    let mut host = abi::Host {
+                                        data: std::ptr::addr_of_mut!(frame).cast(),
+                                        projection: std::ptr::null_mut(),
+                                    };
+                                    let exit = unsafe {
+                                        code.invoke_host(&mut slots, pc, budget, &mut host)
+                                    };
+                                    assert!(frame.panic.is_none());
+                                    completed += frame.count.completed;
+                                    declined += frame.count.declined;
+                                    let slot_values: Vec<_> =
+                                        slots.iter().map(|slot| (slot.tag, slot.bits)).collect();
+                                    let canonical_values: Vec<_> = frame
+                                        .registers
+                                        .stack_frame
+                                        .iter()
+                                        .copied()
+                                        .map(Slot::from_value)
+                                        .map(|slot| (slot.tag, slot.bits))
+                                        .collect();
+                                    let table_value =
+                                        Slot::from_value(table.get_raw(&ctx, Value::Integer(1)));
+                                    (
+                                        (exit.pc, exit.instructions, exit.reason),
+                                        slot_values,
+                                        canonical_values,
+                                        (table_value.tag, table_value.bits),
+                                        (
+                                            frame.count.calls,
+                                            frame.count.completed,
+                                            frame.count.declined,
+                                            frame.count.table_reads,
+                                            frame.count.table_writes,
+                                        ),
+                                    )
+                                },
+                            )
+                        });
+                        assert_eq!(results[0], results[1], "pc={pc} budget={budget}");
+                    }
+                }
+            }
+            assert!(completed > 0 && declined > 0);
+            drop(codes);
+            assert_eq!(memory.load(Ordering::Relaxed), 0);
+        });
+    }
+
+    fn boundary_model(failure: Option<super::super::backend::Failure>) {
         let programs: &[&[u8]] = &[
             b"local s=0 for i=1,100 do s=s+i end return s",
             b"local s=0.0 for i=10.5,1.5,-0.5 do s=s+i*0.5 end return s",
@@ -299,11 +415,11 @@ mod tests {
         ];
         for program in programs
             .iter()
-            .take(if cached { 3 } else { programs.len() })
+            .take(if failure.is_some() { 3 } else { programs.len() })
         {
             let snapshot = snapshot(program);
             let memory = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
-            let code = if cached {
+            let code = if let Some(failure) = failure {
                 super::super::backend::compile_in(
                     &snapshot,
                     memory.clone(),
@@ -312,7 +428,7 @@ mod tests {
                         2 * 1024 * 1024,
                     )),
                     super::super::work::Limits::from(&super::super::JitConfig::default()),
-                    super::super::backend::Failure::RequireReadCache,
+                    failure,
                 )
             } else {
                 super::super::backend::compile(&snapshot, memory.clone(), 8 * 1024 * 1024)

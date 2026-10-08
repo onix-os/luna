@@ -317,6 +317,7 @@ impl Code {
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum Failure {
     RequireReadCache,
+    RequireWriteback,
     RequireReleasedWorkspace(usize),
     RequireReleasedSnapshot,
     DetectHostSetup,
@@ -1153,8 +1154,16 @@ fn compile_selected_rooted(
     }
     stores.verify_bindings(&context.func, parameters[0], &paths, &graph)?;
     #[cfg(test)]
-    let instructions = if failure == Failure::RequireReadCache {
-        if !read_cache::promote(
+    let instructions = if matches!(
+        failure,
+        Failure::RequireReadCache | Failure::RequireWriteback
+    ) {
+        let promote = if failure == Failure::RequireWriteback {
+            read_cache::promote_writeback
+        } else {
+            read_cache::promote
+        };
+        if !promote(
             &mut context.func,
             parameters[0],
             parameters[3],

@@ -89,6 +89,27 @@ pub(super) fn promote(
     registers: usize,
     allocator: super::super::resources::BudgetAllocator,
 ) -> Result<bool, JitError> {
+    promote_mode(function, slots, exit, registers, allocator, false)
+}
+
+pub(super) fn promote_writeback(
+    function: &mut Function,
+    slots: Value,
+    exit: Value,
+    registers: usize,
+    allocator: super::super::resources::BudgetAllocator,
+) -> Result<bool, JitError> {
+    promote_mode(function, slots, exit, registers, allocator, true)
+}
+
+fn promote_mode(
+    function: &mut Function,
+    slots: Value,
+    exit: Value,
+    registers: usize,
+    allocator: super::super::resources::BudgetAllocator,
+    writeback: bool,
+) -> Result<bool, JitError> {
     use allocator_api2::vec::Vec;
     let words = registers.checked_mul(2).ok_or_else(invalid)?;
     if words == 0 || words > MAX_WORDS {
@@ -102,6 +123,17 @@ pub(super) fn promote(
     for block in function.layout.blocks() {
         for inst in function.layout.block_insts(block) {
             let data = function.dfg.insts[inst];
+            if writeback
+                && ((data.opcode().can_load() && word(function, inst, slots, words)?.is_none())
+                    || (data.opcode().can_trap()
+                        && !matches!(data.opcode(), Opcode::Load | Opcode::Store)
+                        && !data.opcode().is_call())
+                    || (data.opcode().is_terminator()
+                        && !data.opcode().is_branch()
+                        && data.opcode() != Opcode::Return))
+            {
+                return Ok(false);
+            }
             if let Some(index) = word(function, inst, slots, words)?.filter(|index| index % 2 == 1)
             {
                 if data.opcode() == Opcode::Load {
@@ -152,6 +184,9 @@ pub(super) fn promote(
     if selected == 0 {
         return Ok(false);
     }
+    if writeback {
+        selected |= selected >> 1;
+    }
     let refused = || JitError::ResourceLimit("scalar read-cache liveness");
     let mut states = Vec::new_in(allocator.clone());
     states.try_reserve_exact(blocks).map_err(|_| refused())?;
@@ -171,7 +206,12 @@ pub(super) fn promote(
                 }
             }
             if function.dfg.insts[inst].opcode().is_call() {
+                if writeback {
+                    state.uses |= selected & !state.defines;
+                }
                 state.defines = u32::MAX;
+            } else if writeback && function.dfg.insts[inst].opcode() == Opcode::Return {
+                state.uses |= selected & !state.defines;
             }
         }
         state.incoming = state.uses;
@@ -207,7 +247,9 @@ pub(super) fn promote(
             next = function.layout.prev_inst(inst);
             if function.dfg.insts[inst].opcode().is_call() {
                 reloads.push((inst, live));
-                live = 0;
+                live = if writeback { selected } else { 0 };
+            } else if writeback && function.dfg.insts[inst].opcode() == Opcode::Return {
+                live |= selected;
             }
             if let Some(index) =
                 word(function, inst, slots, words)?.filter(|index| selected & (1 << index) != 0)
@@ -285,8 +327,27 @@ pub(super) fn promote(
                         function.dfg.change_to_alias(result, source);
                         function.layout.remove_inst(inst);
                     }
-                    InstructionData::Store { args, .. } => current[index] = Some(args[0]),
+                    InstructionData::Store { args, .. } => {
+                        current[index] = Some(args[0]);
+                        if writeback {
+                            function.layout.remove_inst(inst);
+                        }
+                    }
                     _ => return Err(invalid()),
+                }
+            }
+            if writeback && (data.opcode().is_call() || data.opcode() == Opcode::Return) {
+                let mut cursor = FuncCursor::new(function);
+                cursor.goto_inst(inst);
+                for (index, value) in current[..words].iter().enumerate() {
+                    if selected & (1 << index) != 0 {
+                        cursor.ins().store(
+                            MemFlagsData::new(),
+                            value.ok_or_else(invalid)?,
+                            slots,
+                            (index * 8) as i32,
+                        );
+                    }
                 }
             }
             if data.opcode().is_call() {
@@ -492,6 +553,100 @@ mod tests {
             ));
             assert_eq!(ledger.current(), 0);
             assert_eq!(ledger.refusals(), 1);
+            assert_eq!(function.display().to_string(), before);
+        }
+    }
+
+    #[test]
+    fn scalar_writeback_removes_intermediate_stores_and_flushes_returns() {
+        let (mut function, slots, exit, store, branch, load) = fixture(false);
+        let InstructionData::Store { args, .. } = function.dfg.insts[store] else {
+            unreachable!()
+        };
+        let result = function.dfg.first_result(load);
+        assert!(promote_writeback(&mut function, slots, exit, 1, allocator()).unwrap());
+        assert!(function.layout.inst_block(store).is_none());
+        assert!(function.layout.inst_block(load).is_none());
+        let InstructionData::Jump { destination, .. } = function.dfg.insts[branch] else {
+            unreachable!()
+        };
+        let edge: Vec<_> = destination.args(&function.dfg.value_lists).collect();
+        assert_eq!(edge.len(), 2);
+        assert_eq!(edge[1], BlockArg::Value(args[0]));
+        let body = destination.block(&function.dfg.value_lists);
+        let ret = function.layout.last_inst(body).unwrap();
+        let flush = function.layout.prev_inst(ret).unwrap();
+        assert!(
+            matches!(function.dfg.insts[flush], InstructionData::Store { args, offset, .. }
+            if args == [function.dfg.resolve_aliases(result), slots] && i32::from(offset) == 8)
+        );
+        assert_eq!(
+            function
+                .layout
+                .blocks()
+                .flat_map(|b| function.layout.block_insts(b))
+                .filter(|i| function.dfg.insts[*i].opcode() == Opcode::Store)
+                .count(),
+            2
+        );
+        cranelift_codegen::verify_function(
+            &function,
+            &cranelift_codegen::settings::Flags::new(cranelift_codegen::settings::builder()),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn scalar_writeback_synchronizes_before_and_after_opaque_calls() {
+        let (mut function, slots, exit, store, branch, _) = fixture(false);
+        let InstructionData::Store { args, .. } = function.dfg.insts[store] else {
+            unreachable!()
+        };
+        let call = insert_call(&mut function, slots, branch);
+        assert!(promote_writeback(&mut function, slots, exit, 1, allocator()).unwrap());
+        let flush = function.layout.prev_inst(call).unwrap();
+        assert!(
+            matches!(function.dfg.insts[flush], InstructionData::Store { args: actual, offset, .. }
+            if actual == args && i32::from(offset) == 8)
+        );
+        let reload = function.layout.next_inst(call).unwrap();
+        assert!(
+            matches!(function.dfg.insts[reload], InstructionData::Load { arg, offset, .. }
+            if arg == slots && i32::from(offset) == 0)
+        );
+        let payload = function.layout.next_inst(reload).unwrap();
+        assert!(
+            matches!(function.dfg.insts[payload], InstructionData::Load { arg, offset, .. }
+            if arg == slots && i32::from(offset) == 8)
+        );
+        let body = function.layout.last_block().unwrap();
+        let ret = function.layout.last_inst(body).unwrap();
+        let flush = function.layout.prev_inst(ret).unwrap();
+        assert!(
+            matches!(function.dfg.insts[flush], InstructionData::Store { args, .. }
+            if args[0] == function.dfg.block_params(body)[1])
+        );
+        cranelift_codegen::verify_function(
+            &function,
+            &cranelift_codegen::settings::Flags::new(cranelift_codegen::settings::builder()),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn scalar_writeback_refuses_unknown_reads_and_traps_without_changes() {
+        for trap in [false, true] {
+            let (mut function, slots, exit, _, branch, _) = fixture(false);
+            let mut cursor = FuncCursor::new(&mut function);
+            cursor.goto_inst(branch);
+            if trap {
+                let zero = cursor.ins().iconst(types::I64, 0);
+                cursor.ins().sdiv(zero, zero);
+            } else {
+                cursor.ins().load(types::I64, MemFlagsData::new(), exit, 8);
+            }
+            let before = function.display().to_string();
+            assert!(!promote_writeback(&mut function, slots, exit, 1, allocator()).unwrap());
             assert_eq!(function.display().to_string(), before);
         }
     }

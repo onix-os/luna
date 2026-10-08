@@ -543,6 +543,8 @@ jit-tags:
 jit-read-cache:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::read_cache::tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::model::tests::cached_scalar_regions_match_the_boundary_model
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::model::tests::writeback_scalar_regions_match_the_boundary_model
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::model::tests::writeback_helpers_match_canonical_execution_at_every_boundary
 
 jit-input:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) numeric_guards
