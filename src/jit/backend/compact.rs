@@ -2,7 +2,7 @@ use super::*;
 use crate::jit::leaf::{Arithmetic, Operand, Pattern};
 use cranelift_codegen::ir::{Function, Signature, UserFuncName};
 
-type CompactEntry = unsafe extern "C" fn(*mut i64, *mut i64, *mut i64, *mut i64);
+type CompactEntry = unsafe extern "C" fn(i64, i64) -> i64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Binding {
@@ -26,8 +26,10 @@ pub(super) struct Code {
 
 pub(in crate::jit) struct Frame<'code> {
     binding: &'code Binding,
-    cells: [i64; 4],
-    indices: [u8; 4],
+    capture: i64,
+    right: i64,
+    read_alias: bool,
+    right_alias: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -40,7 +42,7 @@ pub(in crate::jit) struct Outputs {
 pub(in crate::jit) struct Entry {
     entry: CompactEntry,
     binding: Binding,
-    upper_indices: [u8; 4],
+    upper_aliases: (bool, bool),
 }
 
 impl Binding {
@@ -73,32 +75,26 @@ impl Binding {
 
     pub(super) fn program(self, isa: &dyn cranelift_codegen::isa::TargetIsa) -> Program {
         let mut signature = Signature::new(isa.default_call_conv());
-        signature
-            .params
-            .extend([AbiParam::new(isa.frontend_config().pointer_type()); 4]);
+        signature.params.extend([AbiParam::new(types::I64); 2]);
+        signature.returns.push(AbiParam::new(types::I64));
         let mut function = Function::with_name_signature(UserFuncName::user(0, 0), signature);
         let mut context = FunctionBuilderContext::new();
         let mut b = FunctionBuilder::new(&mut function, &mut context);
         let block = b.create_block();
         b.append_block_params_for_function_params(block);
         b.switch_to_block(block);
-        let [capture, read, right, dest]: [_; 4] = b.block_params(block).try_into().unwrap();
-        let value = b.ins().load(types::I64, MemFlagsData::new(), capture, 0);
-        b.ins().store(MemFlagsData::new(), value, read, 0);
-        let left = b.ins().load(types::I64, MemFlagsData::new(), read, 0);
+        let [left, input_right]: [_; 2] = b.block_params(block).try_into().unwrap();
         let right = match self.constant {
             Some(value) => b.ins().iconst(types::I64, value),
-            None => b.ins().load(types::I64, MemFlagsData::new(), right, 0),
+            None if self.pattern.right == Operand::Register(self.pattern.read) => left,
+            None => input_right,
         };
         let value = match self.pattern.arithmetic {
             Arithmetic::Add => b.ins().iadd(left, right),
             Arithmetic::Sub => b.ins().isub(left, right),
             Arithmetic::Mul => b.ins().imul(left, right),
         };
-        b.ins().store(MemFlagsData::new(), value, dest, 0);
-        let value = b.ins().load(types::I64, MemFlagsData::new(), dest, 0);
-        b.ins().store(MemFlagsData::new(), value, capture, 0);
-        b.ins().return_(&[]);
+        b.ins().return_(&[value]);
         b.seal_all_blocks();
         b.finalize(isa.frontend_config());
         Program {
@@ -119,31 +115,17 @@ impl Binding {
             .map_err(|error| JitError::Compilation(error.to_string()))
     }
 
-    fn indices(&self, capture: Option<usize>) -> [u8; 4] {
+    fn aliases(&self, capture: Option<usize>) -> (bool, bool) {
         let read = usize::from(self.pattern.read.0);
         let result = usize::from(self.pattern.result.0);
         let right = match self.pattern.right {
             Operand::Register(index) => Some(usize::from(index.0)),
             Operand::Constant(_) => None,
         };
-        let read_cell = if capture == Some(read) { 0 } else { 1 };
-        let right_cell = if right.is_some() && right == capture {
-            0
-        } else if right == Some(read) {
-            read_cell
-        } else {
-            2
-        };
-        let result_cell = if capture == Some(result) {
-            0
-        } else if result == read {
-            read_cell
-        } else if right == Some(result) {
-            right_cell
-        } else {
-            3
-        };
-        [0, read_cell, right_cell, result_cell]
+        (
+            read == result || capture == Some(read),
+            right.is_some() && (right == Some(result) || right == capture),
+        )
     }
 
     #[cfg(test)]
@@ -153,31 +135,31 @@ impl Binding {
         capture: Option<usize>,
         upper: i64,
     ) -> Option<Frame<'_>> {
-        self.prepare_indices(registers, capture, upper, self.indices(capture))
+        self.prepare_aliases(registers, capture, upper, self.aliases(capture))
     }
 
-    fn prepare_indices(
+    fn prepare_aliases(
         &self,
         registers: &[crate::Value<'_>],
         capture: Option<usize>,
         upper: i64,
-        indices: [u8; 4],
+        aliases: (bool, bool),
     ) -> Option<Frame<'_>> {
         if registers.len() < self.registers || capture.is_some_and(|index| index >= self.registers)
         {
             return None;
         }
         let p = self.pattern;
-        let mut cells = [0; 4];
+        let mut right_value = 0;
         if let Operand::Register(right) = p.right {
             if right != p.read {
                 let crate::Value::Integer(value) = registers[usize::from(right.0)] else {
                     return None;
                 };
-                cells[usize::from(indices[2])] = value;
+                right_value = value;
             }
         }
-        cells[usize::from(indices[0])] = match capture {
+        let capture_value = match capture {
             Some(index) => match registers[index] {
                 crate::Value::Integer(value) => value,
                 _ => return None,
@@ -186,8 +168,10 @@ impl Binding {
         };
         Some(Frame {
             binding: self,
-            cells,
-            indices,
+            capture: capture_value,
+            right: right_value,
+            read_alias: aliases.0,
+            right_alias: aliases.1,
         })
     }
 }
@@ -200,7 +184,7 @@ impl Entry {
     pub(super) unsafe fn new(binding: Binding, pointer: *const u8) -> Self {
         Self {
             binding,
-            upper_indices: binding.indices(None),
+            upper_aliases: binding.aliases(None),
             entry: unsafe { std::mem::transmute::<*const u8, CompactEntry>(pointer) },
         }
     }
@@ -211,13 +195,13 @@ impl Entry {
         capture: Option<usize>,
         upper: i64,
     ) -> Option<Frame<'_>> {
-        let indices = if capture.is_none() {
-            self.upper_indices
+        let aliases = if capture.is_none() {
+            self.upper_aliases
         } else {
-            self.binding.indices(capture)
+            self.binding.aliases(capture)
         };
         self.binding
-            .prepare_indices(registers, capture, upper, indices)
+            .prepare_aliases(registers, capture, upper, aliases)
     }
 
     pub(in crate::jit) fn invoke(&self, frame: &mut Frame<'_>) -> Result<Outputs, JitError> {
@@ -230,23 +214,19 @@ fn invoke(
     binding: &Binding,
     frame: &mut Frame<'_>,
 ) -> Result<Outputs, JitError> {
-    if !std::ptr::eq(frame.binding, binding) || frame.indices.iter().any(|&index| index >= 4) {
+    if !std::ptr::eq(frame.binding, binding) {
         return Err(JitError::Compilation("compact invocation binding".into()));
     }
-    let base = frame.cells.as_mut_ptr();
-    let [capture, read, right, dest] = frame.indices.map(usize::from);
-    unsafe {
-        (entry)(
-            base.add(capture),
-            base.add(read),
-            base.add(right),
-            base.add(dest),
-        )
-    };
+    let capture = frame.capture;
+    let result = unsafe { (entry)(capture, frame.right) };
+    frame.capture = result;
+    if frame.right_alias {
+        frame.right = result;
+    }
     Ok(Outputs {
-        capture: frame.cells[capture],
-        read: frame.cells[read],
-        result: frame.cells[dest],
+        capture: result,
+        read: if frame.read_alias { result } else { capture },
+        result,
     })
 }
 
