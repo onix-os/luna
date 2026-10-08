@@ -11,6 +11,56 @@
 
 ### Progress snapshot — 2026-10-08
 
+#### Native float-arm trials — rejected; arithmetic coverage retained
+
+Tested a freshly guarded Number/Number arithmetic arm that avoids the mixed
+path's eager integer conversions. The verifier required exact Number tags,
+source payloads, bitcast flags/types and explicit input records. Corrupted
+guards, markers and payloads were rejected before code generation/mapping.
+The trial passed **1,982 test executions / 196 suites**, zero failures and ten
+existing ignores, including baseline, all-feature Auto and documentation tests.
+
+Two full comparisons retained **72 commands / 1,080 reported rows**, all nine
+cases, CPUs 0/16, alternating windows and both feature-cost profiles. Float
+throughput improved roughly **1.7–2.6%**, but CPU16 integer throughput fell
+roughly **10% in both comparisons**. CPU0 table/upvalue losses also repeated.
+Cost-case failures rose **23 → 34**, then **28 → 30**, per 108 checks/variant.
+All aggregate commands failed unchanged gates. No-feature binaries were
+byte-identical to controls. Only snapshot peak accounting changed among
+216 paired non-timing row comparisons; logical/native counters matched.
+
+Disassembly exposed added register shuffling in the integer loop. A second
+trial short-circuited the Number guards instead of materializing both boolean
+predicates. Two native-only screens retained another **24 commands / 648
+rows**. The initial CPU16 integer ratio improved to **0.994068**, but repeated
+integer/predicate and other losses still outweighed small float gains. CPU0
+repeat timings nearly doubled for both variants; contention remains visible
+and no measurements were discarded. No feature-cost acceptance is claimed
+for this follow-up. Neither production optimization is retained.
+
+A third, independent trial short-circuited the existing Integer/Integer guard
+on the original two-arm runtime, without extra Number arms or verifier changes.
+Two native screens retained **24 commands / 648 rows**. CPU0 integer improved
+**1.058025 / 1.055792**, but CPU16 integer fell **0.943375 / 0.936859** and
+float fell **0.967294 / 0.957932**. It too was rejected; fewer materialized
+booleans did not make extra conditional branches universally cheaper. Evidence
+uses `short-integer-guard-*`; no feature-cost acceptance is claimed for it.
+
+`e2bf323` retains **185,856** generated arithmetic/model comparisons covering
+all four operators, mixed numeric and invalid scalar values, special floats,
+integer extremes, constant/register operands, destination aliasing, both entry
+PCs and four budgets. Non-NaNs compare by exact bits; NaNs by category.
+Evidence and rejected patches use `native-float-arm-*` / `short-float-arm-*`
+under `target/jit-evidence/short-slice-performance/`. Owned builds, tests and
+profiles did not overlap timing runs. Performance acceptance remains open.
+
+The restored runtime plus retained tests passes **1,770 executions / 172
+suites**, zero failures and ten existing ignores, in baseline/all-feature Auto
+and documentation checks, plus **27 focused executions** including native
+disassembly. All three rejected runtime patches are preserved separately.
+Five freshly rebuilt restored benchmark images (native and speed/shipping
+no-feature/compiled-Off) are byte-identical to the retained lazy-limit controls.
+
 #### Exact ordering trials — rejected; profiling corrected
 
 The broad trial added direct primitive less-than/less-equal paths and removed
