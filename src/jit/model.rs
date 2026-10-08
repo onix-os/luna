@@ -324,6 +324,112 @@ mod tests {
     }
 
     #[test]
+    fn mixed_numeric_arithmetic_matches_at_every_entry_budget_and_alias() {
+        use crate::types::{ConstantIndex8 as C, RegisterIndex as R, VarCount};
+        let values = [
+            Constant::Integer(i64::MIN),
+            Constant::Integer(i64::MIN + 1),
+            Constant::Integer(-9_007_199_254_740_993),
+            Constant::Integer(-1),
+            Constant::Integer(0),
+            Constant::Integer(1),
+            Constant::Integer(9_007_199_254_740_993),
+            Constant::Integer(i64::MAX),
+            Constant::Number(f64::NEG_INFINITY),
+            Constant::Number(-9_223_372_036_854_775_808.0),
+            Constant::Number(-1.5),
+            Constant::Number(-f64::from_bits(1)),
+            Constant::Number(-0.0),
+            Constant::Number(0.0),
+            Constant::Number(f64::from_bits(1)),
+            Constant::Number(1.5),
+            Constant::Number(9_223_372_036_854_775_808.0),
+            Constant::Number(f64::INFINITY),
+            Constant::Number(f64::NAN),
+            Constant::Number(f64::from_bits(0xfff8_0000_0000_0001)),
+            Constant::Nil,
+            Constant::Boolean(true),
+        ]
+        .map(slot);
+        for kind in 0..4 {
+            for dest in [R(0), R(1), R(2)] {
+                for layout in 0..4 {
+                    let left = if layout & 1 == 0 {
+                        RCIndex::Register(R(0))
+                    } else {
+                        RCIndex::Constant(C(0))
+                    };
+                    let right = if layout & 2 == 0 {
+                        RCIndex::Register(R(1))
+                    } else {
+                        RCIndex::Constant(C(1))
+                    };
+                    let op = match kind {
+                        0 => Operation::Add { dest, left, right },
+                        1 => Operation::Sub { dest, left, right },
+                        2 => Operation::Mul { dest, left, right },
+                        _ => Operation::Div { dest, left, right },
+                    };
+                    let snapshot = Snapshot {
+                        operations: super::super::resources::owned(&[
+                            op,
+                            Operation::Return {
+                                start: dest,
+                                count: VarCount::constant(1),
+                            },
+                        ]),
+                        constants: super::super::resources::owned(&[
+                            slot(Constant::Integer(i64::MAX)),
+                            slot(Constant::Number(-0.0)),
+                        ]),
+                        registers: 3,
+                        upvalues: 0,
+                        prototypes: 0,
+                    };
+                    snapshot.verify().unwrap();
+                    let memory =
+                        MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
+                    let code =
+                        super::super::backend::compile(&snapshot, memory.clone(), 8 * 1024 * 1024)
+                            .unwrap();
+                    for a in values {
+                        for b in values {
+                            for pc in 0..2 {
+                                for budget in [0, 1, 2, 64] {
+                                    let mut expected = [
+                                        a,
+                                        b,
+                                        Slot {
+                                            tag: abi::REFERENCE,
+                                            bits: 0x1234,
+                                        },
+                                    ];
+                                    let mut actual = expected;
+                                    let reference = run(&snapshot, &mut expected, pc, budget);
+                                    let exit = code.invoke(&mut actual, pc, budget);
+                                    assert_eq!((exit.pc, exit.instructions, exit.reason), (reference.pc, reference.instructions, reference.reason), "kind={kind} dest={dest:?} layout={layout} pc={pc} budget={budget} a={a:?} b={b:?}");
+                                    for (actual, expected) in actual.iter().zip(expected) {
+                                        assert_eq!(actual.tag, expected.tag);
+                                        if actual.tag == abi::NUMBER
+                                            && f64::from_bits(expected.bits).is_nan()
+                                        {
+                                            assert!(f64::from_bits(actual.bits).is_nan());
+                                        } else {
+                                            assert_eq!(actual.bits, expected.bits);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    drop(code);
+                    assert_eq!(memory.load(Ordering::Relaxed), 0);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn mixed_numeric_loop_limits_match_at_every_entry_and_budget() {
         use crate::types::{RegisterIndex as R, VarCount};
         let values = [
