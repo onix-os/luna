@@ -9,7 +9,235 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Progress snapshot — 2026-10-07
+### Progress snapshot — 2026-10-08
+
+#### Shipping operand resolution — retained development WIP
+
+`96367b2` inlines the existing register/constant operand resolver in JIT-enabled
+builds. Its indexing, bounds checks, values and arithmetic/coercion paths do not
+change. The no-feature inlining policy is unchanged; speed and shipping
+no-feature `.text` sections are byte-identical to the immediate controls.
+There is no workload-specific branch, reduced native coverage or relaxed gate.
+
+Exact shipping binaries from before and after unified dispatch were first
+reconstructed byte-identically to their frozen controls. The unified version
+already executes fewer instructions despite its timing regression, so increased
+instruction count is not the explanation. Its small `get_rc` function still
+accounts for 2,400,000 integer and 3,100,155 float instructions, plus call-site
+work. Inlining reduces whole-executor JIT-Off integer work **28,040,675 →
+26,240,715** (6.42%) and float **34,842,775 → 32,842,795** (5.74%). No-feature
+instruction totals remain unchanged. Symbol companions match timing images'
+allocated bytes and program headers; hardware latency attribution is unproven.
+
+The initial unconditional attribute was refined rather than shipped. Although
+all its shipping numeric cost checks passed, CPU16 no-feature float consistently
+slowed (direct ratios 0.9444/0.9442). Those apparent clean passes partly used a
+slower reference. Restricting the attribute to `feature = "jit"` restores the
+original reference code; JIT cost and native benchmark images are byte-identical
+to the broad trial. Both versions' complete measurements remain available.
+
+Two final comparisons cover all nine native cases, both disabled profiles,
+CPU0/16, three alternating windows and eleven paired samples. All **72 aggregate
+commands / 1,080 reported rows** still fail. Every native execution/resource
+counter matches across all twelve control/candidate comparisons. CPU16 shipping
+control/candidate ratios against unified dispatch are:
+
+| Case | Initial | Repeat | Remaining candidate/no-feature cost |
+| --- | --- | --- | --- |
+| Integer | 1.1251 | 1.1223 | 0.9868 / 0.9899; all six checks pass |
+| Float | 1.1045 | 1.1029 | **1.0705 / 1.0859; all six checks fail** |
+| Table | 1.0841 | 1.0752 | 0.9661 / 0.9665 |
+| Allocation/GC | 1.0301 | 1.0320 | 0.9736 / 0.9689 |
+| Predicate | 1.0385 | 1.0411 | 1.0309 / 1.0236; all six checks pass |
+
+Initial CPU0 timings vary severely; retain every sample without attributing
+large apparent gains to the change. Its repeat shipping integer/float direct
+ratios are 1.4021/1.2290, with nearly unchanged no-feature medians. Disabled-case
+failures fall **42 → 30**, then **38 → 23**, across 108 checks per variant in
+each comparison. Shipping upvalue and callbacks still fail. Unfavorable direct
+results remain: shipping CPU16 upvalue 0.9976/0.9917, speed CPU16 float
+0.9850/0.9906, and native-harness CPU0 Off allocation 0.9772/0.9786. Other native
+timings are mixed; unchanged counters do not imply native performance acceptance.
+
+A supplemental full nine-case shipping comparison directly uses the older
+pre-regression scoped-reference-Move control, not just the slower immediate
+control. CPU16 float improves **1.0468**, integer **1.1705**, and predicate
+**1.0048**. This confirms recovery of the observed shipping float timing loss
+in that comparison, not completion of its 5% feature-cost gate: float overhead
+still measures **1.0813**. All twelve supplemental aggregate commands fail;
+all 108 case results, including CPU0 cold's 0.9878 direct ratio, remain recorded.
+
+Final focused checks pass **140 executions / 12 suites**, two ignored; baseline,
+all-feature Auto and docs pass **1,752 / 172**, ten ignored. No owned builds,
+tests or profiles overlap frozen timings; unrelated jobs continue running.
+Source/artifact hashes verify, and invocation aliases are removed. Evidence is
+under `target/jit-evidence/short-slice-performance/jit-inline-rc-*`; the broad
+trial is `inline-rc-*`, and exact historical/current shipping reconstructions
+are `rooted-shipping-profile/` and `unified-shipping-profile/`. Native upvalue,
+remaining disabled costs, resource policy and full platform/release gates stay
+open. The broad annotation's passing numeric ratios are not final acceptance.
+
+#### Unified hook/native dispatch — retained development WIP
+
+The VM now selects hooked, observing, compiled or plain interpretation once
+per slice. Hook dispatch is part of that state rather than a second hot-loop
+check. Native execution and hooks retain their existing bodies, with one
+interpreter loop, independent test-only resume/mock handling and unchanged
+fuel, source admission, physical transitions, statistics and code ownership.
+Plain no-feature interpretation uses the same two hook states. Both speed and
+shipping no-feature `.text` sections remain byte-identical to the controls;
+full-file hashes differ and are retained with their own matched controls.
+
+Exact speed-image profiles identify a structural reduction: whole-executor
+integer instructions fall **22,843,840 → 21,903,015** (4.12%); float falls
+**30,245,910 → 29,504,975** (2.45%). VM self-work accounts for the reductions.
+The symbol companions match allocated bytes and program headers of the actual
+timing images. These instruction counts do not establish hardware speedups.
+
+Two complete comparisons use all nine native cases and both disabled-cost
+profiles, three alternating windows on CPU0/16 and eleven paired samples.
+All **72 aggregate commands / 1,080 reported rows** remain failed; this is
+development progress, not full performance or release acceptance. Every native
+execution/resource counter matches the control in all twelve comparisons.
+Direct control/candidate ratios above one mean faster:
+
+| Disabled-cost case | CPU | Initial ratio | Repeat ratio |
+| --- | --- | --- | --- |
+| Speed integer | 0 | 1.0295 | 1.0443 |
+| Speed float | 0 | 1.1531 | 1.1141 |
+| Speed integer | 16 | 1.0825 | 1.0906 |
+| Speed float | 16 | 1.0895 | 1.0577 |
+| Speed upvalue | 16 | 1.0386 | 1.0311 |
+| Shipping integer | 16 | 1.0470 | 1.0280 |
+| Shipping upvalue | 16 | 1.0510 | 1.0398 |
+| Shipping float | 16 | **0.9423** | **0.9413** |
+| Shipping predicate | 16 | **0.9639** | **0.9703** |
+
+**Unresolved regressions remain explicit.** Shipping CPU16 float loses about
+6% and predicate about 3–4%; both repeat. Native CPU16 upvalue ratios are
+0.9864 and 0.9930. CPU0's first comparison has severe timing variation,
+including unfavorable near-twofold native and shipping timings; those samples
+are retained, not excluded as noise. Its repeat speed-upvalue ratio improves
+to 1.0457 from 0.9573, so no repeated CPU0 upvalue win is claimed. Existing
+upvalue/native, disabled callback and shipping-cost gates still fail. Aggregate
+disabled-case failures decrease from **53 to 40**, then **62 to 38**, across
+108 checks per variant per comparison, but this does not approve the new losses.
+
+Focused GNU checks pass **110 executions / 11 suites**, two ignored; baseline,
+all-feature Auto and docs pass **1,752 / 172**, ten ignored. Two dispatch model
+tests pass Miri with 21 warnings. No owned builds/tests/profiles overlap timing;
+unrelated applications remain running, telemetry and unfavorable results are
+retained, source/artifact hashes verify, and all invocation aliases are removed.
+
+The first candidate used an extra outer activity flag instead of a hook state.
+It passed 1,859 focused/full executions and reduced speed numeric instructions
+by about 281,000, but its full 36-command screen mixed disabled gains with
+native callback and speed-upvalue regressions. Its code was replaced by the
+unified state, not shipped as a second dispatch layer. Evidence for both designs
+is under `target/jit-evidence/short-slice-performance/dispatch-fast-path-*`
+and `unified-dispatch-*`. Next inspect the actual shipping float/predicate
+executables; do not treat speed-profile wins as shipping acceptance.
+
+#### Packed reference-prefix snapshot — rejected
+
+Packing only reference values into a private active prefix passed 71 focused
+executions and five Miri model tests, but increased exact native upvalue work
+from **265,823,119 to 267,498,369** instructions. Initial upvalue direct ratios
+were 0.9904/0.9939 on CPU0/16; repeat ratios were 1.0163/1.0165. CPU16 native
+array and CPU0 compiled-Off float regressed in both complete comparisons.
+All 24 aggregate commands / 648 rows failed, with native/resource counters
+unchanged. The production trial was removed; the retained root-rebinding and
+density regression test is committed separately as `88795dc`. Restored checks
+pass 70 executions / seven suites. Full trial patches and measurements remain
+under `packed-roots-*`; the scoped reference Move implementation below remains
+the authoritative native backend.
+
+#### Scoped reference-index moves — retained development WIP
+
+`4de2044` removes Rust helper crossings for reference Moves in source-certified
+native callers. Generated code copies tag/index pairs referring to a bounded
+typed snapshot, never GC pointers or Rust enum layouts. The snapshot stays inside the
+activation's arena mutation and is rebuilt after canonical transitions. Callers
+with reference constants or other native helpers keep their original backend;
+no native workload is disabled. Physical Call/Return, fresh admission guards,
+full materialization, fuel and panic transport remain.
+
+Transfer verification checks exact source/payload/destination, continuation and
+instruction count; helper verification rejects any generated call in this mode.
+Tests cover closure copies after overwriting their original slot, every value
+kind and register boundaries, malformed indices/tags, every native entry/budget,
+and corrupt source/destination/payload/ownership/continuation rejection.
+
+Two frozen nine-case comparisons, three alternating windows on CPU0/16 and
+eleven paired samples, show repeated upvalue control/candidate throughput ratios
+**1.0856/1.0300**, then **1.0689/1.0385**. Exact-image work falls from 276,871,067
+to 265,823,119 instructions (3.99%). Logical native work remains **778,484**;
+helper-backed work falls from **134,406 to 5,132**. Only live/peak owner metadata
+changes, by eight bytes, among the other reported counters. Mappings remain
+28,672 bytes. This is structural progress, not full performance acceptance.
+
+**Tradeoffs remain unresolved.** Native-harness CPU0 compiled-Off integer and
+callback timings regress on repeat (ratios 0.9079/0.8875). A separate full
+speed/shipping cost comparison reports CPU0 speed float 0.9574, CPU0 shipping
+integer 0.9734 and CPU16 shipping upvalue 0.9856. Both no-feature images are
+byte-identical to their controls. All **48 aggregate commands / 864 rows** fail
+the unchanged gates. The native upvalue Off/Auto ratio is still about 0.77–0.83,
+below 1.25. Keeping the development candidate is not approval of these
+regressions or permission to release it; disabled cost and the remaining native
+gap stay on the active work list.
+
+GNU rooted/baseline/all-feature-Auto/doc checks pass **1,755 executions in 174
+suites**, ten ignored, zero failures. Three pure snapshot Miri tests pass with
+21 warnings. Four native Memcheck checks pass with zero errors and zero definite/
+indirect leaks; 48 possibly lost and 632 reachable harness bytes remain visible.
+Initial test-only equality/GC-lifetime compilation errors are retained alongside
+their corrected runs. A final optimized rebuild after test additions is
+byte-identical to the frozen candidate image.
+
+Evidence is under `target/jit-evidence/short-slice-performance/rooted-moves*`:
+source patches/hashes, exact-image profiles, all raw windows, counter changes,
+contention telemetry and checks. No owned tests/builds/profiles overlapped
+timing; all invocation aliases are removed. Full performance, shipping-cost,
+platform/release and compiler-resource-policy acceptance remain open.
+
+#### Same-Call compact input reuse — measured and rejected
+
+The trial prepared compact integer cells during fresh call admission when the
+capture was strictly below the Call's function/argument tail. Physical Call
+cannot modify that prefix; argument-tail aliases retained post-Call preparation.
+The scoped payload held values and a stack index, not a relocatable stack pointer
+or cross-call binding cache. Actual frames, fresh callee checks, fuel, native
+work, writeback, Return and panic transport remained unchanged.
+
+The expanded compact alias matrix and integrated constant/vararg/argument-shift
+tests passed. Focused checks passed 117 executions, two ignored; the integrated
+eligibility test also passed Memcheck with zero errors and zero definite or
+indirect leaks (48 possibly lost and 632 reachable harness bytes retained).
+Exact-image profiling reduced upvalue work from 276,871,067 to 275,423,028
+instructions (0.52%), but increased data reads and writes.
+
+Two complete native comparisons used all nine cases, three alternating windows
+on CPU0/16 and eleven paired samples: 24 commands, 648 rows, all aggregate gates
+failed. Initial upvalue control/candidate ratios were 1.0358/0.9451; repeat ratios
+were 1.0433/1.0077. CPU0 compiled-Off integer regressed consistently
+(0.8643, then 0.8575), as did native array (0.9710, then 0.9752).
+The modest CPU0 upvalue improvement does not justify these regressions.
+No speed/shipping cost build or performance acceptance is claimed.
+
+The runtime changes are removed; an admission-versus-canonical differential for
+shifted capture arguments, vararg rotation and constant operands remains.
+Candidate patches, frozen images, exact-image profiles, raw results, source/
+artifact hashes and contention telemetry are under
+`target/jit-evidence/short-slice-performance/precall-inputs*`.
+Native counters match every control. No owned builds, tests or profiles
+overlapped timing. This input-transport mechanism should not be repeated without
+new evidence; it does not remove the dominant per-call execution-boundary cost.
+
+Restored formatting/all-feature checks and 62 focused executions pass, two
+ignored. GNU baseline/all-feature-Auto/documentation validation passes 1,742
+executions across 172 suites, ten ignored, zero failures. Production runtime
+source is unchanged from `a3f6173`; the retained differential is test-only.
+Full performance, shipping-cost, platform and resource-policy gates remain open.
 
 #### Combined materialization/admission — measured and reverted
 

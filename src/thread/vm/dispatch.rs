@@ -1,17 +1,33 @@
+#[cfg(feature = "jit")]
 use crate::jit::Prepared;
 
 pub(super) enum Dispatch {
     Interpreted,
+    Hooked,
+    #[cfg(feature = "jit")]
     Observing(u64),
+    #[cfg(feature = "jit")]
     Compiled(Prepared),
 }
 
 impl Dispatch {
-    pub(super) fn new(source: Option<u64>, code: Option<Prepared>) -> Self {
+    pub(super) fn interpreted(hook_enabled: bool) -> Self {
+        if hook_enabled {
+            Self::Hooked
+        } else {
+            Self::Interpreted
+        }
+    }
+
+    #[cfg(feature = "jit")]
+    pub(super) fn new(source: Option<u64>, code: Option<Prepared>, hook_enabled: bool) -> Self {
+        if hook_enabled {
+            return Self::Hooked;
+        }
         match (code, source) {
             (Some(code), _) => Self::Compiled(code),
             (None, Some(source)) => Self::Observing(source),
-            (None, None) => Self::Interpreted,
+            (None, None) => Self::interpreted(false),
         }
     }
 }
@@ -21,17 +37,36 @@ mod tests {
     use super::Dispatch;
 
     #[test]
+    fn hook_choice_preserves_plain_interpreter_dispatch() {
+        assert!(matches!(
+            Dispatch::interpreted(false),
+            Dispatch::Interpreted
+        ));
+        assert!(matches!(Dispatch::interpreted(true), Dispatch::Hooked));
+    }
+
+    #[cfg(feature = "jit")]
+    #[test]
     fn absent_code_preserves_source_observation_choice() {
-        assert!(matches!(Dispatch::new(None, None), Dispatch::Interpreted));
+        assert!(matches!(
+            Dispatch::new(None, None, false),
+            Dispatch::Interpreted
+        ));
+        assert!(matches!(Dispatch::new(None, None, true), Dispatch::Hooked));
         for source in [0, 1, u64::MAX] {
             assert!(matches!(
-                Dispatch::new(Some(source), None),
+                Dispatch::new(Some(source), None, false),
                 Dispatch::Observing(found) if found == source
+            ));
+            assert!(matches!(
+                Dispatch::new(Some(source), None, true),
+                Dispatch::Hooked
             ));
         }
     }
 
     #[cfg(all(
+        feature = "jit",
         not(miri),
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
@@ -68,7 +103,7 @@ mod tests {
                 1 => Some(source),
                 _ => Some(u64::MAX),
             };
-            let dispatch = Dispatch::new(source, Some(code));
+            let dispatch = Dispatch::new(source, Some(code), false);
             assert!(matches!(&dispatch, Dispatch::Compiled(_)));
             let after = lua.jit_stats();
             assert_eq!(

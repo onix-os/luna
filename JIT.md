@@ -11,6 +11,23 @@ region execution; `make jit-regions` tests the non-test library with `jit` and
 `jit,async`, including interrupted fuel traces, GC, callbacks and unwind.
 This is implementation progress, **not performance or release acceptance**.
 
+The 2026-10-08 operand refinement (`96367b2`) inlines register/constant lookup
+only in JIT-enabled builds, preserving the original no-feature machine code.
+Repeated shipping CPU16 comparisons improve integer throughput about 12%,
+float about 10% and predicate about 4% against the preceding dispatch version.
+A direct comparison also recovers the earlier shipping float timing loss.
+Float feature overhead nevertheless remains about 7–9%, above the 5% limit;
+upvalue, callback and other acceptance gaps remain. See `PLAN_JIT.md` for the
+complete comparisons, rejected broad annotation and unfavorable results.
+
+The preceding dispatch refinement (`ecb7180`) combines hook and native selection
+into one per-slice state. Repeated speed-profile disabled integer/float timings
+improve, with unchanged native-work counters and passing correctness checks.
+At that checkpoint shipping CPU16 float regressed about 6%, and predicate about 3–4%;
+native upvalue and other cost gates remain open. This is retained development
+WIP, not approval of those tradeoffs. `PLAN_JIT.md` records both complete
+comparisons, exact-image profiles and all unfavorable samples.
+
 ### Earlier experiments
 
 The same-program Session reuse (`06040e9`) and isolated activation-entry
@@ -476,6 +493,25 @@ The backend is compiled for Linux x86-64/aarch64. Executed integration evidence 
 12. Mapping handoff uses a metadata-charged AtomicShared mutex slot. Taking empties the slot once; subsequent adapter allocation/finalization refuses, and adapter free/drop cannot release the detached image. All executable/read-only/writable segments and their quota reservations move together without copying addresses or code. Cached Code owns Memory directly; final lease destruction drops mappings before quota release. Poisoned mutex recovery retains the initialized owner rather than leaking it. The pinned JITModule has no Drop implementation or external unwind registration that must survive finalization; Luna does not permit unwinding through generated frames.
 
 ## Verification and remaining work
+
+### Scoped reference-index caller moves (development WIP)
+
+Eligible native-region callers move references by copying bounded indices into
+a typed `Value` snapshot. Generated code never reads that snapshot or stores GC
+pointers. The snapshot lives only within the activation's arena mutation and is
+refreshed after each canonical transition. Before fallback or a physical Call,
+all slots are materialized through the snapshot. Existing fresh admission,
+physical-frame, fuel, lease and panic checks remain.
+
+Source admission excludes reference constants and every native helper other
+than Move; ineligible callers retain their original native/helper backend.
+Independent transfer verification binds tag/payload loads, stores, continuation
+and instruction count to the source. Helper verification requires no generated
+calls in this mode. `make jit-rooted-moves` checks the snapshot model and actual
+generated code; `make jit-rooted-moves-miri` checks the pure Rust snapshot model.
+Native-region differentials exercise physical transitions and overwritten
+closure-source slots. This candidate improves measured upvalue timing but still
+fails full performance and disabled-cost gates; see `PLAN_JIT.md`.
 
 Current-frame alias repair (`710dd33`) passes full GNU/musl
 `nix develop -c make jit-verify clippy jit-clippy`: each reports 4941 passing

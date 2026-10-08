@@ -108,7 +108,7 @@ impl Request {
         {
             return Err(JitError::ResourceLimit("connected region IR"));
         }
-        let caller = scoped_helpers::Code::compile(
+        let caller = scoped_helpers::Code::compile_region(
             &self.snapshot,
             self.source,
             self.memory.clone(),

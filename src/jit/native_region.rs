@@ -96,6 +96,7 @@ impl Region {
         let caller = self.caller.bind(ctx, closure)?;
         let width = self.caller.registers();
         let mut storage = [MaybeUninit::<abi::Slot>::uninit(); 256];
+        let mut root_storage = [MaybeUninit::<crate::Value>::uninit(); 256];
         if width > storage.len() {
             return None;
         }
@@ -103,17 +104,28 @@ impl Region {
             if registers.stack_frame.len() < width {
                 return None;
             }
-            for (dest, value) in storage[..width]
+            for (index, (dest, value)) in storage[..width]
                 .iter_mut()
                 .zip(registers.stack_frame.iter().copied())
+                .enumerate()
             {
-                dest.write(abi::Slot::from_value(value));
+                let slot = dest.write(abi::Slot::from_value(value));
+                if self.caller.rooted_moves() {
+                    root_storage[index].write(value);
+                    if slot.tag == abi::REFERENCE {
+                        slot.bits = index as u64;
+                    }
+                }
             }
             Some(())
         })?;
         let slots = unsafe {
             std::slice::from_raw_parts_mut(storage.as_mut_ptr().cast::<abi::Slot>(), width)
         };
+        let roots = self.caller.rooted_moves().then(|| {
+            // The complete root prefix is initialized with the slot prefix above.
+            unsafe { std::slice::from_raw_parts_mut(root_storage.as_mut_ptr().cast(), width) }
+        });
         let identity = host.frame_identity();
         let mut frame = scoped_helpers::Frame::new(ctx, host);
         let pc = caller.prepare(&mut frame, slots)?;
@@ -128,6 +140,7 @@ impl Region {
             admitted,
             frame,
             slots,
+            roots,
             host: abi::Host {
                 data: std::ptr::null_mut(),
                 projection: std::ptr::null_mut(),
@@ -202,6 +215,7 @@ struct Session<'gc, 'host, 'borrow, 'region> {
     admitted: super::canonical::admission::Admitted<'region, 'gc>,
     frame: scoped_helpers::Frame<'gc, 'host, 'borrow>,
     slots: &'borrow mut [abi::Slot],
+    roots: Option<&'borrow mut [crate::Value<'gc>]>,
     host: abi::Host,
     identity: (usize, usize),
     limit: usize,
@@ -273,8 +287,16 @@ impl Session<'_, '_, '_, '_> {
         self.outcome.fragments += 1;
         let transition = self.frame.host.with_registers(|closure, registers| {
             assert_eq!(closure, self.admitted.caller());
-            for (slot, value) in self.slots.iter().zip(registers.stack_frame.iter_mut()) {
-                slot.write_back(value);
+            if let Some(roots) = self.roots.as_deref() {
+                assert!(abi::roots::materialize(
+                    roots,
+                    self.slots,
+                    registers.stack_frame
+                ));
+            } else {
+                for (slot, value) in self.slots.iter().zip(registers.stack_frame.iter_mut()) {
+                    slot.write_back(value);
+                }
             }
             if self.frame.panic.is_none() {
                 *registers.pc = view.exit.pc as usize;
@@ -338,12 +360,20 @@ impl Session<'_, '_, '_, '_> {
             {
                 return None;
             }
-            for (slot, value) in self
-                .slots
-                .iter_mut()
-                .zip(registers.stack_frame.iter().copied())
-            {
-                *slot = abi::Slot::from_value(value);
+            if let Some(roots) = self.roots.as_deref_mut() {
+                assert!(abi::roots::capture(
+                    roots,
+                    self.slots,
+                    registers.stack_frame
+                ));
+            } else {
+                for (slot, value) in self
+                    .slots
+                    .iter_mut()
+                    .zip(registers.stack_frame.iter().copied())
+                {
+                    *slot = abi::Slot::from_value(value);
+                }
             }
             Some(*registers.pc)
         });

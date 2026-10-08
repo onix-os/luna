@@ -20,6 +20,7 @@ pub(super) struct Calls {
     records: Vec<Record, BudgetAllocator>,
     expected: Option<usize>,
     overflowed: bool,
+    rooted_moves: bool,
 }
 
 pub(super) struct Boundary<'a> {
@@ -102,6 +103,19 @@ impl Calls {
             records,
             expected: Some(count),
             overflowed: false,
+            rooted_moves: false,
+        })
+    }
+
+    pub fn rooted(snapshot: &Snapshot) -> Result<Self, JitError> {
+        if !rooted_moves_admitted(snapshot) {
+            return Err(invalid());
+        }
+        Ok(Self {
+            records: Vec::new_in(snapshot.operations.allocator().clone()),
+            expected: Some(0),
+            overflowed: false,
+            rooted_moves: true,
         })
     }
 
@@ -111,6 +125,7 @@ impl Calls {
             records: Vec::new_in(allocator),
             expected: None,
             overflowed: false,
+            rooted_moves: false,
         }
     }
 
@@ -343,7 +358,8 @@ impl Calls {
         snapshot: &Snapshot,
         boundary: Boundary<'_>,
     ) -> Result<(), JitError> {
-        if self.overflowed
+        if (self.rooted_moves && !rooted_moves_admitted(snapshot))
+            || self.overflowed
             || self
                 .expected
                 .is_some_and(|count| count != self.records.len())
@@ -381,6 +397,9 @@ impl Calls {
         };
         let mut records = self.records.iter();
         for (pc, &op) in snapshot.operations.iter().enumerate() {
+            if self.rooted_moves && matches!(op, Operation::Move { .. }) {
+                continue;
+            }
             let Some((kind, operands)) = expected(op, snapshot) else {
                 continue;
             };
@@ -521,6 +540,14 @@ impl Calls {
         }
         Ok(())
     }
+}
+
+pub(super) fn rooted_moves_admitted(snapshot: &Snapshot) -> bool {
+    snapshot.verify().is_ok()
+        && snapshot
+            .operations
+            .iter()
+            .all(|&op| expected(op, snapshot).is_none_or(|(kind, _)| kind == abi::HELPER_MOVE))
 }
 
 fn expected(op: Operation, snapshot: &Snapshot) -> Option<(u32, [u32; 3])> {
