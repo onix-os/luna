@@ -201,12 +201,32 @@ impl<'a> Scan<'a> {
     }
 
     fn load(&mut self, pointer: Value, offset: i32) -> Result<Value, JitError> {
-        let inst = self.take(Opcode::Load, &[types::I64])?;
+        self.typed_load(pointer, offset, types::I64)
+    }
+
+    fn typed_load(&mut self, pointer: Value, offset: i32, ty: Type) -> Result<Value, JitError> {
+        let inst = self.take(Opcode::Load, &[ty])?;
         require(
             matches!(self.function.dfg.insts[inst], InstructionData::Load { arg, offset: actual, flags, .. }
             if arg == pointer && i32::from(actual) == offset && self.function.dfg.mem_flags[flags] == MemFlagsData::new()),
         )?;
         Ok(self.function.dfg.first_result(inst))
+    }
+
+    fn number(&mut self, bits: u64) -> Result<Value, JitError> {
+        let inst = self.take(Opcode::F64const, &[types::F64])?;
+        require(
+            matches!(self.function.dfg.insts[inst], InstructionData::UnaryIeee64 { imm, .. } if imm.bits() == bits),
+        )?;
+        Ok(self.function.dfg.first_result(inst))
+    }
+
+    fn numeric_constant(&mut self, slot: abi::Slot) -> Result<Value, JitError> {
+        if slot.tag == abi::NUMBER {
+            self.number(slot.bits)
+        } else {
+            self.constant(types::I64, slot.bits as i64)
+        }
     }
 
     fn store(&mut self, pointer: Value, offset: i32, value: Value) -> Result<(), JitError> {
@@ -260,36 +280,35 @@ fn masks(source: &Snapshot, region: &Region) -> Result<(u16, u16), JitError> {
     )?;
     let mut used = (1 << base.0) | (1 << (base.0 + 1)) | (1 << (base.0 + 2)) | (1 << (base.0 + 3));
     let mut written = (1 << base.0) | (1 << (base.0 + 3));
+    require(p.numbers & used == 0 && p.numbers & !p.used == 0)?;
+    let constant_type = |index: usize| -> Result<bool, JitError> {
+        match source.constants[index].tag {
+            abi::INTEGER => Ok(false),
+            abi::NUMBER => Ok(true),
+            _ => Err(invalid()),
+        }
+    };
     for op in source.operations[p.start..p.end].iter().copied() {
-        let mut input = |operand: RCIndex| -> Result<(), JitError> {
+        let mut input = |operand: RCIndex| -> Result<bool, JitError> {
             match operand {
                 RCIndex::Register(index) => {
                     used |= 1 << index.0;
-                    Ok(())
+                    Ok(p.numbers & (1 << index.0) != 0)
                 }
-                RCIndex::Constant(index) => {
-                    require(source.constants[usize::from(index.0)].tag == abi::INTEGER)
-                }
+                RCIndex::Constant(index) => constant_type(usize::from(index.0)),
             }
         };
-        let dest = match op {
+        let (dest, number) = match op {
             Operation::Add { dest, left, right }
             | Operation::Sub { dest, left, right }
-            | Operation::Mul { dest, left, right } => {
-                input(left)?;
-                input(right)?;
-                dest.0
-            }
-            Operation::Move { dest, source } => {
-                input(RCIndex::Register(source))?;
-                dest.0
-            }
+            | Operation::Mul { dest, left, right } => (dest.0, input(left)? | input(right)?),
+            Operation::Move { dest, source } => (dest.0, input(RCIndex::Register(source))?),
             Operation::LoadConstant { dest, constant } => {
-                require(source.constants[usize::from(constant.0)].tag == abi::INTEGER)?;
-                dest.0
+                (dest.0, constant_type(usize::from(constant.0))?)
             }
             _ => return Err(invalid()),
         };
+        require((p.numbers & (1 << dest) != 0) == number)?;
         used |= 1 << dest;
         written |= 1 << dest;
     }
@@ -302,21 +321,31 @@ fn state(
     block: Block,
     prefix: &[Type],
     mask: u16,
+    numbers: u16,
 ) -> Result<[Option<Value>; MAX_REGISTERS], JitError> {
     let params = function.dfg.block_params(block);
     require(params.len() == prefix.len() + mask.count_ones() as usize)?;
     for (index, &value) in params.iter().enumerate() {
         require(
             function.dfg.value_is_real(value)
-                && function.dfg.value_def(value) == ValueDef::Param(block, index)
-                && function.dfg.value_type(value)
-                    == prefix.get(index).copied().unwrap_or(types::I64),
+                && function.dfg.value_def(value) == ValueDef::Param(block, index),
         )?;
+        if let Some(&ty) = prefix.get(index) {
+            require(function.dfg.value_type(value) == ty)?;
+        }
     }
     let mut result = [None; MAX_REGISTERS];
     let mut position = prefix.len();
     for (index, value) in result.iter_mut().enumerate() {
         if mask & (1 << index) != 0 {
+            require(
+                function.dfg.value_type(params[position])
+                    == if numbers & (1 << index) != 0 {
+                        types::F64
+                    } else {
+                        types::I64
+                    },
+            )?;
             *value = Some(params[position]);
             position += 1;
         }
@@ -345,13 +374,22 @@ fn operand(
     source: &Snapshot,
     values: &[Option<Value>; MAX_REGISTERS],
     input: RCIndex,
+    number: bool,
 ) -> Result<Value, JitError> {
-    match input {
-        RCIndex::Register(index) => values[usize::from(index.0)].ok_or_else(invalid),
-        RCIndex::Constant(index) => scan.constant(
-            types::I64,
-            source.constants[usize::from(index.0)].bits as i64,
-        ),
+    let value = match input {
+        RCIndex::Register(index) => values[usize::from(index.0)].ok_or_else(invalid)?,
+        RCIndex::Constant(index) => {
+            scan.numeric_constant(source.constants[usize::from(index.0)])?
+        }
+    };
+    if number && scan.function.dfg.value_type(value) == types::I64 {
+        let inst = scan.take(Opcode::FcvtFromSint, &[types::F64])?;
+        require(
+            matches!(scan.function.dfg.insts[inst], InstructionData::Unary { arg, .. } if arg == value),
+        )?;
+        Ok(scan.function.dfg.first_result(inst))
+    } else {
+        Ok(value)
     }
 }
 
@@ -360,11 +398,25 @@ fn flush(
     pointer: Value,
     values: &[Option<Value>; MAX_REGISTERS],
     mask: u16,
+    numbers: u16,
 ) -> Result<(), JitError> {
     let tag = scan.constant(types::I64, abi::INTEGER as i64)?;
+    let number = if mask & numbers != 0 {
+        Some(scan.constant(types::I64, abi::NUMBER as i64)?)
+    } else {
+        None
+    };
     for (index, value) in values.iter().enumerate() {
         if mask & (1 << index) != 0 {
-            scan.store(pointer, index as i32 * 16, tag)?;
+            scan.store(
+                pointer,
+                index as i32 * 16,
+                if numbers & (1 << index) != 0 {
+                    number.ok_or_else(invalid)?
+                } else {
+                    tag
+                },
+            )?;
             scan.store(pointer, index as i32 * 16 + 8, value.ok_or_else(invalid)?)?;
         }
     }
@@ -386,6 +438,7 @@ pub(super) fn check(
     )
     .map_err(|_| invalid())?;
     let (used, written) = masks(source, r)?;
+    let numbers = r.plan.numbers;
     require(headers.len() == source.operations.len())?;
     let length = r.plan.end - r.plan.start + 1;
     let new_blocks = [r.generic, r.guards, r.dispatch, r.done, r.budget_exit]
@@ -430,7 +483,15 @@ pub(super) fn check(
     for index in 0..MAX_REGISTERS {
         if used & (1 << index) != 0 {
             let tag = s.load(p[0], index as i32 * 16)?;
-            let integer = s.compare_imm(IntCC::Equal, tag, abi::INTEGER as i64)?;
+            let integer = s.compare_imm(
+                IntCC::Equal,
+                tag,
+                if numbers & (1 << index) != 0 {
+                    abi::NUMBER
+                } else {
+                    abi::INTEGER
+                } as i64,
+            )?;
             valid = s.binary(Opcode::Band, types::I8, valid, integer)?;
         }
     }
@@ -445,7 +506,15 @@ pub(super) fn check(
     let mut initial = [None; MAX_REGISTERS];
     for (index, value) in initial.iter_mut().enumerate() {
         if used & (1 << index) != 0 {
-            *value = Some(s.load(p[0], index as i32 * 16 + 8)?);
+            *value = Some(s.typed_load(
+                p[0],
+                index as i32 * 16 + 8,
+                if numbers & (1 << index) != 0 {
+                    types::F64
+                } else {
+                    types::I64
+                },
+            )?);
         }
     }
     let zero = s.constant(types::I32, 0)?;
@@ -471,7 +540,7 @@ pub(super) fn check(
     s.finish()?;
     for index in 0..length {
         let pc = r.plan.start + index;
-        let mut values = state(after, r.fast[index], &[types::I32], used)?;
+        let mut values = state(after, r.fast[index], &[types::I32], used, numbers)?;
         let count = after.dfg.block_params(r.fast[index])[0];
         let mut s = scan(r.fast[index]);
         let limit = s.compare(IntCC::UnsignedGreaterThanOrEqual, count, p[2])?;
@@ -494,23 +563,30 @@ pub(super) fn check(
             op @ (Operation::Add { dest, left, right }
             | Operation::Sub { dest, left, right }
             | Operation::Mul { dest, left, right }) => {
-                let left = operand(&mut s, source, &values, left)?;
-                let right = operand(&mut s, source, &values, right)?;
-                let opcode = match op {
-                    Operation::Add { .. } => Opcode::Iadd,
-                    Operation::Sub { .. } => Opcode::Isub,
-                    _ => Opcode::Imul,
+                let number = numbers & (1 << dest.0) != 0;
+                let left = operand(&mut s, source, &values, left, number)?;
+                let right = operand(&mut s, source, &values, right, number)?;
+                let opcode = match (op, number) {
+                    (Operation::Add { .. }, false) => Opcode::Iadd,
+                    (Operation::Sub { .. }, false) => Opcode::Isub,
+                    (Operation::Mul { .. }, false) => Opcode::Imul,
+                    (Operation::Add { .. }, true) => Opcode::Fadd,
+                    (Operation::Sub { .. }, true) => Opcode::Fsub,
+                    _ => Opcode::Fmul,
                 };
-                values[usize::from(dest.0)] = Some(s.binary(opcode, types::I64, left, right)?);
+                values[usize::from(dest.0)] = Some(s.binary(
+                    opcode,
+                    if number { types::F64 } else { types::I64 },
+                    left,
+                    right,
+                )?);
             }
             Operation::Move { dest, source } => {
                 values[usize::from(dest.0)] = values[usize::from(source.0)];
             }
             Operation::LoadConstant { dest, constant } => {
-                values[usize::from(dest.0)] = Some(s.constant(
-                    types::I64,
-                    source.constants[usize::from(constant.0)].bits as i64,
-                )?);
+                values[usize::from(dest.0)] =
+                    Some(s.numeric_constant(source.constants[usize::from(constant.0)])?);
             }
             Operation::NumericForLoop { base, jump: _ } => {
                 require(pc == r.plan.end)?;
@@ -562,17 +638,23 @@ pub(super) fn check(
         s.jump(r.fast[index + 1], &args[..len])?;
         s.finish()?;
     }
-    let values = state(after, r.done, &[types::I32], used)?;
+    let values = state(after, r.done, &[types::I32], used, numbers)?;
     let mut s = scan(r.done);
-    flush(&mut s, p[0], &values, written)?;
+    flush(&mut s, p[0], &values, written, numbers)?;
     s.jump(
         headers[r.plan.end + 1],
         &[after.dfg.block_params(r.done)[0]],
     )?;
     s.finish()?;
-    let values = state(after, r.budget_exit, &[types::I64, types::I32], used)?;
+    let values = state(
+        after,
+        r.budget_exit,
+        &[types::I64, types::I32],
+        used,
+        numbers,
+    )?;
     let mut s = scan(r.budget_exit);
-    flush(&mut s, p[0], &values, written)?;
+    flush(&mut s, p[0], &values, written, numbers)?;
     s.jump(exhausted, &after.dfg.block_params(r.budget_exit)[..2])?;
     s.finish()?;
     let added_insts = after

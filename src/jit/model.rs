@@ -283,6 +283,8 @@ mod tests {
         for program in [
             &b"local s=0 for i=1,100 do s=s+i end return s"[..],
             &b"local s=0 for i=10,1,-1 do s=s*3-i end return s"[..],
+            &b"local s=0.0 for i=1,100 do s=s+0.5 end return s"[..],
+            &b"local s=0.0 for i=10,1,-1 do s=i-s*0.5 end return s"[..],
         ] {
             let source = snapshot(program);
             let baseline = source.operations.allocator().0.current();
@@ -309,86 +311,212 @@ mod tests {
     #[test]
     fn integer_loop_probe_confirms_fast_entries_and_guard_fallback() {
         use super::super::{backend, resources, work, JitConfig};
-        let snapshot = snapshot(b"local s=0 for i=1,100 do s=s+i end return s");
-        let (end, base, start) = snapshot
-            .operations
-            .iter()
-            .enumerate()
-            .find_map(|(pc, op)| match *op {
-                Operation::NumericForLoop { base, jump } => Some((
-                    pc,
-                    usize::from(base.0),
-                    (pc + 1).checked_add_signed(isize::from(jump)).unwrap(),
-                )),
-                _ => None,
-            })
+        for number in [false, true] {
+            let snapshot = snapshot(if number {
+                &b"local s=0.0 for i=1,100 do s=s+0.5 end return s"[..]
+            } else {
+                &b"local s=0 for i=1,100 do s=s+i end return s"[..]
+            });
+            let (end, base, start) = snapshot
+                .operations
+                .iter()
+                .enumerate()
+                .find_map(|(pc, op)| match *op {
+                    Operation::NumericForLoop { base, jump } => Some((
+                        pc,
+                        usize::from(base.0),
+                        (pc + 1).checked_add_signed(isize::from(jump)).unwrap(),
+                    )),
+                    _ => None,
+                })
+                .unwrap();
+            let accumulator = snapshot
+                .operations
+                .iter()
+                .find_map(|op| match op {
+                    Operation::Add { dest, .. } => Some(usize::from(dest.0)),
+                    _ => None,
+                })
+                .unwrap();
+            let memory = MappingCounter::new(resources::Ledger::new(usize::MAX));
+            let code = backend::compile_in(
+                &snapshot,
+                memory.clone(),
+                8 * 1024 * 1024,
+                resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
+                work::Limits::from(&JitConfig::default()),
+                backend::Failure::ProbeIntegerLoop,
+            )
             .unwrap();
-        let accumulator = snapshot
-            .operations
-            .iter()
-            .find_map(|op| match op {
-                Operation::Add { dest, .. } => Some(usize::from(dest.0)),
-                _ => None,
-            })
-            .unwrap();
-        let memory = MappingCounter::new(resources::Ledger::new(usize::MAX));
-        let code = backend::compile_in(
-            &snapshot,
-            memory.clone(),
-            8 * 1024 * 1024,
-            resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
-            work::Limits::from(&JitConfig::default()),
-            backend::Failure::ProbeIntegerLoop,
-        )
-        .unwrap();
-        for pc in (0..=snapshot.operations.len()).chain([usize::MAX]) {
-            for budget in [0, 1, 2, 3, 63, 64] {
-                for invalid in [
-                    None,
-                    Some(base),
-                    Some(base + 1),
-                    Some(base + 2),
-                    Some(base + 3),
-                    Some(accumulator),
-                ] {
-                    for value in [
-                        Constant::Nil,
-                        Constant::Number(0.5),
-                        Constant::Boolean(false),
+            for pc in (0..=snapshot.operations.len()).chain([usize::MAX]) {
+                for budget in [0, 1, 2, 3, 63, 64] {
+                    for invalid in [
+                        None,
+                        Some(base),
+                        Some(base + 1),
+                        Some(base + 2),
+                        Some(base + 3),
+                        Some(accumulator),
                     ] {
-                        let mut expected = vec![slot(Constant::Integer(1)); snapshot.registers];
-                        if let Some(index) = invalid {
-                            expected[index] = slot(value);
+                        for value in [
+                            Constant::Nil,
+                            if number && invalid == Some(accumulator) {
+                                Constant::Integer(1)
+                            } else {
+                                Constant::Number(0.5)
+                            },
+                            Constant::Boolean(false),
+                        ] {
+                            let seed = if number {
+                                Constant::Number(1.0)
+                            } else {
+                                Constant::Integer(1)
+                            };
+                            let mut expected = vec![slot(seed); snapshot.registers];
+                            expected[base..base + 4].fill(slot(Constant::Integer(1)));
+                            if let Some(index) = invalid {
+                                expected[index] = slot(value);
+                            }
+                            let mut actual = expected.clone();
+                            let reference = run(&snapshot, &mut expected, pc, budget);
+                            let mut entered = 0u64;
+                            let mut host = abi::Host {
+                                data: std::ptr::addr_of_mut!(entered).cast(),
+                                projection: std::ptr::null_mut(),
+                            };
+                            let exit =
+                                unsafe { code.invoke_host(&mut actual, pc, budget, &mut host) };
+                            assert_eq!(
+                                entered,
+                                u64::from(
+                                    (start..=end).contains(&pc) && budget > 0 && invalid.is_none()
+                                ),
+                                "pc={pc} budget={budget} invalid={invalid:?}"
+                            );
+                            assert_eq!(
+                                (exit.pc, exit.instructions, exit.reason),
+                                (reference.pc, reference.instructions, reference.reason)
+                            );
+                            assert_eq!(
+                                actual.iter().map(|s| (s.tag, s.bits)).collect::<Vec<_>>(),
+                                expected.iter().map(|s| (s.tag, s.bits)).collect::<Vec<_>>()
+                            );
                         }
-                        let mut actual = expected.clone();
-                        let reference = run(&snapshot, &mut expected, pc, budget);
-                        let mut entered = 0u64;
-                        let mut host = abi::Host {
-                            data: std::ptr::addr_of_mut!(entered).cast(),
-                            projection: std::ptr::null_mut(),
-                        };
-                        let exit = unsafe { code.invoke_host(&mut actual, pc, budget, &mut host) };
-                        assert_eq!(
-                            entered,
-                            u64::from(
-                                (start..=end).contains(&pc) && budget > 0 && invalid.is_none()
-                            ),
-                            "pc={pc} budget={budget} invalid={invalid:?}"
-                        );
-                        assert_eq!(
-                            (exit.pc, exit.instructions, exit.reason),
-                            (reference.pc, reference.instructions, reference.reason)
-                        );
-                        assert_eq!(
-                            actual.iter().map(|s| (s.tag, s.bits)).collect::<Vec<_>>(),
-                            expected.iter().map(|s| (s.tag, s.bits)).collect::<Vec<_>>()
-                        );
                     }
                 }
             }
+            drop(code);
+            assert_eq!(memory.load(Ordering::Relaxed), 0);
         }
-        drop(code);
-        assert_eq!(memory.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn integer_loop_number_bodies_match_every_entry_budget_and_numeric_edge() {
+        use super::super::{backend, resources, work, JitConfig};
+        let seeds = [
+            0.0,
+            -0.0,
+            0.5,
+            -0.5,
+            f64::MAX,
+            -f64::MAX,
+            f64::MIN_POSITIVE,
+            f64::from_bits(1),
+            -f64::from_bits(1),
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NAN,
+            f64::from_bits(0x7ff0_0000_0000_0042),
+            f64::from_bits(0xfff8_0000_0000_0042),
+        ];
+        for program in [
+            &b"local s=0.0 for i=1,100 do s=s+0.5 end return s"[..],
+            &b"local s=0.0 for i=1,100 do s=s+i end return s"[..],
+            &b"local s=0.0 for i=10,1,-1 do s=i-s*0.5 end return s"[..],
+            &b"local s=0.0 local t=1.5 for i=1,100 do t=s s=0.5 s=s+t end return s"[..],
+        ] {
+            let source = snapshot(program);
+            let (base, start, end) = source
+                .operations
+                .iter()
+                .enumerate()
+                .find_map(|(end, op)| match op {
+                    Operation::NumericForLoop { base, jump } => Some((
+                        usize::from(base.0),
+                        (end + 1).checked_add_signed(isize::from(*jump)).unwrap(),
+                        end,
+                    )),
+                    _ => None,
+                })
+                .unwrap();
+            let memory = MappingCounter::new(resources::Ledger::new(usize::MAX));
+            let code = backend::compile_in(
+                &source,
+                memory.clone(),
+                8 * 1024 * 1024,
+                resources::BudgetAllocator(resources::Ledger::new(2 * 1024 * 1024)),
+                work::Limits::from(&JitConfig::default()),
+                backend::Failure::ProbeIntegerLoop,
+            )
+            .unwrap();
+            for pc in (0..=source.operations.len()).chain([usize::MAX]) {
+                for budget in [0, 1, 2, 3, 5, 63, 64, 65, u32::MAX] {
+                    for &(index, limit, step) in &[
+                        (1, 3, 1),
+                        (3, 1, -1),
+                        (0, 2, 0),
+                        (i64::MAX, i64::MAX, 1),
+                        (i64::MIN, i64::MIN, -1),
+                        (i64::MIN, 1, i64::MAX),
+                        (0, 1, i64::MIN),
+                        (9_007_199_254_740_993, i64::MAX, 1),
+                    ] {
+                        for &seed in &seeds {
+                            let mut expected = vec![slot(Constant::Number(seed)); source.registers];
+                            expected[base] = slot(Constant::Integer(index));
+                            expected[base + 1] = slot(Constant::Integer(limit));
+                            expected[base + 2] = slot(Constant::Integer(step));
+                            expected[base + 3] = slot(Constant::Integer(index));
+                            let mut actual = expected.clone();
+                            let reference = run(&source, &mut expected, pc, budget);
+                            let mut entered = 0u64;
+                            let mut host = abi::Host {
+                                data: std::ptr::addr_of_mut!(entered).cast(),
+                                projection: std::ptr::null_mut(),
+                            };
+                            let exit =
+                                unsafe { code.invoke_host(&mut actual, pc, budget, &mut host) };
+                            assert_eq!(
+                                entered,
+                                u64::from((start..=end).contains(&pc) && budget > 0)
+                            );
+                            assert_eq!(
+                                (exit.pc, exit.instructions, exit.reason),
+                                (reference.pc, reference.instructions, reference.reason),
+                                "pc={pc} budget={budget} index={index} limit={limit} step={step} seed={seed:?}"
+                            );
+                            for (actual, expected) in actual.iter().zip(&expected) {
+                                assert_eq!(actual.tag, expected.tag);
+                                if actual.tag == abi::NUMBER
+                                    && f64::from_bits(expected.bits).is_nan()
+                                {
+                                    assert!(f64::from_bits(actual.bits).is_nan());
+                                    if exit.instructions == 0
+                                        || (pc == end && exit.instructions == 1)
+                                    {
+                                        assert_eq!(actual.bits, expected.bits);
+                                    }
+                                } else {
+                                    assert_eq!(actual.bits, expected.bits);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            drop(code);
+            assert_eq!(memory.load(Ordering::Relaxed), 0);
+        }
     }
 
     #[test]

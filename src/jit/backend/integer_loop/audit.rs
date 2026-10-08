@@ -49,6 +49,24 @@ pub(in crate::jit::backend) fn run(
                     *imm = (i64::from(*imm) ^ 1).into();
                     true
                 }
+                InstructionData::UnaryIeee64 {
+                    opcode: Opcode::F64const,
+                    imm,
+                } => {
+                    *imm = cranelift_codegen::ir::immediates::Ieee64::with_bits(imm.bits() ^ 1);
+                    true
+                }
+                InstructionData::Unary {
+                    opcode: Opcode::FcvtFromSint,
+                    arg,
+                } => {
+                    let arg = *arg;
+                    changed.dfg.insts[inst] = InstructionData::Unary {
+                        opcode: Opcode::FcvtFromUint,
+                        arg,
+                    };
+                    true
+                }
                 InstructionData::Load { offset, .. } | InstructionData::Store { offset, .. } => {
                     *offset = (i32::from(*offset) + 8).into();
                     true
@@ -74,6 +92,8 @@ pub(in crate::jit::backend) fn run(
                         Opcode::Bor => Some(Opcode::Band),
                         Opcode::Bxor => Some(Opcode::Band),
                         Opcode::SaddOverflow => Some(Opcode::UaddOverflow),
+                        Opcode::Fadd => Some(Opcode::Fsub),
+                        Opcode::Fsub | Opcode::Fmul => Some(Opcode::Fadd),
                         _ => None,
                     };
                     if let Some(replacement) = replacement {
@@ -197,7 +217,10 @@ pub(in crate::jit::backend) fn run(
         .map(|b| original.layout.block_insts(b).count())
         .sum();
     let bound = super::super::super::work::Expansion {
-        instructions: instructions * 2 + 32 + 9 * (plan.used.count_ones() as usize + length),
+        instructions: instructions * 2
+            + 32
+            + 9 * (plan.used.count_ones() as usize + length)
+            + usize::from(plan.numbers != 0) * (2 + 2 * length),
         blocks: original.dfg.num_blocks() * 2 + 5 + length * 2,
     };
     for limits in [
@@ -231,7 +254,7 @@ pub(in crate::jit::backend) fn run(
         bound
     )?);
     assert_eq!(accepted, candidate);
-    for fault in 0..6 {
+    for fault in 0..8 {
         let mut invalid_region = region.clone();
         match fault {
             0 => invalid_region.plan.written ^= 1 << plan.base,
@@ -239,7 +262,12 @@ pub(in crate::jit::backend) fn run(
             2 => invalid_region.plan.start = usize::MAX,
             3 => invalid_region.plan.base = usize::MAX,
             4 => invalid_region.fast[0] = region.generic,
-            _ => invalid_region.plan.used ^= 1 << plan.base,
+            5 => invalid_region.plan.used ^= 1 << plan.base,
+            6 => invalid_region.plan.numbers ^= 1 << plan.base,
+            _ => {
+                invalid_region.plan.numbers ^=
+                    1 << (plan.used & !(15 << plan.base)).trailing_zeros()
+            }
         }
         assert!(verify::check(
             original,

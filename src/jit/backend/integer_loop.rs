@@ -35,65 +35,89 @@ struct Plan {
     base: usize,
     used: u16,
     written: u16,
+    numbers: u16,
 }
 
 impl Plan {
-    fn seeded(self, source: &Snapshot) -> bool {
-        let mut known = 0u16;
+    fn result_type(
+        source: &Snapshot,
+        known: &[Option<bool>; MAX_REGISTERS],
+        op: Operation,
+    ) -> Option<(usize, bool)> {
+        let constant = |index: usize| match source.constants[index].tag {
+            abi::INTEGER => Some(false),
+            abi::NUMBER => Some(true),
+            _ => None,
+        };
+        let operand = |input: RCIndex| match input {
+            RCIndex::Register(index) => known[usize::from(index.0)],
+            RCIndex::Constant(index) => constant(usize::from(index.0)),
+        };
+        match op {
+            Operation::Add { dest, left, right }
+            | Operation::Sub { dest, left, right }
+            | Operation::Mul { dest, left, right } => {
+                Some((usize::from(dest.0), operand(left)? | operand(right)?))
+            }
+            Operation::Move { dest, source } => {
+                Some((usize::from(dest.0), known[usize::from(source.0)]?))
+            }
+            Operation::LoadConstant {
+                dest,
+                constant: index,
+            } => Some((usize::from(dest.0), constant(usize::from(index.0))?)),
+            _ => None,
+        }
+    }
+
+    fn seeded(self, source: &Snapshot) -> Option<u16> {
+        let mut known = [None; MAX_REGISTERS];
         for (pc, op) in source.operations[..self.start].iter().copied().enumerate() {
-            let write = match op {
-                Operation::LoadConstant { dest, constant } => Some((
-                    dest.0,
-                    source.constants[usize::from(constant.0)].tag == abi::INTEGER,
-                )),
-                Operation::Move { dest, source } => Some((dest.0, known & (1 << source.0) != 0)),
+            match op {
+                Operation::LoadConstant { dest, .. } | Operation::Move { dest, .. } => {
+                    known[usize::from(dest.0)] =
+                        Self::result_type(source, &known, op).map(|(_, n)| n);
+                }
                 Operation::NumericForPrep { base, jump }
                     if usize::from(base.0) == self.base
                         && (pc + 1).checked_add_signed(isize::from(jump)) == Some(self.end) =>
                 {
-                    let controls = 7 << self.base;
-                    if known & controls != controls {
-                        return false;
+                    if known[self.base..self.base + 3] != [Some(false); 3] {
+                        return None;
                     }
-                    known |= 8 << self.base;
-                    None
+                    known[self.base + 3] = Some(false);
                 }
-                _ => {
-                    known = 0;
-                    None
-                }
-            };
-            if let Some((dest, integer)) = write {
-                known &= !(1 << dest);
-                if integer {
-                    known |= 1 << dest;
-                }
+                _ => known.fill(None),
             }
         }
         for op in source.operations[self.start..self.end].iter().copied() {
-            let integer = |input: RCIndex| match input {
-                RCIndex::Register(index) => known & (1 << index.0) != 0,
-                RCIndex::Constant(index) => {
-                    source.constants[usize::from(index.0)].tag == abi::INTEGER
-                }
-            };
-            let (dest, valid) = match op {
-                Operation::Add { dest, left, right }
-                | Operation::Sub { dest, left, right }
-                | Operation::Mul { dest, left, right } => (dest.0, integer(left) && integer(right)),
-                Operation::Move { dest, source } => (dest.0, integer(RCIndex::Register(source))),
-                Operation::LoadConstant { dest, constant } => (
-                    dest.0,
-                    source.constants[usize::from(constant.0)].tag == abi::INTEGER,
-                ),
-                _ => return false,
-            };
-            if !valid {
-                return false;
-            }
-            known |= 1 << dest;
+            let (dest, number) = Self::result_type(source, &known, op)?;
+            known[dest] = Some(number);
         }
-        known & self.used == self.used
+        let mut numbers = 0;
+        for (index, kind) in known.iter().enumerate() {
+            if self.used & (1 << index) != 0 && (*kind)? {
+                numbers |= 1 << index;
+            }
+        }
+        if numbers & (15 << self.base) != 0 {
+            return None;
+        }
+        for op in source.operations[self.start..self.end].iter().copied() {
+            let (dest, number) = Self::result_type(source, &known, op)?;
+            if known[dest] != Some(number) {
+                return None;
+            }
+        }
+        Some(numbers)
+    }
+
+    fn ty(self, index: usize) -> cranelift_codegen::ir::Type {
+        if self.numbers & (1 << index) != 0 {
+            types::F64
+        } else {
+            types::I64
+        }
     }
 
     fn new(source: &Snapshot) -> Option<Self> {
@@ -118,6 +142,7 @@ impl Plan {
                 base,
                 used: 15 << base,
                 written: 9 << base,
+                numbers: 0,
             };
             let mut accepted = true;
             for op in &source.operations[start..end] {
@@ -127,7 +152,10 @@ impl Plan {
                         true
                     }
                     RCIndex::Constant(index) => {
-                        source.constants[usize::from(index.0)].tag == abi::INTEGER
+                        matches!(
+                            source.constants[usize::from(index.0)].tag,
+                            abi::INTEGER | abi::NUMBER
+                        )
                     }
                 };
                 let dest = match *op {
@@ -142,7 +170,10 @@ impl Plan {
                         dest.0
                     }
                     Operation::LoadConstant { dest, constant } => {
-                        accepted &= source.constants[usize::from(constant.0)].tag == abi::INTEGER;
+                        accepted &= matches!(
+                            source.constants[usize::from(constant.0)].tag,
+                            abi::INTEGER | abi::NUMBER
+                        );
                         dest.0
                     }
                     _ => {
@@ -153,8 +184,11 @@ impl Plan {
                 plan.used |= 1 << dest;
                 plan.written |= 1 << dest;
             }
-            if accepted && plan.used.count_ones() <= 8 && plan.seeded(source) {
-                return Some(plan);
+            if accepted && plan.used.count_ones() <= 8 {
+                if let Some(numbers) = plan.seeded(source) {
+                    plan.numbers = numbers;
+                    return Some(plan);
+                }
             }
         }
         None
@@ -164,8 +198,10 @@ impl Plan {
         for &ty in prefix {
             function.dfg.append_block_param(block, ty);
         }
-        for _ in 0..self.used.count_ones() {
-            function.dfg.append_block_param(block, types::I64);
+        for index in 0..MAX_REGISTERS {
+            if self.used & (1 << index) != 0 {
+                function.dfg.append_block_param(block, self.ty(index));
+            }
         }
     }
 
@@ -208,11 +244,20 @@ impl Plan {
         values: &[Option<Value>; MAX_REGISTERS],
     ) {
         let integer = cursor.ins().iconst(types::I64, abi::INTEGER as i64);
+        let number = (self.written & self.numbers != 0)
+            .then(|| cursor.ins().iconst(types::I64, abi::NUMBER as i64));
         for (index, value) in values.iter().enumerate() {
             if self.written & (1 << index) != 0 {
-                cursor
-                    .ins()
-                    .store(MemFlagsData::new(), integer, slots, (index * 16) as i32);
+                cursor.ins().store(
+                    MemFlagsData::new(),
+                    if self.numbers & (1 << index) != 0 {
+                        number.unwrap()
+                    } else {
+                        integer
+                    },
+                    slots,
+                    (index * 16) as i32,
+                );
                 cursor.ins().store(
                     MemFlagsData::new(),
                     value.unwrap(),
@@ -235,13 +280,28 @@ fn operand(
     source: &Snapshot,
     values: &[Option<Value>; MAX_REGISTERS],
     input: RCIndex,
+    number: bool,
 ) -> Value {
-    match input {
+    let value = match input {
         RCIndex::Register(index) => values[usize::from(index.0)].unwrap(),
-        RCIndex::Constant(index) => cursor.ins().iconst(
-            types::I64,
-            source.constants[usize::from(index.0)].bits as i64,
-        ),
+        RCIndex::Constant(index) => constant(cursor, source.constants[usize::from(index.0)]),
+    };
+    if number && cursor.func.dfg.value_type(value) == types::I64 {
+        cursor.ins().fcvt_from_sint(types::F64, value)
+    } else {
+        value
+    }
+}
+
+fn constant(cursor: &mut FuncCursor<'_>, slot: abi::Slot) -> Value {
+    if slot.tag == abi::NUMBER {
+        cursor
+            .ins()
+            .f64const(cranelift_codegen::ir::immediates::Ieee64::with_bits(
+                slot.bits,
+            ))
+    } else {
+        cursor.ins().iconst(types::I64, slot.bits as i64)
     }
 }
 
@@ -263,7 +323,9 @@ pub(super) fn augment(
         .map(|b| function.layout.block_insts(b).count())
         .sum();
     let length = plan.end - plan.start + 1;
-    let extra = 32 + 9 * (plan.used.count_ones() as usize + length);
+    let extra = 32
+        + 9 * (plan.used.count_ones() as usize + length)
+        + usize::from(plan.numbers != 0) * (2 + 2 * length);
     if expansion
         .verify_actual(
             instructions.saturating_mul(2).saturating_add(extra),
@@ -374,9 +436,15 @@ fn emit(
                 params[0],
                 (index * 16) as i32,
             );
-            let integer = cursor
-                .ins()
-                .icmp_imm_u(IntCC::Equal, tag, abi::INTEGER as i64);
+            let integer = cursor.ins().icmp_imm_u(
+                IntCC::Equal,
+                tag,
+                if plan.numbers & (1 << index) != 0 {
+                    abi::NUMBER
+                } else {
+                    abi::INTEGER
+                } as i64,
+            );
             valid = cursor.ins().band(valid, integer);
         }
     }
@@ -395,7 +463,7 @@ fn emit(
     for (index, value) in initial.iter_mut().enumerate() {
         if plan.used & (1 << index) != 0 {
             *value = Some(cursor.ins().load(
-                types::I64,
+                plan.ty(index),
                 MemFlagsData::new(),
                 params[0],
                 (index * 16 + 8) as i32,
@@ -447,21 +515,28 @@ fn emit(
             op @ (Operation::Add { dest, left, right }
             | Operation::Sub { dest, left, right }
             | Operation::Mul { dest, left, right }) => {
-                let left = operand(&mut cursor, source, &values, left);
-                let right = operand(&mut cursor, source, &values, right);
-                values[usize::from(dest.0)] = Some(match op {
-                    Operation::Add { .. } => cursor.ins().iadd(left, right),
-                    Operation::Sub { .. } => cursor.ins().isub(left, right),
-                    _ => cursor.ins().imul(left, right),
+                let number = plan.numbers & (1 << dest.0) != 0;
+                let left = operand(&mut cursor, source, &values, left, number);
+                let right = operand(&mut cursor, source, &values, right, number);
+                values[usize::from(dest.0)] = Some(match (op, number) {
+                    (Operation::Add { .. }, false) => cursor.ins().iadd(left, right),
+                    (Operation::Sub { .. }, false) => cursor.ins().isub(left, right),
+                    (Operation::Mul { .. }, false) => cursor.ins().imul(left, right),
+                    (Operation::Add { .. }, true) => cursor.ins().fadd(left, right),
+                    (Operation::Sub { .. }, true) => cursor.ins().fsub(left, right),
+                    _ => cursor.ins().fmul(left, right),
                 });
             }
             Operation::Move { dest, source } => {
                 values[usize::from(dest.0)] = values[usize::from(source.0)]
             }
-            Operation::LoadConstant { dest, constant } => {
-                values[usize::from(dest.0)] = Some(cursor.ins().iconst(
-                    types::I64,
-                    source.constants[usize::from(constant.0)].bits as i64,
+            Operation::LoadConstant {
+                dest,
+                constant: index,
+            } => {
+                values[usize::from(dest.0)] = Some(constant(
+                    &mut cursor,
+                    source.constants[usize::from(index.0)],
                 ));
             }
             Operation::NumericForLoop { .. } => {
@@ -554,9 +629,27 @@ mod tests {
     }
 
     #[test]
-    fn refuses_effectful_or_non_integer_regions_without_ir_changes() {
+    fn recognizes_stable_number_bodies_with_integer_controls() {
         for program in [
+            &b"local s=0.0 for i=1,100 do s=s+0.5 end return s"[..],
             &b"local s=0 for i=1,100 do s=s+0.5 end return s"[..],
+            &b"local s=0.0 for i=1,100 do s=s+i end return s"[..],
+        ] {
+            let source = snapshot(program);
+            let plan = Plan::new(&source).unwrap();
+            assert_ne!(plan.numbers, 0);
+            assert_eq!(plan.numbers & !plan.used, 0);
+            assert_eq!(plan.numbers & (15 << plan.base), 0);
+            assert!(plan.numbers & plan.written != 0);
+        }
+    }
+
+    #[test]
+    fn refuses_effectful_or_type_unstable_regions_without_ir_changes() {
+        for program in [
+            &b"local s=0 for i=1,100 do s=1 s=s+0.5 end return s"[..],
+            &b"local s=0.0 for i=1.0,100.0 do s=s+i end return s"[..],
+            &b"local s=0.0 for i=1,100 do i=i+0.5 s=s+i end return s"[..],
             &b"local t={} for i=1,100 do t[i]=i end return t"[..],
             &b"local f=... for i=1,100 do f(i) end"[..],
             &b"local s,x=... for i=1,100 do s=s+x end return s"[..],
