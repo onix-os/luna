@@ -11,7 +11,35 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Guarded integer-loop region — promising measured prototype, test-only
+#### Verified integer-loop path enabled; fresh benchmarks pending
+
+`58a3fcf` adds a separate source/IR checker for the measured typed-loop
+prototype. It validates fresh guards, every arithmetic operation, per-opcode
+fuel accounting, overflow behavior, state transfers and generic-graph
+preservation without invoking the emitter. Augmentation is transactional:
+the original verified function survives until the candidate passes validation.
+Instruction/block expansion bounds cover both live IR copies before cloning
+and at commit. This is not a new total-memory guarantee: third-party compiler
+workspace remains outside the existing exact Luna-owned allocation ledger.
+
+Focused tests reject mutated arithmetic, comparisons, branches, constants,
+memory offsets/flags, imports, state arguments and malformed region metadata.
+They also check exact/insufficient expansion bounds and that refusal leaves
+the original function intact with no executable mapping. The guarded native
+entry and exhaustive entry/fuel models still pass. The verifier baseline passes
+1,595 test executions across 115 suites, with zero failures and six existing
+ignores. The mutation audit rejects 520 and 610 corrupted IR variants for two
+source bodies, including 474 and 556 variants that pass structural verification.
+Additional source-constant, certificate and expansion-bound checks also pass.
+
+Normal production compilation and normal unit-test compilation now apply the
+verified augmentation when eligible; unsupported or expansion-bounded regions
+retain the generic implementation. The fresh format/check/focused/all-feature
+Auto run passes with zero failures. Native and feature-cost measurements of
+this production build are next; the earlier prototype measurements below remain
+distinct from acceptance of the verified build. Full-plan gates remain open.
+
+#### Guarded integer-loop region — earlier test-only prototype measurements
 
 The new experiment keeps a separate typed loop graph alongside the entire
 generic native graph instead of transporting scalar state through arbitrary-PC
@@ -54,9 +82,9 @@ zero-budget and unknown-PC fallback. Overflow stores the wrapped internal index
 without incorrectly changing the visible variable; direct zero-step latch
 entry preserves the original bounded semantics. Mappings are reclaimed.
 
-The retained implementation is **test-only**, requiring explicit
+At that measurement checkpoint the implementation was **test-only**, requiring explicit
 `RequireIntegerLoop` or `ProbeIntegerLoop` selection. Production activation is
-removed until an independent checker validates the new region, its source
+removed until an independent checker validated the new region, its source
 binding, unchanged generic graph and exact guards/state transfers, with mutation
 and resource-bound tests. Cranelift structural verification and model examples
 alone are not that translation proof. This is now the next implementation task,

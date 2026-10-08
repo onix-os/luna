@@ -29,7 +29,6 @@ use crate::opcode::{Operation, RCIndex};
 pub(super) mod calls;
 #[cfg(not(miri))]
 pub(super) mod compact;
-#[cfg(test)]
 mod integer_loop;
 #[cfg(test)]
 mod read_cache;
@@ -1164,31 +1163,49 @@ fn compile_selected_rooted(
         return Err(JitError::Compilation("integer loop audit complete".into()));
     }
     #[cfg(test)]
-    let (instructions, block_count) = if matches!(
+    let optimize_integer_loop = matches!(
         failure,
-        Failure::RequireIntegerLoop | Failure::ProbeIntegerLoop
-    ) {
-        if !integer_loop::augment(
+        Failure::None | Failure::RequireIntegerLoop | Failure::ProbeIntegerLoop
+    );
+    #[cfg(not(test))]
+    let optimize_integer_loop = true;
+    let (instructions, block_count) = if optimize_integer_loop {
+        #[cfg(test)]
+        let probe = failure == Failure::ProbeIntegerLoop;
+        #[cfg(not(test))]
+        let probe = false;
+        let applied = integer_loop::augment(
             &mut context.func,
             snapshot,
             &blocks,
             exhausted,
-            failure == Failure::ProbeIntegerLoop,
+            probe,
             expansion,
-        )? {
+        )?;
+        #[cfg(test)]
+        if !applied
+            && matches!(
+                failure,
+                Failure::RequireIntegerLoop | Failure::ProbeIntegerLoop
+            )
+        {
             return Err(JitError::Compilation("integer loop was not applied".into()));
         }
-        cranelift_codegen::verify_function(&context.func, module.isa())
-            .map_err(|error| JitError::Compilation(error.to_string()))?;
-        let instructions = context
-            .func
-            .layout
-            .blocks()
-            .map(|block| context.func.layout.block_insts(block).count())
-            .sum();
-        let count = context.func.layout.blocks().count();
-        expansion.verify_actual(instructions, count)?;
-        (instructions, count)
+        if applied {
+            cranelift_codegen::verify_function(&context.func, module.isa())
+                .map_err(|error| JitError::Compilation(error.to_string()))?;
+            let instructions = context
+                .func
+                .layout
+                .blocks()
+                .map(|block| context.func.layout.block_insts(block).count())
+                .sum();
+            let count = context.func.layout.blocks().count();
+            expansion.verify_actual(instructions, count)?;
+            (instructions, count)
+        } else {
+            (instructions, block_count)
+        }
     } else {
         (instructions, block_count)
     };
