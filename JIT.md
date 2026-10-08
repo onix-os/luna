@@ -21,6 +21,12 @@ float 3.09–3.85x. Helper-heavy workloads and compiled-Off overhead still fail
 gates; some compiled-Off cases regress. `PLAN_JIT.md` records the complete
 correctness, mutation, resource-bound and favorable/adverse timing evidence.
 
+Two later table-receiver specializations were measured and rejected: modest
+instruction-count reductions and some native gains came with repeated shipping
+compiled-Off regressions. Production retains the numeric-loop runtime above;
+live receiver-tag and operand-order tests remain in `c4392c7`. See `PLAN_JIT.md`
+for both complete comparisons, including failed gates and noisy windows.
+
 Two subsequent exact-ordering optimizations were tested and rejected for
 performance regressions before these typed-loop changes. At that checkpoint
 the runtime remained the lazy-limit version below, and all five rebuilt

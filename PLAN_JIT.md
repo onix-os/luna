@@ -11,6 +11,63 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Table receiver specialization — measured twice, rejected
+
+`c4392c7` adds live-tag/canonical-identity and operand-order regression tests.
+They cover 180 receiver combinations and six malformed-operand cases, including
+current-frame upvalue aliases and stale canonical tables hidden by scalar tags.
+These tests remain; neither runtime experiment below is retained.
+
+Both trials resolve table receivers without reconstructing a full `Value`.
+The first passes an optional table to the inner operation; the refinement
+passes a guaranteed table after evaluating all operands. Both preserve the
+helper ABI, GC/reference ownership, metatable/readonly guards, canonical state,
+fuel, PC and native coverage. Each passes 1,397 executions across 90 suites
+(six ignored), plus five operand-source Miri tests. Warnings remain visible.
+
+Each trial has two complete native comparisons and two speed/shipping cost
+comparisons against frozen `typed-number-loop` executables: CPU0/16, three
+alternating windows, eleven samples, and twenty iterations per cost sample.
+All 216 matched native case pairs per trial have identical non-timing fields.
+Both no-feature images are byte-identical to their controls. Exact-image
+profiles verify symbol/stripped program headers and allocated sections.
+
+Whole-executor table instructions fall from 50,088,509 to 49,392,647 in the
+first trial and 49,381,179 in the refinement. That small reduction does not
+establish performance acceptance. Control-time/candidate-time ratios below
+are medians of three window medians; above one is faster:
+
+| Measurement | First initial / repeat | Refined initial / repeat |
+| --- | --- | --- |
+| Native Auto table, CPU0 | 1.155666 / 1.172257 | 1.177288 / 1.336669 |
+| Native Auto table, CPU16 | 1.044014 / 1.037565 | 1.035825 / 1.019354 |
+| Shipping Off integer, CPU16 | **0.893383 / 0.896715** | **0.889792 / 0.893517** |
+| Shipping Off float, CPU16 | **0.920900 / 0.920774** | **0.920938 / 0.920767** |
+| Shipping Off table, CPU16 | **0.946713 / 0.944732** | **0.936355 / 0.947528** |
+| Shipping Off upvalue, CPU16 | **0.963981 / 0.959922** | **0.957479 / 0.965268** |
+
+The first CPU16 table gain is mirrored by its Off control. The refined repeat
+CPU0 native run and initial CPU0 cost run have broad unrelated timing swings;
+their favorable ratios are not isolated evidence for this optimization. All
+windows and contention telemetry are retained. Repeated shipping regressions
+remain in both variants. Refined shipping CPU16 upvalue overhead is
+1.2409 / 1.2459 versus control 1.1985 / 1.2031; the 1.05 gate still fails.
+
+Refined numeric native gates pass all twelve windows each, but table, upvalue
+and callback gates pass none. Allocation passes eleven windows; metamethod
+passes four; cold passes twelve. All 72 refined aggregate commands exit 2.
+Cost-case failures are 62 control versus 56 candidate out of 216 each; fewer
+aggregate case failures do not excuse the repeated per-workload losses.
+The first trial has 45 control versus 53 candidate cost failures; one control
+cost command passes, but no candidate aggregate command passes.
+
+Runtime source is restored to `c4392c7`; the shipped numeric improvements are
+unchanged. Candidate patches, images, raw results, checks and JSON summaries
+remain under `target/jit-evidence/short-slice-performance/typed-table-receiver*`
+and `nonnullable-table-receiver*`. No owned build/test/profile overlapped timing;
+unrelated applications were left running. Table/upvalue/callback performance,
+compiled-Off costs and full resource/platform/release acceptance remain open.
+
 #### Typed Number bodies — both numeric gates now pass
 
 `061c9cc` extends the verified integer-controlled loop region with stable
