@@ -12,6 +12,22 @@ use crate::opcode::{Operation, RCIndex};
 const MAX_REGISTERS: usize = 16;
 const MAX_OPERATIONS: usize = 32;
 
+#[cfg(test)]
+pub(super) mod audit;
+mod verify;
+
+#[derive(Clone)]
+struct Region {
+    plan: Plan,
+    generic: Block,
+    guards: Block,
+    dispatch: Block,
+    done: Block,
+    budget_exit: Block,
+    fast: [Block; MAX_OPERATIONS],
+    bodies: [Block; MAX_OPERATIONS],
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Plan {
     start: usize,
@@ -235,11 +251,77 @@ pub(super) fn augment(
     headers: &[Block],
     exhausted: Block,
     probe: bool,
+    expansion: super::super::work::Expansion,
 ) -> Result<bool, JitError> {
     source.verify()?;
     let Some(plan) = Plan::new(source) else {
         return Ok(false);
     };
+    let instructions: usize = function
+        .layout
+        .blocks()
+        .map(|b| function.layout.block_insts(b).count())
+        .sum();
+    let length = plan.end - plan.start + 1;
+    let extra = 32 + 9 * (plan.used.count_ones() as usize + length);
+    if expansion
+        .verify_actual(
+            instructions.saturating_mul(2).saturating_add(extra),
+            function
+                .dfg
+                .num_blocks()
+                .saturating_mul(2)
+                .saturating_add(5 + length * 2),
+        )
+        .is_err()
+    {
+        return Ok(false);
+    }
+    let mut candidate = function.clone();
+    let region = emit(&mut candidate, source, headers, exhausted, probe, plan)?;
+    commit(
+        function, candidate, source, headers, exhausted, &region, probe, expansion,
+    )?;
+    Ok(true)
+}
+
+fn commit(
+    function: &mut Function,
+    candidate: Function,
+    source: &Snapshot,
+    headers: &[Block],
+    exhausted: Block,
+    region: &Region,
+    probe: bool,
+    expansion: super::super::work::Expansion,
+) -> Result<(), JitError> {
+    verify::check(
+        function, &candidate, source, headers, exhausted, region, probe,
+    )?;
+    expansion.verify_actual(
+        [function as &Function, &candidate]
+            .into_iter()
+            .map(|f| {
+                f.layout
+                    .blocks()
+                    .map(|b| f.layout.block_insts(b).count())
+                    .sum::<usize>()
+            })
+            .sum(),
+        function.dfg.num_blocks() + candidate.dfg.num_blocks(),
+    )?;
+    *function = candidate;
+    Ok(())
+}
+
+fn emit(
+    function: &mut Function,
+    source: &Snapshot,
+    headers: &[Block],
+    exhausted: Block,
+    probe: bool,
+    plan: Plan,
+) -> Result<Region, JitError> {
     let entry = function
         .layout
         .entry_block()
@@ -429,7 +511,16 @@ pub(super) fn augment(
     let values = plan.values(cursor.func, budget_exit, 2);
     plan.flush(&mut cursor, params[0], &values);
     cursor.ins().jump(exhausted, &[pc.into(), count.into()]);
-    Ok(true)
+    Ok(Region {
+        plan,
+        generic,
+        guards,
+        dispatch,
+        done,
+        budget_exit,
+        fast,
+        bodies,
+    })
 }
 
 #[cfg(test)]
@@ -474,7 +565,18 @@ mod tests {
             let source = snapshot(program);
             let mut function = Function::new();
             let before = function.clone();
-            assert!(!augment(&mut function, &source, &[], Block::from_u32(0), false).unwrap());
+            assert!(!augment(
+                &mut function,
+                &source,
+                &[],
+                Block::from_u32(0),
+                false,
+                super::super::super::work::Expansion {
+                    instructions: usize::MAX,
+                    blocks: usize::MAX
+                }
+            )
+            .unwrap());
             assert_eq!(function, before);
         }
     }

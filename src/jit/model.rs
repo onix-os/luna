@@ -278,6 +278,35 @@ mod tests {
     }
 
     #[test]
+    fn integer_loop_verifier_rejects_mutations_before_mapping() {
+        use super::super::{backend, resources, work, JitConfig, JitError};
+        for program in [
+            &b"local s=0 for i=1,100 do s=s+i end return s"[..],
+            &b"local s=0 for i=10,1,-1 do s=s*3-i end return s"[..],
+        ] {
+            let source = snapshot(program);
+            let baseline = source.operations.allocator().0.current();
+            let memory = MappingCounter::new(resources::Ledger::new(usize::MAX));
+            let metadata = resources::Ledger::new(2 * 1024 * 1024);
+            let result = backend::compile_in(
+                &source,
+                memory.clone(),
+                8 * 1024 * 1024,
+                resources::BudgetAllocator(metadata.clone()),
+                work::Limits::from(&JitConfig::default()),
+                backend::Failure::AuditIntegerLoop,
+            );
+            assert!(
+                matches!(result, Err(JitError::Compilation(message)) if message == "integer loop audit complete")
+            );
+            assert_eq!(memory.load(Ordering::Relaxed), 0);
+            assert_eq!(memory.requested(), 0);
+            assert_eq!(metadata.current(), 0);
+            assert_eq!(source.operations.allocator().0.current(), baseline);
+        }
+    }
+
+    #[test]
     fn integer_loop_probe_confirms_fast_entries_and_guard_fallback() {
         use super::super::{backend, resources, work, JitConfig};
         let snapshot = snapshot(b"local s=0 for i=1,100 do s=s+i end return s");

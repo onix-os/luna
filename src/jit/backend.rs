@@ -322,6 +322,7 @@ pub(super) enum Failure {
     RequireWriteback,
     RequireIntegerLoop,
     ProbeIntegerLoop,
+    AuditIntegerLoop,
     RequireReleasedWorkspace(usize),
     RequireReleasedSnapshot,
     DetectHostSetup,
@@ -1158,6 +1159,11 @@ fn compile_selected_rooted(
     }
     stores.verify_bindings(&context.func, parameters[0], &paths, &graph)?;
     #[cfg(test)]
+    if failure == Failure::AuditIntegerLoop {
+        integer_loop::audit::run(&context.func, snapshot, &blocks, exhausted, expansion)?;
+        return Err(JitError::Compilation("integer loop audit complete".into()));
+    }
+    #[cfg(test)]
     let (instructions, block_count) = if matches!(
         failure,
         Failure::RequireIntegerLoop | Failure::ProbeIntegerLoop
@@ -1168,6 +1174,7 @@ fn compile_selected_rooted(
             &blocks,
             exhausted,
             failure == Failure::ProbeIntegerLoop,
+            expansion,
         )? {
             return Err(JitError::Compilation("integer loop was not applied".into()));
         }
