@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Verified integer-loop path enabled; fresh benchmarks pending
+#### Verified integer-loop path enabled and measured
 
 `58a3fcf` adds a separate source/IR checker for the measured typed-loop
 prototype. It validates fresh guards, every arithmetic operation, per-opcode
@@ -35,9 +35,53 @@ Additional source-constant, certificate and expansion-bound checks also pass.
 Normal production compilation and normal unit-test compilation now apply the
 verified augmentation when eligible; unsupported or expansion-bounded regions
 retain the generic implementation. The fresh format/check/focused/all-feature
-Auto run passes with zero failures. Native and feature-cost measurements of
-this production build are next; the earlier prototype measurements below remain
-distinct from acceptance of the verified build. Full-plan gates remain open.
+Auto run passes **1,378 executions / 87 suites**, zero failures and six existing
+ignores. `fed925c` enables the path and is pushed with the validator commit.
+
+Two fresh native comparisons of this production build against the frozen
+pre-loop baseline confirm the integer improvement. Ratios below are control
+median / candidate median, using the median of three eleven-sample windows:
+
+| Native Auto workload | CPU0 initial / repeat | CPU16 initial / repeat |
+| --- | --- | --- |
+| Integer loop | **1.802496 / 1.792916** | **2.094047 / 2.206084** |
+| Float loop | 1.005190 / 0.992881 | 0.995545 / 1.003475 |
+| Upvalue | 0.998430 / 0.998084 | 1.002418 / 1.004478 |
+| Polymorphic | 1.002434 / 0.996791 | **0.982154 / 0.969469** |
+| Allocation | 0.992701 / 0.993598 | **0.964236 / 0.994817** |
+| Callbacks | 1.045430 / 1.038721 | 1.009845 / 0.986691 |
+
+All **12 candidate integer windows** pass the unchanged 2× interpreter gate:
+paired Off/Auto ratios are **2.7554–3.3743**. Exact-image profiling confirms
+**6,587,558 generated integer self-instructions**, versus the frozen baseline's
+22,000,801. All **216 paired case rows** retain identical non-timing counters
+and resource fields. The 24 aggregate native commands still exit 2: float is
+1.8178–1.9629× interpreter, upvalue 0.8300–0.8503×, and callbacks
+0.6322–0.7105×. The integer gain does not resolve these other workloads.
+
+Two complete feature-cost comparisons retain **48 commands / 432 case rows**
+across both CPUs and speed/shipping builds, with eleven samples and twenty
+iterations. Candidate case gates pass **168/216**, failing **48/216**; all
+aggregate commands still exit 2. Numeric disabled-cost gates pass throughout.
+Shipping CPU16 upvalue improves against the old compiled-Off binary by
+**1.036097 / 1.034452**, but still costs **1.1927 / 1.1997** relative to its
+no-JIT control, above the unchanged 1.05 limit. Speed CPU16 polymorphic
+throughput loses **0.979369 / 0.978955** against the old compiled-Off binary.
+Speed CPU0 polymorphic overhead is **1.0838 / 1.0964**; callback, predicate,
+upvalue and some cold windows also retain failures. Adverse results are kept.
+
+Both new no-JIT images are byte-identical to their frozen controls. JIT-enabled
+text grows 93,536 bytes in speed and 63,412 bytes in shipping. Source hashes,
+before/after artifact checks and symbol/stripped loaded-section comparisons
+pass. No owned build/test/profile overlapped timing; unrelated host workloads
+remained running and telemetry is retained. Evidence and all medians are under
+`target/jit-evidence/short-slice-performance/verified-integer-loop-*`, including
+`verified-integer-loop-summary.json`.
+
+The integer optimization is retained, not a full-performance acceptance claim.
+Next work must address the still-failing float/native boundary/helper workloads
+and disabled-cost regressions without reducing native coverage or weakening
+guards. Full-plan resource/platform/release gates remain open.
 
 #### Guarded integer-loop region — earlier test-only prototype measurements
 
@@ -83,13 +127,13 @@ without incorrectly changing the visible variable; direct zero-step latch
 entry preserves the original bounded semantics. Mappings are reclaimed.
 
 At that measurement checkpoint the implementation was **test-only**, requiring explicit
-`RequireIntegerLoop` or `ProbeIntegerLoop` selection. Production activation is
+`RequireIntegerLoop` or `ProbeIntegerLoop` selection. Production activation was
 removed until an independent checker validated the new region, its source
 binding, unchanged generic graph and exact guards/state transfers, with mutation
 and resource-bound tests. Cranelift structural verification and model examples
-alone are not that translation proof. This is now the next implementation task,
-followed by fresh full native/feature-cost comparisons—not another cache-width
-experiment. Full-plan resource/platform/release gates also remain open.
+alone are not that translation proof. The independent checker and fresh
+native/feature-cost comparisons are now recorded above. Full-plan
+resource/platform/release gates remain open.
 `00f31e8` retains the prototype and native-entry/model tests. The restored
 format/check/focused/baseline/all-feature Auto/doc run passes **2,005 executions
 / 202 suites**, zero failures and ten existing ignores.
