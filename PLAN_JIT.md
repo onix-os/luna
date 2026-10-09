@@ -11,6 +11,51 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Selective imports and indexed copying measured and withdrawn
+
+Three register-import prototypes are rejected after **72 native commands** and
+**112 feature-cost commands**. The two six-way native screens retain original
+array, single-lookup and compact controls alongside all three candidates.
+Candidate native coverage and feature-cost native proofs match their original
+controls in both screens and all cost blocks; no threshold was relaxed.
+
+The first prototype derives charged, bounded per-entry read-before-definition
+masks for existing one-to-eight-register frames. Omitted inputs use canonical
+value proxies; full exit writeback remains intact. Explicit helper reads stay
+conservative, while current-frame upvalue aliases resolve current canonical
+values. An independent path oracle, exact native exit/counter/value comparisons
+at every PC and alias register, and a long-path64-instruction-cap test pass.
+Seven model tests and eleven helper tests pass both Miri aliasing models.
+Each selective variant passes GNU1,897 executions /175 suites, eight ignored,
+and musl99 /8; i686-musl passes seven models and one helper test.
+
+Nested zip/copied/enumerate packing raises callback instruction count from
+compact133,593,180 to147,729,414. Conditional indexed loads reduce that to
+134,176,079, still above compact. Both selective variants show large repeated
+float regressions: the first screen records **1.80–2.16x** and **1.70–2.16x**
+compact Auto time respectively. Passing correctness is not acceptance.
+
+The third prototype removes masks and new metadata entirely, changing only
+full-copy iteration. Its exact callback/metamethod instruction totals fall to
+133,139,165 /80,536,038. GNU1,888 executions /175 suites, focused GNU90 /7,
+musl90 /7, and twelve ABI/helper tests in each Miri mode pass. Hardware timings
+do not establish a consistent native gain: callback gates fail12/12 and
+CPU0 metamethod time is slower in all six comparisons. Feature-cost gates fail
+32/144 versus compact28/144. Shipping compiled-Off integer is3.73–4.43% slower
+on CPU0 and11.20–12.70% slower on CPU16; CPU16 array time is10.38–12.35% slower.
+Both no-feature binaries are byte-identical to compact controls. Broad CPU0
+speed-profile contention outliers remain in the evidence, not discarded or
+attributed to the code change.
+
+All three runtime changes are withdrawn. Only independent canonical-proxy
+helper regression coverage is retained. Initial compile/accounting failures,
+the deliberately interrupted allocation-heavy oracle run, corrected tests,
+source patches, frozen binaries, exact-symbol profiles, telemetry and all
+negative timing samples remain under `entry-import-*` and
+`full-indexed-import-*` in the short-slice evidence directory. Further packing
+loop or mask placement variations are not the next performance direction.
+The original callback/upvalue, disabled-cost and full release gates remain open.
+
 #### Validated table-bucket hints measured and withdrawn
 
 Three prototypes cache only numeric bucket positions in charged Code owners.
