@@ -172,6 +172,8 @@ mod shape;
 ))]
 mod tags;
 mod work;
+#[cfg(test)]
+mod writeback;
 use resources::{BudgetAllocator, Compaction, Compactor, Ledger, LedgerRef, MappingCounter};
 
 pub(crate) type MetadataMap<K, V> = HashMap<K, V, RandomState, BudgetAllocator>;

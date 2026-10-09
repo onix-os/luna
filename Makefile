@@ -495,6 +495,13 @@ jit-native-region-profile-run:
 	done
 
 .PHONY: jit-scoped-helpers-miri
+.PHONY: jit-writeback-model jit-writeback-model-miri
+jit-writeback-model:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::writeback::tests $(ARGS)
+
+jit-writeback-model-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::writeback::tests -- --test-threads=1
+
 jit-scoped-helpers-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::scoped_helpers::tests -- --test-threads=1
 
