@@ -335,9 +335,14 @@ impl Session<'_, '_, '_, '_> {
             tests::ROOTED_COMPLETIONS.with(|count| count.set(count.get() + 1));
             tests::rooted_checkpoint(2);
         }
-        self.frame
-            .host
-            .with_registers(|_, registers| assert!(snapshot.publish(registers.stack_frame)));
+        let pc = self.frame.host.with_registers(|caller, registers| {
+            assert!(snapshot.publish(registers.stack_frame));
+            (completed
+                && caller == self.admitted.caller()
+                && registers.stack_frame.len() >= snapshot.len()
+                && self.region.caller.accepts_pc(*registers.pc))
+            .then_some(*registers.pc)
+        });
         self.rooted_pending = false;
         if !completed {
             return RootedCompletion::Declined;
@@ -351,12 +356,6 @@ impl Session<'_, '_, '_, '_> {
         {
             return RootedCompletion::Complete(0);
         }
-        let pc = self.frame.host.with_registers(|caller, registers| {
-            (caller == self.admitted.caller()
-                && registers.stack_frame.len() >= self.slots.len()
-                && self.region.caller.accepts_pc(*registers.pc))
-            .then_some(*registers.pc)
-        });
         let Some(pc) = pc else {
             return RootedCompletion::Complete(0);
         };
