@@ -133,12 +133,19 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         self.with_frame(|mut frame| f(frame.closure(), frame.registers()))
     }
 
-    #[cfg(test)]
+    #[cfg(any(
+        test,
+        all(
+            not(miri),
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )
+    ))]
     pub(crate) fn snapshot_capture(
         &self,
         caller: crate::Closure<'gc>,
         upvalue: crate::closure::UpValue<'gc>,
-        pending: impl FnOnce(usize) -> Option<crate::Value<'gc>>,
+        pending: impl FnOnce(usize) -> Option<i64>,
     ) -> Option<((bool, usize), i64)> {
         let Frame::Lua { base, closure, .. } = self.state.frames.last()? else {
             return None;
@@ -151,16 +158,15 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         };
         let absolute = open.index_in(self.state.stack)?;
         let canonical = *self.stack.get(absolute)?;
-        let (capture, value) = if absolute < *base {
-            ((true, absolute), canonical)
+        if absolute < *base {
+            let crate::Value::Integer(value) = canonical else {
+                return None;
+            };
+            Some(((true, absolute), value))
         } else {
             let index = absolute - *base;
-            ((false, index), pending(index)?)
-        };
-        let crate::Value::Integer(value) = value else {
-            return None;
-        };
-        Some((capture, value))
+            Some(((false, index), pending(index)?))
+        }
     }
 
     #[cfg(test)]

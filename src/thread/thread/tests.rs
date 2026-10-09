@@ -82,7 +82,13 @@ fn direct_capture_matches_register_projection_without_mutation() {
                                 let actual =
                                     host.snapshot_capture(expected_caller, upvalue, |index| {
                                         actual_reads.set(actual_reads.get() + 1);
-                                        (index < pending_len).then_some(pending_value)
+                                        if index >= pending_len {
+                                            return None;
+                                        }
+                                        match pending_value {
+                                            Value::Integer(value) => Some(value),
+                                            _ => None,
+                                        }
                                     });
                                 assert_eq!(
                                     actual, expected,

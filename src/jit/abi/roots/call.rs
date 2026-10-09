@@ -40,6 +40,12 @@ impl<'a, 'gc> Snapshot<'a, 'gc> {
     }
 
     #[inline(always)]
+    pub(crate) fn integer(&self, index: usize) -> Option<i64> {
+        let slot = self.slots.get(index)?;
+        (slot.tag == super::super::INTEGER).then_some(slot.bits as i64)
+    }
+
+    #[inline(always)]
     pub(crate) fn publish(&self, values: &mut [Value<'gc>]) -> bool {
         if values.len() < self.slots.len() {
             return false;
@@ -231,8 +237,17 @@ fn snapshot_reads_preserve_all_scalar_bits_and_reference_identities() {
         assert!(matches!(published[13], Value::Integer(99)));
         for (index, expected) in values.into_iter().rev().enumerate() {
             super::tests::identical(snapshot.get(index).unwrap(), expected);
+            assert_eq!(
+                snapshot.integer(index),
+                match snapshot.get(index).unwrap() {
+                    Value::Integer(value) => Some(value),
+                    _ => None,
+                }
+            );
             super::tests::identical(published[index], expected);
         }
         assert!(snapshot.get(13).is_none());
+        assert!(snapshot.integer(13).is_none());
+        assert!(snapshot.integer(usize::MAX).is_none());
     });
 }
