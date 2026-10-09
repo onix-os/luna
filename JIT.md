@@ -51,6 +51,12 @@ metamethod and compiled-Off numeric regressions outweighed CPU16 table gains.
 fields or branches; the independent callback/table-mutation regression remains
 in `tests/jit_heap.rs`. Full comparison evidence is recorded in `PLAN_JIT.md`.
 
+A small rooted-frame staging trial (`2b17087`) was likewise withdrawn in
+`77326a8`: about 2.5–3% native upvalue improvement on CPU0 came with repeated
+compiled-Off float and shipping integer regressions. Atomic publication and
+small/wide value-kind tests remain under `make jit-rooted-moves`; production
+retains the original two-pass publication. Full results remain in the plan.
+
 Two later table-receiver specializations were measured and rejected: modest
 instruction-count reductions and some native gains came with repeated shipping
 compiled-Off regressions. Production retains the numeric-loop runtime above;
