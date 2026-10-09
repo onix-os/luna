@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Output-buffer initialization — trial validated, timing pending
+#### Output-buffer initialization — first screen fails acceptance
 
 The next narrow candidate retains the existing five-argument native ABI and
 omits host zeroing of an exit buffer that the callee fully overwrites. The
@@ -50,8 +50,33 @@ These other changes and complete raw profiles remain visible; their causes are
 not established by the source patch. No elapsed-speedup or acceptance claim is
 made before the paired native and speed/shipping feature-cost screens.
 
+The first timing campaign completes30 native and128 cost commands. All30 native
+aggregates fail;127 cost aggregates fail, with only historical `prior` passing
+CPU0 speed window3. No candidate aggregate passes. Native individual failures
+are fresh12/candidate11; cost failures fresh28/candidate25. Complete counters
+match108 native and144 cost-native comparisons, with no snapshot exception.
+All source/artifact manifests verify; both no-feature binaries are byte-identical.
+No owned builds/tests/profiles/source edits overlap the hardware timing campaign.
+
+Fresh-over-candidate median native ratios are CPU0 integer1.0035,float1.0025,
+array1.0312,upvalue1.0130,callback0.9820; CPU16 integer1.0004,float0.9970,
+array1.0182,upvalue1.0024,callback0.9981. All six candidate callback gates fail.
+CPU0 callbacks are adverse in each of the three windows. The small invocation
+instruction saving has not fixed the callback regression.
+
+Speed compiled-Off needs a repeat: CPU16 integer0.9432/float0.9534, with matching
+no-feature ratios1.0008/0.9984. Candidate float fails one original cost gate;
+fresh float fails none. CPU0 speed float0.9821/callback0.9911 are also adverse.
+Shipping is largely near parity; CPU16 callbacks show direct1.0420 but
+paired-normalized1.0122, while CPU0 shipping callback failures rise1→3.
+CPU0 speed Oslo failures fall4→0. These competing observations, full vectors,
+outliers and contention telemetry remain recorded; no success is selected out
+of the failing campaign. An independent complete repeat is required before
+candidate disposition. This remains a provisional trial, not acceptance.
+
 Evidence uses `exit-buffer-*` under the ignored short-slice evidence directory;
-`exit-buffer-profile-analysis.json` includes all totals and function deltas.
+the profile, native and cost analysis JSON files include totals and per-window
+vectors. `exit-buffer-screen-counter-proof.json` records108/144 comparisons.
 
 #### Register-return exits — measured and withdrawn
 
