@@ -204,4 +204,31 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
         );
         Some(outcome)
     }
+
+    #[cfg(test)]
+    pub(in crate::jit) fn invoke_rooted(
+        &self,
+        host: &mut ActivationHost<'gc, '_>,
+        budget: u32,
+        prefix: u32,
+        snapshot: &mut abi::roots::call::Snapshot<'_, 'gc>,
+    ) -> bool {
+        if self.program.custom_hooks || !self.policy(host, budget) {
+            return false;
+        }
+        if !super::rooted::invoke(
+            self.ctx,
+            host,
+            &self.program.site,
+            &self.program.code,
+            budget,
+            prefix,
+            (self.caller, self.callee),
+            snapshot,
+        ) {
+            return false;
+        }
+        self.ctx.jit().record_pair_execution(1, 1);
+        true
+    }
 }

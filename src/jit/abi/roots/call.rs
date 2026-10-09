@@ -36,6 +36,20 @@ impl<'a, 'gc> Snapshot<'a, 'gc> {
         })
     }
 
+    pub(crate) fn publish(&self, values: &mut [Value<'gc>]) -> bool {
+        if values.len() < self.slots.len() {
+            return false;
+        }
+        for (slot, value) in self.slots.iter().zip(values) {
+            *value = if slot.tag == REFERENCE {
+                self.roots[slot.bits as usize]
+            } else {
+                slot.value(Value::Nil)
+            };
+        }
+        true
+    }
+
     pub(crate) fn call(
         &mut self,
         function: usize,
@@ -124,5 +138,96 @@ fn virtual_call_matches_full_argument_shift_resize_and_scalar_writes() {
                 }
             }
         }
+    });
+}
+
+#[test]
+fn malformed_snapshots_and_call_spans_refuse_without_slot_changes() {
+    let nil = Slot::from_value(Value::Nil);
+    for invalid in [
+        Slot {
+            tag: REFERENCE + 1,
+            bits: 0,
+        },
+        Slot {
+            tag: REFERENCE,
+            bits: 0,
+        },
+        Slot {
+            tag: REFERENCE,
+            bits: u64::MAX,
+        },
+    ] {
+        for position in [0, 3] {
+            let mut slots = [nil; 4];
+            slots[position] = invalid;
+            assert!(Snapshot::new(&[Value::Nil; 4], &mut slots).is_none());
+            assert_eq!(
+                (slots[position].tag, slots[position].bits),
+                (invalid.tag, invalid.bits)
+            );
+        }
+    }
+    assert!(Snapshot::new(&[Value::Nil; 3], &mut [nil; 4]).is_none());
+    assert!(Snapshot::new(&[Value::Nil; 257], &mut [nil; 257]).is_none());
+    for (function, arguments, width, read, result, capture) in [
+        (4, 0, 1, 0, 0, None),
+        (usize::MAX, 0, 1, 0, 0, None),
+        (1, usize::MAX, 3, 0, 0, None),
+        (1, 2, 1, 0, 0, None),
+        (1, 0, 257, 0, 0, None),
+        (1, 0, 0, 0, 0, None),
+        (1, 0, 2, 2, 0, None),
+        (1, 0, 2, 0, 2, None),
+        (1, 0, 2, 0, 0, Some(1)),
+        (1, 0, 2, 0, 0, Some(usize::MAX)),
+    ] {
+        let mut slots = [Slot::from_value(Value::Integer(7)); 4];
+        let mut snapshot = Snapshot::new(&[Value::Nil; 4], &mut slots).unwrap();
+        assert!(!snapshot.call(function, arguments, width, read, result, capture, (1, 2, 3)));
+        assert!(slots
+            .iter()
+            .all(|slot| slot.tag == super::super::INTEGER && slot.bits == 7));
+    }
+}
+
+#[test]
+fn snapshot_reads_preserve_all_scalar_bits_and_reference_identities() {
+    crate::Lua::empty().enter(|ctx| {
+        let values = [
+            Value::Nil,
+            Value::Boolean(false),
+            Value::Boolean(true),
+            Value::Integer(i64::MIN),
+            Value::Integer(i64::MAX),
+            Value::Number(-0.0),
+            Value::Number(f64::from_bits(0x7ff8000000000055)),
+            crate::String::from_static(&ctx, b"rooted-call").into(),
+            crate::Table::new(&ctx).into(),
+            crate::Closure::load(ctx, None, &b"return"[..])
+                .unwrap()
+                .into(),
+            crate::Callback::from_fn(&ctx, |_, _, _| Ok(crate::CallbackReturn::Return)).into(),
+            crate::Thread::new(ctx).into(),
+            crate::UserData::new_static(&ctx, 7).into(),
+        ];
+        let mut roots = [Value::Nil; 13];
+        let mut slots = [Slot::from_value(Value::Nil); 13];
+        assert!(capture(&mut roots, &mut slots, &values));
+        slots.reverse();
+        let snapshot = Snapshot::new(&roots, &mut slots).unwrap();
+        let mut short = [Value::Integer(99); 12];
+        assert!(!snapshot.publish(&mut short));
+        assert!(short
+            .iter()
+            .all(|value| matches!(value, Value::Integer(99))));
+        let mut published = [Value::Integer(99); 14];
+        assert!(snapshot.publish(&mut published));
+        assert!(matches!(published[13], Value::Integer(99)));
+        for (index, expected) in values.into_iter().rev().enumerate() {
+            super::tests::identical(snapshot.get(index).unwrap(), expected);
+            super::tests::identical(published[index], expected);
+        }
+        assert!(snapshot.get(13).is_none());
     });
 }

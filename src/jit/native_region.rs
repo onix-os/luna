@@ -155,6 +155,8 @@ impl Region {
                 result: Ok(()),
             },
             panic: None,
+            #[cfg(test)]
+            rooted_pending: false,
         };
         let pointer = std::ptr::from_mut(&mut session);
         let mut view = View {
@@ -222,6 +224,15 @@ struct Session<'gc, 'host, 'borrow, 'region> {
     budget: u32,
     outcome: Outcome,
     panic: Option<Box<dyn Any + Send>>,
+    #[cfg(test)]
+    rooted_pending: bool,
+}
+
+#[cfg(test)]
+enum RootedCompletion {
+    Unavailable,
+    Declined,
+    Complete(u32),
 }
 
 impl Session<'_, '_, '_, '_> {
@@ -282,24 +293,108 @@ impl Session<'_, '_, '_, '_> {
         self.outcome.result = result.map(|_| ());
     }
 
+    #[cfg(test)]
+    fn complete_rooted(&mut self, view: &mut View) -> RootedCompletion {
+        if self.frame.panic.is_some()
+            || view.exit.instructions >= self.budget
+            || self.limit - self.outcome.slices < 2
+            || view.exit.pc as usize != self.region.pair.program.key().pc
+            || !self.frame.host.pairing_enabled(self.frame.ctx)
+        {
+            return RootedCompletion::Unavailable;
+        }
+        let Some(roots) = self.roots.as_deref() else {
+            return RootedCompletion::Unavailable;
+        };
+        let Some(mut snapshot) = abi::roots::call::Snapshot::new(roots, self.slots) else {
+            return RootedCompletion::Unavailable;
+        };
+        let ready = self.frame.host.with_registers(|caller, registers| {
+            assert_eq!(caller, self.admitted.caller());
+            if registers.stack_frame.len() < snapshot.len() {
+                return false;
+            }
+            *registers.pc = view.exit.pc as usize;
+            true
+        });
+        if !ready {
+            return RootedCompletion::Unavailable;
+        }
+        self.rooted_pending = true;
+        record(
+            self.frame.ctx,
+            &view.exit,
+            std::mem::take(&mut self.frame.count),
+        );
+        tests::rooted_checkpoint(1);
+        let completed = self.admitted.invoke_rooted(
+            self.frame.host,
+            self.budget,
+            view.exit.instructions,
+            &mut snapshot,
+        );
+        if completed {
+            tests::ROOTED_COMPLETIONS.with(|count| count.set(count.get() + 1));
+            tests::rooted_checkpoint(2);
+        }
+        self.frame
+            .host
+            .with_registers(|_, registers| assert!(snapshot.publish(registers.stack_frame)));
+        self.rooted_pending = false;
+        if !completed {
+            return RootedCompletion::Declined;
+        }
+        self.outcome.slices += 2;
+        self.outcome.pairs += 1;
+        if self.outcome.slices >= self.limit
+            || !self.frame.host.fuel().should_continue()
+            || !self.frame.host.lua_ready()
+            || self.frame.host.frame_identity() != self.identity
+        {
+            return RootedCompletion::Complete(0);
+        }
+        let pc = self.frame.host.with_registers(|caller, registers| {
+            (caller == self.admitted.caller()
+                && registers.stack_frame.len() >= self.slots.len()
+                && self.region.caller.accepts_pc(*registers.pc))
+            .then_some(*registers.pc)
+        });
+        let Some(pc) = pc else {
+            return RootedCompletion::Complete(0);
+        };
+        view.pc = pc as u64;
+        self.publish(view);
+        RootedCompletion::Complete(1)
+    }
+
     fn complete(&mut self, view: &mut View) -> u32 {
         let ctx = self.frame.ctx;
         self.outcome.fragments += 1;
+        #[cfg(test)]
+        let recorded = match self.complete_rooted(view) {
+            RootedCompletion::Unavailable => false,
+            RootedCompletion::Declined => true,
+            RootedCompletion::Complete(result) => return result,
+        };
+        #[cfg(not(test))]
+        let recorded = false;
         let transition = self.frame.host.with_registers(|closure, registers| {
             assert_eq!(closure, self.admitted.caller());
-            if let Some(roots) = self.roots.as_deref() {
-                assert!(abi::roots::materialize(
-                    roots,
-                    self.slots,
-                    registers.stack_frame
-                ));
-            } else {
-                for (slot, value) in self.slots.iter().zip(registers.stack_frame.iter_mut()) {
-                    slot.write_back(value);
+            if !recorded {
+                if let Some(roots) = self.roots.as_deref() {
+                    assert!(abi::roots::materialize(
+                        roots,
+                        self.slots,
+                        registers.stack_frame
+                    ));
+                } else {
+                    for (slot, value) in self.slots.iter().zip(registers.stack_frame.iter_mut()) {
+                        slot.write_back(value);
+                    }
                 }
-            }
-            if self.frame.panic.is_none() {
-                *registers.pc = view.exit.pc as usize;
+                if self.frame.panic.is_none() {
+                    *registers.pc = view.exit.pc as usize;
+                }
             }
             closure
                 .prototype()
@@ -307,7 +402,9 @@ impl Session<'_, '_, '_, '_> {
                 .get(*registers.pc)
                 .and_then(|op| op.call_transition())
         });
-        record(ctx, &view.exit, std::mem::take(&mut self.frame.count));
+        if !recorded {
+            record(ctx, &view.exit, std::mem::take(&mut self.frame.count));
+        }
         if let Some(payload) = self.frame.panic.take() {
             self.panic = Some(payload);
             return 0;
@@ -413,6 +510,17 @@ unsafe extern "C" fn boundary(view: *mut View) -> u32 {
     match catch_unwind(AssertUnwindSafe(|| session.complete(view))) {
         Ok(result) => result,
         Err(payload) => {
+            #[cfg(test)]
+            if session.rooted_pending {
+                session.frame.host.with_registers(|_, registers| {
+                    assert!(abi::roots::materialize(
+                        session.roots.as_deref().unwrap(),
+                        session.slots,
+                        registers.stack_frame
+                    ));
+                });
+                session.rooted_pending = false;
+            }
             session.panic = Some(payload);
             0
         }

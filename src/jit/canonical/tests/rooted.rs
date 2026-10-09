@@ -72,3 +72,79 @@ fn rooted_native_calls_match_physical_calls_with_pending_values() {
     }
     assert!(completed > 50, "no rooted native coverage: {completed}");
 }
+
+#[test]
+fn repeated_rooted_calls_read_previous_unpublished_capture_writes() {
+    fixture(ADD, |lua, closure, site, code| {
+        lua.enter(|ctx| {
+            let caller = ctx.fetch(&closure);
+            let callee = ctx
+                .jit_registry()
+                .borrow()
+                .resolve(ctx, site.callee)
+                .unwrap();
+            let run = |virtual_call| {
+                with_test_thread(ctx, caller, &mut Fuel::with(10000), |host| {
+                    position(host, ctx, site.pc);
+                    let (roots, mut slots, function) = host.with_registers(|_, registers| {
+                        let mut roots = vec![Value::Nil; registers.stack_frame.len()];
+                        let mut slots = vec![Slot::from_value(Value::Nil); roots.len()];
+                        assert!(abi::roots::capture(
+                            &mut roots,
+                            &mut slots,
+                            registers.stack_frame
+                        ));
+                        let function = registers.stack_frame[usize::from(site.function.0)];
+                        (roots, slots, function)
+                    });
+                    let saved = slots[usize::from(site.function.0)];
+                    let before = stats(ctx);
+                    for argument in [i64::MAX, 3, -7] {
+                        if virtual_call {
+                            slots[usize::from(site.function.0)] = saved;
+                            slots[usize::from(site.function.0) + 1] =
+                                Slot::from_value(Value::Integer(argument));
+                            let mut snapshot =
+                                abi::roots::call::Snapshot::new(&roots, &mut slots).unwrap();
+                            assert!(super::super::rooted::invoke(
+                                ctx,
+                                host,
+                                &site,
+                                &code,
+                                64,
+                                0,
+                                (caller, callee),
+                                &mut snapshot
+                            ));
+                            host.with_registers(|_, registers| {
+                                assert!(matches!(registers.stack_frame[0], Value::Integer(7)))
+                            });
+                        } else {
+                            host.with_registers(|_, registers| {
+                                *registers.pc = site.pc;
+                                registers.stack_frame[usize::from(site.function.0)] = function;
+                                registers.stack_frame[usize::from(site.function.0) + 1] =
+                                    Value::Integer(argument);
+                            });
+                            let mut scratch = [MaybeUninit::uninit(); 256];
+                            let mut session = Session::new(ctx, host, &site, &mut scratch);
+                            session.invoke_compact(&code, 64);
+                            session.finish().result.unwrap();
+                        }
+                    }
+                    if virtual_call {
+                        host.with_registers(|_, registers| {
+                            assert!(abi::roots::materialize(
+                                &roots,
+                                &slots,
+                                registers.stack_frame
+                            ))
+                        });
+                    }
+                    trace(ctx, host, before)
+                })
+            };
+            assert_eq!(run(true), run(false));
+        });
+    });
+}

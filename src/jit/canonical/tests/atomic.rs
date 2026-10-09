@@ -110,7 +110,7 @@ fn atomic_pairs_preserve_captures_in_an_upper_physical_frame() {
         drop(registry);
         let ledger = Ledger::new(8 * 1024 * 1024);
         let code = compile(&plan, Hooks { enter, leave }, MappingCounter::new(Ledger::child(2 * 1024 * 1024, ledger.clone())), 2 * 1024 * 1024, BudgetAllocator(Ledger::child(2 * 1024 * 1024, ledger)), limits, backend::Failure::None, LinkFault::None).unwrap();
-        let run = |atomic| with_test_thread(ctx, root, &mut Fuel::with(10000), |host| {
+        let run = |mode| with_test_thread(ctx, root, &mut Fuel::with(10000), |host| {
             host.run(ctx, 1, 64, 4).result.unwrap();
             host.with_registers(|closure, registers| {
                 assert!(Gc::ptr_eq(closure.prototype(), caller));
@@ -122,7 +122,17 @@ fn atomic_pairs_preserve_captures_in_an_upper_physical_frame() {
                 assert!(matches!(registers.projection_origin(callee.upvalues()[0].get()), Some(Origin::Upper(_, Value::Integer(7)))));
             });
             let before = stats(ctx);
-            if atomic {
+            if mode == 2 {
+                let (closure, roots, mut slots) = host.with_registers(|closure, registers| {
+                    let mut roots = vec![Value::Nil; registers.stack_frame.len()];
+                    let mut slots = vec![Slot::from_value(Value::Nil); roots.len()];
+                    assert!(abi::roots::capture(&mut roots, &mut slots, registers.stack_frame));
+                    (closure, roots, slots)
+                });
+                let mut snapshot = abi::roots::call::Snapshot::new(&roots, &mut slots).unwrap();
+                assert!(super::super::rooted::invoke(ctx, host, &site, &code, 64, 0, (closure, callee), &mut snapshot));
+                host.with_registers(|_, registers| assert!(snapshot.publish(registers.stack_frame)));
+            } else if mode == 1 {
                 assert!(attempt(ctx, host, &site, &code, 64, 0));
             } else {
                 let mut scratch = [MaybeUninit::uninit(); 256];
@@ -132,7 +142,9 @@ fn atomic_pairs_preserve_captures_in_an_upper_physical_frame() {
             }
             trace(ctx, host, before)
         });
-        assert_eq!(run(true), run(false));
+        let physical = run(0);
+        assert_eq!(run(1), physical);
+        assert_eq!(run(2), physical);
     });
 }
 
