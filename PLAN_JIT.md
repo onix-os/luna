@@ -11,6 +11,25 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Small argument shifts measured and withdrawn
+
+Specializing only zero/one-element rooted argument copies preserves the original
+tail fill and scalar overlays. It passes GNU 1,889 executions /175 suites (eight
+ignored), musl 144 /14 (two ignored), three i686 models, three Snapshot tests in
+each Miri mode, and native rooted Memcheck with zero errors/definite/indirect
+leaks. Exact upvalue instructions fall to 167,602,257 from compact 169,703,129.
+
+Two unchanged four-way screens complete **48 native commands**: upvalues improve
+0.39–3.05% in all twelve comparisons; callbacks improve eleven, but their original
+targets still fail. The **112-command feature-cost screen** rejects the change:
+CPU0 shipping compiled-Off integer is **14.22–15.14% slower**, float **10.91–11.08%
+slower**, and CPU16 speed float **8.06–12.45% slower**. Each loss repeats in all
+four windows; the last case fails four ceilings versus compact zero. Candidate
+cost gates fail 30/144 versus compact 27/144. Both no-feature binaries match
+compact byte-for-byte; all 1,296 native-coverage and 3,024 cost native-proof
+comparisons match. Runtime changes are withdrawn, not retained on native gains.
+Evidence remains under `small-call-shift-*`; no threshold or coverage is weakened.
+
 #### Fused rooted-call writes measured and withdrawn
 
 A single forward pass replaced argument shifting, tail clearing and scalar
