@@ -3,6 +3,99 @@
 use luna::{opcode::Operation, Closure, Executor, Fuel, JitConfig, JitMode, Lua};
 
 #[test]
+fn dispatch_and_report_counts_cross_slice_boundaries_without_double_counting() {
+    for additions in [0, 1, 61, 62, 63, 64, 65, 125, 126, 127, 128] {
+        for fails in [false, true] {
+            let source = format!(
+                "local x=... {} return {}",
+                "x=x+1 ".repeat(additions),
+                if fails { "x.missing" } else { "x" },
+            );
+            for mode in [JitMode::Off, JitMode::Auto] {
+                for fuel in [0, 1, 65536] {
+                    let mut lua = Lua::empty();
+                    lua.set_jit_config(JitConfig {
+                        mode,
+                        hot_threshold: u32::MAX,
+                        ..Default::default()
+                    })
+                    .unwrap();
+                    let (executor, expected) = lua.enter(|ctx| {
+                        let closure = Closure::load(ctx, None, source.as_bytes()).unwrap();
+                        let terminal = closure
+                            .prototype()
+                            .opcodes
+                            .iter()
+                            .position(|op| {
+                                matches!(
+                                    op.decode(),
+                                    Operation::GetTable { .. } | Operation::Return { .. }
+                                )
+                            })
+                            .unwrap();
+                        (
+                            ctx.stash(Executor::start(ctx, closure.into(), (7,))),
+                            terminal as u64 + 1,
+                        )
+                    });
+                    let native = mode == JitMode::Auto && lua.jit_capabilities().supported_target;
+                    if native {
+                        assert_eq!(lua.prepare_jit().unwrap(), 1);
+                    }
+                    let mut finished = false;
+                    for _ in 0..32 {
+                        finished = lua.enter(|ctx| {
+                            ctx.fetch(&executor)
+                                .step(ctx, &mut Fuel::with(fuel))
+                                .unwrap()
+                        });
+                        lua.gc_collect();
+                        if finished {
+                            break;
+                        }
+                    }
+                    assert!(finished);
+                    let result = lua.execute::<i64>(&executor);
+                    assert_eq!(result.is_err(), fails);
+                    if !fails {
+                        assert_eq!(result.unwrap(), 7 + additions as i64);
+                    }
+                    let stats = lua.jit_stats();
+                    assert_eq!(
+                        stats.total_dispatches, expected,
+                        "{additions} {fails} {mode:?} {fuel}"
+                    );
+                    if !native {
+                        assert_eq!(stats.native_instructions, 0);
+                        assert_eq!(
+                            stats.interpreted_instructions,
+                            if fails {
+                                (expected - 1) / 64 * 64
+                            } else {
+                                expected - 1
+                            }
+                        );
+                        assert_eq!(
+                            stats.interpreted_slices,
+                            if fails {
+                                (expected - 1) / 64
+                            } else {
+                                expected.div_ceil(64)
+                            }
+                        );
+                    } else if !fails {
+                        assert_eq!(
+                            stats.interpreted_instructions + stats.native_instructions,
+                            expected - 1
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn native_head_guard_fallback_does_not_retry_the_first_native_attempt() {
     let mut lua = Lua::empty();
     lua.set_jit_config(JitConfig {
