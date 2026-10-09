@@ -103,6 +103,14 @@ table-access:
 	@$(CARGO) test --locked -p luna --lib $(TARGET_ARG) table::raw::access_tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) table::raw::access_tests
 
+.PHONY: metamethod-keys metamethod-keys-miri
+metamethod-keys:
+	@$(CARGO) test --locked -p luna --no-default-features --test metamethod_keys $(TARGET_ARG)
+	@$(CARGO) test --locked -p luna --features jit --test metamethod_keys $(TARGET_ARG)
+
+metamethod-keys-miri:
+	@$(CARGO) miri test --locked -p luna --no-default-features --test metamethod_keys --target '$(MIRI_TARGET)' -- --test-threads=1
+
 ci-check:
 	@$(ACTIONLINT) .github/workflows/tests.yml
 
@@ -480,6 +488,7 @@ jit-runtime-projection:
 .PHONY: vm-upvalue-returns
 vm-upvalue-returns:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::thread::tests $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::thread::tests $(ARGS)
 	@$(CARGO) test --locked -p luna --no-default-features --test close_attribute --test tail_call_stack_panic $(TARGET_ARG) $(ARGS)
 	@for mode in off auto force; do LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test close_attribute --test tail_call_stack_panic $(TARGET_ARG) $(ARGS) || exit $$?; done
 

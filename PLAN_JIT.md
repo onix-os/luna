@@ -11,6 +11,202 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Invocation-scoped table borrow reuse — measured and withdrawn
+
+`5e90ace` adds an independent Off/Auto callback-mutation regression: after native
+table writes, Rust can read/write the table and make it readonly; a subsequent
+Lua write fails and collection succeeds. This test remains in production tests.
+`454f4c9` implements a private plain-table borrow cache for one bounded ordinary
+native invocation. It refuses metatables, readonly/intercepted writes and weak
+tables, releases before exits/declines/panics/other helpers, and excludes projected
+execution. A bounded source selector enables reuse only for recurring stable
+receiver loop shapes; native eligibility and coverage remain unchanged.
+
+The unrestricted prototype reduced array instructions 6.24% but increased
+allocation 2.32% and metamethod 1.35%; it was refined before timing. The selected
+candidate passes **1,809 baseline/doc/all-feature Auto executions / 173 suites**,
+eight ignored. Six cache/selector/gateway tests pass Miri with 25 warnings.
+Exact-image profiles show array **46,556,154 → 43,654,180**, allocation
+**32,070,041 → 32,404,410**, and metamethod **80,858,421 → 81,374,526** instructions.
+Lower array instruction work does not establish a wall-time improvement.
+
+Two native and two three-way cost rounds retain three alternating/rotating
+windows on CPU0/16, eleven samples and twenty cost iterations. **95/96 aggregate
+commands fail unchanged gates**; the single pass is repeat CPU0 window3 speed
+candidate cost, not native or full acceptance. All **216 native non-timing pairs**
+match, and pre/post source/artifact manifests and exact symbol companions verify.
+Owned builds/tests/profiles do not overlap timing; external contention is retained.
+
+Native array control/candidate ratios are **0.956282 / 0.961832** on CPU0 and
+**1.043737 / 1.020201** on CPU16. Native callbacks on CPU0 regress
+**0.880655 / 0.887314**; CPU16 metamethods **0.935106 / 0.932105**,
+allocation **0.926585 / 0.967815**, and predicate **0.936067 / 0.920108**.
+Ratios are median-of-three-window control time / candidate time, first / repeat;
+values below one mean the candidate is slower. The isolated table gain does not
+compensate for repeated losses elsewhere.
+
+Compiled-Off speed float also regresses: CPU0 **0.928395 / 0.933685** and CPU16
+**0.914048 / 0.910435**. CPU16 speed integer is **0.956656 / 0.954906** and
+shipping integer **0.958910 / 0.964968**. All nine cost controls and both current
+and historical baselines remain in the evidence; candidate fails45/216 individual
+cost windows versus control43/216 and historical48/216. These counts do not
+override individual regressions or the unchanged native targets.
+
+The complete production cache, selector, frame fields, branches and private
+cache-only tests/Make targets are withdrawn, not left enabled behind a flag.
+Runtime `src/` and Makefile return exactly to `5e90ace`; the callback regression
+and earlier measured improvements remain. The rejected implementation is preserved
+in `454f4c9`, with frozen artifacts/profiles/windows and machine-readable summary
+under `target/jit-evidence/short-slice-performance/table-borrow-{cache,selected}*`.
+Restored helper/heap/resource checks pass **72 executions / five suites**;
+formatting and all-feature checks pass. Withdrawal is committed as `6f827cb`.
+Full performance acceptance remains open; this experiment is not an accepted fix.
+
+#### Metamethod-key cache — two variants measured and withdrawn
+
+Exact-image profiles attributed 2,929,093 instructions to repeated static-name
+interning in the metamethod workload. A lazy 29-slot cache inside the existing
+GC-traced string owner cached keys only, preserving fresh metatable values and
+static-string identity. It added 232 managed bytes on 64-bit without adding an
+allocation or changing the public string-set size. No new unsafe code was added.
+`2bd77a3` independently adds all-name identity, collection, mutation/removal and
+cross-arena tests; six baseline checks pass before the runtime trial. An initial
+test-only mutable-borrow compiler error is retained with its corrected run.
+
+Focused validation passes 94 executions / 14 suites. Baseline/doc/all-feature
+Auto passes **1,802 executions / 173 suites**, eight ignored. Three GC/key checks
+pass under Miri with 13 warnings. The initial cache reduces native metamethod
+work **80,858,421 → 78,273,917** and Off work **67,198,843 → 64,319,514**.
+Its repeated native gains (CPU0 3.8–4.2%, CPU16 4.6–6.4%) introduce CPU16 native
+allocation regressions: control/candidate **0.910765 / 0.923999**. Exact allocation
+work changes only **32,070,041 → 32,099,743**; this does not establish a hardware
+cause for the timing difference. Disabled speed CPU0 float regresses
+**0.933143 / 0.958438**, shipping CPU16 integer **0.953560 / 0.955718**, and
+shipping CPU16 table **0.956251 / 0.958545**.
+
+A second variant isolates cache population/name selection/barriers in a cold,
+non-inlined miss function. Focused checks pass again. Native metamethod work
+falls to **77,689,022**, Off to **63,776,642**; repeated native gains are 4.2–4.3%
+on CPU0 and 5.1–5.8% on CPU16. Native allocation recovers, but other regressions
+remain: native-harness CPU16 Off integer **0.926884 / 0.951335**, Off float
+**0.941455 / 0.899946**; shipping CPU16 disabled table **0.959368 / 0.954279**;
+shipping CPU0 no-feature integer **0.937442 / 0.933848**. Ratios above are retained
+control time / candidate time, initial / repeat.
+
+Each variant completes two native and two three-way speed/shipping comparisons,
+three alternating/rotating windows on CPU0/16 and eleven samples. All **192
+aggregate commands** fail unchanged gates. All **432 native non-timing pairs**
+match; exact symbol companions and pre/post source/artifact manifests verify.
+Owned builds/tests/profiles do not overlap timing. Both original numeric-tier
+and latest retained controls remain visible. Cost failures are first candidate
+50/216 versus control41/216, then candidate45/216 versus control37/216; reduced
+metamethod work does not compensate for those failures.
+
+Both complete cache implementations are withdrawn. Runtime `src/` again matches
+`51815e5`; key lifetime tests and both metamethod-key Make targets remain. The earlier
+empty-return improvement is preserved. Frozen candidates, patches, exact profiles,
+all raw windows and summaries remain under `metamethod-key-{cache,cold}*` in
+`target/jit-evidence/short-slice-performance/`. Do not repeat cache-hit/miss
+annotation changes as an accepted fix. Full performance acceptance stays open.
+
+#### Common empty-return copy — retained partial improvement
+
+The generic `LuaFrame::return_upper` skips zero-length result copies while still
+checking both source and destination bounds. This is shared by no-feature and
+JIT builds; no specialized native Return path is enabled. Actual frame pop,
+capture closing, fuel, nonempty overlapping copies and caller restoration keep
+their existing order. `aa52ae1` separately commits a 108-case boundary/fuel/capture
+matrix and enables the thread unit tests in both feature modes. The baseline
+fixture initially exposed eager evaluation of the variable-count default on
+invalid starts; corrected expectations pass before the production change.
+
+Focused validation passes **177 executions / 17 suites**, two ignored. Baseline,
+documentation and all-feature Auto validation passes **1,796 executions / 171
+suites**, eight ignored. Formatting and all-feature checks pass. No new unsafe
+code, frame layout, public API, native coverage or resource-policy change occurs.
+
+Exact-image profiles reduce native upvalue work **254,772,134 → 251,756,447
+instructions (1.18%)**. After timing, fresh CPU16 speed-profile controls show
+no-feature work **73,773,622 → 72,523,637** and compiled-Off work
+**83,079,641 → 81,879,248**, with checked results and zero native instructions.
+These instruction reductions do not by themselves explain elapsed-time changes.
+
+Two native and two three-way speed/shipping comparisons complete **96 checked
+commands**; all aggregate gates still fail. Each uses three alternating/rotating
+windows on CPU0/16 and eleven samples (twenty iterations for cost tests). All
+**216 native non-timing pairs** match, exact symbol companions and source/artifact
+manifests verify, and no owned build/test/profile overlaps timing.
+
+CPU16 speed compiled-Off upvalue throughput improves **1.146060 / 1.138761**
+against retained WIP, and **1.017127 / 1.023974** against the earlier numeric-tier
+baseline. This recovers the previous direct elapsed-time regression, not the
+5% compiled-disabled-cost gate: every CPU16 upvalue cost window still fails.
+Shipping CPU16 disabled upvalues improve **1.036432 / 1.035431** against WIP.
+Native upvalue gains are smaller: CPU0 **1.004021 / 1.007643**, CPU16
+**1.008788 / 1.011395**. Ratios are control time / candidate time.
+
+Retain this as partial development progress, with adverse results explicit:
+CPU0 speed disabled metamethod ratios are **0.986999 / 0.969796**, and its
+no-feature ratios **0.986065 / 0.975595**. CPU0 shipping no-feature predicate is
+**0.995159 / 0.969860**; CPU0 speed no-feature upvalue trails the historical
+image in the repeat (**0.967579**). Cost failures total candidate **41/216**, WIP
+**39/216**, historical **46/216**; the recovered upvalue regression does not
+cancel these failures. Full performance, platform/release and compiler-resource
+acceptance remain open. Evidence and complete timing medians are under
+`target/jit-evidence/short-slice-performance/empty-return-copy*`.
+
+#### Single-borrow VM policy — measured and withdrawn
+
+Trial `1a5c56b` obtains native/pair enablement through one short-lived manager borrow
+before source selection. The active bit is consumed there rather than held until
+after lease lookup. Hooked selection does not borrow; hook-exit accounting keeps
+its existing query. Identity resolution and ordinary/resume lookup do not change
+mode or pair enablement, no guard escapes, and every invocation reads fresh state.
+This changes no fields, resource charges, native helper ABI or public API.
+
+Its policy gate checks fresh mode/pair state, unchanged counters, hook borrow
+suppression and integrated Off/Auto slice/fuel transitions. Fifteen focused
+checks pass, followed by **1,384 executions / 86 all-feature Auto suites**, six
+ignored. Two pure tests pass on real i686-musl (native integration excluded),
+and two pass under Miri with 25 warnings. `0525d97` preserves the Miri target.
+
+All five frozen images have verified exact symbol companions. Profiles again
+show increased speed compiled-Off work: integer **18,803,010 → 19,378,105**,
+float **20,204,980 → 20,780,180**, upvalue **83,079,233 → 83,379,353**. Numeric
+growth is entirely VM self work. Computing the pair bit earlier does not establish
+that fewer values remain live or that the resulting machine code is cheaper.
+
+Two native and two three-way cost comparisons complete **96 checked commands**:
+95 fail; one historical shipping control passes. All **216 native non-timing
+pairs** and four source/artifact manifests match. No owned build/test/profile
+overlaps timing. No-feature `.text` and all other file-backed allocated sections
+match the retained WIP except `.data.rel.ro`.
+
+CPU16 speed disabled upvalues improve against WIP by about 10%
+(**1.102266 / 1.101706** direct control/candidate ratios), but still trail the
+historical image (**0.977751 / 0.979949**) and fail every original cost gate.
+CPU0 shipping float also improves (**1.046826 / 1.040542** versus WIP).
+Those gains introduce repeated shipping CPU16 regressions:
+
+| Disabled case | WIP / candidate, initial / repeat | Historical / candidate |
+| --- | --- | --- |
+| Integer | **0.949699 / 0.938143** | **0.927497 / 0.926802** |
+| Float | **0.960705 / 0.961038** | **0.942992 / 0.940737** |
+| Table | **0.958887 / 0.966746** | 1.002157 / 1.009388 |
+
+Native CPU16 metamethod throughput also regresses (**0.958520 / 0.937230**).
+Cost failures fall from 41 WIP to 36 candidate of 216 (historical 43), but this
+does not cancel individual regressions. Native table/upvalue/metamethod/callback
+gates pass none of twelve; allocation/GC gains one failed window. Numeric and
+cold gates still pass all twelve.
+
+Withdraw the complete snapshot implementation and its candidate-only tests/Make
+targets; both remain inspectable in Git history. Production source and Makefile
+again match `d6674b8`, preserving the common-array optimization. Do not continue
+policy-flag/tuple reshuffling as though source-level borrow counts proved a fix;
+the next change needs a demonstrated reduction of the actual hot-path work.
+Evidence prefix: `target/jit-evidence/short-slice-performance/vm-policy-snapshot*`.
+
 #### Inactive paired-policy query — measured and withdrawn
 
 A VM trial reuses the fresh native-active flag to skip `call_pairs_enabled`

@@ -1280,7 +1280,12 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
         // Not truncated to the returned values here: the frame being left keeps the height it
         // already had, and `return_values_to` trims or grows that to whatever the frame below
         // needs, rather than rebuilding it a `Nil` at a time.
-        self.stack.copy_within(start..start + count, bottom);
+        if count == 0 {
+            assert!(start <= self.stack.len());
+            assert!(bottom <= self.stack.len());
+        } else {
+            self.stack.copy_within(start..start + count, bottom);
+        }
         self.state.return_values_to(&mut self.stack, bottom, count);
 
         Ok(())
