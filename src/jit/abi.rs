@@ -16,6 +16,13 @@ pub(super) struct Slot {
 }
 
 impl Slot {
+    pub const fn canonical() -> Self {
+        Self {
+            tag: REFERENCE,
+            bits: 0,
+        }
+    }
+
     pub fn from_value(value: Value<'_>) -> Self {
         match value {
             Value::Nil => Self { tag: NIL, bits: 0 },
