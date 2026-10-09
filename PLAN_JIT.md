@@ -69,6 +69,14 @@ Withdrawal `f837996` passes GNU formatting/checking and **120 focused executions
 across 24 GNU/musl suites**, plus the four Miri tests. Both trial no-feature
 `.text` sections match their controls byte-for-byte; whole files differ.
 
+The final post-timing section extraction accidentally omitted objcopy's output
+ELF and rewrote four no-feature input files. A subsequent manifest check detects
+all four; exact original SHA256 images are restored from retained linker captures,
+not rebuilt or rebaselined. Modified copies remain under `integer-capture-artifact-repair/`.
+Both timing rounds and their postchecks had finished before the rewrite; no later
+timing used those modified files. Explicit-output extraction reconfirms original
+`.text` identity, and all original/timing artifact manifests verify after repair.
+
 #### Explicit value/constant tags — rejected before acceptance timing
 
 `dd4f7bd` extends the existing portable size bound to runtime constants and
