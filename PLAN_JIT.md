@@ -11,6 +11,39 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Immutable call-layout admission measured and withdrawn
+
+The trial validates immutable register and parameter bounds once per admitted
+region, while retaining fresh closure/capture, policy, stack, capacity, close,
+fuel and publication checks. GNU validation passes 1,891 executions across
+175 suites (eight ignored); targeted musl passes 146 (two ignored), i686 two.
+The two pure bounds tests pass both Miri models. Native rooted/window Memcheck
+reports zero errors and zero definite/indirect leaks; harness possible-loss and
+reachable allocations remain. None of these checks establishes performance.
+
+Exact upvalue instruction work falls only 169,703,129 to 169,042,317 (0.39%).
+Two four-way native screens complete **48 commands** with unchanged workloads,
+11 paired samples and controls. Upvalue gates pass 11/12 versus compact 9/12,
+but individual candidate/compact times range 0.95182–1.00840. Callback gates
+still fail 12/12; metamethod passes 3/12 versus compact 4/12. All 1,296 native
+coverage comparisons match, including every checked execution counter.
+
+The valid seven-way feature-cost campaign completes **112 commands**, retaining
+both profiles/core types and four windows. Candidate failures are 34/144 versus
+compact 30/144. CPU16 speed compiled-Off float is **6.38–11.02% slower** in all
+four windows and fails all four original ceilings, versus none for compact.
+CPU16 speed integer is 4.57–5.69% slower; shipping array is 3.27–4.49% slower.
+All 3,024 native-proof comparisons match. These regressions outweigh the small,
+inconsistent upvalue gain, so the runtime descriptor and duplicate window are
+withdrawn. A 19-case original-window refusal/no-mutation regression remains.
+
+Evidence is under `target/jit-evidence/short-slice-performance/bound-call-layout*`.
+Only `bound-call-layout-cost/verified-shell/` contains valid cost measurements:
+the first host-shell attempt failed artifact verification because its Bash did
+not support associative arrays. Its logs remain but are excluded from timing
+counts. The corrected run uses Nix; all source/artifact after-checks pass.
+Full performance, resource, platform and release acceptance remains open.
+
 #### Selective imports and indexed copying measured and withdrawn
 
 Three register-import prototypes are rejected after **72 native commands** and
