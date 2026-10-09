@@ -50,7 +50,12 @@ mod tests {
                     (Value::Boolean(a), Value::Boolean(b)) => assert_eq!(a, b),
                     (Value::Integer(a), Value::Integer(b)) => assert_eq!(a, b),
                     (Value::Number(a), Value::Number(b)) => assert_eq!(a.to_bits(), b.to_bits()),
-                    (Value::String(a), Value::String(b)) => assert_eq!(a, b),
+                    (Value::String(a), Value::String(b)) => {
+                        assert!(ottavino_gc_arena::Gc::ptr_eq(
+                            a.into_inner(),
+                            b.into_inner()
+                        ));
+                    }
                     _ => panic!("constant changed kind"),
                 }
             }
