@@ -27,6 +27,12 @@ compiled-Off regressions. Production retains the numeric-loop runtime above;
 live receiver-tag and operand-order tests remain in `c4392c7`. See `PLAN_JIT.md`
 for both complete comparisons, including failed gates and noisy windows.
 
+A typed table-store loop prototype (`f820b63`) was also tested, enabled for
+measurement, then withdrawn. It reduced total table instruction work by 2.8%
+but failed the table target and regressed compiled-Off execution. Production
+keeps the earlier numeric tier; `make jit-table-loop` retains integrated
+fuel/GC/metamethod regression coverage. Full results are in `PLAN_JIT.md`.
+
 Two subsequent exact-ordering optimizations were tested and rejected for
 performance regressions before these typed-loop changes. At that checkpoint
 the runtime remained the lazy-limit version below, and all five rebuilt

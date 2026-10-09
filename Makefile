@@ -544,8 +544,7 @@ jit-tags:
 .PHONY: jit-integer-loop
 .PHONY: jit-table-loop
 jit-table-loop:
-	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::model::table_loop_tests
-	@$(MAKE) --no-print-directory jit-integer-loop
+	@$(CARGO) test --locked -p luna --features jit --test jit_table_loop $(TARGET_ARG)
 
 jit-integer-loop:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::integer_loop::tests

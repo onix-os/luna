@@ -280,7 +280,6 @@ fn masks(source: &Snapshot, region: &Region) -> Result<(u16, u16), JitError> {
     )?;
     let mut used = (1 << base.0) | (1 << (base.0 + 1)) | (1 << (base.0 + 2)) | (1 << (base.0 + 3));
     let mut written = (1 << base.0) | (1 << (base.0 + 3));
-    let mut receivers = 0u16;
     require(p.numbers & used == 0 && p.numbers & !p.used == 0)?;
     let constant_type = |index: usize| -> Result<bool, JitError> {
         match source.constants[index].tag {
@@ -300,13 +299,6 @@ fn masks(source: &Snapshot, region: &Region) -> Result<(u16, u16), JitError> {
             }
         };
         let (dest, number) = match op {
-            Operation::SetTable { table, key, value } => {
-                require(region.table.is_some())?;
-                input(key)?;
-                input(value)?;
-                receivers |= 1 << table.0;
-                continue;
-            }
             Operation::Add { dest, left, right }
             | Operation::Sub { dest, left, right }
             | Operation::Mul { dest, left, right } => (dest.0, input(left)? | input(right)?),
@@ -320,9 +312,7 @@ fn masks(source: &Snapshot, region: &Region) -> Result<(u16, u16), JitError> {
         used |= 1 << dest;
         written |= 1 << dest;
     }
-    require(
-        used == p.used && written == p.written && used.count_ones() <= 8 && receivers & used == 0,
-    )?;
+    require(used == p.used && written == p.written && used.count_ones() <= 8)?;
     Ok((used, written))
 }
 
@@ -441,9 +431,7 @@ pub(super) fn check(
     exhausted: Block,
     r: &Region,
     probe: bool,
-    table: Option<super::TableBoundary>,
 ) -> Result<(), JitError> {
-    require(r.table == table)?;
     cranelift_codegen::verify_function(
         after,
         &cranelift_codegen::settings::Flags::new(cranelift_codegen::settings::builder()),
@@ -453,28 +441,10 @@ pub(super) fn check(
     let numbers = r.plan.numbers;
     require(headers.len() == source.operations.len())?;
     let length = r.plan.end - r.plan.start + 1;
-    let helper_count = source.operations[r.plan.start..r.plan.end]
-        .iter()
-        .filter(|op| matches!(op, Operation::SetTable { .. }))
-        .count();
-    for i in 0..MAX_OPERATIONS {
-        require(
-            r.declines[i].is_some()
-                == (i < length
-                    && matches!(
-                        source.operations[r.plan.start + i],
-                        Operation::SetTable { .. }
-                    )),
-        )?;
-    }
     let new_blocks = [r.generic, r.guards, r.dispatch, r.done, r.budget_exit]
         .into_iter()
-        .chain((0..length).flat_map(|i| {
-            [Some(r.fast[i]), Some(r.bodies[i]), r.declines[i]]
-                .into_iter()
-                .flatten()
-        }));
-    require(after.dfg.num_blocks() == before.dfg.num_blocks() + 5 + length * 2 + helper_count)?;
+        .chain((0..length).flat_map(|i| [r.fast[i], r.bodies[i]]));
+    require(after.dfg.num_blocks() == before.dfg.num_blocks() + 5 + length * 2)?;
     for (index, block) in new_blocks.clone().enumerate() {
         require(block.as_u32() as usize == before.dfg.num_blocks() + index)?;
     }
@@ -489,7 +459,6 @@ pub(super) fn check(
     for block in [r.generic, r.guards, r.dispatch]
         .into_iter()
         .chain(r.bodies[..length].iter().copied())
-        .chain(r.declines[..length].iter().flatten().copied())
     {
         require(after.dfg.block_params(block).is_empty())?;
     }
@@ -530,7 +499,7 @@ pub(super) fn check(
     s.finish()?;
     let mut s = scan(r.dispatch);
     if probe {
-        let dest = s.load(p[4], if table.is_some() { 8 } else { 0 })?;
+        let dest = s.load(p[4], 0)?;
         let one = s.constant(types::I64, 1)?;
         s.store(dest, 0, one)?;
     }
@@ -591,50 +560,6 @@ pub(super) fn check(
         let one = s.constant(types::I32, 1)?;
         let next_count = s.binary(Opcode::Iadd, types::I32, count, one)?;
         match source.operations[pc] {
-            Operation::SetTable { table, key, value } => {
-                let boundary = r.table.ok_or_else(invalid)?;
-                flush(&mut s, p[0], &values, written, numbers)?;
-                let encode = |input| match input {
-                    RCIndex::Register(index) => u32::from(index.0),
-                    RCIndex::Constant(index) => abi::CONSTANT_OPERAND | u32::from(index.0),
-                };
-                let a = s.constant(types::I32, i64::from(table.0))?;
-                let b = s.constant(types::I32, i64::from(encode(key)))?;
-                let c = s.constant(types::I32, i64::from(encode(value)))?;
-                let helper_pc = s.constant(types::I32, pc as i64)?;
-                let invocation = s.take(Opcode::Call, &[types::I32])?;
-                let InstructionData::Call { func_ref, args, .. } = after.dfg.insts[invocation]
-                else {
-                    return Err(invalid());
-                };
-                require(
-                    func_ref == boundary.helper
-                        && args.as_slice(&after.dfg.value_lists)
-                            == [p[4], p[0], a, b, c, helper_pc],
-                )?;
-                let status = after.dfg.first_result(invocation);
-                let completed =
-                    s.compare_imm(IntCC::Equal, status, i64::from(abi::HELPER_COMPLETED))?;
-                let (args, len) = arguments(next_count, &values, used)?;
-                let decline = r.declines[index].ok_or_else(invalid)?;
-                s.branch(
-                    completed,
-                    [(r.fast[index + 1], &args[..len]), (decline, &[])],
-                )?;
-                s.finish()?;
-                let mut s = scan(decline);
-                let panicked =
-                    s.compare_imm(IntCC::Equal, status, i64::from(abi::HELPER_PANICKED))?;
-                s.branch(
-                    panicked,
-                    [
-                        (boundary.panicked, &[source_pc, count]),
-                        (boundary.fallback, &[source_pc, count]),
-                    ],
-                )?;
-                s.finish()?;
-                continue;
-            }
             op @ (Operation::Add { dest, left, right }
             | Operation::Sub { dest, left, right }
             | Operation::Mul { dest, left, right }) => {

@@ -322,9 +322,6 @@ pub(super) enum Failure {
     RequireIntegerLoop,
     ProbeIntegerLoop,
     AuditIntegerLoop,
-    RequireTableLoop,
-    ProbeTableLoop,
-    AuditTableLoop,
     RequireReleasedWorkspace(usize),
     RequireReleasedSnapshot,
     DetectHostSetup,
@@ -1161,47 +1158,20 @@ fn compile_selected_rooted(
     }
     stores.verify_bindings(&context.func, parameters[0], &paths, &graph)?;
     #[cfg(test)]
-    let table_loop = matches!(
-        failure,
-        Failure::RequireTableLoop | Failure::ProbeTableLoop | Failure::AuditTableLoop
-    )
-    .then(|| integer_loop::TableBoundary {
-        helper: helper_refs
-            .iter()
-            .find(|(kind, _)| *kind == abi::HELPER_SET_TABLE)
-            .unwrap()
-            .1,
-        fallback,
-        panicked,
-    });
-    #[cfg(not(test))]
-    let table_loop = None;
-    #[cfg(test)]
-    if matches!(failure, Failure::AuditIntegerLoop | Failure::AuditTableLoop) {
-        integer_loop::audit::run(
-            &context.func,
-            snapshot,
-            &blocks,
-            exhausted,
-            expansion,
-            table_loop,
-        )?;
+    if failure == Failure::AuditIntegerLoop {
+        integer_loop::audit::run(&context.func, snapshot, &blocks, exhausted, expansion)?;
         return Err(JitError::Compilation("integer loop audit complete".into()));
     }
     #[cfg(test)]
     let optimize_integer_loop = matches!(
         failure,
-        Failure::None
-            | Failure::RequireIntegerLoop
-            | Failure::ProbeIntegerLoop
-            | Failure::RequireTableLoop
-            | Failure::ProbeTableLoop
+        Failure::None | Failure::RequireIntegerLoop | Failure::ProbeIntegerLoop
     );
     #[cfg(not(test))]
     let optimize_integer_loop = true;
     let (instructions, block_count) = if optimize_integer_loop {
         #[cfg(test)]
-        let probe = matches!(failure, Failure::ProbeIntegerLoop | Failure::ProbeTableLoop);
+        let probe = failure == Failure::ProbeIntegerLoop;
         #[cfg(not(test))]
         let probe = false;
         let applied = integer_loop::augment(
@@ -1211,16 +1181,12 @@ fn compile_selected_rooted(
             exhausted,
             probe,
             expansion,
-            table_loop,
         )?;
         #[cfg(test)]
         if !applied
             && matches!(
                 failure,
-                Failure::RequireIntegerLoop
-                    | Failure::ProbeIntegerLoop
-                    | Failure::RequireTableLoop
-                    | Failure::ProbeTableLoop
+                Failure::RequireIntegerLoop | Failure::ProbeIntegerLoop
             )
         {
             return Err(JitError::Compilation("integer loop was not applied".into()));

@@ -11,6 +11,71 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Typed table-store loops — implemented, measured, withdrawn
+
+`f820b63` checkpoints a test-selected compiler prototype that carries numeric
+SSA state across ordinary `SetTable`. The enabled trial reuses the existing
+ordinary/scoped helper import, publishes every potentially written scalar slot
+before each call, and preserves helper operands, PC, completion/decline/panic
+routing and instruction counts. Receivers cannot alias typed numeric state.
+The generic graph is preserved transactionally; no GC object layout, new helper
+ABI, source-specific import, runtime cache or reduced native coverage is added.
+
+The independent checker verifies helper calls and exits in addition to typed
+numeric data flow. Three table sources reject 492/612/552 mutated translations,
+including 452/557/508 structurally valid variants. Four actual-helper source
+families compare generic, typed and probed native execution at every PC, seven
+budgets, nine scenarios and three integer-edge seeds. They verify fresh entry,
+stale canonical scalars, readonly/metamethod/non-table declines, NaN keys,
+receiver scalar tags, type fallback and caught borrow panics. Simultaneous IR
+expansion bounds and transactional refusal are checked. Initial test compile
+errors and an arithmetic-only audit assumption are retained with corrected logs.
+
+Enabled format/check/focused/all-feature Auto validation passes **1,390
+executions / 90 suites**, six ignored. Memcheck passes the actual-helper matrix
+with zero errors and zero definite/indirect leaks; 48 possibly-lost and 632
+reachable harness bytes remain. Six integrated fuel/GC/metamethod script
+families remain in `tests/jit_table_loop.rs`, run by `make jit-table-loop`.
+
+Two complete native and two speed/shipping cost comparisons finish **72
+aggregate commands**: 71 exit 2 and one shipping CPU0 control exits 0. All
+candidate aggregate checks fail. All 216 matched native case pairs preserve
+every non-timing field, including resource counts; both no-feature images
+match their controls byte-for-byte. Source/artifact checks pass. Builds, tests
+and exact-image profiles finish before timing; unrelated workloads stay running.
+
+Table generated self instructions decrease **11,125,551 → 9,731,887 (12.5%)**,
+but whole-executor work decreases only **50,088,509 → 48,684,642 (2.8%)**.
+The unchanged helpers still dominate. Native table control/candidate ratios
+are CPU0 **1.089324 / 1.023116**, CPU16 **0.954447 / 1.027010**. All twelve
+table gates fail, with Off/Auto ratios 0.8641–0.9858. Both numeric gates pass
+all twelve windows, but upvalue, metamethod and callback gates pass none.
+
+Repeated disabled regressions outweigh the small native improvement:
+
+| Disabled measurement | CPU | Initial ratio | Repeat ratio |
+| --- | --- | --- | --- |
+| Speed integer | 0 | **0.920854** | **0.909408** |
+| Speed float | 0 | **0.948890** | **0.955174** |
+| Speed table | 16 | **0.860081** | **0.872339** |
+| Shipping integer | 16 | **0.863260** | **0.889492** |
+| Shipping float | 16 | **0.912827** | **0.933571** |
+| Shipping upvalue | 16 | **0.951577** | **0.956183** |
+
+Ratios are control time / candidate time, from three alternating windows per
+core with eleven samples (twenty iterations per cost sample). Cost failures
+rise **46 → 71 of 216**. CPU0 shipping integer improves 1.097550 / 1.088861,
+but does not excuse the other losses. Native CPU0 cold also worsens
+0.980148 / 0.961789. Every result remains in the JSON and raw evidence.
+
+The compiler/runtime trial is withdrawn, including candidate-only model hooks;
+its staged prototype stays inspectable in Git history and its enabled patch
+under `target/jit-evidence/short-slice-performance/typed-table-loop*`.
+Production source is restored to `23e1d44`; integrated regression coverage
+remains. Next work must address compiled-Off isolation/dispatch/frame costs
+against the prior excluded experiments, rather than another small helper
+rewrite. No performance or full-plan acceptance is claimed.
+
 #### Table receiver specialization — measured twice, rejected
 
 `c4392c7` adds live-tag/canonical-identity and operand-order regression tests.
