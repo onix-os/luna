@@ -11,6 +11,37 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Source-registry bucket offsets — trial awaiting timing
+
+`c9ee18e` commits baseline-valid identity tests across map growth, alternating
+parent/child lookups, collection/compaction, reset, re-registration, misses and
+generation refusal. Five registry tests pass before the runtime change, including
+both Miri models. The trial adds two non-owning scalar bucket offsets to the
+registry, not a closure-local source-ID cache, epoch or retained code lease.
+Every hit still checks the map key, upgrades the weak prototype and compares
+live identity. Reset, registration mutation and sweep invalidate hints before
+touching the map. Fresh shared references never outlive the registry borrow;
+the bounded extra registry storage remains in managed GC accounting.
+
+Candidate focused checks pass 52 executions across six suites; full GNU passes
+1,904 executions /175 summaries /eight ignored, formatting and all-target checks.
+Targeted musl passes 52 /six, i686 five, and each candidate Miri model five.
+Removing reset invalidation makes the independent growth/reset fixture fail at
+hashbrown's empty-table bucket assertion under Miri; it is not an observed-UB
+claim. The invalid mutant was removed and both frozen source manifests verified.
+
+Fourteen exact-image profiles preserve allocated bytes/metadata/program headers
+and all seven full non-timing counter comparisons. Callback instructions change
+133,593,180 to 131,600,026 (about 1.49% fewer). VM/executor inlining also changes;
+the whole reduction is not attributed solely to avoided hashing. Other profiled
+workloads have smaller instruction reductions. No elapsed-speedup claim follows.
+
+Candidate speed/shipping artifacts are frozen. Runtime source is temporarily at
+baseline only while fresh cost controls build; the trial patch is preserved and
+not yet accepted or rejected. Reapply it exactly and verify manifests before
+repeated native/disabled-cost timing. Evidence is under `registry-offset-*` in
+`target/jit-evidence/short-slice-performance/`. Full acceptance remains open.
+
 #### Executor mode-query elision — measured and withdrawn
 
 `d8b86f0` commits baseline-tested mode/fuel/handoff fixtures: 54 scenarios per
