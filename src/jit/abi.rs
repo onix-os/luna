@@ -16,6 +16,7 @@ pub(super) struct Slot {
 }
 
 impl Slot {
+    #[cfg(test)]
     pub const fn canonical() -> Self {
         Self {
             tag: REFERENCE,
