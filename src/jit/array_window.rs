@@ -165,6 +165,7 @@ pub(super) fn with_window<'gc, R, const CAPACITY: usize>(
 mod tests;
 
 mod native;
+mod plan;
 
 #[cfg(all(
     not(miri),
