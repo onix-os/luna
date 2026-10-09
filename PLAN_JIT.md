@@ -43,6 +43,28 @@ instructions; its cause is not yet established for this candidate. Anonymous
 address totals match, but raw address-labeled functions relocate and are not
 individually equated by name. Other named-function deltas remain in the evidence.
 
+The first hardware screen completes 30 native and 128 cost commands. All 158
+aggregate gates fail; fresh/candidate individual failures are 12/9 native and
+34/39 cost. Complete counters match in 108 native and 144 cost-native comparisons.
+Callbacks improve on CPU0 but worsen on CPU16; all six candidate callback gates
+fail. CPU16 speed compiled-Off integer and array each acquire four ceiling
+failures where fresh controls have none. No owned build/test/profile overlaps
+these timings, and adverse samples and unrelated contention remain recorded.
+
+Eighty exact-image disabled-path profiles verify all 13 event totals and worker
+protocols. Both CPU classes show the same extra speed-profile VM instructions:
+integer 600,080, float 700,130, array 300,155, upvalue 700,090 and callbacks
+275,080. Integer assembly saves `%r14` to stack offset `0x38` 200,040 times and
+reloads it 200,035 times; these new instructions alone account for 400,075 of
+the increase. They are not native execution: every worker reports zero native
+instructions. Further register allocation and block-layout changes remain.
+Shipping VM instructions instead fall in all five cases, so instruction counts
+alone do not explain its elapsed losses. No-feature files are byte-identical;
+most profile counts match, but speed array retains an eight-instruction allocator
+difference. Two feature upvalue comparisons retain 408 allocator instructions
+in addition to their VM deltas. Address-labeled functions relocate and must not
+be treated as matching identities.
+
 This is a **provisional representation/footprint improvement, not elapsed-speed
 acceptance**. Unchanged native and speed/shipping cost gates still govern
 retention. Evidence: `target/jit-evidence/short-slice-performance/projection-mode-*`.
