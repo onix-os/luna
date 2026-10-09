@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Register-return exits — profiled candidate, timing pending
+#### Register-return exits — first timing screen, acceptance incomplete
 
 `83048e2` proves the two-word C return protocol; `f6fedb4` adds checked
 output-pointer lowering and an actual generated-code interoperability test.
@@ -45,8 +45,26 @@ upvalue workload); all other non-timing fields match. Dynamic instructions fall
 instructions and129,711 generated instructions; its VM/executor self counts
 are unchanged. This demonstrates the boundary change, not an elapsed speedup.
 
-Paired native and shipping/speed feature-cost timing remain outstanding.
-The candidate is not release acceptance; original thresholds remain unchanged.
+The first timing screen completes158 commands:30 native and128 speed/shipping
+feature-cost controls. All158 aggregate gates fail. Against the fresh control,
+native case failures fall11→8 and feature-cost case failures29→23; this is not
+acceptance. Runtime counters match108 native case/mode comparisons (apart from
+the recorded workspace peaks) and144 cost-native coverage comparisons. Both
+no-feature binaries are byte-identical. Frozen samples, workloads, thresholds,
+both CPU classes, historical controls and contention telemetry are retained;
+no owned builds/tests/profiles/source edits overlap timing.
+
+Median fresh/candidate native elapsed ratios across three windows are CPU0
+integer1.1713,float1.0809,upvalue1.0120,callback1.0259; CPU16 integer1.0403,
+float1.0219,upvalue1.0386,callback1.0048. CPU0 metamethods are adverse0.9801;
+all six candidate callback gates still fail. Hardware causes are not established.
+
+Shipping compiled-Off results require investigation: CPU0 integer0.9517 and
+float0.9242; CPU16 integer0.8887,float0.9250,array0.9019. Matching no-feature
+ratios are near parity. These numeric/array original1.05 ceilings still pass,
+but the relative regressions are retained, not dismissed or called new original
+gate failures. Independent repeated timing and exact-image compiled-Off
+profiling are next. The candidate remains provisional; no release acceptance.
 
 #### Source-registry bucket offsets — measured and withdrawn
 
