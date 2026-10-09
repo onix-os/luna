@@ -662,6 +662,7 @@ fn meta_unary_metaop<'gc>(
     })
 }
 
+#[inline(always)]
 pub fn add<'gc>(
     ctx: Context<'gc>,
     lhs: Value<'gc>,
