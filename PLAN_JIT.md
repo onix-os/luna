@@ -11,6 +11,86 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Call-observer admission trials withdrawn
+
+Exact retained production callback profiling attributes 1,430,000 instructions
+to rejected call-pair observations. Splitting a small admission wrapper from
+leaf analysis reduces whole-workload instructions by **1.49% when inlined** and
+**0.72% when outlined**. Eligible observations and actual native coverage remain
+unchanged. A retained fixture enumerates 65,281 rejected argument/result shapes,
+checking unchanged frame state, PC, statistics and pending entries, then requires
+the eligible Lua-call control to register. GNU and musl call-pair/runtime/heap
+gates each pass 56 executions for both variants.
+
+**104 unchanged timing commands** cover both variants, original controls, both
+core types and both cost profiles. The inline version improves CPU0 callback
+time 1.3–3.3% but regresses CPU16 native float 10.6–12.8% and CPU0 shipping
+compiled-Off float about 8.8%. Its exact shipping float instruction/read/write/
+branch totals equal the control; simulated branch misses do not explain the
+hardware result. The outlined version has no consistent native callback gain
+and regresses CPU16 shipping compiled-Off callbacks **8.0–9.0%**, with stable
+no-feature callback controls. All 108 native case comparisons retain identical
+native/interpreted instruction and compilation-failure counts.
+
+Both production variants are withdrawn, not accepted on instruction counts.
+The callback observer accounts for only about 1% of collected instructions;
+the larger VM dispatch, invocation/marshaling and lookup costs remain the next
+targets. Evidence is retained under `call-observer-*`, including all negative
+samples and contention telemetry. No frozen threshold is relaxed.
+
+#### Budget-bounded array mirror trial withdrawn
+
+The trial bounded each mirror by the keys reachable within a native slice,
+reducing the frozen fill/sum copies from up to 64 cells to 33/23. GNU and musl
+focused gates each passed 51 executions; Miri and i686 each passed 16. Its
+reachability model covered 388,399 combinations (330 under Miri).
+
+Two native rounds and four feature-cost windows retained **104 aggregate timing
+commands**: 24 native and 80 cost, both core types, both cost profiles, unchanged
+nine workloads, 11 samples/pairs and 20 cost iterations. The array gate passed
+12/12 candidate runs, but callback/metamethod gates failed 12/12 each. Upvalue
+passed 11/12. Candidate feature-cost failures were 24/144 versus retained array
+30/144 and rooted control 25/144; fewer failed ratios did not prove acceptance.
+
+Shipping CPU0 compiled-Off float time regressed **9.5–10.2%** versus the retained
+array build in all four windows. The repeat no-feature float controls changed
+only -0.37/-0.40%, so this was not an improved denominator masking the slowdown.
+The production change is withdrawn. The reachable-key model is retained against
+the original fixed-capacity window. Source patches, binaries, controls and all
+negative samples remain under `array-budget-*` in the short-slice evidence
+directory. Full JIT performance acceptance remains open.
+
+#### Overflow-predicate trial withdrawn; fallback fixture repaired
+
+The first attempt to address the array candidate's compiled-Off float regression
+replaced short-circuit overflow/limit combination with eager boolean OR in the
+integer interpreter loop. GNU focused numeric/array gates passed **151 executions
+/ 12 suites**, but emitted assembly still retained the overflow branch and added
+another index calculation.
+
+**52 unchanged timing commands** compared the trial with the retained array build
+and original controls: 12 native, 40 feature-cost, both core types, both profiles,
+all nine workloads, 11 samples/pairs and cost iterations 20. Compiled-Off speed
+float time improved only 1.8–5.1% versus the array build and remained 3.8–8.0%
+slower than rooted-publication. CPU0 native callbacks regressed **7.7–9.8%** in
+all three comparisons, and CPU16 native upvalue regressed **2.1–3.8%**. Shipping
+no-feature upvalue time regressed **12.9–13.0%** on CPU16; its improved
+compiled-Off/no-feature ratio therefore did not represent a compiled-Off fix.
+
+The production predicate is restored exactly to the measured array checkpoint.
+Public integer-loop boundary coverage is retained: signed terminal overflow,
+extreme steps, empty directional ranges, negative indices and zero-step errors.
+The initial fixture incorrectly assumed public zero-step loops were admitted;
+its failure is retained, and the corrected test requires the existing rejection.
+All timing and assembly evidence remains under `loop-predicate-*`.
+
+Separately, `f974927` repairs a portable constant-identity fixture that demanded
+native preparation on unsupported i686. The failure reproduced locally; the
+test still runs on every target, and supported targets still prepare explicitly.
+GNU `vm-constants` passes **10 executions / six suites**. The i686 focused gate
+plus full `jit-fallback` matrix passes **2,364 executions / 357 suites**, with two
+ignored. This fixes the CI fixture, not the native performance regressions.
+
 #### Array kernels enabled in ordinary native builds — candidate
 
 Supported non-test Auto builds now select the verified array compiler by default.

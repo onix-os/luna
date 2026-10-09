@@ -30,6 +30,10 @@ still fail and upvalue remains inconsistent. Feature-cost testing also finds a
 These are positive and negative development results, **not performance or release
 acceptance**; `PLAN_JIT.md` records the unchanged gates and controls.
 
+An eager integer-loop overflow-predicate trial partly improved compiled-Off float
+timing but regressed native callbacks and no-feature upvalue execution. It is
+withdrawn; production retains the array checkpoint and original loop predicate.
+
 Admitted integer callees can now complete atomically without a physical callee
 frame when all inputs, source bindings, capacity/depth, capture, hook and fuel
 guards permit. The verified generated arithmetic remains native; canonical stack,

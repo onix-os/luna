@@ -14,6 +14,40 @@ fn eval(source: &str) -> Result<bool, ExternError> {
 mod common;
 
 #[test]
+fn integer_loops_stop_on_overflow_and_respect_direction() -> Result<(), ExternError> {
+    assert!(eval(
+        r#"
+        local function collect(first, limit, step, stop)
+            local count, last = 0, nil
+            for i=first,limit,step do
+                count, last = count+1, i
+                assert(count <= 4)
+                if count == stop then break end
+            end
+            return count, last
+        end
+        local function check(first, limit, step, expected_count, expected_last, stop)
+            local count, last = collect(first, limit, step, stop)
+            assert(count == expected_count and last == expected_last)
+        end
+        local lo, hi = math.mininteger, math.maxinteger
+        check(hi-2, hi, 1, 3, hi)
+        check(lo+2, lo, -1, 3, lo)
+        check(1, hi, hi, 1, 1)
+        check(-1, lo, -hi, 2, lo)
+        check(lo, lo, lo, 1, lo)
+        check(5, 3, 1, 0, nil)
+        check(3, 5, -1, 0, nil)
+        assert(not pcall(collect, 2, 2, 0, 3))
+        assert(not pcall(collect, 3, 2, 0, 3))
+        check(-3, -1, 1, 3, -1)
+        return true
+        "#
+    )?);
+    Ok(())
+}
+
+#[test]
 fn direct_operators_match_constant_semantics() {
     use luna::{meta_ops, Context, Value};
 

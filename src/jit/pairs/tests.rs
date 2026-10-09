@@ -82,6 +82,73 @@ fn assert_eligibility(lua: &mut Lua, installed: usize) {
 }
 
 #[test]
+fn call_observation_rejects_result_and_variable_shapes_without_effects() {
+    use crate::types::VarCount;
+
+    let (mut lua, closure, key) = fixture();
+    lua.enter(|ctx| {
+        with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+            assert!(host.run(ctx, 1, key.pc as u32, 4).result.is_ok());
+            host.with_registers(|caller, registers| {
+                let Operation::Call {
+                    func,
+                    args,
+                    returns,
+                } = caller.prototype().opcodes[key.pc].decode()
+                else {
+                    panic!("expected fixture call");
+                };
+                assert_eq!(*registers.pc, key.pc);
+                *registers.pc += 1;
+                let before = registers.stack_frame.to_vec();
+                let manager = ctx.jit().0.borrow();
+                let stats = manager.stats;
+                assert!(manager.pairs.as_ref().unwrap().entries.is_empty());
+                let mut rejected = 0;
+                for arguments in 0..=u8::MAX {
+                    for results in 0..=u8::MAX {
+                        let arguments =
+                            VarCount::try_constant(arguments).unwrap_or_else(VarCount::variable);
+                        let results =
+                            VarCount::try_constant(results).unwrap_or_else(VarCount::variable);
+                        if arguments.to_constant().is_some() && results.to_constant() == Some(0) {
+                            continue;
+                        }
+                        ctx.jit()
+                            .observe_call(ctx, caller, &registers, func, arguments, results);
+                        rejected += 1;
+                    }
+                }
+                assert_eq!(rejected, 65_281);
+                assert_eq!(manager.stats, stats);
+                assert!(manager.pairs.as_ref().unwrap().entries.is_empty());
+                for (actual, expected) in registers.stack_frame.iter().zip(before) {
+                    match (*actual, expected) {
+                        (crate::Value::Nil, crate::Value::Nil) => {}
+                        (crate::Value::Integer(a), crate::Value::Integer(b)) => assert_eq!(a, b),
+                        (crate::Value::Function(a), crate::Value::Function(b)) => assert_eq!(a, b),
+                        values => panic!("unexpected fixture values: {values:?}"),
+                    }
+                }
+                assert_eq!(*registers.pc, key.pc + 1);
+                drop(manager);
+                ctx.jit()
+                    .observe_call(ctx, caller, &registers, func, args, returns);
+                assert!(ctx
+                    .jit()
+                    .0
+                    .borrow()
+                    .pairs
+                    .as_ref()
+                    .unwrap()
+                    .entries
+                    .contains_key(&key));
+            });
+        });
+    });
+}
+
+#[test]
 fn unpaired_callbacks_keep_native_execution_without_scoped_scheduling() {
     let mut lua = Lua::empty();
     lua.set_jit_config(JitConfig {
