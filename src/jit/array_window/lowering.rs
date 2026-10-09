@@ -7,7 +7,7 @@ use cranelift_frontend::FunctionBuilder;
 
 use super::{native::View, *};
 
-fn guard(b: &mut FunctionBuilder<'_>, condition: IrValue, decline: Block) {
+pub(super) fn guard(b: &mut FunctionBuilder<'_>, condition: IrValue, decline: Block) {
     let next = b.create_block();
     b.ins().brif(condition, next, &[], decline, &[]);
     b.switch_to_block(next);
@@ -21,8 +21,41 @@ pub(super) fn emit_access(
     slot: IrValue,
     decline: Block,
 ) {
+    emit(
+        b,
+        view,
+        key,
+        if access == Access::Read {
+            Input::ReadTo(slot)
+        } else {
+            Input::WriteFrom(slot)
+        },
+        decline,
+    );
+}
+
+pub(super) enum Input {
+    ReadTo(IrValue),
+    WriteFrom(IrValue),
+    WriteValue(IrValue, IrValue),
+}
+
+pub(super) fn emit(
+    b: &mut FunctionBuilder<'_>,
+    view: IrValue,
+    key: IrValue,
+    input: Input,
+    decline: Block,
+) {
+    let access = if matches!(input, Input::ReadTo(_)) {
+        Access::Read
+    } else {
+        Access::Write
+    };
     let flags = MemFlagsData::new();
-    for pointer in [view, slot] {
+    let valid = b.ins().icmp_imm_u(IntCC::NotEqual, view, 0);
+    guard(b, valid, decline);
+    if let Input::ReadTo(pointer) | Input::WriteFrom(pointer) = input {
         let valid = b.ins().icmp_imm_u(IntCC::NotEqual, pointer, 0);
         guard(b, valid, decline);
     }
@@ -80,33 +113,24 @@ pub(super) fn emit_access(
     }
     let offset = b.ins().ishl_imm_u(index, 4);
     let cell = b.ins().iadd(cells, offset);
-    let (source, destination) = if access == Access::Write {
-        (slot, cell)
-    } else {
-        (cell, slot)
+    let (tag, bits, destination) = match input {
+        Input::WriteValue(tag, bits) => (tag, bits, cell),
+        Input::ReadTo(slot) | Input::WriteFrom(slot) => {
+            let (source, destination) = if access == Access::Write {
+                (slot, cell)
+            } else {
+                (cell, slot)
+            };
+            let tag = b
+                .ins()
+                .load(types::I64, flags, source, offset_of!(Slot, tag) as i32);
+            let bits = b
+                .ins()
+                .load(types::I64, flags, source, offset_of!(Slot, bits) as i32);
+            (tag, bits, destination)
+        }
     };
-    let tag = b
-        .ins()
-        .load(types::I64, flags, source, offset_of!(Slot, tag) as i32);
-    let bits = b
-        .ins()
-        .load(types::I64, flags, source, offset_of!(Slot, bits) as i32);
-    let valid_tag = b
-        .ins()
-        .icmp_imm_u(IntCC::UnsignedLessThanOrEqual, tag, abi::NUMBER as i64);
-    guard(b, valid_tag, decline);
-    let numeric = b
-        .ins()
-        .icmp_imm_u(IntCC::UnsignedGreaterThanOrEqual, tag, abi::INTEGER as i64);
-    let nil = b.ins().icmp_imm_u(IntCC::Equal, tag, abi::NIL as i64);
-    let empty = b.ins().icmp_imm_u(IntCC::Equal, bits, 0);
-    let nil = b.ins().band(nil, empty);
-    let boolean = b.ins().icmp_imm_u(IntCC::Equal, tag, abi::BOOLEAN as i64);
-    let boolean_bits = b.ins().icmp_imm_u(IntCC::UnsignedLessThanOrEqual, bits, 1);
-    let boolean = b.ins().band(boolean, boolean_bits);
-    let valid = b.ins().bor(nil, boolean);
-    let valid = b.ins().bor(valid, numeric);
-    guard(b, valid, decline);
+    guard_scalar(b, tag, bits, decline);
     b.ins()
         .store(flags, tag, destination, offset_of!(Slot, tag) as i32);
     b.ins()
@@ -128,6 +152,30 @@ pub(super) fn emit_access(
     let incremented = b.ins().iadd_imm_u(count, 1);
     let updated = b.ins().select(saturated, count, incremented);
     b.ins().store(flags, updated, counts, offset);
+}
+
+pub(super) fn guard_scalar(
+    b: &mut FunctionBuilder<'_>,
+    tag: IrValue,
+    bits: IrValue,
+    decline: Block,
+) {
+    let valid_tag = b
+        .ins()
+        .icmp_imm_u(IntCC::UnsignedLessThanOrEqual, tag, abi::NUMBER as i64);
+    guard(b, valid_tag, decline);
+    let numeric = b
+        .ins()
+        .icmp_imm_u(IntCC::UnsignedGreaterThanOrEqual, tag, abi::INTEGER as i64);
+    let nil = b.ins().icmp_imm_u(IntCC::Equal, tag, abi::NIL as i64);
+    let empty = b.ins().icmp_imm_u(IntCC::Equal, bits, 0);
+    let nil = b.ins().band(nil, empty);
+    let boolean = b.ins().icmp_imm_u(IntCC::Equal, tag, abi::BOOLEAN as i64);
+    let boolean_bits = b.ins().icmp_imm_u(IntCC::UnsignedLessThanOrEqual, bits, 1);
+    let boolean = b.ins().band(boolean, boolean_bits);
+    let valid = b.ins().bor(nil, boolean);
+    let valid = b.ins().bor(valid, numeric);
+    guard(b, valid, decline);
 }
 
 #[cfg(test)]

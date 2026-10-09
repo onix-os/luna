@@ -164,6 +164,7 @@ pub(super) fn with_window<'gc, R, const CAPACITY: usize>(
 #[cfg(test)]
 mod tests;
 
+mod invoke;
 mod native;
 mod plan;
 
@@ -173,3 +174,10 @@ mod plan;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod lowering;
+
+#[cfg(all(
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod kernel;

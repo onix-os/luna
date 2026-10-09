@@ -18,6 +18,9 @@ pub(super) struct View {
 
 pub(super) type Entry = unsafe extern "C" fn(*const c_void, i64, *mut Slot) -> u32;
 
+pub(super) type KernelEntry =
+    unsafe extern "C" fn(*mut Slot, u64, u32, *mut abi::Exit, *const c_void);
+
 pub(super) struct Session<'a> {
     view: *const View,
     buffers: PhantomData<&'a mut ()>,
@@ -42,6 +45,23 @@ impl<const CAPACITY: usize> Window<'_, '_, CAPACITY> {
 }
 
 impl Session<'_> {
+    /// Invokes a helper-free kernel over disjoint initialized scratch and window buffers.
+    ///
+    /// # Safety
+    /// Scratch covers the kernel's source register prefix. The kernel obeys the
+    /// scalar access contract of invoke, preserves PC/budget bounds, and retains no pointers.
+    pub(super) unsafe fn invoke_kernel(
+        &mut self,
+        entry: KernelEntry,
+        slots: &mut [Slot],
+        pc: u64,
+        budget: u32,
+    ) -> abi::Exit {
+        let mut exit = abi::Exit::default();
+        unsafe { entry(slots.as_mut_ptr(), pc, budget, &mut exit, self.view.cast()) };
+        exit
+    }
+
     /// Invokes a helper-free entry over the scoped scalar mirror and one separate slot.
     ///
     /// # Safety
