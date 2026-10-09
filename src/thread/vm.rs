@@ -13,6 +13,7 @@ use crate::{
 
 use super::{thread::LuaFrame, VMError};
 
+#[cfg(test)]
 mod constant_add;
 #[cfg(test)]
 mod constants;
@@ -1041,15 +1042,8 @@ fn run_vm_slice<'gc>(
 
             Operation::Add { dest, left, right } => {
                 let left = get_rc(&registers.stack_frame, &current_prototype.constants, left);
-                let result = match right {
-                    RCIndex::Constant(c) => {
-                        constant_add::add(ctx, left, current_prototype.constants[c.0 as usize])
-                    }
-                    RCIndex::Register(r) => {
-                        meta_ops::add(ctx, left, registers.stack_frame[r.0 as usize])
-                    }
-                };
-                match result? {
+                let right = get_rc(&registers.stack_frame, &current_prototype.constants, right);
+                match meta_ops::add(ctx, left, right)? {
                     MetaResult::Value(v) => registers.stack_frame[dest.0 as usize] = v,
                     MetaResult::Call(call) => {
                         lua_frame.call_meta_function(
