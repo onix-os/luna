@@ -93,6 +93,14 @@ the portable driver terminates with exit 2, explicitly cancelled rather than
 passed. No unrelated application is stopped. The single inline attribute is
 removed, restoring the pretrial source; restoration verification follows.
 
+Restoration driver exits 0: formatting, all-target/all-feature checking and
+74 focused GNU executions pass. The entire `src/` tree and Makefile match
+`3fcc73c`, and the restored source manifests verify. All five rebuilt native,
+speed and shipping executables are byte-identical to the preceding restored
+controls, including both no-feature images. No redundant timing campaign on
+those identical baseline images is needed. No optimization from this trial is
+retained, and original performance acceptance remains incomplete.
+
 This was a measured stack-frame reduction, **not elapsed-performance acceptance**.
 Hardware native and speed/shipping feature-cost gates remain required. Evidence
 is under `target/jit-evidence/short-slice-performance/projection-outline-*`;
