@@ -11,9 +11,9 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Projection bridge outlining — performance trial
+#### Projection bridge outlining — measured and withdrawn
 
-A one-attribute trial keeps `projection::with_frame` out of ordinary invocation
+A one-attribute trial kept `projection::with_frame` out of ordinary invocation
 bodies without deleting projection support or changing any scratch, helper,
 fallback, lifetime or generated-ABI contract. Exact optimized assembly shows
 `Runtime::invoke<7, true>` reserving 344 rather than 2,088 stack bytes. All eight
@@ -39,7 +39,9 @@ instruction offsets match. This proves extra traversal of the registration map,
 not extra generated instructions; the changed entry position remains unexplained.
 The total profile increase is retained, not subtracted from the measurements.
 Speed and shipping feature-cost builds complete, and both no-feature images are
-byte-identical to the restored controls. Miri validation remains incomplete.
+byte-identical to the restored controls. Default Miri passes 28 tests. The
+remaining Tree Borrows run is explicitly cancelled after the repeated negative
+performance decision below; its partial log is preserved, not claimed as a pass.
 
 The first hardware campaign completes 30 native and 128 cost commands; all 158
 aggregate gates fail. Fresh/candidate individual failures are native 9/9 and
@@ -64,10 +66,34 @@ Shipping CPU0 integer/float ratios are 0.91460/0.90949; CPU16 integer/float/arra
 are 0.88972/0.92196/0.90494 with no-feature controls near parity. These numeric
 cases still pass their original ceiling; relative regressions must not be
 misreported as newly failed gates. CPU16 shipping callbacks improve 1.07832
-direct and 1.05216 normalized, with failures falling three to zero. Repeat the
-unchanged images before deciding whether the frame reduction is worth retaining.
+direct and 1.05216 normalized, with failures falling three to zero.
 
-This is a measured stack-frame reduction, **not elapsed-performance acceptance**.
+The unchanged-image repeat completes another 158 commands, all failing their
+aggregate gates. Fresh/candidate individual failures are native 12/9 and cost
+30/32. Another 108 full native-counter and 144 cost-native comparisons match;
+source/artifact manifests verify. Tree Borrows remains suspended with unchanged
+CPU ticks during timing and resumes normally afterward. Across both campaigns,
+all 316 aggregate gates fail, including every candidate aggregate.
+
+Upvalue gains repeat at CPU0 1.02580 and CPU16 1.03425, favorable in all twelve
+matched windows across campaigns. CPU0 callbacks and metamethods remain adverse
+at 0.99474 and 0.99318; all twelve candidate callback gates fail. CPU0 speed Off
+metamethod repeats at 0.95468 direct and 0.95505 normalized, with a 0.99926
+no-feature control: eight original-ceiling failures across both campaigns versus
+zero for fresh. CPU16 speed Oslo has seven new failures. Shipping relative
+numeric losses repeat at CPU0 integer/float 0.91210/0.90254 and CPU16
+integer/float/array 0.89328/0.91360/0.90160, while those numeric cases still pass
+their original ceilings. Favorable shipping callback and CPU0 speed Oslo results
+are retained alongside the adverse results.
+
+**Withdrawn on 2026-10-10:** the frame reduction and upvalue gains do not justify
+the new repeated gate failures and unresolved callback target. Only the owned,
+identity-verified Tree Borrows process receives SIGTERM after that decision;
+the portable driver terminates with exit 2, explicitly cancelled rather than
+passed. No unrelated application is stopped. The single inline attribute is
+removed, restoring the pretrial source; restoration verification follows.
+
+This was a measured stack-frame reduction, **not elapsed-performance acceptance**.
 Hardware native and speed/shipping feature-cost gates remain required. Evidence
 is under `target/jit-evidence/short-slice-performance/projection-outline-*`;
 ordinary production compilation continues to reject projected admission.
