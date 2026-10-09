@@ -11,6 +11,73 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Same-boundary atomic statistics — measured and withdrawn
+
+`4bf2084` adds a test-only combined atomic-call statistics publisher and **184
+whole-stat differential states**: 56 independent/joint saturation configurations
+and 128 independently seeded counter configurations. The reference executes the
+original two InterpreterStats guard/drop updates and native exit publication.
+`make jit-atomic-stats` includes atomic/rooted/accounting gates;
+`make jit-atomic-stats-miri` exercises the pure model.
+
+`deb1d88` uses that publisher only after successful physical/rooted atomic calls.
+It combines three manager borrows at the same existing observation boundary:
+dispatches +5, interpreted slices +2, native entries +1, native instructions +3,
+native interpreter exits +1 and upvalue reads/writes +1, all saturating. It does
+not defer across slices/callbacks or introduce a counter board, allocation, cache,
+new owner state, unsafe code or an interpreter-loop change. This differs from
+the earlier rejected global statistics batching experiments.
+
+Exact native upvalue instructions fall **169,889,071 → 168,206,368** (about 1%).
+The new publisher remains out of line in this image. Shipping/speed compiled-Off
+integer, float and callback profiles retain identical instructions, loads and
+stores. No-feature files differ by 63 speed / 69 shipping bytes, although their
+extracted `.text` sections are byte-identical; whole-file identity is not claimed.
+
+Repeated timing rejects the production change. Two native rounds and two
+four-way cost rounds complete **152 aggregate commands, all failing** unchanged
+gates. All **216 native non-timing pairs** match. Controls remain rooted-publication,
+pre-regression atomic-admission and historical empty-return-copy. CPU0/16,
+eleven samples, three native windows, four rotating cost windows and twenty cost
+iterations are retained; four-window medians average the middle pair. Owned
+tests/builds/profiles terminate before timing and source/image manifests verify.
+
+Control-time / candidate-time ratios, initial / repeat versus rooted-publication:
+
+| Case | Profile / CPU | Ratio |
+| --- | --- | --- |
+| Native upvalue | speed / 0 | 1.032789 / 1.027472 |
+| Native upvalue | speed / 16 | 1.046450 / 1.013881 |
+| Compiled-Off integer | shipping / 0 | 0.873540 / 0.878880 |
+| Compiled-Off integer | shipping / 16 | 0.928972 / 0.929884 |
+| Compiled-Off float | shipping / 0 | 0.932105 / 0.931080 |
+| Compiled-Off float | shipping / 16 | 0.934098 / 0.935277 |
+
+Shipping CPU0 float is **0.803538 / 0.803369** versus atomic-admission, so the
+existing regression is worsened, not fixed. All twelve candidate upvalue gates
+pass, but modest native gains do not justify the new shipping losses. Individual
+cost failures are **candidate46/control48/prior50/historical52 of 288 each**;
+a lower failed-case count does not erase worse absolute performance.
+
+Post-timing exact-image disassembly finds shipping `run_vm_slice` moved from
+**0x396b36 to 0x396b46**. Its **8,681 normalized instruction lines match** after
+removing comments/raw addresses and normalizing direct branch addresses and
+RIP-relative displacements. This is not byte-identical code, proof of identical
+data references, or a hardware/cache/predictor diagnosis. Both raw and normalized
+disassemblies remain under `atomic-stats-assembly/{control,candidate}`.
+
+Candidate checking/focused validation passes **62 executions / 13 suites**;
+all-feature Auto passes **1,402 / 88**, six ignored. Miri passes one pure test,
+26 warnings. Native Memcheck passes **44 canonical tests**, zero errors and zero
+definite/indirect leaks, with the usual 48 possibly-lost/632 reachable harness
+bytes. Withdrawal passes formatting, GNU checking and the same **62 / 13**
+focused checks. These correctness checks do not establish performance acceptance.
+
+Production publication is restored; the independent saturation model remains.
+All images, profiles, repeated timings and all-case summaries are retained under
+`target/jit-evidence/short-slice-performance/atomic-stats*`. Rooted-publication
+remains development WIP, with shipping and broader acceptance failures unresolved.
+
 #### Fused constant addition — profiled, measured and withdrawn
 
 `01bc099` adds a test-only Value/Constant addition differential with **2,303

@@ -56,6 +56,13 @@ repeated integer, float and table timings still regressed substantially. Product
 keeps canonical operand resolution; `make vm-constant-add` retains the differential
 and bounded GC tests. Full positive and negative results remain in `PLAN_JIT.md`.
 
+Combining same-boundary atomic-call statistics (`deb1d88`) was also withdrawn.
+Small native upvalue gains came with repeated 7–13% shipping interpreter losses,
+despite unchanged diagnostic instruction counts. Production retains the original
+publication sequence; `make jit-atomic-stats` keeps saturation equivalence tests.
+The plan records complete timing and exact-image assembly evidence, without
+claiming a hardware cause or completed performance acceptance.
+
 Production Auto also includes independently verified integer-controlled typed
 loops (`fed925c`, extended by `061c9cc`). Stable Integer and Number arithmetic
 bodies keep typed state between operations, with fresh entry tags, exact fuel
