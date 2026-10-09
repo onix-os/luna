@@ -595,7 +595,11 @@ jit-projection-runtime-miri:
 	done
 
 jit-registry:
-	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::registry::tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::registry::
+
+.PHONY: jit-registry-miri
+jit-registry-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::registry:: -- --test-threads=1
 
 jit-ir:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::ir::tests
