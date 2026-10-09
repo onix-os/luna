@@ -7,12 +7,21 @@ pub(in crate::jit::backend) fn run(
     headers: &[Block],
     exhausted: Block,
     expansion: super::super::super::work::Expansion,
+    table: Option<TableBoundary>,
 ) -> Result<(), JitError> {
-    let plan = Plan::new(source).expect("eligible audit source");
+    let plan = Plan::new(source, table.is_some()).expect("eligible audit source");
     let mut candidate = original.clone();
-    let region = emit(&mut candidate, source, headers, exhausted, false, plan)?;
+    let region = emit(
+        &mut candidate,
+        source,
+        headers,
+        exhausted,
+        false,
+        plan,
+        table,
+    )?;
     verify::check(
-        original, &candidate, source, headers, exhausted, &region, false,
+        original, &candidate, source, headers, exhausted, &region, false, table,
     )?;
     let flags = cranelift_codegen::settings::Flags::new(cranelift_codegen::settings::builder());
     let mut mutations = 0;
@@ -21,7 +30,8 @@ pub(in crate::jit::backend) fn run(
         mutations += 1;
         well_formed += usize::from(cranelift_codegen::verify_function(&changed, &flags).is_ok());
         assert!(
-            verify::check(original, &changed, source, headers, exhausted, &region, false).is_err(),
+            verify::check(original, &changed, source, headers, exhausted, &region, false, table)
+                .is_err(),
             "accepted mutated translation {mutations}"
         );
         let mut retained = original.clone();
@@ -33,7 +43,8 @@ pub(in crate::jit::backend) fn run(
             exhausted,
             &region,
             false,
-            expansion
+            expansion,
+            table,
         )
         .is_err());
         assert_eq!(&retained, original);
@@ -114,6 +125,28 @@ pub(in crate::jit::backend) fn run(
             };
             if mutated {
                 reject(changed);
+            }
+            if let InstructionData::Call {
+                func_ref, mut args, ..
+            } = candidate.dfg.insts[inst]
+            {
+                let mut changed = candidate.clone();
+                let InstructionData::Call {
+                    func_ref: target, ..
+                } = &mut changed.dfg.insts[inst]
+                else {
+                    unreachable!()
+                };
+                *target = cranelift_codegen::ir::FuncRef::from_u32(
+                    (func_ref.as_u32() + 1) % candidate.dfg.ext_funcs.len() as u32,
+                );
+                reject(changed);
+                for pair in [(0, 1), (2, 3), (3, 5)] {
+                    let mut changed = candidate.clone();
+                    args.as_mut_slice(&mut changed.dfg.value_lists)
+                        .swap(pair.0, pair.1);
+                    reject(changed);
+                }
             }
             if let InstructionData::Load { flags, .. } | InstructionData::Store { flags, .. } =
                 candidate.dfg.insts[inst]
@@ -211,6 +244,10 @@ pub(in crate::jit::backend) fn run(
     );
 
     let length = plan.end - plan.start + 1;
+    let helpers = source.operations[plan.start..plan.end]
+        .iter()
+        .filter(|op| matches!(op, Operation::SetTable { .. }))
+        .count();
     let instructions: usize = original
         .layout
         .blocks()
@@ -220,8 +257,9 @@ pub(in crate::jit::backend) fn run(
         instructions: instructions * 2
             + 32
             + 9 * (plan.used.count_ones() as usize + length)
-            + usize::from(plan.numbers != 0) * (2 + 2 * length),
-        blocks: original.dfg.num_blocks() * 2 + 5 + length * 2,
+            + usize::from(plan.numbers != 0) * (2 + 2 * length)
+            + helpers * (24 + 4 * plan.written.count_ones() as usize),
+        blocks: original.dfg.num_blocks() * 2 + 5 + length * 2 + helpers,
     };
     for limits in [
         super::super::super::work::Expansion {
@@ -240,7 +278,8 @@ pub(in crate::jit::backend) fn run(
             headers,
             exhausted,
             false,
-            limits
+            limits,
+            table,
         )?);
         assert_eq!(&unchanged, original);
     }
@@ -251,7 +290,8 @@ pub(in crate::jit::backend) fn run(
         headers,
         exhausted,
         false,
-        bound
+        bound,
+        table,
     )?);
     assert_eq!(accepted, candidate);
     for fault in 0..8 {
@@ -265,8 +305,12 @@ pub(in crate::jit::backend) fn run(
             5 => invalid_region.plan.used ^= 1 << plan.base,
             6 => invalid_region.plan.numbers ^= 1 << plan.base,
             _ => {
-                invalid_region.plan.numbers ^=
-                    1 << (plan.used & !(15 << plan.base)).trailing_zeros()
+                let non_control = plan.used & !(15 << plan.base);
+                invalid_region.plan.numbers ^= if non_control == 0 {
+                    1 << plan.base
+                } else {
+                    1 << non_control.trailing_zeros()
+                };
             }
         }
         assert!(verify::check(
@@ -276,9 +320,33 @@ pub(in crate::jit::backend) fn run(
             headers,
             exhausted,
             &invalid_region,
-            false
+            false,
+            table
         )
         .is_err());
+    }
+    if table.is_some() {
+        for fault in 0..3 {
+            let mut changed = region.clone();
+            match fault {
+                0 => changed.table = None,
+                1 => {
+                    let boundary = changed.table.as_mut().unwrap();
+                    std::mem::swap(&mut boundary.fallback, &mut boundary.panicked);
+                }
+                _ => {
+                    *changed
+                        .declines
+                        .iter_mut()
+                        .find(|block| block.is_some())
+                        .unwrap() = None;
+                }
+            }
+            assert!(verify::check(
+                original, &candidate, source, headers, exhausted, &changed, false, table
+            )
+            .is_err());
+        }
     }
     let mut changed_source = Snapshot {
         operations: super::super::super::resources::owned(&source.operations),
@@ -291,7 +359,10 @@ pub(in crate::jit::backend) fn run(
         .find(|&pc| {
             matches!(
                 source.operations[pc],
-                Operation::Add { .. } | Operation::Sub { .. } | Operation::Mul { .. }
+                Operation::Add { .. }
+                    | Operation::Sub { .. }
+                    | Operation::Mul { .. }
+                    | Operation::SetTable { .. }
             )
         })
         .unwrap();
@@ -300,6 +371,11 @@ pub(in crate::jit::backend) fn run(
         Operation::Sub { dest, left, right } | Operation::Mul { dest, left, right } => {
             Operation::Add { dest, left, right }
         }
+        Operation::SetTable { key, value, .. } => Operation::SetTable {
+            table: crate::types::RegisterIndex(plan.base as u8),
+            key,
+            value,
+        },
         _ => unreachable!(),
     };
     assert!(verify::check(
@@ -309,7 +385,8 @@ pub(in crate::jit::backend) fn run(
         headers,
         exhausted,
         &region,
-        false
+        false,
+        table
     )
     .is_err());
     changed_source.operations[pc] = source.operations[pc];
@@ -334,7 +411,8 @@ pub(in crate::jit::backend) fn run(
                 headers,
                 exhausted,
                 &region,
-                false
+                false,
+                table
             )
             .is_err());
             changed_source.constants[index] = source.constants[index];

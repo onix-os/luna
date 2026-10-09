@@ -26,6 +26,15 @@ struct Region {
     budget_exit: Block,
     fast: [Block; MAX_OPERATIONS],
     bodies: [Block; MAX_OPERATIONS],
+    declines: [Option<Block>; MAX_OPERATIONS],
+    table: Option<TableBoundary>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) struct TableBoundary {
+    pub helper: cranelift_codegen::ir::FuncRef,
+    pub fallback: Block,
+    pub panicked: Block,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,6 +100,9 @@ impl Plan {
             }
         }
         for op in source.operations[self.start..self.end].iter().copied() {
+            if matches!(op, Operation::SetTable { .. }) {
+                continue;
+            }
             let (dest, number) = Self::result_type(source, &known, op)?;
             known[dest] = Some(number);
         }
@@ -104,6 +116,9 @@ impl Plan {
             return None;
         }
         for op in source.operations[self.start..self.end].iter().copied() {
+            if matches!(op, Operation::SetTable { .. }) {
+                continue;
+            }
             let (dest, number) = Self::result_type(source, &known, op)?;
             if known[dest] != Some(number) {
                 return None;
@@ -120,7 +135,7 @@ impl Plan {
         }
     }
 
-    fn new(source: &Snapshot) -> Option<Self> {
+    fn new(source: &Snapshot, tables: bool) -> Option<Self> {
         if source.registers > MAX_REGISTERS {
             return None;
         }
@@ -145,6 +160,7 @@ impl Plan {
                 numbers: 0,
             };
             let mut accepted = true;
+            let mut receivers = 0u16;
             for op in &source.operations[start..end] {
                 let mut read = |input: RCIndex| match input {
                     RCIndex::Register(index) => {
@@ -159,6 +175,11 @@ impl Plan {
                     }
                 };
                 let dest = match *op {
+                    Operation::SetTable { table, key, value } if tables => {
+                        accepted &= read(key) && read(value);
+                        receivers |= 1 << table.0;
+                        continue;
+                    }
                     Operation::Add { dest, left, right }
                     | Operation::Sub { dest, left, right }
                     | Operation::Mul { dest, left, right } => {
@@ -184,7 +205,7 @@ impl Plan {
                 plan.used |= 1 << dest;
                 plan.written |= 1 << dest;
             }
-            if accepted && plan.used.count_ones() <= 8 {
+            if accepted && plan.used.count_ones() <= 8 && receivers & plan.used == 0 {
                 if let Some(numbers) = plan.seeded(source) {
                     plan.numbers = numbers;
                     return Some(plan);
@@ -312,9 +333,10 @@ pub(super) fn augment(
     exhausted: Block,
     probe: bool,
     expansion: super::super::work::Expansion,
+    table: Option<TableBoundary>,
 ) -> Result<bool, JitError> {
     source.verify()?;
-    let Some(plan) = Plan::new(source) else {
+    let Some(plan) = Plan::new(source, table.is_some()) else {
         return Ok(false);
     };
     let instructions: usize = function
@@ -323,9 +345,14 @@ pub(super) fn augment(
         .map(|b| function.layout.block_insts(b).count())
         .sum();
     let length = plan.end - plan.start + 1;
+    let helpers = source.operations[plan.start..plan.end]
+        .iter()
+        .filter(|op| matches!(op, Operation::SetTable { .. }))
+        .count();
     let extra = 32
         + 9 * (plan.used.count_ones() as usize + length)
-        + usize::from(plan.numbers != 0) * (2 + 2 * length);
+        + usize::from(plan.numbers != 0) * (2 + 2 * length)
+        + helpers * (24 + 4 * plan.written.count_ones() as usize);
     if expansion
         .verify_actual(
             instructions.saturating_mul(2).saturating_add(extra),
@@ -333,16 +360,24 @@ pub(super) fn augment(
                 .dfg
                 .num_blocks()
                 .saturating_mul(2)
-                .saturating_add(5 + length * 2),
+                .saturating_add(5 + length * 2 + helpers),
         )
         .is_err()
     {
         return Ok(false);
     }
     let mut candidate = function.clone();
-    let region = emit(&mut candidate, source, headers, exhausted, probe, plan)?;
+    let region = emit(
+        &mut candidate,
+        source,
+        headers,
+        exhausted,
+        probe,
+        plan,
+        table,
+    )?;
     commit(
-        function, candidate, source, headers, exhausted, &region, probe, expansion,
+        function, candidate, source, headers, exhausted, &region, probe, expansion, table,
     )?;
     Ok(true)
 }
@@ -356,9 +391,10 @@ fn commit(
     region: &Region,
     probe: bool,
     expansion: super::super::work::Expansion,
+    table: Option<TableBoundary>,
 ) -> Result<(), JitError> {
     verify::check(
-        function, &candidate, source, headers, exhausted, region, probe,
+        function, &candidate, source, headers, exhausted, region, probe, table,
     )?;
     expansion.verify_actual(
         [function as &Function, &candidate]
@@ -383,6 +419,7 @@ fn emit(
     exhausted: Block,
     probe: bool,
     plan: Plan,
+    table: Option<TableBoundary>,
 ) -> Result<Region, JitError> {
     let entry = function
         .layout
@@ -406,10 +443,17 @@ fn emit(
     plan.state(function, budget_exit, &[types::I64, types::I32]);
     let mut fast = [done; MAX_OPERATIONS];
     let mut bodies = [done; MAX_OPERATIONS];
+    let mut declines = [None; MAX_OPERATIONS];
     let length = plan.end - plan.start + 1;
     for index in 0..length {
         fast[index] = block(function);
         bodies[index] = block(function);
+        if matches!(
+            source.operations[plan.start + index],
+            Operation::SetTable { .. }
+        ) {
+            declines[index] = Some(block(function));
+        }
         plan.state(function, fast[index], &[types::I32]);
     }
     let mut cursor = FuncCursor::new(function);
@@ -451,9 +495,12 @@ fn emit(
     cursor.ins().brif(valid, dispatch, &[], generic, &[]);
     cursor.goto_bottom(dispatch);
     if probe {
-        let destination = cursor
-            .ins()
-            .load(types::I64, MemFlagsData::new(), params[4], 0);
+        let destination = cursor.ins().load(
+            types::I64,
+            MemFlagsData::new(),
+            params[4],
+            if table.is_some() { 8 } else { 0 },
+        );
         let reached = cursor.ins().iconst(types::I64, 1);
         cursor
             .ins()
@@ -481,14 +528,14 @@ fn emit(
             &mut cursor.func.dfg.value_lists,
         );
     }
-    let table = cursor
+    let dispatch_table = cursor
         .func
         .dfg
         .jump_tables
         .push(JumpTableData::new(default, &branches[..length]));
     let offset = cursor.ins().iadd_imm_s(params[1], -(plan.start as i64));
     let index = cursor.ins().ireduce(types::I32, offset);
-    cursor.ins().br_table(index, table);
+    cursor.ins().br_table(index, dispatch_table);
     for index in 0..length {
         let pc = plan.start + index;
         let header = fast[index];
@@ -512,6 +559,48 @@ fn emit(
         cursor.goto_bottom(bodies[index]);
         let next_count = cursor.ins().iadd_imm_u(count, 1);
         match source.operations[pc] {
+            Operation::SetTable {
+                table: receiver,
+                key,
+                value,
+            } => {
+                let boundary = table.expect("typed table boundary");
+                plan.flush(&mut cursor, params[0], &values);
+                let args = [
+                    u32::from(receiver.0),
+                    super::Emitter::operand_index(key),
+                    super::Emitter::operand_index(value),
+                    pc as u32,
+                ]
+                .map(|arg| cursor.ins().iconst(types::I32, i64::from(arg)));
+                let call = cursor.ins().call(
+                    boundary.helper,
+                    &[params[4], params[0], args[0], args[1], args[2], args[3]],
+                );
+                let status = cursor.func.dfg.first_result(call);
+                let completed =
+                    cursor
+                        .ins()
+                        .icmp_imm_u(IntCC::Equal, status, i64::from(abi::HELPER_COMPLETED));
+                let (args, len) = plan.arguments(next_count, &values);
+                let decline = declines[index].unwrap();
+                cursor
+                    .ins()
+                    .brif(completed, fast[index + 1], &args[..len], decline, &[]);
+                cursor.goto_bottom(decline);
+                let panicked =
+                    cursor
+                        .ins()
+                        .icmp_imm_u(IntCC::Equal, status, i64::from(abi::HELPER_PANICKED));
+                cursor.ins().brif(
+                    panicked,
+                    boundary.panicked,
+                    &[source_pc.into(), count.into()],
+                    boundary.fallback,
+                    &[source_pc.into(), count.into()],
+                );
+                continue;
+            }
             op @ (Operation::Add { dest, left, right }
             | Operation::Sub { dest, left, right }
             | Operation::Mul { dest, left, right }) => {
@@ -595,6 +684,8 @@ fn emit(
         budget_exit,
         fast,
         bodies,
+        declines,
+        table,
     })
 }
 
@@ -610,9 +701,26 @@ mod tests {
     }
 
     #[test]
+    fn recognizes_table_stores_without_aliasing_typed_registers() {
+        let source = snapshot(b"local t=... for i=1,100 do t[i]=i end return t");
+        assert!(Plan::new(&source, false).is_none());
+        let plan = Plan::new(&source, true).unwrap();
+        assert_eq!(plan.used & 1, 0);
+        assert_eq!(plan.written & 1, 0);
+        for program in [
+            &b"local t=... for i=1,100 do i[i]=i end return t"[..],
+            &b"local t=... for i=1,100 do t[i]=i t=i end return t"[..],
+            &b"local t=... for i=1,100 do t[i]='reference' end return t"[..],
+            &b"local t=... for i=1,100 do t[i]=t[i]+1 end return t"[..],
+        ] {
+            assert!(Plan::new(&snapshot(program), true).is_none());
+        }
+    }
+
+    #[test]
     fn recognizes_source_loop_edges_and_integer_operands() {
         let source = snapshot(b"local s=0 for i=1,100 do s=s+i end return s");
-        let plan = Plan::new(&source).unwrap();
+        let plan = Plan::new(&source, false).unwrap();
         let Operation::NumericForLoop { base, jump } = source.operations[plan.end] else {
             unreachable!()
         };
@@ -636,7 +744,7 @@ mod tests {
             &b"local s=0.0 for i=1,100 do s=s+i end return s"[..],
         ] {
             let source = snapshot(program);
-            let plan = Plan::new(&source).unwrap();
+            let plan = Plan::new(&source, false).unwrap();
             assert_ne!(plan.numbers, 0);
             assert_eq!(plan.numbers & !plan.used, 0);
             assert_eq!(plan.numbers & (15 << plan.base), 0);
@@ -667,7 +775,8 @@ mod tests {
                 super::super::super::work::Expansion {
                     instructions: usize::MAX,
                     blocks: usize::MAX
-                }
+                },
+                None,
             )
             .unwrap());
             assert_eq!(function, before);

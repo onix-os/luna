@@ -9,6 +9,12 @@ use super::{
     ir::Snapshot,
 };
 
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod table_loop_tests;
+
 fn scalar(slot: Slot) -> Option<Constant<&'static [u8]>> {
     Some(match slot.tag {
         abi::NIL => Constant::Nil,
@@ -285,6 +291,9 @@ mod tests {
             &b"local s=0 for i=10,1,-1 do s=s*3-i end return s"[..],
             &b"local s=0.0 for i=1,100 do s=s+0.5 end return s"[..],
             &b"local s=0.0 for i=10,1,-1 do s=i-s*0.5 end return s"[..],
+            &b"local t=... for i=1,100 do t[i]=i end return t"[..],
+            &b"local t=... local x=0.5 for i=1,100 do x=x+0.5 t[i]=x end return x"[..],
+            &b"local t=... for i=1,100 do t[7]=i t[i]=0.5 end return t"[..],
         ] {
             let source = snapshot(program);
             let baseline = source.operations.allocator().0.current();
@@ -296,7 +305,15 @@ mod tests {
                 8 * 1024 * 1024,
                 resources::BudgetAllocator(metadata.clone()),
                 work::Limits::from(&JitConfig::default()),
-                backend::Failure::AuditIntegerLoop,
+                if source
+                    .operations
+                    .iter()
+                    .any(|op| matches!(op, Operation::SetTable { .. }))
+                {
+                    backend::Failure::AuditTableLoop
+                } else {
+                    backend::Failure::AuditIntegerLoop
+                },
             );
             assert!(
                 matches!(result, Err(JitError::Compilation(message)) if message == "integer loop audit complete")
