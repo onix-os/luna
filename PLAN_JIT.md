@@ -101,8 +101,11 @@ changed to force a pass. Post-withdrawal formatting/check-all and focused/full
 GNU Force validation pass1,521 executions/92 summaries/six ignored. All `src/`
 and Makefile contents exactly match the baseline-tested45f02ed state, whose
 focused musl37 and both Miri19 results remain explicitly revision-scoped.
-Restored release-image builds are next, not a new speedup claim. The original
-callback/feature-cost/resource/platform acceptance remains incomplete.
+At `f3023cf`, fresh native, speed and shipping builds complete and all five
+executables match the preceding restored control images byte-for-byte, including
+both no-feature images. Source manifests reverify. This proves restoration,
+not a new speedup or a reason to rerun the identical failing baseline. The
+original callback/feature-cost/resource/platform acceptance remains incomplete.
 
 Evidence uses `exit-buffer-*` under the ignored short-slice evidence directory;
 the profile, native and cost analysis JSON files include totals and per-window
