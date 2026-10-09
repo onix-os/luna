@@ -401,6 +401,11 @@ jit-compact-callee-memcheck:
 jit-call-canonical:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical::tests $(ARGS)
 
+.PHONY: jit-atomic-call
+jit-atomic-call:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical::tests::atomic $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::activation::atomic_call $(ARGS)
+
 .PHONY: jit-scoped-helpers
 jit-scoped-helpers:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::scoped_helpers::tests $(ARGS)

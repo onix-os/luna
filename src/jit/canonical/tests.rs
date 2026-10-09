@@ -13,6 +13,8 @@ use crate::{thread::activation::with_test_thread, Closure, Fuel, JitConfig, Lua}
 
 const ADD: &[u8] = b"local n=7 local function f(v) n=n+v end f(2) return n";
 
+mod atomic;
+
 #[test]
 fn compact_cold_fallback_preserves_consumed_calls_and_partial_native_work() {
     for source in [

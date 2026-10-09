@@ -752,6 +752,13 @@ impl<'gc> ThreadState<'gc> {
         self.open_upvalues.truncate(start);
     }
 
+    #[cfg(all(test, feature = "jit"))]
+    pub(super) fn captures_below(&self, bottom: usize) -> bool {
+        self.open_upvalues.last().is_none_or(|&upvalue| {
+            matches!(upvalue.get(), UpValueState::Open(open) if open.stack_index < bottom)
+        }) && self.to_be_closed.last().is_none_or(|&index| index < bottom)
+    }
+
     pub(super) fn reset(&mut self, mc: &Mutation<'gc>, stack: &mut StackVec<'gc>) {
         self.close_upvalues(mc, stack, 0);
         assert!(self.open_upvalues.is_empty());

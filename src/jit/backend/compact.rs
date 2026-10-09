@@ -177,6 +177,30 @@ impl Binding {
 }
 
 impl Entry {
+    #[cfg(test)]
+    pub(in crate::jit) fn prepare_arguments(
+        &self,
+        arguments: &[crate::Value<'_>],
+        capture: i64,
+    ) -> Option<Frame<'_>> {
+        let right = match self.binding.pattern.right {
+            Operand::Register(index) if index != self.binding.pattern.read => {
+                let crate::Value::Integer(value) = arguments.get(usize::from(index.0))? else {
+                    return None;
+                };
+                *value
+            }
+            _ => 0,
+        };
+        Some(Frame {
+            binding: &self.binding,
+            capture,
+            right,
+            read_alias: self.upper_aliases.0,
+            right_alias: self.upper_aliases.1,
+        })
+    }
+
     /// Binds a verified compact function to its live executable image.
     ///
     /// # Safety

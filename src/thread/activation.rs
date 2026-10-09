@@ -16,6 +16,14 @@ use super::{
 ))]
 mod call_tests;
 
+#[cfg(all(
+    test,
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+pub(crate) mod atomic_call;
+
 pub(crate) struct ActivationHost<'gc, 'a> {
     #[cfg(all(
         not(miri),
