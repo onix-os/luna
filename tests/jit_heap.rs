@@ -206,6 +206,34 @@ fn rust_mutation_and_write_interception_are_freshly_guarded() -> Result<(), Exte
 }
 
 #[test]
+fn repeated_plain_table_access_releases_borrows_before_callback_mutation() -> Result<(), ExternError>
+{
+    for native in [false, true] {
+        let mut lua = state(native);
+        lua.enter(|ctx| {
+            let mutate = Callback::from_fn(&ctx, |ctx, _, mut stack| {
+                let table: Table = stack.consume(ctx)?;
+                assert!(matches!(
+                    table.get_raw(&ctx, 300.into()),
+                    Value::Integer(300)
+                ));
+                table.set(ctx, 2, 700).unwrap();
+                table.set_readonly(&ctx, true);
+                Ok(CallbackReturn::Return)
+            });
+            ctx.set_global("mutate", mutate);
+        });
+        let executor = source(&mut lua, b"local t={} for i=1,300 do t[i]=i end mutate(t) local ok=pcall(function() t[1]=9 end) return not ok and t[2]+t[300] or -1")?;
+        assert_eq!(lua.execute::<i64>(&executor)?, 1000);
+        if native {
+            assert!(lua.jit_stats().native_table_writes >= 300);
+        }
+        lua.gc_collect();
+    }
+    Ok(())
+}
+
+#[test]
 fn weak_table_reads_and_writes_preserve_collection_semantics() -> Result<(), ExternError> {
     let script=b"local weak=setmetatable({},{__mode='v'}) local live={} weak[1]=live assert(weak[1]==live) do local dead={} weak[2]=dead end collectgarbage('collect') coroutine.yield() assert(weak[1]==live) assert(weak[2]==nil) local key={} local wk=setmetatable({},{__mode='k'}) wk[key]=42 assert(wk[key]==42) key=nil collectgarbage('collect') coroutine.yield() return next(wk)==nil and 42 or 0";
     for native in [false, true] {
