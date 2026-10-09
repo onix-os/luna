@@ -18,6 +18,8 @@ mod constant_add;
 #[cfg(test)]
 mod constants;
 mod dispatch;
+#[cfg(test)]
+mod instantiate;
 
 // Runs the VM for the given number of instructions or until the current LuaFrame may have been
 // changed.

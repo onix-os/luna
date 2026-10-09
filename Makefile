@@ -1180,6 +1180,16 @@ jit-vm-dispatch:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::dispatch::tests
 
 .PHONY: value-representation vm-constant-add vm-constant-add-miri vm-constants vm-constants-miri
+.PHONY: vm-closures vm-closures-miri
+vm-closures:
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::vm::instantiate
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::instantiate
+	@$(MAKE) --no-print-directory stdlib-debug jit-upvalues jit-regions
+
+vm-closures-miri:
+	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' thread::vm::instantiate -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::vm::instantiate -- --test-threads=1
+
 value-representation:
 	@$(CARGO) test --locked -p luna --no-default-features --test sizes $(TARGET_ARG)
 	@$(CARGO) test --locked -p luna --features jit --test sizes $(TARGET_ARG)
