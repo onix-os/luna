@@ -9,6 +9,69 @@ use crate::{
     opcode::Operation, thread::activation::with_test_thread, Fuel, JitConfig, JitMode, Lua, Value,
 };
 
+thread_local! {
+    static ROOTED_PANIC: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+    pub(super) static ROOTED_COMPLETIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+pub(super) fn rooted_checkpoint(phase: u8) {
+    ROOTED_PANIC.with(|fault| {
+        if fault.get() == phase {
+            fault.set(0);
+            panic!("rooted publication fault {phase}");
+        }
+    });
+}
+
+#[test]
+fn rooted_call_panic_publishes_pending_caller_and_committed_results() {
+    fixture(|ctx, closure, region, start| {
+        for phase in [1, 2] {
+            let run = |fault| {
+                with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+                    ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                    host.run(ctx, 1, start as u32, 4).result.unwrap();
+                    ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+                    let before = stats(ctx);
+                    if fault {
+                        let fuel_before = host.test_trace().3;
+                        ROOTED_PANIC.with(|value| value.set(phase));
+                        let result =
+                            catch_unwind(AssertUnwindSafe(|| region.run(ctx, host, 2, 64)));
+                        assert_eq!(ROOTED_PANIC.with(|value| value.replace(0)), 0);
+                        assert!(result.is_err());
+                        if phase == 1 {
+                            assert_eq!(host.test_trace().3, fuel_before);
+                        }
+                    } else if phase == 1 {
+                        ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                        let pc = region.pair.program.key().pc;
+                        while host.with_registers(|_, registers| *registers.pc) != pc {
+                            host.run(ctx, 1, 1, 4).result.unwrap();
+                        }
+                    } else {
+                        let outcome = region.run(ctx, host, 2, 64).unwrap();
+                        outcome.result.unwrap();
+                        assert_eq!(outcome.pairs, 1);
+                    }
+                    trace(ctx, host, before)
+                })
+            };
+            let failed = run(true);
+            let expected = run(false);
+            if phase == 1 {
+                assert_eq!(failed.0, expected.0);
+                assert_eq!(failed.1, expected.1);
+                assert_eq!(failed.2, expected.2);
+                assert_eq!(failed.4, expected.4);
+                assert_eq!(failed.5, expected.5);
+            } else {
+                assert_eq!(failed, expected);
+            }
+        }
+    });
+}
+
 fn fixture(test: impl for<'gc> FnOnce(Context<'gc>, Closure<'gc>, Region, usize)) {
     fixture_source(
         b"local n=0 local function f(v) n=n+v end for i=1,20 do f(i) end return n",
@@ -388,7 +451,7 @@ fn admitted_pair_rechecks_dynamic_values_frames_fuel_mode_and_hooks() {
             panic!()
         };
         let foreign = Closure::load(ctx, None, &b"return 9"[..]).unwrap();
-        for case in 0..11 {
+        for case in 0..14 {
             with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
                 ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
                 for _ in 0..32 {
@@ -407,6 +470,7 @@ fn admitted_pair_rechecks_dynamic_values_frames_fuel_mode_and_hooks() {
                 )
                 .unwrap();
                 let mut budget = 64;
+                let mut prefix = 0;
                 match case {
                     0 => budget = 3,
                     1 => host.test_fuel(Fuel::with(0)),
@@ -445,12 +509,27 @@ fn admitted_pair_rechecks_dynamic_values_frames_fuel_mode_and_hooks() {
                         ctx.suppress_hook_at(1);
                     }
                     10 => host.with_registers(|_, registers| *registers.pc = pc + 1),
+                    11 => {
+                        let mut fuel = Fuel::with(10000);
+                        fuel.interrupt();
+                        host.test_fuel(fuel);
+                    }
+                    12 => {
+                        prefix = 64;
+                        host.test_fuel(Fuel::with(64));
+                    }
+                    13 => host.test_fuel(Fuel::with(i32::MIN)),
                     _ => unreachable!(),
                 }
                 let before_stats = stats(ctx);
                 let before = trace(ctx, host, before_stats);
-                assert!(admitted.invoke(host, budget, 0).is_none(), "case={case}");
+                let counters = ctx.jit().0.borrow().stats;
+                assert!(
+                    admitted.invoke(host, budget, prefix).is_none(),
+                    "case={case}"
+                );
                 assert_eq!(trace(ctx, host, before_stats), before, "case={case}");
+                assert_eq!(ctx.jit().0.borrow().stats, counters, "case={case}");
                 ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
                 ctx.set_debug_hook(Value::Nil, false, 0);
             });
@@ -1000,6 +1079,7 @@ fn interpreted_prefix_handoff_uses_the_selected_call_site() {
 #[test]
 fn generated_region_matches_canonical_bounded_frames_fuel_and_work() {
     fixture(|ctx, closure, region, start| {
+        ROOTED_COMPLETIONS.with(|count| count.set(0));
         for limit in [1, 2, 3, 4, 8, 64] {
             for budget in [1, 2, 3, 4, 8, 64] {
                 for fuel in [-1, 0, 1, 8, 20, 10000] {
@@ -1041,5 +1121,6 @@ fn generated_region_matches_canonical_bounded_frames_fuel_and_work() {
                 }
             }
         }
+        assert!(ROOTED_COMPLETIONS.with(|count| count.get()) >= 20);
     });
 }

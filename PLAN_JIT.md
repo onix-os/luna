@@ -11,6 +11,133 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Atomic admission deduplication — retained development WIP
+
+`f31efab` first extends admission refusal coverage with interrupted fuel,
+prefix-exhausted fuel and `i32::MIN`, checking the entire `JitStats` value remains
+unchanged. `bce7c62` separates mandatory entry policy from physical-fallback
+operand checks. Readiness, hook clearing, budget, mode/hooks and frame identity
+still run first. Successful atomic calls use their existing complete live
+source/callee/capture/argument/fuel/capacity admission once; a side-effect-free
+refusal still runs all original physical-fallback operand checks. No authority
+cache, new state, unsafe code, guard removal or coverage restriction is added.
+
+Focused checks pass **161 executions / 16 suites**, two ignored. Baseline/doc/
+all-feature Auto passes **1,808 / 173**, eight ignored. Native-region Memcheck
+passes **40 tests**, two ignored, zero errors and zero definite/indirect leaks;
+48 possibly-lost and 632 reachable harness bytes remain. Exact-image upvalue
+instructions fall **191,760,507 → 179,122,492 (6.6%)**; admitted invocation
+self-work falls **71,112,880 → 58,212,584**. This profile compares the immediately
+preceding atomic-pair runtime, not the earlier physical-call baseline.
+
+Two native and two three-way speed/shipping cost rounds complete **96 commands**,
+all failing unchanged aggregate gates. Current control is `atomic-pair`; the
+cost historical control is `empty-return-copy`. Three alternating/rotating windows
+on CPU0/16, eleven samples and twenty cost iterations retain external contention.
+All **216 native non-timing pairs** match, and pre/post manifests and exact symbol
+companions verify. Both no-feature cost executables are byte-identical to their
+immediate controls. Owned builds/tests/profiles finish before timing.
+
+Native upvalue control/candidate throughput improves **1.080187 / 1.082535** on
+CPU0 and **1.084507 / 1.093538** on CPU16, first / repeat. Interpreter-relative
+paired speedups are **1.1925–1.2590**; only the first CPU0 window passes the
+original **1.25** gate, and **eleven of twelve still fail**. One passing window
+does not establish acceptance or erase the previous disabled-cost failures.
+
+Adverse ratios remain: native CPU0 float **0.957642 / 0.966826**, native
+metamethod CPU0 **0.981730 / 0.968772** and CPU16 **0.981773 / 0.974006**.
+Shipping compiled-Off CPU16 integer regresses **0.957254 / 0.957630** and table
+**0.948402 / 0.945498** against atomic-pair. Earlier numeric costs also remain:
+against empty-return-copy, speed disabled float is **0.938186 / 0.941942** on
+CPU0 and **0.918192 / 0.896083** on CPU16; speed CPU16 integer is
+**0.954755 / 0.959275**. Ratios are control time / candidate time. Individual
+cost failures are candidate44/216, control39/216 and historical41/216.
+
+Retain the deduplicated admission as development WIP alongside frame elision,
+**not a release-approved optimization**. The native gain is repeatable, but the
+remaining native target gap and cumulative disabled/shipping regressions must
+still be fixed. All evidence is retained under
+`target/jit-evidence/short-slice-performance/atomic-admission*`, including the
+machine-readable summary. The next substantial cost is full caller publication
+and refresh around an otherwise atomic, non-suspending integer call; any change
+there must preserve canonical state on every exit rather than skip publication.
+
+#### Atomic integer-call transitions — retained structural development WIP
+
+`c7b540d` first prototypes, and `a7def2c` expands tests for, executing a complete
+source-verified integer callee without constructing a physical callee frame.
+`fa90638` enables this path for admitted calls. The existing generated compact
+integer function still performs the arithmetic; Rust does not substitute its
+answer or count interpreted arithmetic as native work.
+
+This deliberately refines the earlier unconditional physical-Call/Return
+implementation, not the Lua execution contract. Elision requires a fixed caller
+with no pending return, the exact live closure/prototype/source binding, fixed
+arguments within parameter bounds, integer inputs, an integer capture strictly
+below the callee tail, existing frame/value capacities and room below the depth
+limit. Open captures or close markers in that tail refuse. The fuel remainder
+after Call and the caller prefix must allow execution to continue; the native
+budget must cover the complete three-operation payload. Hook and mode guards
+remain, and custom fault-hook fixtures use the physical path.
+
+All validation and native computation precede publication. Successful publication
+reproduces argument shifting, nil-filled callee registers, native read/result
+temporaries, capture writes, complete caller stack height, PC, fuel and logical
+Call/Return dispatch accounting. Even otherwise-dead overlapping caller slots
+are preserved. There is no allocation, new unsafe code, GC pointer in generated
+arithmetic, retained stack pointer or persistent capture-route cache. Any refusal
+retains canonical physical execution and its partial/error/suspension behavior.
+
+The differential covers **1,536 paired scenarios**, with **86 actual atomic native
+completions**, comparing full physical-state traces, interruption and eight
+execution counters. Other cases exercise unchanged physical fallback. Dedicated
+tests cover captures in an upper physical frame, 256-register capacity refusal,
+argument-tail capture rebinding and 21 host refusal/precommit-panic cases.
+`make jit-atomic-call` exposes these tests. Existing source-binding tests caught
+an initial unwanted registry reborrow; atomic admission now consumes the already
+bound caller/prototype identity and still resolves the live closure and capture.
+The prototype's initial two-dispatch report incorrectly counted one interpreted
+slice; separate Call/Return reports and the expanded counter differential fix it.
+Initial command/fixture failures remain with corrected terminal validation logs.
+
+Focused production checks pass **161 executions / 16 suites**, two ignored.
+Baseline/doc/all-feature Auto passes **1,808 executions / 173 suites**, eight
+ignored. Three native differentials pass Memcheck with zero errors and zero
+definite/indirect leaks; 48 possibly-lost and 632 reachable harness bytes remain.
+This is GNU evidence, not a new full platform certification.
+
+Exact-image upvalue work falls **251,705,217 → 191,970,307 instructions (23.7%)**.
+Two native and two three-way speed/shipping cost rounds complete **96 commands**;
+all fail unchanged aggregate gates. All **216 native non-timing pairs** match,
+including execution/resource counters, and pre/post manifests and exact symbol
+companions verify. Runs retain three alternating/rotating windows on CPU0/16,
+eleven samples, twenty cost iterations and external contention. No owned build,
+test or profile overlaps timing.
+
+Native upvalue control/candidate throughput ratios improve **1.372127 / 1.379452**
+on CPU0 and **1.295656 / 1.307775** on CPU16, first / repeat. However, the native
+speedup against its own interpreter is only **1.0752–1.1607**, below the original
+**1.25** target in every candidate window. Numeric native targets, helper-heavy
+targets and disabled-cost controls are not waived.
+
+**Regressions remain explicit:** CPU16 native float ratios are
+**0.968102 / 0.960512**. Speed compiled-Off float is **0.929730 / 0.925059** on
+CPU0 and **0.910306 / 0.929989** on CPU16; CPU16 speed integer is
+**0.963722 / 0.963148**. Initial CPU16 native table/metamethod losses
+**0.916595 / 0.949245** narrow on repeat to **0.989564 / 0.990620**, not an
+established recovery. Individual cost failures are candidate40/216 versus
+control42/216 and historical40/216; aggregate counts do not negate those losses.
+Neither no-feature executable is byte-identical to its control, so disabled
+comparisons must retain both no-feature and compiled-Off timing baselines.
+
+Retain this structural change as development WIP, **not release acceptance**:
+the repeated 30–38% native gain moves the upvalue workload from slower than the
+interpreter to faster, but the remaining target gap and numeric regressions must
+still be fixed. Evidence is under `target/jit-evidence/short-slice-performance/
+atomic-pair*`, including `atomic-pair-summary.json`. Next remove redundant checks
+between general preflight and atomic admission while preserving all refusals;
+do not repeat rejected copy/layout mechanisms or redefine performance gates.
+
 #### Small rooted-frame staging — measured and withdrawn
 
 `2b17087` staged checked decoding of at most sixteen caller slots in a fixed

@@ -77,7 +77,7 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
         })
     }
 
-    fn preflight(&self, host: &mut ActivationHost<'gc, '_>, budget: u32, prefix: u32) -> bool {
+    fn policy(&self, host: &mut ActivationHost<'gc, '_>, budget: u32) -> bool {
         if !host.lua_ready() {
             return false;
         }
@@ -89,6 +89,10 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
         {
             return false;
         }
+        true
+    }
+
+    fn operands(&self, host: &mut ActivationHost<'gc, '_>, prefix: u32) -> bool {
         let site = &self.program.site;
         let mut fuel = host.fuel().clone();
         fuel.consume(prefix.try_into().unwrap());
@@ -142,7 +146,32 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
         budget: u32,
         prefix: u32,
     ) -> Option<crate::jit::PairOutcome> {
-        if !self.preflight(host, budget, prefix) {
+        if !self.policy(host, budget) {
+            return None;
+        }
+        #[cfg(test)]
+        let atomic = !self.program.custom_hooks;
+        #[cfg(not(test))]
+        let atomic = true;
+        if atomic
+            && super::atomic::invoke(
+                self.ctx,
+                host,
+                &self.program.site,
+                &self.program.code,
+                budget,
+                prefix,
+                Some((self.caller, self.callee)),
+            )
+        {
+            self.ctx.jit().record_pair_execution(1, 1);
+            return Some(crate::jit::PairOutcome {
+                calls: 1,
+                returns: 1,
+                result: Ok(()),
+            });
+        }
+        if !self.operands(host, prefix) {
             return None;
         }
         let mut scratch = [MaybeUninit::uninit(); 256];
@@ -174,5 +203,32 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
             },
         );
         Some(outcome)
+    }
+
+    #[cfg(test)]
+    pub(in crate::jit) fn invoke_rooted(
+        &self,
+        host: &mut ActivationHost<'gc, '_>,
+        budget: u32,
+        prefix: u32,
+        snapshot: &mut abi::roots::call::Snapshot<'_, 'gc>,
+    ) -> bool {
+        if self.program.custom_hooks || !self.policy(host, budget) {
+            return false;
+        }
+        if !super::rooted::invoke(
+            self.ctx,
+            host,
+            &self.program.site,
+            &self.program.code,
+            budget,
+            prefix,
+            (self.caller, self.callee),
+            snapshot,
+        ) {
+            return false;
+        }
+        self.ctx.jit().record_pair_execution(1, 1);
+        true
     }
 }
