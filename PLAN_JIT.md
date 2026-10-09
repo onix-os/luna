@@ -11,6 +11,41 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Repeated code lookup hint retained as development work
+
+The native code index now retains one non-owning entry pointer for repeated
+lookups. Every ordinary shared or mutable map access clears it before exposing
+the map, including inspection, growth, removal and compaction. The hint neither
+owns code nor retains a GC reference. Runtime policy, recency, lookup/lease
+counters and explicit code leases remain unchanged.
+
+Nine model tests pass under GNU, Miri, musl and i686 fallback. A native fixture
+checks repeated leases, Off policy, removal, replacement with the same ID and
+execution of an explicitly retained old mapping. The full GNU interpreter/JIT/
+documentation run passes 1,883 executions in 178 suites, with ten ignored.
+Focused musl policy/resource/native/heap gates also pass.
+
+Exact callback instruction count falls **1.61%**, including **41.10% fewer lookup
+self instructions**, with unchanged native/interpreted instruction and helper
+counters. Two unchanged paired timing rounds show **3–8% lower callback Auto
+time in all 12 comparisons**. All 108 native case comparisons preserve native
+coverage and compilation-failure counts. Alternating metamethod identities miss
+the single-entry hint: their total instruction count rises **0.29%**.
+
+Four feature-cost windows retain all five historical/prior/rooted/array/candidate
+controls on both core types and profiles. Candidate gates fail **30/144**, versus
+array **27/144** and rooted **24/144**. In late CPU16 shipping windows, disabled
+integer time is about **9% slower** than array; late CPU16 speed float exceeds
+the original no-feature overhead limit at **1.0684/1.0692**. CPU0 speed float
+improves instead. Contended windows and negative samples are retained, not
+discarded or used to relax thresholds. Callback/metamethod aggregate acceptance
+still fails and upvalue remains inconsistent.
+
+This is retained experimental development work, **not performance or release
+acceptance**. Evidence is under `target/jit-evidence/short-slice-performance/`
+in `code-index-*`; frozen binaries, complete source patches, exact-symbol
+profiles, telemetry and after-run identity checks are preserved.
+
 #### Call-observer admission trials withdrawn
 
 Exact retained production callback profiling attributes 1,430,000 instructions

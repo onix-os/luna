@@ -11,6 +11,13 @@ region execution; `make jit-regions` tests the non-test library with `jit` and
 `jit,async`, including interrupted fuel traces, GC, callbacks and unwind.
 This is implementation progress, **not performance or release acceptance**.
 
+Repeated native code lookups use a non-owning, invalidated entry hint. Two paired
+rounds show 3–8% lower callback Auto time across 12 comparisons, with unchanged
+native coverage. Miri/model and native lease/policy tests pass, but callback and
+metamethod targets and compiled-Off overhead remain unresolved. This optimization
+is retained development work, not accepted performance; see `PLAN_JIT.md` for
+the negative results and frozen controls.
+
 Supported native builds also admit optional helper-free array-loop kernels.
 An independent source-to-CLIF checker validates their guards, memory effects,
 control flow and instruction accounting before compilation. Each entry borrows

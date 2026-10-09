@@ -100,6 +100,13 @@ $(info ------------------------------------------)
 .PHONY: jit-clippy table-access
 
 .PHONY: jit-array-window jit-array-window-miri
+.PHONY: jit-code-index jit-code-index-miri
+jit-code-index:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::code_index:: $(ARGS)
+
+jit-code-index-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::code_index:: -- --test-threads=1
+
 jit-array-window:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::array_window:: $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::array::tests $(ARGS)
