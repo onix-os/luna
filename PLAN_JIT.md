@@ -36,9 +36,12 @@ to 78,450,572 (2.70%). Callback map lookup self work falls 6,370,000 to
 Upvalue/array instruction totals increase slightly; those observations remain.
 
 These are instruction-work findings, not hardware speedup or acceptance.
-Full GNU, platform and Miri validation plus speed/shipping artifact builds are
-in progress at this checkpoint. Original paired native and compiled-Off timing
-gates remain required. Evidence is retained under `string-hash-*` in
+Full GNU validation passes 1,896 executions /175 suites (eight ignored), with
+formatting/all-target checks. Targeted musl passes 189 /14, i686 ten /two;
+both Miri models pass ten executions each. Candidate speed/shipping artifacts
+are built; fresh control artifacts are building with the runtime temporarily
+restored. Original paired native and compiled-Off timing gates remain required.
+Evidence is retained under `string-hash-*` in
 `target/jit-evidence/short-slice-performance/`; no production optimization is
 committed or accepted from this trial yet.
 
