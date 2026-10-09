@@ -22,7 +22,13 @@ allocation failure also preserves ordinary native code.
 `make jit-heap` checks this non-test path against interpreter slices, with GC
 between steps and code-quota retirement. The unchanged fill/sum fixture uses
 274 helper calls instead of 10,001 while retaining 25,014 native instructions.
-This is execution evidence, **not a measured speedup or performance acceptance**.
+Two paired timing rounds now measure **17–37% higher array throughput** versus
+the retained rooted-publication build, with unchanged native instruction counts.
+The original array gate passes 11 of 12 windows, but callback/metamethod gates
+still fail and upvalue remains inconsistent. Feature-cost testing also finds a
+5–12% speed-profile compiled-Off float regression against that retained build.
+These are positive and negative development results, **not performance or release
+acceptance**; `PLAN_JIT.md` records the unchanged gates and controls.
 
 Admitted integer callees can now complete atomically without a physical callee
 frame when all inputs, source bindings, capacity/depth, capture, hook and fuel

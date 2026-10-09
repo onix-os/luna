@@ -29,8 +29,45 @@ Full baseline, GNU Auto/all-features and doc gates pass **1,869 test executions
 checking pass without new compiler warnings. Logs are `array-production-*` under
 the short-slice evidence directory.
 
-Remaining platform gates and paired timing remain pending for this candidate.
-This does not resolve the original upvalue/callback/compiled-Off regressions.
+Real i686 fallback and Miri each pass **15 tests**. ARM64 CI remains pending.
+
+Two unchanged native timing rounds compare the frozen candidate to the retained
+rooted-publication control: **24 aggregate commands**, CPUs 0 and 16, three
+alternating windows per round, 11 samples and all nine cases. Array throughput
+improves **17.2–35.2% on CPU0** and **32.6–37.1% on CPU16**. The original array
+gate passes **11/12** candidate windows versus **0/12** control windows; native
+and interpreted instruction totals remain identical. Callback and metamethod
+gates still fail every window, and upvalue passes only 10/12 without a consistent
+throughput improvement over the control.
+
+**64 additional feature-cost commands** compare speed/shipping no-feature and
+compiled-Off artifacts against rooted-publication, atomic-admission and the
+older empty-return-copy control, using four rotated windows per core and 11 pairs
+of 20 iterations. Candidate overhead gates fail **34/144 case checks**. A new
+comparative regression persists: speed-profile compiled-Off float time is
+**5.1–11.7% slower** than rooted-publication across all eight comparisons. Shipping
+upvalue overhead remains outside the original limit. One late CPU0 shipping
+control window has broad contention outliers; it remains in the evidence.
+
+Exact-image Callgrind attribution finds identical executed work for the float
+comparison: **20,204,995 instructions** in each image, including **19,642,730**
+inside `run_vm_slice`. Simulated conditional-branch misses rise from 103,284 to
+123,288. This points toward a code-address/predictor effect rather than added
+instruction work, but is not hardware-counter proof or a fix. Per-instruction
+attribution locates 20,001 simulated misses at the integer numeric-loop overflow
+branch (candidate `run_vm_slice + 0x2a34`); both VM functions are 0xde08 bytes.
+No-feature `.text`
+is byte-identical between candidate and rooted-publication in both profiles;
+whole ELF files differ. All symbol companions match the measured allocated bytes
+and program headers.
+
+Evidence is `array-production{,-repeat}-screen/`,
+`array-production-cost/screen-{early,late}/`, and `array-production-off-float/`.
+No owned builds, tests, edits or profiles overlapped timing; other applications
+were left running and their contention telemetry retained. Every aggregate gate
+command still fails overall. **This remains development WIP, not performance or
+release acceptance.** The new float comparison and original callback/metamethod,
+upvalue and compiled-Off requirements remain open.
 
 #### Independent array-kernel translation check
 
