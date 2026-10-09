@@ -11,6 +11,43 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Owned array kernels in the real Auto path — test-selected
+
+`8560749` integrates optional array kernels with `backend::Code` and
+`Runtime::invoke_frame`. The ordinary code lease now owns auxiliary mappings;
+plans/function IDs use the snapshot allocator, bindings use the metadata
+allocator, and the existing provider enforces mapping/protection quotas. Modules
+are destroyed before publication. A second source expansion must fit the combined
+IR instruction/block limits; cumulative kernel size is checked and calls or
+relocations are refused. Optional failure preserves the ordinary native image.
+This follows the existing accounting boundary, **not a complete compiler/RSS
+ledger**. Independent source-to-kernel translation validation is still pending.
+
+The runtime releases each window before generic helpers run, consumes only the
+remaining slice budget, merges table/instruction counts, and publishes one exit.
+Projection/deferred caller-shadow paths remain unchanged. A private test switch
+selects this path; **shipping builds do not enable it yet**.
+
+Actual Lua Auto execution of the frozen fill/sum workload reproduces
+**10,001 → 274 helper calls**, with 4,988 direct reads and 4,739 direct writes.
+At executor fuel 0, 1, 17 and 65,536, results, step traces, dispatch/native/
+interpreter counts and table counts match the ordinary path; interpreter step
+traces match too. Collection occurs between steps. `41fdbb9` adds host readonly
+mutation after native execution has begun, and 48 metadata/workspace refusal
+frontiers with no partial owner or retained mapping charges. Alias, callback,
+metatable, weak-table and protected-error fallback cases also pass.
+
+GNU and musl focused gates each pass **29 tests / two suites**. Real i686 fallback
+and Miri each pass **15**; the native-only backend filter correctly runs zero on
+i686. Full baseline + GNU Auto/all-features + doc gates pass **1,865 test
+executions / 178 suites**, with ten ignored. Format and workspace/all-target
+checks pass. Evidence is `array-window-runtime-*` in the short-slice directory.
+
+This is runtime correctness and ownership evidence, **not timing acceptance**.
+Independent translation validation, shipping enablement, platform verification
+and original paired performance/feature-cost gates remain; other original
+workload regressions are not resolved by this checkpoint.
+
 #### Helper-free array loop slices — execution prototype
 
 `01b63d2` generates complete selected loop regions, including direct array
@@ -39,12 +76,11 @@ fresh receiver replacement and admission failures. GNU and musl each pass
 workspace/all-target checks pass. Logs are `array-window-kernel-*` under the
 existing short-slice evidence directory, including initial failed builds/runs.
 
-**This remains test-selected, not production acceptance.** The bridge runs real
-generated code and existing table helpers, but `Runtime::invoke` does not yet
-select these kernels. Independent translation validation and budgeted production
-code ownership/compilation remain required before enabling the path. Helper-call
-reduction is not elapsed-time improvement; the original performance, feature-cost
-and other workload regressions remain unresolved.
+**This was an execution-fixture checkpoint, not production acceptance.** Runtime
+selection and provider-backed ownership have since advanced as described above;
+independent translation validation and shipping enablement remain pending.
+Helper-call reduction is not elapsed-time improvement; the original performance,
+feature-cost and other workload regressions remain unresolved.
 
 #### Bounded native array windows — prototype only
 
