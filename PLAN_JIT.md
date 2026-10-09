@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Interpreter instantiation and dispatch — experimental, not accepted
+#### Interpreter instantiation and dispatch — measured and withdrawn
 
 `5edb405` covers closure-cell sharing, independent outer slots, fresh local
 captures, partial capture state on invalid environment descriptors, PC and fuel.
@@ -42,11 +42,27 @@ remain unchanged. Corrected focused GNU checks pass **113 / 17**, nine Miri
 executions pass, and state sizes are **1 byte without JIT / 16 bytes with JIT**.
 An initial launcher omitted Cargo's argument separator; those failed logs remain.
 
-The sparse refinement is still under measurement: actual inactive-branch lowering,
-full-corpus timing, broad/platform verification and final retention are not yet
-established. A two-window full-corpus cost screen may reject it early, but cannot
-replace the complete repeated acceptance campaign. Evidence is under
+The sparse refinement removes those **200,070 indirect jumps**, but substitutes
+two comparisons for the original single inactive-state test. Shipping float
+instructions remain **21,255,450**, above the original **20,842,780**. Its two
+no-feature executables are byte-identical to the outlined trial, not to production.
+
+The full-nine-case early screen completes **44 failed aggregate commands** and
+**108 matching native non-timing pairs**. CPU0 speed Off integer/float ratios
+are **0.887457 / 0.917225**, and shipping integer **0.935082**, versus WIP.
+CPU16 speed integer/float are **0.944075 / 0.920046**. Shipping CPU0 float gains
+**1.096997** against WIP, but remains **0.946706** against atomic-admission.
+Cost failures are candidate20/control14/prior13/historical15 of 72 each.
+Two-window medians average both values. Original table/metamethod/callback gates
+still fail. This rejects the refinement early; no complete repeated sparse-tag
+campaign or broad/platform acceptance is claimed.
+
+Both production changes are withdrawn; the instantiation model and dispatch
+storage tests remain. Withdrawal verification passes **178 executions / 28
+GNU and musl suites** and **nine Miri executions**. The production VM source
+matches `5edb405`; `258053d` records the withdrawal. Evidence is under
 `target/jit-evidence/short-slice-performance/vm-instantiation*` and `sparse-dispatch*`.
+Neither reduced VM size nor changed branch lowering fixes the remaining gates.
 All original performance gates remain open; this is not release acceptance.
 
 #### Direct integer capture — measured and withdrawn

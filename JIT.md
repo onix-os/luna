@@ -42,6 +42,12 @@ other existing costs remain, and all aggregate gates still fail. This is
 experimental development WIP, **not a completed performance fix**. `PLAN_JIT.md`
 records all three variants and their positive and adverse results.
 
+Closure-instantiation outlining and a sparse dispatch-tag refinement are also
+withdrawn. The former shrinks the VM but worsens numeric throughput; the latter
+removes an extra inactive-state indirect jump without fixing the timing losses.
+Their model/storage tests and full-corpus negative evidence remain. Neither
+change is part of the retained runtime or accepted performance.
+
 A direct integer-capture trial (`40853da`) reduced native upvalue instructions
 3.35% and improved repeated upvalue throughput 3–6%, passing all twelve original
 upvalue gates. It is withdrawn because table, metamethod and compiled-Off numeric
