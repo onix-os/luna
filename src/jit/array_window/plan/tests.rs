@@ -94,3 +94,65 @@ fn invalid_and_oversized_loop_sources_decline() {
     ));
     assert!(plans(&source).is_empty());
 }
+
+#[test]
+fn fixed_window_covers_reachable_keys_until_its_capacity_boundary() {
+    let budgets: Vec<_> = if cfg!(miri) {
+        vec![0, 1, 17, 64, u32::MAX]
+    } else {
+        (0..=65).chain([u32::MAX]).collect()
+    };
+    let mut combinations = 0;
+    for operations in 2..=MAX_OPERATIONS {
+        if cfg!(miri) && ![2, 3, 32].contains(&operations) {
+            continue;
+        }
+        let plan = Plan {
+            start: 0,
+            end: operations - 1,
+            base: 0,
+            table: 4,
+            access: Access::Write,
+        };
+        for pc in 0..operations {
+            if cfg!(miri) && pc != 0 && pc != plan.end {
+                continue;
+            }
+            for &budget in &budgets {
+                for step in [i64::MIN, -64, -63, -3, -1, 0, 1, 2, 3, 63, i64::MAX] {
+                    combinations += 1;
+                    let slots =
+                        [128, 256, step, 128].map(|value| Slot::from_value(Value::Integer(value)));
+                    let window = plan.window(pc, &slots, 256);
+                    let (first, length) = window.unwrap();
+                    assert!((1..=64).contains(&length));
+                    assert!(first > 0 && first + length as i64 - 1 <= 256);
+                    let (mut current, mut index) = (pc, 128i64);
+                    let (mut low, mut high) = (128, 128);
+                    for _ in 0..budget.min(64) {
+                        if current == plan.end {
+                            let Some(next) = index.checked_add(step) else {
+                                break;
+                            };
+                            index = next;
+                            current = 0;
+                        } else {
+                            if !(1..=256).contains(&index) {
+                                break;
+                            }
+                            low = low.min(index);
+                            high = high.max(index);
+                            if high - low < 64 {
+                                assert!(index >= first && index < first + length as i64,
+                                    "operations={operations} pc={pc} budget={budget} step={step} key={index} window={window:?}");
+                            }
+                            current += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(combinations, if cfg!(miri) { 330 } else { 388_399 });
+    eprintln!("array_fixed_window_combinations={combinations}");
+}
