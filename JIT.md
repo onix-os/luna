@@ -63,6 +63,11 @@ publication sequence; `make jit-atomic-stats` keeps saturation equivalence tests
 The plan records complete timing and exact-image assembly evidence, without
 claiming a hardware cause or completed performance acceptance.
 
+Explicit enum tags were also rejected before acceptance timing: tagging Value
+grew it from 16 to 24 bytes; tagging only Constant produced identical executable
+code. Original representations remain. `make value-representation` now guards
+runtime and optional constant/value sizes alongside existing semantic checks.
+
 Production Auto also includes independently verified integer-controlled typed
 loops (`fed925c`, extended by `061c9cc`). Stable Integer and Number arithmetic
 bodies keep typed state between operations, with fresh entry tags, exact fuel

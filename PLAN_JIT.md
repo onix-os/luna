@@ -11,6 +11,37 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Explicit value/constant tags — rejected before acceptance timing
+
+`dd4f7bd` extends the existing portable size bound to runtime constants and
+optional values/constants. `make value-representation` combines these checks
+with constant identity/GC and numeric semantic tests. The unchanged runtime
+passes the strengthened bounds before either representation experiment.
+
+A joint `#[repr(u8)]` trial on `Constant<S>` and `Value` violates the existing
+Value size contract: **24 bytes instead of the allowed 16** on this target.
+Validation stops at that failure; the limit is not relaxed. One constant and
+three rooted-snapshot Miri tests pass, but cannot override the size failure.
+Shipping integer instructions also grow **19,540,720 → 22,396,985**, and float
+**20,842,780 → 23,199,080**. The nested Function payload is consistent with the
+loss of compact outer representation; no raw-layout/niche assumption is adopted.
+The generated ABI continues to use its original typed `repr(C)` Slot records.
+
+A second diagnostic keeps Value unchanged and applies the byte tag only to
+Constant. It passes **157 focused executions / 24 suites**, but shipping/speed
+integer, float and callback instruction/load/store/branch counts are unchanged.
+More decisively, **all four `.text` sections are byte-identical** to the
+rooted-publication controls: shipping/speed, with/without the JIT feature.
+Whole-file identity is not claimed. This declaration does not improve conversion
+lowering in those images, so another acceptance timing campaign is not warranted.
+
+Both representation changes are removed; no acceptance timing, native speedup or
+full-validation success is claimed for either. All runtime sources match the
+pre-trial version. The footprint guard and diagnostic messages remain. Frozen
+images, exact symbol checks, failed size logs, Miri and profiles are retained
+under `target/jit-evidence/short-slice-performance/explicit-value-tags*` and
+`explicit-constant-tags*`. Existing performance failures remain unresolved.
+
 #### Same-boundary atomic statistics — measured and withdrawn
 
 `4bf2084` adds a test-only combined atomic-call statistics publisher and **184
