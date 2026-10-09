@@ -844,9 +844,6 @@ impl<'gc> Key<'gc> {
 
     fn eq(self, key: CanonicalKey<'gc>) -> bool {
         match (self, key) {
-            (Key::Live(CanonicalKey::String(a)), CanonicalKey::String(b)) => {
-                Gc::ptr_eq(a.into_inner(), b.into_inner()) || a == b
-            }
             (Key::Live(a), b) => a == b,
             // By address, exactly as a dead key is: a weak key must answer this without upgrading,
             // because it may be looked up after the object it named has been collected.
