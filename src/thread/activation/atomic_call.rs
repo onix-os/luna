@@ -20,6 +20,7 @@ pub(crate) struct Window<'gc, 'borrow, 'host> {
 }
 
 impl Window<'_, '_, '_> {
+    #[inline(always)]
     pub(crate) fn commit(self, captured: i64) {
         if let Some(index) = self.upper {
             self.host.stack[index] = Value::Integer(captured);
@@ -33,6 +34,7 @@ impl Window<'_, '_, '_> {
 }
 
 impl<'gc, 'host> ActivationHost<'gc, 'host> {
+    #[inline(always)]
     pub(crate) fn snapshot_window(
         &mut self,
         spec: &Spec<'gc>,
