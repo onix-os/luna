@@ -11,6 +11,52 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Common empty-return copy — retained partial improvement
+
+The generic `LuaFrame::return_upper` skips zero-length result copies while still
+checking both source and destination bounds. This is shared by no-feature and
+JIT builds; no specialized native Return path is enabled. Actual frame pop,
+capture closing, fuel, nonempty overlapping copies and caller restoration keep
+their existing order. `aa52ae1` separately commits a 108-case boundary/fuel/capture
+matrix and enables the thread unit tests in both feature modes. The baseline
+fixture initially exposed eager evaluation of the variable-count default on
+invalid starts; corrected expectations pass before the production change.
+
+Focused validation passes **177 executions / 17 suites**, two ignored. Baseline,
+documentation and all-feature Auto validation passes **1,796 executions / 171
+suites**, eight ignored. Formatting and all-feature checks pass. No new unsafe
+code, frame layout, public API, native coverage or resource-policy change occurs.
+
+Exact-image profiles reduce native upvalue work **254,772,134 → 251,756,447
+instructions (1.18%)**. After timing, fresh CPU16 speed-profile controls show
+no-feature work **73,773,622 → 72,523,637** and compiled-Off work
+**83,079,641 → 81,879,248**, with checked results and zero native instructions.
+These instruction reductions do not by themselves explain elapsed-time changes.
+
+Two native and two three-way speed/shipping comparisons complete **96 checked
+commands**; all aggregate gates still fail. Each uses three alternating/rotating
+windows on CPU0/16 and eleven samples (twenty iterations for cost tests). All
+**216 native non-timing pairs** match, exact symbol companions and source/artifact
+manifests verify, and no owned build/test/profile overlaps timing.
+
+CPU16 speed compiled-Off upvalue throughput improves **1.146060 / 1.138761**
+against retained WIP, and **1.017127 / 1.023974** against the earlier numeric-tier
+baseline. This recovers the previous direct elapsed-time regression, not the
+5% compiled-disabled-cost gate: every CPU16 upvalue cost window still fails.
+Shipping CPU16 disabled upvalues improve **1.036432 / 1.035431** against WIP.
+Native upvalue gains are smaller: CPU0 **1.004021 / 1.007643**, CPU16
+**1.008788 / 1.011395**. Ratios are control time / candidate time.
+
+Retain this as partial development progress, with adverse results explicit:
+CPU0 speed disabled metamethod ratios are **0.986999 / 0.969796**, and its
+no-feature ratios **0.986065 / 0.975595**. CPU0 shipping no-feature predicate is
+**0.995159 / 0.969860**; CPU0 speed no-feature upvalue trails the historical
+image in the repeat (**0.967579**). Cost failures total candidate **41/216**, WIP
+**39/216**, historical **46/216**; the recovered upvalue regression does not
+cancel these failures. Full performance, platform/release and compiler-resource
+acceptance remain open. Evidence and complete timing medians are under
+`target/jit-evidence/short-slice-performance/empty-return-copy*`.
+
 #### Single-borrow VM policy — measured and withdrawn
 
 Trial `1a5c56b` obtains native/pair enablement through one short-lived manager borrow

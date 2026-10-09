@@ -24,10 +24,19 @@ correctness, mutation, resource-bound and favorable/adverse timing evidence.
 Common table access now separates the array-hit path from hash/growth fallbacks.
 Repeated native throughput improves for tables (17–21% on CPU0, 2–6% on CPU16)
 and callbacks (11–12% / about 3%). This is retained development work, not an
-accepted release optimization: disabled speed-profile upvalues regress about
-12% on CPU16, other baseline regressions remain, and the full gates still fail.
+accepted release optimization: other baseline regressions remain, and the full
+gates still fail.
 `make table-access` checks representation parity, numeric aliases and weak-array
 holes; `PLAN_JIT.md` records both gains and regressions.
+
+The shared return path now skips empty result copies without removing bounds
+checks or changing frame/capture/fuel transitions. Two repeated comparisons recover
+the preceding CPU16 speed-profile disabled-upvalue regression: throughput improves
+14–15% against that WIP and 1.7–2.4% against the historical numeric-tier build.
+Native upvalues improve only 0.4–1.1%, and compiled-disabled upvalue overhead still
+exceeds its 5% limit. CPU0 metamethod and other adverse samples remain explicit
+in `PLAN_JIT.md`. All 96 aggregate commands fail; this is a partial improvement,
+not full performance acceptance.
 
 Two later table-receiver specializations were measured and rejected: modest
 instruction-count reductions and some native gains came with repeated shipping
