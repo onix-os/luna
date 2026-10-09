@@ -557,6 +557,14 @@ vm-call-resolution:
 vm-activation-tests:
 	@$(CARGO) test --locked -p luna --lib $(TARGET_ARG) thread::executor::activation_tests $(ARGS)
 
+.PHONY: vm-mode-checks vm-mode-checks-miri
+vm-mode-checks:
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::executor::mode_tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::executor::mode_tests
+
+vm-mode-checks-miri:
+	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' thread::executor::mode_tests -- --test-threads=1
+
 jit-activation-tests:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::executor::activation_tests $(ARGS)
 

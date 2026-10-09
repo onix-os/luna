@@ -1,6 +1,98 @@
 use super::*;
 
 #[test]
+fn mixed_keys_survive_rehash_weakening_deletion_and_clear() {
+    crate::Lua::empty().enter(|ctx| {
+        let mut keys = std::vec::Vec::new();
+        for index in 0..96 {
+            let bytes = format!("key-{index:03}-{}", "x".repeat(index % 33));
+            keys.push(Value::String(String::from_slice(&ctx, bytes.as_bytes())));
+        }
+        keys.extend([
+            Value::Boolean(false),
+            Value::Boolean(true),
+            Value::Integer(i64::MIN),
+            Value::Integer(0),
+            Value::Integer(i64::MAX),
+            Value::Number(1.5),
+            Value::Number(f64::INFINITY),
+            Value::Number(f64::NEG_INFINITY),
+            Value::Table(Table::new(&ctx)),
+            Value::Function(Closure::load(ctx, None, b"return 1").unwrap().into()),
+            Value::Function(
+                Callback::from_fn(&ctx, |_, _, _| Ok(crate::CallbackReturn::Return)).into(),
+            ),
+            Value::Thread(Thread::new(ctx)),
+            Value::UserData(UserData::new_static(&ctx, 17)),
+        ]);
+        for weak_keys in [false, true] {
+            for weak_values in [false, true] {
+                let mut table = RawTable::new(&ctx);
+                for round in 0..2 {
+                    for (index, key) in keys.iter().copied().enumerate() {
+                        assert!(table
+                            .set(&ctx, key, Value::Integer(index as i64))
+                            .unwrap()
+                            .is_nil());
+                    }
+                    if weak_keys {
+                        table.make_keys_weak(&ctx);
+                    }
+                    if weak_values {
+                        table.make_values_weak(&ctx);
+                    }
+                    let capacity = table.map.capacity();
+                    table.reserve_map(capacity + 1);
+                    assert!(table.map.capacity() > capacity);
+                    let mut previous = Value::Nil;
+                    for (index, key) in keys.iter().copied().enumerate() {
+                        let query = match key {
+                            Value::String(value) => {
+                                Value::String(String::from_buffer(&ctx, value.as_bytes().into()))
+                            }
+                            value => value,
+                        };
+                        identical(table.get(&ctx, query), Value::Integer(index as i64));
+                        match table.next(&ctx, previous) {
+                            NextValue::Found { key: found, value } => {
+                                assert_eq!(
+                                    CanonicalKey::new(found).unwrap(),
+                                    CanonicalKey::new(key).unwrap()
+                                );
+                                identical(value, Value::Integer(index as i64));
+                                previous = found;
+                            }
+                            other => panic!("missing insertion-order entry: {other:?}"),
+                        }
+                    }
+                    assert!(matches!(table.next(&ctx, previous), NextValue::Last));
+                    for (index, key) in keys.iter().copied().enumerate().step_by(2) {
+                        identical(
+                            table.set(&ctx, key, Value::Nil).unwrap(),
+                            Value::Integer(index as i64),
+                        );
+                    }
+                    table.reserve_map(table.map.capacity() + 1);
+                    for (index, key) in keys.iter().copied().enumerate() {
+                        let expected = if index % 2 == 0 {
+                            Value::Nil
+                        } else {
+                            Value::Integer(index as i64)
+                        };
+                        identical(table.get(&ctx, key), expected);
+                    }
+                    table.clear();
+                    assert!(matches!(table.next(&ctx, Value::Nil), NextValue::Last));
+                    for key in &keys {
+                        assert!(table.get(&ctx, *key).is_nil(), "round {round}");
+                    }
+                }
+            }
+        }
+    });
+}
+
+#[test]
 fn string_probes_preserve_content_equality_across_allocations() {
     crate::Lua::empty().enter(|ctx| {
         for bytes in [&b""[..], &b"callback"[..], &[b'x'; 300][..]] {

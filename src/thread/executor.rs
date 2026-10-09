@@ -1625,3 +1625,6 @@ mod activation_tests {
         assert_eq!(reference, run(source, 4096, true));
     }
 }
+
+#[cfg(test)]
+mod mode_tests;
