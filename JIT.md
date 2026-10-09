@@ -44,6 +44,13 @@ Production retains the empty-return fix, without the key cache. The independent
 key identity/GC tests remain under `make metamethod-keys` and
 `make metamethod-keys-miri`; `PLAN_JIT.md` retains all failed comparisons.
 
+An invocation-scoped plain-table borrow cache (`454f4c9`) was also measured and
+withdrawn. Array instruction work fell 6.2%, but repeated native callback,
+metamethod and compiled-Off numeric regressions outweighed CPU16 table gains.
+95/96 aggregate checks fail unchanged gates. Production has no borrow-cache
+fields or branches; the independent callback/table-mutation regression remains
+in `tests/jit_heap.rs`. Full comparison evidence is recorded in `PLAN_JIT.md`.
+
 Two later table-receiver specializations were measured and rejected: modest
 instruction-count reductions and some native gains came with repeated shipping
 compiled-Off regressions. Production retains the numeric-loop runtime above;

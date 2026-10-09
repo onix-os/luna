@@ -11,6 +11,57 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Invocation-scoped table borrow reuse — measured and withdrawn
+
+`5e90ace` adds an independent Off/Auto callback-mutation regression: after native
+table writes, Rust can read/write the table and make it readonly; a subsequent
+Lua write fails and collection succeeds. This test remains in production tests.
+`454f4c9` implements a private plain-table borrow cache for one bounded ordinary
+native invocation. It refuses metatables, readonly/intercepted writes and weak
+tables, releases before exits/declines/panics/other helpers, and excludes projected
+execution. A bounded source selector enables reuse only for recurring stable
+receiver loop shapes; native eligibility and coverage remain unchanged.
+
+The unrestricted prototype reduced array instructions 6.24% but increased
+allocation 2.32% and metamethod 1.35%; it was refined before timing. The selected
+candidate passes **1,809 baseline/doc/all-feature Auto executions / 173 suites**,
+eight ignored. Six cache/selector/gateway tests pass Miri with 25 warnings.
+Exact-image profiles show array **46,556,154 → 43,654,180**, allocation
+**32,070,041 → 32,404,410**, and metamethod **80,858,421 → 81,374,526** instructions.
+Lower array instruction work does not establish a wall-time improvement.
+
+Two native and two three-way cost rounds retain three alternating/rotating
+windows on CPU0/16, eleven samples and twenty cost iterations. **95/96 aggregate
+commands fail unchanged gates**; the single pass is repeat CPU0 window3 speed
+candidate cost, not native or full acceptance. All **216 native non-timing pairs**
+match, and pre/post source/artifact manifests and exact symbol companions verify.
+Owned builds/tests/profiles do not overlap timing; external contention is retained.
+
+Native array control/candidate ratios are **0.956282 / 0.961832** on CPU0 and
+**1.043737 / 1.020201** on CPU16. Native callbacks on CPU0 regress
+**0.880655 / 0.887314**; CPU16 metamethods **0.935106 / 0.932105**,
+allocation **0.926585 / 0.967815**, and predicate **0.936067 / 0.920108**.
+Ratios are median-of-three-window control time / candidate time, first / repeat;
+values below one mean the candidate is slower. The isolated table gain does not
+compensate for repeated losses elsewhere.
+
+Compiled-Off speed float also regresses: CPU0 **0.928395 / 0.933685** and CPU16
+**0.914048 / 0.910435**. CPU16 speed integer is **0.956656 / 0.954906** and
+shipping integer **0.958910 / 0.964968**. All nine cost controls and both current
+and historical baselines remain in the evidence; candidate fails45/216 individual
+cost windows versus control43/216 and historical48/216. These counts do not
+override individual regressions or the unchanged native targets.
+
+The complete production cache, selector, frame fields, branches and private
+cache-only tests/Make targets are withdrawn, not left enabled behind a flag.
+Runtime `src/` and Makefile return exactly to `5e90ace`; the callback regression
+and earlier measured improvements remain. The rejected implementation is preserved
+in `454f4c9`, with frozen artifacts/profiles/windows and machine-readable summary
+under `target/jit-evidence/short-slice-performance/table-borrow-{cache,selected}*`.
+Restored helper/heap/resource checks pass **72 executions / five suites**;
+formatting and all-feature checks pass. Withdrawal is committed as `6f827cb`.
+Full performance acceptance remains open; this experiment is not an accepted fix.
+
 #### Metamethod-key cache — two variants measured and withdrawn
 
 Exact-image profiles attributed 2,929,093 instructions to repeated static-name
