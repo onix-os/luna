@@ -50,6 +50,12 @@ rooted-publication WIP; conversion and GC/string-identity tests remain under
 `make vm-constants`. `PLAN_JIT.md` records the repeated positive and negative
 results. Full performance acceptance is still unfinished.
 
+Fusing addition with constant lookup was also measured and withdrawn (`95321a4`).
+Repairing a compiler inlining regression reduced float instruction work, but
+repeated integer, float and table timings still regressed substantially. Production
+keeps canonical operand resolution; `make vm-constant-add` retains the differential
+and bounded GC tests. Full positive and negative results remain in `PLAN_JIT.md`.
+
 Production Auto also includes independently verified integer-controlled typed
 loops (`fed925c`, extended by `061c9cc`). Stable Integer and Number arithmetic
 bodies keep typed state between operations, with fresh entry tags, exact fuel

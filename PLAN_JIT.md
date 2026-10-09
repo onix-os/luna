@@ -11,6 +11,71 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Fused constant addition — profiled, measured and withdrawn
+
+`01bc099` adds a test-only Value/Constant addition differential with **2,303
+operand pairs**, including numeric boundaries, signed zero, NaN categories,
+strings/coercions, errors and deferred metamethod function/argument identity.
+An independent bounded GC fixture checks constant and register RHS bytecodes,
+wrapping, exact large integers, mixed numbers, coercion and both metamethod operand
+orders. `make vm-constant-add` and `make vm-constant-add-miri` retain these tests;
+the integration is also included in `make vm-constants-memcheck`.
+
+The first production trial consumes constant operands directly in Add, avoiding
+intermediate Value construction. Its exact shipping float instruction count
+falls **20,842,780 → 19,842,725**, but integer work grows
+**19,540,720 → 22,540,690**. Function attribution finds **3,900,000** instructions
+newly executed out of line in canonical `meta_ops::add`; register addition was
+previously inlined. No acceptance timing was run for that variant. Explicitly
+inlining canonical add repairs most of that work regression: shipping integer
+becomes **19,640,690**, speed integer **18,803,025 → 19,103,025**. Speed float
+falls **20,204,995 → 19,304,995**. This refinement was committed as `95321a4`.
+
+Actual repeated timing nevertheless rejects the refinement. Two native rounds
+and two four-way cost rounds complete **152 aggregate commands: 146 fail, six
+pass** unchanged gates. All **216 native non-timing pairs** match. CPU0/16,
+eleven samples, three native windows and four rotating cost windows are retained;
+cost iterations are twenty and four-window summaries average the middle pair.
+Owned builds/tests/profiles terminate before timing; source/image manifests and
+exact symbol companions verify. Both feature and no-feature executables change.
+
+Ratios are control time / candidate time, initial / repeat:
+
+| Case | Profile / CPU | Versus rooted-publication | Versus atomic-admission |
+| --- | --- | --- | --- |
+| Compiled-Off integer | speed / 0 | 0.523302 / 0.528812 | 0.531071 / 0.531738 |
+| Compiled-Off integer | shipping / 0 | 0.564310 / 0.577839 | 0.554009 / 0.565434 |
+| Compiled-Off float | speed / 0 | 0.801458 / 0.801122 | 0.852820 / 0.852394 |
+| Compiled-Off float | shipping / 0 | 0.917922 / 0.966425 | 0.792706 / 0.828218 |
+| Compiled-Off integer | speed / 16 | 0.790948 / 0.799664 | 0.839990 / 0.835865 |
+| Compiled-Off float | shipping / 16 | 1.038511 / 1.020983 | 1.057471 / 1.032161 |
+
+No-feature speed CPU0 integer also falls to **0.544378 / 0.541218**, and float
+to **0.793019 / 0.793437**. Native table throughput falls on CPU0
+**0.980701 / 0.933541** and CPU16 **0.965064 / 0.971347**. Native upvalue gains
+are only CPU0 **1.026410 / 1.015288**, CPU16 **1.025511 / 1.008801**; all twelve
+interpreter-relative upvalue windows pass, but that does not erase the broader
+regressions. Individual cost failures are **candidate72/control50/prior57/
+historical50 of 288 each**. Instruction reductions are not timing acceptance or
+proof of a physical hardware cause.
+
+Initial full/focused validation passes **1,974 executions / 197 suites**, eight
+ignored. Refined checking/focused/all-feature Auto passes **1,553 / 110**, six
+ignored. Miri passes the pure model; both initial and refined native Memcheck
+pass two GC fixtures in Off/Auto/Force with zero errors and zero definite/indirect
+leaks. The usual harness residuals remain. These test counts overlap and are not
+distinct-test totals. Correctness does not justify keeping the slower runtime.
+
+Production constant-add dispatch and the canonical-add annotation are withdrawn;
+the independent tests remain. Evidence, including the untimed first profile and
+the all-case timing JSON, is under
+`target/jit-evidence/short-slice-performance/constant-add*`. Do not repeat this
+operand-branching approach on the strength of fewer float instructions. The
+retained rooted-publication runtime and its open acceptance failures are unchanged.
+Withdrawal passes formatting, GNU checking and **152 focused executions / 22
+suites**. Production VM and canonical arithmetic sources match the pre-trial
+`01bc099` version; these checks are not new benchmark measurements.
+
 #### Numeric constant materialization — measured and withdrawn
 
 `b10afc8` adds an independent constant conversion model; `9eb08ef` adds a
