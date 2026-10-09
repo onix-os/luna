@@ -347,6 +347,14 @@ jit-reference:
 jit-accounting: jit-stats
 	@$(CARGO) test --locked -p luna --features jit --test fuel_reference $(TARGET_ARG) $(ARGS)
 
+.PHONY: jit-atomic-stats jit-atomic-stats-miri
+jit-atomic-stats:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::atomic_stats::tests $(ARGS)
+	@$(MAKE) --no-print-directory jit-atomic-call jit-rooted-call jit-accounting
+
+jit-atomic-stats-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::atomic_stats::tests -- --test-threads=1
+
 .PHONY: jit-chain
 jit-chain:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::chains:: $(ARGS)
