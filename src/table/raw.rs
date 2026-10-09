@@ -167,6 +167,7 @@ impl<'gc> RawTable<'gc> {
         index < self.array.len() && (!self.weak_values || !self.array[index].is_nil())
     }
 
+    #[inline]
     pub fn get(&self, mc: &Mutation<'gc>, key: Value<'gc>) -> Value<'gc> {
         if let Some(index) = to_array_index(key) {
             if self.array_answers(index) {
@@ -174,6 +175,11 @@ impl<'gc> RawTable<'gc> {
             }
         }
 
+        self.get_map(mc, key)
+    }
+
+    #[inline(never)]
+    fn get_map(&self, mc: &Mutation<'gc>, key: Value<'gc>) -> Value<'gc> {
         if let Ok(key) = CanonicalKey::new(key) {
             if let Some((_, v)) = self
                 .map
@@ -206,6 +212,7 @@ impl<'gc> RawTable<'gc> {
         }
     }
 
+    #[inline]
     pub fn set(
         &mut self,
         mc: &Mutation<'gc>,
@@ -221,6 +228,16 @@ impl<'gc> RawTable<'gc> {
             }
         }
 
+        self.set_map(mc, key, value, index_key)
+    }
+
+    fn set_map(
+        &mut self,
+        mc: &Mutation<'gc>,
+        key: Value<'gc>,
+        value: Value<'gc>,
+        index_key: Option<usize>,
+    ) -> Result<Value<'gc>, InvalidTableKey> {
         let table_key = CanonicalKey::new(key)?;
         let hash = hasher().hash_one(table_key);
 

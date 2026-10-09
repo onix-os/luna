@@ -11,6 +11,60 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Common array-access fast paths — retained development work
+
+`RawTable::get` and `set` now expose small inlinable array-hit paths and keep
+map lookup/insertion/growth in private fallback methods. `get_map` is explicitly
+non-inlined. The existing key conversion and weak-array-hole guards are unchanged;
+hashing, barriers, weak upgrades, insertion order, errors and previous values
+retain their original implementations. No generated GC layout, new public API,
+JIT-only key specialization or native-coverage reduction is introduced.
+
+Independent array-versus-map, growth/numeric-alias and weak-hole/actual-GC tests
+pass on the original implementation in both feature modes and are committed
+separately in `0b4013c` (`make table-access`). Two initial test-only compiler
+errors are retained with corrected logs. Candidate formatting, baseline/docs,
+all-feature Auto and checks pass **1,800 executions / 173 suites**, eight ignored,
+zero failures. Exact-image native profiles show table instructions falling
+**50,088,509 → 46,556,125 (7.05%)** and allocation/GC
+**33,936,836 → 32,111,497 (5.38%)**.
+
+Two complete native and two speed/shipping comparisons retain all **72 checked
+commands** and nine cases, three alternating windows per CPU and eleven samples.
+Direct control/candidate native-time ratios (higher is better) are:
+
+| Case | CPU0 initial / repeat | CPU16 initial / repeat |
+| --- | --- | --- |
+| Table | **1.173867 / 1.208395** | **1.017265 / 1.055085** |
+| Callbacks | **1.108688 / 1.119716** | **1.030387 / 1.031621** |
+| Allocation/GC | **1.078656 / 1.090512** | **1.004591 / 1.031355** |
+| Upvalue | 0.988537 / 0.988462 | 0.999461 / 1.003310 |
+
+**Regressions remain explicit.** Disabled speed-profile upvalue on CPU16 has
+ratios **0.894951 / 0.893502**, approximately 12% more elapsed time. Disabled
+speed float CPU0 also regresses (**0.957885 / 0.965963**), as do no-feature
+speed table (**0.953520 / 0.945008**) and upvalue (**0.956207 / 0.950067**).
+Shipping CPU0 integer improves in both variants, while other cases remain mixed.
+Feature-cost failures are **43 control / 42 candidate of 216**; that aggregate
+does not cancel individual regressions. All 72 aggregate commands fail.
+Numeric native gates pass all twelve windows; table/upvalue/callback gates
+pass none. Two metamethod passes do not establish acceptance.
+
+All non-timing fields match in **216 native case pairs**, and source/artifact
+manifests verify. Builds/tests/profiles do not overlap timing. Both no-feature
+images are rebuilt because this intentionally changes the common runtime.
+Post-timing exact-image speed-upvalue attribution on CPU16 finds compiled-Off
+work slightly lower (**83,179,641 → 83,079,233 instructions**): Luna's difference
+is 100,000 fewer instructions in `meta_ops::call`, with the remainder in the
+allocator. VM self instruction counts match. Its speed-profile function grows
+714 bytes; shipping VM size is unchanged. These findings do not prove a hardware
+cause or dismiss the measured slowdown.
+
+Retain this measured native improvement as **development WIP**, not performance
+or release acceptance. Resolve the disabled and baseline regressions while
+preserving the gains; do not waive gates or report the full plan complete.
+Evidence and full parsed rows: `target/jit-evidence/short-slice-performance/raw-array-access*`.
+
 #### Fixed aligned VM placement — measured and withdrawn
 
 Fresh disabled-JIT profiles reconstruct all eight control/candidate cost images
