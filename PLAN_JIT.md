@@ -11,6 +11,33 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Call-observer admission trials withdrawn
+
+Exact retained production callback profiling attributes 1,430,000 instructions
+to rejected call-pair observations. Splitting a small admission wrapper from
+leaf analysis reduces whole-workload instructions by **1.49% when inlined** and
+**0.72% when outlined**. Eligible observations and actual native coverage remain
+unchanged. A retained fixture enumerates 65,281 rejected argument/result shapes,
+checking unchanged frame state, PC, statistics and pending entries, then requires
+the eligible Lua-call control to register. GNU and musl call-pair/runtime/heap
+gates each pass 56 executions for both variants.
+
+**104 unchanged timing commands** cover both variants, original controls, both
+core types and both cost profiles. The inline version improves CPU0 callback
+time 1.3–3.3% but regresses CPU16 native float 10.6–12.8% and CPU0 shipping
+compiled-Off float about 8.8%. Its exact shipping float instruction/read/write/
+branch totals equal the control; simulated branch misses do not explain the
+hardware result. The outlined version has no consistent native callback gain
+and regresses CPU16 shipping compiled-Off callbacks **8.0–9.0%**, with stable
+no-feature callback controls. All 108 native case comparisons retain identical
+native/interpreted instruction and compilation-failure counts.
+
+Both production variants are withdrawn, not accepted on instruction counts.
+The callback observer accounts for only about 1% of collected instructions;
+the larger VM dispatch, invocation/marshaling and lookup costs remain the next
+targets. Evidence is retained under `call-observer-*`, including all negative
+samples and contention telemetry. No frozen threshold is relaxed.
+
 #### Budget-bounded array mirror trial withdrawn
 
 The trial bounded each mirror by the keys reachable within a native slice,
