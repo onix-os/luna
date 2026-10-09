@@ -1,6 +1,6 @@
 use std::mem;
 
-use luna::{opcode::OpCode, Callback, Closure, String, Table, Thread, UserData, Value};
+use luna::{opcode::OpCode, Callback, Closure, Constant, String, Table, Thread, UserData, Value};
 
 #[test]
 fn test_sizes() {
@@ -15,4 +15,7 @@ fn test_sizes() {
     assert_eq!(mem::size_of::<UserData>(), ptr_size);
     let tagged_payload = mem::size_of::<(usize, i64)>();
     assert!(mem::size_of::<Value>() <= tagged_payload);
+    assert!(mem::size_of::<Constant<String>>() <= tagged_payload);
+    assert!(mem::size_of::<Option<Value>>() <= tagged_payload);
+    assert!(mem::size_of::<Option<Constant<String>>>() <= tagged_payload);
 }
