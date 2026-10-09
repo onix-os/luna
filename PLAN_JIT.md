@@ -39,8 +39,33 @@ instruction offsets match. This proves extra traversal of the registration map,
 not extra generated instructions; the changed entry position remains unexplained.
 The total profile increase is retained, not subtracted from the measurements.
 Speed and shipping feature-cost builds complete, and both no-feature images are
-byte-identical to the restored controls. Miri validation is still running; no
-hardware timing has started for this trial.
+byte-identical to the restored controls. Miri validation remains incomplete.
+
+The first hardware campaign completes 30 native and 128 cost commands; all 158
+aggregate gates fail. Fresh/candidate individual failures are native 9/9 and
+cost 30/27. All 108 complete native-counter and 144 cost-native comparisons
+match, and all source/artifact manifests verify. To serialize execution without
+discarding the long Miri sweep, its verified child is suspended only during
+timing and automatically resumed afterward. Its identity and CPU ticks remain
+unchanged throughout the campaign; resident test memory remains present. No
+unrelated application is stopped, and no owned validation CPU work overlaps
+the hardware measurements. Miri test elapsed time includes this pause.
+
+Native upvalue fresh/candidate median ratios improve to 1.01824 on CPU0 and
+1.03617 on CPU16, favorable in all three windows each. Callbacks are 0.99063 and
+1.00309, with all six original callback gates still failing. CPU0 metamethod
+is 0.99311 and adverse in all three windows. CPU16 Oslo's 0.87887 second-window
+ratio remains in the evidence rather than being discarded.
+
+Compiled-Off CPU0 speed metamethod is 0.95586 direct and 0.95647 paired-normalized
+with a 1.00017 no-feature control; original failures rise from zero to four.
+CPU0 speed Oslo failures improve four to zero, while CPU16 worsens zero to three.
+Shipping CPU0 integer/float ratios are 0.91460/0.90949; CPU16 integer/float/array
+are 0.88972/0.92196/0.90494 with no-feature controls near parity. These numeric
+cases still pass their original ceiling; relative regressions must not be
+misreported as newly failed gates. CPU16 shipping callbacks improve 1.07832
+direct and 1.05216 normalized, with failures falling three to zero. Repeat the
+unchanged images before deciding whether the frame reduction is worth retaining.
 
 This is a measured stack-frame reduction, **not elapsed-performance acceptance**.
 Hardware native and speed/shipping feature-cost gates remain required. Evidence
