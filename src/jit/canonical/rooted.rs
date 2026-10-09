@@ -23,8 +23,7 @@ pub(super) fn invoke<'gc>(
     {
         return false;
     }
-    #[cfg(test)]
-    let reference_input = host.with_registers(|caller, registers| {
+    let input = host.with_registers(|caller, registers| {
         if caller != binding.0 {
             return None;
         }
@@ -45,14 +44,16 @@ pub(super) fn invoke<'gc>(
             _ => None,
         }
     });
-    let input = callee
-        .upvalues()
-        .get(usize::from(site.pattern.upvalue))
-        .and_then(|value| {
-            host.snapshot_capture(binding.0, value.get(), |index| snapshot.integer(index))
-        });
     #[cfg(test)]
-    assert_eq!(input, reference_input);
+    assert_eq!(
+        input,
+        callee
+            .upvalues()
+            .get(usize::from(site.pattern.upvalue))
+            .and_then(|value| {
+                host.snapshot_capture(binding.0, value.get(), |index| snapshot.integer(index))
+            })
+    );
     let Some((capture, value)) = input else {
         return false;
     };
@@ -61,7 +62,8 @@ pub(super) fn invoke<'gc>(
             if index.0 >= site.arguments {
                 return false;
             }
-            let Some(value) = snapshot.integer(function + 1 + usize::from(index.0)) else {
+            let Some(Value::Integer(value)) = snapshot.get(function + 1 + usize::from(index.0))
+            else {
                 return false;
             };
             Some(value)

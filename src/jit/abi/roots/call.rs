@@ -39,7 +39,7 @@ impl<'a, 'gc> Snapshot<'a, 'gc> {
         })
     }
 
-    #[inline(always)]
+    #[cfg(test)]
     pub(crate) fn integer(&self, index: usize) -> Option<i64> {
         let slot = self.slots.get(index)?;
         (slot.tag == super::super::INTEGER).then_some(slot.bits as i64)

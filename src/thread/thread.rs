@@ -323,17 +323,7 @@ pub struct OpenUpValue<'gc> {
 impl<'gc> OpenUpValue<'gc> {
     const UPGRADE_ERR: &'static str = "thread not finalized: upvalues not closed";
 
-    #[cfg(all(
-        feature = "jit",
-        any(
-            test,
-            all(
-                not(miri),
-                target_os = "linux",
-                any(target_arch = "x86_64", target_arch = "aarch64")
-            )
-        )
-    ))]
+    #[cfg(all(test, feature = "jit"))]
     pub(super) fn index_in(self, stack: Gc<'gc, RefLock<StackVec<'gc>>>) -> Option<usize> {
         (self.stack.as_ptr() == Gc::as_ptr(stack)).then_some(self.stack_index)
     }

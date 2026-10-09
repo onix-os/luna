@@ -133,14 +133,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
         self.with_frame(|mut frame| f(frame.closure(), frame.registers()))
     }
 
-    #[cfg(any(
-        test,
-        all(
-            not(miri),
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )
-    ))]
+    #[cfg(test)]
     pub(crate) fn snapshot_capture(
         &self,
         caller: crate::Closure<'gc>,
