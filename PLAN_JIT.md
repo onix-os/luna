@@ -11,6 +11,273 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Inactive paired-policy query — measured and withdrawn
+
+A VM trial reuses the fresh native-active flag to skip `call_pairs_enabled`
+when JIT is inactive. It preserves Auto checks, hooks, counters and per-invocation
+mode freshness. No native work or table optimization is removed. The preceding
+exact-image VM disassembly retains the original table-call boundaries, so the
+larger VM alone does not establish inappropriate table inlining or a hardware cause.
+
+Formatting/checks and all-feature Auto pass **1,381 executions / 86 suites**,
+six ignored. Exact-image profiles contradict the apparent source simplification:
+compiled-Off speed instructions increase for integer **18,803,010 → 19,381,235**,
+float **20,204,980 → 20,783,310**, and upvalue **83,079,233 → 83,479,363**;
+reads/writes also increase. Removing one source-level query is not proof of less
+generated work or better performance.
+
+Two native comparisons and two three-way speed/shipping comparisons complete
+**96 checked commands**: 94 fail and two CPU0 shipping candidate windows pass.
+Cost comparisons retain both the latest `3bfe904` WIP and the earlier numeric-tier
+images, rotating all three variants across common paths on CPU0/16. No owned
+build/test/profile overlaps timing. All **216 native non-timing pairs** match;
+four source/artifact manifests verify. The no-feature `.text` and every other
+file-backed allocated section match WIP controls except `.data.rel.ro`.
+
+Disabled speed upvalues on CPU16 improve over WIP (**1.100449 / 1.097447** direct
+control/candidate ratios), but remain slower than historical controls
+(**0.978218 / 0.972392**). Disabled speed float improves about 4–5% on both CPUs.
+These gains come with a new disabled-table regression on CPU16:
+**0.846309 / 0.921557** versus WIP, **0.865678 / 0.921932** versus historical.
+Five of six candidate table-cost gates fail; neither control fails any.
+Shipping CPU16 integer also regresses (**0.965465 / 0.963912** versus WIP).
+Equal WIP/candidate cost failure totals (**38/216**) conceal that exchange of
+failed cases; historical failures total 47/216. The two isolated aggregate
+passes and four native metamethod passes do not establish acceptance.
+
+The extra flag is removed and VM source again matches `3bfe904`; its substantive
+common-table improvement remains. Candidate native table throughput rose another
+3–6%, but all twelve table/upvalue/callback native gates still failed, while
+native-harness CPU16 Off integer regressed (**0.930630 / 0.924437**).
+Do not retain this flag merely because one regression improved. Shorter-lived
+policy selection would require a separate ordering/lifecycle review and fresh
+code-generation evidence, not another unmeasured wrapper rewrite.
+Evidence and complete rows: `target/jit-evidence/short-slice-performance/inactive-pair-query*`.
+
+#### Common array-access fast paths — retained development work
+
+`RawTable::get` and `set` now expose small inlinable array-hit paths and keep
+map lookup/insertion/growth in private fallback methods. `get_map` is explicitly
+non-inlined. The existing key conversion and weak-array-hole guards are unchanged;
+hashing, barriers, weak upgrades, insertion order, errors and previous values
+retain their original implementations. No generated GC layout, new public API,
+JIT-only key specialization or native-coverage reduction is introduced.
+
+Independent array-versus-map, growth/numeric-alias and weak-hole/actual-GC tests
+pass on the original implementation in both feature modes and are committed
+separately in `0b4013c` (`make table-access`). Two initial test-only compiler
+errors are retained with corrected logs. Candidate formatting, baseline/docs,
+all-feature Auto and checks pass **1,800 executions / 173 suites**, eight ignored,
+zero failures. Exact-image native profiles show table instructions falling
+**50,088,509 → 46,556,125 (7.05%)** and allocation/GC
+**33,936,836 → 32,111,497 (5.38%)**.
+
+Two complete native and two speed/shipping comparisons retain all **72 checked
+commands** and nine cases, three alternating windows per CPU and eleven samples.
+Direct control/candidate native-time ratios (higher is better) are:
+
+| Case | CPU0 initial / repeat | CPU16 initial / repeat |
+| --- | --- | --- |
+| Table | **1.173867 / 1.208395** | **1.017265 / 1.055085** |
+| Callbacks | **1.108688 / 1.119716** | **1.030387 / 1.031621** |
+| Allocation/GC | **1.078656 / 1.090512** | **1.004591 / 1.031355** |
+| Upvalue | 0.988537 / 0.988462 | 0.999461 / 1.003310 |
+
+**Regressions remain explicit.** Disabled speed-profile upvalue on CPU16 has
+ratios **0.894951 / 0.893502**, approximately 12% more elapsed time. Disabled
+speed float CPU0 also regresses (**0.957885 / 0.965963**), as do no-feature
+speed table (**0.953520 / 0.945008**) and upvalue (**0.956207 / 0.950067**).
+Shipping CPU0 integer improves in both variants, while other cases remain mixed.
+Feature-cost failures are **43 control / 42 candidate of 216**; that aggregate
+does not cancel individual regressions. All 72 aggregate commands fail.
+Numeric native gates pass all twelve windows; table/upvalue/callback gates
+pass none. Two metamethod passes do not establish acceptance.
+
+All non-timing fields match in **216 native case pairs**, and source/artifact
+manifests verify. Builds/tests/profiles do not overlap timing. Both no-feature
+images are rebuilt because this intentionally changes the common runtime.
+Post-timing exact-image speed-upvalue attribution on CPU16 finds compiled-Off
+work slightly lower (**83,179,641 → 83,079,233 instructions**): Luna's difference
+is 100,000 fewer instructions in `meta_ops::call`, with the remainder in the
+allocator. VM self instruction counts match. Its speed-profile function grows
+714 bytes; shipping VM size is unchanged. These findings do not prove a hardware
+cause or dismiss the measured slowdown.
+
+Retain this measured native improvement as **development WIP**, not performance
+or release acceptance. Resolve the disabled and baseline regressions while
+preserving the gains; do not waive gates or report the full plan complete.
+Evidence and full parsed rows: `target/jit-evidence/short-slice-performance/raw-array-access*`.
+
+#### Fixed aligned VM placement — measured and withdrawn
+
+Fresh disabled-JIT profiles reconstruct all eight control/candidate cost images
+from the rejected typed table-loop trial byte-for-byte. Integer and float
+instruction/read/write/branch counts match in both profiles, as do individual
+function instruction counts. Shipping table also matches; the small speed-table
+and shipping-upvalue differences are outside Luna's interpreter work. These
+results do not dismiss the timing regressions or prove a hardware cause.
+
+A subsequent Linux x86_64 trial places `run_vm_slice` in a separate `.luna.vm`
+executable section with one fixed 4096-byte alignment. Unlike the earlier
+ineffective `.text.hot` trial, ELF/symbol checks confirm actual aligned VM starts
+at `0x68f000` (native), `0x699000` (speed cost) and `0x445000` (shipping cost).
+Each section is wholly in one readable/executable, non-writable load segment;
+no load segment is writable/executable. Both no-feature images omit it.
+
+Formatting/all-feature checks and Auto tests pass **1,378 executions / 86 suites**,
+six ignored, zero failures. Exact allocated-image symbol checks and five native
+profiles precede all timing. Two native and two speed/shipping comparisons use
+three alternating windows on CPU0/16, eleven samples and matched hardlink paths.
+All **72 aggregate commands fail** the unchanged gates. Every non-timing field
+matches in **216 native case pairs**, and artifact/source hashes verify.
+
+Native integer/float gates still pass all twelve windows (2.70–3.52x and
+3.07–3.63x), but table/upvalue/metamethod/callback gates pass none. Direct
+control/candidate disabled-speed float ratios on CPU0 are **0.929301 / 0.957355**;
+shipping upvalue ratios are **0.963405 / 0.978420**. Speed integer improves
+there (**1.022052 / 1.036119**), but feature-cost failures increase from
+**45 to 56 of 216 cases**. This is not an acceptable performance fix.
+
+The candidate's no-feature executables are not byte-identical to controls:
+`.text` and every other file-backed allocated section match except `.data.rel.ro`.
+Matched rebuilt no-feature controls are retained rather than claiming full-ELF
+identity. The first timing launcher fails before any measurement because the
+cost build cleaned the shared release directory; its log is retained. The
+corrected launcher consumes the already frozen native image directly.
+
+The section directives are removed; production source again matches `8fc4886`.
+No offset search, relaxed threshold, reduced native work or unrelated workload
+interruption was used. Evidence, patches, profiles, all windows and the complete
+summary are under `target/jit-evidence/short-slice-performance/aligned-vm-section*`;
+fresh attribution is under `off-isolation-current/`. This placement mechanism
+does not fix the remaining helper/call-boundary costs; acceptance remains open.
+
+#### Typed table-store loops — implemented, measured, withdrawn
+
+`f820b63` checkpoints a test-selected compiler prototype that carries numeric
+SSA state across ordinary `SetTable`. The enabled trial reuses the existing
+ordinary/scoped helper import, publishes every potentially written scalar slot
+before each call, and preserves helper operands, PC, completion/decline/panic
+routing and instruction counts. Receivers cannot alias typed numeric state.
+The generic graph is preserved transactionally; no GC object layout, new helper
+ABI, source-specific import, runtime cache or reduced native coverage is added.
+
+The independent checker verifies helper calls and exits in addition to typed
+numeric data flow. Three table sources reject 492/612/552 mutated translations,
+including 452/557/508 structurally valid variants. Four actual-helper source
+families compare generic, typed and probed native execution at every PC, seven
+budgets, nine scenarios and three integer-edge seeds. They verify fresh entry,
+stale canonical scalars, readonly/metamethod/non-table declines, NaN keys,
+receiver scalar tags, type fallback and caught borrow panics. Simultaneous IR
+expansion bounds and transactional refusal are checked. Initial test compile
+errors and an arithmetic-only audit assumption are retained with corrected logs.
+
+Enabled format/check/focused/all-feature Auto validation passes **1,390
+executions / 90 suites**, six ignored. Memcheck passes the actual-helper matrix
+with zero errors and zero definite/indirect leaks; 48 possibly-lost and 632
+reachable harness bytes remain. Six integrated fuel/GC/metamethod script
+families remain in `tests/jit_table_loop.rs`, run by `make jit-table-loop`.
+
+Two complete native and two speed/shipping cost comparisons finish **72
+aggregate commands**: 71 exit 2 and one shipping CPU0 control exits 0. All
+candidate aggregate checks fail. All 216 matched native case pairs preserve
+every non-timing field, including resource counts; both no-feature images
+match their controls byte-for-byte. Source/artifact checks pass. Builds, tests
+and exact-image profiles finish before timing; unrelated workloads stay running.
+
+Table generated self instructions decrease **11,125,551 → 9,731,887 (12.5%)**,
+but whole-executor work decreases only **50,088,509 → 48,684,642 (2.8%)**.
+The unchanged helpers still dominate. Native table control/candidate ratios
+are CPU0 **1.089324 / 1.023116**, CPU16 **0.954447 / 1.027010**. All twelve
+table gates fail, with Off/Auto ratios 0.8641–0.9858. Both numeric gates pass
+all twelve windows, but upvalue, metamethod and callback gates pass none.
+
+Repeated disabled regressions outweigh the small native improvement:
+
+| Disabled measurement | CPU | Initial ratio | Repeat ratio |
+| --- | --- | --- | --- |
+| Speed integer | 0 | **0.920854** | **0.909408** |
+| Speed float | 0 | **0.948890** | **0.955174** |
+| Speed table | 16 | **0.860081** | **0.872339** |
+| Shipping integer | 16 | **0.863260** | **0.889492** |
+| Shipping float | 16 | **0.912827** | **0.933571** |
+| Shipping upvalue | 16 | **0.951577** | **0.956183** |
+
+Ratios are control time / candidate time, from three alternating windows per
+core with eleven samples (twenty iterations per cost sample). Cost failures
+rise **46 → 71 of 216**. CPU0 shipping integer improves 1.097550 / 1.088861,
+but does not excuse the other losses. Native CPU0 cold also worsens
+0.980148 / 0.961789. Every result remains in the JSON and raw evidence.
+
+The compiler/runtime trial is withdrawn, including candidate-only model hooks;
+its staged prototype stays inspectable in Git history and its enabled patch
+under `target/jit-evidence/short-slice-performance/typed-table-loop*`.
+Production source is restored to `23e1d44`; integrated regression coverage
+remains. Restored format/check and eight focused executions pass. All five
+rebuilt executables are **full-ELF byte-identical** to the frozen numeric-loop
+baseline: native benchmark and both speed/shipping no-feature/compiled-Off
+images. No candidate regression is left in those executables.
+Next work must address compiled-Off isolation/dispatch/frame costs
+against the prior excluded experiments, rather than another small helper
+rewrite. No performance or full-plan acceptance is claimed.
+
+#### Table receiver specialization — measured twice, rejected
+
+`c4392c7` adds live-tag/canonical-identity and operand-order regression tests.
+They cover 180 receiver combinations and six malformed-operand cases, including
+current-frame upvalue aliases and stale canonical tables hidden by scalar tags.
+These tests remain; neither runtime experiment below is retained.
+
+Both trials resolve table receivers without reconstructing a full `Value`.
+The first passes an optional table to the inner operation; the refinement
+passes a guaranteed table after evaluating all operands. Both preserve the
+helper ABI, GC/reference ownership, metatable/readonly guards, canonical state,
+fuel, PC and native coverage. Each passes 1,397 executions across 90 suites
+(six ignored), plus five operand-source Miri tests. Warnings remain visible.
+
+Each trial has two complete native comparisons and two speed/shipping cost
+comparisons against frozen `typed-number-loop` executables: CPU0/16, three
+alternating windows, eleven samples, and twenty iterations per cost sample.
+All 216 matched native case pairs per trial have identical non-timing fields.
+Both no-feature images are byte-identical to their controls. Exact-image
+profiles verify symbol/stripped program headers and allocated sections.
+
+Whole-executor table instructions fall from 50,088,509 to 49,392,647 in the
+first trial and 49,381,179 in the refinement. That small reduction does not
+establish performance acceptance. Control-time/candidate-time ratios below
+are medians of three window medians; above one is faster:
+
+| Measurement | First initial / repeat | Refined initial / repeat |
+| --- | --- | --- |
+| Native Auto table, CPU0 | 1.155666 / 1.172257 | 1.177288 / 1.336669 |
+| Native Auto table, CPU16 | 1.044014 / 1.037565 | 1.035825 / 1.019354 |
+| Shipping Off integer, CPU16 | **0.893383 / 0.896715** | **0.889792 / 0.893517** |
+| Shipping Off float, CPU16 | **0.920900 / 0.920774** | **0.920938 / 0.920767** |
+| Shipping Off table, CPU16 | **0.946713 / 0.944732** | **0.936355 / 0.947528** |
+| Shipping Off upvalue, CPU16 | **0.963981 / 0.959922** | **0.957479 / 0.965268** |
+
+The first CPU16 table gain is mirrored by its Off control. The refined repeat
+CPU0 native run and initial CPU0 cost run have broad unrelated timing swings;
+their favorable ratios are not isolated evidence for this optimization. All
+windows and contention telemetry are retained. Repeated shipping regressions
+remain in both variants. Refined shipping CPU16 upvalue overhead is
+1.2409 / 1.2459 versus control 1.1985 / 1.2031; the 1.05 gate still fails.
+
+Refined numeric native gates pass all twelve windows each, but table, upvalue
+and callback gates pass none. Allocation passes eleven windows; metamethod
+passes four; cold passes twelve. All 72 refined aggregate commands exit 2.
+Cost-case failures are 62 control versus 56 candidate out of 216 each; fewer
+aggregate case failures do not excuse the repeated per-workload losses.
+The first trial has 45 control versus 53 candidate cost failures; one control
+cost command passes, but no candidate aggregate command passes.
+
+Runtime source is restored to `c4392c7`; the shipped numeric improvements are
+unchanged. Candidate patches, images, raw results, checks and JSON summaries
+remain under `target/jit-evidence/short-slice-performance/typed-table-receiver*`
+and `nonnullable-table-receiver*`. No owned build/test/profile overlapped timing;
+unrelated applications were left running. Table/upvalue/callback performance,
+compiled-Off costs and full resource/platform/release acceptance remain open.
+
 #### Typed Number bodies — both numeric gates now pass
 
 `061c9cc` extends the verified integer-controlled loop region with stable

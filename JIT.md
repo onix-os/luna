@@ -21,6 +21,32 @@ float 3.09–3.85x. Helper-heavy workloads and compiled-Off overhead still fail
 gates; some compiled-Off cases regress. `PLAN_JIT.md` records the complete
 correctness, mutation, resource-bound and favorable/adverse timing evidence.
 
+Common table access now separates the array-hit path from hash/growth fallbacks.
+Repeated native throughput improves for tables (17–21% on CPU0, 2–6% on CPU16)
+and callbacks (11–12% / about 3%). This is retained development work, not an
+accepted release optimization: disabled speed-profile upvalues regress about
+12% on CPU16, other baseline regressions remain, and the full gates still fail.
+`make table-access` checks representation parity, numeric aliases and weak-array
+holes; `PLAN_JIT.md` records both gains and regressions.
+
+Two later table-receiver specializations were measured and rejected: modest
+instruction-count reductions and some native gains came with repeated shipping
+compiled-Off regressions. Production retains the numeric-loop runtime above;
+live receiver-tag and operand-order tests remain in `c4392c7`. See `PLAN_JIT.md`
+for both complete comparisons, including failed gates and noisy windows.
+
+A typed table-store loop prototype (`f820b63`) was also tested, enabled for
+measurement, then withdrawn. It reduced total table instruction work by 2.8%
+but failed the table target and regressed compiled-Off execution. Production
+keeps the earlier numeric tier; `make jit-table-loop` retains integrated
+fuel/GC/metamethod regression coverage. Full results are in `PLAN_JIT.md`.
+
+A fixed page-aligned interpreter-section trial was also measured and withdrawn.
+Actual ELF placement changed, but repeated disabled-float/upvalue regressions
+outweighed isolated gains; helper-heavy native targets still failed. Production
+has no custom VM section. The unchanged gates and complete results remain in
+`PLAN_JIT.md`; passing correctness tests does not establish performance acceptance.
+
 Two subsequent exact-ordering optimizations were tested and rejected for
 performance regressions before these typed-loop changes. At that checkpoint
 the runtime remained the lazy-limit version below, and all five rebuilt

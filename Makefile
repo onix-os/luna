@@ -97,7 +97,11 @@ $(info ------------------------------------------)
 .PHONY: jit-coverage-environment jit-coverage-lock jit-coverage-check jit-coverage-test
 .PHONY: jit-coverage-help jit-coverage-fmt jit-coverage-fmt-check jit-coverage-build jit-coverage-run
 .PHONY: jit-coverage-replay jit-coverage-wrapper-tests
-.PHONY: jit-clippy
+.PHONY: jit-clippy table-access
+
+table-access:
+	@$(CARGO) test --locked -p luna --lib $(TARGET_ARG) table::raw::access_tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) table::raw::access_tests
 
 ci-check:
 	@$(ACTIONLINT) .github/workflows/tests.yml
@@ -542,6 +546,10 @@ jit-tags:
 
 .PHONY: jit-read-cache
 .PHONY: jit-integer-loop
+.PHONY: jit-table-loop
+jit-table-loop:
+	@$(CARGO) test --locked -p luna --features jit --test jit_table_loop $(TARGET_ARG)
+
 jit-integer-loop:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::integer_loop::tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::model::tests::integer_loop_
