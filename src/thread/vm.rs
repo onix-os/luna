@@ -13,6 +13,8 @@ use crate::{
 
 use super::{thread::LuaFrame, VMError};
 
+#[cfg(test)]
+mod constants;
 mod dispatch;
 
 // Runs the VM for the given number of instructions or until the current LuaFrame may have been
