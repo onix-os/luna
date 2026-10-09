@@ -11,6 +11,30 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Projection bridge outlining — performance trial
+
+A one-attribute trial keeps `projection::with_frame` out of ordinary invocation
+bodies without deleting projection support or changing any scratch, helper,
+fallback, lifetime or generated-ABI contract. Exact optimized assembly shows
+`Runtime::invoke<7, true>` reserving 344 rather than 2,088 stack bytes. All eight
+exact-capacity tiers shrink by 1,744 bytes; all six dynamic tiers shrink by
+1,728 bytes. The maximum tier still probes a stack page. These figures exclude
+register pushes and do not claim reduced total stack use on projected calls.
+
+Formatting, all-target/all-feature checking, 74 focused checks and the full GNU
+Force suite pass. Fourteen exact-image profiles retain identical full non-timing
+records across all seven workloads. Four instruction totals are unchanged;
+callback differs by 81 allocator instructions. Upvalue rises 0.03057%, including
+52,284 admission instructions, and array rises 0.16469%, including 58,237 memcpy
+instructions. Their causes are not established by the attribute change.
+Both control and candidate symbol images have matching allocated bytes,
+allocated-section metadata and program headers against their shipping images.
+
+This is a measured stack-frame reduction, **not elapsed-performance acceptance**.
+Hardware native and speed/shipping feature-cost gates remain required. Evidence
+is under `target/jit-evidence/short-slice-performance/projection-outline-*`;
+ordinary production compilation continues to reject projected admission.
+
 #### Recovered borrowed-import trial — do not repeat
 
 Historical evidence at `96b1a7b`, under

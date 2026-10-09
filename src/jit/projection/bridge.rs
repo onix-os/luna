@@ -56,6 +56,7 @@ fn invoke<'gc, R, const CAPACITY: usize>(
     }
 }
 
+#[inline(never)]
 pub(crate) fn with_frame<'gc, R>(
     registers: &mut LuaRegisters<'gc, '_>,
     upvalues: &[Lock<UpValue<'gc>>],
