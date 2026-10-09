@@ -11,6 +11,36 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Per-entry writeback masks profiled and withdrawn
+
+`9b07543` retains a test-only, bounded source model: union native register writes
+for at most 64 instructions, stop at interpreted transitions and conservatively
+include all registers for upvalue writes. Unlike the earlier global set, this
+finds only two/seven or five/seven writes at hot callback entries. Five model
+tests pass GNU, musl, i686 and both Miri modes; an independent opcode walker
+checks 32 branching/looping programs at every entry.
+
+Two runtime forms preserve full imports and projected/deferred/panic writeback,
+using optional quota-backed masks. They pass 7,488 native slice comparisons,
+including every PC, nine budgets, scalar/reference identities, open captures,
+full counters and helper panic handling. The initial full run catches three
+resource regressions from allocating optional storage before mandatory owners.
+Moving that allocation after image finalization restores the unchanged refusal
+checks; retained-byte accounting explicitly includes mask storage. The corrected
+candidate passes GNU 1,897 executions /175 suites (eight ignored), targeted
+musl 48 /3, i686 six, quota tests in both Miri modes and native Memcheck with
+zero errors/definite/indirect leaks. Harness residual allocations remain.
+
+Exact-image profiling rejects both forms before hardware timing. Per-register
+conditions increase callback instructions 133,593,180 to 133,927,601 and native
+invocation self work 20,233,235 to 20,557,768. Sparse set iteration is worse:
+141,775,173 total and 23,930,228 invocation self instructions. Proven unnecessary
+stores do not make conditional writeback cheaper. These are instruction-work
+findings, not elapsed-time regression measurements; no hardware or feature-cost
+campaign is claimed. Runtime/storage/fixture changes are withdrawn, retaining
+only the independent model. All failed logs, patches and exact-symbol images
+remain under `entry-writeback-*` and `entry-writeback-sparse-*`.
+
 #### Lua-frame peek selection measured and withdrawn
 
 The replacement keeps `Option<Frame>` and the original short borrow scopes,
