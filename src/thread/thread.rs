@@ -1623,16 +1623,3 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
         )
     }
 }
-
-#[cfg(all(
-    feature = "jit",
-    not(miri),
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
-impl<'gc, 'a> LuaFrame<'gc, 'a> {
-    #[inline(never)]
-    pub(super) fn take_pair_handoff(&mut self) -> Option<&'a mut crate::jit::PairScope<'gc>> {
-        self.pair_handoff.take()
-    }
-}

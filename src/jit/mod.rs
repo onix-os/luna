@@ -1833,7 +1833,7 @@ impl Runtime {
                 return self.invoke_scalar_kernel(kernel, registers, slots, binding, budget);
             }
         }
-        if code.projected_upvalues.enabled() {
+        if code.projected_upvalues {
             projection::with_frame(
                 registers,
                 closure.upvalues(),
@@ -3183,7 +3183,7 @@ mod runtime_projection_tests {
             let snapshot = ir::Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
             let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
             let code = backend::compile(&snapshot, total.clone(), 128 * 1024).unwrap();
-            assert!(!code.projected_upvalues.enabled());
+            assert!(!code.projected_upvalues);
             drop(code);
             assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 0);
         });
@@ -3264,7 +3264,7 @@ mod runtime_projection_tests {
             let snapshot = ir::Snapshot::new(&closure.prototype(), 64, 1024 * 1024).unwrap();
             let total = resources::MappingCounter::new(resources::Ledger::new(2 * 1024 * 1024));
             let code = projected_code(&snapshot, total.clone());
-            assert!(code.projected_upvalues.enabled());
+            assert!(code.projected_upvalues);
             let cell = UpValue::new(&ctx, UpValueState::Closed(Value::Integer(7)));
             closure.set_upvalue(&ctx, 0, cell);
             let runtime = Runtime::new();
@@ -3314,7 +3314,7 @@ mod runtime_projection_tests {
                 } else {
                     backend::compile(&snapshot, total.clone(), 128 * 1024).unwrap()
                 };
-                assert_eq!(code.projected_upvalues.enabled(), projected);
+                assert_eq!(code.projected_upvalues, projected);
                 for value in [
                     Value::Integer(41),
                     Value::Number(-0.0),

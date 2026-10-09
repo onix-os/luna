@@ -11,7 +11,12 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Typed projection capability — trial started 2026-10-10
+#### Typed projection capability — measured and withdrawn
+
+**Withdrawal, 2026-10-10:** production integration and the subsequent handoff
+extraction are removed. Independent projection-mode models remain test-only.
+The original boolean selection and direct handoff take are restored; source,
+tests and Makefile match `0ca2e3d`. Rebuilt-image restoration checks are pending.
 
 Production compilation has no projected-mode constructor: the only true
 selection is the existing `cfg(test)` projected compiler. The preceding
@@ -69,11 +74,11 @@ This is a **provisional representation/footprint improvement, not elapsed-speed
 acceptance**. Unchanged native and speed/shipping cost gates still govern
 retention. Evidence: `target/jit-evidence/short-slice-performance/projection-mode-*`.
 
-#### Pair-handoff extraction — partial recovery candidate
+#### Pair-handoff extraction — measured and withdrawn
 
 Exact instruction accounting decomposes the speed integer increase into 400,075
 additional `mov` instructions and 200,005 unconditional jumps. A safe outlined
-`LuaFrame::take_pair_handoff` now performs the existing once-per-slice Option
+`LuaFrame::take_pair_handoff` performed the existing once-per-slice Option
 move. It does not change selection, execution order, frame/scope ownership,
 counters, fuel or native coverage. The method sits after existing definitions
 to preserve no-feature panic-location metadata; inserting it before those
@@ -96,6 +101,25 @@ The upvalue increase includes 209,136 admission instructions, and metamethod
 includes allocator variation; these are retained rather than attributed to the
 new helper without evidence. This candidate is not elapsed-performance acceptance.
 Evidence: `projection-mode-scope-*` under the same ignored evidence directory.
+
+The complete second screen finishes 36 native and 144 cost commands, with all
+180 aggregate gates failing. All 216 native and 288 cost-native full-record
+comparisons match against both pre-typed and typed-only controls. The helper
+recovers CPU16 speed integer gates (typed four failures to zero), but CPU0 speed
+integer and float each acquire four failures where both controls have none.
+Typed/candidate direct medians are 0.94516 integer and 0.88579 float, adverse in
+all four windows with no-feature controls near parity. CPU16 native metamethod
+is adverse in all three windows (typed/candidate median 0.92739), as are native
+callbacks (0.97611). The favorable CPU16 shipping callback result remains in
+the evidence: typed four failures to zero, direct median 1.08834.
+
+Typed-only CPU16 speed integer also repeats its own regression against the
+pre-typed control: fresh/typed 0.90859 and four new failures, following 0.90495
+and four new failures in its first screen. CPU0 shipping float fresh/typed is
+0.91907 after the preceding 0.91470. The two production changes therefore fail
+retention despite their smaller stack reservation and instruction reductions.
+All samples, outliers, contention snapshots and successful cases are retained;
+no benchmark limit, workload, native coverage or resource exemption is changed.
 
 #### Projection bridge outlining — measured and withdrawn
 
