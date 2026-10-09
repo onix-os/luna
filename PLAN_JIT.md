@@ -11,6 +11,43 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Validated table-bucket hints measured and withdrawn
+
+Three prototypes cache only numeric bucket positions in charged Code owners.
+Every read validates current bounds, occupancy and key equality, then upgrades
+the current slot; no GC address, key or value is cached. Array, weak-table,
+metamethod, callback, fuel and native-coverage contracts remain unchanged.
+Five model tests pass both Miri aliasing models; ten hinted helper tests also
+pass both models. The first prototype passes all-features 1,466 executions /88
+suites, six ignored, focused musl 113 /8 and i686 5 /1. These checks establish
+correctness evidence, not a reason to retain a slower implementation.
+
+The original hint prototype lowers callback instruction count from 133,593,180
+to 131,907,523. Its 48-command native campaign improves callback Auto medians
+0.46–4.80% against compact lookup in all twelve comparisons, but no original
+callback gate passes. Metamethod gains are mixed. Its 112-command cost campaign
+has 23/144 failed gates versus compact 30, yet shipping compiled-Off float is
+**10.06–13.84% slower** than compact in all eight comparisons. Passing that
+case's no-feature ceiling does not justify this new regression.
+
+Constant hint selection permits LLVM to inline the read into helpers, reducing
+callback instructions to 130,286,542 but nearly doubling the up-table helper's
+code size. The 30-command screen instead shows callback times 3.79–8.63% slower
+than compact in all six comparisons. Explicitly outlining constant selection
+removes that large loss, but its 36-command screen has no consistent CPU0
+callback benefit and worsens metamethod time in five of six comparisons.
+Neither refinement warrants another full cost campaign. Simulator counts are
+not hardware-causality proof; no address padding or thresholds were adjusted.
+
+All three runtime prototypes are withdrawn. Their source patches, immutable
+binaries, exact-symbol profiles, controls, telemetry and negative samples remain
+under `table-read-hint-*`, `table-read-const-hint-*` and
+`table-read-outline-hint-*` in the short-slice evidence directory. All printed
+non-timing counters match the controls, apart from expected charged metadata.
+`b5d0dac` retains the independent warmed-read regression covering callback
+growth, clear, replacement, readonly transitions, metatables and collection.
+The production optimization remains compact lookup; full acceptance is open.
+
 #### Compact lookup offsets retained as development work
 
 Two bucket offsets replace cached entry pointers and duplicated keys, occupying
