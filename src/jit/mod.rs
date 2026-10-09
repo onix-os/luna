@@ -1530,6 +1530,15 @@ impl Runtime {
                         failure,
                     );
                 }
+                #[cfg(not(any(test, miri)))]
+                return backend::array::compile_pair(
+                    &snapshot,
+                    memory.clone(),
+                    limit,
+                    metadata.clone(),
+                    work,
+                );
+                #[cfg(any(test, miri))]
                 backend::compile_in(
                     &snapshot,
                     memory.clone(),
@@ -1572,7 +1581,7 @@ impl Runtime {
                             manager.metadata.0.set_limit(manager.metadata.0.current());
                         }
                         let reserved = manager.code.try_reserve(1);
-                        #[cfg(all(test, not(miri)))]
+                        #[cfg(not(miri))]
                         let (code, reserved) = if reserved.is_err() {
                             let mut code = code;
                             if code.discard_optional_entries() {
@@ -1598,9 +1607,9 @@ impl Runtime {
                             }
                             _ => {}
                         }
-                        #[cfg(all(test, not(miri)))]
+                        #[cfg(not(miri))]
                         let owner = code.into_shared(manager.metadata.clone());
-                        #[cfg(not(all(test, not(miri))))]
+                        #[cfg(miri)]
                         let owner = owner::Shared::try_new(code, manager.metadata.clone());
                         let code = match owner {
                             Ok(code) => code,
@@ -1923,7 +1932,7 @@ impl Runtime {
             panic: None,
             projection,
         };
-        #[cfg(all(test, not(miri)))]
+        #[cfg(not(miri))]
         let array_prefix = if !PROJECTED && !DEFER {
             code.array_kernels.as_ref().and_then(|kernels| {
                 let scratch = unsafe { std::slice::from_raw_parts_mut(slots, register_count) };
@@ -1938,7 +1947,7 @@ impl Runtime {
         } else {
             None
         };
-        #[cfg(all(test, not(miri)))]
+        #[cfg(not(miri))]
         let budget = if let Some(prefix) = &array_prefix {
             *frame.registers.pc = prefix.exit.pc as usize;
             frame.count.table_reads = u64::from(prefix.counts.reads);
@@ -1988,7 +1997,7 @@ impl Runtime {
         };
         #[cfg(not(test))]
         let exit = unsafe { code.invoke_raw(slots, pc, budget, &mut host) };
-        #[cfg(all(test, not(miri)))]
+        #[cfg(not(miri))]
         let exit = if let Some(prefix) = &array_prefix {
             abi::Exit {
                 instructions: exit
@@ -3070,7 +3079,14 @@ mod eviction_tests {
 
 pub(crate) mod projection;
 
-#[cfg(test)]
+#[cfg(any(
+    test,
+    all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )
+))]
 mod array_window;
 
 #[cfg(all(

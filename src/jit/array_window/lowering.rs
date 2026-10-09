@@ -13,6 +13,7 @@ pub(super) fn guard(b: &mut FunctionBuilder<'_>, condition: IrValue, decline: Bl
     b.switch_to_block(next);
 }
 
+#[cfg(test)]
 pub(super) fn emit_access(
     b: &mut FunctionBuilder<'_>,
     access: Access,
@@ -36,6 +37,7 @@ pub(super) fn emit_access(
 
 pub(super) enum Input {
     ReadTo(IrValue),
+    #[cfg(test)]
     WriteFrom(IrValue),
     WriteValue(IrValue, IrValue),
 }
@@ -55,7 +57,13 @@ pub(super) fn emit(
     let flags = MemFlagsData::new();
     let valid = b.ins().icmp_imm_u(IntCC::NotEqual, view, 0);
     guard(b, valid, decline);
-    if let Input::ReadTo(pointer) | Input::WriteFrom(pointer) = input {
+    let pointer = match input {
+        Input::ReadTo(pointer) => Some(pointer),
+        #[cfg(test)]
+        Input::WriteFrom(pointer) => Some(pointer),
+        Input::WriteValue(..) => None,
+    };
+    if let Some(pointer) = pointer {
         let valid = b.ins().icmp_imm_u(IntCC::NotEqual, pointer, 0);
         guard(b, valid, decline);
     }
@@ -115,11 +123,12 @@ pub(super) fn emit(
     let cell = b.ins().iadd(cells, offset);
     let (tag, bits, destination) = match input {
         Input::WriteValue(tag, bits) => (tag, bits, cell),
-        Input::ReadTo(slot) | Input::WriteFrom(slot) => {
-            let (source, destination) = if access == Access::Write {
-                (slot, cell)
-            } else {
-                (cell, slot)
+        other => {
+            let (source, destination) = match other {
+                Input::ReadTo(slot) => (cell, slot),
+                #[cfg(test)]
+                Input::WriteFrom(slot) => (slot, cell),
+                Input::WriteValue(..) => unreachable!(),
             };
             let tag = b
                 .ins()

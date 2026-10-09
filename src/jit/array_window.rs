@@ -74,11 +74,13 @@ impl<'a, 'gc, const CAPACITY: usize> Window<'a, 'gc, CAPACITY> {
         }
     }
 
+    #[cfg(test)]
     fn index(&self, key: i64) -> Option<usize> {
         let index = usize::try_from(key.checked_sub(self.first)?).ok()?;
         (index < self.length).then_some(index)
     }
 
+    #[cfg(test)]
     pub fn read(&mut self, key: i64) -> Option<Slot> {
         let slot = self.slots[self.index(key)?];
         if !scalar(slot) {
@@ -88,6 +90,7 @@ impl<'a, 'gc, const CAPACITY: usize> Window<'a, 'gc, CAPACITY> {
         Some(slot)
     }
 
+    #[cfg(test)]
     pub fn write(&mut self, key: i64, slot: Slot) -> bool {
         if !matches!(self.backing, Backing::Write(_)) || !scalar(slot) {
             return false;

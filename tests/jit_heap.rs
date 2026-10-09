@@ -32,6 +32,71 @@ fn source(lua: &mut Lua, source: &[u8]) -> Result<StashedExecutor, ExternError> 
 }
 
 #[test]
+fn default_array_kernels_preserve_slices_gc_and_quota_retirement() -> Result<(), ExternError> {
+    let script = b"local t={} for i=1,5000 do t[i]=i end local sum=0 for i=1,5000 do sum=sum+t[i] end return sum";
+    for budget in [0, 1, 17, 65536] {
+        for retire in [false, true] {
+            let mut reference = state(false);
+            let mut native = state(true);
+            let left = source(&mut reference, script)?;
+            let right = source(&mut native, script)?;
+            assert!(native.jit_stats().code_bytes > 0);
+            let mut finished = false;
+            for step in 0..50_000 {
+                let advance = |lua: &mut Lua, executor: &StashedExecutor| {
+                    lua.try_enter(|ctx| {
+                        let executor = ctx.fetch(executor);
+                        let mut fuel = Fuel::with(budget);
+                        let done = executor.step(ctx, &mut fuel)?;
+                        Ok((done, executor.mode(), fuel.remaining()))
+                    })
+                };
+                let expected = advance(&mut reference, &left)?;
+                let actual = advance(&mut native, &right)?;
+                assert_eq!(
+                    actual, expected,
+                    "budget={budget} step={step} retire={retire}"
+                );
+                if retire && step == 10 {
+                    let mut config = native.jit_config();
+                    config.max_code_bytes = 1;
+                    native.set_jit_config(config).unwrap();
+                    assert_eq!(native.jit_stats().code_bytes, 0);
+                }
+                reference.gc_collect();
+                native.gc_collect();
+                if actual.0 {
+                    finished = true;
+                    break;
+                }
+            }
+            assert!(finished);
+            let result = |lua: &mut Lua, executor: &StashedExecutor| {
+                lua.try_enter(|ctx| ctx.fetch(executor).take_result::<i64>(ctx)?)
+            };
+            assert_eq!(result(&mut reference, &left)?, 12_502_500);
+            assert_eq!(result(&mut native, &right)?, 12_502_500);
+            let stats = native.jit_stats();
+            assert!(stats.native_entries > 0);
+            if !retire {
+                assert_eq!(
+                    (stats.native_table_reads, stats.native_table_writes),
+                    (5000, 5000)
+                );
+                assert!(stats.helper_calls < 1000, "{stats:?}");
+                eprintln!(
+                    "default_array fuel={budget} helper_calls={} native_instructions={}",
+                    stats.helper_calls, stats.native_instructions
+                );
+            }
+            native.set_jit_config(JitConfig::default()).unwrap();
+            assert_eq!(native.jit_stats().code_bytes, 0);
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn generic_false_key_iteration_reaches_native_heap_work() -> Result<(), ExternError> {
     let script = br#"
         local function iter(_, key)

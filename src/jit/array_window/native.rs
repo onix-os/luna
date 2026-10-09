@@ -16,6 +16,7 @@ pub(super) struct View {
     pub writable: u64,
 }
 
+#[cfg(test)]
 pub(super) type Entry = unsafe extern "C" fn(*const c_void, i64, *mut Slot) -> u32;
 
 pub(in crate::jit) type KernelEntry =
@@ -68,6 +69,7 @@ impl Session<'_> {
     /// Entry preserves the descriptor, retains no pointers, and accesses only the
     /// described buffers. Writes require writable access and valid scalar values;
     /// dirty bits identify only initialized cells. No callbacks or unwinding occur.
+    #[cfg(test)]
     pub(super) unsafe fn invoke(&mut self, entry: Entry, key: i64, slot: &mut Slot) -> u32 {
         unsafe { entry(self.view.cast(), key, ptr::from_mut(slot)) }
     }

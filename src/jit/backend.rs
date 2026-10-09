@@ -35,7 +35,7 @@ mod read_cache;
 #[cfg(not(miri))]
 pub(super) mod region;
 
-#[cfg(all(test, not(miri)))]
+#[cfg(not(miri))]
 pub(super) mod array;
 
 struct Memory {
@@ -222,7 +222,7 @@ pub(super) struct Code {
     pub integer_activation: bool,
     #[cfg(all(test, not(miri)))]
     pub scalar_kernel: Option<super::owner::Shared<Code>>,
-    #[cfg(all(test, not(miri)))]
+    #[cfg(not(miri))]
     pub array_kernels: Option<array::Kernels>,
 }
 
@@ -236,15 +236,19 @@ impl Code {
         self.scalar_kernel.take().is_some()
     }
 
-    #[cfg(all(test, not(miri)))]
+    #[cfg(not(miri))]
     pub fn discard_optional_entries(&mut self) -> bool {
+        #[cfg(test)]
         let scalar = self.discard_scalar_kernel();
+        #[cfg(test)]
         let continuations = self.continuations.take().is_some();
         let arrays = self.array_kernels.take().is_some();
-        scalar || continuations || arrays
+        #[cfg(test)]
+        let arrays = scalar || continuations || arrays;
+        arrays
     }
 
-    #[cfg(all(test, not(miri)))]
+    #[cfg(not(miri))]
     pub fn into_shared(
         self,
         allocator: BudgetAllocator,
@@ -1638,7 +1642,7 @@ fn compile_selected_rooted(
         integer_activation: selection.integer_activation,
         #[cfg(all(test, not(miri)))]
         scalar_kernel: None,
-        #[cfg(all(test, not(miri)))]
+        #[cfg(not(miri))]
         array_kernels: None,
     })
 }

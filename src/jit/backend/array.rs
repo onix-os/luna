@@ -48,7 +48,7 @@ pub(in crate::jit) fn compile_pair(
     limit: usize,
     metadata: BudgetAllocator,
     limits: work::Limits,
-    failure: Failure,
+    #[cfg(test)] failure: Failure,
 ) -> Result<Code, JitError> {
     let mut ordinary = compile_in(
         source,
@@ -56,9 +56,19 @@ pub(in crate::jit) fn compile_pair(
         limit,
         metadata.clone(),
         limits,
+        #[cfg(test)]
         failure,
     )?;
-    ordinary.array_kernels = compile(source, total, limit, metadata, limits, failure).ok();
+    ordinary.array_kernels = compile(
+        source,
+        total,
+        limit,
+        metadata,
+        limits,
+        #[cfg(test)]
+        failure,
+    )
+    .ok();
     Ok(ordinary)
 }
 
@@ -68,7 +78,7 @@ fn compile(
     limit: usize,
     metadata: BudgetAllocator,
     limits: work::Limits,
-    failure: Failure,
+    #[cfg(test)] failure: Failure,
 ) -> Result<Kernels, JitError> {
     let expansion = work::Expansion::admit(
         source,
@@ -123,6 +133,7 @@ fn compile(
             allocations: BudgetVec::new_in(metadata.clone()),
             total,
             status: status.clone(),
+            #[cfg(test)]
             failure,
             limit,
             page: page as usize,

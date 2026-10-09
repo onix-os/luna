@@ -11,6 +11,27 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Array kernels enabled in ordinary native builds — candidate
+
+Supported non-test Auto builds now select the verified array compiler by default.
+The existing test selector remains available for ordinary-versus-array controls.
+Optional image retirement and owner-allocation retry also operate in non-test
+builds; Miri and unsupported targets retain their original fallback.
+
+The public-API `jit_heap` integration fixture passes identical interpreter/native
+step traces at fuel 0, 1, 17 and 65,536, with collection between steps. It checks
+lowered-code-quota retirement during interrupted execution and releases all
+native mappings when Auto is disabled. The unchanged 5,000-element fill/sum
+script retains 25,014 native instructions and 5,000 reads/writes with 274 helper
+calls. GNU and musl focused gates each pass **18 heap + 32 window/backend tests**.
+Full baseline, GNU Auto/all-features and doc gates pass **1,869 test executions
+/ 178 suites**, with ten ignored. Formatting and workspace all-target/all-feature
+checking pass without new compiler warnings. Logs are `array-production-*` under
+the short-slice evidence directory.
+
+Remaining platform gates and paired timing remain pending for this candidate.
+This does not resolve the original upvalue/callback/compiled-Off regressions.
+
 #### Independent array-kernel translation check
 
 The array compiler now checks the emitted CLIF against the source operations
