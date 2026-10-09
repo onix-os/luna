@@ -336,8 +336,6 @@ fn run_vm_slice<'gc>(
     let mut registers = lua_frame.registers();
     #[cfg(not(feature = "jit"))]
     let mut instructions_run = 0;
-    #[cfg(feature = "jit")]
-    let mut instructions_run = prefix_instructions;
 
     #[cfg_attr(feature = "jit", inline(always))]
     fn get_rc<'gc>(
@@ -351,7 +349,9 @@ fn run_vm_slice<'gc>(
         }
     }
 
-    loop {
+    let _unreported_dispatches = loop {
+        #[cfg(feature = "jit")]
+        let mut instructions_run = native_instructions + interpreter_stats.dispatches;
         #[cfg(feature = "jit")]
         let run_native = {
             #[cfg(test)]
@@ -371,7 +371,7 @@ fn run_vm_slice<'gc>(
                 interpreter_stats.dispatches += completed;
                 instructions_run += completed;
                 if instructions_run >= max_instructions {
-                    break;
+                    break 0;
                 }
                 if completed != 0 {
                     continue;
@@ -391,7 +391,7 @@ fn run_vm_slice<'gc>(
                 instructions_run += completed;
                 native_instructions += completed;
                 if instructions_run >= max_instructions {
-                    break;
+                    break 0;
                 }
                 #[cfg(test)]
                 let transition = ctx
@@ -420,7 +420,7 @@ fn run_vm_slice<'gc>(
                             drop(registers);
                             if lua_frame.pair_fixed_stack() {
                                 pair_scope.as_deref_mut().unwrap().handoff = Some(pair);
-                                break;
+                                break 0;
                             }
                             registers = lua_frame.registers();
                         }
@@ -458,7 +458,7 @@ fn run_vm_slice<'gc>(
                             lua_frame.return_upper(&ctx, start, count)?;
                         }
                     }
-                    break;
+                    break 1;
                 }
             }
             #[cfg(feature = "jit")]
@@ -479,7 +479,7 @@ fn run_vm_slice<'gc>(
                     if lua_frame.fire_hook(ctx, event, line)? {
                         // Fired: a call frame is on top, so this slice is over — the same exit a
                         // metamethod call takes.
-                        break;
+                        break 0;
                     }
                     // Declined, but the frame was still borrowed mutably to find that out.
                     registers = lua_frame.registers();
@@ -551,7 +551,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -567,7 +567,7 @@ fn run_vm_slice<'gc>(
                         &call.args,
                         MetaReturn::None,
                     )?;
-                    break;
+                    break 1;
                 }
             }
 
@@ -585,7 +585,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -601,7 +601,7 @@ fn run_vm_slice<'gc>(
                         &call.args,
                         MetaReturn::None,
                     )?;
-                    break;
+                    break 1;
                 }
             }
 
@@ -635,7 +635,7 @@ fn run_vm_slice<'gc>(
                             *lua_frame.registers().pc = pc;
                             interpreter_stats.dispatches -= 1;
                             pair_scope.as_deref_mut().unwrap().handoff = Some(pair);
-                            break;
+                            break 0;
                         }
                         registers = lua_frame.registers();
                     }
@@ -651,17 +651,17 @@ fn run_vm_slice<'gc>(
                         .observe_call(ctx, current_function, &registers, func, args, returns);
                 }
                 lua_frame.call_function(ctx, func, args, returns)?;
-                break;
+                break 1;
             }
 
             Operation::TailCall { func, args } => {
                 lua_frame.tail_call_function(ctx, func, args)?;
-                break;
+                break 1;
             }
 
             Operation::Return { start, count } => {
                 lua_frame.return_upper(&ctx, start, count)?;
-                break;
+                break 1;
             }
 
             Operation::VarArgs { dest, count } => {
@@ -693,7 +693,7 @@ fn run_vm_slice<'gc>(
                     let to_close = registers.take_to_be_closed(RegisterIndex(r));
                     if !to_close.is_empty() {
                         lua_frame.push_close_sequence(ctx, to_close);
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -754,7 +754,7 @@ fn run_vm_slice<'gc>(
                         pc,
                         "'for' step is zero",
                     ));
-                    break;
+                    break 1;
                 }
 
                 registers.stack_frame[base.0 as usize] = raw_subtract(
@@ -843,7 +843,7 @@ fn run_vm_slice<'gc>(
 
             Operation::GenericForCall { base, var_count } => {
                 lua_frame.call_function_keep(ctx, base, 2, VarCount::constant(var_count))?;
-                break;
+                break 1;
             }
 
             Operation::GenericForLoop { base, jump } => {
@@ -869,7 +869,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(base),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -895,7 +895,7 @@ fn run_vm_slice<'gc>(
                             &args,
                             MetaReturn::Register(dest),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -925,7 +925,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -950,7 +950,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::SkipIf(skip_if),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -975,7 +975,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::SkipIf(skip_if),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -1000,7 +1000,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::SkipIf(skip_if),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -1021,7 +1021,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -1037,7 +1037,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -1054,7 +1054,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -1071,7 +1071,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -1088,7 +1088,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -1105,7 +1105,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -1122,7 +1122,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -1139,7 +1139,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -1156,7 +1156,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -1173,7 +1173,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -1190,7 +1190,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -1207,7 +1207,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -1224,7 +1224,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
@@ -1241,17 +1241,25 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break;
+                        break 1;
                     }
                 }
             }
         }
 
-        instructions_run += 1;
-        if instructions_run >= max_instructions {
-            break;
+        #[cfg(not(feature = "jit"))]
+        {
+            instructions_run += 1;
         }
-    }
+        #[cfg(feature = "jit")]
+        let instructions_run = native_instructions + interpreter_stats.dispatches;
+        if instructions_run >= max_instructions {
+            break 0;
+        }
+    };
+    #[cfg(feature = "jit")]
+    let instructions_run =
+        native_instructions + interpreter_stats.dispatches - _unreported_dispatches;
     #[cfg(feature = "jit")]
     {
         interpreter_stats.reported_instructions = Some(instructions_run - native_instructions);
