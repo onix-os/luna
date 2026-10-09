@@ -69,6 +69,34 @@ This is a **provisional representation/footprint improvement, not elapsed-speed
 acceptance**. Unchanged native and speed/shipping cost gates still govern
 retention. Evidence: `target/jit-evidence/short-slice-performance/projection-mode-*`.
 
+#### Pair-handoff extraction — partial recovery candidate
+
+Exact instruction accounting decomposes the speed integer increase into 400,075
+additional `mov` instructions and 200,005 unconditional jumps. A safe outlined
+`LuaFrame::take_pair_handoff` now performs the existing once-per-slice Option
+move. It does not change selection, execution order, frame/scope ownership,
+counters, fuel or native coverage. The method sits after existing definitions
+to preserve no-feature panic-location metadata; inserting it before those
+definitions changed that metadata in the first diagnostic build, which was
+not timed. The existing direct take remains in the test-only resume setup.
+
+Formatting/check-all and 81 focused GNU checks pass; full GNU Force passes
+1,487 executions/88 summaries/six ignored, and focused musl passes 81/two ignored.
+Captured speed/shipping no-feature images remain byte-identical to both typed
+and pre-typed controls. All seven complete non-timing native records match.
+
+Including the helper call itself, speed compiled-Off instructions fall versus
+the typed-only candidate: integer 384,405, float 384,435, array 215,335, upvalue
+50,035 and callbacks 75,030. Integer remains 215,675 instructions above the
+pre-typed control, so this is partial recovery. Shipping instead adds 12,520
+integer/float, 7,820 array, 399,995 upvalue and 100,020 callback instructions.
+Native profiles also add work: 0.23466% integer, 0.22650% float, 0.13002% upvalue,
+0.24460% callbacks, 0.27986% metamethod, 0.05822% array and 0.03987% allocation.
+The upvalue increase includes 209,136 admission instructions, and metamethod
+includes allocator variation; these are retained rather than attributed to the
+new helper without evidence. This candidate is not elapsed-performance acceptance.
+Evidence: `projection-mode-scope-*` under the same ignored evidence directory.
+
 #### Projection bridge outlining — measured and withdrawn
 
 A one-attribute trial kept `projection::with_frame` out of ordinary invocation

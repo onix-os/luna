@@ -332,7 +332,7 @@ fn run_vm_slice<'gc>(
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    let mut pair_scope = lua_frame.pair_handoff.take();
+    let mut pair_scope = lua_frame.take_pair_handoff();
     let mut registers = lua_frame.registers();
     #[cfg(not(feature = "jit"))]
     let mut instructions_run = 0;
