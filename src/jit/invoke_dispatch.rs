@@ -1,4 +1,38 @@
-pub(super) const fn table<T: Copy>(choices: [T; 14]) -> [T; 257] {
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+type Invoker = for<'gc, 'regs> fn(
+    &super::Runtime,
+    &super::backend::Code,
+    crate::Context<'gc>,
+    crate::Closure<'gc>,
+    &mut crate::thread::LuaRegisters<'gc, 'regs>,
+    u32,
+) -> u32;
+
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+pub(super) static INVOKERS: [Invoker; 257] = table([
+    super::Runtime::invoke::<8, false> as Invoker,
+    super::Runtime::invoke::<1, true>,
+    super::Runtime::invoke::<2, true>,
+    super::Runtime::invoke::<3, true>,
+    super::Runtime::invoke::<4, true>,
+    super::Runtime::invoke::<5, true>,
+    super::Runtime::invoke::<6, true>,
+    super::Runtime::invoke::<7, true>,
+    super::Runtime::invoke::<8, true>,
+    super::Runtime::invoke::<16, false>,
+    super::Runtime::invoke::<32, false>,
+    super::Runtime::invoke::<64, false>,
+    super::Runtime::invoke::<128, false>,
+    super::Runtime::invoke::<256, false>,
+]);
+
+const fn table<T: Copy>(choices: [T; 14]) -> [T; 257] {
     let mut entries = [choices[0]; 257];
     let mut count = 1;
     while count < entries.len() {

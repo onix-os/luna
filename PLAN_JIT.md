@@ -11,19 +11,28 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Indexed invoker selection — test-only model
+#### Indexed invoker selection — integrated performance trial
 
-The next performance experiment models a read-only table selecting the existing
-native scratch-tier functions for register counts 0 through 256. Production
-dispatch is unchanged. Three independent model tests pass on GNU, musl and both
-Miri alias models. The actual native/reference scratch test now covers every
-positive register count, and bounded infinite-loop execution explicitly checks
-the zero-register prototype. All 18 native integration tests pass on GNU and
-musl before integration. This is correctness evidence, not a speedup claim.
-Fresh immutable controls and exact-image assembly must precede profiling and
-unchanged paired elapsed-time gates. Evidence: `invoker-table-model/` and
-`invoker-table-native-control/` under the short-slice performance directory;
-the musl native log is in `invoker-table-control/`.
+The trial replaces the branch-based selector with a read-only table of the same
+14 native scratch-tier functions for register counts 0 through 256. Existing
+resume, entry-PC, canonical-prefix and maximum-register checks remain before
+the call. A higher-ranked Rust function-pointer type preserves GC/register
+lifetimes without unsafe casts, per-code fields or allocation.
+
+Independent models and exhaustive real native/reference coverage were committed
+as `bda9f15`: positive counts 1 through 256 plus explicitly zero-register bounded
+infinite-loop execution. Fresh controls rebuilt all five benchmark images
+byte-identical to the restored baseline before production edits. Integrated
+formatting/check-all and 21 focused checks pass; full GNU Force passes 1,490
+executions/88 summaries/six ignored, musl 21, and each Miri model three.
+
+Optimized native assembly contains one indexed indirect call through the table,
+not the old branch selector. The table occupies 2,056 bytes on this host; total
+native/speed/shipping files grow by 7,280/7,312/7,392 bytes, respectively. Both
+no-feature binaries remain byte-identical. Exact-image profiles and unchanged
+paired elapsed-time gates are pending; this trial is not performance acceptance.
+Evidence: `invoker-table-{model,control,candidate}/` under the short-slice
+performance directory, plus `invoker-table-native-control/` for baseline GNU.
 
 #### Typed projection capability — measured and withdrawn
 
