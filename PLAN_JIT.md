@@ -11,6 +11,45 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Two-pointer lookup refinements not selected
+
+Two non-owning entry hints reduce alternating metamethod lookup instructions,
+but neither pointer-cache refinement resolves disabled-execution costs. Both
+preserve map-access invalidation, code leases, policy and native coverage.
+The second avoids clearing/rewriting the first hint on repeated hits. Its full
+GNU interpreter/JIT/docs gates pass **1,885 executions / 178 suites**, ten
+ignored; eleven model tests pass both default and Tree Borrows Miri.
+
+The first two-pointer variant records 30 native and 96 feature-cost commands.
+Metamethod gates pass 5/12 versus none in the earlier single-hint campaign, but
+CPU0 speed-profile compiled-Off float is **8.86–9.64% slower** than single in
+four windows. Exact Off instructions/reads/writes are unchanged. Branch
+simulation locates 100,000 extra misses at a destination-register bounds check
+after float addition; this is not hardware-counter proof of causality.
+
+The read-hit refinement records another **36 native and 96 feature-cost
+commands**, retaining all negative samples and external-contention telemetry.
+Its callback instruction total is **133,419,212**, versus single **133,216,000**
+and original array **135,401,934**. Metamethod total falls to **80,767,814**,
+versus single **81,445,426** and original **81,207,080**. In its repeat hardware
+screen, callback Auto time improves 0.20–2.10% versus single, and CPU16
+metamethod improves 1.40–5.07%; CPU0 metamethod remains mixed. The first screen
+also includes major CPU0 contention outliers, which remain in the evidence.
+
+Read-hit CPU0 speed disabled float is still **9.28–9.85% slower** than single,
+with near-stable no-feature controls. All four original overhead ratios fail:
+**1.0757 / 1.0703 / 1.0815 / 1.0728**. Feature-cost failures are read-hit36,
+single29, array32, rooted38, prior30 and historical29 out of144 each. Native
+callback gates still fail all twelve runs; metamethod passes5/12 and upvalue8/12.
+No original gate, workload, native coverage or safety invariant is relaxed.
+
+Neither two-pointer implementation is selected for retention. The committed
+single-hint checkpoint remains the retained baseline; a compact bucket-offset
+prototype is being checked separately, without a performance claim. Evidence
+prefixes are `code-index-two-*` and `code-index-read-hit-*` under the short-slice
+performance directory, including exact-symbol profiles and complete source
+patches. Full performance, resource, platform and release acceptance remain open.
+
 #### Repeated code lookup hint retained as development work
 
 The native code index now retains one non-owning entry pointer for repeated
