@@ -11,6 +11,47 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Small rooted-frame staging — measured and withdrawn
+
+`2b17087` staged checked decoding of at most sixteen caller slots in a fixed
+typed array, publishing only after complete validation. Wider frames retained
+the original two-pass implementation. No unsafe code, heap allocation, persistent
+cache or native-coverage reduction was introduced. Independent tests `b2489a4`
+and `30b2294` cover late-invalid atomic refusal, destination tails and every
+value kind across small/wide frame boundaries; both remain after withdrawal.
+
+Baseline/doc/all-feature Auto passes **1,804 executions / 173 suites**, eight
+ignored. Five pure root tests pass Miri, including the final width matrix, with
+25 warnings. Final test-only edits reproduce the frozen native executable
+byte-for-byte. Initial commands with an incorrect region target and the non-Miri
+shell fail before profiling; corrected Make targets and `nix develop .#miri`
+complete successfully. Exact-image upvalue work falls **251,704,692 → 247,259,041
+instructions (1.77%)**; region-boundary self-work falls 60,688,244 → 53,449,785.
+
+Two native and two three-way speed/shipping rounds complete **96 commands**,
+**95 failing unchanged gates**. Three alternating/rotating windows on CPU0/16,
+eleven samples and twenty cost iterations retain both controls and contention.
+All **216 native non-timing pairs** match and pre/post source/artifact manifests
+verify; owned builds/tests/profiles do not overlap timing.
+
+Native upvalue control/candidate throughput ratios are **1.024706 / 1.029505**
+on CPU0 and **0.999054 / 1.031751** on CPU16. Native CPU0 table regresses
+**0.978389 / 0.985274**, callbacks **0.989426 / 0.980151**. Compiled-Off speed
+CPU0 float regresses **0.925634 / 0.935158**, shipping integer
+**0.955940 / 0.956528**. Ratios are first / repeat median-of-three-window control
+time divided by candidate time. Individual cost failures improve to35/216
+versus control39/216 and historical42/216, but that aggregate count does not
+erase these repeated regressions or establish acceptance.
+
+`77326a8` removes the complete staging fast path. Runtime behavior returns to
+the prior retained implementation; the new root tests remain. Restored root and
+public region checks pass twelve executions / four suites; formatting and
+all-feature checks pass. Evidence is under
+`target/jit-evidence/short-slice-performance/rooted-staging*`, including all raw
+windows and `rooted-staging-summary.json`. Full performance acceptance stays open.
+Further work should target avoidable call/return transitions rather than repeat
+this staging or previously rejected copy/refresh/session-layout mechanisms.
+
 #### Invocation-scoped table borrow reuse — measured and withdrawn
 
 `5e90ace` adds an independent Off/Auto callback-mutation regression: after native

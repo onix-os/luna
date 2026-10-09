@@ -148,12 +148,12 @@ mod tests {
                 crate::UserData::new_static(&ctx, 7).into(),
             ];
             for value in values {
-                for source in [0, 1, 255] {
-                    for destination in [0, 1, 255] {
-                        let mut canonical = [Value::Nil; 256];
+                for width in [1, 2, 8, 16, 17, 256] {
+                    for (source, destination) in [(0, width - 1), (width - 1, 0)] {
+                        let mut canonical = vec![Value::Nil; width];
                         canonical[source] = value;
-                        let mut roots = [Value::Nil; 256];
-                        let mut slots = [Slot::from_value(Value::Nil); 256];
+                        let mut roots = vec![Value::Nil; width];
+                        let mut slots = vec![Slot::from_value(Value::Nil); width];
                         assert!(capture(&mut roots, &mut slots, &canonical));
                         slots[destination] = slots[source];
                         canonical.fill(Value::Nil);
@@ -189,6 +189,65 @@ mod tests {
                     panic!()
                 };
                 assert_eq!(actual, expected);
+            }
+        });
+    }
+
+    #[test]
+    fn late_invalid_slots_preserve_the_entire_destination() {
+        Lua::empty().enter(|ctx| {
+            let reference = Value::Table(Table::new(&ctx));
+            for width in [1, 7, 8, 15, 16, 17, 31, 32, 255, 256] {
+                let roots = vec![reference; width];
+                let valid: Vec<_> = (0..width)
+                    .map(|index| {
+                        if index % 2 == 0 {
+                            Slot {
+                                tag: REFERENCE,
+                                bits: (width - 1 - index) as u64,
+                            }
+                        } else {
+                            Slot::from_value(Value::Integer(index as i64))
+                        }
+                    })
+                    .collect();
+                for position in [0, width / 2, width - 1] {
+                    for invalid in [
+                        Slot {
+                            tag: REFERENCE,
+                            bits: width as u64,
+                        },
+                        Slot {
+                            tag: REFERENCE,
+                            bits: u64::MAX,
+                        },
+                        Slot {
+                            tag: REFERENCE + 1,
+                            bits: 0,
+                        },
+                    ] {
+                        let mut slots = valid.clone();
+                        slots[position] = invalid;
+                        let mut values = vec![Value::Integer(-7); width + 1];
+                        assert!(!materialize(&roots, &slots, &mut values));
+                        assert!(values
+                            .iter()
+                            .all(|value| matches!(value, Value::Integer(-7))));
+                    }
+                }
+                let mut values = vec![Value::Integer(-7); width + 1];
+                assert!(materialize(&roots, &valid, &mut values));
+                for (index, value) in values[..width].iter().copied().enumerate() {
+                    identical(
+                        value,
+                        if index % 2 == 0 {
+                            reference
+                        } else {
+                            Value::Integer(index as i64)
+                        },
+                    );
+                }
+                identical(values[width], Value::Integer(-7));
             }
         });
     }
