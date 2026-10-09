@@ -11,6 +11,41 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Helper-free array loop slices — execution prototype
+
+`01b63d2` generates complete selected loop regions, including direct array
+accesses, scalar moves/constants, integer/mixed-number arithmetic and integer
+loop control. It caps each entry at 64 operations and preserves partial exits,
+terminal counter overflow, visible-index updates and scalar writeback. Fresh
+receiver admission releases the window before returning to generic native code.
+
+The unchanged 5,000-element fill/sum script now runs through the experimental
+kernel-plus-generic bridge. **Every slice's PC, instruction count and exit reason
+matches the ordinary backend**, including budgets 1, 2, 17, 64, 65 and u32::MAX.
+Both paths retain all 5,000 reads, 5,000 writes and the result 12,502,500.
+
+| Slice budget | Ordinary helper calls | Bridged helper calls | Direct reads / writes |
+| --- | ---: | ---: | ---: |
+| 1 | 10,001 | 13 | 5,000 / 4,988 |
+| 2 | 10,001 | 14 | 4,999 / 4,988 |
+| 17 | 10,001 | 51 | 5,000 / 4,950 |
+| 64, 65, u32::MAX | 10,001 | 274 | 4,988 / 4,739 |
+
+Seven source variants also compare generated slices to the existing backend at
+every selected PC, budgets 0–65 and u32::MAX, with positive, negative and zero
+steps. Separate checks cover loop overflow, invalid PCs, scoped pointer use,
+fresh receiver replacement and admission failures. GNU and musl each pass
+**21 focused tests**; Miri and real i686-musl each pass **15**. Formatting and
+workspace/all-target checks pass. Logs are `array-window-kernel-*` under the
+existing short-slice evidence directory, including initial failed builds/runs.
+
+**This remains test-selected, not production acceptance.** The bridge runs real
+generated code and existing table helpers, but `Runtime::invoke` does not yet
+select these kernels. Independent translation validation and budgeted production
+code ownership/compilation remain required before enabling the path. Helper-call
+reduction is not elapsed-time improvement; the original performance, feature-cost
+and other workload regressions remain unresolved.
+
 #### Bounded native array windows — prototype only
 
 `37457c4` implements scoped mirrors of at most 64 existing array cells, with
@@ -39,11 +74,11 @@ pass. Initial compile errors and a
 test-fixture endpoint overflow remain recorded with the corrected runs under
 `target/jit-evidence/short-slice-performance/array-window-*`.
 
-**All of this remains test-selected.** Source-bound whole-loop code generation,
-independent translation verification, runtime entry/exit integration and resource
-accounting are not implemented for this path. Every window must release before
-generic helpers resume at the resulting PC with the remaining slice budget.
-No production helper removal, measured speedup, or performance acceptance is
+**This checkpoint was test-selected.** Whole-loop generation and bridge execution
+have since advanced as described above; independent translation verification,
+production Runtime selection and resource accounting remain incomplete. Every
+window must release before generic helpers resume at the resulting PC with the
+remaining slice budget. No production speedup or performance acceptance is
 claimed; the original benchmark and feature-cost gates remain unchanged.
 
 #### Unified VM progress — measured and withdrawn
