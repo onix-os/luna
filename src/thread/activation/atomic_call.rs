@@ -1,6 +1,9 @@
 use super::*;
 use crate::{types::RegisterIndex, Closure, Function, Value};
 
+#[cfg(test)]
+mod window_tests;
+
 pub(crate) struct Spec<'gc> {
     pub callee: Closure<'gc>,
     pub function: RegisterIndex,
