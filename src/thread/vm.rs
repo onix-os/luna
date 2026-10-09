@@ -1,11 +1,14 @@
+use allocator_api2::vec;
+use ottavino_gc_arena::{allocator_api::MetricsAlloc, lock::Lock};
+
 use crate::{
     compiler::LineNumber,
     meta_ops::{self, ConcatMetaResult, MetaResult},
     opcode::{Operation, RCIndex},
     table::RawTable,
     thread::thread::MetaReturn,
-    types::{RegisterIndex, VarCount},
-    Constant, Context, Function, String, Table, Value,
+    types::{RegisterIndex, UpValueDescriptor, VarCount},
+    Closure, Constant, Context, Function, String, Table, Value,
 };
 
 use super::{thread::LuaFrame, VMError};
@@ -15,6 +18,7 @@ mod constant_add;
 #[cfg(test)]
 mod constants;
 mod dispatch;
+#[cfg(test)]
 mod instantiate;
 
 // Runs the VM for the given number of instructions or until the current LuaFrame may have been
@@ -716,7 +720,25 @@ fn run_vm_slice<'gc>(
 
             Operation::Closure { proto, dest } => {
                 let proto = current_prototype.prototypes[proto.0 as usize];
-                let closure = instantiate::closure(ctx, &mut registers, proto, current_upvalues)?;
+                let mut upvalues =
+                    vec::Vec::with_capacity_in(proto.upvalues.len(), MetricsAlloc::new(&ctx));
+                for &desc in proto.upvalues.iter() {
+                    match desc {
+                        UpValueDescriptor::Environment => {
+                            return Err(VMError::BadEnvUpValue.into());
+                        }
+                        UpValueDescriptor::ParentLocal(reg) => {
+                            upvalues.push(Lock::new(registers.open_upvalue(&ctx, reg)));
+                        }
+                        UpValueDescriptor::Outer(uvindex) => {
+                            // Its own slot, holding the same upvalue: the two closures share the
+                            // variable, but repointing one slot later must not repoint the other.
+                            upvalues.push(Lock::new(current_upvalues[uvindex.0 as usize].get()));
+                        }
+                    }
+                }
+
+                let closure = Closure::from_parts(&ctx, proto, upvalues);
                 registers.stack_frame[dest.0 as usize] =
                     Value::Function(Function::Closure(closure));
             }

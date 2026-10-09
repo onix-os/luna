@@ -1,19 +1,13 @@
 #[cfg(feature = "jit")]
 use crate::jit::Prepared;
 
-#[cfg(not(feature = "jit"))]
 pub(super) enum Dispatch {
     Interpreted,
     Hooked,
-}
-
-#[cfg(feature = "jit")]
-#[repr(u8)]
-pub(super) enum Dispatch {
-    Hooked,
+    #[cfg(feature = "jit")]
     Observing(u64),
+    #[cfg(feature = "jit")]
     Compiled(Prepared),
-    Interpreted = u8::MAX,
 }
 
 impl Dispatch {
