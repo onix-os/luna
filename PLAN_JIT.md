@@ -11,11 +11,11 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Register-return exits — integrated candidate, timing pending
+#### Register-return exits — profiled candidate, timing pending
 
 `83048e2` proves the two-word C return protocol; `f6fedb4` adds checked
 output-pointer lowering and an actual generated-code interoperability test.
-The integrated candidate uses four arguments and returns the full64-bit PC
+`d4157cd` integrates four arguments and returns the full64-bit PC
 plus independent32-bit instruction/reason fields. Ordinary entries, scalar-cell
 entries, aggregate callees and their generated callers, and linked region
 callers use matching signatures. Separately typed compact scalar and array-window
@@ -36,8 +36,17 @@ final fixture/native-aggregate rerun passes another14. i686 passes the two pure
 ABI checks. Both Miri models pass six protocol/lowering tests after correcting
 a test-only stale host-data pointer exposed by Tree Borrows. GNU reruns all
 eight focused checks after that fixture-only correction.
-Paired native and shipping/speed feature-cost timing remain outstanding. This
-is a performance candidate, not a demonstrated speedup or release acceptance.
+Fourteen exact-image profiles pass allocated-byte, metadata and program-header
+matching. All runtime work/effect counters match their freshly profiled control.
+Snapshot workspace peaks rise48 bytes per ordinary module (144 across the
+upvalue workload); all other non-timing fields match. Dynamic instructions fall
+0.35% integer,3.79% float,0.05% upvalue,0.15% callbacks,0.13% metamethods,
+0.38% array and0.18% allocation/GC. Callback invocation removes64,849 host
+instructions and129,711 generated instructions; its VM/executor self counts
+are unchanged. This demonstrates the boundary change, not an elapsed speedup.
+
+Paired native and shipping/speed feature-cost timing remain outstanding.
+The candidate is not release acceptance; original thresholds remain unchanged.
 
 #### Source-registry bucket offsets — measured and withdrawn
 
