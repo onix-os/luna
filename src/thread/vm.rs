@@ -20,7 +20,7 @@ mod constants;
 mod dispatch;
 #[cfg(test)]
 mod instantiate;
-#[cfg(all(test, feature = "jit"))]
+#[cfg(feature = "jit")]
 mod progress;
 
 // Runs the VM for the given number of instructions or until the current LuaFrame may have been
@@ -311,9 +311,7 @@ fn run_vm_slice<'gc>(
     #[cfg(not(feature = "jit"))]
     let native_dispatch = dispatch::Dispatch::interpreted(hook_enabled);
     #[cfg(feature = "jit")]
-    let mut native_instructions = prefix_instructions;
-    #[cfg(feature = "jit")]
-    let mut interpreter_stats = ctx.jit().interpreter_stats();
+    let mut interpreter_stats = progress::Progress::new(ctx.jit(), prefix_instructions);
     #[cfg(feature = "jit")]
     if hook_enabled && ctx.jit().active() {
         let mut manager = ctx.jit().0.borrow_mut();
@@ -353,8 +351,6 @@ fn run_vm_slice<'gc>(
 
     let _unreported_dispatches = loop {
         #[cfg(feature = "jit")]
-        let mut instructions_run = native_instructions + interpreter_stats.dispatches;
-        #[cfg(feature = "jit")]
         let run_native = {
             #[cfg(test)]
             {
@@ -370,9 +366,8 @@ fn run_vm_slice<'gc>(
             #[cfg(all(test, feature = "jit"))]
             if let Some(snapshot) = &mock {
                 let completed = ctx.jit().run_mock(snapshot, &mut registers);
-                interpreter_stats.dispatches += completed;
-                instructions_run += completed;
-                if instructions_run >= max_instructions {
+                interpreter_stats.counts.dispatches += completed;
+                if interpreter_stats.counts.dispatches >= max_instructions {
                     break 0;
                 }
                 if completed != 0 {
@@ -388,11 +383,11 @@ fn run_vm_slice<'gc>(
                     ctx,
                     current_function,
                     &mut registers,
-                    max_instructions - instructions_run,
+                    max_instructions - interpreter_stats.counts.dispatches,
                 );
-                instructions_run += completed;
-                native_instructions += completed;
-                if instructions_run >= max_instructions {
+                interpreter_stats.counts.dispatches += completed;
+                interpreter_stats.native += completed;
+                if interpreter_stats.counts.dispatches >= max_instructions {
                     break 0;
                 }
                 #[cfg(test)]
@@ -428,7 +423,7 @@ fn run_vm_slice<'gc>(
                         }
                     }
                     *registers.pc += 1;
-                    interpreter_stats.dispatches += 1;
+                    interpreter_stats.counts.dispatches += 1;
                     match transition {
                         crate::opcode::CallTransition::Call {
                             func,
@@ -495,7 +490,7 @@ fn run_vm_slice<'gc>(
         let op = current_prototype.opcodes[*registers.pc].decode();
         #[cfg(feature = "jit")]
         {
-            interpreter_stats.dispatches += 1;
+            interpreter_stats.counts.dispatches += 1;
         }
         *registers.pc += 1;
 
@@ -635,7 +630,7 @@ fn run_vm_slice<'gc>(
                         drop(registers);
                         if lua_frame.pair_fixed_stack() {
                             *lua_frame.registers().pc = pc;
-                            interpreter_stats.dispatches -= 1;
+                            interpreter_stats.counts.dispatches -= 1;
                             pair_scope.as_deref_mut().unwrap().handoff = Some(pair);
                             break 0;
                         }
@@ -1254,17 +1249,17 @@ fn run_vm_slice<'gc>(
             instructions_run += 1;
         }
         #[cfg(feature = "jit")]
-        let instructions_run = native_instructions + interpreter_stats.dispatches;
+        let instructions_run = interpreter_stats.counts.dispatches;
         if instructions_run >= max_instructions {
             break 0;
         }
     };
     #[cfg(feature = "jit")]
-    let instructions_run =
-        native_instructions + interpreter_stats.dispatches - _unreported_dispatches;
+    let instructions_run = interpreter_stats.counts.dispatches - _unreported_dispatches;
     #[cfg(feature = "jit")]
     {
-        interpreter_stats.reported_instructions = Some(instructions_run - native_instructions);
+        interpreter_stats.counts.reported_instructions =
+            Some(instructions_run - interpreter_stats.native);
     }
     Ok(instructions_run)
 }
