@@ -1,5 +1,123 @@
 use super::*;
 
+#[cfg(feature = "jit")]
+#[test]
+fn direct_capture_matches_register_projection_without_mutation() {
+    use crate::{jit::projection::Origin, thread::activation::ActivationHost};
+    use std::cell::Cell;
+
+    crate::Lua::empty().enter(|ctx| {
+        let caller = Closure::load(ctx, None, &b"return"[..]).unwrap();
+        let other = Closure::load(ctx, None, &b"return 1"[..]).unwrap();
+        let foreign = Thread::new(ctx).0.borrow().stack;
+        for base in [0, 1, 4, 6] {
+            let thread = Thread::new(ctx);
+            let mut state = thread.0.borrow_mut(&ctx);
+            let storage = state.stack;
+            let mut stack = storage.borrow_mut(&ctx);
+            stack.extend([
+                Value::Integer(10),
+                Value::Boolean(false),
+                Value::Integer(30),
+                Value::Number(2.5),
+                Value::Nil,
+                Value::Integer(60),
+            ]);
+            state.frames.push(Frame::Lua {
+                closure: caller,
+                bottom: 0,
+                base,
+                pc: 0,
+                is_variable: false,
+                stack_size: 6 - base,
+                expected_return: None,
+            });
+            let mut fuel = Fuel::with(17);
+            let mut host = ActivationHost::new(&mut state, stack, &mut fuel);
+            for index in [0, base.saturating_sub(1), base, 5, 6, usize::MAX] {
+                for source in [
+                    UpValueState::Open(OpenUpValue {
+                        stack: Gc::downgrade(storage),
+                        stack_index: index,
+                    }),
+                    UpValueState::Open(OpenUpValue {
+                        stack: Gc::downgrade(foreign),
+                        stack_index: index,
+                    }),
+                    UpValueState::Closed(Value::Integer(77)),
+                    UpValueState::Closed(Value::Nil),
+                ] {
+                    let upvalue = UpValue::new(&ctx, source);
+                    for pending_len in [0, 1, 6 - base, 8] {
+                        for pending_value in [
+                            Value::Integer(-91),
+                            Value::Nil,
+                            Value::Number(0.5),
+                            Value::String(ctx.intern(b"pending")),
+                        ] {
+                            for expected_caller in [caller, other] {
+                                let expected_reads = Cell::new(0);
+                                let actual_reads = Cell::new(0);
+                                let expected = host.with_registers(|found, registers| {
+                                    if found != expected_caller {
+                                        return None;
+                                    }
+                                    match registers.projection_origin(upvalue)? {
+                                        Origin::Upper(index, Value::Integer(value)) => {
+                                            Some(((true, index), value))
+                                        }
+                                        Origin::Register(index, _) => {
+                                            expected_reads.set(expected_reads.get() + 1);
+                                            if index >= pending_len {
+                                                return None;
+                                            }
+                                            let Value::Integer(value) = pending_value else {
+                                                return None;
+                                            };
+                                            Some(((false, index), value))
+                                        }
+                                        _ => None,
+                                    }
+                                });
+                                let actual =
+                                    host.snapshot_capture(expected_caller, upvalue, |index| {
+                                        actual_reads.set(actual_reads.get() + 1);
+                                        (index < pending_len).then_some(pending_value)
+                                    });
+                                assert_eq!(
+                                    actual, expected,
+                                    "base={base}, index={index}, pending_len={pending_len}"
+                                );
+                                assert_eq!(actual_reads.get(), expected_reads.get());
+                                host.with_registers(|found, registers| {
+                                    assert_eq!(found, caller);
+                                    assert_eq!(*registers.pc, 0);
+                                    assert_eq!(registers.stack_frame.len(), 6 - base);
+                                    for (local, value) in registers.stack_frame.iter().enumerate() {
+                                        let absolute = local + base;
+                                        assert_eq!(
+                                            value.type_name(),
+                                            [
+                                                "number", "boolean", "number", "number", "nil",
+                                                "number"
+                                            ][absolute]
+                                        );
+                                        if let Value::Integer(value) = value {
+                                            assert_eq!(*value, [10, 0, 30, 0, 0, 60][absolute]);
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            drop(host);
+            assert_eq!(fuel.remaining(), 17);
+        }
+    });
+}
+
 #[test]
 fn return_spans_preserve_bounds_fuel_and_capture_closing() {
     for bottom in [0, 2, 6, 7] {

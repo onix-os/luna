@@ -410,6 +410,14 @@ jit-call-canonical:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical::tests $(ARGS)
 
 .PHONY: jit-atomic-call
+.PHONY: jit-direct-capture jit-direct-capture-miri
+jit-direct-capture:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::thread::tests::direct_capture
+	@$(MAKE) --no-print-directory jit-rooted-call jit-atomic-call jit-accounting
+
+jit-direct-capture-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::thread::tests::direct_capture -- --test-threads=1
+
 jit-atomic-call:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical::tests::atomic $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::activation::atomic_call $(ARGS)

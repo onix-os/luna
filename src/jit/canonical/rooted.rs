@@ -44,6 +44,16 @@ pub(super) fn invoke<'gc>(
             _ => None,
         }
     });
+    #[cfg(test)]
+    assert_eq!(
+        input,
+        callee
+            .upvalues()
+            .get(usize::from(site.pattern.upvalue))
+            .and_then(|value| {
+                host.snapshot_capture(binding.0, value.get(), |index| snapshot.get(index))
+            })
+    );
     let Some((capture, value)) = input else {
         return false;
     };
