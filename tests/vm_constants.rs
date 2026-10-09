@@ -104,7 +104,9 @@ fn constants_keep_string_identity_across_metamethod_slices_and_gc() {
             )
         });
         #[cfg(feature = "jit")]
-        lua.prepare_jit().unwrap();
+        if lua.jit_capabilities().supported_target {
+            lua.prepare_jit().unwrap();
+        }
         let mut finished = false;
         for _ in 0..1000 {
             lua.gc_collect();
