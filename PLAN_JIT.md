@@ -11,6 +11,24 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Output-buffer initialization — boundary model, not a speedup
+
+The next narrow candidate retains the existing five-argument native ABI and
+tests whether the host can omit zeroing an exit buffer that the callee fully
+overwrites. No runtime change is enabled at this checkpoint. Independent Rust
+and actual generated C callees initialize uninitialized storage across PC,
+instruction/reason, budget and host-pointer domains. The model checks the raw
+unbounded call and the ordinary64-instruction bounded wrapper independently.
+
+`make jit-output-buffer` also exercises the existing exact exit-field/return/
+output-escape verifier and its pre-codegen mutation refusal cases. Production
+integer-loop augmentation independently preserves the original exit blocks and
+instructions through `integer_loop::verify::preserved`; it does not introduce
+an output-buffer read or new return. No source/effect checker is relaxed.
+Baseline GNU focused checks pass46 executions, musl37, and each Miri alias model
+passes19. These establish boundary behavior, not performance acceptance.
+The runtime trial must preserve all original coverage, resource and timing gates.
+
 #### Register-return exits — measured and withdrawn
 
 `83048e2` proves the two-word C return protocol; `f6fedb4` adds checked

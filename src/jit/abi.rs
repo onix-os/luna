@@ -439,3 +439,6 @@ mod tests {
         .write_back(&mut Value::Nil);
     }
 }
+
+#[cfg(test)]
+pub(super) mod exit_buffer;
