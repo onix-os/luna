@@ -11,6 +11,25 @@ region execution; `make jit-regions` tests the non-test library with `jit` and
 `jit,async`, including interrupted fuel traces, GC, callbacks and unwind.
 This is implementation progress, **not performance or release acceptance**.
 
+Supported native builds also admit optional helper-free array-loop kernels.
+An independent source-to-CLIF checker validates their guards, memory effects,
+control flow and instruction accounting before compilation. Each entry borrows
+at most 64 existing array cells, commits scalar writes, and releases the borrow
+before ordinary helpers resume. Observed, weak, readonly-write, out-of-bounds
+and unsupported cases retain the ordinary path. Optional compiler or ownership
+allocation failure also preserves ordinary native code.
+
+`make jit-heap` checks this non-test path against interpreter slices, with GC
+between steps and code-quota retirement. The unchanged fill/sum fixture uses
+274 helper calls instead of 10,001 while retaining 25,014 native instructions.
+Two paired timing rounds now measure **17–37% higher array throughput** versus
+the retained rooted-publication build, with unchanged native instruction counts.
+The original array gate passes 11 of 12 windows, but callback/metamethod gates
+still fail and upvalue remains inconsistent. Feature-cost testing also finds a
+5–12% speed-profile compiled-Off float regression against that retained build.
+These are positive and negative development results, **not performance or release
+acceptance**; `PLAN_JIT.md` records the unchanged gates and controls.
+
 Admitted integer callees can now complete atomically without a physical callee
 frame when all inputs, source bindings, capacity/depth, capture, hook and fuel
 guards permit. The verified generated arithmetic remains native; canonical stack,

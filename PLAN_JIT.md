@@ -11,6 +11,188 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Array kernels enabled in ordinary native builds — candidate
+
+Supported non-test Auto builds now select the verified array compiler by default.
+The existing test selector remains available for ordinary-versus-array controls.
+Optional image retirement and owner-allocation retry also operate in non-test
+builds; Miri and unsupported targets retain their original fallback.
+
+The public-API `jit_heap` integration fixture passes identical interpreter/native
+step traces at fuel 0, 1, 17 and 65,536, with collection between steps. It checks
+lowered-code-quota retirement during interrupted execution and releases all
+native mappings when Auto is disabled. The unchanged 5,000-element fill/sum
+script retains 25,014 native instructions and 5,000 reads/writes with 274 helper
+calls. GNU and musl focused gates each pass **18 heap + 32 window/backend tests**.
+Full baseline, GNU Auto/all-features and doc gates pass **1,869 test executions
+/ 178 suites**, with ten ignored. Formatting and workspace all-target/all-feature
+checking pass without new compiler warnings. Logs are `array-production-*` under
+the short-slice evidence directory.
+
+Real i686 fallback and Miri each pass **15 tests**. ARM64 CI remains pending.
+
+Two unchanged native timing rounds compare the frozen candidate to the retained
+rooted-publication control: **24 aggregate commands**, CPUs 0 and 16, three
+alternating windows per round, 11 samples and all nine cases. Array throughput
+improves **17.2–35.2% on CPU0** and **32.6–37.1% on CPU16**. The original array
+gate passes **11/12** candidate windows versus **0/12** control windows; native
+and interpreted instruction totals remain identical. Callback and metamethod
+gates still fail every window, and upvalue passes only 10/12 without a consistent
+throughput improvement over the control.
+
+**64 additional feature-cost commands** compare speed/shipping no-feature and
+compiled-Off artifacts against rooted-publication, atomic-admission and the
+older empty-return-copy control, using four rotated windows per core and 11 pairs
+of 20 iterations. Candidate overhead gates fail **34/144 case checks**. A new
+comparative regression persists: speed-profile compiled-Off float time is
+**5.1–11.7% slower** than rooted-publication across all eight comparisons. Shipping
+upvalue overhead remains outside the original limit. One late CPU0 shipping
+control window has broad contention outliers; it remains in the evidence.
+
+Exact-image Callgrind attribution finds identical executed work for the float
+comparison: **20,204,995 instructions** in each image, including **19,642,730**
+inside `run_vm_slice`. Simulated conditional-branch misses rise from 103,284 to
+123,288. This points toward a code-address/predictor effect rather than added
+instruction work, but is not hardware-counter proof or a fix. Per-instruction
+attribution locates 20,001 simulated misses at the integer numeric-loop overflow
+branch (candidate `run_vm_slice + 0x2a34`); both VM functions are 0xde08 bytes.
+No-feature `.text`
+is byte-identical between candidate and rooted-publication in both profiles;
+whole ELF files differ. All symbol companions match the measured allocated bytes
+and program headers.
+
+Evidence is `array-production{,-repeat}-screen/`,
+`array-production-cost/screen-{early,late}/`, and `array-production-off-float/`.
+No owned builds, tests, edits or profiles overlapped timing; other applications
+were left running and their contention telemetry retained. Every aggregate gate
+command still fails overall. **This remains development WIP, not performance or
+release acceptance.** The new float comparison and original callback/metamethod,
+upvalue and compiled-Off requirements remain open.
+
+#### Independent array-kernel translation check
+
+The array compiler now checks the emitted CLIF against the source operations
+before native compilation. The checker independently binds the receiver, loop
+control and operands, scans every block/instruction, and checks budget/exit
+edges, scalar guards, memory offsets, dirty bits, saturated counters and
+integer/mixed-number arithmetic. It does not regenerate the expected function
+with the emitter. Cranelift structural verification remains a separate check
+within this gate.
+
+GNU focused tests pass **32 tests / two suites**, including rejection of
+**3,106 structurally valid mutations** and forged source bindings. The existing
+native execution and Auto differential fixtures still pass. Evidence is
+`array-verifier-final.log` in the short-slice directory; failed development
+runs are retained alongside it. This checkpoint remains test-selected and
+does not establish shipping enablement or performance acceptance.
+
+#### Owned array kernels in the real Auto path — test-selected
+
+`8560749` integrates optional array kernels with `backend::Code` and
+`Runtime::invoke_frame`. The ordinary code lease now owns auxiliary mappings;
+plans/function IDs use the snapshot allocator, bindings use the metadata
+allocator, and the existing provider enforces mapping/protection quotas. Modules
+are destroyed before publication. A second source expansion must fit the combined
+IR instruction/block limits; cumulative kernel size is checked and calls or
+relocations are refused. Optional failure preserves the ordinary native image.
+This follows the existing accounting boundary, **not a complete compiler/RSS
+ledger**. Independent translation validation was added in the later checkpoint
+above.
+
+The runtime releases each window before generic helpers run, consumes only the
+remaining slice budget, merges table/instruction counts, and publishes one exit.
+Projection/deferred caller-shadow paths remain unchanged. A private test switch
+selects this path; **shipping builds do not enable it yet**.
+
+Actual Lua Auto execution of the frozen fill/sum workload reproduces
+**10,001 → 274 helper calls**, with 4,988 direct reads and 4,739 direct writes.
+At executor fuel 0, 1, 17 and 65,536, results, step traces, dispatch/native/
+interpreter counts and table counts match the ordinary path; interpreter step
+traces match too. Collection occurs between steps. `41fdbb9` adds host readonly
+mutation after native execution has begun, and 48 metadata/workspace refusal
+frontiers with no partial owner or retained mapping charges. Alias, callback,
+metatable, weak-table and protected-error fallback cases also pass.
+
+GNU and musl focused gates each pass **29 tests / two suites**. Real i686 fallback
+and Miri each pass **15**; the native-only backend filter correctly runs zero on
+i686. Full baseline + GNU Auto/all-features + doc gates pass **1,865 test
+executions / 178 suites**, with ten ignored. Format and workspace/all-target
+checks pass. Evidence is `array-window-runtime-*` in the short-slice directory.
+
+This is runtime correctness and ownership evidence, **not timing acceptance**.
+Independent translation validation, shipping enablement, platform verification
+and original paired performance/feature-cost gates remain; other original
+workload regressions are not resolved by this checkpoint.
+
+#### Helper-free array loop slices — execution prototype
+
+`01b63d2` generates complete selected loop regions, including direct array
+accesses, scalar moves/constants, integer/mixed-number arithmetic and integer
+loop control. It caps each entry at 64 operations and preserves partial exits,
+terminal counter overflow, visible-index updates and scalar writeback. Fresh
+receiver admission releases the window before returning to generic native code.
+
+The unchanged 5,000-element fill/sum script now runs through the experimental
+kernel-plus-generic bridge. **Every slice's PC, instruction count and exit reason
+matches the ordinary backend**, including budgets 1, 2, 17, 64, 65 and u32::MAX.
+Both paths retain all 5,000 reads, 5,000 writes and the result 12,502,500.
+
+| Slice budget | Ordinary helper calls | Bridged helper calls | Direct reads / writes |
+| --- | ---: | ---: | ---: |
+| 1 | 10,001 | 13 | 5,000 / 4,988 |
+| 2 | 10,001 | 14 | 4,999 / 4,988 |
+| 17 | 10,001 | 51 | 5,000 / 4,950 |
+| 64, 65, u32::MAX | 10,001 | 274 | 4,988 / 4,739 |
+
+Seven source variants also compare generated slices to the existing backend at
+every selected PC, budgets 0–65 and u32::MAX, with positive, negative and zero
+steps. Separate checks cover loop overflow, invalid PCs, scoped pointer use,
+fresh receiver replacement and admission failures. GNU and musl each pass
+**21 focused tests**; Miri and real i686-musl each pass **15**. Formatting and
+workspace/all-target checks pass. Logs are `array-window-kernel-*` under the
+existing short-slice evidence directory, including initial failed builds/runs.
+
+**This was an execution-fixture checkpoint, not production acceptance.** Runtime
+selection and provider-backed ownership have since advanced as described above;
+independent translation validation and shipping enablement remain pending.
+Helper-call reduction is not elapsed-time improvement; the original performance,
+feature-cost and other workload regressions remain unresolved.
+
+#### Bounded native array windows — prototype only
+
+`37457c4` implements scoped mirrors of at most 64 existing array cells, with
+read/write leases, scalar-only access, dirty writeback and unwind cleanup.
+Canonical GC references stay in the table. Readonly reads remain permitted;
+metatables, interception, weak tables, borrow conflicts and invalid bounds
+decline before execution. There is no full-table copy or persistent table cache.
+
+`5efcd2a` adds the defined-layout native descriptor and Cranelift array-access
+lowering. Generated reads/writes execute against the mirror without Rust helper
+calls; 18,144 native/model comparisons per platform cover scalar payloads,
+signed index boundaries, lengths and write permissions. Scoped pointer tests
+also exercise saturating counters, reference replacement, dirty endpoints and
+writeback after the surrounding Rust scope unwinds.
+
+`9bfe818` selects bounded numeric-loop regions from verified bytecode, not script
+text. A region has one stable receiver and loop-index keys; callbacks, branches,
+receiver/control reassignment and unsupported operations retain generic handling.
+Fresh integer control slots and current array length determine the window.
+The frozen array fill/sum script and renamed, negative-step and mixed read/write
+variants are recognized.
+
+Current GNU and musl focused gates each pass **16 tests**; Miri and the real
+i686-musl fallback each pass **13**. Formatting and workspace/all-target checks
+pass. Initial compile errors and a
+test-fixture endpoint overflow remain recorded with the corrected runs under
+`target/jit-evidence/short-slice-performance/array-window-*`.
+
+**This checkpoint was test-selected.** Whole-loop generation and bridge execution
+have since advanced as described above; independent translation verification,
+production Runtime selection and resource accounting remain incomplete. Every
+window must release before generic helpers resume at the resulting PC with the
+remaining slice budget. No production speedup or performance acceptance is
+claimed; the original benchmark and feature-cost gates remain unchanged.
+
 #### Unified VM progress — measured and withdrawn
 
 `0e46696` adds 132 straight-line boundary scenarios with successful Return and

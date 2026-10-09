@@ -636,6 +636,10 @@ pub(crate) struct Manager {
     #[cfg(all(test, not(miri)))]
     scalar_kernels: bool,
     #[cfg(all(test, not(miri)))]
+    array_kernels: bool,
+    #[cfg(all(test, not(miri)))]
+    array_native_counts: (u64, u64),
+    #[cfg(all(test, not(miri)))]
     integer_activations: bool,
     #[cfg(test)]
     scalar_native_counts: (u64, u64),
@@ -706,6 +710,10 @@ impl Default for Manager {
             scalar_leaves: false,
             #[cfg(all(test, not(miri)))]
             scalar_kernels: false,
+            #[cfg(all(test, not(miri)))]
+            array_kernels: false,
+            #[cfg(all(test, not(miri)))]
+            array_native_counts: (0, 0),
             #[cfg(all(test, not(miri)))]
             integer_activations: false,
             #[cfg(test)]
@@ -1296,6 +1304,16 @@ impl Runtime {
     }
 
     #[cfg(all(test, not(miri)))]
+    pub(crate) fn test_array_kernels(&self, enabled: bool) {
+        self.0.borrow_mut().array_kernels = enabled;
+    }
+
+    #[cfg(all(test, not(miri)))]
+    pub(crate) fn test_array_counts(&self) -> (u64, u64) {
+        self.0.borrow().array_native_counts
+    }
+
+    #[cfg(all(test, not(miri)))]
     pub(crate) fn test_scalar_activation_entries(&self) -> u64 {
         self.0.borrow().scalar_activation_entries
     }
@@ -1456,6 +1474,17 @@ impl Runtime {
             let failure = self.0.borrow().memory_failure;
             let compile = || {
                 #[cfg(all(test, not(miri)))]
+                if self.0.borrow().array_kernels {
+                    return backend::array::compile_pair(
+                        &snapshot,
+                        memory.clone(),
+                        limit,
+                        metadata.clone(),
+                        work,
+                        failure,
+                    );
+                }
+                #[cfg(all(test, not(miri)))]
                 if self.activation_limit() > 0 {
                     return backend::compile_continuations_in(
                         &snapshot,
@@ -1501,6 +1530,15 @@ impl Runtime {
                         failure,
                     );
                 }
+                #[cfg(not(any(test, miri)))]
+                return backend::array::compile_pair(
+                    &snapshot,
+                    memory.clone(),
+                    limit,
+                    metadata.clone(),
+                    work,
+                );
+                #[cfg(any(test, miri))]
                 backend::compile_in(
                     &snapshot,
                     memory.clone(),
@@ -1543,7 +1581,7 @@ impl Runtime {
                             manager.metadata.0.set_limit(manager.metadata.0.current());
                         }
                         let reserved = manager.code.try_reserve(1);
-                        #[cfg(all(test, not(miri)))]
+                        #[cfg(not(miri))]
                         let (code, reserved) = if reserved.is_err() {
                             let mut code = code;
                             if code.discard_optional_entries() {
@@ -1569,9 +1607,9 @@ impl Runtime {
                             }
                             _ => {}
                         }
-                        #[cfg(all(test, not(miri)))]
+                        #[cfg(not(miri))]
                         let owner = code.into_shared(manager.metadata.clone());
-                        #[cfg(not(all(test, not(miri))))]
+                        #[cfg(miri)]
                         let owner = owner::Shared::try_new(code, manager.metadata.clone());
                         let code = match owner {
                             Ok(code) => code,
@@ -1894,6 +1932,33 @@ impl Runtime {
             panic: None,
             projection,
         };
+        #[cfg(not(miri))]
+        let array_prefix = if !PROJECTED && !DEFER {
+            code.array_kernels.as_ref().and_then(|kernels| {
+                let scratch = unsafe { std::slice::from_raw_parts_mut(slots, register_count) };
+                kernels.invoke(
+                    ctx,
+                    frame.registers.stack_frame,
+                    scratch,
+                    *frame.registers.pc,
+                    budget,
+                )
+            })
+        } else {
+            None
+        };
+        #[cfg(not(miri))]
+        let budget = if let Some(prefix) = &array_prefix {
+            *frame.registers.pc = prefix.exit.pc as usize;
+            frame.count.table_reads = u64::from(prefix.counts.reads);
+            frame.count.table_writes = u64::from(prefix.counts.writes);
+            budget
+                .min(64)
+                .checked_sub(prefix.exit.instructions)
+                .expect("array kernel exceeded its budget")
+        } else {
+            budget
+        };
         let pc = *frame.registers.pc;
         let projection = if PROJECTED {
             frame
@@ -1932,6 +1997,18 @@ impl Runtime {
         };
         #[cfg(not(test))]
         let exit = unsafe { code.invoke_raw(slots, pc, budget, &mut host) };
+        #[cfg(not(miri))]
+        let exit = if let Some(prefix) = &array_prefix {
+            abi::Exit {
+                instructions: exit
+                    .instructions
+                    .checked_add(prefix.exit.instructions)
+                    .expect("array instruction count overflow"),
+                ..exit
+            }
+        } else {
+            exit
+        };
         let slots = unsafe { std::slice::from_raw_parts(slots, register_count) };
         if !DEFER || frame.panic.is_some() {
             for (slot, dest) in slots
@@ -1991,6 +2068,17 @@ impl Runtime {
                 .saturating_add(u64::from(delta.writes));
         }
         let mut manager = self.0.borrow_mut();
+        #[cfg(all(test, not(miri)))]
+        if let Some(prefix) = array_prefix {
+            manager.array_native_counts.0 = manager
+                .array_native_counts
+                .0
+                .saturating_add(u64::from(prefix.counts.reads));
+            manager.array_native_counts.1 = manager
+                .array_native_counts
+                .1
+                .saturating_add(u64::from(prefix.counts.writes));
+        }
         #[cfg(test)]
         if let Some(delta) = scalar_delta {
             manager.scalar_native_counts.0 = manager
@@ -2990,6 +3078,16 @@ mod eviction_tests {
 }
 
 pub(crate) mod projection;
+
+#[cfg(any(
+    test,
+    all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )
+))]
+mod array_window;
 
 #[cfg(all(
     not(miri),
