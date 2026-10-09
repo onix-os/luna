@@ -347,6 +347,14 @@ jit-reference:
 jit-accounting: jit-stats
 	@$(CARGO) test --locked -p luna --features jit --test fuel_reference $(TARGET_ARG) $(ARGS)
 
+.PHONY: jit-atomic-stats jit-atomic-stats-miri
+jit-atomic-stats:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::atomic_stats::tests $(ARGS)
+	@$(MAKE) --no-print-directory jit-atomic-call jit-rooted-call jit-accounting
+
+jit-atomic-stats-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::atomic_stats::tests -- --test-threads=1
+
 .PHONY: jit-chain
 jit-chain:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::chains:: $(ARGS)
@@ -1163,7 +1171,15 @@ jit-set-list:
 jit-vm-dispatch:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::dispatch::tests
 
-.PHONY: vm-constants vm-constants-miri
+.PHONY: vm-constant-add vm-constant-add-miri vm-constants vm-constants-miri
+vm-constant-add:
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::vm::constant_add::tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::constant_add::tests
+	@$(MAKE) --no-print-directory vm-constants numeric-conversions
+
+vm-constant-add-miri:
+	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' thread::vm::constant_add::tests -- --test-threads=1
+
 vm-constants:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::vm::constants::tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::constants::tests

@@ -14,6 +14,8 @@ use crate::{
 use super::{thread::LuaFrame, VMError};
 
 #[cfg(test)]
+mod constant_add;
+#[cfg(test)]
 mod constants;
 mod dispatch;
 

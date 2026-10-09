@@ -11,6 +11,138 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Same-boundary atomic statistics — measured and withdrawn
+
+`4bf2084` adds a test-only combined atomic-call statistics publisher and **184
+whole-stat differential states**: 56 independent/joint saturation configurations
+and 128 independently seeded counter configurations. The reference executes the
+original two InterpreterStats guard/drop updates and native exit publication.
+`make jit-atomic-stats` includes atomic/rooted/accounting gates;
+`make jit-atomic-stats-miri` exercises the pure model.
+
+`deb1d88` uses that publisher only after successful physical/rooted atomic calls.
+It combines three manager borrows at the same existing observation boundary:
+dispatches +5, interpreted slices +2, native entries +1, native instructions +3,
+native interpreter exits +1 and upvalue reads/writes +1, all saturating. It does
+not defer across slices/callbacks or introduce a counter board, allocation, cache,
+new owner state, unsafe code or an interpreter-loop change. This differs from
+the earlier rejected global statistics batching experiments.
+
+Exact native upvalue instructions fall **169,889,071 → 168,206,368** (about 1%).
+The new publisher remains out of line in this image. Shipping/speed compiled-Off
+integer, float and callback profiles retain identical instructions, loads and
+stores. No-feature files differ by 63 speed / 69 shipping bytes, although their
+extracted `.text` sections are byte-identical; whole-file identity is not claimed.
+
+Repeated timing rejects the production change. Two native rounds and two
+four-way cost rounds complete **152 aggregate commands, all failing** unchanged
+gates. All **216 native non-timing pairs** match. Controls remain rooted-publication,
+pre-regression atomic-admission and historical empty-return-copy. CPU0/16,
+eleven samples, three native windows, four rotating cost windows and twenty cost
+iterations are retained; four-window medians average the middle pair. Owned
+tests/builds/profiles terminate before timing and source/image manifests verify.
+
+Control-time / candidate-time ratios, initial / repeat versus rooted-publication:
+
+| Case | Profile / CPU | Ratio |
+| --- | --- | --- |
+| Native upvalue | speed / 0 | 1.032789 / 1.027472 |
+| Native upvalue | speed / 16 | 1.046450 / 1.013881 |
+| Compiled-Off integer | shipping / 0 | 0.873540 / 0.878880 |
+| Compiled-Off integer | shipping / 16 | 0.928972 / 0.929884 |
+| Compiled-Off float | shipping / 0 | 0.932105 / 0.931080 |
+| Compiled-Off float | shipping / 16 | 0.934098 / 0.935277 |
+
+Shipping CPU0 float is **0.803538 / 0.803369** versus atomic-admission, so the
+existing regression is worsened, not fixed. All twelve candidate upvalue gates
+pass, but modest native gains do not justify the new shipping losses. Individual
+cost failures are **candidate46/control48/prior50/historical52 of 288 each**;
+a lower failed-case count does not erase worse absolute performance.
+
+Post-timing exact-image disassembly finds shipping `run_vm_slice` moved from
+**0x396b36 to 0x396b46**. Its **8,681 normalized instruction lines match** after
+removing comments/raw addresses and normalizing direct branch addresses and
+RIP-relative displacements. This is not byte-identical code, proof of identical
+data references, or a hardware/cache/predictor diagnosis. Both raw and normalized
+disassemblies remain under `atomic-stats-assembly/{control,candidate}`.
+
+Candidate checking/focused validation passes **62 executions / 13 suites**;
+all-feature Auto passes **1,402 / 88**, six ignored. Miri passes one pure test,
+26 warnings. Native Memcheck passes **44 canonical tests**, zero errors and zero
+definite/indirect leaks, with the usual 48 possibly-lost/632 reachable harness
+bytes. Withdrawal passes formatting, GNU checking and the same **62 / 13**
+focused checks. These correctness checks do not establish performance acceptance.
+
+Production publication is restored; the independent saturation model remains.
+All images, profiles, repeated timings and all-case summaries are retained under
+`target/jit-evidence/short-slice-performance/atomic-stats*`. Rooted-publication
+remains development WIP, with shipping and broader acceptance failures unresolved.
+
+#### Fused constant addition — profiled, measured and withdrawn
+
+`01bc099` adds a test-only Value/Constant addition differential with **2,303
+operand pairs**, including numeric boundaries, signed zero, NaN categories,
+strings/coercions, errors and deferred metamethod function/argument identity.
+An independent bounded GC fixture checks constant and register RHS bytecodes,
+wrapping, exact large integers, mixed numbers, coercion and both metamethod operand
+orders. `make vm-constant-add` and `make vm-constant-add-miri` retain these tests;
+the integration is also included in `make vm-constants-memcheck`.
+
+The first production trial consumes constant operands directly in Add, avoiding
+intermediate Value construction. Its exact shipping float instruction count
+falls **20,842,780 → 19,842,725**, but integer work grows
+**19,540,720 → 22,540,690**. Function attribution finds **3,900,000** instructions
+newly executed out of line in canonical `meta_ops::add`; register addition was
+previously inlined. No acceptance timing was run for that variant. Explicitly
+inlining canonical add repairs most of that work regression: shipping integer
+becomes **19,640,690**, speed integer **18,803,025 → 19,103,025**. Speed float
+falls **20,204,995 → 19,304,995**. This refinement was committed as `95321a4`.
+
+Actual repeated timing nevertheless rejects the refinement. Two native rounds
+and two four-way cost rounds complete **152 aggregate commands: 146 fail, six
+pass** unchanged gates. All **216 native non-timing pairs** match. CPU0/16,
+eleven samples, three native windows and four rotating cost windows are retained;
+cost iterations are twenty and four-window summaries average the middle pair.
+Owned builds/tests/profiles terminate before timing; source/image manifests and
+exact symbol companions verify. Both feature and no-feature executables change.
+
+Ratios are control time / candidate time, initial / repeat:
+
+| Case | Profile / CPU | Versus rooted-publication | Versus atomic-admission |
+| --- | --- | --- | --- |
+| Compiled-Off integer | speed / 0 | 0.523302 / 0.528812 | 0.531071 / 0.531738 |
+| Compiled-Off integer | shipping / 0 | 0.564310 / 0.577839 | 0.554009 / 0.565434 |
+| Compiled-Off float | speed / 0 | 0.801458 / 0.801122 | 0.852820 / 0.852394 |
+| Compiled-Off float | shipping / 0 | 0.917922 / 0.966425 | 0.792706 / 0.828218 |
+| Compiled-Off integer | speed / 16 | 0.790948 / 0.799664 | 0.839990 / 0.835865 |
+| Compiled-Off float | shipping / 16 | 1.038511 / 1.020983 | 1.057471 / 1.032161 |
+
+No-feature speed CPU0 integer also falls to **0.544378 / 0.541218**, and float
+to **0.793019 / 0.793437**. Native table throughput falls on CPU0
+**0.980701 / 0.933541** and CPU16 **0.965064 / 0.971347**. Native upvalue gains
+are only CPU0 **1.026410 / 1.015288**, CPU16 **1.025511 / 1.008801**; all twelve
+interpreter-relative upvalue windows pass, but that does not erase the broader
+regressions. Individual cost failures are **candidate72/control50/prior57/
+historical50 of 288 each**. Instruction reductions are not timing acceptance or
+proof of a physical hardware cause.
+
+Initial full/focused validation passes **1,974 executions / 197 suites**, eight
+ignored. Refined checking/focused/all-feature Auto passes **1,553 / 110**, six
+ignored. Miri passes the pure model; both initial and refined native Memcheck
+pass two GC fixtures in Off/Auto/Force with zero errors and zero definite/indirect
+leaks. The usual harness residuals remain. These test counts overlap and are not
+distinct-test totals. Correctness does not justify keeping the slower runtime.
+
+Production constant-add dispatch and the canonical-add annotation are withdrawn;
+the independent tests remain. Evidence, including the untimed first profile and
+the all-case timing JSON, is under
+`target/jit-evidence/short-slice-performance/constant-add*`. Do not repeat this
+operand-branching approach on the strength of fewer float instructions. The
+retained rooted-publication runtime and its open acceptance failures are unchanged.
+Withdrawal passes formatting, GNU checking and **152 focused executions / 22
+suites**. Production VM and canonical arithmetic sources match the pre-trial
+`01bc099` version; these checks are not new benchmark measurements.
+
 #### Numeric constant materialization — measured and withdrawn
 
 `b10afc8` adds an independent constant conversion model; `9eb08ef` adds a
