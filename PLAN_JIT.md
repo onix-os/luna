@@ -11,6 +11,98 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### String-key identity shortcut — measured and withdrawn
+
+`d9c2949` adds baseline-tested string-probe coverage for aliases, distinct equal
+allocations, owned buffers, empty/short/long content, weak-key conversion,
+deletion and reinsertion. Trial `005848c` checks live string-key GC identity
+before decoding buffers, retaining content comparison on identity misses.
+No unsafe code, hash policy, roots, native coverage or public API changes.
+
+Focused GNU passes **29 / five suites**, musl **25 / three**, Miri **eight
+executions**, and full baseline/GNU Auto/docs **1,832 / 175**, eight ignored.
+Exact-image callback instructions fall **134,947,991 → 133,193,072** and
+metamethod instructions **81,060,081 → 79,993,028** (about 1.3% each).
+Upvalue instructions rise slightly; allocation and disabled integer/float
+instructions in both profiles are unchanged. Fewer instructions are not a
+throughput result.
+
+An early screen and two complete repeated comparisons finish **196 aggregate
+commands: 190 fail, six pass**. All **324 native non-timing pairs match**;
+pre/post source and artifact checks verify. Original thresholds, nine cases,
+CPU0/16, eleven samples, twenty cost iterations and WIP/pre-regression/historical
+controls remain. No owned builds/tests/profiles overlap timing; unrelated host
+work continues. The noisy initial screen is retained, not discarded.
+
+In the two full rounds, disabled speed float CPU16 control/candidate ratios
+are **0.962878 / 0.967395**; native metamethod CPU16 **0.932378 / 0.968286**.
+Shipping CPU0 float improves **1.123897 / 1.126928** against WIP, but still
+trails atomic-admission (**0.975368 / 0.974314**). Shipping CPU0 callbacks gain
+**1.030184 / 1.040632**; native CPU0 callbacks remain **0.980912 / 0.993414**.
+Cost failures total candidate51/control63/prior68/historical55 of 360 each.
+Across-window medians average the middle two for four-window cost runs.
+
+Withdraw the runtime shortcut: its reduced instruction work and local wins do
+not compensate for repeated regressions. `b314091` restores the runtime;
+withdrawal GNU/musl checks pass **54 executions / eight suites** and Miri
+passes **eight executions**. Keep the tests, frozen images and
+all raw evidence under `target/jit-evidence/short-slice-performance/string-probe*`.
+The retained runtime is unchanged by this trial; full performance remains open.
+
+#### Interpreter instantiation and dispatch — measured and withdrawn
+
+`5edb405` covers closure-cell sharing, independent outer slots, fresh local
+captures, partial capture state on invalid environment descriptors, PC and fuel.
+`0ade243` outlines this allocation/traversal from the main VM. GNU focused/full
+Auto/baseline/docs pass **1,887 executions / 184 suites**, eight ignored; musl
+focused passes **59 / 9**, and four pure Miri executions pass.
+
+The native VM shrinks **0xdd7d → 0xcf7b bytes**, with its prologue reservation
+**0x668 → 0x638**. All four cost VMs also shrink, but shipping feature stack
+reservation remains **0x708**. Smaller code does not establish faster execution:
+two full native/four-way cost rounds complete **152 failed aggregate commands**,
+with unchanged non-timing fields in **216 native pairs**. CPU0 speed Off float
+ratios are **0.877616 / 0.876829**, shipping integer **0.848492 / 0.847666** and
+shipping float **0.902326 / 0.903538**, control time / candidate time. Native
+table also slows on both CPUs. Cost failures are candidate83/control55/prior59/
+historical54 of 288 each. This first variant is not accepted.
+
+Exact-image attribution finds an extra indirect jump at the inactive hook/JIT
+dispatch, executed **200,070 times** in the shipping float profile, before the
+ordinary opcode jump. VM self instructions grow **19,995,745 → 20,405,260**.
+This observed lowering difference does not prove the entire timing slowdown's cause.
+
+`f8e2c3a` adds a portable dispatch-storage guard and Make/Miri coverage.
+`16bb4d1` tests an outlying private JIT-enabled Interpreted discriminant, retaining
+the original no-feature enum. It also removes the draft's unused import.
+Hook/observation/lease selection and all runtime/public/value-layout contracts
+remain unchanged. Corrected focused GNU checks pass **113 / 17**, nine Miri
+executions pass, and state sizes are **1 byte without JIT / 16 bytes with JIT**.
+An initial launcher omitted Cargo's argument separator; those failed logs remain.
+
+The sparse refinement removes those **200,070 indirect jumps**, but substitutes
+two comparisons for the original single inactive-state test. Shipping float
+instructions remain **21,255,450**, above the original **20,842,780**. Its two
+no-feature executables are byte-identical to the outlined trial, not to production.
+
+The full-nine-case early screen completes **44 failed aggregate commands** and
+**108 matching native non-timing pairs**. CPU0 speed Off integer/float ratios
+are **0.887457 / 0.917225**, and shipping integer **0.935082**, versus WIP.
+CPU16 speed integer/float are **0.944075 / 0.920046**. Shipping CPU0 float gains
+**1.096997** against WIP, but remains **0.946706** against atomic-admission.
+Cost failures are candidate20/control14/prior13/historical15 of 72 each.
+Two-window medians average both values. Original table/metamethod/callback gates
+still fail. This rejects the refinement early; no complete repeated sparse-tag
+campaign or broad/platform acceptance is claimed.
+
+Both production changes are withdrawn; the instantiation model and dispatch
+storage tests remain. Withdrawal verification passes **178 executions / 28
+GNU and musl suites** and **nine Miri executions**. The production VM source
+matches `5edb405`; `258053d` records the withdrawal. Evidence is under
+`target/jit-evidence/short-slice-performance/vm-instantiation*` and `sparse-dispatch*`.
+Neither reduced VM size nor changed branch lowering fixes the remaining gates.
+All original performance gates remain open; this is not release acceptance.
+
 #### Direct integer capture — measured and withdrawn
 
 `93e2496` adds independent capture-admission comparisons against the original

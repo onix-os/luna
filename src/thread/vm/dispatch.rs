@@ -37,6 +37,17 @@ mod tests {
     use super::Dispatch;
 
     #[test]
+    fn storage_stays_within_tagged_counter_payload() {
+        let bound = if cfg!(feature = "jit") { 16 } else { 1 };
+        assert!(std::mem::size_of::<Dispatch>() <= bound);
+        eprintln!(
+            "dispatch_size={} dispatch_alignment={}",
+            std::mem::size_of::<Dispatch>(),
+            std::mem::align_of::<Dispatch>()
+        );
+    }
+
+    #[test]
     fn hook_choice_preserves_plain_interpreter_dispatch() {
         assert!(matches!(
             Dispatch::interpreted(false),
