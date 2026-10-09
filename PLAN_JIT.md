@@ -11,6 +11,50 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Fixed aligned VM placement — measured and withdrawn
+
+Fresh disabled-JIT profiles reconstruct all eight control/candidate cost images
+from the rejected typed table-loop trial byte-for-byte. Integer and float
+instruction/read/write/branch counts match in both profiles, as do individual
+function instruction counts. Shipping table also matches; the small speed-table
+and shipping-upvalue differences are outside Luna's interpreter work. These
+results do not dismiss the timing regressions or prove a hardware cause.
+
+A subsequent Linux x86_64 trial places `run_vm_slice` in a separate `.luna.vm`
+executable section with one fixed 4096-byte alignment. Unlike the earlier
+ineffective `.text.hot` trial, ELF/symbol checks confirm actual aligned VM starts
+at `0x68f000` (native), `0x699000` (speed cost) and `0x445000` (shipping cost).
+Each section is wholly in one readable/executable, non-writable load segment;
+no load segment is writable/executable. Both no-feature images omit it.
+
+Formatting/all-feature checks and Auto tests pass **1,378 executions / 86 suites**,
+six ignored, zero failures. Exact allocated-image symbol checks and five native
+profiles precede all timing. Two native and two speed/shipping comparisons use
+three alternating windows on CPU0/16, eleven samples and matched hardlink paths.
+All **72 aggregate commands fail** the unchanged gates. Every non-timing field
+matches in **216 native case pairs**, and artifact/source hashes verify.
+
+Native integer/float gates still pass all twelve windows (2.70–3.52x and
+3.07–3.63x), but table/upvalue/metamethod/callback gates pass none. Direct
+control/candidate disabled-speed float ratios on CPU0 are **0.929301 / 0.957355**;
+shipping upvalue ratios are **0.963405 / 0.978420**. Speed integer improves
+there (**1.022052 / 1.036119**), but feature-cost failures increase from
+**45 to 56 of 216 cases**. This is not an acceptable performance fix.
+
+The candidate's no-feature executables are not byte-identical to controls:
+`.text` and every other file-backed allocated section match except `.data.rel.ro`.
+Matched rebuilt no-feature controls are retained rather than claiming full-ELF
+identity. The first timing launcher fails before any measurement because the
+cost build cleaned the shared release directory; its log is retained. The
+corrected launcher consumes the already frozen native image directly.
+
+The section directives are removed; production source again matches `8fc4886`.
+No offset search, relaxed threshold, reduced native work or unrelated workload
+interruption was used. Evidence, patches, profiles, all windows and the complete
+summary are under `target/jit-evidence/short-slice-performance/aligned-vm-section*`;
+fresh attribution is under `off-isolation-current/`. This placement mechanism
+does not fix the remaining helper/call-boundary costs; acceptance remains open.
+
 #### Typed table-store loops — implemented, measured, withdrawn
 
 `f820b63` checkpoints a test-selected compiler prototype that carries numeric

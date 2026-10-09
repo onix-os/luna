@@ -33,6 +33,12 @@ but failed the table target and regressed compiled-Off execution. Production
 keeps the earlier numeric tier; `make jit-table-loop` retains integrated
 fuel/GC/metamethod regression coverage. Full results are in `PLAN_JIT.md`.
 
+A fixed page-aligned interpreter-section trial was also measured and withdrawn.
+Actual ELF placement changed, but repeated disabled-float/upvalue regressions
+outweighed isolated gains; helper-heavy native targets still failed. Production
+has no custom VM section. The unchanged gates and complete results remain in
+`PLAN_JIT.md`; passing correctness tests does not establish performance acceptance.
+
 Two subsequent exact-ordering optimizations were tested and rejected for
 performance regressions before these typed-loop changes. At that checkpoint
 the runtime remained the lazy-limit version below, and all five rebuilt
