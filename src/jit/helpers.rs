@@ -10,6 +10,8 @@ use super::{
     projection,
 };
 
+pub(super) mod table_cache;
+
 #[cfg(test)]
 mod set_list_tests;
 
@@ -53,6 +55,7 @@ pub(super) struct Frame<'gc, 'a, 'b, 'p> {
     pub closure: Closure<'gc>,
     pub registers: &'a mut LuaRegisters<'gc, 'b>,
     pub count: Counts,
+    pub table_cache: table_cache::Cache<'gc>,
     pub slot_count: usize,
     pub panic: Option<Box<dyn Any + Send>>,
     pub projection: Option<&'p mut dyn projection::Bridge<'gc>>,
@@ -94,6 +97,11 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
         let Value::Table(table) = table else {
             return false;
         };
+        if let Some(value) = self.table_cache.read(self.ctx, table, key) {
+            self.store(slots, dest, value);
+            self.count.table_reads += 1;
+            return true;
+        }
         let value = table.get_raw(&self.ctx, key);
         if value.is_nil()
             && table
@@ -111,6 +119,10 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
         let Value::Table(table) = table else {
             return false;
         };
+        if let Some(completed) = self.table_cache.write(self.ctx, table, key, value) {
+            self.count.table_writes += u64::from(completed);
+            return completed;
+        }
         if table.is_readonly()
             || matches!(key, Value::Nil)
             || matches!(key, Value::Number(value) if value.is_nan())
@@ -131,6 +143,15 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
     }
 
     fn operation<const KIND: u32>(&mut self, slots: &mut [Slot], a: u32, b: u32, c: u32) -> bool {
+        if !matches!(
+            KIND,
+            abi::HELPER_GET_TABLE
+                | abi::HELPER_SET_TABLE
+                | abi::HELPER_GET_UP_TABLE
+                | abi::HELPER_SET_UP_TABLE
+        ) {
+            self.table_cache.clear();
+        }
         match KIND {
             abi::HELPER_MOVE => {
                 self.store(slots, a, self.register(slots, b));
@@ -276,10 +297,12 @@ pub(super) unsafe extern "C" fn call<const KIND: u32>(
             abi::HELPER_COMPLETED
         }
         Ok(_) => {
+            frame.table_cache.clear();
             frame.count.declined += 1;
             abi::HELPER_DECLINED
         }
         Err(payload) => {
+            frame.table_cache.clear();
             let slots = unsafe { std::slice::from_raw_parts_mut(slots, frame.slot_count) };
             for (slot, dest) in slots
                 .iter()
@@ -369,6 +392,7 @@ mod tests {
                         closure,
                         registers: &mut registers,
                         count: Counts::default(),
+                        table_cache: Default::default(),
                         slot_count: 4,
                         projection: None,
                         panic: None,
@@ -465,6 +489,7 @@ mod tests {
                     closure,
                     registers: &mut registers,
                     count: Counts::default(),
+                    table_cache: Default::default(),
                     slot_count: 2,
                     projection: None,
                     panic: None,
@@ -528,6 +553,7 @@ mod tests {
                     closure,
                     registers: &mut registers,
                     count: Counts::default(),
+                    table_cache: Default::default(),
                     slot_count: 3,
                     projection: None,
                     panic: None,
@@ -595,6 +621,7 @@ mod tests {
                     closure,
                     registers: &mut registers,
                     count: Counts::default(),
+                    table_cache: Default::default(),
                     slot_count: 2,
                     projection: None,
                     panic: None,
@@ -649,6 +676,7 @@ mod tests {
                     closure,
                     registers: &mut registers,
                     count: Counts::default(),
+                    table_cache: Default::default(),
 slot_count: slots.len(),
                     projection: None,
                     panic: None,
@@ -717,6 +745,7 @@ slot_count: slots.len(),
                     closure,
                     registers: &mut registers,
                     count: Counts::default(),
+                    table_cache: Default::default(),
                     slot_count: 8,
                     projection: None,
                     panic: None,
@@ -789,6 +818,7 @@ slot_count: slots.len(),
                         closure,
                         registers: &mut registers,
                         count: Counts::default(),
+                        table_cache: Default::default(),
                         slot_count: slots.len(),
                         projection: None,
                         panic: None,
@@ -868,6 +898,7 @@ slot_count: slots.len(),
                                         closure,
                                         registers: &mut registers,
                                         count: Counts::default(),
+                                        table_cache: Default::default(),
                                         slot_count: slots.len(),
                                         projection: None,
                                         panic: None,
@@ -946,6 +977,7 @@ slot_count: slots.len(),
                         closure,
                         registers: &mut registers,
                         count: Counts::default(),
+                        table_cache: Default::default(),
                         slot_count: slots.len(),
                         projection: None,
                         panic: None,

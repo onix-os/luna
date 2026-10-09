@@ -106,6 +106,7 @@ fn integer_helper_reads_keep_pending_keys_aliases_and_miss_semantics() {
                         closure,
                         registers: &mut registers,
                         count: Counts::default(),
+                        table_cache: Default::default(),
                         slot_count: slots.len(),
                         panic: None,
                         projection: None,

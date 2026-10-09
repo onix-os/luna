@@ -634,6 +634,7 @@ mod tests {
                                         closure,
                                         registers: &mut registers,
                                         count: helpers::Counts::default(),
+                                        table_cache: Default::default(),
                                         slot_count: slots.len(),
                                         panic: None,
                                         projection: None,
