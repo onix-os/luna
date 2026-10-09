@@ -103,6 +103,11 @@ table-access:
 	@$(CARGO) test --locked -p luna --lib $(TARGET_ARG) table::raw::access_tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) table::raw::access_tests
 
+.PHONY: metamethod-keys
+metamethod-keys:
+	@$(CARGO) test --locked -p luna --no-default-features --test metamethod_keys $(TARGET_ARG)
+	@$(CARGO) test --locked -p luna --features jit --test metamethod_keys $(TARGET_ARG)
+
 ci-check:
 	@$(ACTIONLINT) .github/workflows/tests.yml
 
