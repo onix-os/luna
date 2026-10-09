@@ -20,6 +20,8 @@ mod constants;
 mod dispatch;
 #[cfg(test)]
 mod instantiate;
+#[cfg(all(test, feature = "jit"))]
+mod progress;
 
 // Runs the VM for the given number of instructions or until the current LuaFrame may have been
 // changed.

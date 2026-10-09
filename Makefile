@@ -762,6 +762,7 @@ jit-test-modes:
 
 .PHONY: jit-stats
 jit-stats:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::progress::tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::stats_tests
 	@$(CARGO) test --locked -p luna --features jit --test jit_dispatches $(TARGET_ARG)
 	@$(CARGO) test --locked -p luna --features jit --test jit_fallback $(TARGET_ARG)
@@ -776,6 +777,7 @@ jit-caller-shadow-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::caller_shadow:: -- --test-threads=1
 
 jit-stats-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::vm::progress::tests -- --test-threads=1
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::stats_tests -- --test-threads=1
 
 .PHONY: stdlib-portability jit-fallback
