@@ -758,6 +758,13 @@ jit-gc-requests:
 jit-abi:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests
 
+.PHONY: jit-import-bits jit-import-bits-miri
+jit-import-bits:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests::scalar_import_preserves_generated_payload_bits -- --exact
+
+jit-import-bits-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::tests::scalar_import_preserves_generated_payload_bits -- --exact --test-threads=1
+
 .PHONY: jit-rooted-moves
 jit-rooted-moves:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::roots::tests $(ARGS)
