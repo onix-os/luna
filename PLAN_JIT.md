@@ -11,6 +11,42 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Typed projection capability — trial started 2026-10-10
+
+Production compilation has no projected-mode constructor: the only true
+selection is the existing `cfg(test)` projected compiler. The preceding
+outlining trial is withdrawn. A distinct representation trial replaces the
+general boolean with a one-byte `ProjectionMode`: production has only Canonical,
+while tests retain Projected and all existing real native projected-path checks.
+The helper-count selection preserves the original boolean truth table. There is
+no unsafe enum construction, explicit branch deletion, new ABI, skipped register
+import or extension of a live-code lease. Compile-time assertions preserve the
+boolean field's size/alignment; actual resource accounting is measured separately.
+
+Independent mode models pass three checks each on GNU, musl and both Miri alias
+models before integration (`0ca2e3d`). Fresh native and speed/shipping controls
+are built at that test-only baseline. Integrated formatting/check-all and 48
+focused GNU checks pass; full GNU Force passes 1,487 executions/88 summaries/six
+ignored, musl 48 and each changed-mode Miri model three. This does not claim a
+new run of the unchanged projection IR mutation suite under Miri or complete
+platform/release certification.
+
+Exact native assembly reduces the seven-register stack reservation from 2,088
+to 312 bytes, excluding saved registers. The benchmark executable shrinks from
+7,135,728 to 7,000,736 bytes. Fourteen exact-image profiles verify allocated bytes,
+section metadata and program headers for both fresh control and candidate.
+All seven complete non-timing benchmark records match, including resource peaks.
+Callback instructions fall 0.58125% (invocation self falls 713,339), integer
+0.50940%, float 0.49103%, metamethod 0.26833%, array 0.14973% and allocation
+0.06083%. Upvalue instead rises 0.05411%, including 104,568 additional admission
+instructions; its cause is not yet established for this candidate. Anonymous
+address totals match, but raw address-labeled functions relocate and are not
+individually equated by name. Other named-function deltas remain in the evidence.
+
+This is a **provisional representation/footprint improvement, not elapsed-speed
+acceptance**. Unchanged native and speed/shipping cost gates still govern
+retention. Evidence: `target/jit-evidence/short-slice-performance/projection-mode-*`.
+
 #### Projection bridge outlining — measured and withdrawn
 
 A one-attribute trial kept `projection::with_frame` out of ordinary invocation

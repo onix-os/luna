@@ -327,7 +327,7 @@ mod tests {
                     backend::Failure::None,
                 )
                 .unwrap();
-                assert!(!code.projected_upvalues);
+                assert!(!code.projected_upvalues.enabled());
                 for budget in [0, 1, 2, 3, 64] {
                     let mut canonical = vec![Value::Nil; code.registers];
                     canonical[0] = Value::Integer(2);
@@ -467,7 +467,7 @@ mod tests {
                     backend::Failure::None,
                 )
                 .unwrap();
-                assert!(!code.projected_upvalues);
+                assert!(!code.projected_upvalues.enabled());
                 for entry in 0..=3 {
                     for budget in [0, 1, 2, 3, 64, u32::MAX] {
                         for current in [false, true] {
@@ -1145,7 +1145,7 @@ mod tests {
                     backend::Failure::None,
                 )
                 .unwrap();
-                assert!(!ordinary.projected_upvalues);
+                assert!(!ordinary.projected_upvalues.enabled());
                 drop((ordinary, peer));
                 assert_eq!(total.load(Ordering::Relaxed), 0);
                 assert_eq!(metadata_ledger.current(), 0);

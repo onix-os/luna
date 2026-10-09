@@ -45,7 +45,7 @@ fn compile_source(source: &Snapshot, failure: Failure) -> Result<Code, JitError>
         BudgetAllocator(Ledger::child(2 * 1024 * 1024, root)),
         super::super::work::Limits::from(&super::super::JitConfig::default()),
         Selection {
-            projected: false,
+            projected: ProjectionMode::Canonical,
             scoped_helpers: true,
             leaf: false,
             cell_kernel: false,

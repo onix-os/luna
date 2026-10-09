@@ -24,6 +24,7 @@ use super::{
     JitError,
 };
 use crate::opcode::{Operation, RCIndex};
+use projection_mode::ProjectionMode;
 
 #[cfg(not(miri))]
 pub(super) mod calls;
@@ -32,7 +33,6 @@ pub(super) mod compact;
 #[cfg(test)]
 mod exit_transport;
 mod integer_loop;
-#[cfg(test)]
 mod projection_mode;
 #[cfg(test)]
 mod read_cache;
@@ -215,7 +215,7 @@ pub(super) struct Code {
     pub(super) relocations: usize,
     pub registers: usize,
     pub entries: BudgetVec<bool, BudgetAllocator>,
-    pub projected_upvalues: bool,
+    pub projected_upvalues: ProjectionMode,
     #[cfg(test)]
     pub continuations: Option<super::continuations::Continuations>,
     #[cfg(test)]
@@ -465,7 +465,7 @@ pub(super) fn compile_in(
         metadata,
         work,
         Selection {
-            projected: false,
+            projected: ProjectionMode::Canonical,
             #[cfg(not(miri))]
             scoped_helpers: false,
             #[cfg(test)]
@@ -496,7 +496,7 @@ pub(super) fn compile_projected_in(
         metadata,
         work,
         Selection {
-            projected: true,
+            projected: ProjectionMode::Projected,
             #[cfg(not(miri))]
             scoped_helpers: false,
             leaf: false,
@@ -523,7 +523,7 @@ pub(super) fn compile_leaf_in(
         metadata,
         work,
         Selection {
-            projected: false,
+            projected: ProjectionMode::Canonical,
             #[cfg(not(miri))]
             scoped_helpers: false,
             leaf: true,
@@ -550,7 +550,7 @@ pub(super) fn compile_leaf_kernel_in(
         metadata,
         work,
         Selection {
-            projected: false,
+            projected: ProjectionMode::Canonical,
             scoped_helpers: false,
             leaf: true,
             cell_kernel: true,
@@ -622,7 +622,7 @@ fn compile_leaf_pair_selected(
             metadata.clone(),
             remaining,
             Selection {
-                projected: false,
+                projected: ProjectionMode::Canonical,
                 scoped_helpers: false,
                 leaf: true,
                 cell_kernel: true,
@@ -652,7 +652,7 @@ fn compile_leaf_pair_selected(
 }
 
 struct Selection {
-    projected: bool,
+    projected: ProjectionMode,
     #[cfg(not(miri))]
     scoped_helpers: bool,
     #[cfg(test)]
@@ -681,7 +681,7 @@ pub(super) fn compile_scoped_in(
         metadata,
         work,
         Selection {
-            projected: false,
+            projected: ProjectionMode::Canonical,
             scoped_helpers: true,
             #[cfg(test)]
             leaf: false,
@@ -823,9 +823,9 @@ fn compile_selected_rooted(
     let helper_returns = [types::I32];
     let projected_kinds = [abi::HELPER_GET_UPVALUE, abi::HELPER_SET_UPVALUE].map(|kind| {
         #[cfg(test)]
-        let selected = selection.projected || leaf_pattern.is_some();
+        let selected = selection.projected.enabled() || leaf_pattern.is_some();
         #[cfg(not(test))]
-        let selected = selection.projected;
+        let selected = selection.projected.enabled();
         selected
             && snapshot.operations.iter().any(|operation| {
                 matches!(
@@ -1635,7 +1635,7 @@ fn compile_selected_rooted(
         relocations,
         registers: snapshot.registers,
         entries,
-        projected_upvalues: selection.projected && projection_count != 0,
+        projected_upvalues: selection.projected.with_helpers(projection_count),
         #[cfg(test)]
         continuations: None,
         #[cfg(test)]

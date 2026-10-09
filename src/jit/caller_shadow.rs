@@ -102,7 +102,7 @@ impl<'gc, const N: usize> Shadow<'gc, N> {
             let code = &prepared.code;
             if !self.matches(closure, &registers)
                 || code.registers != self.count
-                || code.projected_upvalues
+                || code.projected_upvalues.enabled()
                 || code.scalar_leaf.is_some()
                 || !code.entries.get(*registers.pc).copied().unwrap_or(false)
             {
