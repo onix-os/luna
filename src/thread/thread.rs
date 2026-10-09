@@ -323,6 +323,11 @@ pub struct OpenUpValue<'gc> {
 impl<'gc> OpenUpValue<'gc> {
     const UPGRADE_ERR: &'static str = "thread not finalized: upvalues not closed";
 
+    #[cfg(all(test, feature = "jit"))]
+    pub(super) fn index_in(self, stack: Gc<'gc, RefLock<StackVec<'gc>>>) -> Option<usize> {
+        (self.stack.as_ptr() == Gc::as_ptr(stack)).then_some(self.stack_index)
+    }
+
     // Locks the stack alone. The executor may be holding the thread's frames borrowed while a
     // native runs; that no longer has anything to do with reaching this slot.
     pub fn get(self, mc: &Mutation<'gc>) -> Value<'gc> {

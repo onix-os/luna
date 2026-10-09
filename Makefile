@@ -410,6 +410,14 @@ jit-call-canonical:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical::tests $(ARGS)
 
 .PHONY: jit-atomic-call
+.PHONY: jit-direct-capture jit-direct-capture-miri
+jit-direct-capture:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::thread::tests::direct_capture
+	@$(MAKE) --no-print-directory jit-rooted-call jit-atomic-call jit-accounting
+
+jit-direct-capture-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::thread::tests::direct_capture -- --test-threads=1
+
 jit-atomic-call:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical::tests::atomic $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::activation::atomic_call $(ARGS)
@@ -1171,7 +1179,12 @@ jit-set-list:
 jit-vm-dispatch:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::dispatch::tests
 
-.PHONY: vm-constant-add vm-constant-add-miri vm-constants vm-constants-miri
+.PHONY: value-representation vm-constant-add vm-constant-add-miri vm-constants vm-constants-miri
+value-representation:
+	@$(CARGO) test --locked -p luna --no-default-features --test sizes $(TARGET_ARG)
+	@$(CARGO) test --locked -p luna --features jit --test sizes $(TARGET_ARG)
+	@$(MAKE) --no-print-directory vm-constants numeric-conversions
+
 vm-constant-add:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::vm::constant_add::tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::constant_add::tests

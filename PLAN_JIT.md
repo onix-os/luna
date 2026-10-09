@@ -11,6 +11,103 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Direct integer capture — measured and withdrawn
+
+`93e2496` adds independent capture-admission comparisons against the original
+register projection: 3,072 owner/index/type/pending-state combinations, reader
+invocation counts, unchanged canonical state and fuel. The first direct-reader
+prototype increases native upvalue instructions **169,890,263 → 172,108,956**;
+it is superseded before acceptance timing, not reported as an improvement.
+
+`40853da` avoids full Value conversion for explicitly integer-only snapshot
+inputs. Fresh caller/stack-owner/bounds checks, pending same-frame values,
+physical upper captures and complete existing call admission remain intact.
+There is no capture cache, new unsafe code, allocation or relaxed numeric coercion.
+Exact-image native upvalue instructions fall **169,789,119 → 164,103,436 (3.35%)**.
+GNU focused/all-feature Auto plus baseline/musl checks pass **1,944 executions
+across 199 suites**, eight ignored; four pure Miri tests pass. Two native rooted
+Memcheck tests pass with zero errors and zero definite/indirect leaks; the existing
+48 possibly-lost/632 reachable harness bytes remain.
+
+Two native rounds and two four-way speed/shipping cost rounds complete **152
+aggregate commands, all failing unchanged gates**. All **216 native non-timing
+case pairs** match. Controls include rooted-publication, pre-regression
+atomic-admission and historical empty-return-copy. CPU0/16, eleven samples,
+three native windows, four rotating cost windows, twenty cost iterations,
+outside contention and source/image checks remain unchanged. Owned builds,
+tests and profiles finish before timing. Four-window medians average the middle pair.
+
+Control time / candidate time, initial / repeat against rooted-publication:
+
+| Case | Profile / CPU | Ratio |
+| --- | --- | --- |
+| Native upvalue | speed / 0 | 1.038649 / 1.029588 |
+| Native upvalue | speed / 16 | 1.048396 / 1.061009 |
+| Native table | speed / 0 | 0.960516 / 0.912280 |
+| Native metamethod | speed / 16 | 0.949605 / 0.967923 |
+| Compiled-Off float | speed / 0 | 0.940268 / 0.938671 |
+| Compiled-Off float | speed / 16 | 0.923997 / 0.924998 |
+| Compiled-Off integer | shipping / 0 | 0.931263 / 0.930292 |
+| Compiled-Off integer | shipping / 16 | 0.928081 / 0.928911 |
+| Compiled-Off float | shipping / 16 | 0.934205 / 0.935502 |
+
+All twelve upvalue 1.25x interpreter checks pass, but these other regressions
+reject the production change. Shipping CPU0 float improves versus WIP
+**1.063179 / 1.065556**, yet remains below atomic-admission
+**0.914271 / 0.916975**. Individual cost failures are candidate51/control64/
+prior63/historical57 of 288 each; fewer failures cannot cancel per-case regressions.
+
+Post-timing exact-image profiles retain identical instructions/loads/stores for
+speed Off float, shipping Off integer/float and native table. Metamethod
+instructions decrease slightly. These standalone profiles do not reproduce
+full-suite physical timing or establish a hardware cause. All raw samples,
+negative variants, symbol/image verification and summaries remain under
+`target/jit-evidence/short-slice-performance/direct-capture*` and `integer-capture*`.
+Production enablement is withdrawn; independent capture/integer tests remain.
+Existing rooted-publication WIP and all unresolved performance gates remain open.
+Withdrawal `f837996` passes GNU formatting/checking and **120 focused executions
+across 24 GNU/musl suites**, plus the four Miri tests. Both trial no-feature
+`.text` sections match their controls byte-for-byte; whole files differ.
+
+The final post-timing section extraction accidentally omitted objcopy's output
+ELF and rewrote four no-feature input files. A subsequent manifest check detects
+all four; exact original SHA256 images are restored from retained linker captures,
+not rebuilt or rebaselined. Modified copies remain under `integer-capture-artifact-repair/`.
+Both timing rounds and their postchecks had finished before the rewrite; no later
+timing used those modified files. Explicit-output extraction reconfirms original
+`.text` identity, and all original/timing artifact manifests verify after repair.
+
+#### Explicit value/constant tags — rejected before acceptance timing
+
+`dd4f7bd` extends the existing portable size bound to runtime constants and
+optional values/constants. `make value-representation` combines these checks
+with constant identity/GC and numeric semantic tests. The unchanged runtime
+passes the strengthened bounds before either representation experiment.
+
+A joint `#[repr(u8)]` trial on `Constant<S>` and `Value` violates the existing
+Value size contract: **24 bytes instead of the allowed 16** on this target.
+Validation stops at that failure; the limit is not relaxed. One constant and
+three rooted-snapshot Miri tests pass, but cannot override the size failure.
+Shipping integer instructions also grow **19,540,720 → 22,396,985**, and float
+**20,842,780 → 23,199,080**. The nested Function payload is consistent with the
+loss of compact outer representation; no raw-layout/niche assumption is adopted.
+The generated ABI continues to use its original typed `repr(C)` Slot records.
+
+A second diagnostic keeps Value unchanged and applies the byte tag only to
+Constant. It passes **157 focused executions / 24 suites**, but shipping/speed
+integer, float and callback instruction/load/store/branch counts are unchanged.
+More decisively, **all four `.text` sections are byte-identical** to the
+rooted-publication controls: shipping/speed, with/without the JIT feature.
+Whole-file identity is not claimed. This declaration does not improve conversion
+lowering in those images, so another acceptance timing campaign is not warranted.
+
+Both representation changes are removed; no acceptance timing, native speedup or
+full-validation success is claimed for either. All runtime sources match the
+pre-trial version. The footprint guard and diagnostic messages remain. Frozen
+images, exact symbol checks, failed size logs, Miri and profiles are retained
+under `target/jit-evidence/short-slice-performance/explicit-value-tags*` and
+`explicit-constant-tags*`. Existing performance failures remain unresolved.
+
 #### Same-boundary atomic statistics — measured and withdrawn
 
 `4bf2084` adds a test-only combined atomic-call statistics publisher and **184

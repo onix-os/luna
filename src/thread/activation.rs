@@ -134,6 +134,35 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
     }
 
     #[cfg(test)]
+    pub(crate) fn snapshot_capture(
+        &self,
+        caller: crate::Closure<'gc>,
+        upvalue: crate::closure::UpValue<'gc>,
+        pending: impl FnOnce(usize) -> Option<i64>,
+    ) -> Option<((bool, usize), i64)> {
+        let Frame::Lua { base, closure, .. } = self.state.frames.last()? else {
+            return None;
+        };
+        if *closure != caller || *base > self.stack.len() {
+            return None;
+        }
+        let crate::closure::UpValueState::Open(open) = upvalue.get() else {
+            return None;
+        };
+        let absolute = open.index_in(self.state.stack)?;
+        let canonical = *self.stack.get(absolute)?;
+        if absolute < *base {
+            let crate::Value::Integer(value) = canonical else {
+                return None;
+            };
+            Some(((true, absolute), value))
+        } else {
+            let index = absolute - *base;
+            Some(((false, index), pending(index)?))
+        }
+    }
+
+    #[cfg(test)]
     pub(crate) fn test_capacity(&self) -> usize {
         self.stack.capacity()
     }

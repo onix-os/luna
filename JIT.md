@@ -42,6 +42,13 @@ other existing costs remain, and all aggregate gates still fail. This is
 experimental development WIP, **not a completed performance fix**. `PLAN_JIT.md`
 records all three variants and their positive and adverse results.
 
+A direct integer-capture trial (`40853da`) reduced native upvalue instructions
+3.35% and improved repeated upvalue throughput 3–6%, passing all twelve original
+upvalue gates. It is withdrawn because table, metamethod and compiled-Off numeric
+workloads regress. The independent capture/snapshot tests remain; production
+still uses the original register projection. Full evidence and unchanged failing
+acceptance gates are recorded in `PLAN_JIT.md`.
+
 A numeric-first constant-conversion trial (`b51456f`) was measured and withdrawn.
 It improved shipping CPU0 float against the latest regressed build, but remained
 below the pre-regression control and reduced CPU0 speed-profile integer throughput
@@ -62,6 +69,11 @@ despite unchanged diagnostic instruction counts. Production retains the original
 publication sequence; `make jit-atomic-stats` keeps saturation equivalence tests.
 The plan records complete timing and exact-image assembly evidence, without
 claiming a hardware cause or completed performance acceptance.
+
+Explicit enum tags were also rejected before acceptance timing: tagging Value
+grew it from 16 to 24 bytes; tagging only Constant produced identical executable
+code. Original representations remain. `make value-representation` now guards
+runtime and optional constant/value sizes alongside existing semantic checks.
 
 Production Auto also includes independently verified integer-controlled typed
 loops (`fed925c`, extended by `061c9cc`). Stable Integer and Number arithmetic
