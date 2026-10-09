@@ -53,6 +53,10 @@ and metamethod instructions about 1.3%, but repeated timing introduces disabled
 float and native metamethod regressions. Its content-equality tests and all
 positive and negative measurements remain; it is not an accepted speedup.
 
+Unified VM progress counters are also withdrawn: the combined guard removes
+redundant interpreter work, but its original-corpus timing screen still worsens
+disabled float throughput. Exact slice/error-count boundary tests remain.
+
 A direct integer-capture trial (`40853da`) reduced native upvalue instructions
 3.35% and improved repeated upvalue throughput 3–6%, passing all twelve original
 upvalue gates. It is withdrawn because table, metamethod and compiled-Off numeric
