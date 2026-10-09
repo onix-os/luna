@@ -11,6 +11,19 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Recovered borrowed-import trial — do not repeat
+
+Historical evidence at `96b1a7b`, under
+`target/jit-evidence/short-slice-performance/borrowed-import-*`, already tests
+removing the zip iterator's `Copied` adapter and copying each borrowed `Value`
+inside the body. Invocation self work fell 454,015 instructions, but twelve
+native aggregate commands all failed, with inconsistent callback results and
+a large adverse upvalue window. The trial was withdrawn. This is recovered
+evidence, not a new timing campaign: an equivalent recheck was stopped before
+building when the existing capture directory revealed the previous experiment.
+Production imports remain unchanged; the eight passing ABI checks from that
+recheck do not establish performance acceptance.
+
 #### Output-buffer initialization — measured and withdrawn
 
 The measured candidate retained the existing five-argument native ABI and
