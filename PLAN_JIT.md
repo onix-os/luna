@@ -16,7 +16,11 @@
 **Withdrawal, 2026-10-10:** production integration and the subsequent handoff
 extraction are removed. Independent projection-mode models remain test-only.
 The original boolean selection and direct handoff take are restored; source,
-tests and Makefile match `0ca2e3d`. Rebuilt-image restoration checks are pending.
+tests and Makefile match `0ca2e3d`. Restoration finishes with formatting/check-all,
+1,487 GNU Force executions/88 summaries/six ignored, and all five rebuilt native
+and speed/shipping executables byte-identical to the original captured controls.
+Source manifests verify after the builds; no repeat timing is needed for these
+identical restored images. Evidence: `projection-mode-withdrawal/`.
 
 Production compilation has no projected-mode constructor: the only true
 selection is the existing `cfg(test)` projected compiler. The preceding
