@@ -72,7 +72,11 @@ The compiler/runtime trial is withdrawn, including candidate-only model hooks;
 its staged prototype stays inspectable in Git history and its enabled patch
 under `target/jit-evidence/short-slice-performance/typed-table-loop*`.
 Production source is restored to `23e1d44`; integrated regression coverage
-remains. Next work must address compiled-Off isolation/dispatch/frame costs
+remains. Restored format/check and eight focused executions pass. All five
+rebuilt executables are **full-ELF byte-identical** to the frozen numeric-loop
+baseline: native benchmark and both speed/shipping no-feature/compiled-Off
+images. No candidate regression is left in those executables.
+Next work must address compiled-Off isolation/dispatch/frame costs
 against the prior excluded experiments, rather than another small helper
 rewrite. No performance or full-plan acceptance is claimed.
 
