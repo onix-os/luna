@@ -1,6 +1,9 @@
 use super::{Slot, REFERENCE};
 use crate::Value;
 
+#[cfg(test)]
+pub(crate) mod call;
+
 pub(crate) fn capture<'gc>(
     roots: &mut [Value<'gc>],
     slots: &mut [Slot],
@@ -53,7 +56,7 @@ mod tests {
     use super::*;
     use crate::{Lua, Table};
 
-    fn identical<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
+    pub(super) fn identical<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
         match (actual, expected) {
             (Value::Nil, Value::Nil) => {}
             (Value::Boolean(a), Value::Boolean(b)) => assert_eq!(a, b),

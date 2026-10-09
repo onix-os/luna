@@ -12,6 +12,105 @@ pub(crate) struct Spec<'gc> {
     pub prefix: u32,
 }
 
+#[cfg(test)]
+pub(crate) struct Window<'gc, 'borrow, 'host> {
+    host: &'borrow mut ActivationHost<'gc, 'host>,
+    fuel: Fuel,
+    upper: Option<usize>,
+    pc: usize,
+}
+
+#[cfg(test)]
+impl Window<'_, '_, '_> {
+    pub(crate) fn commit(self, captured: i64) {
+        if let Some(index) = self.upper {
+            self.host.stack[index] = Value::Integer(captured);
+        }
+        let Some(Frame::Lua { pc, .. }) = self.host.state.frames.last_mut() else {
+            unreachable!()
+        };
+        *pc = self.pc + 1;
+        *self.host.fuel = self.fuel;
+    }
+}
+
+#[cfg(test)]
+impl<'gc, 'host> ActivationHost<'gc, 'host> {
+    pub(crate) fn snapshot_window(
+        &mut self,
+        spec: &Spec<'gc>,
+        caller: Closure<'gc>,
+        width: usize,
+        pc: usize,
+    ) -> Option<Window<'gc, '_, 'host>> {
+        let Some(Frame::Lua {
+            base,
+            closure,
+            stack_size,
+            is_variable: false,
+            expected_return: None,
+            ..
+        }) = self.state.frames.last()
+        else {
+            return None;
+        };
+        if *closure != caller
+            || *stack_size != width
+            || width > 256
+            || pc >= caller.prototype().opcodes.len()
+        {
+            return None;
+        }
+        let base = *base;
+        let function = usize::from(spec.function.0);
+        let bottom = base + function;
+        let count = usize::from(spec.arguments);
+        let callee_width = usize::from(spec.callee.prototype().stack_size);
+        let capture = if spec.capture.0 {
+            if spec.capture.1 >= base {
+                return None;
+            }
+            spec.capture.1
+        } else {
+            base.checked_add(spec.capture.1)?
+        };
+        if self.state.frames.len() >= self.state.max_call_depth
+            || self.state.frames.len() == self.state.frames.capacity()
+            || self.stack.len() != base + width
+            || function >= width
+            || count > width - function - 1
+            || spec.arguments > spec.callee.prototype().fixed_params
+            || count > callee_width
+            || bottom + callee_width > self.stack.capacity()
+            || capture >= bottom
+            || usize::from(spec.read.0) >= callee_width
+            || usize::from(spec.result.0) >= callee_width
+            || usize::from(spec.start.0) > callee_width
+            || spec.prefix > 64
+            || !self.state.captures_below(bottom)
+        {
+            return None;
+        }
+        let mut fuel = self.fuel.clone();
+        fuel.consume(LuaFrame::FUEL_PER_CALL);
+        fuel.consume(crate::fuel::count_fuel(LuaFrame::FUEL_PER_ITEM, count));
+        fuel.consume(4);
+        fuel.consume(spec.prefix as i32);
+        if !fuel.should_continue() {
+            return None;
+        }
+        fuel.consume(LuaFrame::FUEL_PER_CALL);
+        fuel.consume(3);
+        fuel.consume(4);
+        Some(Window {
+            host: self,
+            fuel,
+            upper: spec.capture.0.then_some(capture),
+            pc,
+        })
+    }
+}
+
 impl<'gc> ActivationHost<'gc, '_> {
     pub(crate) fn atomic_call(
         &mut self,

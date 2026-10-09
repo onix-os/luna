@@ -406,6 +406,14 @@ jit-atomic-call:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical::tests::atomic $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::activation::atomic_call $(ARGS)
 
+.PHONY: jit-rooted-call jit-rooted-call-miri
+jit-rooted-call:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::roots::call $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical::tests::rooted $(ARGS)
+
+jit-rooted-call-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::roots::call -- --test-threads=1
+
 .PHONY: jit-scoped-helpers
 jit-scoped-helpers:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::scoped_helpers::tests $(ARGS)

@@ -177,6 +177,25 @@ impl Binding {
 }
 
 impl Entry {
+    #[cfg(test)]
+    pub(in crate::jit) fn prepare_inputs(
+        &self,
+        capture: i64,
+        right: Option<i64>,
+    ) -> Option<Frame<'_>> {
+        let right = match self.binding.pattern.right {
+            Operand::Register(index) if index != self.binding.pattern.read => right?,
+            _ => 0,
+        };
+        Some(Frame {
+            binding: &self.binding,
+            capture,
+            right,
+            read_alias: self.upper_aliases.0,
+            right_alias: self.upper_aliases.1,
+        })
+    }
+
     pub(in crate::jit) fn prepare_arguments(
         &self,
         arguments: &[crate::Value<'_>],
