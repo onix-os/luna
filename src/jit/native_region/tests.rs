@@ -388,7 +388,7 @@ fn admitted_pair_rechecks_dynamic_values_frames_fuel_mode_and_hooks() {
             panic!()
         };
         let foreign = Closure::load(ctx, None, &b"return 9"[..]).unwrap();
-        for case in 0..11 {
+        for case in 0..14 {
             with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
                 ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
                 for _ in 0..32 {
@@ -407,6 +407,7 @@ fn admitted_pair_rechecks_dynamic_values_frames_fuel_mode_and_hooks() {
                 )
                 .unwrap();
                 let mut budget = 64;
+                let mut prefix = 0;
                 match case {
                     0 => budget = 3,
                     1 => host.test_fuel(Fuel::with(0)),
@@ -445,12 +446,27 @@ fn admitted_pair_rechecks_dynamic_values_frames_fuel_mode_and_hooks() {
                         ctx.suppress_hook_at(1);
                     }
                     10 => host.with_registers(|_, registers| *registers.pc = pc + 1),
+                    11 => {
+                        let mut fuel = Fuel::with(10000);
+                        fuel.interrupt();
+                        host.test_fuel(fuel);
+                    }
+                    12 => {
+                        prefix = 64;
+                        host.test_fuel(Fuel::with(64));
+                    }
+                    13 => host.test_fuel(Fuel::with(i32::MIN)),
                     _ => unreachable!(),
                 }
                 let before_stats = stats(ctx);
                 let before = trace(ctx, host, before_stats);
-                assert!(admitted.invoke(host, budget, 0).is_none(), "case={case}");
+                let counters = ctx.jit().0.borrow().stats;
+                assert!(
+                    admitted.invoke(host, budget, prefix).is_none(),
+                    "case={case}"
+                );
                 assert_eq!(trace(ctx, host, before_stats), before, "case={case}");
+                assert_eq!(ctx.jit().0.borrow().stats, counters, "case={case}");
                 ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
                 ctx.set_debug_hook(Value::Nil, false, 0);
             });
