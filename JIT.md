@@ -48,6 +48,11 @@ removes an extra inactive-state indirect jump without fixing the timing losses.
 Their model/storage tests and full-corpus negative evidence remain. Neither
 change is part of the retained runtime or accepted performance.
 
+A live string-key identity shortcut is withdrawn as well. It reduces callback
+and metamethod instructions about 1.3%, but repeated timing introduces disabled
+float and native metamethod regressions. Its content-equality tests and all
+positive and negative measurements remain; it is not an accepted speedup.
+
 A direct integer-capture trial (`40853da`) reduced native upvalue instructions
 3.35% and improved repeated upvalue throughput 3–6%, passing all twelve original
 upvalue gates. It is withdrawn because table, metamethod and compiled-Off numeric

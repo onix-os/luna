@@ -11,6 +11,44 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### String-key identity shortcut — measured and withdrawn
+
+`d9c2949` adds baseline-tested string-probe coverage for aliases, distinct equal
+allocations, owned buffers, empty/short/long content, weak-key conversion,
+deletion and reinsertion. Trial `005848c` checks live string-key GC identity
+before decoding buffers, retaining content comparison on identity misses.
+No unsafe code, hash policy, roots, native coverage or public API changes.
+
+Focused GNU passes **29 / five suites**, musl **25 / three**, Miri **eight
+executions**, and full baseline/GNU Auto/docs **1,832 / 175**, eight ignored.
+Exact-image callback instructions fall **134,947,991 → 133,193,072** and
+metamethod instructions **81,060,081 → 79,993,028** (about 1.3% each).
+Upvalue instructions rise slightly; allocation and disabled integer/float
+instructions in both profiles are unchanged. Fewer instructions are not a
+throughput result.
+
+An early screen and two complete repeated comparisons finish **196 aggregate
+commands: 190 fail, six pass**. All **324 native non-timing pairs match**;
+pre/post source and artifact checks verify. Original thresholds, nine cases,
+CPU0/16, eleven samples, twenty cost iterations and WIP/pre-regression/historical
+controls remain. No owned builds/tests/profiles overlap timing; unrelated host
+work continues. The noisy initial screen is retained, not discarded.
+
+In the two full rounds, disabled speed float CPU16 control/candidate ratios
+are **0.962878 / 0.967395**; native metamethod CPU16 **0.932378 / 0.968286**.
+Shipping CPU0 float improves **1.123897 / 1.126928** against WIP, but still
+trails atomic-admission (**0.975368 / 0.974314**). Shipping CPU0 callbacks gain
+**1.030184 / 1.040632**; native CPU0 callbacks remain **0.980912 / 0.993414**.
+Cost failures total candidate51/control63/prior68/historical55 of 360 each.
+Across-window medians average the middle two for four-window cost runs.
+
+Withdraw the runtime shortcut: its reduced instruction work and local wins do
+not compensate for repeated regressions. `b314091` restores the runtime;
+withdrawal GNU/musl checks pass **54 executions / eight suites** and Miri
+passes **eight executions**. Keep the tests, frozen images and
+all raw evidence under `target/jit-evidence/short-slice-performance/string-probe*`.
+The retained runtime is unchanged by this trial; full performance remains open.
+
 #### Interpreter instantiation and dispatch — measured and withdrawn
 
 `5edb405` covers closure-cell sharing, independent outer slots, fresh local
