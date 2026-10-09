@@ -11,14 +11,14 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Stored string-hash reuse — trial under validation
+#### Stored string-hash reuse — measured and withdrawn
 
 `40bdc83` adds a baseline-tested mixed-key lifecycle fixture: separately
 allocated equal strings, every canonical key kind, map growth/rehash, weak
 conversion, ordered traversal, deletion, clear and reuse. It passes before
 changing runtime behavior and is committed separately from the experiment.
 
-The uncommitted candidate reuses String's existing content hash for string-key
+The trial reuses String's existing content hash for string-key
 table access instead of hashing that hash again. Other keys retain their
 existing process-random hash; weak/dead entries retain the insertion hash.
 There is no new cache, root, allocation, native ABI or source specialization.
@@ -35,15 +35,48 @@ to 78,450,572 (2.70%). Callback map lookup self work falls 6,370,000 to
 4,680,000, while VM, executor and ordinary invocation self work is unchanged.
 Upvalue/array instruction totals increase slightly; those observations remain.
 
-These are instruction-work findings, not hardware speedup or acceptance.
 Full GNU validation passes 1,896 executions /175 suites (eight ignored), with
 formatting/all-target checks. Targeted musl passes 189 /14, i686 ten /two;
-both Miri models pass ten executions each. Candidate speed/shipping artifacts
-are built; fresh control artifacts are building with the runtime temporarily
-restored. Original paired native and compiled-Off timing gates remain required.
-Evidence is retained under `string-hash-*` in
-`target/jit-evidence/short-slice-performance/`; no production optimization is
-committed or accepted from this trial yet.
+both Miri models pass ten executions each. Those correctness results and lower
+profiled instruction counts do not override the timing rejection below.
+
+Two five-way native screens and two eight-way cost screens complete **316
+commands: 315 aggregate failures**, one older-control shipping pass. All original
+workloads/thresholds, eleven samples, twenty cost iterations, CPU0/16, fresh and
+historical controls remain. Source/artifact before/after checks verify; no owned
+builds/tests/profiles/source edits overlap timing. External telemetry is retained.
+
+Native direct control/candidate ratios, first/repeat median of three paired
+windows: callbacks CPU0 **1.02934 /1.02204**, CPU16 **1.01899 /1.01214**;
+metamethod CPU0 **1.02338 /1.03390**, CPU16 **1.06422 /1.07703**. Callback targets
+still fail 12/12. Metamethod passes 1/12 versus fresh 3/12 because the interpreter
+also improves; upvalue passes 11/12 versus fresh 12/12. Other negative samples,
+including native-benchmark Off CPU0 integer regressions, remain recorded.
+
+The cost screens reject the trial. Shipping compiled-Off direct ratios,
+first/repeat median of four paired windows: CPU0 integer **0.85594 /0.85397**,
+float **0.80078 /0.80005**; CPU16 integer **0.87609 /0.86463**, float
+**0.88159 /0.88276**, array **0.92437 /0.92452**. Below one means slower:
+CPU0 integer takes about 17% longer and float 25% longer in the repeat. Both
+no-feature shipping numeric controls also slow; passing within-image cost ratios
+cannot conceal those absolute regressions. No hardware cause is established.
+
+CPU0 speed metamethod newly fails 8/8 cost ceilings versus fresh 0/8: Off improves
+about 2.5%, but no-feature improves about 8%. Individual cost failures total
+candidate 28/29 versus fresh 28/27 and compact 29/27 per 144 checks; aggregate counts
+do not cancel specific regressions or justify a relaxed ceiling.
+
+All **648 native case comparisons** against fresh/compact/single match every
+printed non-timing field. The older pre-kernel control has stable helper and
+code/metadata/snapshot differences against both fresh and candidate across 216
+cases; those exact deltas are retained, not discarded. All **2,016 cost native-proof
+case comparisons** match. Proof counters are not complete source-op coverage.
+
+The production hash change is withdrawn; `src/` matches the committed baseline
+and the independent lifecycle fixture remains. Restored formatting/table/helper/
+heap checks pass 40 executions across four suites. Patches, exact images, profiles,
+raw timings, summaries and rejected results remain under `string-hash-*` in
+`target/jit-evidence/short-slice-performance/`. Full acceptance remains open.
 
 #### Per-entry writeback masks profiled and withdrawn
 
