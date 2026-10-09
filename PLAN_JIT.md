@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Executor mode-query elision — trial under validation
+#### Executor mode-query elision — measured and withdrawn
 
 `d8b86f0` commits baseline-tested mode/fuel/handoff fixtures: 54 scenarios per
 feature, with minimum callback progress, interrupts, child results/errors,
@@ -37,10 +37,40 @@ Callback instructions fall 133,593,180 to 129,236,399 (3.26%); metamethod
 80,623,536 to 79,178,089 (1.79%); integer/float work falls about 2.5%/2.4%.
 The ordinary executor closure is no longer a separate profiled function;
 do not attribute every saved instruction solely to a mode-check branch.
-These are not elapsed-time speedup claims. Matched speed/shipping artifacts are
-building; original repeated native/compiled-Off gates remain required before
-retention. The runtime line is uncommitted, with evidence under `executor-mode-*`
-in `target/jit-evidence/short-slice-performance/`. Full acceptance remains open.
+Repeated timing completes 316 commands: 314 aggregate failures, with one candidate
+speed pass and one fresh-control shipping pass. Both native and cost screens retain
+all original workloads, thresholds, eleven samples, twenty cost iterations,
+CPU0/16 and historical/fresh controls. Source/artifact manifests verify before
+and after measurement; no owned builds/tests/profiles/source edits overlap timing.
+
+Native fresh-control/candidate elapsed ratios, first/repeat median of three
+matched windows: callbacks CPU0 **1.03768 /1.04398**, CPU16 **1.03139 /1.02311**.
+The callback target still fails 12/12. Upvalue targets fail 7/12 versus fresh
+0/12, but native elapsed times are approximately flat: the interpreter improves
+more. Those ratio failures alone do not establish a native upvalue slowdown.
+Native-benchmark Off CPU0 integer ratios **0.94309 /0.94836** remain negative.
+
+Cost measurements reject the trial despite the callback improvement. Shipping
+compiled-Off fresh-control/candidate ratios, first/repeat median of four matched
+windows: CPU0 float **0.93401 /0.92943**; CPU16 array **0.94880 /0.94947** and
+integer **0.96251 /0.96366**. The repeat float therefore takes about 7.6% longer
+and array about 5.3% longer. Corresponding no-feature controls improve rather
+than sharing these slowdowns. Speed-profile float also slows on both CPUs;
+original per-case 1.05 ceilings remain unchanged. Neither reduced instruction
+counts nor improved aggregate failure totals justify those absolute regressions.
+
+All 648 native case comparisons against fresh/compact/single match every printed
+non-timing field. Historical pre-kernel control deltas remain separately recorded;
+all 2,016 cost native-proof case comparisons match. Proof counts are not complete
+source-op coverage. Raw outliers, external contention telemetry, exact images,
+source patches, profiles and per-window summaries remain under `executor-mode-*`
+in `target/jit-evidence/short-slice-performance/`.
+
+After the timing driver terminated, the production shortcut was withdrawn.
+Restored formatting and mode/activation checks pass 21 executions across four
+suites; `src/` and Makefile match the committed baseline. The independent
+mode/fuel/handoff fixtures remain committed. This was a measured but rejected
+candidate, not a retained performance fix. Full acceptance is open.
 
 #### Stored string-hash reuse — measured and withdrawn
 
