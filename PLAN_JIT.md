@@ -22,13 +22,25 @@ exact-capacity tiers shrink by 1,744 bytes; all six dynamic tiers shrink by
 register pushes and do not claim reduced total stack use on projected calls.
 
 Formatting, all-target/all-feature checking, 74 focused checks and the full GNU
-Force suite pass. Fourteen exact-image profiles retain identical full non-timing
+Force suite (1,484 executions, 88 summaries, six ignored) pass. Focused musl
+passes 74 executions; i686 passes 30 pure/model checks, with zero native-runtime
+tests on that unsupported architecture. Fourteen exact-image profiles retain identical full non-timing
 records across all seven workloads. Four instruction totals are unchanged;
 callback differs by 81 allocator instructions. Upvalue rises 0.03057%, including
 52,284 admission instructions, and array rises 0.16469%, including 58,237 memcpy
 instructions. Their causes are not established by the attribute change.
 Both control and candidate symbol images have matching allocated bytes,
 allocated-section metadata and program headers against their shipping images.
+
+Instruction-address accounting subsequently locates all 52,284 extra admission
+instructions in one unchanged registry-iteration loop: twelve instructions each
+execute 4,357 additional times. The complete normalized admission assembly and
+instruction offsets match. This proves extra traversal of the registration map,
+not extra generated instructions; the changed entry position remains unexplained.
+The total profile increase is retained, not subtracted from the measurements.
+Speed and shipping feature-cost builds complete, and both no-feature images are
+byte-identical to the restored controls. Miri validation is still running; no
+hardware timing has started for this trial.
 
 This is a measured stack-frame reduction, **not elapsed-performance acceptance**.
 Hardware native and speed/shipping feature-cost gates remain required. Evidence
