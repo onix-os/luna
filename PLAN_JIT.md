@@ -11,6 +11,32 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Fused rooted-call writes measured and withdrawn
+
+A single forward pass replaced argument shifting, tail clearing and scalar
+overlays without omitting any final caller slot. The independent physical-vector
+oracle was first expanded for one/intermediate argument counts and committed as
+`e635443`. Candidate GNU validation passes 1,889 executions /175 suites (eight
+ignored), targeted musl 144 /14 (two ignored), and i686 three pure tests.
+Both Miri models pass all three Snapshot tests; native rooted Memcheck reports
+zero errors and zero definite/indirect leaks, with harness residuals unchanged.
+
+Exact upvalue work falls 169,703,129 to 165,229,527 instructions (2.64%).
+Two four-way screens complete **48 native commands**: upvalue time improves
+**2.84–6.05% in all 12 windows**, passing its target 12/12 versus compact 10/12.
+However, CPU0 callbacks slow 0.88–2.79% in all six comparisons, and metamethods
+slow 0.46–4.41% in all twelve. Their original gates remain unresolved.
+
+The seven-way **112-command feature-cost campaign** also rejects the change:
+CPU0 shipping compiled-Off integer slows **8.62–10.49%** in all four windows;
+CPU16 speed float slows **6.64–11.82%**, failing three ceilings versus compact
+zero. Total failures are 31/144 versus compact 30/144. Both no-feature binaries
+are byte-identical to compact, and all 1,296 native-coverage plus 3,024 cost
+native-proof comparisons match. The upvalue improvement does not justify these
+regressions. The full-tail fusion is withdrawn; its independent oracle remains.
+Frozen patches, binaries, exact profiles, platform checks, telemetry and all
+samples remain under `fused-call-writeback-*` in the short-slice evidence tree.
+
 #### Immutable call-layout admission measured and withdrawn
 
 The trial validates immutable register and parameter bounds once per admitted
