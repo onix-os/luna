@@ -1163,7 +1163,15 @@ jit-set-list:
 jit-vm-dispatch:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::dispatch::tests
 
-.PHONY: vm-constants vm-constants-miri
+.PHONY: vm-constant-add vm-constant-add-miri vm-constants vm-constants-miri
+vm-constant-add:
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::vm::constant_add::tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::constant_add::tests
+	@$(MAKE) --no-print-directory vm-constants numeric-conversions
+
+vm-constant-add-miri:
+	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' thread::vm::constant_add::tests -- --test-threads=1
+
 vm-constants:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::vm::constants::tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::constants::tests
