@@ -777,6 +777,14 @@ jit-gc-requests:
 jit-abi:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests
 
+.PHONY: jit-return-words jit-return-words-miri
+jit-return-words:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::return_words::
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::return_words::
+
+jit-return-words-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::return_words:: -- --test-threads=1
+
 .PHONY: jit-import-bits jit-import-bits-miri
 jit-import-bits:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests::scalar_import_preserves_generated_payload_bits -- --exact

@@ -6592,3 +6592,6 @@ mod memory_tests {
 
 #[cfg(all(test, not(miri)))]
 pub(super) mod projection_probe;
+
+#[cfg(all(test, not(miri)))]
+mod return_words;

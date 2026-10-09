@@ -2,6 +2,9 @@ use crate::{Constant, Value};
 
 pub(super) mod roots;
 
+#[cfg(test)]
+pub(super) mod return_words;
+
 pub(super) const NIL: u64 = 0;
 pub(super) const BOOLEAN: u64 = 1;
 pub(super) const INTEGER: u64 = 2;
