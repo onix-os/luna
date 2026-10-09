@@ -14,8 +14,18 @@ fn test_sizes() {
     assert_eq!(mem::size_of::<Thread>(), ptr_size);
     assert_eq!(mem::size_of::<UserData>(), ptr_size);
     let tagged_payload = mem::size_of::<(usize, i64)>();
-    assert!(mem::size_of::<Value>() <= tagged_payload);
-    assert!(mem::size_of::<Constant<String>>() <= tagged_payload);
-    assert!(mem::size_of::<Option<Value>>() <= tagged_payload);
-    assert!(mem::size_of::<Option<Constant<String>>>() <= tagged_payload);
+    for (name, size) in [
+        ("Value", mem::size_of::<Value>()),
+        ("Constant<String>", mem::size_of::<Constant<String>>()),
+        ("Option<Value>", mem::size_of::<Option<Value>>()),
+        (
+            "Option<Constant<String>>",
+            mem::size_of::<Option<Constant<String>>>(),
+        ),
+    ] {
+        assert!(
+            size <= tagged_payload,
+            "{name}: {size} bytes exceeds {tagged_payload}"
+        );
+    }
 }
