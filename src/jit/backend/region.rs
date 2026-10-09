@@ -49,10 +49,9 @@ fn template(module: &JITModule, ids: [cranelift_module::FuncId; 2], fault: Fault
         UserFuncName::user(0, 0),
         signature(&[pointer, types::I32], None),
     );
-    let imports = [
-        signature(&[pointer, types::I64, types::I32, pointer, pointer], None),
-        signature(&[pointer], Some(types::I32)),
-    ];
+    let mut caller = signature(&[pointer, types::I64, types::I32, pointer], None);
+    caller.returns.extend([types::I64; 2].map(AbiParam::new));
+    let imports = [caller, signature(&[pointer], Some(types::I32))];
     let references: [_; 2] = std::array::from_fn(|index| {
         let signature = function.import_signature(imports[index].clone());
         let name = function.declare_imported_user_function(UserExternalName {
@@ -123,9 +122,10 @@ fn template(module: &JITModule, ids: [cranelift_module::FuncId; 2], fault: Fault
     let exit = builder
         .ins()
         .iadd_imm_s(view, std::mem::offset_of!(View, exit) as i64);
-    builder
+    let call = builder
         .ins()
-        .call(references[0], &[slots, pc, budget, exit, host]);
+        .call(references[0], &[slots, pc, budget, host]);
+    exit_transport::store_return(&mut builder, call, exit);
     let boundary = builder.ins().call(references[1], &[view]);
     let result = builder.inst_results(boundary)[0];
     let more = builder.ins().icmp_imm_s(
@@ -210,7 +210,10 @@ pub(crate) fn compile(
     let mut caller_signature = module.make_signature();
     caller_signature
         .params
-        .extend([pointer, types::I64, types::I32, pointer, pointer].map(AbiParam::new));
+        .extend([pointer, types::I64, types::I32, pointer].map(AbiParam::new));
+    caller_signature
+        .returns
+        .extend([types::I64; 2].map(AbiParam::new));
     let caller = module
         .declare_function("region_caller", Linkage::Import, &caller_signature)
         .map_err(fail)?;

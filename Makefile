@@ -595,7 +595,11 @@ jit-projection-runtime-miri:
 	done
 
 jit-registry:
-	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::registry::tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::registry::
+
+.PHONY: jit-registry-miri
+jit-registry-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::registry:: -- --test-threads=1
 
 jit-ir:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::ir::tests
@@ -772,6 +776,16 @@ jit-gc-requests:
 
 jit-abi:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests
+
+.PHONY: jit-return-words jit-return-words-miri
+jit-return-words:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::return_words::
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::return_words::
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::exit_transport::
+
+jit-return-words-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::return_words:: -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::exit_transport:: -- --test-threads=1
 
 .PHONY: jit-import-bits jit-import-bits-miri
 jit-import-bits:

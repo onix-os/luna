@@ -8,6 +8,9 @@ use super::{
 };
 use crate::{Context, FunctionPrototype};
 
+#[cfg(test)]
+mod identity_tests;
+
 #[derive(Collect)]
 #[collect(no_drop)]
 struct Registration<'gc> {
