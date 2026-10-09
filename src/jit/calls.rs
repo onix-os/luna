@@ -78,12 +78,11 @@ impl Plan<'_> {
             signature
         };
         let leaf_signature = signature(&[pointer, types::I64, types::I32, pointer, pointer], None);
-        let integer = super::integer::Plan::new(self.callee)?;
-        let mut callee =
-            integer.function(UserFuncName::user(0, 1), leaf_signature.clone(), config)?;
-        integer.verify(&callee, leaf_signature, config)?;
-        super::backend::exit_transport::lower(&mut callee)?;
-        let leaf_signature = callee.signature.clone();
+        let callee = super::integer::Plan::new(self.callee)?.function(
+            UserFuncName::user(0, 1),
+            leaf_signature.clone(),
+            config,
+        )?;
         let mut entry = Function::with_name_signature(
             UserFuncName::user(0, 0),
             signature(&[pointer, types::I32], Some(types::I32)),
@@ -149,10 +148,9 @@ impl Plan<'_> {
             .ins()
             .iadd_imm_s(frame, std::mem::offset_of!(NativeFrame, exit) as i64);
         let zero = builder.ins().iconst(types::I64, 0);
-        let call = builder
+        builder
             .ins()
-            .call(leaf, &[slots, zero, parameters[1], view]);
-        super::backend::exit_transport::store_return(&mut builder, call, exit);
+            .call(leaf, &[slots, zero, parameters[1], exit, view]);
         let Operation::Return { start, .. } = self.callee.operations[3] else {
             unreachable!()
         };
@@ -198,7 +196,11 @@ impl Plan<'_> {
                 "aggregate program differs from source".into(),
             ));
         }
-        Ok(())
+        super::integer::Plan::new(self.callee)?.verify(
+            &program.callee,
+            expected.callee.signature.clone(),
+            config,
+        )
     }
 }
 

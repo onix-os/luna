@@ -778,6 +778,16 @@ jit-abi:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests
 
 .PHONY: jit-return-words jit-return-words-miri
+.PHONY: jit-output-buffer jit-output-buffer-miri
+jit-output-buffer:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::exit_buffer::
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::return_words::native_output_entry_
+	@$(MAKE) --no-print-directory jit-exit-flow
+
+jit-output-buffer-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::exit_buffer:: -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::exit_flow::tests -- --test-threads=1
+
 jit-return-words:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::return_words::
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::return_words::

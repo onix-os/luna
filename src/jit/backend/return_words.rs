@@ -1,16 +1,28 @@
 use super::*;
 
+enum Transport {
+    Output,
+    Words,
+    Lowered,
+}
+
+#[test]
+fn native_output_entry_initializes_every_field_before_read() {
+    check_native_return(Transport::Output);
+}
+
 #[test]
 fn native_two_word_return_matches_rust_c_aggregate_abi() {
-    check_native_return(false);
+    check_native_return(Transport::Words);
 }
 
 #[test]
 fn lowered_output_pointer_entry_preserves_native_call_contract() {
-    check_native_return(true);
+    check_native_return(Transport::Lowered);
 }
 
-fn check_native_return(lower: bool) {
+fn check_native_return(transport: Transport) {
+    let output = !matches!(transport, Transport::Words);
     let module = JITModule::new(native_builder(cranelift_native::builder()).unwrap());
     let mut function = cranelift_codegen::ir::Function::new();
     function.signature = module.make_signature();
@@ -20,7 +32,7 @@ fn check_native_return(lower: bool) {
             .into_iter()
             .map(AbiParam::new),
     );
-    if lower {
+    if output {
         function.signature.params.push(AbiParam::new(pointer));
     } else {
         function
@@ -37,7 +49,7 @@ fn check_native_return(lower: bool) {
         builder.append_block_params_for_function_params(entry);
         builder.switch_to_block(entry);
         let args = builder.block_params(entry).to_vec();
-        let host_pointer = args[if lower { 4 } else { 3 }];
+        let host_pointer = args[if output { 4 } else { 3 }];
         let reason = builder
             .ins()
             .load(types::I64, MemFlagsData::new(), args[0], 0);
@@ -53,7 +65,7 @@ fn check_native_return(lower: bool) {
         builder.ins().store(MemFlagsData::new(), args[2], data, 0);
         builder.ins().jump(finish, &[]);
         builder.switch_to_block(finish);
-        if lower {
+        if output {
             let reason = builder.ins().ireduce(types::I32, reason);
             for (value, offset) in [(args[1], 0), (args[2], 8), (reason, 12)] {
                 builder
@@ -71,14 +83,20 @@ fn check_native_return(lower: bool) {
         builder.finalize(module.target_config());
     }
     cranelift_codegen::verify_function(&function, module.isa()).unwrap();
-    if lower {
+    if matches!(transport, Transport::Lowered) {
         exit_transport::lower(&mut function).unwrap();
         cranelift_codegen::verify_function(&function, module.isa()).unwrap();
     }
     drop(module);
     projection_probe::with_projection_probe(function, |pointer| {
-        let entry = unsafe { std::mem::transmute::<*const u8, abi::return_words::Entry>(pointer) };
-        abi::return_words::check_entry(entry);
+        if matches!(transport, Transport::Output) {
+            let entry = unsafe { std::mem::transmute::<*const u8, abi::Entry>(pointer) };
+            abi::exit_buffer::check_entry(entry);
+        } else {
+            let entry =
+                unsafe { std::mem::transmute::<*const u8, abi::return_words::Entry>(pointer) };
+            abi::return_words::check_entry(entry);
+        }
     })
     .unwrap();
 }

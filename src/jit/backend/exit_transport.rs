@@ -159,7 +159,7 @@ fn verify_tail(function: &Function, block: Block, values: [Value; 3]) -> Result<
     Ok(())
 }
 
-pub(in crate::jit) fn lower(function: &mut Function) -> Result<(), JitError> {
+pub(super) fn lower(function: &mut Function) -> Result<(), JitError> {
     let output = verify_input(function)?;
     super::fill_signature(&mut function.signature.returns, [types::I64; 2])?;
     let mut block = function.layout.entry_block();
@@ -185,23 +185,6 @@ pub(in crate::jit) fn lower(function: &mut Function) -> Result<(), JitError> {
     function.dfg.remove_block_param(output);
     function.signature.params.remove(3);
     Ok(())
-}
-
-pub(in crate::jit) fn store_return(
-    builder: &mut cranelift_frontend::FunctionBuilder<'_>,
-    call: Inst,
-    output: Value,
-) {
-    let pc = builder.inst_results(call)[0];
-    let counts = builder.inst_results(call)[1];
-    let count = builder.ins().ireduce(types::I32, counts);
-    let reason = builder.ins().ushr_imm_u(counts, 32);
-    let reason = builder.ins().ireduce(types::I32, reason);
-    for (value, offset) in [(pc, 0), (count, 8), (reason, 12)] {
-        builder
-            .ins()
-            .store(MemFlagsData::new(), value, output, offset);
-    }
 }
 
 #[cfg(test)]

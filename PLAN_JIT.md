@@ -11,7 +11,182 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Register-return exits — first timing screen, acceptance incomplete
+#### Projection bridge outlining — performance trial
+
+A one-attribute trial keeps `projection::with_frame` out of ordinary invocation
+bodies without deleting projection support or changing any scratch, helper,
+fallback, lifetime or generated-ABI contract. Exact optimized assembly shows
+`Runtime::invoke<7, true>` reserving 344 rather than 2,088 stack bytes. All eight
+exact-capacity tiers shrink by 1,744 bytes; all six dynamic tiers shrink by
+1,728 bytes. The maximum tier still probes a stack page. These figures exclude
+register pushes and do not claim reduced total stack use on projected calls.
+
+Formatting, all-target/all-feature checking, 74 focused checks and the full GNU
+Force suite (1,484 executions, 88 summaries, six ignored) pass. Focused musl
+passes 74 executions; i686 passes 30 pure/model checks, with zero native-runtime
+tests on that unsupported architecture. Fourteen exact-image profiles retain identical full non-timing
+records across all seven workloads. Four instruction totals are unchanged;
+callback differs by 81 allocator instructions. Upvalue rises 0.03057%, including
+52,284 admission instructions, and array rises 0.16469%, including 58,237 memcpy
+instructions. Their causes are not established by the attribute change.
+Both control and candidate symbol images have matching allocated bytes,
+allocated-section metadata and program headers against their shipping images.
+
+Instruction-address accounting subsequently locates all 52,284 extra admission
+instructions in one unchanged registry-iteration loop: twelve instructions each
+execute 4,357 additional times. The complete normalized admission assembly and
+instruction offsets match. This proves extra traversal of the registration map,
+not extra generated instructions; the changed entry position remains unexplained.
+The total profile increase is retained, not subtracted from the measurements.
+Speed and shipping feature-cost builds complete, and both no-feature images are
+byte-identical to the restored controls. Miri validation remains incomplete.
+
+The first hardware campaign completes 30 native and 128 cost commands; all 158
+aggregate gates fail. Fresh/candidate individual failures are native 9/9 and
+cost 30/27. All 108 complete native-counter and 144 cost-native comparisons
+match, and all source/artifact manifests verify. To serialize execution without
+discarding the long Miri sweep, its verified child is suspended only during
+timing and automatically resumed afterward. Its identity and CPU ticks remain
+unchanged throughout the campaign; resident test memory remains present. No
+unrelated application is stopped, and no owned validation CPU work overlaps
+the hardware measurements. Miri test elapsed time includes this pause.
+
+Native upvalue fresh/candidate median ratios improve to 1.01824 on CPU0 and
+1.03617 on CPU16, favorable in all three windows each. Callbacks are 0.99063 and
+1.00309, with all six original callback gates still failing. CPU0 metamethod
+is 0.99311 and adverse in all three windows. CPU16 Oslo's 0.87887 second-window
+ratio remains in the evidence rather than being discarded.
+
+Compiled-Off CPU0 speed metamethod is 0.95586 direct and 0.95647 paired-normalized
+with a 1.00017 no-feature control; original failures rise from zero to four.
+CPU0 speed Oslo failures improve four to zero, while CPU16 worsens zero to three.
+Shipping CPU0 integer/float ratios are 0.91460/0.90949; CPU16 integer/float/array
+are 0.88972/0.92196/0.90494 with no-feature controls near parity. These numeric
+cases still pass their original ceiling; relative regressions must not be
+misreported as newly failed gates. CPU16 shipping callbacks improve 1.07832
+direct and 1.05216 normalized, with failures falling three to zero. Repeat the
+unchanged images before deciding whether the frame reduction is worth retaining.
+
+This is a measured stack-frame reduction, **not elapsed-performance acceptance**.
+Hardware native and speed/shipping feature-cost gates remain required. Evidence
+is under `target/jit-evidence/short-slice-performance/projection-outline-*`;
+ordinary production compilation continues to reject projected admission.
+
+#### Recovered borrowed-import trial — do not repeat
+
+Historical evidence at `96b1a7b`, under
+`target/jit-evidence/short-slice-performance/borrowed-import-*`, already tests
+removing the zip iterator's `Copied` adapter and copying each borrowed `Value`
+inside the body. Invocation self work fell 454,015 instructions, but twelve
+native aggregate commands all failed, with inconsistent callback results and
+a large adverse upvalue window. The trial was withdrawn. This is recovered
+evidence, not a new timing campaign: an equivalent recheck was stopped before
+building when the existing capture directory revealed the previous experiment.
+Production imports remain unchanged; the eight passing ABI checks from that
+recheck do not establish performance acceptance.
+
+#### Output-buffer initialization — measured and withdrawn
+
+The measured candidate retained the existing five-argument native ABI and
+omitted host zeroing of an exit buffer that the callee fully overwrites. The
+trial's ordinary gateway used `MaybeUninit` and read the result only after normal
+return; its unsafe entry contract explicitly required complete writes before reads.
+Independent Rust
+and actual generated C callees initialize uninitialized storage across PC,
+instruction/reason, budget and host-pointer domains. The model checks the raw
+unbounded call and the ordinary64-instruction bounded wrapper independently.
+
+`make jit-output-buffer` also exercises the existing exact exit-field/return/
+output-escape verifier and its pre-codegen mutation refusal cases. Production
+integer-loop augmentation independently preserves the original exit blocks and
+instructions through `integer_loop::verify::preserved`; it does not introduce
+an output-buffer read or new return. No source/effect checker is relaxed.
+Baseline GNU focused checks pass46 executions, musl37, and each Miri alias model
+passes19. These establish boundary behavior, not performance acceptance.
+The runtime trial must preserve all original coverage, resource and timing gates.
+
+The candidate's serialized validation passes1,521 GNU executions/92 summaries/
+six ignored, formatting and all-target/all-feature checking. Focused musl passes
+52, i686 one pure boundary test, and each Miri model19. The first GNU driver was
+interrupted with SIGPIPE/exit141 after its observation was aborted; its handle
+and process were confirmed absent before retrying. Original partial logs remain;
+the second complete validation exits0. No test failure was hidden by the restart.
+
+Fourteen exact-image native profiles verify allocated bytes/metadata/program
+headers and seven complete non-timing counter comparisons, including snapshot
+peaks. Ordinary callback invocation self work falls64,849 instructions across
+64,849 native entries: one host instruction per entry. Callback total falls
+0.0486%; float0.0559%, integer0.0587%, allocation0.0302%. Do not attribute all
+whole-profile changes to output initialization: upvalue total rises0.1832%,
+including+313,704 in canonical admission; array rises0.1215%, including+58,237
+in memcpy. Metamethod total falls0.1976%, with substantial allocator differences.
+These other changes and complete raw profiles remain visible; their causes are
+not established by the source patch. No elapsed-speedup or acceptance claim is
+made before the paired native and speed/shipping feature-cost screens.
+
+The first timing campaign completes30 native and128 cost commands. All30 native
+aggregates fail;127 cost aggregates fail, with only historical `prior` passing
+CPU0 speed window3. No candidate aggregate passes. Native individual failures
+are fresh12/candidate11; cost failures fresh28/candidate25. Complete counters
+match108 native and144 cost-native comparisons, with no snapshot exception.
+All source/artifact manifests verify; both no-feature binaries are byte-identical.
+No owned builds/tests/profiles/source edits overlap the hardware timing campaign.
+
+Fresh-over-candidate median native ratios are CPU0 integer1.0035,float1.0025,
+array1.0312,upvalue1.0130,callback0.9820; CPU16 integer1.0004,float0.9970,
+array1.0182,upvalue1.0024,callback0.9981. All six candidate callback gates fail.
+CPU0 callbacks are adverse in each of the three windows. The small invocation
+instruction saving has not fixed the callback regression.
+
+Speed compiled-Off needs a repeat: CPU16 integer0.9432/float0.9534, with matching
+no-feature ratios1.0008/0.9984. Candidate float fails one original cost gate;
+fresh float fails none. CPU0 speed float0.9821/callback0.9911 are also adverse.
+Shipping is largely near parity; CPU16 callbacks show direct1.0420 but
+paired-normalized1.0122, while CPU0 shipping callback failures rise1→3.
+CPU0 speed Oslo failures fall4→0. These competing observations, full vectors,
+outliers and contention telemetry remain recorded; no success is selected out
+of the failing campaign.
+
+The independent repeat completes another158 commands, all with failed aggregate
+gates. Across both campaigns315 of316 aggregate commands fail; the one historical
+control pass is not a candidate pass. Repeated native failures are fresh10/
+candidate10; cost failures fresh29/candidate29. Another108 full native records
+and144 cost-native records match, with no excluded non-timing fields; both
+campaign manifests reverify before source changes.
+
+The repeat confirms adverse CPU0 native callbacks in all three windows, median
+fresh/candidate0.9860 after0.9820 in the first campaign. CPU16 callbacks vary
+near parity0.9981/1.0040, but every candidate callback gate still fails. The
+first native array gains do not repeat: CPU0/16 ratios0.9874/0.9855. Favorable
+CPU16 allocation1.0785 and cold1.0123 observations remain alongside the failures.
+
+Repeated speed compiled-Off CPU16 integer/float ratios are0.9591/0.9277, with
+no-feature controls0.9990/0.9986. Float has two additional original cost failures,
+versus none in the fresh control: three candidate failures across both campaigns.
+CPU0 speed float0.9698 and callbacks0.9897 remain adverse. CPU0 shipping callback
+failures are fresh0/candidate2 after1/3; CPU16 shipping's earlier direct callback
+gain does not repeat (1.0011). CPU0 speed Oslo still improves1.0237, but does not
+offset the new regressions. Full vectors and contention observations are retained.
+
+The ordinary gateway is restored to its pre-trial initialized exit buffer;
+`src/jit/abi.rs` exactly matches45f02ed. Boundary models, native C interoperability
+and exit-verifier refusal tests remain. No ABI, native coverage or threshold is
+changed to force a pass. Post-withdrawal formatting/check-all and focused/full
+GNU Force validation pass1,521 executions/92 summaries/six ignored. All `src/`
+and Makefile contents exactly match the baseline-tested45f02ed state, whose
+focused musl37 and both Miri19 results remain explicitly revision-scoped.
+At `f3023cf`, fresh native, speed and shipping builds complete and all five
+executables match the preceding restored control images byte-for-byte, including
+both no-feature images. Source manifests reverify. This proves restoration,
+not a new speedup or a reason to rerun the identical failing baseline. The
+original callback/feature-cost/resource/platform acceptance remains incomplete.
+
+Evidence uses `exit-buffer-*` under the ignored short-slice evidence directory;
+the profile, native and cost analysis JSON files include totals and per-window
+vectors. The screen and repeat counter-proof JSON files each record108/144
+comparisons. The production trial is not retained as a speedup.
+
+#### Register-return exits — measured and withdrawn
 
 `83048e2` proves the two-word C return protocol; `f6fedb4` adds checked
 output-pointer lowering and an actual generated-code interoperability test.
@@ -63,8 +238,89 @@ Shipping compiled-Off results require investigation: CPU0 integer0.9517 and
 float0.9242; CPU16 integer0.8887,float0.9250,array0.9019. Matching no-feature
 ratios are near parity. These numeric/array original1.05 ceilings still pass,
 but the relative regressions are retained, not dismissed or called new original
-gate failures. Independent repeated timing and exact-image compiled-Off
-profiling are next. The candidate remains provisional; no release acceptance.
+gate failures. These first-screen observations are historical candidate evidence,
+not acceptance of the subsequently withdrawn production conversion.
+
+The independent repeat completes another158 commands, again with no aggregate
+pass. Native case failures are fresh9/candidate9; feature-cost case failures are
+fresh34/candidate35. All six repeated candidate callback gates fail. CPU0 native
+integer/float fresh-over-candidate medians are1.1710/1.0593; CPU16 are
+1.0073/1.0160. CPU16 shipping compiled-Off medians repeat the adverse trend:
+integer0.8930,float0.9244,array0.9041,upvalue0.9570, while no-feature controls
+remain near parity. CPU0 shipping has substantial nonstationarity in its
+no-feature controls; its favorable direct ratios are not called recovery.
+The full outliers, paired ratios and host telemetry remain in the evidence.
+Independent repeated counter comparison passes108 native case/mode pairs,
+with only the recorded0/48/144-byte snapshot-peak differences, and144 cost-native
+coverage pairs. Artifact and source manifests reverify before withdrawal.
+
+Eighty exact-image disabled profiles cover both CPU classes, both build profiles,
+five workloads and both feature states in control/candidate images. Allocated
+bytes, allocated-section metadata and program headers match each frozen image.
+CPU16 control/candidate instruction/read/write/conditional-branch/indirect-branch
+counts match exactly for all five workloads in both profiles and feature states.
+VM/executor self-instruction counts match across all40 corresponding profiles.
+Not all whole-profile totals match: shipping CPU0 array changes+587 instructions
+and upvalue-408; speed CPU0 no-feature array changes-8, and compiled-Off callbacks
+change+3,450,000. That callback difference is entirely in table probing and key/
+string equality self costs (+850,000/+1,050,000/+1,550,000), not VM/executor work.
+Process-dependent hash behavior is not evidence of a new VM operation.
+
+Make-based disassembly extraction compares the exact compiled-Off symbol images.
+The main VM has8,681 instructions in each shipping image and11,212 in each speed
+image. After normalizing direct branch addresses and RIP-relative displacements,
+the only remaining differences are88 shipping/168 speed RIP-relative annotation
+targets; other operands and instruction order match. This does not prove those
+data targets equivalent or establish a hardware cause. Source/function placement
+has changed; earlier rejected alignment/padding trials are not repeated.
+
+The production return-transport conversion is withdrawn because its repeated
+shipping regressions outweigh the small native gains and no callback acceptance
+gate improves to a pass. Ordinary, scalar-cell, aggregate and region call sites
+return together to the matching output-pointer protocol. The seven production
+files exactly match their pre-integration versions. Standalone full-width ABI
+models, lowering checks, interleaved-writeback regression and corrected Miri
+fixture remain test-only; frozen candidate images and all negative evidence are
+retained. This withdraws one regression, not the original outstanding callback,
+feature-cost, resource or platform acceptance requirements.
+
+Withdrawal validation passes1,490 GNU test executions/91 summaries/six ignored
+with the focused models and full all-feature Force suite. Removing the unused
+test-only caller-store helper afterward passes formatting, all-target/all-feature
+checking and another eight focused tests without the dead-code warning.
+The current output-pointer signature in `JIT.md` again matches production.
+At `5fe90d0`, targeted musl ABI/caller/region/integer/leaf/loop checks pass129
+executions/15 summaries/two ignored. i686 passes the two pure ABI tests; native
+filters correctly run zero tests there. Both Miri models pass six tests each,
+with existing platform-specific dead-code warnings retained.
+
+Fresh native, speed and shipping builds complete with verified source manifests.
+Both no-feature images are byte-identical to the frozen c9ee18e controls. The
+three JIT-enabled images have identical program headers, section addresses/sizes,
+and every file byte except47 source-location line bytes in `.data.rel.ro`.
+An independent relocation-aware comparison resolves all47 records to
+`src/jit/abi.rs` (+3 lines) or `src/jit/backend.rs` (+2 lines); their file/column
+fields are unchanged. The entire machine code and all other data bytes match.
+The added test-only module declarations account for those line shifts. This is
+stronger restoration evidence than source similarity, but is not a new elapsed
+speedup measurement or original-gate acceptance.
+
+The rebuilt native image runs all nine original workloads with eleven paired
+samples; all18 non-timing case/mode records match the frozen control, including
+snapshot peaks. Both cost images verify all nine results and match18 native-work
+records. The native execution smoke is not an isolated acceptance campaign and
+does not use `--check`: its zero command exit does not override reported failed
+metamethod/callback ratios0.8183/0.7354. No further timing campaign is presented
+as a fix for the original regressions. Current ARM64/platform CI remains pending;
+the earlier integration run37981076528 was cancelled, not a platform pass.
+
+Additional evidence under `target/jit-evidence/short-slice-performance/`:
+`return-transport-{native,cost}-repeat-analysis.json`,
+`return-transport-repeat-counter-proof.json`,
+`return-transport-disabled-profile-analysis.json`, and
+`return-transport-assembly-comparison.json`. Restored-image and validation evidence
+uses `return-transport-withdrawal-*`, including the byte/location proof and
+counter comparisons. No release acceptance is claimed.
 
 #### Source-registry bucket offsets — measured and withdrawn
 

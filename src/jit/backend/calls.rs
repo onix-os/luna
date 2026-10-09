@@ -41,7 +41,13 @@ impl CallCode {
     /// The frame, slots, view and capture must remain valid and exclusive.
     pub unsafe fn invoke_leaf(&self, frame: *mut NativeFrame, budget: u32) {
         unsafe {
-            (*frame).exit = (self.leaf)((*frame).slots, 0, budget, (*frame).view).into_exit();
+            (self.leaf)(
+                (*frame).slots,
+                0,
+                budget,
+                std::ptr::addr_of_mut!((*frame).exit),
+                (*frame).view,
+            );
         }
     }
 
@@ -130,11 +136,11 @@ pub(crate) fn compile(
     if failure == Failure::RefuseSignatures {
         workspace.0.set_limit(workspace.0.current());
     }
-    let signature_slots = [2usize, 7, 4, 4, 4]
+    let signature_slots = [2usize, 5, 4, 4, 4]
         .into_iter()
         .map(|parameters| parameters.max(4) + 4)
         .sum::<usize>();
-    let signature_bytes = Layout::array::<AbiParam>((signature_slots + 7) * 3)
+    let signature_bytes = Layout::array::<AbiParam>((signature_slots + 5) * 3)
         .map_err(|_| JitError::ResourceLimit("aggregate signature size"))?
         .size();
     let _signatures = Reservation::new(workspace.0.clone(), signature_bytes)
