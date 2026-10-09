@@ -11,6 +11,49 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Inactive paired-policy query — measured and withdrawn
+
+A VM trial reuses the fresh native-active flag to skip `call_pairs_enabled`
+when JIT is inactive. It preserves Auto checks, hooks, counters and per-invocation
+mode freshness. No native work or table optimization is removed. The preceding
+exact-image VM disassembly retains the original table-call boundaries, so the
+larger VM alone does not establish inappropriate table inlining or a hardware cause.
+
+Formatting/checks and all-feature Auto pass **1,381 executions / 86 suites**,
+six ignored. Exact-image profiles contradict the apparent source simplification:
+compiled-Off speed instructions increase for integer **18,803,010 → 19,381,235**,
+float **20,204,980 → 20,783,310**, and upvalue **83,079,233 → 83,479,363**;
+reads/writes also increase. Removing one source-level query is not proof of less
+generated work or better performance.
+
+Two native comparisons and two three-way speed/shipping comparisons complete
+**96 checked commands**: 94 fail and two CPU0 shipping candidate windows pass.
+Cost comparisons retain both the latest `3bfe904` WIP and the earlier numeric-tier
+images, rotating all three variants across common paths on CPU0/16. No owned
+build/test/profile overlaps timing. All **216 native non-timing pairs** match;
+four source/artifact manifests verify. The no-feature `.text` and every other
+file-backed allocated section match WIP controls except `.data.rel.ro`.
+
+Disabled speed upvalues on CPU16 improve over WIP (**1.100449 / 1.097447** direct
+control/candidate ratios), but remain slower than historical controls
+(**0.978218 / 0.972392**). Disabled speed float improves about 4–5% on both CPUs.
+These gains come with a new disabled-table regression on CPU16:
+**0.846309 / 0.921557** versus WIP, **0.865678 / 0.921932** versus historical.
+Five of six candidate table-cost gates fail; neither control fails any.
+Shipping CPU16 integer also regresses (**0.965465 / 0.963912** versus WIP).
+Equal WIP/candidate cost failure totals (**38/216**) conceal that exchange of
+failed cases; historical failures total 47/216. The two isolated aggregate
+passes and four native metamethod passes do not establish acceptance.
+
+The extra flag is removed and VM source again matches `3bfe904`; its substantive
+common-table improvement remains. Candidate native table throughput rose another
+3–6%, but all twelve table/upvalue/callback native gates still failed, while
+native-harness CPU16 Off integer regressed (**0.930630 / 0.924437**).
+Do not retain this flag merely because one regression improved. Shorter-lived
+policy selection would require a separate ordering/lifecycle review and fresh
+code-generation evidence, not another unmeasured wrapper rewrite.
+Evidence and complete rows: `target/jit-evidence/short-slice-performance/inactive-pair-query*`.
+
 #### Common array-access fast paths — retained development work
 
 `RawTable::get` and `set` now expose small inlinable array-hit paths and keep
