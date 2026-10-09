@@ -11,6 +11,35 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Lua-frame peek selection measured and withdrawn
+
+The replacement keeps `Option<Frame>` and the original short borrow scopes,
+removing only Lua frame pop/restore. Its GNU 1,897 passing executions (eight
+ignored), targeted musl 111, i686 eight, four tests in each Miri model and
+selector/nested-executor Memcheck all pass. Exact callback instructions fall
+2.23%, metamethod 1.57%; upvalue work is effectively unchanged.
+
+Two five-way screens retain array, single-lookup, compact and guarded-selector
+controls: **60 native commands**, 1,620 matching coverage comparisons. Callbacks
+improve **3.03–5.36% in all twelve windows**, but still miss their original
+target. Metamethods improve 0.01–5.11%. Upvalue passes only 1/12 versus compact
+11/12 because the interpreter improves without a matching native improvement.
+All negative allocation/table/cold samples remain recorded.
+
+The **112-command feature-cost screen** rejects the replacement too. CPU16 speed
+compiled-Off float is **6.35–11.91% slower**, failing three ceilings versus compact
+zero. CPU0 shipping cold fails four ceilings versus zero; shipping integer is
+13.89–15.27% slower and float 9.40–10.27% slower, despite passing their own
+feature-cost ceilings. Candidate total failures 25/144 versus compact 27/144 do
+not cancel newly failed cases. Both no-feature binaries change; faster absolute
+callback time does not imply its compiled-Off overhead ceiling passes.
+
+All 3,024 native-proof comparisons and source/artifact after-checks match.
+Executor, Make targets and candidate-only selector tests are withdrawn; exact
+source patches including tests, binaries, profiles and all timing windows remain
+under `executor-lua-peek-*`. Neither frame-selection variant is retained or
+reported as a performance fix. Full original acceptance remains open.
+
 #### Guard-carrying executor selection measured and withdrawn
 
 Keeping a Lua frame and its initial state borrow in a dispatch enum removes
@@ -30,10 +59,8 @@ shipping float profiles show fewer instructions, not extra instruction work;
 they do not establish a hardware cause. Performance counters remain unavailable
 without changing host policy, which was not changed.
 
-Evidence is retained under `executor-frame-selection-*`. A replacement trial
-keeps the original `Option<Frame>` representation and short borrow scopes,
-removing only Lua pop/restore. Its GNU/platform/Miri/Memcheck checks pass;
-its hardware performance is not yet accepted. Evidence uses `executor-lua-peek-*`.
+Evidence is retained under `executor-frame-selection-*`. The replacement trial
+and its subsequent withdrawal are recorded above under `executor-lua-peek-*`.
 
 #### Small argument shifts measured and withdrawn
 
