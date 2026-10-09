@@ -20,6 +20,7 @@ pub(super) enum Refusal {
     Weak,
 }
 
+#[repr(C)]
 #[derive(Default, Debug, PartialEq, Eq)]
 pub(super) struct Counts {
     pub reads: u32,
@@ -162,3 +163,12 @@ pub(super) fn with_window<'gc, R, const CAPACITY: usize>(
 
 #[cfg(test)]
 mod tests;
+
+mod native;
+
+#[cfg(all(
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod lowering;
