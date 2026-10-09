@@ -13,7 +13,6 @@ use crate::{
 
 use super::{thread::LuaFrame, VMError};
 
-#[cfg(test)]
 mod constants;
 mod dispatch;
 
@@ -343,7 +342,7 @@ fn run_vm_slice<'gc>(
     ) -> Value<'gc> {
         match rc {
             RCIndex::Register(r) => stack_frame[r.0 as usize],
-            RCIndex::Constant(c) => constants[c.0 as usize].into(),
+            RCIndex::Constant(c) => constants::value(constants[c.0 as usize]),
         }
     }
 
@@ -500,7 +499,7 @@ fn run_vm_slice<'gc>(
 
             Operation::LoadConstant { dest, constant } => {
                 registers.stack_frame[dest.0 as usize] =
-                    current_prototype.constants[constant.0 as usize].into();
+                    constants::value(current_prototype.constants[constant.0 as usize]);
             }
 
             Operation::LoadBool {
