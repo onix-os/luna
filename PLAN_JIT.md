@@ -11,6 +11,55 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Unified VM progress — measured and withdrawn
+
+`0e46696` adds 132 straight-line boundary scenarios with successful Return and
+failing table reads, Off/Auto, tiny/large fuel, collection between steps and
+exact attempted/reported instruction counts. They pass the original runtime
+before either experiment and remain in `make jit-stats`.
+
+`1c6f3a1` derives progress from interpreted dispatches plus native instructions,
+using explicit zero/one terminal-dispatch adjustments. Focused checks pass
+**114 executions / 12 suites**, Miri **seven**, full baseline/GNU Auto/docs
+**1,833 / 175**, eight ignored. Numeric Off instructions grow slightly:
+speed +6,250, shipping +3,120 for both integer/float. No elapsed-time acceptance
+campaign is claimed for that form.
+
+`2c577b2` separately verifies a private combined-progress guard against the
+original publisher: 324 whole-stat saturation states and nine unwind/rollback
+states. `07c768e` enables it. The outer destructor subtracts native work before
+the unchanged interpreter-statistics destructor publishes. Focused checks pass
+**116 / 13**, Miri **nine**. No global batching, new unsafe code, callback-spanning
+publication, duplicated VM or changed coverage is introduced.
+
+Exact-image Off instructions decrease integer/float from **18,803,025 /
+20,204,995 → 18,402,960 / 19,804,870** in speed and **19,540,720 /
+20,842,780 → 19,053,185 / 20,455,185** in shipping. Speed float VM self work
+falls **19,642,730 → 19,242,605**. Decoded per-address costs and assembly confirm
+the removed second counter update; they do not explain hardware-time changes.
+
+The original nine-case early screen completes **44 failed aggregate commands**,
+with **108 matching native non-timing pairs** and verified source/image checks.
+Speed CPU0 Off float control/candidate ratio is **0.940583**, versus no-feature
+cost ratios **1.0377 / 1.0305** in its two windows. Shipping CPU0 float improves
+**1.061198** against WIP but remains **0.916385** against atomic-admission.
+Native metamethod ratios are **0.967494 / 0.969573** on CPU0/16. Cost failures
+are candidate13/control14/prior13/historical13 of 72 each. Both cost windows
+are retained; their median averages both values. CPU0 and CPU16 belong to
+different hardware core classes (`cpu_core` 0–15, `cpu_atom` 16–23); results
+are not pooled across them. No owned builds/tests/profiles overlap timing.
+
+Withdraw both forms: instruction savings and isolated gains do not establish
+the required performance fix. The combined guard and candidate-only Make
+additions are removed, but their model remains in Git history. Keep the actual
+boundary integration regression. Evidence is under `single-progress*` and
+`progress-guard*` in `target/jit-evidence/short-slice-performance/`. No complete
+repeated timing or broad/platform acceptance is claimed for the combined guard.
+The retained runtime and all remaining acceptance requirements are unchanged.
+Withdrawal `9de1f7c` passes formatting/all-feature checks, **96 GNU/musl
+executions across 12 suites**, and **seven Miri executions**. VM source and
+Makefile match `d00dc99` exactly.
+
 #### String-key identity shortcut — measured and withdrawn
 
 `d9c2949` adds baseline-tested string-probe coverage for aliases, distinct equal
