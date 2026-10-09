@@ -1,5 +1,41 @@
 use super::*;
 
+#[test]
+fn string_probes_preserve_content_equality_across_allocations() {
+    crate::Lua::empty().enter(|ctx| {
+        for bytes in [&b""[..], &b"callback"[..], &[b'x'; 300][..]] {
+            let first = String::from_slice(&ctx, bytes);
+            let separate = String::from_slice(&ctx, bytes);
+            let owned = String::from_buffer(&ctx, bytes.into());
+            assert!(!Gc::ptr_eq(first.into_inner(), separate.into_inner()));
+            let different = String::from_slice(&ctx, b"different");
+            for weak in [false, true] {
+                let mut table = RawTable::new(&ctx);
+                table.set(&ctx, first.into(), Value::Integer(7)).unwrap();
+                if weak {
+                    table.make_keys_weak(&ctx);
+                }
+                for query in [first, separate, owned] {
+                    identical(table.get(&ctx, query.into()), Value::Integer(7));
+                }
+                assert!(table.get(&ctx, different.into()).is_nil());
+                identical(
+                    table.set(&ctx, separate.into(), Value::Nil).unwrap(),
+                    Value::Integer(7),
+                );
+                for query in [first, separate, owned] {
+                    assert!(table.get(&ctx, query.into()).is_nil());
+                }
+                table.set(&ctx, owned.into(), Value::Integer(9)).unwrap();
+                for query in [first, separate, owned] {
+                    identical(table.get(&ctx, query.into()), Value::Integer(9));
+                }
+                assert_eq!(table.map.len(), 1);
+            }
+        }
+    });
+}
+
 fn identical<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
     match (actual, expected) {
         (Value::Nil, Value::Nil) => {}
