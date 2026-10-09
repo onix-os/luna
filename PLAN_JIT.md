@@ -114,14 +114,38 @@ with the focused models and full all-feature Force suite. Removing the unused
 test-only caller-store helper afterward passes formatting, all-target/all-feature
 checking and another eight focused tests without the dead-code warning.
 The current output-pointer signature in `JIT.md` again matches production.
-Restored-image builds and additional target checks are still pending here;
-source restoration alone is not a fresh wall-time recovery measurement.
+At `5fe90d0`, targeted musl ABI/caller/region/integer/leaf/loop checks pass129
+executions/15 summaries/two ignored. i686 passes the two pure ABI tests; native
+filters correctly run zero tests there. Both Miri models pass six tests each,
+with existing platform-specific dead-code warnings retained.
+
+Fresh native, speed and shipping builds complete with verified source manifests.
+Both no-feature images are byte-identical to the frozen c9ee18e controls. The
+three JIT-enabled images have identical program headers, section addresses/sizes,
+and every file byte except47 source-location line bytes in `.data.rel.ro`.
+An independent relocation-aware comparison resolves all47 records to
+`src/jit/abi.rs` (+3 lines) or `src/jit/backend.rs` (+2 lines); their file/column
+fields are unchanged. The entire machine code and all other data bytes match.
+The added test-only module declarations account for those line shifts. This is
+stronger restoration evidence than source similarity, but is not a new elapsed
+speedup measurement or original-gate acceptance.
+
+The rebuilt native image runs all nine original workloads with eleven paired
+samples; all18 non-timing case/mode records match the frozen control, including
+snapshot peaks. Both cost images verify all nine results and match18 native-work
+records. The native execution smoke is not an isolated acceptance campaign and
+does not use `--check`: its zero command exit does not override reported failed
+metamethod/callback ratios0.8183/0.7354. No further timing campaign is presented
+as a fix for the original regressions. Current ARM64/platform CI remains pending;
+the earlier integration run37981076528 was cancelled, not a platform pass.
 
 Additional evidence under `target/jit-evidence/short-slice-performance/`:
 `return-transport-{native,cost}-repeat-analysis.json`,
 `return-transport-repeat-counter-proof.json`,
 `return-transport-disabled-profile-analysis.json`, and
-`return-transport-assembly-comparison.json`. No release acceptance is claimed.
+`return-transport-assembly-comparison.json`. Restored-image and validation evidence
+uses `return-transport-withdrawal-*`, including the byte/location proof and
+counter comparisons. No release acceptance is claimed.
 
 #### Source-registry bucket offsets — measured and withdrawn
 
