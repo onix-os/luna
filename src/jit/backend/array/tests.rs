@@ -153,3 +153,56 @@ fn optional_kernel_retirement_preserves_the_ordinary_image() {
     assert_eq!(total.load(Ordering::Relaxed), 0);
     assert_eq!(metadata.current(), 0);
 }
+
+#[test]
+fn metadata_and_workspace_refusal_frontiers_leave_no_partial_kernel_owner() {
+    let source = source();
+    let workspace = source.operations.allocator().0.clone();
+    let baseline = workspace.current();
+    let mut outcomes = [0usize; 2];
+    for cutoff in 0..32 {
+        let metadata = Ledger::new(4 * 1024 * 1024);
+        let total = MappingCounter::new(metadata.clone());
+        metadata.fail_after(cutoff);
+        let result = compile(
+            &source,
+            total.clone(),
+            1024 * 1024,
+            BudgetAllocator(metadata.clone()),
+            limits(),
+            Failure::None,
+        );
+        outcomes[usize::from(result.is_ok())] += 1;
+        drop(result);
+        assert_eq!(total.load(Ordering::Relaxed), 0, "metadata cutoff={cutoff}");
+        assert_eq!(total.requested(), 0);
+        assert_eq!(metadata.current(), 0);
+        assert_eq!(workspace.current(), baseline);
+    }
+    assert!(outcomes.iter().all(|&count| count != 0));
+    outcomes = [0; 2];
+    for cutoff in 0..16 {
+        let metadata = Ledger::new(4 * 1024 * 1024);
+        let total = MappingCounter::new(metadata.clone());
+        workspace.fail_after(cutoff);
+        let result = compile(
+            &source,
+            total.clone(),
+            1024 * 1024,
+            BudgetAllocator(metadata.clone()),
+            limits(),
+            Failure::None,
+        );
+        outcomes[usize::from(result.is_ok())] += 1;
+        drop(result);
+        workspace.fail_after(usize::MAX);
+        assert_eq!(
+            total.load(Ordering::Relaxed),
+            0,
+            "workspace cutoff={cutoff}"
+        );
+        assert_eq!(metadata.current(), 0);
+        assert_eq!(workspace.current(), baseline);
+    }
+    assert!(outcomes.iter().all(|&count| count != 0));
+}

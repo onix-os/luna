@@ -8,6 +8,16 @@ struct Run {
 }
 
 fn run(source: &str, mode: JitMode, arrays: bool, budget: i32) -> Run {
+    run_with_readonly(source, mode, arrays, budget, false)
+}
+
+fn run_with_readonly(
+    source: &str,
+    mode: JitMode,
+    arrays: bool,
+    budget: i32,
+    readonly: bool,
+) -> Run {
     let mut lua = Lua::core();
     lua.set_jit_config(JitConfig {
         mode,
@@ -24,7 +34,7 @@ fn run(source: &str, mode: JitMode, arrays: bool, budget: i32) -> Run {
         while lua.prepare_jit().unwrap() != 0 {}
     }
     let mut slices = Vec::new();
-    for _ in 0..50_000 {
+    for step in 0..50_000 {
         let (done, mode, remaining) = lua.enter(|ctx| {
             let executor = ctx.fetch(&executor);
             let mut fuel = Fuel::with(budget);
@@ -35,6 +45,14 @@ fn run(source: &str, mode: JitMode, arrays: bool, budget: i32) -> Run {
             )
         });
         slices.push((done, mode, remaining, lua.jit_stats().total_dispatches));
+        if readonly && step == 10 {
+            lua.enter(|ctx| {
+                let crate::Value::Table(table) = ctx.globals().get_value(ctx, "exported") else {
+                    panic!("missing exported table");
+                };
+                table.set_readonly(&ctx, true);
+            });
+        }
         lua.gc_collect();
         if done {
             return Run {
@@ -48,6 +66,23 @@ fn run(source: &str, mode: JitMode, arrays: bool, budget: i32) -> Run {
         }
     }
     panic!("array execution did not finish");
+}
+
+#[test]
+fn host_readonly_mutation_between_gc_steps_stops_previously_native_writes() {
+    let source = "local t={} exported=t local ok=pcall(function() local alias=t for i=1,5000 do alias[i]=i end end) return ok and 1 or 0";
+    let interpreted = run_with_readonly(source, JitMode::Off, false, 1, true);
+    let ordinary = run_with_readonly(source, JitMode::Auto, false, 1, true);
+    let candidate = run_with_readonly(source, JitMode::Auto, true, 1, true);
+    assert_eq!(candidate.result, 0);
+    assert_eq!(candidate.result, interpreted.result);
+    assert_eq!(candidate.slices, ordinary.slices);
+    assert_eq!(candidate.slices, interpreted.slices);
+    assert!(candidate.direct.1 > 0);
+    assert_eq!(
+        candidate.stats.native_table_writes,
+        ordinary.stats.native_table_writes
+    );
 }
 
 #[test]
