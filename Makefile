@@ -111,13 +111,6 @@ metamethod-keys:
 metamethod-keys-miri:
 	@$(CARGO) miri test --locked -p luna --no-default-features --test metamethod_keys --target '$(MIRI_TARGET)' -- --test-threads=1
 
-.PHONY: jit-table-borrow jit-table-borrow-miri
-jit-table-borrow:
-	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::table_cache::tests
-
-jit-table-borrow-miri:
-	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::helpers::table_cache::tests -- --test-threads=1
-
 ci-check:
 	@$(ACTIONLINT) .github/workflows/tests.yml
 

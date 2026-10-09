@@ -1888,11 +1888,6 @@ impl Runtime {
             closure,
             registers,
             count: helpers::Counts::default(),
-            table_cache: if PROJECTED || !code.table_borrow_cache {
-                Default::default()
-            } else {
-                helpers::table_cache::Cache::enabled()
-            },
             slot_count: register_count,
             panic: None,
             projection,
@@ -1935,7 +1930,6 @@ impl Runtime {
         };
         #[cfg(not(test))]
         let exit = unsafe { code.invoke_raw(slots, pc, budget, &mut host) };
-        frame.table_cache.clear();
         let slots = unsafe { std::slice::from_raw_parts(slots, register_count) };
         if !DEFER || frame.panic.is_some() {
             for (slot, dest) in slots

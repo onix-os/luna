@@ -325,7 +325,6 @@ unsafe extern "C" fn call<const KIND: u32>(
                 closure,
                 registers: &mut registers,
                 count: std::mem::take(&mut scoped.count),
-                table_cache: Default::default(),
                 slot_count: scoped.slot_count,
                 panic: None,
                 projection: None,

@@ -209,7 +209,6 @@ pub(super) struct Code {
     pub registers: usize,
     pub entries: BudgetVec<bool, BudgetAllocator>,
     pub projected_upvalues: bool,
-    pub table_borrow_cache: bool,
     #[cfg(test)]
     pub continuations: Option<super::continuations::Continuations>,
     #[cfg(test)]
@@ -1623,7 +1622,6 @@ fn compile_selected_rooted(
         registers: snapshot.registers,
         entries,
         projected_upvalues: selection.projected && projection_count != 0,
-        table_borrow_cache: super::helpers::table_cache::recurring(&snapshot.operations),
         #[cfg(test)]
         continuations: None,
         #[cfg(test)]
