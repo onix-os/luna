@@ -11,11 +11,13 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Output-buffer initialization — boundary model, not a speedup
+#### Output-buffer initialization — trial validated, timing pending
 
 The next narrow candidate retains the existing five-argument native ABI and
-tests whether the host can omit zeroing an exit buffer that the callee fully
-overwrites. No runtime change is enabled at this checkpoint. Independent Rust
+omits host zeroing of an exit buffer that the callee fully overwrites. The
+ordinary gateway uses `MaybeUninit` and reads the result only after normal return;
+its unsafe entry contract explicitly requires complete writes before reads.
+Independent Rust
 and actual generated C callees initialize uninitialized storage across PC,
 instruction/reason, budget and host-pointer domains. The model checks the raw
 unbounded call and the ordinary64-instruction bounded wrapper independently.
@@ -28,6 +30,28 @@ an output-buffer read or new return. No source/effect checker is relaxed.
 Baseline GNU focused checks pass46 executions, musl37, and each Miri alias model
 passes19. These establish boundary behavior, not performance acceptance.
 The runtime trial must preserve all original coverage, resource and timing gates.
+
+The candidate's serialized validation passes1,521 GNU executions/92 summaries/
+six ignored, formatting and all-target/all-feature checking. Focused musl passes
+52, i686 one pure boundary test, and each Miri model19. The first GNU driver was
+interrupted with SIGPIPE/exit141 after its observation was aborted; its handle
+and process were confirmed absent before retrying. Original partial logs remain;
+the second complete validation exits0. No test failure was hidden by the restart.
+
+Fourteen exact-image native profiles verify allocated bytes/metadata/program
+headers and seven complete non-timing counter comparisons, including snapshot
+peaks. Ordinary callback invocation self work falls64,849 instructions across
+64,849 native entries: one host instruction per entry. Callback total falls
+0.0486%; float0.0559%, integer0.0587%, allocation0.0302%. Do not attribute all
+whole-profile changes to output initialization: upvalue total rises0.1832%,
+including+313,704 in canonical admission; array rises0.1215%, including+58,237
+in memcpy. Metamethod total falls0.1976%, with substantial allocator differences.
+These other changes and complete raw profiles remain visible; their causes are
+not established by the source patch. No elapsed-speedup or acceptance claim is
+made before the paired native and speed/shipping feature-cost screens.
+
+Evidence uses `exit-buffer-*` under the ignored short-slice evidence directory;
+`exit-buffer-profile-analysis.json` includes all totals and function deltas.
 
 #### Register-return exits — measured and withdrawn
 
