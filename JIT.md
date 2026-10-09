@@ -11,6 +11,19 @@ region execution; `make jit-regions` tests the non-test library with `jit` and
 `jit,async`, including interrupted fuel traces, GC, callbacks and unwind.
 This is implementation progress, **not performance or release acceptance**.
 
+Admitted integer callees can now complete atomically without a physical callee
+frame when all inputs, source bindings, capacity/depth, capture, hook and fuel
+guards permit. The verified generated arithmetic remains native; canonical stack,
+PC, captures and logical Call/Return accounting are preserved. Partial, exceptional
+and unsupported calls retain physical execution. `make jit-atomic-call` checks
+state/counter parity and refusal behavior.
+
+Two repeated comparisons improve native upvalue throughput **30–38%** against
+the preceding retained build. Its interpreter-relative speedup remains only
+**1.08–1.16x**, below the **1.25x** target, and compiled-Off numeric regressions
+remain. This is retained structural development work, **not accepted performance**;
+`PLAN_JIT.md` records the full positive and negative evidence.
+
 Production Auto also includes independently verified integer-controlled typed
 loops (`fed925c`, extended by `061c9cc`). Stable Integer and Number arithmetic
 bodies keep typed state between operations, with fresh entry tags, exact fuel
