@@ -11,6 +11,34 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Register-return exits — integrated candidate, timing pending
+
+`83048e2` proves the two-word C return protocol; `f6fedb4` adds checked
+output-pointer lowering and an actual generated-code interoperability test.
+The integrated candidate uses four arguments and returns the full64-bit PC
+plus independent32-bit instruction/reason fields. Ordinary entries, scalar-cell
+entries, aggregate callees and their generated callers, and linked region
+callers use matching signatures. Separately typed compact scalar and array-window
+kernels retain their own matching protocols; no incompatible entry is reused.
+
+Existing source, helper, exit, loop and binding checks remain before conversion.
+Conversion validates every output-pointer use, preserves intervening/trailing
+scratch writeback, and checks packed returns against the original SSA fields.
+Signature reservations cover return storage; actual post-conversion expansion
+and target IR are checked without raising resource limits or relaxing refusals.
+
+The combined focused and full GNU all-feature Force run passes **1,490 test
+executions /91 summaries /six ignored**. Initial integration failures are
+retained: aggregate template checking belonged before conversion, and test-only
+writeback flushes must remain before the new return. Both were corrected rather
+than dropping their checks. Targeted musl passes108 checks/two ignored; the
+final fixture/native-aggregate rerun passes another14. i686 passes the two pure
+ABI checks. Both Miri models pass six protocol/lowering tests after correcting
+a test-only stale host-data pointer exposed by Tree Borrows. GNU reruns all
+eight focused checks after that fixture-only correction.
+Paired native and shipping/speed feature-cost timing remain outstanding. This
+is a performance candidate, not a demonstrated speedup or release acceptance.
+
 #### Source-registry bucket offsets — measured and withdrawn
 
 `c9ee18e` commits baseline-valid identity tests across map growth, alternating

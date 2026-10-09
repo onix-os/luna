@@ -785,6 +785,7 @@ jit-return-words:
 
 jit-return-words-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::return_words:: -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::exit_transport:: -- --test-threads=1
 
 .PHONY: jit-import-bits jit-import-bits-miri
 jit-import-bits:

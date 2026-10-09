@@ -99,7 +99,7 @@ pub(super) struct View {
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 pub(super) type CellEntry =
-    unsafe extern "C" fn(*mut abi::Slot, u64, u32, *mut abi::Exit, *mut View);
+    unsafe extern "C" fn(*mut abi::Slot, u64, u32, *mut View) -> abi::return_words::Words;
 
 #[cfg(test)]
 #[derive(Clone, Copy)]

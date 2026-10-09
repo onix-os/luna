@@ -29,8 +29,7 @@ use crate::opcode::{Operation, RCIndex};
 pub(super) mod calls;
 #[cfg(not(miri))]
 pub(super) mod compact;
-#[cfg(test)]
-mod exit_transport;
+pub(super) mod exit_transport;
 mod integer_loop;
 #[cfg(test)]
 mod read_cache;
@@ -320,9 +319,7 @@ impl Code {
     ) -> Exit {
         assert!(self.cell_kernel, "ordinary entry requires a helper host");
         let entry: super::leaf::CellEntry = unsafe { std::mem::transmute(self.entry) };
-        let mut exit = Exit::default();
-        unsafe { entry(slots, pc as u64, budget.min(64), &mut exit, view) };
-        exit
+        unsafe { entry(slots, pc as u64, budget.min(64), view) }.into_exit()
     }
 }
 
@@ -835,7 +832,7 @@ fn compile_selected_rooted(
     });
     let projection_count = projected_kinds.iter().filter(|&&needed| needed).count();
     let signature_bytes = signature_storage_bytes(
-        entry_types.len(),
+        entry_types.len() + 2,
         helper_types.len(),
         helper_returns.len(),
         helpers::SYMBOLS.len() + 2 * projection_count,
@@ -860,7 +857,8 @@ fn compile_selected_rooted(
     signature_charge = Reservation::new(snapshot.operations.allocator().0.clone(), signature_bytes)
         .map_err(|_| JitError::ResourceLimit("native signatures"))?;
     let mut signature = module.make_signature();
-    fill_signature(&mut signature.params, entry_types)?;
+    fill_signature(&mut signature.params, [ptr, types::I64, types::I32, ptr])?;
+    fill_signature(&mut signature.returns, [types::I64; 2])?;
     let function = module
         .declare_anonymous_function(&signature)
         .map_err(fail)?;
@@ -871,6 +869,9 @@ fn compile_selected_rooted(
         assert_eq!(declaration.linkage, Linkage::Local);
         assert_eq!(declaration.signature, signature);
     }
+    drop(signature);
+    let mut signature = module.make_signature();
+    fill_signature(&mut signature.params, entry_types)?;
     let mut helper_signature = module.make_signature();
     fill_signature(&mut helper_signature.params, helper_types)?;
     fill_signature(&mut helper_signature.returns, helper_returns)?;
@@ -1466,6 +1467,24 @@ fn compile_selected_rooted(
             *entry = pc == 0;
         }
     }
+    exit_transport::lower(&mut context.func)?;
+    if context.func.signature != module.declarations().get_function_decl(function).signature {
+        return Err(JitError::Compilation(
+            "invalid return entry signature".into(),
+        ));
+    }
+    expansion.verify_actual(
+        context
+            .func
+            .layout
+            .blocks()
+            .map(|block| context.func.layout.block_insts(block).count())
+            .sum::<usize>()
+            + projection_instructions,
+        context.func.layout.blocks().count() + projection_blocks,
+    )?;
+    cranelift_codegen::verify_function(&context.func, module.isa())
+        .map_err(|error| JitError::Compilation(error.to_string()))?;
     #[cfg(test)]
     if let Failure::RequireReleasedWorkspace(baseline) | Failure::RequireSignatures(baseline) =
         failure

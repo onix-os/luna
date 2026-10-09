@@ -2,7 +2,6 @@ use crate::{Constant, Value};
 
 pub(super) mod roots;
 
-#[cfg(test)]
 pub(super) mod return_words;
 
 pub(super) const NIL: u64 = 0;
@@ -101,7 +100,7 @@ pub(super) struct Host {
     pub projection: *mut std::ffi::c_void,
 }
 
-pub(super) type Entry = unsafe extern "C" fn(*mut Slot, u64, u32, *mut Exit, *mut Host);
+pub(super) type Entry = return_words::Entry;
 
 /// Invokes an entry with the original scratch pointer and a bounded instruction budget.
 ///
@@ -115,9 +114,7 @@ pub(super) unsafe fn invoke(
     budget: u32,
     host: *mut Host,
 ) -> Exit {
-    let mut exit = Exit::default();
-    unsafe { entry(slots, pc as u64, budget.min(64), &mut exit, host) };
-    exit
+    unsafe { return_words::invoke(entry, slots, pc, budget, host) }
 }
 
 const _: () = assert!(std::mem::size_of::<Slot>() == 16);
@@ -141,15 +138,16 @@ mod tests {
             slots: *mut Slot,
             pc: u64,
             budget: u32,
-            exit: *mut Exit,
             host: *mut Host,
-        ) {
+        ) -> return_words::Words {
             unsafe {
                 (*slots).bits = pc;
-                (*exit).pc = pc;
-                (*exit).instructions = budget;
-                (*exit).reason = u32::from(host.is_null());
             }
+            return_words::Words::from_exit(Exit {
+                pc,
+                instructions: budget,
+                reason: u32::from(host.is_null()),
+            })
         }
         let mut slots = [Slot {
             tag: INTEGER,

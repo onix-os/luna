@@ -39,6 +39,34 @@ fn verify_ir(function: &Function) {
 }
 
 #[test]
+fn lowering_preserves_interleaved_and_trailing_slot_writeback() {
+    let mut function = fixture();
+    let entry = function.layout.entry_block().unwrap();
+    let params = function.dfg.block_params(entry).to_vec();
+    let (stores, values) = tail(&function, entry, params[3]).unwrap();
+    let mut effects = Vec::new();
+    for before in [stores[1], stores[3]] {
+        let mut cursor = FuncCursor::new(&mut function);
+        cursor.goto_inst(before);
+        effects.push(
+            cursor
+                .ins()
+                .store(MemFlagsData::new(), params[1], params[0], 8),
+        );
+    }
+    verify_ir(&function);
+    lower(&mut function).unwrap();
+    verify_ir(&function);
+    let remaining: Vec<_> = function
+        .layout
+        .block_insts(entry)
+        .filter(|&inst| function.dfg.insts[inst].opcode() == Opcode::Store)
+        .collect();
+    assert_eq!(remaining, effects);
+    verify_tail(&function, entry, values).unwrap();
+}
+
+#[test]
 fn lowering_retains_values_host_and_calling_convention() {
     let mut function = fixture();
     verify_ir(&function);

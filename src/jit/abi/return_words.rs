@@ -8,6 +8,7 @@ pub(crate) struct Words {
 }
 
 impl Words {
+    #[cfg(test)]
     pub fn from_exit(exit: Exit) -> Self {
         Self {
             pc: exit.pc,
@@ -77,6 +78,7 @@ fn exit_words_preserve_every_field_without_pc_truncation() {
     }
 }
 
+#[cfg(test)]
 unsafe extern "C" fn rust_entry(slots: *mut Slot, pc: u64, budget: u32, host: *mut Host) -> Words {
     unsafe {
         (*slots).bits = pc;
@@ -91,32 +93,39 @@ unsafe extern "C" fn rust_entry(slots: *mut Slot, pc: u64, budget: u32, host: *m
     }
 }
 
+#[cfg(test)]
 pub(crate) fn check_entry(entry: Entry) {
     for pc in [0, 1, 255, u32::MAX as usize, usize::MAX / 2, usize::MAX] {
         for budget in [0, 1, 63, 64, 65, u32::MAX] {
             for reason in [0, 1, 2, 3, 1 << 31, u32::MAX] {
                 for null_host in [false, true] {
-                    let mut slot = Slot {
-                        tag: u64::from(reason),
-                        bits: !pc as u64,
-                    };
-                    let mut observed = u32::MAX;
-                    let mut host = Host {
-                        data: std::ptr::from_mut(&mut observed).cast(),
-                        projection: std::ptr::null_mut(),
-                    };
-                    let pointer = if null_host {
-                        std::ptr::null_mut()
-                    } else {
-                        &mut host
-                    };
-                    let exit = unsafe { invoke(entry, &mut slot, pc, budget, pointer) };
-                    assert_eq!(exit.pc, pc as u64);
-                    assert_eq!(exit.instructions, budget.min(64));
-                    assert_eq!(exit.reason, reason);
-                    assert_eq!(slot.bits, pc as u64);
-                    assert_eq!(slot.tag, u64::from(reason));
-                    assert_eq!(observed, if null_host { u32::MAX } else { budget.min(64) });
+                    for (bounded, count) in [(true, budget.min(64)), (false, budget)] {
+                        let mut slot = Slot {
+                            tag: u64::from(reason),
+                            bits: !pc as u64,
+                        };
+                        let mut observed = u32::MAX;
+                        let mut host = Host {
+                            data: std::ptr::from_mut(&mut observed).cast(),
+                            projection: std::ptr::null_mut(),
+                        };
+                        let pointer = if null_host {
+                            std::ptr::null_mut()
+                        } else {
+                            &mut host
+                        };
+                        let exit = if bounded {
+                            unsafe { invoke(entry, &mut slot, pc, budget, pointer) }
+                        } else {
+                            unsafe { entry(&mut slot, pc as u64, budget, pointer) }.into_exit()
+                        };
+                        assert_eq!(exit.pc, pc as u64);
+                        assert_eq!(exit.instructions, count);
+                        assert_eq!(exit.reason, reason);
+                        assert_eq!(slot.bits, pc as u64);
+                        assert_eq!(slot.tag, u64::from(reason));
+                        assert_eq!(observed, if null_host { u32::MAX } else { count });
+                    }
                 }
             }
         }

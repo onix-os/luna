@@ -26,7 +26,15 @@ fn tail(
     let mut stores = [ret; 4];
     let mut values = [output; 3];
     for (index, ty, offset) in [(2, types::I32, 12), (1, types::I32, 8), (0, types::I64, 0)] {
-        let inst = tail.next().ok_or_else(invalid)?;
+        let inst = tail
+            .find(|&inst| {
+                function
+                    .dfg
+                    .inst_args(inst)
+                    .iter()
+                    .any(|&value| function.dfg.resolve_aliases(value) == output)
+            })
+            .ok_or_else(invalid)?;
         let InstructionData::Store {
             opcode: Opcode::Store,
             args,
@@ -151,7 +159,7 @@ fn verify_tail(function: &Function, block: Block, values: [Value; 3]) -> Result<
     Ok(())
 }
 
-pub(super) fn lower(function: &mut Function) -> Result<(), JitError> {
+pub(in crate::jit) fn lower(function: &mut Function) -> Result<(), JitError> {
     let output = verify_input(function)?;
     super::fill_signature(&mut function.signature.returns, [types::I64; 2])?;
     let mut block = function.layout.entry_block();
@@ -163,7 +171,7 @@ pub(super) fn lower(function: &mut Function) -> Result<(), JitError> {
         }
         let (stores, values) = tail(function, current, output)?;
         let mut cursor = FuncCursor::new(function);
-        cursor.goto_inst(stores[0]);
+        cursor.goto_inst(stores[3]);
         let count = cursor.ins().uextend(types::I64, values[1]);
         let reason = cursor.ins().uextend(types::I64, values[2]);
         let reason = cursor.ins().ishl_imm_u(reason, 32);
@@ -177,6 +185,23 @@ pub(super) fn lower(function: &mut Function) -> Result<(), JitError> {
     function.dfg.remove_block_param(output);
     function.signature.params.remove(3);
     Ok(())
+}
+
+pub(in crate::jit) fn store_return(
+    builder: &mut cranelift_frontend::FunctionBuilder<'_>,
+    call: Inst,
+    output: Value,
+) {
+    let pc = builder.inst_results(call)[0];
+    let counts = builder.inst_results(call)[1];
+    let count = builder.ins().ireduce(types::I32, counts);
+    let reason = builder.ins().ushr_imm_u(counts, 32);
+    let reason = builder.ins().ireduce(types::I32, reason);
+    for (value, offset) in [(pc, 0), (count, 8), (reason, 12)] {
+        builder
+            .ins()
+            .store(MemFlagsData::new(), value, output, offset);
+    }
 }
 
 #[cfg(test)]
