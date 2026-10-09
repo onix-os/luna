@@ -1167,9 +1167,24 @@ jit-vm-dispatch:
 vm-constants:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::vm::constants::tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::constants::tests
+	@$(CARGO) test --locked -p luna --no-default-features --test vm_constants $(TARGET_ARG)
+	@for mode in off auto force; do \
+		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test vm_constants $(TARGET_ARG) || exit $$?; \
+	done
 
 vm-constants-miri:
 	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' thread::vm::constants::tests -- --test-threads=1
+
+VM_CONSTANTS_DIR ?= target/jit-evidence/vm-constants
+.PHONY: vm-constants-memcheck
+vm-constants-memcheck:
+	@mkdir -p '$(VM_CONSTANTS_DIR)'
+	@$(CARGO) test --locked -p luna --features jit --test vm_constants $(TARGET_ARG) --no-run --message-format=json-render-diagnostics > '$(VM_CONSTANTS_DIR)/build.jsonl'
+	@jq -r 'select(.reason == "compiler-artifact" and .target.name == "vm_constants" and .profile.test and .executable != null) | .executable' '$(VM_CONSTANTS_DIR)/build.jsonl' > '$(VM_CONSTANTS_DIR)/binary-path'
+	@test "$$(wc -l < '$(VM_CONSTANTS_DIR)/binary-path')" -eq 1
+	@for mode in off auto force; do \
+		LUNA_TEST_JIT_MODE=$$mode valgrind --tool=memcheck --error-exitcode=99 --leak-check=full --show-leak-kinds=all --errors-for-leak-kinds=definite,indirect "$$(cat '$(VM_CONSTANTS_DIR)/binary-path')" --test-threads=1 > '$(VM_CONSTANTS_DIR)'/$$mode.log 2>&1 || exit $$?; \
+	done
 
 numeric-conversions:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) constant::tests
