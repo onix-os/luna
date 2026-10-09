@@ -6,6 +6,7 @@ pub(crate) struct Snapshot<'a, 'gc> {
 }
 
 impl<'a, 'gc> Snapshot<'a, 'gc> {
+    #[inline(always)]
     pub(crate) fn new(roots: &'a [Value<'gc>], slots: &'a mut [Slot]) -> Option<Self> {
         if roots.len() != slots.len()
             || slots.len() > 256
@@ -23,10 +24,12 @@ impl<'a, 'gc> Snapshot<'a, 'gc> {
         Some(Self { roots, slots })
     }
 
+    #[inline(always)]
     pub(crate) fn len(&self) -> usize {
         self.slots.len()
     }
 
+    #[inline(always)]
     pub(crate) fn get(&self, index: usize) -> Option<Value<'gc>> {
         let slot = *self.slots.get(index)?;
         Some(if slot.tag == REFERENCE {
@@ -36,6 +39,7 @@ impl<'a, 'gc> Snapshot<'a, 'gc> {
         })
     }
 
+    #[inline(always)]
     pub(crate) fn publish(&self, values: &mut [Value<'gc>]) -> bool {
         if values.len() < self.slots.len() {
             return false;
@@ -50,6 +54,7 @@ impl<'a, 'gc> Snapshot<'a, 'gc> {
         true
     }
 
+    #[inline(always)]
     pub(crate) fn call(
         &mut self,
         function: usize,

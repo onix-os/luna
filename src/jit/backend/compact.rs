@@ -177,7 +177,6 @@ impl Binding {
 }
 
 impl Entry {
-    #[cfg(test)]
     pub(in crate::jit) fn prepare_inputs(
         &self,
         capture: i64,

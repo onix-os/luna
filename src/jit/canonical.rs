@@ -688,5 +688,4 @@ mod tests;
 
 pub(super) mod admission;
 mod atomic;
-#[cfg(test)]
 pub(super) mod rooted;

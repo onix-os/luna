@@ -11,6 +11,160 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Numeric constant materialization — measured and withdrawn
+
+`b10afc8` adds an independent constant conversion model; `9eb08ef` adds a
+bounded-execution integration fixture preserving constant string pointer identity,
+an integer above 2^53 and negative zero through metamethod calls and full GC.
+`b51456f` enables a numeric-first conversion in operand lookup and LoadConstant.
+That production change is **withdrawn** after repeated regressions. The model,
+integration fixture and `make vm-constants`, `vm-constants-miri` and
+`vm-constants-memcheck` remain. The pure string comparison now checks pointer
+identity explicitly; content equality alone was insufficient. Miri exercises the
+pure model, not native code; the integration fixture does not assert native work.
+
+Exact-image attribution identifies the extra hot indirect branch as constant
+materialization, not another opcode decoder: packed opcode dispatch is already
+fused. The trial removes about 100,000 indirect branches in shipping float but
+adds about 200,000 conditional branches and stores. Total instructions increase
+**20,842,780 → 20,942,645**. Native upvalue instructions also increase slightly,
+**169,888,802 → 170,040,739**. Fewer indirect branches did not mean less work,
+and these profiles establish no physical cache or predictor explanation.
+
+Both native rounds and both four-way cost rounds complete **152 aggregate
+commands**, all failing unchanged aggregate gates. All **216 native non-timing
+pairs** match. Each round uses CPU0/16, eleven samples, three native windows and
+four rotating cost windows, with twenty cost iterations. Four-window summaries
+average the middle two medians. Owned builds/tests/profiles finish before timing;
+source/image manifests and exact symbol companions verify. Immediate control is
+`rooted-publication`, pre-regression control is `atomic-admission`, and historical
+control is `empty-return-copy`. Unlike the preceding JIT-only trials, this change
+also modifies no-feature executables: their absolute performance must be checked.
+
+Selected control-time / candidate-time ratios, initial / repeat:
+
+| Case | Profile / CPU | Versus rooted-publication | Versus atomic-admission |
+| --- | --- | --- | --- |
+| Compiled-Off float | shipping / 0 | 1.126728 / 1.127211 | 0.970358 / 0.971335 |
+| Compiled-Off integer | shipping / 0 | 0.833281 / 0.833549 | 0.812198 / 0.812300 |
+| Compiled-Off integer | speed / 0 | 0.754415 / 0.756716 | 0.763776 / 0.766070 |
+| Compiled-Off float | speed / 0 | 0.961374 / 0.959559 | 1.019788 / 1.022203 |
+| Compiled-Off allocation | shipping / 0 | 0.926118 / 0.938153 | 0.929734 / 0.937912 |
+| Compiled-Off float | shipping / 16 | 1.080259 / 1.081009 | 1.099382 / 1.099798 |
+| Compiled-Off integer | speed / 16 | 0.969824 / 0.965638 | 1.013565 / 1.017377 |
+
+No-feature CPU0 speed integer falls to **0.803244 / 0.803227** versus immediate
+control; slowing that reference cannot establish JIT feature-cost acceptance.
+Native CPU16 allocation falls to **0.935383 / 0.917326**. Native upvalue is
+**1.018281 / 1.017457** on CPU0 and **1.038637 / 0.994774** on CPU16. All twelve
+candidate upvalue interpreter-relative windows pass 1.25x, but the broader
+regressions still reject this trial. Individual cost failures are
+**candidate55/control52/prior59/historical52 of 288 each**.
+
+Candidate formatting/checking, baseline and all-feature Auto tests, focused
+numeric/region/accounting checks, the Miri model and Off/Auto/Force identity
+integration checks pass. Native Memcheck for that fixture reports zero errors
+and zero definite/indirect leaks; the usual 48 possibly-lost/632 reachable harness
+bytes remain. These correctness results did not establish performance acceptance.
+Complete timings, profiles, all-case summaries and withdrawal checks remain under
+`target/jit-evidence/short-slice-performance/numeric-constant*`. Production returns
+to the rooted-publication WIP below, with its existing regressions still open.
+
+Withdrawal passes formatting, GNU checking, **146 focused test executions across
+20 suites**, and the strengthened Miri model. `src/thread/vm.rs` matches the
+pre-trial version exactly. These are withdrawal checks, not new performance
+measurements or a claim that the underlying shipping regression is fixed.
+
+#### Rooted atomic publication — measured development WIP, not accepted
+
+`534344f` introduces a test-only rooted caller model and native differential;
+`0676a7a` extends it through native-region continuation and panic recovery.
+`976ca11` enables the checked path, `907f416` inlines its snapshot/window helpers,
+and `ca1ba5a` combines caller publication and continuation checks in one register
+borrow. The final version is retained as **experimental development WIP**, not
+release acceptance: it improves native calls and restores speed-profile numeric
+performance, but a substantial shipping-profile float regression remains.
+
+Immutable typed roots preserve reference identity while validated scalar/reference
+slots represent pending caller values. The existing verified compact native entry
+still computes the integer result. Complete argument shifting, nil-filled tails,
+overlapping callee temporaries, captures, PC, fuel and logical Call/Return counters
+are reproduced. The caller is published once after each atomic call, **before any
+next generated caller entry**; no full canonical recapture is needed on success.
+Refusal publishes pending caller state and retains physical fallback. Panic
+recovery publishes pending state while preserving the pre/post-commit canonical PC.
+Source/type/capture/hook/frame/depth/capacity/fuel checks remain; there is no new
+unsafe code, allocation, persistent capture cache or native coverage reduction.
+
+The pure model covers 648 call-layout combinations and every scalar/reference
+kind, including NaN bits, negative zero, moved root aliases and short-destination
+refusal without mutation. Native differentials cover 720 paired cases, pending
+values, repeated virtual calls and captures in an upper physical frame. Region
+tests explicitly count rooted completions and compare bounded execution/fuel;
+faults before and after atomic commit verify canonical publication and counters.
+An initial fault-fixture expectation incorrectly excluded already completed caller
+dispatches; the corrected assertion compares that work to the interpreter without
+prematurely charging fuel. Failed logs are retained.
+
+The slot model passes **three Miri tests**. Initial native Memcheck passes **41
+region tests** (two ignored) and **two direct rooted tests**, zero errors and zero
+definite/indirect leaks. Final publication panic and bounded-region fixtures also
+pass native Memcheck. The usual 48 possibly-lost/632 reachable harness bytes remain.
+Each refinement passes GNU checking and **1,566 focused/all-feature Auto executions
+across 105 suites**, eight ignored; 169/18 are focused gates. Initial baseline,
+all-feature Auto and documentation runs additionally pass **1,817/176**, ten
+ignored. These are test executions, including overlapping suites, not distinct
+test counts or new platform certification.
+
+Three independently frozen variants each complete two native and two three-way
+speed/shipping cost rounds: **288 aggregate commands total, all failing unchanged
+aggregate gates**. All **648 native non-timing pairs** match, including execution
+and resource counters. Each round retains three alternating/rotating windows on
+CPU0/16, eleven samples, twenty cost iterations and external contention. Controls
+are retained `atomic-admission` and historical `empty-return-copy`; owned builds,
+tests and profiles terminate before timing. Source/image manifests and exact
+symbol companions verify. All variants' no-feature executables are byte-identical
+to their immediate controls.
+
+The first `rooted-atomic` variant does not improve instruction work:
+179,017,034 → 179,120,804. Native upvalue throughput ratios are CPU0
+**0.977166 / 0.973633**, CPU16 **0.987841 / 0.990312**, first / repeat; all twelve
+1.25x interpreter gates fail. Shipping compiled-Off CPU0 float regresses to
+**0.935253 / 0.937567**. Individual cost failures are candidate42/control44/
+historical43 of 216 each. This implementation is superseded, not accepted.
+
+`rooted-inline` reduces instructions **179,016,511 → 170,205,596 (4.9%)** and
+improves native upvalues CPU0 **1.090999 / 1.099818**, CPU16 **1.038181 / 1.058578**;
+nine of twelve upvalue gates pass. But shipping compiled-Off integer becomes
+CPU0 **0.856432 / 0.859458**, CPU16 **0.930740 / 0.930342**, and float CPU0
+**0.803665 / 0.804578**, CPU16 **0.952496 / 0.952148**. Individual cost failures
+are 34/44/37. Exact-image shipping float profiles execute the same **20,842,780**
+instructions in control and candidate; this neither explains the physical
+regression nor proves a cache/predictor cause. This variant is also superseded.
+
+The final `rooted-publication` version reduces upvalue instructions
+**178,808,340 → 169,785,165 (5.0%)**. Native upvalue throughput improves CPU0
+**1.086312 / 1.081357**, CPU16 **1.065209 / 1.070712**. Eleven of twelve original
+1.25x interpreter-relative windows pass; one CPU16 window remains **1.2377**.
+Speed compiled-Off float recovers CPU0 **1.066443 / 1.068949** and CPU16
+**1.095174 / 1.085577**, approximately historical parity. Speed CPU16 integer
+also recovers **1.042281 / 1.044193**, approximately historical parity.
+
+The remaining adverse result is material: shipping compiled-Off CPU0 float is
+**0.861124 / 0.864409** versus atomic-admission and **0.926918 / 0.928430** versus
+empty-return-copy. Historical CPU16 shipping integer remains **0.955842 / 0.956459**
+and table **0.955600 / 0.955773**. Native cold-config CPU0 is **0.975896 / 0.987472**;
+the initial CPU16 table and predicate ratios are **0.964388** and **0.978655**,
+with repeats **1.000346** and **0.990690**. Individual cost failures are 37/38/41.
+Ratios above are control time / candidate time; passing a no-feature overhead
+limit does not erase a build-to-build regression.
+
+Full acceptance is unfinished. The next work is the shipping float regression,
+remaining shipping costs and native gates, without losing native coverage or
+relaxing thresholds. Evidence, including unsuccessful variants and machine-readable
+summaries, is under `target/jit-evidence/short-slice-performance/rooted-atomic*`,
+`rooted-inline*` and `rooted-publication*`.
+
 #### Atomic admission deduplication — retained development WIP
 
 `f31efab` first extends admission refusal coverage with interrupted fuel,
