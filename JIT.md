@@ -38,6 +38,12 @@ exceeds its 5% limit. CPU0 metamethod and other adverse samples remain explicit
 in `PLAN_JIT.md`. All 96 aggregate commands fail; this is a partial improvement,
 not full performance acceptance.
 
+Two metamethod-name-cache variants were subsequently measured and withdrawn.
+They sped up metamethods but regressed numeric, table or allocation workloads.
+Production retains the empty-return fix, without the key cache. The independent
+key identity/GC tests remain under `make metamethod-keys` and
+`make metamethod-keys-miri`; `PLAN_JIT.md` retains all failed comparisons.
+
 Two later table-receiver specializations were measured and rejected: modest
 instruction-count reductions and some native gains came with repeated shipping
 compiled-Off regressions. Production retains the numeric-loop runtime above;

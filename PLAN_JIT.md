@@ -11,6 +11,53 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Metamethod-key cache — two variants measured and withdrawn
+
+Exact-image profiles attributed 2,929,093 instructions to repeated static-name
+interning in the metamethod workload. A lazy 29-slot cache inside the existing
+GC-traced string owner cached keys only, preserving fresh metatable values and
+static-string identity. It added 232 managed bytes on 64-bit without adding an
+allocation or changing the public string-set size. No new unsafe code was added.
+`2bd77a3` independently adds all-name identity, collection, mutation/removal and
+cross-arena tests; six baseline checks pass before the runtime trial. An initial
+test-only mutable-borrow compiler error is retained with its corrected run.
+
+Focused validation passes 94 executions / 14 suites. Baseline/doc/all-feature
+Auto passes **1,802 executions / 173 suites**, eight ignored. Three GC/key checks
+pass under Miri with 13 warnings. The initial cache reduces native metamethod
+work **80,858,421 → 78,273,917** and Off work **67,198,843 → 64,319,514**.
+Its repeated native gains (CPU0 3.8–4.2%, CPU16 4.6–6.4%) introduce CPU16 native
+allocation regressions: control/candidate **0.910765 / 0.923999**. Exact allocation
+work changes only **32,070,041 → 32,099,743**; this does not establish a hardware
+cause for the timing difference. Disabled speed CPU0 float regresses
+**0.933143 / 0.958438**, shipping CPU16 integer **0.953560 / 0.955718**, and
+shipping CPU16 table **0.956251 / 0.958545**.
+
+A second variant isolates cache population/name selection/barriers in a cold,
+non-inlined miss function. Focused checks pass again. Native metamethod work
+falls to **77,689,022**, Off to **63,776,642**; repeated native gains are 4.2–4.3%
+on CPU0 and 5.1–5.8% on CPU16. Native allocation recovers, but other regressions
+remain: native-harness CPU16 Off integer **0.926884 / 0.951335**, Off float
+**0.941455 / 0.899946**; shipping CPU16 disabled table **0.959368 / 0.954279**;
+shipping CPU0 no-feature integer **0.937442 / 0.933848**. Ratios above are retained
+control time / candidate time, initial / repeat.
+
+Each variant completes two native and two three-way speed/shipping comparisons,
+three alternating/rotating windows on CPU0/16 and eleven samples. All **192
+aggregate commands** fail unchanged gates. All **432 native non-timing pairs**
+match; exact symbol companions and pre/post source/artifact manifests verify.
+Owned builds/tests/profiles do not overlap timing. Both original numeric-tier
+and latest retained controls remain visible. Cost failures are first candidate
+50/216 versus control41/216, then candidate45/216 versus control37/216; reduced
+metamethod work does not compensate for those failures.
+
+Both complete cache implementations are withdrawn. Runtime `src/` again matches
+`51815e5`; key lifetime tests and both metamethod-key Make targets remain. The earlier
+empty-return improvement is preserved. Frozen candidates, patches, exact profiles,
+all raw windows and summaries remain under `metamethod-key-{cache,cold}*` in
+`target/jit-evidence/short-slice-performance/`. Do not repeat cache-hit/miss
+annotation changes as an accepted fix. Full performance acceptance stays open.
+
 #### Common empty-return copy — retained partial improvement
 
 The generic `LuaFrame::return_upper` skips zero-length result copies while still
