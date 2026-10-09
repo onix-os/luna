@@ -687,3 +687,4 @@ fn invoke_result<'gc>(
 mod tests;
 
 pub(super) mod admission;
+mod atomic;

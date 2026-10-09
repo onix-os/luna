@@ -752,7 +752,12 @@ impl<'gc> ThreadState<'gc> {
         self.open_upvalues.truncate(start);
     }
 
-    #[cfg(all(test, feature = "jit"))]
+    #[cfg(all(
+        feature = "jit",
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
     pub(super) fn captures_below(&self, bottom: usize) -> bool {
         self.open_upvalues.last().is_none_or(|&upvalue| {
             matches!(upvalue.get(), UpValueState::Open(open) if open.stack_index < bottom)

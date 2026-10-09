@@ -145,6 +145,28 @@ impl<'program, 'gc> Admitted<'program, 'gc> {
         if !self.preflight(host, budget, prefix) {
             return None;
         }
+        #[cfg(test)]
+        let atomic = !self.program.custom_hooks;
+        #[cfg(not(test))]
+        let atomic = true;
+        if atomic
+            && super::atomic::invoke(
+                self.ctx,
+                host,
+                &self.program.site,
+                &self.program.code,
+                budget,
+                prefix,
+                Some((self.caller, self.callee)),
+            )
+        {
+            self.ctx.jit().record_pair_execution(1, 1);
+            return Some(crate::jit::PairOutcome {
+                calls: 1,
+                returns: 1,
+                result: Ok(()),
+            });
+        }
         let mut scratch = [MaybeUninit::uninit(); 256];
         let mut session = Session::new(self.ctx, host, &self.program.site, &mut scratch);
         session.callee = Some(self.callee);
