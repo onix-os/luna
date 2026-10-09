@@ -87,7 +87,18 @@ pub(super) fn invoke<'gc>(
         (output.read, output.result, output.capture)
     ));
     window.commit(output.capture);
+    for _ in 0..2 {
+        let mut stats = ctx.jit().interpreter_stats();
+        stats.dispatches = 1;
+        stats.reported_instructions = Some(0);
+    }
     let mut manager = ctx.jit().0.borrow_mut();
-    manager.stats.record_atomic_call();
+    manager.stats.native_upvalue_reads = manager.stats.native_upvalue_reads.saturating_add(1);
+    manager.stats.native_upvalue_writes = manager.stats.native_upvalue_writes.saturating_add(1);
+    manager.stats.record_native_exit(&Exit {
+        pc: 3,
+        instructions: 3,
+        reason: Kind::Interpreter as u32,
+    });
     true
 }
