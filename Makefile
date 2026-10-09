@@ -328,7 +328,7 @@ jit-rust-assembly-run:
 	@test -x '$(JIT_ASSEMBLY_BINARY)'
 	@mkdir -p '$(JIT_ASSEMBLY_DIR)'
 	@sha256sum '$(JIT_ASSEMBLY_BINARY)' > '$(JIT_ASSEMBLY_DIR)/binary-sha256.log'
-	@set -o pipefail; objdump -Cd '$(JIT_ASSEMBLY_BINARY)' | awk '/<luna::jit::Runtime::(run|lookup)>:|<<luna::jit::Runtime>::invoke.*>:|<luna::jit::helpers::call.*>:|<luna::thread::vm::run_vm.*>:/ { emit=1 } emit { print } /^$$/ { emit=0 }' > '$(JIT_ASSEMBLY_DIR)/rust-assembly.log'
+	@set -o pipefail; objdump -Cd '$(JIT_ASSEMBLY_BINARY)' | awk '/<luna::jit::Runtime::(run|lookup)>:|<<luna::jit::Runtime>::(run|lookup)>:|<<luna::jit::Runtime>::invoke.*>:|<luna::jit::helpers::call.*>:|<luna::thread::vm::run_vm.*>:/ { emit=1 } emit { print } /^$$/ { emit=0 }' > '$(JIT_ASSEMBLY_DIR)/rust-assembly.log'
 	@test -s '$(JIT_ASSEMBLY_DIR)/rust-assembly.log'
 
 jit-disassembly:
