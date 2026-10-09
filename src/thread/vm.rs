@@ -5,7 +5,7 @@ use crate::{
     table::RawTable,
     thread::thread::MetaReturn,
     types::{RegisterIndex, VarCount},
-    Closure, Constant, Context, Function, String, Table, Value,
+    Constant, Context, Function, String, Table, Value,
 };
 
 use super::{thread::LuaFrame, VMError};
