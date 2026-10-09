@@ -11,6 +11,44 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Interpreter instantiation and dispatch — experimental, not accepted
+
+`5edb405` covers closure-cell sharing, independent outer slots, fresh local
+captures, partial capture state on invalid environment descriptors, PC and fuel.
+`0ade243` outlines this allocation/traversal from the main VM. GNU focused/full
+Auto/baseline/docs pass **1,887 executions / 184 suites**, eight ignored; musl
+focused passes **59 / 9**, and four pure Miri executions pass.
+
+The native VM shrinks **0xdd7d → 0xcf7b bytes**, with its prologue reservation
+**0x668 → 0x638**. All four cost VMs also shrink, but shipping feature stack
+reservation remains **0x708**. Smaller code does not establish faster execution:
+two full native/four-way cost rounds complete **152 failed aggregate commands**,
+with unchanged non-timing fields in **216 native pairs**. CPU0 speed Off float
+ratios are **0.877616 / 0.876829**, shipping integer **0.848492 / 0.847666** and
+shipping float **0.902326 / 0.903538**, control time / candidate time. Native
+table also slows on both CPUs. Cost failures are candidate83/control55/prior59/
+historical54 of 288 each. This first variant is not accepted.
+
+Exact-image attribution finds an extra indirect jump at the inactive hook/JIT
+dispatch, executed **200,070 times** in the shipping float profile, before the
+ordinary opcode jump. VM self instructions grow **19,995,745 → 20,405,260**.
+This observed lowering difference does not prove the entire timing slowdown's cause.
+
+`f8e2c3a` adds a portable dispatch-storage guard and Make/Miri coverage.
+`16bb4d1` tests an outlying private JIT-enabled Interpreted discriminant, retaining
+the original no-feature enum. It also removes the draft's unused import.
+Hook/observation/lease selection and all runtime/public/value-layout contracts
+remain unchanged. Corrected focused GNU checks pass **113 / 17**, nine Miri
+executions pass, and state sizes are **1 byte without JIT / 16 bytes with JIT**.
+An initial launcher omitted Cargo's argument separator; those failed logs remain.
+
+The sparse refinement is still under measurement: actual inactive-branch lowering,
+full-corpus timing, broad/platform verification and final retention are not yet
+established. A two-window full-corpus cost screen may reject it early, but cannot
+replace the complete repeated acceptance campaign. Evidence is under
+`target/jit-evidence/short-slice-performance/vm-instantiation*` and `sparse-dispatch*`.
+All original performance gates remain open; this is not release acceptance.
+
 #### Direct integer capture — measured and withdrawn
 
 `93e2496` adds independent capture-admission comparisons against the original
