@@ -1,34 +1,58 @@
 use std::{
-    cell::Cell,
+    hash::{BuildHasher, Hash, Hasher},
+    num::NonZeroUsize,
     ops::{Deref, DerefMut},
-    ptr::NonNull,
 };
 
 use super::MetadataMap;
 
 pub(super) struct Index<V> {
     entries: MetadataMap<u64, V>,
-    hint: Cell<Option<(u64, NonNull<V>)>>,
+    hint: Option<NonZeroUsize>,
+    previous: Option<NonZeroUsize>,
 }
 
 impl<V> From<MetadataMap<u64, V>> for Index<V> {
     fn from(entries: MetadataMap<u64, V>) -> Self {
         Self {
             entries,
-            hint: Cell::new(None),
+            hint: None,
+            previous: None,
         }
     }
 }
 
 impl<V> Index<V> {
     pub fn lookup_mut(&mut self, key: u64) -> Option<&mut V> {
-        let mut pointer = match self.hint.take().filter(|(previous, _)| *previous == key) {
-            Some((_, pointer)) => pointer,
-            None => NonNull::from(self.entries.get_mut(&key)?),
+        let table = self.entries.raw_table();
+        let cached = |hint: Option<NonZeroUsize>| {
+            let offset = hint?;
+            // Cached offsets identify live buckets until mutable map access.
+            let bucket = unsafe { table.bucket(offset.get() - 1) };
+            (unsafe { bucket.as_ref().0 } == key).then_some((offset, bucket))
         };
-        self.hint.set(Some((key, pointer)));
-        // Map access invalidates the hint; this exclusive lookup reborrows its live entry.
-        Some(unsafe { pointer.as_mut() })
+        let first = self.hint;
+        let bucket = if let Some((_, bucket)) = cached(first) {
+            bucket
+        } else {
+            let (offset, bucket) = if let Some(found) = cached(self.previous) {
+                found
+            } else {
+                self.hint = None;
+                self.previous = None;
+                let mut hasher = self.entries.hasher().build_hasher();
+                key.hash(&mut hasher);
+                let bucket = table.find(hasher.finish(), |(id, _)| *id == key)?;
+                // The found bucket belongs to this allocated table.
+                let offset = unsafe { table.bucket_index(&bucket) };
+                (NonZeroUsize::new(offset + 1).unwrap(), bucket)
+            };
+            self.previous = first;
+            self.hint = Some(offset);
+            bucket
+        };
+        // The exclusive index borrow scopes access to this live value.
+        Some(unsafe { &mut (*bucket.as_ptr()).1 })
     }
 }
 
@@ -36,14 +60,14 @@ impl<V> Deref for Index<V> {
     type Target = MetadataMap<u64, V>;
 
     fn deref(&self) -> &Self::Target {
-        self.hint.set(None);
         &self.entries
     }
 }
 
 impl<V> DerefMut for Index<V> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.hint.set(None);
+        self.hint = None;
+        self.previous = None;
         &mut self.entries
     }
 }
@@ -62,32 +86,136 @@ mod tests {
     }
 
     #[test]
+    fn two_hints_occupy_only_two_machine_words() {
+        assert_eq!(
+            std::mem::size_of::<Index<u64>>(),
+            std::mem::size_of::<MetadataMap<u64, u64>>() + 2 * std::mem::size_of::<usize>()
+        );
+    }
+
+    #[test]
+    fn cold_lookup_matches_inserted_hashes_for_wide_keys() {
+        let (mut map, _) = index();
+        let keys = [0, 1, u64::MAX, 1 << 63, u64::MAX - 1, 256];
+        for key in keys {
+            map.insert(key, key);
+        }
+        for _ in 0..8 {
+            for key in keys {
+                assert_eq!(map.lookup_mut(key).copied(), Some(key));
+            }
+        }
+    }
+
+    #[test]
     fn repeated_hits_reborrow_the_same_live_entry() {
         let (mut map, _) = index();
         map.insert(7, [1u64, 2]);
         for value in 0..128 {
             map.lookup_mut(7).unwrap()[0] = value;
-            let pointer = map.hint.get().unwrap().1;
+            let offset = map.hint.unwrap();
             assert_eq!(map.lookup_mut(7).unwrap()[0], value);
-            assert_eq!(map.hint.get().unwrap().1, pointer);
+            assert_eq!(map.hint.unwrap(), offset);
         }
         assert_eq!(map.lookup_mut(7), Some(&mut [127, 2]));
     }
 
     #[test]
-    fn shared_and_mutable_access_invalidate_before_exposing_entries() {
+    fn alternating_hits_preserve_disjoint_entry_provenance() {
+        let (mut map, ledger) = index();
+        map.insert(1, vec![0u64, 1]);
+        map.insert(2, vec![0u64, 2]);
+        map.insert(3, vec![0u64, 3]);
+        let bytes = ledger.current();
+        for iteration in 0..128 {
+            for key in [1, 2, 1, 2, 3, 2, 3, 1] {
+                assert_eq!(map.lookup_mut(key).unwrap()[1], key);
+                *map.lookup_mut(key).unwrap() = vec![iteration, key];
+                let offset = map.hint.unwrap();
+                assert_eq!(map.lookup_mut(key).unwrap(), &[iteration, key]);
+                assert_eq!(map.hint.unwrap(), offset);
+                assert_ne!(map.previous, Some(offset));
+            }
+        }
+        assert_eq!(ledger.current(), bytes);
+        assert_eq!(map.get(&1).unwrap(), &[127, 1]);
+        assert!(map.hint.is_some());
+        assert!(map.previous.is_some());
+        drop(map);
+        assert_eq!(ledger.current(), 0);
+    }
+
+    #[test]
+    fn two_hints_invalidate_on_mutation_and_misses() {
+        let (mut map, _) = index();
+        map.insert(1, 10u64);
+        map.insert(2, 20u64);
+        for mutation in 0..4 {
+            assert_eq!(map.lookup_mut(1), Some(&mut 10));
+            assert_eq!(map.lookup_mut(2), Some(&mut 20));
+            assert!(map.hint.is_some());
+            assert!(map.previous.is_some());
+            match mutation {
+                0 => {
+                    map.try_reserve(128).unwrap();
+                }
+                1 => {
+                    map.shrink_to_fit();
+                }
+                2 => {
+                    assert_eq!(map.insert(1, 10), Some(10));
+                }
+                _ => {
+                    assert!(map.lookup_mut(3).is_none());
+                }
+            }
+            assert!(map.hint.is_none());
+            assert!(map.previous.is_none());
+        }
+        map.lookup_mut(1).unwrap();
+        map.lookup_mut(2).unwrap();
+        assert_eq!(map.remove(&1), Some(10));
+        assert!(map.hint.is_none());
+        assert!(map.previous.is_none());
+        assert!(map.lookup_mut(1).is_none());
+        assert_eq!(map.lookup_mut(2), Some(&mut 20));
+    }
+
+    #[test]
+    fn shared_access_preserves_offsets_and_mutation_invalidates() {
         let (mut map, _) = index();
         map.insert(1, 10u64);
         assert_eq!(map.lookup_mut(1), Some(&mut 10));
+        let offset = map.hint;
         assert_eq!(map.get(&1), Some(&10));
-        assert!(map.hint.get().is_none());
+        assert_eq!(map.hint, offset);
         *map.lookup_mut(1).unwrap() = 11;
         *map.get_mut(&1).unwrap() = 12;
-        assert!(map.hint.get().is_none());
+        assert!(map.hint.is_none());
         assert_eq!(map.lookup_mut(1), Some(&mut 12));
         assert_eq!(map.iter().count(), 1);
-        assert!(map.hint.get().is_none());
+        assert_eq!(map.hint, offset);
         assert_eq!(map.lookup_mut(1), Some(&mut 12));
+    }
+
+    #[test]
+    fn shared_entry_borrows_end_before_fresh_mutable_bucket_access() {
+        let (mut map, _) = index();
+        map.insert(1, vec![1u64]);
+        map.insert(2, vec![2u64]);
+        for value in 3..35 {
+            map.lookup_mut(1).unwrap();
+            map.lookup_mut(2).unwrap();
+            let hints = (map.hint, map.previous);
+            let first = &map[&1];
+            assert_eq!(first.len(), 1);
+            assert_eq!(map.values().map(Vec::len).sum::<usize>(), 2);
+            assert_eq!((map.hint, map.previous), hints);
+            *map.lookup_mut(1).unwrap() = vec![value];
+            assert_eq!(map.get(&1).unwrap(), &[value]);
+            *map.lookup_mut(2).unwrap() = vec![value + 1];
+            assert_eq!(map.get(&2).unwrap(), &[value + 1]);
+        }
     }
 
     #[test]
@@ -97,7 +225,7 @@ mod tests {
         for count in [32, 128, 512] {
             assert_eq!(map.lookup_mut(7), Some(&mut 70));
             map.try_reserve(count).unwrap();
-            assert!(map.hint.get().is_none());
+            assert!(map.hint.is_none());
             assert_eq!(map.lookup_mut(7), Some(&mut 70));
         }
         map.shrink_to_fit();
@@ -134,7 +262,7 @@ mod tests {
         let before = ledger.current();
         ledger.fail_after(0);
         assert!(map.try_reserve(4096).is_err());
-        assert!(map.hint.get().is_none());
+        assert!(map.hint.is_none());
         assert_eq!(map.lookup_mut(1), Some(&mut 9));
         assert_eq!(ledger.current(), before);
         drop(map);
@@ -152,7 +280,7 @@ mod tests {
             map.retain(|_, _| panic!("injected retention panic"));
         }));
         assert!(result.is_err());
-        assert!(map.hint.get().is_none());
+        assert!(map.hint.is_none());
         for key in 0..16 {
             assert_eq!(map.lookup_mut(key).copied(), Some(key * 2));
         }
@@ -181,7 +309,7 @@ mod tests {
         map.insert(2, ());
         for key in [1, 1, 2, 2, 3, 1] {
             assert_eq!(map.lookup_mut(key).is_some(), key != 3);
-            assert_eq!(map.hint.get().map(|(id, _)| id), (key != 3).then_some(key));
+            assert_eq!(map.hint.is_some(), key != 3);
         }
     }
 

@@ -11,6 +11,57 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Compact lookup offsets retained as development work
+
+Two bucket offsets replace cached entry pointers and duplicated keys, occupying
+only two machine words without allocation or additional leases. Mutable map
+access clears both offsets before exposure. Shared inspection preserves them;
+each subsequent lookup derives a fresh bucket/reference under an exclusive
+index borrow. No persistent mutable-pointer provenance or interior mutability
+is needed. Policy, weak source identity, recency, ownership and counters remain
+unchanged.
+
+Fourteen model tests pass under GNU, musl, i686 and both default/Tree Borrows
+Miri, including shared-value borrows before fresh mutable access. GNU focused
+native gates pass110 executions /9 suites; musl124 /10 and i68614 /1. Full GNU
+interpreter/JIT/docs/format/check gates pass **1,888 executions /178 suites**,
+ten ignored. An initial cold-hash prototype failed Miri lookups because ahash's
+specialized `hash_one` can differ from ordinary map hashing; it now uses the
+map's `build_hasher`/`Hash::hash`/`finish` sequence with wide-key coverage.
+
+Two three-variant native screens complete **36 commands**, and six-variant
+feature-cost screens complete **96 commands** across both core types/profiles
+and four windows. All108 candidate Auto comparisons against each original array
+and single-entry control retain native/interpreted instructions and compilation
+failures. Exact native profiles record callback133,593,180 and metamethod
+80,757,396 instructions. Metamethod Auto time is lower than single-entry in all
+twelve comparisons, but its original gate passes only5/12. Callback gates still
+fail12/12; repeat CPU0 callback time is **1.19–2.36% slower** than single-entry.
+Upvalue passes10/12; the remaining scored native gates pass12/12.
+
+The first three CPU0 speed disabled-float ratios are **1.0079 /1.0069 /1.0065**,
+inside the unchanged1.05 ceiling, rather than the preceding pointer trials'
+repeated7–8% overhead. CPU16 speed float also passes all four windows. The
+fourth CPU0 speed window and several shipping windows show broad contention;
+their large apparent changes are retained, not claimed as clean optimization
+gains. Candidate cost gates still fail **33/144**, versus single34, array36,
+rooted32, prior37 and historical40. Disabled callbacks/upvalues/cold and other
+individual failed samples remain unresolved.
+
+Exact Off profiling confirms shared inspection no longer introduces the earlier
+110 instructions and55 stores across55 executor steps. Its total20,204,995
+instructions matches the retained rooted/array controls. Simulated conditional
+misses remain near103,281 despite the improved hardware float measurements;
+neither that simulator count nor the small removed store count proves the cause
+of the observed timing change.
+
+The compact representation and repeated metamethod gains are retained as
+experimental development progress, with the callback tradeoff explicit. This is
+**not full performance, resource, platform or release acceptance**. Frozen
+artifacts, exact-symbol profiles, all negative samples, source patches and
+after-run identity checks remain under `code-index-offset-*` in the short-slice
+performance evidence directory. No threshold or native coverage was weakened.
+
 #### Two-pointer lookup refinements not selected
 
 Two non-owning entry hints reduce alternating metamethod lookup instructions,
@@ -43,16 +94,16 @@ single29, array32, rooted38, prior30 and historical29 out of144 each. Native
 callback gates still fail all twelve runs; metamethod passes5/12 and upvalue8/12.
 No original gate, workload, native coverage or safety invariant is relaxed.
 
-Neither two-pointer implementation is selected for retention. The committed
-single-hint checkpoint remains the retained baseline; a compact bucket-offset
-prototype is being checked separately, without a performance claim. Evidence
+Neither two-pointer implementation is selected for retention. The single-hint
+checkpoint remains an immutable control for the compact-offset successor above.
+Evidence
 prefixes are `code-index-two-*` and `code-index-read-hit-*` under the short-slice
 performance directory, including exact-symbol profiles and complete source
 patches. Full performance, resource, platform and release acceptance remain open.
 
-#### Repeated code lookup hint retained as development work
+#### Single-entry code lookup checkpoint
 
-The native code index now retains one non-owning entry pointer for repeated
+The native code index introduced one non-owning entry pointer for repeated
 lookups. Every ordinary shared or mutable map access clears it before exposing
 the map, including inspection, growth, removal and compaction. The hint neither
 owns code nor retains a GC reference. Runtime policy, recency, lookup/lease
