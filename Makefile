@@ -480,6 +480,7 @@ jit-runtime-projection:
 .PHONY: vm-upvalue-returns
 vm-upvalue-returns:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::thread::tests $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::thread::tests $(ARGS)
 	@$(CARGO) test --locked -p luna --no-default-features --test close_attribute --test tail_call_stack_panic $(TARGET_ARG) $(ARGS)
 	@for mode in off auto force; do LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test close_attribute --test tail_call_stack_panic $(TARGET_ARG) $(ARGS) || exit $$?; done
 
