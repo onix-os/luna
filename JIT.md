@@ -42,6 +42,14 @@ other existing costs remain, and all aggregate gates still fail. This is
 experimental development WIP, **not a completed performance fix**. `PLAN_JIT.md`
 records all three variants and their positive and adverse results.
 
+A numeric-first constant-conversion trial (`b51456f`) was measured and withdrawn.
+It improved shipping CPU0 float against the latest regressed build, but remained
+below the pre-regression control and reduced CPU0 speed-profile integer throughput
+about 24%. The no-feature interpreter also regressed. Production retains the
+rooted-publication WIP; conversion and GC/string-identity tests remain under
+`make vm-constants`. `PLAN_JIT.md` records the repeated positive and negative
+results. Full performance acceptance is still unfinished.
+
 Production Auto also includes independently verified integer-controlled typed
 loops (`fed925c`, extended by `061c9cc`). Stable Integer and Number arithmetic
 bodies keep typed state between operations, with fresh entry tags, exact fuel

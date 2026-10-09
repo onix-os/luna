@@ -11,6 +11,70 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Numeric constant materialization — measured and withdrawn
+
+`b10afc8` adds an independent constant conversion model; `9eb08ef` adds a
+bounded-execution integration fixture preserving constant string pointer identity,
+an integer above 2^53 and negative zero through metamethod calls and full GC.
+`b51456f` enables a numeric-first conversion in operand lookup and LoadConstant.
+That production change is **withdrawn** after repeated regressions. The model,
+integration fixture and `make vm-constants`, `vm-constants-miri` and
+`vm-constants-memcheck` remain. The pure string comparison now checks pointer
+identity explicitly; content equality alone was insufficient. Miri exercises the
+pure model, not native code; the integration fixture does not assert native work.
+
+Exact-image attribution identifies the extra hot indirect branch as constant
+materialization, not another opcode decoder: packed opcode dispatch is already
+fused. The trial removes about 100,000 indirect branches in shipping float but
+adds about 200,000 conditional branches and stores. Total instructions increase
+**20,842,780 → 20,942,645**. Native upvalue instructions also increase slightly,
+**169,888,802 → 170,040,739**. Fewer indirect branches did not mean less work,
+and these profiles establish no physical cache or predictor explanation.
+
+Both native rounds and both four-way cost rounds complete **152 aggregate
+commands**, all failing unchanged aggregate gates. All **216 native non-timing
+pairs** match. Each round uses CPU0/16, eleven samples, three native windows and
+four rotating cost windows, with twenty cost iterations. Four-window summaries
+average the middle two medians. Owned builds/tests/profiles finish before timing;
+source/image manifests and exact symbol companions verify. Immediate control is
+`rooted-publication`, pre-regression control is `atomic-admission`, and historical
+control is `empty-return-copy`. Unlike the preceding JIT-only trials, this change
+also modifies no-feature executables: their absolute performance must be checked.
+
+Selected control-time / candidate-time ratios, initial / repeat:
+
+| Case | Profile / CPU | Versus rooted-publication | Versus atomic-admission |
+| --- | --- | --- | --- |
+| Compiled-Off float | shipping / 0 | 1.126728 / 1.127211 | 0.970358 / 0.971335 |
+| Compiled-Off integer | shipping / 0 | 0.833281 / 0.833549 | 0.812198 / 0.812300 |
+| Compiled-Off integer | speed / 0 | 0.754415 / 0.756716 | 0.763776 / 0.766070 |
+| Compiled-Off float | speed / 0 | 0.961374 / 0.959559 | 1.019788 / 1.022203 |
+| Compiled-Off allocation | shipping / 0 | 0.926118 / 0.938153 | 0.929734 / 0.937912 |
+| Compiled-Off float | shipping / 16 | 1.080259 / 1.081009 | 1.099382 / 1.099798 |
+| Compiled-Off integer | speed / 16 | 0.969824 / 0.965638 | 1.013565 / 1.017377 |
+
+No-feature CPU0 speed integer falls to **0.803244 / 0.803227** versus immediate
+control; slowing that reference cannot establish JIT feature-cost acceptance.
+Native CPU16 allocation falls to **0.935383 / 0.917326**. Native upvalue is
+**1.018281 / 1.017457** on CPU0 and **1.038637 / 0.994774** on CPU16. All twelve
+candidate upvalue interpreter-relative windows pass 1.25x, but the broader
+regressions still reject this trial. Individual cost failures are
+**candidate55/control52/prior59/historical52 of 288 each**.
+
+Candidate formatting/checking, baseline and all-feature Auto tests, focused
+numeric/region/accounting checks, the Miri model and Off/Auto/Force identity
+integration checks pass. Native Memcheck for that fixture reports zero errors
+and zero definite/indirect leaks; the usual 48 possibly-lost/632 reachable harness
+bytes remain. These correctness results did not establish performance acceptance.
+Complete timings, profiles, all-case summaries and withdrawal checks remain under
+`target/jit-evidence/short-slice-performance/numeric-constant*`. Production returns
+to the rooted-publication WIP below, with its existing regressions still open.
+
+Withdrawal passes formatting, GNU checking, **146 focused test executions across
+20 suites**, and the strengthened Miri model. `src/thread/vm.rs` matches the
+pre-trial version exactly. These are withdrawal checks, not new performance
+measurements or a claim that the underlying shipping regression is fixed.
+
 #### Rooted atomic publication — measured development WIP, not accepted
 
 `534344f` introduces a test-only rooted caller model and native differential;
