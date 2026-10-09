@@ -102,6 +102,7 @@ $(info ------------------------------------------)
 .PHONY: jit-array-window jit-array-window-miri
 jit-array-window:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::array_window:: $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::array::tests $(ARGS)
 
 jit-array-window-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::array_window:: -- --test-threads=1

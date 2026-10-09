@@ -210,7 +210,7 @@ impl Emitter<'_, '_> {
     }
 }
 
-pub(super) fn program(
+pub(in crate::jit) fn program(
     source: &Snapshot,
     plan: Plan,
     isa: &dyn TargetIsa,
@@ -231,13 +231,12 @@ pub(super) fn program(
     for ty in [types::I64, types::I32, types::I32] {
         b.append_block_param(exit, ty);
     }
-    let blocks: Vec<_> = (plan.start..=plan.end)
-        .map(|_| {
-            let block = b.create_block();
-            b.append_block_param(block, types::I32);
-            block
-        })
-        .collect();
+    let mut storage = [entry; super::plan::MAX_OPERATIONS];
+    let blocks = &mut storage[..plan.end - plan.start + 1];
+    for block in blocks.iter_mut() {
+        *block = b.create_block();
+        b.append_block_param(*block, types::I32);
+    }
     b.append_block_params_for_function_params(entry);
     b.switch_to_block(entry);
     let [slots, pc, budget, output, view]: [_; 5] = b.block_params(entry).try_into().unwrap();

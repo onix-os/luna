@@ -1,6 +1,6 @@
 use super::{native::KernelEntry, plan::Plan, *};
 
-pub(super) struct Outcome {
+pub(in crate::jit) struct Outcome {
     pub exit: abi::Exit,
     pub counts: Counts,
 }
@@ -11,7 +11,7 @@ pub(super) struct Outcome {
 /// Entry matches plan and the initialized register prefix, obeys the scoped scalar
 /// kernel contract, and remains executable for the call. Slots and canonical are
 /// the same frame; reference slots resolve to their canonical values.
-pub(super) unsafe fn invoke<'gc>(
+pub(in crate::jit) unsafe fn invoke<'gc>(
     entry: KernelEntry,
     plan: Plan,
     ctx: Context<'gc>,

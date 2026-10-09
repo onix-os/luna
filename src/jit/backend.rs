@@ -35,6 +35,9 @@ mod read_cache;
 #[cfg(not(miri))]
 pub(super) mod region;
 
+#[cfg(all(test, not(miri)))]
+pub(super) mod array;
+
 struct Memory {
     allocations: BudgetVec<Segment, BudgetAllocator>,
     total: MappingCounter,
@@ -219,6 +222,8 @@ pub(super) struct Code {
     pub integer_activation: bool,
     #[cfg(all(test, not(miri)))]
     pub scalar_kernel: Option<super::owner::Shared<Code>>,
+    #[cfg(all(test, not(miri)))]
+    pub array_kernels: Option<array::Kernels>,
 }
 
 impl Code {
@@ -235,7 +240,8 @@ impl Code {
     pub fn discard_optional_entries(&mut self) -> bool {
         let scalar = self.discard_scalar_kernel();
         let continuations = self.continuations.take().is_some();
-        scalar || continuations
+        let arrays = self.array_kernels.take().is_some();
+        scalar || continuations || arrays
     }
 
     #[cfg(all(test, not(miri)))]
@@ -1632,6 +1638,8 @@ fn compile_selected_rooted(
         integer_activation: selection.integer_activation,
         #[cfg(all(test, not(miri)))]
         scalar_kernel: None,
+        #[cfg(all(test, not(miri)))]
+        array_kernels: None,
     })
 }
 

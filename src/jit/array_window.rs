@@ -181,3 +181,23 @@ mod lowering;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod kernel;
+
+#[cfg(all(
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+pub(super) use {
+    invoke::{invoke as invoke_kernel, Outcome},
+    kernel::program,
+    native::KernelEntry,
+    plan::Plan,
+};
+
+#[cfg(all(
+    test,
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod runtime_tests;

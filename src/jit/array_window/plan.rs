@@ -3,10 +3,10 @@ use crate::opcode::{Operation, RCIndex};
 use super::*;
 use crate::jit::ir::Snapshot;
 
-const MAX_OPERATIONS: usize = 32;
+pub(super) const MAX_OPERATIONS: usize = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Plan {
+pub(in crate::jit) struct Plan {
     pub start: usize,
     pub end: usize,
     pub base: u8,
@@ -15,11 +15,11 @@ pub(super) struct Plan {
 }
 
 impl Plan {
-    pub(super) fn new(source: &Snapshot, end: usize) -> Option<Self> {
-        source.verify().ok()?;
+    pub(in crate::jit) fn new(source: &Snapshot, end: usize) -> Option<Self> {
         let Operation::NumericForLoop { base, jump } = *source.operations.get(end)? else {
             return None;
         };
+        source.verify().ok()?;
         let start = end.checked_add(1)?.checked_add_signed(isize::from(jump))?;
         if start >= end || end - start + 1 > MAX_OPERATIONS {
             return None;

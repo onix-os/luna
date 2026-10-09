@@ -18,7 +18,7 @@ pub(super) struct View {
 
 pub(super) type Entry = unsafe extern "C" fn(*const c_void, i64, *mut Slot) -> u32;
 
-pub(super) type KernelEntry =
+pub(in crate::jit) type KernelEntry =
     unsafe extern "C" fn(*mut Slot, u64, u32, *mut abi::Exit, *const c_void);
 
 pub(super) struct Session<'a> {
