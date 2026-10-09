@@ -11,6 +11,41 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Bounded native array windows — prototype only
+
+`37457c4` implements scoped mirrors of at most 64 existing array cells, with
+read/write leases, scalar-only access, dirty writeback and unwind cleanup.
+Canonical GC references stay in the table. Readonly reads remain permitted;
+metatables, interception, weak tables, borrow conflicts and invalid bounds
+decline before execution. There is no full-table copy or persistent table cache.
+
+`5efcd2a` adds the defined-layout native descriptor and Cranelift array-access
+lowering. Generated reads/writes execute against the mirror without Rust helper
+calls; 18,144 native/model comparisons per platform cover scalar payloads,
+signed index boundaries, lengths and write permissions. Scoped pointer tests
+also exercise saturating counters, reference replacement, dirty endpoints and
+writeback after the surrounding Rust scope unwinds.
+
+`9bfe818` selects bounded numeric-loop regions from verified bytecode, not script
+text. A region has one stable receiver and loop-index keys; callbacks, branches,
+receiver/control reassignment and unsupported operations retain generic handling.
+Fresh integer control slots and current array length determine the window.
+The frozen array fill/sum script and renamed, negative-step and mixed read/write
+variants are recognized.
+
+Current GNU and musl focused gates each pass **16 tests**; Miri and the real
+i686-musl fallback each pass **13**. Formatting and workspace/all-target checks
+pass. Initial compile errors and a
+test-fixture endpoint overflow remain recorded with the corrected runs under
+`target/jit-evidence/short-slice-performance/array-window-*`.
+
+**All of this remains test-selected.** Source-bound whole-loop code generation,
+independent translation verification, runtime entry/exit integration and resource
+accounting are not implemented for this path. Every window must release before
+generic helpers resume at the resulting PC with the remaining slice budget.
+No production helper removal, measured speedup, or performance acceptance is
+claimed; the original benchmark and feature-cost gates remain unchanged.
+
 #### Unified VM progress — measured and withdrawn
 
 `0e46696` adds 132 straight-line boundary scenarios with successful Return and
