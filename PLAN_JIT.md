@@ -11,6 +11,37 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Stored string-hash reuse — trial under validation
+
+`40bdc83` adds a baseline-tested mixed-key lifecycle fixture: separately
+allocated equal strings, every canonical key kind, map growth/rehash, weak
+conversion, ordered traversal, deletion, clear and reuse. It passes before
+changing runtime behavior and is committed separately from the experiment.
+
+The uncommitted candidate reuses String's existing content hash for string-key
+table access instead of hashing that hash again. Other keys retain their
+existing process-random hash; weak/dead entries retain the insertion hash.
+There is no new cache, root, allocation, native ABI or source specialization.
+Pinned ahash 0.8.11 source and active build fingerprints confirm runtime-rng
+for the existing process-wide string hash. The ordinary native-first wrapper
+was not reimplemented: earlier dispatch v1-v4 already tested that structure.
+
+Focused GNU checks pass 40 executions across four suites. Fresh control and
+candidate exact-symbol images match their allocated bytes, metadata and program
+headers. All five profiled workloads return the expected results and have
+identical printed non-timing counters. Callback instructions fall
+133,593,099 to 131,903,180 (1.26%); metamethod instructions fall 80,623,536
+to 78,450,572 (2.70%). Callback map lookup self work falls 6,370,000 to
+4,680,000, while VM, executor and ordinary invocation self work is unchanged.
+Upvalue/array instruction totals increase slightly; those observations remain.
+
+These are instruction-work findings, not hardware speedup or acceptance.
+Full GNU, platform and Miri validation plus speed/shipping artifact builds are
+in progress at this checkpoint. Original paired native and compiled-Off timing
+gates remain required. Evidence is retained under `string-hash-*` in
+`target/jit-evidence/short-slice-performance/`; no production optimization is
+committed or accepted from this trial yet.
+
 #### Per-entry writeback masks profiled and withdrawn
 
 `9b07543` retains a test-only, bounded source model: union native register writes
