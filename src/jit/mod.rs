@@ -161,7 +161,6 @@ mod shape;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod tags;
-mod vm_policy;
 mod work;
 use resources::{BudgetAllocator, Compaction, Compactor, Ledger, LedgerRef, MappingCounter};
 

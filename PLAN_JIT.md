@@ -11,20 +11,57 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Single-borrow VM policy — candidate under measurement
+#### Single-borrow VM policy — measured and withdrawn
 
-The VM now obtains native/pair enablement through one short-lived manager borrow
+Trial `1a5c56b` obtains native/pair enablement through one short-lived manager borrow
 before source selection. The active bit is consumed there rather than held until
 after lease lookup. Hooked selection does not borrow; hook-exit accounting keeps
 its existing query. Identity resolution and ordinary/resume lookup do not change
 mode or pair enablement, no guard escapes, and every invocation reads fresh state.
 This changes no fields, resource charges, native helper ABI or public API.
 
-`make jit-vm-policy` checks fresh mode/pair state, unchanged counters, hook borrow
-suppression and integrated Off/Auto slice/fuel transitions. Focused policy,
-configuration and forced-mode checks pass. Full correctness and original-flag,
-exact-image performance comparisons are pending; no speedup or acceptance is
-claimed. Evidence prefix: `target/jit-evidence/short-slice-performance/vm-policy-snapshot*`.
+Its policy gate checks fresh mode/pair state, unchanged counters, hook borrow
+suppression and integrated Off/Auto slice/fuel transitions. Fifteen focused
+checks pass, followed by **1,384 executions / 86 all-feature Auto suites**, six
+ignored. Two pure tests pass on real i686-musl (native integration excluded),
+and two pass under Miri with 25 warnings. `0525d97` preserves the Miri target.
+
+All five frozen images have verified exact symbol companions. Profiles again
+show increased speed compiled-Off work: integer **18,803,010 → 19,378,105**,
+float **20,204,980 → 20,780,180**, upvalue **83,079,233 → 83,379,353**. Numeric
+growth is entirely VM self work. Computing the pair bit earlier does not establish
+that fewer values remain live or that the resulting machine code is cheaper.
+
+Two native and two three-way cost comparisons complete **96 checked commands**:
+95 fail; one historical shipping control passes. All **216 native non-timing
+pairs** and four source/artifact manifests match. No owned build/test/profile
+overlaps timing. No-feature `.text` and all other file-backed allocated sections
+match the retained WIP except `.data.rel.ro`.
+
+CPU16 speed disabled upvalues improve against WIP by about 10%
+(**1.102266 / 1.101706** direct control/candidate ratios), but still trail the
+historical image (**0.977751 / 0.979949**) and fail every original cost gate.
+CPU0 shipping float also improves (**1.046826 / 1.040542** versus WIP).
+Those gains introduce repeated shipping CPU16 regressions:
+
+| Disabled case | WIP / candidate, initial / repeat | Historical / candidate |
+| --- | --- | --- |
+| Integer | **0.949699 / 0.938143** | **0.927497 / 0.926802** |
+| Float | **0.960705 / 0.961038** | **0.942992 / 0.940737** |
+| Table | **0.958887 / 0.966746** | 1.002157 / 1.009388 |
+
+Native CPU16 metamethod throughput also regresses (**0.958520 / 0.937230**).
+Cost failures fall from 41 WIP to 36 candidate of 216 (historical 43), but this
+does not cancel individual regressions. Native table/upvalue/metamethod/callback
+gates pass none of twelve; allocation/GC gains one failed window. Numeric and
+cold gates still pass all twelve.
+
+Withdraw the complete snapshot implementation and its candidate-only tests/Make
+targets; both remain inspectable in Git history. Production source and Makefile
+again match `d6674b8`, preserving the common-array optimization. Do not continue
+policy-flag/tuple reshuffling as though source-level borrow counts proved a fix;
+the next change needs a demonstrated reduction of the actual hot-path work.
+Evidence prefix: `target/jit-evidence/short-slice-performance/vm-policy-snapshot*`.
 
 #### Inactive paired-policy query — measured and withdrawn
 
