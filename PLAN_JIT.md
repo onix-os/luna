@@ -11,12 +11,12 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Output-buffer initialization — first screen fails acceptance
+#### Output-buffer initialization — measured and withdrawn
 
-The next narrow candidate retains the existing five-argument native ABI and
-omits host zeroing of an exit buffer that the callee fully overwrites. The
-ordinary gateway uses `MaybeUninit` and reads the result only after normal return;
-its unsafe entry contract explicitly requires complete writes before reads.
+The measured candidate retained the existing five-argument native ABI and
+omitted host zeroing of an exit buffer that the callee fully overwrites. The
+trial's ordinary gateway used `MaybeUninit` and read the result only after normal
+return; its unsafe entry contract explicitly required complete writes before reads.
 Independent Rust
 and actual generated C callees initialize uninitialized storage across PC,
 instruction/reason, budget and host-pointer domains. The model checks the raw
@@ -71,12 +71,43 @@ Shipping is largely near parity; CPU16 callbacks show direct1.0420 but
 paired-normalized1.0122, while CPU0 shipping callback failures rise1→3.
 CPU0 speed Oslo failures fall4→0. These competing observations, full vectors,
 outliers and contention telemetry remain recorded; no success is selected out
-of the failing campaign. An independent complete repeat is required before
-candidate disposition. This remains a provisional trial, not acceptance.
+of the failing campaign.
+
+The independent repeat completes another158 commands, all with failed aggregate
+gates. Across both campaigns315 of316 aggregate commands fail; the one historical
+control pass is not a candidate pass. Repeated native failures are fresh10/
+candidate10; cost failures fresh29/candidate29. Another108 full native records
+and144 cost-native records match, with no excluded non-timing fields; both
+campaign manifests reverify before source changes.
+
+The repeat confirms adverse CPU0 native callbacks in all three windows, median
+fresh/candidate0.9860 after0.9820 in the first campaign. CPU16 callbacks vary
+near parity0.9981/1.0040, but every candidate callback gate still fails. The
+first native array gains do not repeat: CPU0/16 ratios0.9874/0.9855. Favorable
+CPU16 allocation1.0785 and cold1.0123 observations remain alongside the failures.
+
+Repeated speed compiled-Off CPU16 integer/float ratios are0.9591/0.9277, with
+no-feature controls0.9990/0.9986. Float has two additional original cost failures,
+versus none in the fresh control: three candidate failures across both campaigns.
+CPU0 speed float0.9698 and callbacks0.9897 remain adverse. CPU0 shipping callback
+failures are fresh0/candidate2 after1/3; CPU16 shipping's earlier direct callback
+gain does not repeat (1.0011). CPU0 speed Oslo still improves1.0237, but does not
+offset the new regressions. Full vectors and contention observations are retained.
+
+The ordinary gateway is restored to its pre-trial initialized exit buffer;
+`src/jit/abi.rs` exactly matches45f02ed. Boundary models, native C interoperability
+and exit-verifier refusal tests remain. No ABI, native coverage or threshold is
+changed to force a pass. Post-withdrawal formatting/check-all and focused/full
+GNU Force validation pass1,521 executions/92 summaries/six ignored. All `src/`
+and Makefile contents exactly match the baseline-tested45f02ed state, whose
+focused musl37 and both Miri19 results remain explicitly revision-scoped.
+Restored release-image builds are next, not a new speedup claim. The original
+callback/feature-cost/resource/platform acceptance remains incomplete.
 
 Evidence uses `exit-buffer-*` under the ignored short-slice evidence directory;
 the profile, native and cost analysis JSON files include totals and per-window
-vectors. `exit-buffer-screen-counter-proof.json` records108/144 comparisons.
+vectors. The screen and repeat counter-proof JSON files each record108/144
+comparisons. The production trial is not retained as a speedup.
 
 #### Register-return exits — measured and withdrawn
 

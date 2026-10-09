@@ -108,7 +108,6 @@ pub(super) type Entry = unsafe extern "C" fn(*mut Slot, u64, u32, *mut Exit, *mu
 /// # Safety
 /// `slots` covers the entry's initialized register prefix; host data and code remain live
 /// and exclusively accessible for the call. Entry retains no pointers.
-/// Entry initializes every exit field before returning and never reads unwritten exit fields.
 pub(super) unsafe fn invoke(
     entry: Entry,
     slots: *mut Slot,
@@ -116,11 +115,9 @@ pub(super) unsafe fn invoke(
     budget: u32,
     host: *mut Host,
 ) -> Exit {
-    let mut exit = std::mem::MaybeUninit::<Exit>::uninit();
-    unsafe {
-        entry(slots, pc as u64, budget.min(64), exit.as_mut_ptr(), host);
-        exit.assume_init()
-    }
+    let mut exit = Exit::default();
+    unsafe { entry(slots, pc as u64, budget.min(64), &mut exit, host) };
+    exit
 }
 
 const _: () = assert!(std::mem::size_of::<Slot>() == 16);
