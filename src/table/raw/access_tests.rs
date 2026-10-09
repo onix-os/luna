@@ -1,0 +1,152 @@
+use super::*;
+
+fn identical<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
+    match (actual, expected) {
+        (Value::Nil, Value::Nil) => {}
+        (Value::Boolean(a), Value::Boolean(b)) => assert_eq!(a, b),
+        (Value::Integer(a), Value::Integer(b)) => assert_eq!(a, b),
+        (Value::Number(a), Value::Number(b)) => assert_eq!(a.to_bits(), b.to_bits()),
+        (Value::String(a), Value::String(b)) => {
+            assert!(Gc::ptr_eq(a.into_inner(), b.into_inner()));
+        }
+        (Value::Table(a), Value::Table(b)) => assert_eq!(a, b),
+        (actual, expected) => panic!("value mismatch: {actual:?} != {expected:?}"),
+    }
+}
+
+#[test]
+fn array_and_map_access_preserve_keys_values_and_previous_values() {
+    crate::Lua::empty().enter(|ctx| {
+        let mut array = RawTable::with_capacity(&ctx, 16, 128);
+        let mut map = RawTable::with_capacity(&ctx, 0, 128);
+        let marker = Value::Table(Table::new(&ctx));
+        let string = Value::String(String::from_static(&ctx, b"marker"));
+        let keys = [
+            Value::Integer(i64::MIN),
+            Value::Integer(-1),
+            Value::Integer(0),
+            Value::Number(-0.0),
+            Value::Number(0.0),
+            Value::Integer(1),
+            Value::Number(1.0),
+            Value::Number(1.5),
+            Value::Integer(8),
+            Value::Number(8.0),
+            Value::Integer(16),
+            Value::Integer(17),
+            Value::Integer(1 << 32),
+            Value::Integer(i64::MAX),
+            Value::Number(f64::INFINITY),
+            Value::Number(f64::NEG_INFINITY),
+            Value::Boolean(false),
+            marker,
+            string,
+        ];
+        let values = [
+            Value::Integer(i64::MIN),
+            Value::Number(-0.0),
+            Value::Number(f64::from_bits(0x7ff8_0000_0000_1234)),
+            marker,
+            string,
+            Value::Boolean(true),
+            Value::Nil,
+            Value::Integer(i64::MAX),
+        ];
+        for (round, value) in values.into_iter().enumerate() {
+            for offset in 0..keys.len() {
+                let key = keys[(offset + round) % keys.len()];
+                identical(
+                    array.set(&ctx, key, value).unwrap(),
+                    map.set(&ctx, key, value).unwrap(),
+                );
+                for query in keys {
+                    identical(array.get(&ctx, query), map.get(&ctx, query));
+                }
+            }
+            assert_eq!(array.array.len(), 16);
+            assert!(map.array.is_empty());
+        }
+        assert!(matches!(array.get(&ctx, Value::Nil), Value::Nil));
+        assert!(matches!(
+            array.get(&ctx, Value::Number(f64::NAN)),
+            Value::Nil
+        ));
+        for table in [&mut array, &mut map] {
+            assert!(matches!(
+                table.set(&ctx, Value::Nil, marker),
+                Err(InvalidTableKey::IsNil)
+            ));
+            assert!(matches!(
+                table.set(&ctx, Value::Number(f64::NAN), marker),
+                Err(InvalidTableKey::IsNaN)
+            ));
+        }
+        for query in keys {
+            identical(array.get(&ctx, query), map.get(&ctx, query));
+        }
+    });
+}
+
+#[test]
+fn array_growth_keeps_map_entries_and_numeric_aliases() {
+    crate::Lua::empty().enter(|ctx| {
+        let mut table = RawTable::new(&ctx);
+        for index in (1..=128).rev() {
+            assert!(table
+                .set(&ctx, Value::Number(index as f64), Value::Integer(index * 3))
+                .unwrap()
+                .is_nil());
+        }
+        table.grow_array(128);
+        for index in 1..=128 {
+            identical(
+                table.get(&ctx, Value::Integer(index)),
+                Value::Integer(index * 3),
+            );
+            identical(
+                table.set(&ctx, Value::Integer(index), Value::Nil).unwrap(),
+                Value::Integer(index * 3),
+            );
+            assert!(table.get(&ctx, Value::Number(index as f64)).is_nil());
+        }
+    });
+}
+
+#[test]
+fn weak_array_holes_fall_back_to_live_map_values() {
+    let mut lua = crate::Lua::empty();
+    let (table, live) = lua.enter(|ctx| {
+        let table = Table::new(&ctx);
+        let meta = Table::new(&ctx);
+        meta.set_field(ctx, "__mode", "v");
+        table.set_metatable(ctx, Some(meta));
+        let live = Table::new(&ctx);
+        table.set(ctx, 1, live).unwrap();
+        table.set(ctx, 3, Table::new(&ctx)).unwrap();
+        {
+            let mut inner = table.into_inner().borrow_mut(&ctx);
+            inner.raw_table.grow_array(4);
+            inner.raw_table.array_mut()[1] = Value::Table(Table::new(&ctx));
+        }
+        (ctx.stash(table), ctx.stash(live))
+    });
+    lua.gc_collect();
+    lua.gc_collect();
+    lua.enter(|ctx| {
+        let table = ctx.fetch(&table);
+        identical(table.get_value(ctx, 1), Value::Table(ctx.fetch(&live)));
+        let strong = table.get_value(ctx, 2);
+        assert!(matches!(strong, Value::Table(_)));
+        assert!(table.get_value(ctx, 3).is_nil());
+        identical(table.set(ctx, 2, Value::Nil).unwrap(), strong);
+        assert!(table.set(ctx, 2, Table::new(&ctx)).unwrap().is_nil());
+    });
+    lua.gc_collect();
+    lua.gc_collect();
+    lua.enter(|ctx| {
+        let table = ctx.fetch(&table);
+        identical(table.get_value(ctx, 1), Value::Table(ctx.fetch(&live)));
+        assert!(table.get_value(ctx, 2).is_nil());
+        assert!(table.get_value(ctx, 3).is_nil());
+    });
+}

@@ -1049,3 +1049,6 @@ impl<'gc> Slot<'gc> {
         }
     }
 }
+
+#[cfg(test)]
+mod access_tests;
