@@ -11,9 +11,22 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Indexed invoker selection — integrated performance trial
+#### Indexed invoker selection — measured and withdrawn
 
-The trial replaces the branch-based selector with a read-only table of the same
+**Withdrawn after timing:** production uses the original branch selector again;
+the exhaustive native tests and independent table model remain. The 30 native
+and 128 cost runs preserve all counters in 108 native/144 cost comparisons.
+All native aggregate gates fail; 127 cost gates fail and one passes. CPU0 native
+callbacks worsen in all three windows (fresh/candidate median 0.96379), while
+CPU16 is near parity (1.00243). Shipping Off integer/float execution worsens in
+all four windows on both CPUs: median ratios 0.91379/0.88435 on CPU0 and
+0.90381/0.90981 on CPU16. Paired normalization retains those losses despite
+recorded contention outliers. Favorable CPU0 speed Oslo results (three failures
+to zero) and all adverse samples remain in the evidence. Small instruction
+savings do not justify these elapsed regressions. Restoration validation is
+pending; the full performance goal remains incomplete.
+
+The trial replaced the branch-based selector with a read-only table of the same
 14 native scratch-tier functions for register counts 0 through 256. Existing
 resume, entry-PC, canonical-prefix and maximum-register checks remain before
 the call. A higher-ranked Rust function-pointer type preserves GC/register
@@ -29,8 +42,10 @@ executions/88 summaries/six ignored, musl 21, and each Miri model three.
 Optimized native assembly contains one indexed indirect call through the table,
 not the old branch selector. The table occupies 2,056 bytes on this host; total
 native/speed/shipping files grow by 7,280/7,312/7,392 bytes, respectively. Both
-no-feature binaries remain byte-identical. Exact-image profiles and unchanged
-paired elapsed-time gates are pending; this trial is not performance acceptance.
+no-feature binaries remain byte-identical. Fourteen profiles verify exact-image
+identity, all 13 event totals and complete non-timing counter equality. Whole-path
+instructions fall 0.34% for callbacks and 0.012% for upvalues, but the unchanged
+paired elapsed-time gates above reject the trial. This is not performance acceptance.
 Evidence: `invoker-table-{model,control,candidate}/` under the short-slice
 performance directory, plus `invoker-table-native-control/` for baseline GNU.
 

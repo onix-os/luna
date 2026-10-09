@@ -1760,7 +1760,23 @@ impl Runtime {
             if code.registers > 256 {
                 return 0;
             }
-            invoke_dispatch::INVOKERS[code.registers](self, code, ctx, closure, registers, budget)
+            match code.registers {
+                0 => self.invoke::<8, false>(code, ctx, closure, registers, budget),
+                1 => self.invoke::<1, true>(code, ctx, closure, registers, budget),
+                2 => self.invoke::<2, true>(code, ctx, closure, registers, budget),
+                3 => self.invoke::<3, true>(code, ctx, closure, registers, budget),
+                4 => self.invoke::<4, true>(code, ctx, closure, registers, budget),
+                5 => self.invoke::<5, true>(code, ctx, closure, registers, budget),
+                6 => self.invoke::<6, true>(code, ctx, closure, registers, budget),
+                7 => self.invoke::<7, true>(code, ctx, closure, registers, budget),
+                8 => self.invoke::<8, true>(code, ctx, closure, registers, budget),
+                9..=16 => self.invoke::<16, false>(code, ctx, closure, registers, budget),
+                17..=32 => self.invoke::<32, false>(code, ctx, closure, registers, budget),
+                33..=64 => self.invoke::<64, false>(code, ctx, closure, registers, budget),
+                65..=128 => self.invoke::<128, false>(code, ctx, closure, registers, budget),
+                129..=256 => self.invoke::<256, false>(code, ctx, closure, registers, budget),
+                _ => 0,
+            }
         }
         #[cfg(not(all(
             target_os = "linux",
@@ -3350,11 +3366,5 @@ mod runtime_projection_tests {
     }
 }
 
-#[cfg(any(
-    test,
-    all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )
-))]
+#[cfg(test)]
 mod invoke_dispatch;
