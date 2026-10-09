@@ -520,6 +520,13 @@ jit-integer-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::integer::tests -- --test-threads=1 $(ARGS)
 
 .PHONY: jit-projection jit-projection-miri
+.PHONY: jit-projection-mode jit-projection-mode-miri
+jit-projection-mode:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::projection_mode:: $(ARGS)
+
+jit-projection-mode-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::projection_mode:: -- --test-threads=1 $(ARGS)
+
 jit-projection:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::projection:: $(ARGS)
 

@@ -33,6 +33,8 @@ pub(super) mod compact;
 mod exit_transport;
 mod integer_loop;
 #[cfg(test)]
+mod projection_mode;
+#[cfg(test)]
 mod read_cache;
 #[cfg(not(miri))]
 pub(super) mod region;
