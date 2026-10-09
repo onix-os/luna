@@ -11,6 +11,28 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Budget-bounded array mirror trial withdrawn
+
+The trial bounded each mirror by the keys reachable within a native slice,
+reducing the frozen fill/sum copies from up to 64 cells to 33/23. GNU and musl
+focused gates each passed 51 executions; Miri and i686 each passed 16. Its
+reachability model covered 388,399 combinations (330 under Miri).
+
+Two native rounds and four feature-cost windows retained **104 aggregate timing
+commands**: 24 native and 80 cost, both core types, both cost profiles, unchanged
+nine workloads, 11 samples/pairs and 20 cost iterations. The array gate passed
+12/12 candidate runs, but callback/metamethod gates failed 12/12 each. Upvalue
+passed 11/12. Candidate feature-cost failures were 24/144 versus retained array
+30/144 and rooted control 25/144; fewer failed ratios did not prove acceptance.
+
+Shipping CPU0 compiled-Off float time regressed **9.5–10.2%** versus the retained
+array build in all four windows. The repeat no-feature float controls changed
+only -0.37/-0.40%, so this was not an improved denominator masking the slowdown.
+The production change is withdrawn. The reachable-key model is retained against
+the original fixed-capacity window. Source patches, binaries, controls and all
+negative samples remain under `array-budget-*` in the short-slice evidence
+directory. Full JIT performance acceptance remains open.
+
 #### Overflow-predicate trial withdrawn; fallback fixture repaired
 
 The first attempt to address the array candidate's compiled-Off float regression
