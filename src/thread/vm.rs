@@ -20,8 +20,6 @@ mod constants;
 mod dispatch;
 #[cfg(test)]
 mod instantiate;
-#[cfg(feature = "jit")]
-mod progress;
 
 // Runs the VM for the given number of instructions or until the current LuaFrame may have been
 // changed.
@@ -311,7 +309,9 @@ fn run_vm_slice<'gc>(
     #[cfg(not(feature = "jit"))]
     let native_dispatch = dispatch::Dispatch::interpreted(hook_enabled);
     #[cfg(feature = "jit")]
-    let mut interpreter_stats = progress::Progress::new(ctx.jit(), prefix_instructions);
+    let mut native_instructions = prefix_instructions;
+    #[cfg(feature = "jit")]
+    let mut interpreter_stats = ctx.jit().interpreter_stats();
     #[cfg(feature = "jit")]
     if hook_enabled && ctx.jit().active() {
         let mut manager = ctx.jit().0.borrow_mut();
@@ -336,6 +336,8 @@ fn run_vm_slice<'gc>(
     let mut registers = lua_frame.registers();
     #[cfg(not(feature = "jit"))]
     let mut instructions_run = 0;
+    #[cfg(feature = "jit")]
+    let mut instructions_run = prefix_instructions;
 
     #[cfg_attr(feature = "jit", inline(always))]
     fn get_rc<'gc>(
@@ -349,7 +351,7 @@ fn run_vm_slice<'gc>(
         }
     }
 
-    let _unreported_dispatches = loop {
+    loop {
         #[cfg(feature = "jit")]
         let run_native = {
             #[cfg(test)]
@@ -366,9 +368,10 @@ fn run_vm_slice<'gc>(
             #[cfg(all(test, feature = "jit"))]
             if let Some(snapshot) = &mock {
                 let completed = ctx.jit().run_mock(snapshot, &mut registers);
-                interpreter_stats.counts.dispatches += completed;
-                if interpreter_stats.counts.dispatches >= max_instructions {
-                    break 0;
+                interpreter_stats.dispatches += completed;
+                instructions_run += completed;
+                if instructions_run >= max_instructions {
+                    break;
                 }
                 if completed != 0 {
                     continue;
@@ -383,12 +386,12 @@ fn run_vm_slice<'gc>(
                     ctx,
                     current_function,
                     &mut registers,
-                    max_instructions - interpreter_stats.counts.dispatches,
+                    max_instructions - instructions_run,
                 );
-                interpreter_stats.counts.dispatches += completed;
-                interpreter_stats.native += completed;
-                if interpreter_stats.counts.dispatches >= max_instructions {
-                    break 0;
+                instructions_run += completed;
+                native_instructions += completed;
+                if instructions_run >= max_instructions {
+                    break;
                 }
                 #[cfg(test)]
                 let transition = ctx
@@ -417,13 +420,13 @@ fn run_vm_slice<'gc>(
                             drop(registers);
                             if lua_frame.pair_fixed_stack() {
                                 pair_scope.as_deref_mut().unwrap().handoff = Some(pair);
-                                break 0;
+                                break;
                             }
                             registers = lua_frame.registers();
                         }
                     }
                     *registers.pc += 1;
-                    interpreter_stats.counts.dispatches += 1;
+                    interpreter_stats.dispatches += 1;
                     match transition {
                         crate::opcode::CallTransition::Call {
                             func,
@@ -455,7 +458,7 @@ fn run_vm_slice<'gc>(
                             lua_frame.return_upper(&ctx, start, count)?;
                         }
                     }
-                    break 1;
+                    break;
                 }
             }
             #[cfg(feature = "jit")]
@@ -476,7 +479,7 @@ fn run_vm_slice<'gc>(
                     if lua_frame.fire_hook(ctx, event, line)? {
                         // Fired: a call frame is on top, so this slice is over — the same exit a
                         // metamethod call takes.
-                        break 0;
+                        break;
                     }
                     // Declined, but the frame was still borrowed mutably to find that out.
                     registers = lua_frame.registers();
@@ -490,7 +493,7 @@ fn run_vm_slice<'gc>(
         let op = current_prototype.opcodes[*registers.pc].decode();
         #[cfg(feature = "jit")]
         {
-            interpreter_stats.counts.dispatches += 1;
+            interpreter_stats.dispatches += 1;
         }
         *registers.pc += 1;
 
@@ -548,7 +551,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -564,7 +567,7 @@ fn run_vm_slice<'gc>(
                         &call.args,
                         MetaReturn::None,
                     )?;
-                    break 1;
+                    break;
                 }
             }
 
@@ -582,7 +585,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -598,7 +601,7 @@ fn run_vm_slice<'gc>(
                         &call.args,
                         MetaReturn::None,
                     )?;
-                    break 1;
+                    break;
                 }
             }
 
@@ -630,9 +633,9 @@ fn run_vm_slice<'gc>(
                         drop(registers);
                         if lua_frame.pair_fixed_stack() {
                             *lua_frame.registers().pc = pc;
-                            interpreter_stats.counts.dispatches -= 1;
+                            interpreter_stats.dispatches -= 1;
                             pair_scope.as_deref_mut().unwrap().handoff = Some(pair);
-                            break 0;
+                            break;
                         }
                         registers = lua_frame.registers();
                     }
@@ -648,17 +651,17 @@ fn run_vm_slice<'gc>(
                         .observe_call(ctx, current_function, &registers, func, args, returns);
                 }
                 lua_frame.call_function(ctx, func, args, returns)?;
-                break 1;
+                break;
             }
 
             Operation::TailCall { func, args } => {
                 lua_frame.tail_call_function(ctx, func, args)?;
-                break 1;
+                break;
             }
 
             Operation::Return { start, count } => {
                 lua_frame.return_upper(&ctx, start, count)?;
-                break 1;
+                break;
             }
 
             Operation::VarArgs { dest, count } => {
@@ -690,7 +693,7 @@ fn run_vm_slice<'gc>(
                     let to_close = registers.take_to_be_closed(RegisterIndex(r));
                     if !to_close.is_empty() {
                         lua_frame.push_close_sequence(ctx, to_close);
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -751,7 +754,7 @@ fn run_vm_slice<'gc>(
                         pc,
                         "'for' step is zero",
                     ));
-                    break 1;
+                    break;
                 }
 
                 registers.stack_frame[base.0 as usize] = raw_subtract(
@@ -840,7 +843,7 @@ fn run_vm_slice<'gc>(
 
             Operation::GenericForCall { base, var_count } => {
                 lua_frame.call_function_keep(ctx, base, 2, VarCount::constant(var_count))?;
-                break 1;
+                break;
             }
 
             Operation::GenericForLoop { base, jump } => {
@@ -866,7 +869,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(base),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -892,7 +895,7 @@ fn run_vm_slice<'gc>(
                             &args,
                             MetaReturn::Register(dest),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -922,7 +925,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -947,7 +950,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::SkipIf(skip_if),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -972,7 +975,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::SkipIf(skip_if),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -997,7 +1000,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::SkipIf(skip_if),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -1018,7 +1021,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -1034,7 +1037,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -1051,7 +1054,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -1068,7 +1071,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -1085,7 +1088,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -1102,7 +1105,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -1119,7 +1122,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -1136,7 +1139,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -1153,7 +1156,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -1170,7 +1173,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -1187,7 +1190,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -1204,7 +1207,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -1221,7 +1224,7 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
@@ -1238,28 +1241,20 @@ fn run_vm_slice<'gc>(
                             &call.args,
                             MetaReturn::Register(dest),
                         )?;
-                        break 1;
+                        break;
                     }
                 }
             }
         }
 
-        #[cfg(not(feature = "jit"))]
-        {
-            instructions_run += 1;
-        }
-        #[cfg(feature = "jit")]
-        let instructions_run = interpreter_stats.counts.dispatches;
+        instructions_run += 1;
         if instructions_run >= max_instructions {
-            break 0;
+            break;
         }
-    };
-    #[cfg(feature = "jit")]
-    let instructions_run = interpreter_stats.counts.dispatches - _unreported_dispatches;
+    }
     #[cfg(feature = "jit")]
     {
-        interpreter_stats.counts.reported_instructions =
-            Some(instructions_run - interpreter_stats.native);
+        interpreter_stats.reported_instructions = Some(instructions_run - native_instructions);
     }
     Ok(instructions_run)
 }
