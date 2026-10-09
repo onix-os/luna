@@ -11,9 +11,123 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Projection bridge outlining — performance trial
+#### Typed projection capability — measured and withdrawn
 
-A one-attribute trial keeps `projection::with_frame` out of ordinary invocation
+**Withdrawal, 2026-10-10:** production integration and the subsequent handoff
+extraction are removed. Independent projection-mode models remain test-only.
+The original boolean selection and direct handoff take are restored; source,
+tests and Makefile match `0ca2e3d`. Restoration finishes with formatting/check-all,
+1,487 GNU Force executions/88 summaries/six ignored, and all five rebuilt native
+and speed/shipping executables byte-identical to the original captured controls.
+Source manifests verify after the builds; no repeat timing is needed for these
+identical restored images. Evidence: `projection-mode-withdrawal/`.
+
+Production compilation has no projected-mode constructor: the only true
+selection is the existing `cfg(test)` projected compiler. The preceding
+outlining trial is withdrawn. A distinct representation trial replaces the
+general boolean with a one-byte `ProjectionMode`: production has only Canonical,
+while tests retain Projected and all existing real native projected-path checks.
+The helper-count selection preserves the original boolean truth table. There is
+no unsafe enum construction, explicit branch deletion, new ABI, skipped register
+import or extension of a live-code lease. Compile-time assertions preserve the
+boolean field's size/alignment; actual resource accounting is measured separately.
+
+Independent mode models pass three checks each on GNU, musl and both Miri alias
+models before integration (`0ca2e3d`). Fresh native and speed/shipping controls
+are built at that test-only baseline. Integrated formatting/check-all and 48
+focused GNU checks pass; full GNU Force passes 1,487 executions/88 summaries/six
+ignored, musl 48 and each changed-mode Miri model three. This does not claim a
+new run of the unchanged projection IR mutation suite under Miri or complete
+platform/release certification.
+
+Exact native assembly reduces the seven-register stack reservation from 2,088
+to 312 bytes, excluding saved registers. The benchmark executable shrinks from
+7,135,728 to 7,000,736 bytes. Fourteen exact-image profiles verify allocated bytes,
+section metadata and program headers for both fresh control and candidate.
+All seven complete non-timing benchmark records match, including resource peaks.
+Callback instructions fall 0.58125% (invocation self falls 713,339), integer
+0.50940%, float 0.49103%, metamethod 0.26833%, array 0.14973% and allocation
+0.06083%. Upvalue instead rises 0.05411%, including 104,568 additional admission
+instructions; its cause is not yet established for this candidate. Anonymous
+address totals match, but raw address-labeled functions relocate and are not
+individually equated by name. Other named-function deltas remain in the evidence.
+
+The first hardware screen completes 30 native and 128 cost commands. All 158
+aggregate gates fail; fresh/candidate individual failures are 12/9 native and
+34/39 cost. Complete counters match in 108 native and 144 cost-native comparisons.
+Callbacks improve on CPU0 but worsen on CPU16; all six candidate callback gates
+fail. CPU16 speed compiled-Off integer and array each acquire four ceiling
+failures where fresh controls have none. No owned build/test/profile overlaps
+these timings, and adverse samples and unrelated contention remain recorded.
+
+Eighty exact-image disabled-path profiles verify all 13 event totals and worker
+protocols. Both CPU classes show the same extra speed-profile VM instructions:
+integer 600,080, float 700,130, array 300,155, upvalue 700,090 and callbacks
+275,080. Integer assembly saves `%r14` to stack offset `0x38` 200,040 times and
+reloads it 200,035 times; these new instructions alone account for 400,075 of
+the increase. They are not native execution: every worker reports zero native
+instructions. Further register allocation and block-layout changes remain.
+Shipping VM instructions instead fall in all five cases, so instruction counts
+alone do not explain its elapsed losses. No-feature files are byte-identical;
+most profile counts match, but speed array retains an eight-instruction allocator
+difference. Two feature upvalue comparisons retain 408 allocator instructions
+in addition to their VM deltas. Address-labeled functions relocate and must not
+be treated as matching identities.
+
+This is a **provisional representation/footprint improvement, not elapsed-speed
+acceptance**. Unchanged native and speed/shipping cost gates still govern
+retention. Evidence: `target/jit-evidence/short-slice-performance/projection-mode-*`.
+
+#### Pair-handoff extraction — measured and withdrawn
+
+Exact instruction accounting decomposes the speed integer increase into 400,075
+additional `mov` instructions and 200,005 unconditional jumps. A safe outlined
+`LuaFrame::take_pair_handoff` performed the existing once-per-slice Option
+move. It does not change selection, execution order, frame/scope ownership,
+counters, fuel or native coverage. The method sits after existing definitions
+to preserve no-feature panic-location metadata; inserting it before those
+definitions changed that metadata in the first diagnostic build, which was
+not timed. The existing direct take remains in the test-only resume setup.
+
+Formatting/check-all and 81 focused GNU checks pass; full GNU Force passes
+1,487 executions/88 summaries/six ignored, and focused musl passes 81/two ignored.
+Captured speed/shipping no-feature images remain byte-identical to both typed
+and pre-typed controls. All seven complete non-timing native records match.
+
+Including the helper call itself, speed compiled-Off instructions fall versus
+the typed-only candidate: integer 384,405, float 384,435, array 215,335, upvalue
+50,035 and callbacks 75,030. Integer remains 215,675 instructions above the
+pre-typed control, so this is partial recovery. Shipping instead adds 12,520
+integer/float, 7,820 array, 399,995 upvalue and 100,020 callback instructions.
+Native profiles also add work: 0.23466% integer, 0.22650% float, 0.13002% upvalue,
+0.24460% callbacks, 0.27986% metamethod, 0.05822% array and 0.03987% allocation.
+The upvalue increase includes 209,136 admission instructions, and metamethod
+includes allocator variation; these are retained rather than attributed to the
+new helper without evidence. This candidate is not elapsed-performance acceptance.
+Evidence: `projection-mode-scope-*` under the same ignored evidence directory.
+
+The complete second screen finishes 36 native and 144 cost commands, with all
+180 aggregate gates failing. All 216 native and 288 cost-native full-record
+comparisons match against both pre-typed and typed-only controls. The helper
+recovers CPU16 speed integer gates (typed four failures to zero), but CPU0 speed
+integer and float each acquire four failures where both controls have none.
+Typed/candidate direct medians are 0.94516 integer and 0.88579 float, adverse in
+all four windows with no-feature controls near parity. CPU16 native metamethod
+is adverse in all three windows (typed/candidate median 0.92739), as are native
+callbacks (0.97611). The favorable CPU16 shipping callback result remains in
+the evidence: typed four failures to zero, direct median 1.08834.
+
+Typed-only CPU16 speed integer also repeats its own regression against the
+pre-typed control: fresh/typed 0.90859 and four new failures, following 0.90495
+and four new failures in its first screen. CPU0 shipping float fresh/typed is
+0.91907 after the preceding 0.91470. The two production changes therefore fail
+retention despite their smaller stack reservation and instruction reductions.
+All samples, outliers, contention snapshots and successful cases are retained;
+no benchmark limit, workload, native coverage or resource exemption is changed.
+
+#### Projection bridge outlining — measured and withdrawn
+
+A one-attribute trial kept `projection::with_frame` out of ordinary invocation
 bodies without deleting projection support or changing any scratch, helper,
 fallback, lifetime or generated-ABI contract. Exact optimized assembly shows
 `Runtime::invoke<7, true>` reserving 344 rather than 2,088 stack bytes. All eight
@@ -39,7 +153,9 @@ instruction offsets match. This proves extra traversal of the registration map,
 not extra generated instructions; the changed entry position remains unexplained.
 The total profile increase is retained, not subtracted from the measurements.
 Speed and shipping feature-cost builds complete, and both no-feature images are
-byte-identical to the restored controls. Miri validation remains incomplete.
+byte-identical to the restored controls. Default Miri passes 28 tests. The
+remaining Tree Borrows run is explicitly cancelled after the repeated negative
+performance decision below; its partial log is preserved, not claimed as a pass.
 
 The first hardware campaign completes 30 native and 128 cost commands; all 158
 aggregate gates fail. Fresh/candidate individual failures are native 9/9 and
@@ -64,10 +180,42 @@ Shipping CPU0 integer/float ratios are 0.91460/0.90949; CPU16 integer/float/arra
 are 0.88972/0.92196/0.90494 with no-feature controls near parity. These numeric
 cases still pass their original ceiling; relative regressions must not be
 misreported as newly failed gates. CPU16 shipping callbacks improve 1.07832
-direct and 1.05216 normalized, with failures falling three to zero. Repeat the
-unchanged images before deciding whether the frame reduction is worth retaining.
+direct and 1.05216 normalized, with failures falling three to zero.
 
-This is a measured stack-frame reduction, **not elapsed-performance acceptance**.
+The unchanged-image repeat completes another 158 commands, all failing their
+aggregate gates. Fresh/candidate individual failures are native 12/9 and cost
+30/32. Another 108 full native-counter and 144 cost-native comparisons match;
+source/artifact manifests verify. Tree Borrows remains suspended with unchanged
+CPU ticks during timing and resumes normally afterward. Across both campaigns,
+all 316 aggregate gates fail, including every candidate aggregate.
+
+Upvalue gains repeat at CPU0 1.02580 and CPU16 1.03425, favorable in all twelve
+matched windows across campaigns. CPU0 callbacks and metamethods remain adverse
+at 0.99474 and 0.99318; all twelve candidate callback gates fail. CPU0 speed Off
+metamethod repeats at 0.95468 direct and 0.95505 normalized, with a 0.99926
+no-feature control: eight original-ceiling failures across both campaigns versus
+zero for fresh. CPU16 speed Oslo has seven new failures. Shipping relative
+numeric losses repeat at CPU0 integer/float 0.91210/0.90254 and CPU16
+integer/float/array 0.89328/0.91360/0.90160, while those numeric cases still pass
+their original ceilings. Favorable shipping callback and CPU0 speed Oslo results
+are retained alongside the adverse results.
+
+**Withdrawn on 2026-10-10:** the frame reduction and upvalue gains do not justify
+the new repeated gate failures and unresolved callback target. Only the owned,
+identity-verified Tree Borrows process receives SIGTERM after that decision;
+the portable driver terminates with exit 2, explicitly cancelled rather than
+passed. No unrelated application is stopped. The single inline attribute is
+removed, restoring the pretrial source; restoration verification follows.
+
+Restoration driver exits 0: formatting, all-target/all-feature checking and
+74 focused GNU executions pass. The entire `src/` tree and Makefile match
+`3fcc73c`, and the restored source manifests verify. All five rebuilt native,
+speed and shipping executables are byte-identical to the preceding restored
+controls, including both no-feature images. No redundant timing campaign on
+those identical baseline images is needed. No optimization from this trial is
+retained, and original performance acceptance remains incomplete.
+
+This was a measured stack-frame reduction, **not elapsed-performance acceptance**.
 Hardware native and speed/shipping feature-cost gates remain required. Evidence
 is under `target/jit-evidence/short-slice-performance/projection-outline-*`;
 ordinary production compilation continues to reject projected admission.
