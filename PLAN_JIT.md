@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Source-registry bucket offsets — trial awaiting timing
+#### Source-registry bucket offsets — measured and withdrawn
 
 `c9ee18e` commits baseline-valid identity tests across map growth, alternating
 parent/child lookups, collection/compaction, reset, re-registration, misses and
@@ -36,10 +36,44 @@ and all seven full non-timing counter comparisons. Callback instructions change
 the whole reduction is not attributed solely to avoided hashing. Other profiled
 workloads have smaller instruction reductions. No elapsed-speedup claim follows.
 
-Candidate speed/shipping artifacts are frozen. Runtime source is temporarily at
-baseline only while fresh cost controls build; the trial patch is preserved and
-not yet accepted or rejected. Reapply it exactly and verify manifests before
-repeated native/disabled-cost timing. Evidence is under `registry-offset-*` in
+Two native and two speed/shipping cost screens complete **316 commands: 314
+aggregate failures**, with candidate CPU0 speed passing window2 of the first
+cost screen and window1 of the repeat. Original thresholds, eleven samples,
+twenty cost iterations, both CPU classes and all controls remain unchanged.
+No-feature control/candidate binaries are byte-identical in each profile.
+Source/artifact before/after checks verify; no owned builds/tests/profiles/source
+edits overlap timing. External workload telemetry and outliers are retained.
+
+Native fresh-control/candidate elapsed ratios, first/repeat median of three
+matched windows: callbacks CPU0 **1.01613 /1.03678**, CPU16 **1.08000 /1.04403**.
+All12 callback thresholds still fail. CPU0 metamethod ratios **0.97651 /0.97944**
+are adverse; candidate metamethod targets fail9/12 versus fresh8/12. Upvalues
+fail4/12 for both. Numeric/table native targets pass12/12 each for both.
+
+Shipping compiled-Off elapsed ratios, first/repeat median of four matched
+windows: CPU0 integer **0.94392 /0.94067**, float **0.95631 /0.95598**;
+CPU16 integer **0.94193 /0.94092**, float **0.94621 /0.97551** and array
+**0.93622 /0.92961**. Repeat integer takes about6.3% longer on either CPU and
+CPU16 array about7.6% longer. Byte-identical no-feature matched controls stay
+near parity. Speed integer also regresses on both CPUs. No hardware cause is
+established; the unchanged results/counters do not explain elapsed differences.
+
+These absolute shipping regressions are distinct from the frozen1.05 feature-cost
+ceiling: the affected numeric/array cases still pass that ceiling. Individual
+cost failures actually improve to candidate22/144 in each round versus fresh
+27/144 and34/144. Those gains are retained in the report, not hidden to justify
+rejection. The unresolved callback target, adverse native metamethod result and
+repeated disabled-path tradeoffs do not justify retaining the added unsafe
+bucket access as a production performance improvement.
+
+All **648 native case comparisons** against fresh/compact/single match every
+non-timing field; historical pre-kernel differences remain separately recorded.
+All **2,016 cost native-proof comparisons** match. These proof lines are not
+complete source-op coverage. After the driver terminated, the runtime hints
+were withdrawn; independent lifecycle tests remain. Restored formatting and
+registry/native/policy checks pass52 executions across six suites; source and
+Makefile match the committed baseline. Evidence, frozen binaries,
+patches and per-window summaries stay under `registry-offset-*` in
 `target/jit-evidence/short-slice-performance/`. Full acceptance remains open.
 
 #### Executor mode-query elision — measured and withdrawn
