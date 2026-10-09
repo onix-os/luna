@@ -103,7 +103,8 @@ fn virtual_call_matches_full_argument_shift_resize_and_scalar_writes() {
         for caller_width in [1, 2, 8, 16, 255, 256] {
             for function in [0, caller_width / 2, caller_width - 1] {
                 for callee_width in [1, 2, 7, 16, 255, 256] {
-                    for arguments in [0, (caller_width - function - 1).min(callee_width)] {
+                    let maximum = (caller_width - function - 1).min(callee_width);
+                    for arguments in [0, maximum.min(1), maximum / 2, maximum] {
                         for (read, result) in [(0, 0), (0, callee_width - 1), (callee_width - 1, 0)]
                         {
                             let initial: Vec<_> = (0..caller_width)

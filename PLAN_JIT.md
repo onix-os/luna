@@ -11,6 +11,165 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Per-entry writeback masks profiled and withdrawn
+
+`9b07543` retains a test-only, bounded source model: union native register writes
+for at most 64 instructions, stop at interpreted transitions and conservatively
+include all registers for upvalue writes. Unlike the earlier global set, this
+finds only two/seven or five/seven writes at hot callback entries. Five model
+tests pass GNU, musl, i686 and both Miri modes; an independent opcode walker
+checks 32 branching/looping programs at every entry.
+
+Two runtime forms preserve full imports and projected/deferred/panic writeback,
+using optional quota-backed masks. They pass 7,488 native slice comparisons,
+including every PC, nine budgets, scalar/reference identities, open captures,
+full counters and helper panic handling. The initial full run catches three
+resource regressions from allocating optional storage before mandatory owners.
+Moving that allocation after image finalization restores the unchanged refusal
+checks; retained-byte accounting explicitly includes mask storage. The corrected
+candidate passes GNU 1,897 executions /175 suites (eight ignored), targeted
+musl 48 /3, i686 six, quota tests in both Miri modes and native Memcheck with
+zero errors/definite/indirect leaks. Harness residual allocations remain.
+
+Exact-image profiling rejects both forms before hardware timing. Per-register
+conditions increase callback instructions 133,593,180 to 133,927,601 and native
+invocation self work 20,233,235 to 20,557,768. Sparse set iteration is worse:
+141,775,173 total and 23,930,228 invocation self instructions. Proven unnecessary
+stores do not make conditional writeback cheaper. These are instruction-work
+findings, not elapsed-time regression measurements; no hardware or feature-cost
+campaign is claimed. Runtime/storage/fixture changes are withdrawn, retaining
+only the independent model. All failed logs, patches and exact-symbol images
+remain under `entry-writeback-*` and `entry-writeback-sparse-*`.
+
+#### Lua-frame peek selection measured and withdrawn
+
+The replacement keeps `Option<Frame>` and the original short borrow scopes,
+removing only Lua frame pop/restore. Its GNU 1,897 passing executions (eight
+ignored), targeted musl 111, i686 eight, four tests in each Miri model and
+selector/nested-executor Memcheck all pass. Exact callback instructions fall
+2.23%, metamethod 1.57%; upvalue work is effectively unchanged.
+
+Two five-way screens retain array, single-lookup, compact and guarded-selector
+controls: **60 native commands**, 1,620 matching coverage comparisons. Callbacks
+improve **3.03–5.36% in all twelve windows**, but still miss their original
+target. Metamethods improve 0.01–5.11%. Upvalue passes only 1/12 versus compact
+11/12 because the interpreter improves without a matching native improvement.
+All negative allocation/table/cold samples remain recorded.
+
+The **112-command feature-cost screen** rejects the replacement too. CPU16 speed
+compiled-Off float is **6.35–11.91% slower**, failing three ceilings versus compact
+zero. CPU0 shipping cold fails four ceilings versus zero; shipping integer is
+13.89–15.27% slower and float 9.40–10.27% slower, despite passing their own
+feature-cost ceilings. Candidate total failures 25/144 versus compact 27/144 do
+not cancel newly failed cases. Both no-feature binaries change; faster absolute
+callback time does not imply its compiled-Off overhead ceiling passes.
+
+All 3,024 native-proof comparisons and source/artifact after-checks match.
+Executor, Make targets and candidate-only selector tests are withdrawn; exact
+source patches including tests, binaries, profiles and all timing windows remain
+under `executor-lua-peek-*`. Neither frame-selection variant is retained or
+reported as a performance fix. Full original acceptance remains open.
+
+#### Guard-carrying executor selection measured and withdrawn
+
+Keeping a Lua frame and its initial state borrow in a dispatch enum removes
+frame pop/restore and reborrowing. GNU validation passes 1,897 executions
+(eight ignored), targeted musl 111, i686 eight, both Miri models four, and
+selector/nested-executor Memcheck with zero errors/definite/indirect leaks.
+Exact callback instructions fall 3.11%; two four-way native screens show
+callbacks 3.03–8.75% faster and metamethods 0.44–8.82% faster in all twelve
+windows. Callback targets still fail all twelve; the upvalue target also
+fails all twelve as the interpreter improves without a matching native gain.
+
+The 112-command cost screen rejects this variant: CPU0 shipping compiled-Off
+float is 23.99–25.27% slower and integer 10.50–11.85% slower; CPU16 speed float
+is 6.88–11.26% slower. No-feature images also change, including CPU0 speed
+float 7.13–8.54% slower. All native-coverage/proof comparisons match. Exact
+shipping float profiles show fewer instructions, not extra instruction work;
+they do not establish a hardware cause. Performance counters remain unavailable
+without changing host policy, which was not changed.
+
+Evidence is retained under `executor-frame-selection-*`. The replacement trial
+and its subsequent withdrawal are recorded above under `executor-lua-peek-*`.
+
+#### Small argument shifts measured and withdrawn
+
+Specializing only zero/one-element rooted argument copies preserves the original
+tail fill and scalar overlays. It passes GNU 1,889 executions /175 suites (eight
+ignored), musl 144 /14 (two ignored), three i686 models, three Snapshot tests in
+each Miri mode, and native rooted Memcheck with zero errors/definite/indirect
+leaks. Exact upvalue instructions fall to 167,602,257 from compact 169,703,129.
+
+Two unchanged four-way screens complete **48 native commands**: upvalues improve
+0.39–3.05% in all twelve comparisons; callbacks improve eleven, but their original
+targets still fail. The **112-command feature-cost screen** rejects the change:
+CPU0 shipping compiled-Off integer is **14.22–15.14% slower**, float **10.91–11.08%
+slower**, and CPU16 speed float **8.06–12.45% slower**. Each loss repeats in all
+four windows; the last case fails four ceilings versus compact zero. Candidate
+cost gates fail 30/144 versus compact 27/144. Both no-feature binaries match
+compact byte-for-byte; all 1,296 native-coverage and 3,024 cost native-proof
+comparisons match. Runtime changes are withdrawn, not retained on native gains.
+Evidence remains under `small-call-shift-*`; no threshold or coverage is weakened.
+
+#### Fused rooted-call writes measured and withdrawn
+
+A single forward pass replaced argument shifting, tail clearing and scalar
+overlays without omitting any final caller slot. The independent physical-vector
+oracle was first expanded for one/intermediate argument counts and committed as
+`e635443`. Candidate GNU validation passes 1,889 executions /175 suites (eight
+ignored), targeted musl 144 /14 (two ignored), and i686 three pure tests.
+Both Miri models pass all three Snapshot tests; native rooted Memcheck reports
+zero errors and zero definite/indirect leaks, with harness residuals unchanged.
+
+Exact upvalue work falls 169,703,129 to 165,229,527 instructions (2.64%).
+Two four-way screens complete **48 native commands**: upvalue time improves
+**2.84–6.05% in all 12 windows**, passing its target 12/12 versus compact 10/12.
+However, CPU0 callbacks slow 0.88–2.79% in all six comparisons, and metamethods
+slow 0.46–4.41% in all twelve. Their original gates remain unresolved.
+
+The seven-way **112-command feature-cost campaign** also rejects the change:
+CPU0 shipping compiled-Off integer slows **8.62–10.49%** in all four windows;
+CPU16 speed float slows **6.64–11.82%**, failing three ceilings versus compact
+zero. Total failures are 31/144 versus compact 30/144. Both no-feature binaries
+are byte-identical to compact, and all 1,296 native-coverage plus 3,024 cost
+native-proof comparisons match. The upvalue improvement does not justify these
+regressions. The full-tail fusion is withdrawn; its independent oracle remains.
+Frozen patches, binaries, exact profiles, platform checks, telemetry and all
+samples remain under `fused-call-writeback-*` in the short-slice evidence tree.
+
+#### Immutable call-layout admission measured and withdrawn
+
+The trial validates immutable register and parameter bounds once per admitted
+region, while retaining fresh closure/capture, policy, stack, capacity, close,
+fuel and publication checks. GNU validation passes 1,891 executions across
+175 suites (eight ignored); targeted musl passes 146 (two ignored), i686 two.
+The two pure bounds tests pass both Miri models. Native rooted/window Memcheck
+reports zero errors and zero definite/indirect leaks; harness possible-loss and
+reachable allocations remain. None of these checks establishes performance.
+
+Exact upvalue instruction work falls only 169,703,129 to 169,042,317 (0.39%).
+Two four-way native screens complete **48 commands** with unchanged workloads,
+11 paired samples and controls. Upvalue gates pass 11/12 versus compact 9/12,
+but individual candidate/compact times range 0.95182–1.00840. Callback gates
+still fail 12/12; metamethod passes 3/12 versus compact 4/12. All 1,296 native
+coverage comparisons match, including every checked execution counter.
+
+The valid seven-way feature-cost campaign completes **112 commands**, retaining
+both profiles/core types and four windows. Candidate failures are 34/144 versus
+compact 30/144. CPU16 speed compiled-Off float is **6.38–11.02% slower** in all
+four windows and fails all four original ceilings, versus none for compact.
+CPU16 speed integer is 4.57–5.69% slower; shipping array is 3.27–4.49% slower.
+All 3,024 native-proof comparisons match. These regressions outweigh the small,
+inconsistent upvalue gain, so the runtime descriptor and duplicate window are
+withdrawn. A 19-case original-window refusal/no-mutation regression remains.
+
+Evidence is under `target/jit-evidence/short-slice-performance/bound-call-layout*`.
+Only `bound-call-layout-cost/verified-shell/` contains valid cost measurements:
+the first host-shell attempt failed artifact verification because its Bash did
+not support associative arrays. Its logs remain but are excluded from timing
+counts. The corrected run uses Nix; all source/artifact after-checks pass.
+Full performance, resource, platform and release acceptance remains open.
+
 #### Selective imports and indexed copying measured and withdrawn
 
 Three register-import prototypes are rejected after **72 native commands** and
