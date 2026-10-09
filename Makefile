@@ -1141,6 +1141,11 @@ jit-set-list:
 jit-vm-dispatch:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::vm::dispatch::tests
 
+.PHONY: jit-vm-policy
+jit-vm-policy:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::vm_policy::tests
+	@$(CARGO) test --locked -p luna --features jit --test jit_native $(TARGET_ARG) off_and_auto_dispatch_switches_preserve_slice_fuel_and_counters
+
 numeric-conversions:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) constant::tests
 	@$(CARGO) test --locked -p luna --no-default-features --test numeric_semantics $(TARGET_ARG)

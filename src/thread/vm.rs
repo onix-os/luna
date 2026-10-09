@@ -267,7 +267,9 @@ fn run_vm_slice<'gc>(
         .flatten();
 
     #[cfg(feature = "jit")]
-    let native_id = if !hook_enabled && ctx.jit().active() {
+    let (native_active, _observe_pairs) = ctx.jit().vm_policy(hook_enabled);
+    #[cfg(feature = "jit")]
+    let native_id = if native_active {
         ctx.jit_registry().borrow().identity(ctx, current_prototype)
     } else {
         None
@@ -318,7 +320,7 @@ fn run_vm_slice<'gc>(
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    let observe_pairs = !hook_enabled && ctx.jit().call_pairs_enabled();
+    let observe_pairs = _observe_pairs;
 
     #[cfg(all(
         feature = "jit",

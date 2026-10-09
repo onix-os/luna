@@ -11,6 +11,21 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Single-borrow VM policy — candidate under measurement
+
+The VM now obtains native/pair enablement through one short-lived manager borrow
+before source selection. The active bit is consumed there rather than held until
+after lease lookup. Hooked selection does not borrow; hook-exit accounting keeps
+its existing query. Identity resolution and ordinary/resume lookup do not change
+mode or pair enablement, no guard escapes, and every invocation reads fresh state.
+This changes no fields, resource charges, native helper ABI or public API.
+
+`make jit-vm-policy` checks fresh mode/pair state, unchanged counters, hook borrow
+suppression and integrated Off/Auto slice/fuel transitions. Focused policy,
+configuration and forced-mode checks pass. Full correctness and original-flag,
+exact-image performance comparisons are pending; no speedup or acceptance is
+claimed. Evidence prefix: `target/jit-evidence/short-slice-performance/vm-policy-snapshot*`.
+
 #### Inactive paired-policy query — measured and withdrawn
 
 A VM trial reuses the fresh native-active flag to skip `call_pairs_enabled`
