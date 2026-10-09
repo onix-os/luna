@@ -11,6 +11,64 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Direct integer capture — measured and withdrawn
+
+`93e2496` adds independent capture-admission comparisons against the original
+register projection: 3,072 owner/index/type/pending-state combinations, reader
+invocation counts, unchanged canonical state and fuel. The first direct-reader
+prototype increases native upvalue instructions **169,890,263 → 172,108,956**;
+it is superseded before acceptance timing, not reported as an improvement.
+
+`40853da` avoids full Value conversion for explicitly integer-only snapshot
+inputs. Fresh caller/stack-owner/bounds checks, pending same-frame values,
+physical upper captures and complete existing call admission remain intact.
+There is no capture cache, new unsafe code, allocation or relaxed numeric coercion.
+Exact-image native upvalue instructions fall **169,789,119 → 164,103,436 (3.35%)**.
+GNU focused/all-feature Auto plus baseline/musl checks pass **1,944 executions
+across 199 suites**, eight ignored; four pure Miri tests pass. Two native rooted
+Memcheck tests pass with zero errors and zero definite/indirect leaks; the existing
+48 possibly-lost/632 reachable harness bytes remain.
+
+Two native rounds and two four-way speed/shipping cost rounds complete **152
+aggregate commands, all failing unchanged gates**. All **216 native non-timing
+case pairs** match. Controls include rooted-publication, pre-regression
+atomic-admission and historical empty-return-copy. CPU0/16, eleven samples,
+three native windows, four rotating cost windows, twenty cost iterations,
+outside contention and source/image checks remain unchanged. Owned builds,
+tests and profiles finish before timing. Four-window medians average the middle pair.
+
+Control time / candidate time, initial / repeat against rooted-publication:
+
+| Case | Profile / CPU | Ratio |
+| --- | --- | --- |
+| Native upvalue | speed / 0 | 1.038649 / 1.029588 |
+| Native upvalue | speed / 16 | 1.048396 / 1.061009 |
+| Native table | speed / 0 | 0.960516 / 0.912280 |
+| Native metamethod | speed / 16 | 0.949605 / 0.967923 |
+| Compiled-Off float | speed / 0 | 0.940268 / 0.938671 |
+| Compiled-Off float | speed / 16 | 0.923997 / 0.924998 |
+| Compiled-Off integer | shipping / 0 | 0.931263 / 0.930292 |
+| Compiled-Off integer | shipping / 16 | 0.928081 / 0.928911 |
+| Compiled-Off float | shipping / 16 | 0.934205 / 0.935502 |
+
+All twelve upvalue 1.25x interpreter checks pass, but these other regressions
+reject the production change. Shipping CPU0 float improves versus WIP
+**1.063179 / 1.065556**, yet remains below atomic-admission
+**0.914271 / 0.916975**. Individual cost failures are candidate51/control64/
+prior63/historical57 of 288 each; fewer failures cannot cancel per-case regressions.
+
+Post-timing exact-image profiles retain identical instructions/loads/stores for
+speed Off float, shipping Off integer/float and native table. Metamethod
+instructions decrease slightly. These standalone profiles do not reproduce
+full-suite physical timing or establish a hardware cause. All raw samples,
+negative variants, symbol/image verification and summaries remain under
+`target/jit-evidence/short-slice-performance/direct-capture*` and `integer-capture*`.
+Production enablement is withdrawn; independent capture/integer tests remain.
+Existing rooted-publication WIP and all unresolved performance gates remain open.
+Withdrawal `f837996` passes GNU formatting/checking and **120 focused executions
+across 24 GNU/musl suites**, plus the four Miri tests. Both trial no-feature
+`.text` sections match their controls byte-for-byte; whole files differ.
+
 #### Explicit value/constant tags — rejected before acceptance timing
 
 `dd4f7bd` extends the existing portable size bound to runtime constants and
