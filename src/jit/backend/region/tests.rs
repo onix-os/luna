@@ -62,15 +62,16 @@ unsafe extern "C" fn caller(
     slots: *mut Slot,
     pc: u64,
     budget: u32,
+    exit: *mut Exit,
     host: *mut abi::Host,
-) -> abi::return_words::Words {
+) {
     unsafe {
         (*slots).bits += 1;
-        abi::return_words::Words::from_exit(Exit {
+        *exit = Exit {
             pc,
             instructions: budget,
             reason: *(*host).data.cast::<u32>(),
-        })
+        };
     }
 }
 

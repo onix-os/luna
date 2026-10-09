@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Register-return exits — first timing screen, acceptance incomplete
+#### Register-return exits — measured and withdrawn
 
 `83048e2` proves the two-word C return protocol; `f6fedb4` adds checked
 output-pointer lowering and an actual generated-code interoperability test.
@@ -63,8 +63,65 @@ Shipping compiled-Off results require investigation: CPU0 integer0.9517 and
 float0.9242; CPU16 integer0.8887,float0.9250,array0.9019. Matching no-feature
 ratios are near parity. These numeric/array original1.05 ceilings still pass,
 but the relative regressions are retained, not dismissed or called new original
-gate failures. Independent repeated timing and exact-image compiled-Off
-profiling are next. The candidate remains provisional; no release acceptance.
+gate failures. These first-screen observations are historical candidate evidence,
+not acceptance of the subsequently withdrawn production conversion.
+
+The independent repeat completes another158 commands, again with no aggregate
+pass. Native case failures are fresh9/candidate9; feature-cost case failures are
+fresh34/candidate35. All six repeated candidate callback gates fail. CPU0 native
+integer/float fresh-over-candidate medians are1.1710/1.0593; CPU16 are
+1.0073/1.0160. CPU16 shipping compiled-Off medians repeat the adverse trend:
+integer0.8930,float0.9244,array0.9041,upvalue0.9570, while no-feature controls
+remain near parity. CPU0 shipping has substantial nonstationarity in its
+no-feature controls; its favorable direct ratios are not called recovery.
+The full outliers, paired ratios and host telemetry remain in the evidence.
+Independent repeated counter comparison passes108 native case/mode pairs,
+with only the recorded0/48/144-byte snapshot-peak differences, and144 cost-native
+coverage pairs. Artifact and source manifests reverify before withdrawal.
+
+Eighty exact-image disabled profiles cover both CPU classes, both build profiles,
+five workloads and both feature states in control/candidate images. Allocated
+bytes, allocated-section metadata and program headers match each frozen image.
+CPU16 control/candidate instruction/read/write/conditional-branch/indirect-branch
+counts match exactly for all five workloads in both profiles and feature states.
+VM/executor self-instruction counts match across all40 corresponding profiles.
+Not all whole-profile totals match: shipping CPU0 array changes+587 instructions
+and upvalue-408; speed CPU0 no-feature array changes-8, and compiled-Off callbacks
+change+3,450,000. That callback difference is entirely in table probing and key/
+string equality self costs (+850,000/+1,050,000/+1,550,000), not VM/executor work.
+Process-dependent hash behavior is not evidence of a new VM operation.
+
+Make-based disassembly extraction compares the exact compiled-Off symbol images.
+The main VM has8,681 instructions in each shipping image and11,212 in each speed
+image. After normalizing direct branch addresses and RIP-relative displacements,
+the only remaining differences are88 shipping/168 speed RIP-relative annotation
+targets; other operands and instruction order match. This does not prove those
+data targets equivalent or establish a hardware cause. Source/function placement
+has changed; earlier rejected alignment/padding trials are not repeated.
+
+The production return-transport conversion is withdrawn because its repeated
+shipping regressions outweigh the small native gains and no callback acceptance
+gate improves to a pass. Ordinary, scalar-cell, aggregate and region call sites
+return together to the matching output-pointer protocol. The seven production
+files exactly match their pre-integration versions. Standalone full-width ABI
+models, lowering checks, interleaved-writeback regression and corrected Miri
+fixture remain test-only; frozen candidate images and all negative evidence are
+retained. This withdraws one regression, not the original outstanding callback,
+feature-cost, resource or platform acceptance requirements.
+
+Withdrawal validation passes1,490 GNU test executions/91 summaries/six ignored
+with the focused models and full all-feature Force suite. Removing the unused
+test-only caller-store helper afterward passes formatting, all-target/all-feature
+checking and another eight focused tests without the dead-code warning.
+The current output-pointer signature in `JIT.md` again matches production.
+Restored-image builds and additional target checks are still pending here;
+source restoration alone is not a fresh wall-time recovery measurement.
+
+Additional evidence under `target/jit-evidence/short-slice-performance/`:
+`return-transport-{native,cost}-repeat-analysis.json`,
+`return-transport-repeat-counter-proof.json`,
+`return-transport-disabled-profile-analysis.json`, and
+`return-transport-assembly-comparison.json`. No release acceptance is claimed.
 
 #### Source-registry bucket offsets — measured and withdrawn
 
