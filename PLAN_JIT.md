@@ -11,6 +11,30 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Guard-carrying executor selection measured and withdrawn
+
+Keeping a Lua frame and its initial state borrow in a dispatch enum removes
+frame pop/restore and reborrowing. GNU validation passes 1,897 executions
+(eight ignored), targeted musl 111, i686 eight, both Miri models four, and
+selector/nested-executor Memcheck with zero errors/definite/indirect leaks.
+Exact callback instructions fall 3.11%; two four-way native screens show
+callbacks 3.03–8.75% faster and metamethods 0.44–8.82% faster in all twelve
+windows. Callback targets still fail all twelve; the upvalue target also
+fails all twelve as the interpreter improves without a matching native gain.
+
+The 112-command cost screen rejects this variant: CPU0 shipping compiled-Off
+float is 23.99–25.27% slower and integer 10.50–11.85% slower; CPU16 speed float
+is 6.88–11.26% slower. No-feature images also change, including CPU0 speed
+float 7.13–8.54% slower. All native-coverage/proof comparisons match. Exact
+shipping float profiles show fewer instructions, not extra instruction work;
+they do not establish a hardware cause. Performance counters remain unavailable
+without changing host policy, which was not changed.
+
+Evidence is retained under `executor-frame-selection-*`. A replacement trial
+keeps the original `Option<Frame>` representation and short borrow scopes,
+removing only Lua pop/restore. Its GNU/platform/Miri/Memcheck checks pass;
+its hardware performance is not yet accepted. Evidence uses `executor-lua-peek-*`.
+
 #### Small argument shifts measured and withdrawn
 
 Specializing only zero/one-element rooted argument copies preserves the original
