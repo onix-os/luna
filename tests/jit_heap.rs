@@ -325,6 +325,73 @@ fn weak_table_reads_and_writes_preserve_collection_semantics() -> Result<(), Ext
 }
 
 #[test]
+fn warmed_table_reads_follow_callback_growth_clear_replacement_and_metatables(
+) -> Result<(), ExternError> {
+    for native in [false, true] {
+        let mut lua = state(native);
+        lua.enter(|ctx| {
+            ctx.set_global(
+                "mutate",
+                Callback::from_fn(&ctx, |ctx, _, mut stack| {
+                    let (table, round): (Table, i64) = stack.consume(ctx)?;
+                    table.set_readonly(&ctx, false);
+                    table.set_metatable(ctx, None);
+                    match round % 4 {
+                        0 => {
+                            table.clear(&ctx).unwrap();
+                            table.set_field(ctx, "answer", round * 2);
+                        }
+                        1 => {
+                            for key in -128..0 {
+                                table.set(ctx, key, key).unwrap();
+                            }
+                            table.set_field(ctx, "answer", round * 2);
+                        }
+                        2 => {
+                            table.clear(&ctx).unwrap();
+                            let fallback = Table::new(&ctx);
+                            fallback.set_field(ctx, "answer", round * 2);
+                            let meta = Table::new(&ctx);
+                            meta.set_field(ctx, "__index", fallback);
+                            table.set_metatable(ctx, Some(meta));
+                        }
+                        _ => {
+                            let replacement = Table::new(&ctx);
+                            replacement.set_field(ctx, "answer", round * 2);
+                            ctx.set_global("target", replacement);
+                        }
+                    }
+                    table.set_readonly(&ctx, true);
+                    Ok(CallbackReturn::Return)
+                }),
+            );
+        });
+        let executor = source(
+            &mut lua,
+            br#"
+            target = { answer = 1 }
+            local function read(t) return t.answer end
+            local sum = 0
+            for i = 1, 64 do
+                sum = sum + read(target)
+                mutate(target, i)
+                collectgarbage('collect')
+                sum = sum + read(target)
+            end
+            return sum
+        "#,
+        )?;
+        assert_eq!(lua.execute::<i64>(&executor)?, 8193);
+        if native {
+            let stats = lua.jit_stats();
+            assert!(stats.native_table_reads > 64, "{stats:?}");
+            assert!(stats.helper_declines >= 16, "{stats:?}");
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn interleaved_executors_keep_replaced_table_and_userdata_roots_fresh() -> Result<(), ExternError> {
     fn mutate(lua: &mut Lua, tick: i64) {
         lua.enter(|ctx| {

@@ -51,6 +51,14 @@ mod canonical;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 pub(crate) mod chains;
+#[cfg(any(
+    test,
+    all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )
+))]
+mod code_index;
 #[cfg(test)]
 mod continuations;
 #[cfg(all(
@@ -670,7 +678,7 @@ pub(crate) struct Manager {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    code: MetadataMap<u64, CachedCode>,
+    code: code_index::Index<CachedCode>,
     #[cfg(all(
         test,
         target_os = "linux",
@@ -736,7 +744,7 @@ impl Default for Manager {
                 target_os = "linux",
                 any(target_arch = "x86_64", target_arch = "aarch64")
             ))]
-            code: metadata_map(metadata.clone()),
+            code: metadata_map(metadata.clone()).into(),
             #[cfg(all(
                 test,
                 target_os = "linux",
@@ -1059,7 +1067,7 @@ impl Manager {
             any(target_arch = "x86_64", target_arch = "aarch64")
         ))]
         if self.code.is_empty() {
-            self.code = metadata_map(self.metadata.clone());
+            self.code = metadata_map(self.metadata.clone()).into();
         }
     }
 
@@ -1123,7 +1131,7 @@ impl Manager {
         ))]
         {
             self.code_compactor = Compactor::default();
-            self.code = metadata_map(self.metadata.clone());
+            self.code = metadata_map(self.metadata.clone()).into();
         }
         self.queue = Vec::new_in(self.metadata.clone());
         for tracking in self.tracked.values_mut() {
@@ -1670,7 +1678,7 @@ impl Runtime {
             }
             manager.stats.code_lookups = manager.stats.code_lookups.saturating_add(1);
             let last_used = manager.clock.saturating_add(1);
-            let entry = manager.code.get_mut(&id)?;
+            let entry = manager.code.lookup_mut(id)?;
             entry.last_used = last_used;
             let code = entry.code.clone();
             manager.clock = last_used;
@@ -2640,6 +2648,56 @@ mod eviction_tests {
             assert_eq!(manager.next_request(), Some(id));
         }
         runtime.compile(id, snapshot())
+    }
+
+    #[test]
+    fn repeated_lookup_preserves_leases_policy_and_replaced_code_identity() {
+        let runtime = Runtime::new();
+        runtime.0.borrow_mut().configure(JitConfig {
+            mode: JitMode::Auto,
+            ..Default::default()
+        });
+        request(&runtime, 1).unwrap();
+        let bytes = runtime.usage();
+        let old = runtime.lookup(1).unwrap();
+        let before = runtime.0.borrow().stats;
+        for _ in 0..16 {
+            let lease = runtime.lookup(1).unwrap();
+            assert!(owner::Shared::ptr_eq(&lease.code, &old.code));
+            assert_eq!(owner::Shared::strong_count(&old.code), 3);
+        }
+        assert_eq!(owner::Shared::strong_count(&old.code), 2);
+        assert_eq!(
+            runtime.0.borrow().stats.code_lookups,
+            before.code_lookups + 16
+        );
+        assert_eq!(
+            runtime.0.borrow().stats.code_leases,
+            before.code_leases + 16
+        );
+        runtime.0.borrow_mut().config.mode = JitMode::Off;
+        assert!(runtime.lookup(1).is_none());
+        runtime.0.borrow_mut().config.mode = JitMode::Auto;
+        assert!(owner::Shared::ptr_eq(
+            &runtime.lookup(1).unwrap().code,
+            &old.code
+        ));
+        runtime.0.borrow_mut().clear_registrations();
+        assert!(runtime.lookup(1).is_none());
+        assert_eq!(owner::Shared::strong_count(&old.code), 1);
+        assert_eq!(runtime.usage(), bytes);
+        request(&runtime, 1).unwrap();
+        let new = runtime.lookup(1).unwrap();
+        assert!(!owner::Shared::ptr_eq(&new.code, &old.code));
+        assert_eq!(runtime.usage(), bytes * 2);
+        assert_executable(&old);
+        assert_executable(&new);
+        drop(old);
+        assert_eq!(runtime.usage(), bytes);
+        drop(new);
+        runtime.0.borrow_mut().clear_registrations();
+        assert_eq!(runtime.usage(), 0);
+        assert_eq!(runtime.0.borrow().metadata.0.current(), 0);
     }
 
     fn two_module_cache() -> (Runtime, usize) {

@@ -11,6 +11,213 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Selective imports and indexed copying measured and withdrawn
+
+Three register-import prototypes are rejected after **72 native commands** and
+**112 feature-cost commands**. The two six-way native screens retain original
+array, single-lookup and compact controls alongside all three candidates.
+Candidate native coverage and feature-cost native proofs match their original
+controls in both screens and all cost blocks; no threshold was relaxed.
+
+The first prototype derives charged, bounded per-entry read-before-definition
+masks for existing one-to-eight-register frames. Omitted inputs use canonical
+value proxies; full exit writeback remains intact. Explicit helper reads stay
+conservative, while current-frame upvalue aliases resolve current canonical
+values. An independent path oracle, exact native exit/counter/value comparisons
+at every PC and alias register, and a long-path64-instruction-cap test pass.
+Seven model tests and eleven helper tests pass both Miri aliasing models.
+Each selective variant passes GNU1,897 executions /175 suites, eight ignored,
+and musl99 /8; i686-musl passes seven models and one helper test.
+
+Nested zip/copied/enumerate packing raises callback instruction count from
+compact133,593,180 to147,729,414. Conditional indexed loads reduce that to
+134,176,079, still above compact. Both selective variants show large repeated
+float regressions: the first screen records **1.80–2.16x** and **1.70–2.16x**
+compact Auto time respectively. Passing correctness is not acceptance.
+
+The third prototype removes masks and new metadata entirely, changing only
+full-copy iteration. Its exact callback/metamethod instruction totals fall to
+133,139,165 /80,536,038. GNU1,888 executions /175 suites, focused GNU90 /7,
+musl90 /7, and twelve ABI/helper tests in each Miri mode pass. Hardware timings
+do not establish a consistent native gain: callback gates fail12/12 and
+CPU0 metamethod time is slower in all six comparisons. Feature-cost gates fail
+32/144 versus compact28/144. Shipping compiled-Off integer is3.73–4.43% slower
+on CPU0 and11.20–12.70% slower on CPU16; CPU16 array time is10.38–12.35% slower.
+Both no-feature binaries are byte-identical to compact controls. Broad CPU0
+speed-profile contention outliers remain in the evidence, not discarded or
+attributed to the code change.
+
+All three runtime changes are withdrawn. Only independent canonical-proxy
+helper regression coverage is retained. Initial compile/accounting failures,
+the deliberately interrupted allocation-heavy oracle run, corrected tests,
+source patches, frozen binaries, exact-symbol profiles, telemetry and all
+negative timing samples remain under `entry-import-*` and
+`full-indexed-import-*` in the short-slice evidence directory. Further packing
+loop or mask placement variations are not the next performance direction.
+The original callback/upvalue, disabled-cost and full release gates remain open.
+
+#### Validated table-bucket hints measured and withdrawn
+
+Three prototypes cache only numeric bucket positions in charged Code owners.
+Every read validates current bounds, occupancy and key equality, then upgrades
+the current slot; no GC address, key or value is cached. Array, weak-table,
+metamethod, callback, fuel and native-coverage contracts remain unchanged.
+Five model tests pass both Miri aliasing models; ten hinted helper tests also
+pass both models. The first prototype passes all-features 1,466 executions /88
+suites, six ignored, focused musl 113 /8 and i686 5 /1. These checks establish
+correctness evidence, not a reason to retain a slower implementation.
+
+The original hint prototype lowers callback instruction count from 133,593,180
+to 131,907,523. Its 48-command native campaign improves callback Auto medians
+0.46–4.80% against compact lookup in all twelve comparisons, but no original
+callback gate passes. Metamethod gains are mixed. Its 112-command cost campaign
+has 23/144 failed gates versus compact 30, yet shipping compiled-Off float is
+**10.06–13.84% slower** than compact in all eight comparisons. Passing that
+case's no-feature ceiling does not justify this new regression.
+
+Constant hint selection permits LLVM to inline the read into helpers, reducing
+callback instructions to 130,286,542 but nearly doubling the up-table helper's
+code size. The 30-command screen instead shows callback times 3.79–8.63% slower
+than compact in all six comparisons. Explicitly outlining constant selection
+removes that large loss, but its 36-command screen has no consistent CPU0
+callback benefit and worsens metamethod time in five of six comparisons.
+Neither refinement warrants another full cost campaign. Simulator counts are
+not hardware-causality proof; no address padding or thresholds were adjusted.
+
+All three runtime prototypes are withdrawn. Their source patches, immutable
+binaries, exact-symbol profiles, controls, telemetry and negative samples remain
+under `table-read-hint-*`, `table-read-const-hint-*` and
+`table-read-outline-hint-*` in the short-slice evidence directory. All printed
+non-timing counters match the controls, apart from expected charged metadata.
+`b5d0dac` retains the independent warmed-read regression covering callback
+growth, clear, replacement, readonly transitions, metatables and collection.
+The production optimization remains compact lookup; full acceptance is open.
+
+#### Compact lookup offsets retained as development work
+
+Two bucket offsets replace cached entry pointers and duplicated keys, occupying
+only two machine words without allocation or additional leases. Mutable map
+access clears both offsets before exposure. Shared inspection preserves them;
+each subsequent lookup derives a fresh bucket/reference under an exclusive
+index borrow. No persistent mutable-pointer provenance or interior mutability
+is needed. Policy, weak source identity, recency, ownership and counters remain
+unchanged.
+
+Fourteen model tests pass under GNU, musl, i686 and both default/Tree Borrows
+Miri, including shared-value borrows before fresh mutable access. GNU focused
+native gates pass110 executions /9 suites; musl124 /10 and i68614 /1. Full GNU
+interpreter/JIT/docs/format/check gates pass **1,888 executions /178 suites**,
+ten ignored. An initial cold-hash prototype failed Miri lookups because ahash's
+specialized `hash_one` can differ from ordinary map hashing; it now uses the
+map's `build_hasher`/`Hash::hash`/`finish` sequence with wide-key coverage.
+
+Two three-variant native screens complete **36 commands**, and six-variant
+feature-cost screens complete **96 commands** across both core types/profiles
+and four windows. All108 candidate Auto comparisons against each original array
+and single-entry control retain native/interpreted instructions and compilation
+failures. Exact native profiles record callback133,593,180 and metamethod
+80,757,396 instructions. Metamethod Auto time is lower than single-entry in all
+twelve comparisons, but its original gate passes only5/12. Callback gates still
+fail12/12; repeat CPU0 callback time is **1.19–2.36% slower** than single-entry.
+Upvalue passes10/12; the remaining scored native gates pass12/12.
+
+The first three CPU0 speed disabled-float ratios are **1.0079 /1.0069 /1.0065**,
+inside the unchanged1.05 ceiling, rather than the preceding pointer trials'
+repeated7–8% overhead. CPU16 speed float also passes all four windows. The
+fourth CPU0 speed window and several shipping windows show broad contention;
+their large apparent changes are retained, not claimed as clean optimization
+gains. Candidate cost gates still fail **33/144**, versus single34, array36,
+rooted32, prior37 and historical40. Disabled callbacks/upvalues/cold and other
+individual failed samples remain unresolved.
+
+Exact Off profiling confirms shared inspection no longer introduces the earlier
+110 instructions and55 stores across55 executor steps. Its total20,204,995
+instructions matches the retained rooted/array controls. Simulated conditional
+misses remain near103,281 despite the improved hardware float measurements;
+neither that simulator count nor the small removed store count proves the cause
+of the observed timing change.
+
+The compact representation and repeated metamethod gains are retained as
+experimental development progress, with the callback tradeoff explicit. This is
+**not full performance, resource, platform or release acceptance**. Frozen
+artifacts, exact-symbol profiles, all negative samples, source patches and
+after-run identity checks remain under `code-index-offset-*` in the short-slice
+performance evidence directory. No threshold or native coverage was weakened.
+
+#### Two-pointer lookup refinements not selected
+
+Two non-owning entry hints reduce alternating metamethod lookup instructions,
+but neither pointer-cache refinement resolves disabled-execution costs. Both
+preserve map-access invalidation, code leases, policy and native coverage.
+The second avoids clearing/rewriting the first hint on repeated hits. Its full
+GNU interpreter/JIT/docs gates pass **1,885 executions / 178 suites**, ten
+ignored; eleven model tests pass both default and Tree Borrows Miri.
+
+The first two-pointer variant records 30 native and 96 feature-cost commands.
+Metamethod gates pass 5/12 versus none in the earlier single-hint campaign, but
+CPU0 speed-profile compiled-Off float is **8.86–9.64% slower** than single in
+four windows. Exact Off instructions/reads/writes are unchanged. Branch
+simulation locates 100,000 extra misses at a destination-register bounds check
+after float addition; this is not hardware-counter proof of causality.
+
+The read-hit refinement records another **36 native and 96 feature-cost
+commands**, retaining all negative samples and external-contention telemetry.
+Its callback instruction total is **133,419,212**, versus single **133,216,000**
+and original array **135,401,934**. Metamethod total falls to **80,767,814**,
+versus single **81,445,426** and original **81,207,080**. In its repeat hardware
+screen, callback Auto time improves 0.20–2.10% versus single, and CPU16
+metamethod improves 1.40–5.07%; CPU0 metamethod remains mixed. The first screen
+also includes major CPU0 contention outliers, which remain in the evidence.
+
+Read-hit CPU0 speed disabled float is still **9.28–9.85% slower** than single,
+with near-stable no-feature controls. All four original overhead ratios fail:
+**1.0757 / 1.0703 / 1.0815 / 1.0728**. Feature-cost failures are read-hit36,
+single29, array32, rooted38, prior30 and historical29 out of144 each. Native
+callback gates still fail all twelve runs; metamethod passes5/12 and upvalue8/12.
+No original gate, workload, native coverage or safety invariant is relaxed.
+
+Neither two-pointer implementation is selected for retention. The single-hint
+checkpoint remains an immutable control for the compact-offset successor above.
+Evidence
+prefixes are `code-index-two-*` and `code-index-read-hit-*` under the short-slice
+performance directory, including exact-symbol profiles and complete source
+patches. Full performance, resource, platform and release acceptance remain open.
+
+#### Single-entry code lookup checkpoint
+
+The native code index introduced one non-owning entry pointer for repeated
+lookups. Every ordinary shared or mutable map access clears it before exposing
+the map, including inspection, growth, removal and compaction. The hint neither
+owns code nor retains a GC reference. Runtime policy, recency, lookup/lease
+counters and explicit code leases remain unchanged.
+
+Nine model tests pass under GNU, Miri, musl and i686 fallback. A native fixture
+checks repeated leases, Off policy, removal, replacement with the same ID and
+execution of an explicitly retained old mapping. The full GNU interpreter/JIT/
+documentation run passes 1,883 executions in 178 suites, with ten ignored.
+Focused musl policy/resource/native/heap gates also pass.
+
+Exact callback instruction count falls **1.61%**, including **41.10% fewer lookup
+self instructions**, with unchanged native/interpreted instruction and helper
+counters. Two unchanged paired timing rounds show **3–8% lower callback Auto
+time in all 12 comparisons**. All 108 native case comparisons preserve native
+coverage and compilation-failure counts. Alternating metamethod identities miss
+the single-entry hint: their total instruction count rises **0.29%**.
+
+Four feature-cost windows retain all five historical/prior/rooted/array/candidate
+controls on both core types and profiles. Candidate gates fail **30/144**, versus
+array **27/144** and rooted **24/144**. In late CPU16 shipping windows, disabled
+integer time is about **9% slower** than array; late CPU16 speed float exceeds
+the original no-feature overhead limit at **1.0684/1.0692**. CPU0 speed float
+improves instead. Contended windows and negative samples are retained, not
+discarded or used to relax thresholds. Callback/metamethod aggregate acceptance
+still fails and upvalue remains inconsistent.
+
+This is retained experimental development work, **not performance or release
+acceptance**. Evidence is under `target/jit-evidence/short-slice-performance/`
+in `code-index-*`; frozen binaries, complete source patches, exact-symbol
+profiles, telemetry and after-run identity checks are preserved.
+
 #### Call-observer admission trials withdrawn
 
 Exact retained production callback profiling attributes 1,430,000 instructions

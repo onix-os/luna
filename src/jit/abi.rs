@@ -16,6 +16,14 @@ pub(super) struct Slot {
 }
 
 impl Slot {
+    #[cfg(test)]
+    pub const fn canonical() -> Self {
+        Self {
+            tag: REFERENCE,
+            bits: 0,
+        }
+    }
+
     pub fn from_value(value: Value<'_>) -> Self {
         match value {
             Value::Nil => Self { tag: NIL, bits: 0 },
@@ -336,6 +344,18 @@ mod tests {
                 }
             }
         });
+    }
+
+    #[test]
+    fn scalar_import_preserves_generated_payload_bits() {
+        let mut bits = 0x123456789abcdef0u64;
+        for _ in 0..256 {
+            bits = bits.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let integer = Slot::from_value(Value::Integer(bits as i64));
+            assert_eq!((integer.tag, integer.bits), (INTEGER, bits));
+            let number = Slot::from_value(Value::Number(f64::from_bits(bits)));
+            assert_eq!((number.tag, number.bits), (NUMBER, bits));
+        }
     }
 
     #[test]

@@ -11,6 +11,14 @@ region execution; `make jit-regions` tests the non-test library with `jit` and
 `jit,async`, including interrupted fuel traces, GC, callbacks and unwind.
 This is implementation progress, **not performance or release acceptance**.
 
+Native code lookups cache two bucket offsets without retaining entry pointers
+or extra code leases. Mutable map access invalidates them; shared inspection
+preserves them. Repeated measurements improve metamethod time versus the preceding
+single-entry hint, but repeat CPU0 callback times regress 1–2% against it. Earlier
+disabled-float failures improve while other overhead gates still fail. This is
+retained development work, not accepted performance; `PLAN_JIT.md` records the
+correctness checks, mixed results and unchanged acceptance requirements.
+
 Supported native builds also admit optional helper-free array-loop kernels.
 An independent source-to-CLIF checker validates their guards, memory effects,
 control flow and instruction accounting before compilation. Each entry borrows

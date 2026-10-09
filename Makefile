@@ -100,6 +100,13 @@ $(info ------------------------------------------)
 .PHONY: jit-clippy table-access
 
 .PHONY: jit-array-window jit-array-window-miri
+.PHONY: jit-code-index jit-code-index-miri
+jit-code-index:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::code_index:: $(ARGS)
+
+jit-code-index-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::code_index:: -- --test-threads=1
+
 jit-array-window:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::array_window:: $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::array::tests $(ARGS)
@@ -328,7 +335,7 @@ jit-rust-assembly-run:
 	@test -x '$(JIT_ASSEMBLY_BINARY)'
 	@mkdir -p '$(JIT_ASSEMBLY_DIR)'
 	@sha256sum '$(JIT_ASSEMBLY_BINARY)' > '$(JIT_ASSEMBLY_DIR)/binary-sha256.log'
-	@set -o pipefail; objdump -Cd '$(JIT_ASSEMBLY_BINARY)' | awk '/<luna::jit::Runtime::(run|lookup)>:|<<luna::jit::Runtime>::invoke.*>:|<luna::jit::helpers::call.*>:|<luna::thread::vm::run_vm.*>:/ { emit=1 } emit { print } /^$$/ { emit=0 }' > '$(JIT_ASSEMBLY_DIR)/rust-assembly.log'
+	@set -o pipefail; objdump -Cd '$(JIT_ASSEMBLY_BINARY)' | awk '/<luna::jit::Runtime::(run|lookup)>:|<<luna::jit::Runtime>::(run|lookup)>:|<<luna::jit::Runtime>::invoke.*>:|<luna::jit::helpers::call.*>:|<luna::thread::vm::run_vm.*>:/ { emit=1 } emit { print } /^$$/ { emit=0 }' > '$(JIT_ASSEMBLY_DIR)/rust-assembly.log'
 	@test -s '$(JIT_ASSEMBLY_DIR)/rust-assembly.log'
 
 jit-disassembly:
@@ -750,6 +757,13 @@ jit-gc-requests:
 
 jit-abi:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests
+
+.PHONY: jit-import-bits jit-import-bits-miri
+jit-import-bits:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests::scalar_import_preserves_generated_payload_bits -- --exact
+
+jit-import-bits-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::tests::scalar_import_preserves_generated_payload_bits -- --exact --test-threads=1
 
 .PHONY: jit-rooted-moves
 jit-rooted-moves:

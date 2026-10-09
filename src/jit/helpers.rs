@@ -434,6 +434,66 @@ mod tests {
     }
 
     #[test]
+    fn canonical_proxies_preserve_live_current_frame_cell_values() {
+        let mut lua = crate::Lua::empty();
+        lua.enter(|ctx| {
+            let closure = Closure::load(ctx, None, b"return _ENV").unwrap();
+            let values = [
+                Value::Nil,
+                Value::Boolean(false),
+                Value::Boolean(true),
+                Value::Integer(i64::MIN),
+                Value::Integer(i64::MAX),
+                Value::Number(-0.0),
+                Value::Number(f64::from_bits(0x7ff8_1234_5678_9abc)),
+                Value::Table(Table::new(&ctx)),
+                Value::String(crate::String::from_slice(&ctx, b"proxy")),
+                Value::Function(closure.into()),
+            ];
+            let mut canonical = [Value::Nil; 2];
+            let mut pc = 0;
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
+                let cell = registers.open_test_upvalue(&ctx, crate::types::RegisterIndex(0));
+                closure.set_upvalue(&ctx, 0, cell);
+                let mut slots = [Slot::canonical(); 2];
+                let mut frame = Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: Counts::default(),
+                    slot_count: 2,
+                    projection: None,
+                    panic: None,
+                };
+                for value in values {
+                    frame.registers.stack_frame[0] = value;
+                    slots[0] = Slot::canonical();
+                    assert_eq!(
+                        invoke::<{ abi::HELPER_GET_UPVALUE }>(&mut frame, &mut slots, 1, 0, 0, 0),
+                        abi::HELPER_COMPLETED
+                    );
+                    assert_identical(frame.registers.stack_frame[1], value);
+                    assert_identical(slots[0].value(frame.registers.stack_frame[0]), value);
+                    slots[1] = Slot::canonical();
+                    assert_eq!(
+                        invoke::<{ abi::HELPER_SET_UPVALUE }>(&mut frame, &mut slots, 0, 1, 0, 1),
+                        abi::HELPER_COMPLETED
+                    );
+                    assert_identical(frame.registers.stack_frame[0], value);
+                    let expected = Slot::from_value(value);
+                    assert_eq!((slots[0].tag, slots[0].bits), (expected.tag, expected.bits));
+                }
+                assert_eq!(
+                    (frame.count.upvalue_reads, frame.count.upvalue_writes),
+                    (10, 10)
+                );
+                assert!(frame.panic.is_none());
+            });
+        });
+        lua.gc_collect();
+    }
+
+    #[test]
     fn current_frame_cells_read_pending_scalars_and_write_both_representations() {
         let mut lua = crate::Lua::empty();
         lua.enter(|ctx| {
