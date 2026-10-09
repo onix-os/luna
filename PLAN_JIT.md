@@ -11,6 +11,37 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Executor mode-query elision — trial under validation
+
+`d8b86f0` commits baseline-tested mode/fuel/handoff fixtures: 54 scenarios per
+feature, with minimum callback progress, interrupts, child results/errors,
+resumed sequences and invalid parent modes. Six baseline executions and both
+Miri models pass. An unconditional-dispatch negative control fails the child
+handoff fixture; that invalid runtime was removed before candidate builds.
+
+The one-line trial uses the existing `res_thread.is_none()` condition to skip
+a second thread-mode query only within the current iteration, where the first
+query already established Normal and no intervening state change occurred.
+Child-result handoffs still query the updated parent after releasing its borrow.
+Frame pop/restore, callback borrow scopes, fuel, native coverage and JIT policy
+remain unchanged. This is not the rejected frame selector or native-first driver.
+
+Focused candidate checks pass 21 executions; GNU baseline/all-feature/docs/check
+and targeted musl/i686 validation have completed. Candidate Miri passes three
+fixtures in each model, with warnings retained. Fresh native control is full-file
+byte-identical to the previous stored-hash control; both new symbol companions
+match allocated bytes/metadata and program headers.
+
+Fourteen exact-image profiles verify results and matching non-timing counters.
+Callback instructions fall 133,593,180 to 129,236,399 (3.26%); metamethod
+80,623,536 to 79,178,089 (1.79%); integer/float work falls about 2.5%/2.4%.
+The ordinary executor closure is no longer a separate profiled function;
+do not attribute every saved instruction solely to a mode-check branch.
+These are not elapsed-time speedup claims. Matched speed/shipping artifacts are
+building; original repeated native/compiled-Off gates remain required before
+retention. The runtime line is uncommitted, with evidence under `executor-mode-*`
+in `target/jit-evidence/short-slice-performance/`. Full acceptance remains open.
+
 #### Stored string-hash reuse — measured and withdrawn
 
 `40bdc83` adds a baseline-tested mixed-key lifecycle fixture: separately
