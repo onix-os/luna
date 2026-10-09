@@ -781,6 +781,7 @@ jit-abi:
 jit-return-words:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::return_words::
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::return_words::
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::exit_transport::
 
 jit-return-words-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::return_words:: -- --test-threads=1

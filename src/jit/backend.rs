@@ -29,6 +29,8 @@ use crate::opcode::{Operation, RCIndex};
 pub(super) mod calls;
 #[cfg(not(miri))]
 pub(super) mod compact;
+#[cfg(test)]
+mod exit_transport;
 mod integer_loop;
 #[cfg(test)]
 mod read_cache;
