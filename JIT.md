@@ -24,6 +24,12 @@ the preceding retained build. Its interpreter-relative speedup remains only
 remain. This is retained structural development work, **not accepted performance**;
 `PLAN_JIT.md` records the full positive and negative evidence.
 
+Deduplicating atomic admission adds another **8–9%** native upvalue throughput
+against that frame-elision build. The original 1.25x interpreter gate still fails
+eleven of twelve windows, and shipping disabled integer/table timings regress.
+The single complete atomic admission and unchanged physical fallback are retained
+as development WIP; no full performance or release acceptance is claimed.
+
 Production Auto also includes independently verified integer-controlled typed
 loops (`fed925c`, extended by `061c9cc`). Stable Integer and Number arithmetic
 bodies keep typed state between operations, with fresh entry tags, exact fuel

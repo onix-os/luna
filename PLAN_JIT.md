@@ -11,6 +11,57 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Atomic admission deduplication — retained development WIP
+
+`f31efab` first extends admission refusal coverage with interrupted fuel,
+prefix-exhausted fuel and `i32::MIN`, checking the entire `JitStats` value remains
+unchanged. `bce7c62` separates mandatory entry policy from physical-fallback
+operand checks. Readiness, hook clearing, budget, mode/hooks and frame identity
+still run first. Successful atomic calls use their existing complete live
+source/callee/capture/argument/fuel/capacity admission once; a side-effect-free
+refusal still runs all original physical-fallback operand checks. No authority
+cache, new state, unsafe code, guard removal or coverage restriction is added.
+
+Focused checks pass **161 executions / 16 suites**, two ignored. Baseline/doc/
+all-feature Auto passes **1,808 / 173**, eight ignored. Native-region Memcheck
+passes **40 tests**, two ignored, zero errors and zero definite/indirect leaks;
+48 possibly-lost and 632 reachable harness bytes remain. Exact-image upvalue
+instructions fall **191,760,507 → 179,122,492 (6.6%)**; admitted invocation
+self-work falls **71,112,880 → 58,212,584**. This profile compares the immediately
+preceding atomic-pair runtime, not the earlier physical-call baseline.
+
+Two native and two three-way speed/shipping cost rounds complete **96 commands**,
+all failing unchanged aggregate gates. Current control is `atomic-pair`; the
+cost historical control is `empty-return-copy`. Three alternating/rotating windows
+on CPU0/16, eleven samples and twenty cost iterations retain external contention.
+All **216 native non-timing pairs** match, and pre/post manifests and exact symbol
+companions verify. Both no-feature cost executables are byte-identical to their
+immediate controls. Owned builds/tests/profiles finish before timing.
+
+Native upvalue control/candidate throughput improves **1.080187 / 1.082535** on
+CPU0 and **1.084507 / 1.093538** on CPU16, first / repeat. Interpreter-relative
+paired speedups are **1.1925–1.2590**; only the first CPU0 window passes the
+original **1.25** gate, and **eleven of twelve still fail**. One passing window
+does not establish acceptance or erase the previous disabled-cost failures.
+
+Adverse ratios remain: native CPU0 float **0.957642 / 0.966826**, native
+metamethod CPU0 **0.981730 / 0.968772** and CPU16 **0.981773 / 0.974006**.
+Shipping compiled-Off CPU16 integer regresses **0.957254 / 0.957630** and table
+**0.948402 / 0.945498** against atomic-pair. Earlier numeric costs also remain:
+against empty-return-copy, speed disabled float is **0.938186 / 0.941942** on
+CPU0 and **0.918192 / 0.896083** on CPU16; speed CPU16 integer is
+**0.954755 / 0.959275**. Ratios are control time / candidate time. Individual
+cost failures are candidate44/216, control39/216 and historical41/216.
+
+Retain the deduplicated admission as development WIP alongside frame elision,
+**not a release-approved optimization**. The native gain is repeatable, but the
+remaining native target gap and cumulative disabled/shipping regressions must
+still be fixed. All evidence is retained under
+`target/jit-evidence/short-slice-performance/atomic-admission*`, including the
+machine-readable summary. The next substantial cost is full caller publication
+and refresh around an otherwise atomic, non-suspending integer call; any change
+there must preserve canonical state on every exit rather than skip publication.
+
 #### Atomic integer-call transitions — retained structural development WIP
 
 `c7b540d` first prototypes, and `a7def2c` expands tests for, executing a complete
