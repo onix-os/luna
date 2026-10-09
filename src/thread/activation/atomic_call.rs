@@ -12,7 +12,6 @@ pub(crate) struct Spec<'gc> {
     pub prefix: u32,
 }
 
-#[cfg(test)]
 pub(crate) struct Window<'gc, 'borrow, 'host> {
     host: &'borrow mut ActivationHost<'gc, 'host>,
     fuel: Fuel,
@@ -20,7 +19,6 @@ pub(crate) struct Window<'gc, 'borrow, 'host> {
     pc: usize,
 }
 
-#[cfg(test)]
 impl Window<'_, '_, '_> {
     pub(crate) fn commit(self, captured: i64) {
         if let Some(index) = self.upper {
@@ -34,7 +32,6 @@ impl Window<'_, '_, '_> {
     }
 }
 
-#[cfg(test)]
 impl<'gc, 'host> ActivationHost<'gc, 'host> {
     pub(crate) fn snapshot_window(
         &mut self,

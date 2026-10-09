@@ -1,7 +1,6 @@
 use super::{Slot, REFERENCE};
 use crate::Value;
 
-#[cfg(test)]
 pub(crate) mod call;
 
 pub(crate) fn capture<'gc>(

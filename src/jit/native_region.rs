@@ -155,7 +155,6 @@ impl Region {
                 result: Ok(()),
             },
             panic: None,
-            #[cfg(test)]
             rooted_pending: false,
         };
         let pointer = std::ptr::from_mut(&mut session);
@@ -224,11 +223,9 @@ struct Session<'gc, 'host, 'borrow, 'region> {
     budget: u32,
     outcome: Outcome,
     panic: Option<Box<dyn Any + Send>>,
-    #[cfg(test)]
     rooted_pending: bool,
 }
 
-#[cfg(test)]
 enum RootedCompletion {
     Unavailable,
     Declined,
@@ -293,7 +290,6 @@ impl Session<'_, '_, '_, '_> {
         self.outcome.result = result.map(|_| ());
     }
 
-    #[cfg(test)]
     fn complete_rooted(&mut self, view: &mut View) -> RootedCompletion {
         if self.frame.panic.is_some()
             || view.exit.instructions >= self.budget
@@ -326,6 +322,7 @@ impl Session<'_, '_, '_, '_> {
             &view.exit,
             std::mem::take(&mut self.frame.count),
         );
+        #[cfg(test)]
         tests::rooted_checkpoint(1);
         let completed = self.admitted.invoke_rooted(
             self.frame.host,
@@ -333,6 +330,7 @@ impl Session<'_, '_, '_, '_> {
             view.exit.instructions,
             &mut snapshot,
         );
+        #[cfg(test)]
         if completed {
             tests::ROOTED_COMPLETIONS.with(|count| count.set(count.get() + 1));
             tests::rooted_checkpoint(2);
@@ -370,14 +368,11 @@ impl Session<'_, '_, '_, '_> {
     fn complete(&mut self, view: &mut View) -> u32 {
         let ctx = self.frame.ctx;
         self.outcome.fragments += 1;
-        #[cfg(test)]
         let recorded = match self.complete_rooted(view) {
             RootedCompletion::Unavailable => false,
             RootedCompletion::Declined => true,
             RootedCompletion::Complete(result) => return result,
         };
-        #[cfg(not(test))]
-        let recorded = false;
         let transition = self.frame.host.with_registers(|closure, registers| {
             assert_eq!(closure, self.admitted.caller());
             if !recorded {
@@ -510,7 +505,6 @@ unsafe extern "C" fn boundary(view: *mut View) -> u32 {
     match catch_unwind(AssertUnwindSafe(|| session.complete(view))) {
         Ok(result) => result,
         Err(payload) => {
-            #[cfg(test)]
             if session.rooted_pending {
                 session.frame.host.with_registers(|_, registers| {
                     assert!(abi::roots::materialize(
