@@ -309,8 +309,16 @@ fn native_slices_preserve_reference_fuel_even_when_interrupted() -> Result<(), E
         for interrupted in [false, true] {
             let mut interpreted = Lua::core();
             let mut compiled = native();
-            let left = source(&mut interpreted, b"while true do end")?;
-            let right = source(&mut compiled, b"while true do end")?;
+            let zero_register_loop = |lua: &mut Lua| {
+                lua.try_enter(|ctx| {
+                    let closure =
+                        Closure::load(ctx, Some("zero-register-loop"), b"while true do end")?;
+                    assert_eq!(closure.prototype().stack_size, 0);
+                    Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+                })
+            };
+            let left = zero_register_loop(&mut interpreted)?;
+            let right = zero_register_loop(&mut compiled)?;
             compiled.prepare_jit().unwrap();
             let step = |lua: &mut Lua, executor: &StashedExecutor| {
                 lua.enter(|ctx| {
@@ -571,11 +579,8 @@ fn fixed_helper_symbols_preserve_environment_and_reference_operands() -> Result<
 }
 
 #[test]
-fn scratch_tiers_preserve_reference_results_at_every_capacity_boundary() -> Result<(), ExternError>
-{
-    for registers in [
-        1u16, 2, 3, 4, 5, 6, 7, 8, 9, 16, 17, 32, 33, 64, 65, 128, 129, 255, 256,
-    ] {
+fn scratch_tiers_preserve_reference_results_at_every_register_count() -> Result<(), ExternError> {
+    for registers in 1u16..=256 {
         let names: Vec<_> = (0..registers - 1)
             .map(|index| format!("r{index}"))
             .collect();

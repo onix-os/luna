@@ -521,6 +521,13 @@ jit-integer-miri:
 
 .PHONY: jit-projection jit-projection-miri
 .PHONY: jit-projection-mode jit-projection-mode-miri
+.PHONY: jit-invoke-dispatch jit-invoke-dispatch-miri
+jit-invoke-dispatch:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::invoke_dispatch:: $(ARGS)
+
+jit-invoke-dispatch-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::invoke_dispatch:: -- --test-threads=1 $(ARGS)
+
 jit-projection-mode:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::projection_mode:: $(ARGS)
 

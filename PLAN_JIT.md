@@ -11,6 +11,20 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Indexed invoker selection — test-only model
+
+The next performance experiment models a read-only table selecting the existing
+native scratch-tier functions for register counts 0 through 256. Production
+dispatch is unchanged. Three independent model tests pass on GNU, musl and both
+Miri alias models. The actual native/reference scratch test now covers every
+positive register count, and bounded infinite-loop execution explicitly checks
+the zero-register prototype. All 18 native integration tests pass on GNU and
+musl before integration. This is correctness evidence, not a speedup claim.
+Fresh immutable controls and exact-image assembly must precede profiling and
+unchanged paired elapsed-time gates. Evidence: `invoker-table-model/` and
+`invoker-table-native-control/` under the short-slice performance directory;
+the musl native log is in `invoker-table-control/`.
+
 #### Typed projection capability — measured and withdrawn
 
 **Withdrawal, 2026-10-10:** production integration and the subsequent handoff

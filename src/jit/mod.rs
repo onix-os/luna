@@ -3365,3 +3365,6 @@ mod runtime_projection_tests {
         });
     }
 }
+
+#[cfg(test)]
+mod invoke_dispatch;
