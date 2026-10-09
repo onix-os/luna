@@ -11,6 +11,37 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Overflow-predicate trial withdrawn; fallback fixture repaired
+
+The first attempt to address the array candidate's compiled-Off float regression
+replaced short-circuit overflow/limit combination with eager boolean OR in the
+integer interpreter loop. GNU focused numeric/array gates passed **151 executions
+/ 12 suites**, but emitted assembly still retained the overflow branch and added
+another index calculation.
+
+**52 unchanged timing commands** compared the trial with the retained array build
+and original controls: 12 native, 40 feature-cost, both core types, both profiles,
+all nine workloads, 11 samples/pairs and cost iterations 20. Compiled-Off speed
+float time improved only 1.8–5.1% versus the array build and remained 3.8–8.0%
+slower than rooted-publication. CPU0 native callbacks regressed **7.7–9.8%** in
+all three comparisons, and CPU16 native upvalue regressed **2.1–3.8%**. Shipping
+no-feature upvalue time regressed **12.9–13.0%** on CPU16; its improved
+compiled-Off/no-feature ratio therefore did not represent a compiled-Off fix.
+
+The production predicate is restored exactly to the measured array checkpoint.
+Public integer-loop boundary coverage is retained: signed terminal overflow,
+extreme steps, empty directional ranges, negative indices and zero-step errors.
+The initial fixture incorrectly assumed public zero-step loops were admitted;
+its failure is retained, and the corrected test requires the existing rejection.
+All timing and assembly evidence remains under `loop-predicate-*`.
+
+Separately, `f974927` repairs a portable constant-identity fixture that demanded
+native preparation on unsupported i686. The failure reproduced locally; the
+test still runs on every target, and supported targets still prepare explicitly.
+GNU `vm-constants` passes **10 executions / six suites**. The i686 focused gate
+plus full `jit-fallback` matrix passes **2,364 executions / 357 suites**, with two
+ignored. This fixes the CI fixture, not the native performance regressions.
+
 #### Array kernels enabled in ordinary native builds — candidate
 
 Supported non-test Auto builds now select the verified array compiler by default.
