@@ -320,8 +320,7 @@ pub(in crate::jit) fn program(
     b.ins().return_(&[]);
     b.seal_all_blocks();
     b.finalize(isa.frontend_config());
-    cranelift_codegen::verify_function(&function, isa)
-        .map_err(|error| JitError::Compilation(error.to_string()))?;
+    super::verify::verify(source, plan, &function, isa)?;
     Ok(function)
 }
 

@@ -11,6 +11,23 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Independent array-kernel translation check
+
+The array compiler now checks the emitted CLIF against the source operations
+before native compilation. The checker independently binds the receiver, loop
+control and operands, scans every block/instruction, and checks budget/exit
+edges, scalar guards, memory offsets, dirty bits, saturated counters and
+integer/mixed-number arithmetic. It does not regenerate the expected function
+with the emitter. Cranelift structural verification remains a separate check
+within this gate.
+
+GNU focused tests pass **32 tests / two suites**, including rejection of
+**3,106 structurally valid mutations** and forged source bindings. The existing
+native execution and Auto differential fixtures still pass. Evidence is
+`array-verifier-final.log` in the short-slice directory; failed development
+runs are retained alongside it. This checkpoint remains test-selected and
+does not establish shipping enablement or performance acceptance.
+
 #### Owned array kernels in the real Auto path — test-selected
 
 `8560749` integrates optional array kernels with `backend::Code` and
@@ -21,7 +38,8 @@ are destroyed before publication. A second source expansion must fit the combine
 IR instruction/block limits; cumulative kernel size is checked and calls or
 relocations are refused. Optional failure preserves the ordinary native image.
 This follows the existing accounting boundary, **not a complete compiler/RSS
-ledger**. Independent source-to-kernel translation validation is still pending.
+ledger**. Independent translation validation was added in the later checkpoint
+above.
 
 The runtime releases each window before generic helpers run, consumes only the
 remaining slice budget, merges table/instruction counts, and publishes one exit.
