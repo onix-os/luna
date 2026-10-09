@@ -24,6 +24,32 @@ pub(crate) fn materialize<'gc>(
     slots: &[Slot],
     values: &mut [Value<'gc>],
 ) -> bool {
+    if roots.len() == slots.len() && slots.len() <= 16 && values.len() >= slots.len() {
+        let mut staged = [Value::Nil; 16];
+        for (slot, dest) in slots.iter().zip(&mut staged) {
+            *dest = match slot.tag {
+                super::NIL => Value::Nil,
+                super::BOOLEAN => Value::Boolean(slot.bits != 0),
+                super::INTEGER => Value::Integer(slot.bits as i64),
+                super::NUMBER => Value::Number(f64::from_bits(slot.bits)),
+                REFERENCE => {
+                    let Some(value) = usize::try_from(slot.bits)
+                        .ok()
+                        .and_then(|index| roots.get(index))
+                    else {
+                        return false;
+                    };
+                    if Slot::from_value(*value).tag != REFERENCE {
+                        return false;
+                    }
+                    *value
+                }
+                _ => return false,
+            };
+        }
+        values[..slots.len()].copy_from_slice(&staged[..slots.len()]);
+        return true;
+    }
     if roots.len() != slots.len()
         || slots.len() > 256
         || values.len() < slots.len()
