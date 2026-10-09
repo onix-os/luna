@@ -174,12 +174,12 @@ mod tests {
                 crate::UserData::new_static(&ctx, 7).into(),
             ];
             for value in values {
-                for source in [0, 1, 255] {
-                    for destination in [0, 1, 255] {
-                        let mut canonical = [Value::Nil; 256];
+                for width in [1, 2, 8, 16, 17, 256] {
+                    for (source, destination) in [(0, width - 1), (width - 1, 0)] {
+                        let mut canonical = vec![Value::Nil; width];
                         canonical[source] = value;
-                        let mut roots = [Value::Nil; 256];
-                        let mut slots = [Slot::from_value(Value::Nil); 256];
+                        let mut roots = vec![Value::Nil; width];
+                        let mut slots = vec![Slot::from_value(Value::Nil); width];
                         assert!(capture(&mut roots, &mut slots, &canonical));
                         slots[destination] = slots[source];
                         canonical.fill(Value::Nil);
