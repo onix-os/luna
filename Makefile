@@ -99,6 +99,13 @@ $(info ------------------------------------------)
 .PHONY: jit-coverage-replay jit-coverage-wrapper-tests
 .PHONY: jit-clippy table-access
 
+.PHONY: jit-array-window jit-array-window-miri
+jit-array-window:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::array_window::tests $(ARGS)
+
+jit-array-window-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::array_window::tests -- --test-threads=1
+
 table-access:
 	@$(CARGO) test --locked -p luna --lib $(TARGET_ARG) table::raw::access_tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) table::raw::access_tests

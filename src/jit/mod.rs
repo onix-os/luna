@@ -2991,6 +2991,9 @@ mod eviction_tests {
 
 pub(crate) mod projection;
 
+#[cfg(test)]
+mod array_window;
+
 #[cfg(all(
     not(miri),
     target_os = "linux",
