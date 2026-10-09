@@ -30,6 +30,18 @@ eleven of twelve windows, and shipping disabled integer/table timings regress.
 The single complete atomic admission and unchanged physical fallback are retained
 as development WIP; no full performance or release acceptance is claimed.
 
+Rooted atomic calls now publish the complete caller once after each checked call,
+before another generated entry, without recapturing the canonical registers.
+Reference identity, fallback, panic recovery, captures, fuel and counters are
+preserved; `make jit-rooted-call` and `make jit-rooted-call-miri` expose the model
+and native differentials. Repeated comparisons improve native upvalues another
+**6–9%** and recover speed-profile disabled numeric regressions. Eleven of twelve
+upvalue windows pass the original 1.25x interpreter gate. However, shipping CPU0
+disabled float throughput regresses **14%** against the preceding retained build,
+other existing costs remain, and all aggregate gates still fail. This is
+experimental development WIP, **not a completed performance fix**. `PLAN_JIT.md`
+records all three variants and their positive and adverse results.
+
 Production Auto also includes independently verified integer-controlled typed
 loops (`fed925c`, extended by `061c9cc`). Stable Integer and Number arithmetic
 bodies keep typed state between operations, with fresh entry tags, exact fuel
