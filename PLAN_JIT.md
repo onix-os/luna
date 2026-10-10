@@ -11,6 +11,51 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Shared-owner final-release split — provisional (2026-10-10)
+
+`8ba3eb1` keeps the shared-owner decrement and last-owner test inline, moving
+final allocation destruction into a cold, non-inlined function. The allocation
+guard still retains the allocator through value destruction and Rust unwinding.
+No owner storage, lease duration, lookup/cache behavior, native instruction
+coverage, counter publication or callback boundary changes. In particular, this
+does not keep generated frames or mutable native host borrows across callbacks.
+
+The retained regression exercises final destruction that releases another owner,
+allocates and releases a replacement against the same ledger, then either returns
+or panics. It checks that the outer allocation stays charged throughout its
+destructor and that both paths reclaim every charge. Ten owner tests pass under
+pinned Miri; normal owner/eviction checks pass 27 executions. Initial default-shell
+Miri fails because cargo-miri is unavailable there; the pinned shell succeeds with
+31 existing warnings. The first new-fixture formatting check fails before test
+compilation; the corrected fixture passes. All logs remain.
+
+Before the fixture-only addition, formatting/check-all and 112 focused executions
+across sixteen summaries pass. Another 990 boundary/policy/host-memory executions
+across fourteen summaries pass. Ten exact-image profiles match all five full
+non-timing records. Callback instructions fall 133,593,099 to 131,774,950 (1.36096%).
+Upvalue Auto changes 169,859,933 to 169,914,032 (+0.03185%); upvalue Off improves
+1.09621%, integer Off 0.14800%, and float Off 0.13783%. Code-owner drop glue's
+713,339 instructions disappear, but VM self work rises 64,836: removed symbols
+are not themselves net savings. Executor self work also changes; attribution is
+to the complete candidate, not exclusively its lease decrement.
+
+Two unchanged nine-case screens finish 48 checked commands, all original
+aggregate gates failing, with 648 equal full non-timing comparisons. Callback
+control/candidate medians are 1.02114/1.01468 on CPU0 and 1.02194/1.00594 on CPU16
+(first/repeat; higher is better). Corresponding callback placebos are
+0.99611/0.99911 and 1.00239/0.99066. Other results remain mixed: CPU16 integer Off
+is 0.95791 then 1.02495; CPU0 cold Auto is 0.97721/0.97831; CPU0 native array
+is 0.97191/0.99407. Do not discard those samples or call the aggregate regression
+fixed. All build/test/profile jobs finish before timing; unrelated host jobs and
+contention telemetry remain untouched.
+
+Retain this as a small development candidate, not performance or release
+acceptance. Full GNU verification, focused musl checks, fixture-only release
+identity verification, shipping-profile/compiled-disabled cost checks and the
+remaining platform/release obligations are still separate gates. Evidence is
+under `target/jit-evidence/short-slice-performance/lease-release*`; analysis is
+under its `pgo-probe/lease-release*` files. The original thresholds remain frozen.
+
 #### Compact source-identity memo — runtime withdrawn (2026-10-10)
 
 `6679856` adds an independent scalar memo model: positive source IDs paired with
