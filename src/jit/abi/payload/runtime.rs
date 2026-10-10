@@ -44,6 +44,7 @@ unsafe extern "C" fn helper<const KIND: u32>(
     unsafe { call::<KIND>((*host).data.cast(), slots.cast(), a, b, c, pc) }
 }
 
+#[inline(always)]
 pub(crate) fn with_bridge(
     frame: &mut helpers::Frame<'_, '_, '_, '_>,
     body: impl FnOnce(*mut Payload, *mut Bridge),
@@ -221,6 +222,7 @@ impl Session<'_, '_, '_, '_, '_> {
     }
 }
 
+#[inline(always)]
 fn with_session(
     frame: &mut helpers::Frame<'_, '_, '_, '_>,
     body: impl FnOnce(*mut (), *mut Payload),

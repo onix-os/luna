@@ -11,6 +11,41 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Payload entry wrapper inlining — test-only (2026-10-10)
+
+Inlining the whole `invoke_payload` / `with_bridge` / `with_session` chain
+reduces callback work **153,112,754 -> 148,583,140** versus direct helpers alone.
+The frozen scratch pair remains **133,593,099**, so the candidate still costs
+**11.22067% more instructions**. Entry setup removes 4,539,502 instructions,
+offset by 9,888 additional enqueue instructions. The 16,666,768-instruction
+generated block only relocates; it is not removed work. Ten exact-image profiles
+finish, with previous/current payload callback non-timing records equal and
+all eleven per-function totals independently checked. Original strict scratch
+comparison still fails on the same code/snapshot deltas. Integer/float Off
+totals match; closure Off differs by 242, and closure Auto increases 0.31077%.
+No hardware-timing campaign or elapsed-time improvement is claimed.
+
+Diagnostic-only `3eb9158` preserves the relocation-refusal assertion and limit
+while printing the actual result: the candidate returns **`Ok(1)`**. A new
+native fixture compiles that exact table source with both transports and finds
+**five emitted relocations for scratch, zero for payload** on GNU and musl.
+It requires the requested transport and tests budgets 0, 1, count-1 and count,
+including refusal/admission boundaries and complete mapping/metadata/snapshot
+charge cleanup. Indirect helper dispatch eliminates those relocations; this
+evidence does not indicate that the actual relocation count exceeded its limit.
+It also does not turn the unchanged public fixture into a passing release gate.
+The public test is retained, not weakened or given fabricated relocation costs.
+
+Withdraw release selection; retain the inline attributes in test-only payload
+modules and the physical-relocation regression. Restored GNU/musl each pass
+**80 executions / seven summaries**, including the original resource-refusal
+test and existing integrated payload schedules. The ordinary GNU opt3 image
+matches the pretrial refactor image, not the older historical scratch image.
+The final strengthened selector fixture passes on both targets; formatting,
+check-all and full-image/source-hash verification also pass. Full performance
+and release acceptance remain incomplete. Evidence: `payload-entry-*` under
+the ignored short-slice performance directory.
+
 #### Direct canonical helper transport — model (2026-10-10)
 
 A private static transport interface shares the original helper operations
