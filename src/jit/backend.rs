@@ -223,6 +223,8 @@ pub(super) struct Code {
     #[cfg(test)]
     cell_kernel: bool,
     #[cfg(test)]
+    payload: bool,
+    #[cfg(test)]
     pub integer_activation: bool,
     #[cfg(all(test, not(miri)))]
     pub scalar_kernel: Option<super::owner::Shared<Code>>,
@@ -304,6 +306,8 @@ impl Code {
     ) -> Exit {
         #[cfg(test)]
         assert!(!self.cell_kernel, "scalar kernel requires a cell view");
+        #[cfg(test)]
+        assert!(!self.payload, "payload code requires a canonical frame");
         unsafe { abi::invoke(self.entry, slots, pc, budget, host) }
     }
 
@@ -331,6 +335,7 @@ impl Code {
 #[cfg(test)]
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum Failure {
+    RequirePayload,
     RequireReadCache,
     RequireWriteback,
     RequireIntegerLoop,
@@ -1257,6 +1262,28 @@ fn compile_selected_rooted(
     } else {
         instructions
     };
+    #[cfg(test)]
+    let (instructions, block_count) = if failure == Failure::RequirePayload {
+        payload::lower(
+            &mut context.func,
+            parameters[0],
+            parameters[4],
+            snapshot.registers,
+            &helper_refs,
+        )?;
+        cranelift_codegen::verify_function(&context.func, module.isa())
+            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        let actual = context
+            .func
+            .layout
+            .blocks()
+            .map(|b| context.func.layout.block_insts(b).count())
+            .sum();
+        expansion.verify_actual(actual, block_count)?;
+        (actual, block_count)
+    } else {
+        (instructions, block_count)
+    };
     drop((stores, paths, graph, blocks));
     let mut projection_contexts = [None, None];
     let mut projection_instructions = 0;
@@ -1642,6 +1669,8 @@ fn compile_selected_rooted(
         scalar_leaf: leaf_pattern,
         #[cfg(test)]
         cell_kernel: selection.cell_kernel,
+        #[cfg(test)]
+        payload: failure == Failure::RequirePayload,
         #[cfg(test)]
         integer_activation: selection.integer_activation,
         #[cfg(all(test, not(miri)))]
@@ -6644,3 +6673,6 @@ pub(super) mod projection_probe;
 
 #[cfg(all(test, not(miri)))]
 mod return_words;
+
+#[cfg(test)]
+mod payload;

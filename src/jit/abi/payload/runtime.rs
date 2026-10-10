@@ -4,6 +4,110 @@ use crate::{
     thread::LuaRegisters,
 };
 
+#[repr(C)]
+pub(crate) struct Bridge {
+    pub base: abi::Host,
+    pub read: unsafe extern "C" fn(*mut Payload, u32) -> u64,
+    pub write: unsafe extern "C" fn(*mut Bridge, *mut Payload, u32, u64, u64),
+    pub helpers: [abi::HelperEntry; 10],
+}
+
+unsafe extern "C" fn read_bits(slots: *mut Payload, index: u32) -> u64 {
+    unsafe { load(slots.add(index as usize).read()) }.map_or(0, |slot| slot.bits)
+}
+
+unsafe extern "C" fn write_scalar(
+    host: *mut Bridge,
+    slots: *mut Payload,
+    index: u32,
+    tag: u64,
+    bits: u64,
+) {
+    let result = unsafe { materialize((*host).base.data.cast(), slots, index, tag, bits) };
+    assert_eq!(result, abi::HELPER_COMPLETED);
+}
+
+unsafe extern "C" fn helper<const KIND: u32>(
+    host: *mut abi::Host,
+    slots: *mut Slot,
+    a: u32,
+    b: u32,
+    c: u32,
+    pc: u32,
+) -> u32 {
+    unsafe { call::<KIND>((*host).data.cast(), slots.cast(), a, b, c, pc) }
+}
+
+pub(crate) fn with_bridge(
+    frame: &mut helpers::Frame<'_, '_, '_, '_>,
+    body: impl FnOnce(*mut Payload, *mut Bridge),
+) {
+    with_session(frame, |session, slots| {
+        let mut bridge = Bridge {
+            base: abi::Host {
+                data: session.cast(),
+                projection: std::ptr::null_mut(),
+            },
+            read: read_bits,
+            write: write_scalar,
+            helpers: [
+                helper::<1>,
+                helper::<2>,
+                helper::<3>,
+                helper::<4>,
+                helper::<5>,
+                helper::<6>,
+                helper::<7>,
+                helper::<8>,
+                helper::<9>,
+                helper::<10>,
+            ],
+        };
+        body(slots, &mut bridge);
+    });
+}
+
+#[test]
+fn bridge_function_table_preserves_original_payload_and_host_pointers() {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+        let mut values = [Value::Nil; 2];
+        let mut pc = 0;
+        LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+            let mut frame = helpers::Frame {
+                ctx,
+                closure,
+                registers: &mut registers,
+                count: helpers::Counts::default(),
+                slot_count: 2,
+                panic: None,
+                projection: None,
+            };
+            with_bridge(&mut frame, |slots, host| unsafe {
+                ((*host).write)(host, slots, 0, INTEGER, 42);
+                assert_eq!(((*host).read)(slots, 0), 42);
+                assert_eq!(
+                    ((*host).helpers[(abi::HELPER_MOVE - 1) as usize])(
+                        host.cast(),
+                        slots.cast(),
+                        1,
+                        0,
+                        0,
+                        7
+                    ),
+                    abi::HELPER_COMPLETED
+                );
+                assert_eq!(((*host).read)(slots, 1), 42);
+            });
+            assert_eq!((frame.count.calls, frame.count.completed), (1, 1));
+        });
+        assert_eq!(pc, 8);
+        assert!(values
+            .iter()
+            .all(|value| matches!(value, Value::Integer(42))));
+    });
+}
+
 struct Session<'s, 'gc, 'a, 'b, 'p> {
     frame: NonNull<helpers::Frame<'gc, 'a, 'b, 'p>>,
     borrow: PhantomData<&'s mut helpers::Frame<'gc, 'a, 'b, 'p>>,

@@ -16,11 +16,11 @@ mod native;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 #[path = "payload/runtime.rs"]
-mod runtime;
+pub(crate) mod runtime;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct Payload {
+pub(crate) struct Payload {
     tag: u64,
     pointer: *mut (),
 }

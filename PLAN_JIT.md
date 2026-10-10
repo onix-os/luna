@@ -73,6 +73,26 @@ GNU/musl tests and nine Rust tests under each Miri model pass (seeds 9/10), unde
 `payload-materialize-*`. Generated ordinary opcode lowering still does not use
 this gateway, and full-prefix rebinding remains a performance question.
 
+An opt-in test selector now translates ordinary backend output after the existing
+source/tag/guard/helper-flow verifiers. Four parsed Lua scripts cover integer and
+float loops, tables and Boolean/type-changing branches. Across initial budgets
+0/1/63/64/65/u32::MAX, each slice matches ordinary scratch execution for exit
+PC/count/reason, all eight helper counters and scalar register bits, reaches the
+expected return value, and releases generated mappings. The ordinary scratch
+entry rejects payload code; a distinct typed wrapper invokes it. Ten malformed
+access/escape patterns are refused without changing the input IR.
+
+This first translation uses indirect scalar read/materialization calls, so it
+is a correctness baseline rather than a performance candidate. The pass's clone
+and temporary allocation accounting, inline transport, whole-frame helper cost,
+integer-loop fast-path integration and post-translation verification still need
+work before production selection. The selection flag is test-only. GNU passes
+15 focused tests plus 18 existing native integration tests; musl passes the 15
+focused tests. Each Miri model passes ten ABI/model tests and one IR-grammar test,
+not machine code. Raw logs are under `payload-opcodes-*`. Added backend test hooks
+shift source locations, so production byte identity must be rechecked rather
+than inferred from cfg(test).
+
 #### Sign-directed checked jump arithmetic — withdrawn (2026-10-10)
 
 On the restored runtime, a source trial replaces `checked_add_signed` with

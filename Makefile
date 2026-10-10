@@ -615,9 +615,11 @@ jit-in-place-return:
 .PHONY: jit-payload-model jit-payload-model-miri
 jit-payload-model:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload:: $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload:: $(ARGS)
 
 jit-payload-model-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload:: -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload:: -- --test-threads=1
 
 .PHONY: vm-jump-offset
 vm-jump-offset:
