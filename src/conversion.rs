@@ -224,42 +224,35 @@ impl<'gc, T: FromValue<'gc>, const N: usize> FromValue<'gc> for [T; N] {
     }
 }
 
+#[inline(never)]
+fn coerce_integer(value: Value<'_>) -> Result<i64, TypeError> {
+    value.to_integer().ok_or_else(|| TypeError {
+        expected: "number",
+        found: if value.to_number().is_some() {
+            "a number with no integer representation"
+        } else {
+            value.type_name()
+        },
+    })
+}
+
 macro_rules! impl_int_from {
     ($($i:ty),* $(,)?) => {
         $(
             impl<'gc> FromValue<'gc> for $i {
-                #[allow(irrefutable_let_patterns)]
+                #[inline]
                 fn from_value(
                     _: Context<'gc>,
                     value: Value<'gc>,
                 ) -> Result<Self, TypeError> {
                     let integer = match value {
-                        Value::Integer(integer) => Some(integer),
-                        _ => value.to_integer(),
+                        Value::Integer(integer) => integer,
+                        _ => coerce_integer(value)?,
                     };
-                    if let Some(i) = integer {
-                        if let Ok(i) = <$i>::try_from(i) {
-                            Ok(i)
-                        } else {
-                            Err(TypeError {
-                                expected: "number",
-                                found: "an integer out of range",
-                            })
-                        }
-                    } else {
-                        Err(TypeError {
-                            // Not `stringify!($i)`: this reaches a Lua programmer, who has no
-                            // `i64`. A value that is already a number and only lacks an exact
-                            // integer form gets said separately, as `luaL_checkinteger` does —
-                            // `string.rep("x", 1.5)` is a different mistake from `string.rep("x", {})`.
-                            expected: "number",
-                            found: if value.to_number().is_some() {
-                                "a number with no integer representation"
-                            } else {
-                                value.type_name()
-                            },
-                        })
-                    }
+                    <$i>::try_from(integer).map_err(|_| TypeError {
+                        expected: "number",
+                        found: "an integer out of range",
+                    })
                 }
             }
         )*

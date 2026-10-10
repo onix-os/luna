@@ -26,9 +26,22 @@ boundaries, signed zero, subnormals, infinities/NaNs, strings and nonnumbers.
 It passes unchanged production in all four feature/mode lanes (12 executions).
 The candidate passes formatting/check-all and 196 focused executions across
 22 summaries, including numeric semantics and callback/metamethod/tail-call
-contracts. Exact-image profiling and elapsed-time acceptance are pending;
-this is not an accepted optimization. Evidence is under `integer-conversion*`
-in the ignored performance directory.
+contracts. Ten exact profiles preserve all five complete non-timing records.
+Callback instructions fall **133,593,180 -> 131,123,099 (1.84896%)**: conversion
+and normalization each remove 1,170,000, the wrapper removes 130,000, and 81
+are allocator variation. Disabled integer/float instruction totals are unchanged.
+
+Two screens complete 48 commands and 648 equal full non-timing comparisons.
+Callback Auto control/candidate ratios are CPU0 **1.01646 / 1.05688**, CPU16
+**1.02441 / 1.02455**. The first CPU0 window set includes a severe candidate
+outlier (0.44156); it remains recorded. Disabled float ratios are CPU0
+**0.98519 / 0.93096**, CPU16 **0.97899 / 0.97938**, against repeat placebos
+1.00458 / 1.00066. These losses prevent acceptance of the first form.
+
+A refinement separates general coercion/error classification into one outlined
+function and gives integer callers a small inline conversion with checked target
+range. It is pending validation and measurement. Neither form is accepted.
+Evidence is under `integer-conversion*` in the ignored performance directory.
 
 #### Canonical-only helper entries — test-only (2026-10-10)
 
