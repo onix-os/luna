@@ -4,6 +4,10 @@ use crate::{
     thread::LuaRegisters,
 };
 
+#[cfg(test)]
+#[path = "local_materialize_tests.rs"]
+mod local_tests;
+
 #[repr(C)]
 pub(crate) struct Bridge {
     pub base: abi::Host,
@@ -195,6 +199,9 @@ fn bridge_function_table_preserves_original_payload_and_host_pointers() {
 
 struct Session<'s, 'gc, 'a, 'b, 'p> {
     frame: NonNull<helpers::Frame<'gc, 'a, 'b, 'p>>,
+    values: NonNull<Value<'gc>>,
+    count: usize,
+    stopped: bool,
     borrow: PhantomData<&'s mut helpers::Frame<'gc, 'a, 'b, 'p>>,
 }
 
@@ -203,6 +210,7 @@ impl Session<'_, '_, '_, '_, '_> {
         let frame = unsafe { self.frame.as_mut() };
         assert_eq!(count, frame.slot_count);
         let mut canonical = Frame::new(&mut frame.registers.stack_frame[..count]);
+        self.values = canonical.values;
         for index in 0..count {
             write(index, canonical.bind(index).unwrap());
         }
@@ -220,8 +228,12 @@ fn with_session(
     let count = frame.slot_count;
     assert!(count <= 256 && count <= frame.registers.stack_frame.len());
     assert!(frame.projection.is_none());
+    let stopped = frame.panic.is_some();
     let mut session = Session {
         frame: NonNull::from(frame),
+        values: NonNull::dangling(),
+        count,
+        stopped,
         borrow: PhantomData,
     };
     let mut slots = [std::mem::MaybeUninit::<Payload>::uninit(); 256];
@@ -243,11 +255,10 @@ unsafe extern "C" fn call<const KIND: u32>(
     pc: u32,
 ) -> u32 {
     let session = unsafe { &mut *host.cast::<Session<'_, '_, '_, '_, '_>>() };
-    let frame = unsafe { session.frame.as_ref() };
-    if frame.panic.is_some() {
+    if session.stopped {
         return abi::HELPER_PANICKED;
     }
-    let count = frame.slot_count;
+    let count = session.count;
     let mut scratch = [std::mem::MaybeUninit::<Slot>::uninit(); 256];
     for slot in &mut scratch[..count] {
         slot.write(Slot::canonical());
@@ -260,6 +271,8 @@ unsafe extern "C" fn call<const KIND: u32>(
         unsafe { helpers::call::<KIND>(&mut host, scratch.as_mut_ptr().cast(), a, b, c, pc) };
     if result != abi::HELPER_PANICKED {
         session.rebind(unsafe { std::slice::from_raw_parts_mut(slots, count) });
+    } else {
+        session.stopped = true;
     }
     result
 }
@@ -272,11 +285,10 @@ unsafe extern "C" fn materialize(
     bits: u64,
 ) -> u32 {
     let session = unsafe { &mut *host.cast::<Session<'_, '_, '_, '_, '_>>() };
-    let frame = unsafe { session.frame.as_mut() };
-    if frame.panic.is_some() {
+    if session.stopped {
         return abi::HELPER_PANICKED;
     }
-    let count = frame.slot_count;
+    let count = session.count;
     let value = match tag {
         NIL => Some(Value::Nil),
         BOOLEAN if bits <= 1 => Some(Value::Boolean(bits != 0)),
@@ -284,14 +296,21 @@ unsafe extern "C" fn materialize(
         NUMBER => Some(Value::Number(f64::from_bits(bits))),
         _ => None,
     };
-    let result = if let Some(value) = value.filter(|_| (index as usize) < count) {
-        frame.registers.stack_frame[index as usize] = value;
+    if let Some(value) = value.filter(|_| (index as usize) < count) {
+        let mut canonical = Frame {
+            values: session.values,
+            len: count,
+            borrow: PhantomData,
+        };
+        assert!(canonical.store(
+            unsafe { std::slice::from_raw_parts_mut(slots, count) },
+            index as usize,
+            value,
+        ));
         abi::HELPER_COMPLETED
     } else {
         abi::HELPER_DECLINED
-    };
-    session.rebind(unsafe { std::slice::from_raw_parts_mut(slots, count) });
-    result
+    }
 }
 
 #[test]
@@ -739,6 +758,10 @@ fn production_helper_panic_keeps_direct_writes_and_stops_reentry() {
                     );
                     assert_eq!(
                         call::<{ abi::HELPER_MOVE }>(host, slots, 1, 2, 0, 8),
+                        abi::HELPER_PANICKED
+                    );
+                    assert_eq!(
+                        materialize(host, slots, 1, INTEGER, 99),
                         abi::HELPER_PANICKED
                     );
                 });

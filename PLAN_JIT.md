@@ -11,6 +11,25 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Local payload materialization — test-only (2026-10-10)
+
+The typed-payload adapter now materializes a scalar through the existing
+per-cell `Frame::store` model and rebinds only that destination. Its scoped
+session retains the canonical base and register count; ordinary helpers still
+rebind the entire prefix and refresh that base. Initial and helper-produced
+panics stop both helper reentry and later materialization. This does not cache
+Lua values across callbacks or retain payload pointers across frame lifetimes.
+
+New tests retain and dereference sibling descriptors across type changes and
+refusals at widths 0/1/7/255/256, check exact scalar bits/reference identity,
+and exercise materialization after an ordinary helper refresh. GNU and musl
+each pass **33 executions / three summaries**, including the existing 80
+integrated schedules. Pinned Stacked Borrows seed 27 and Tree Borrows seed 28
+each pass **22 executions / two summaries**. Formatting and check-all pass.
+Production selection remains unchanged; these results establish model checks,
+not performance acceptance. Release profiling is next. Evidence:
+`payload-local-*` under the ignored short-slice performance directory.
+
 #### Integer-first arithmetic admission — withdrawn (2026-10-10)
 
 Same-run vgdb capture of the frozen callback image maps all **9,468,103**
