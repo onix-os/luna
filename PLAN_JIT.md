@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Table-owned string bucket — performance trial
+#### Table-owned string bucket — both trials withdrawn
 
 Baseline-tested lifecycle fixtures (`b8e40a4`) cover repeated same-allocation and
 equal-content reads across mutations, growth, deletion, weak conversion, clear
@@ -72,11 +72,31 @@ This does not explain the wide trial's numeric slowdown or establish compact
 timing acceptance. Broad validation exits 0: GNU Force passes 1,505 executions
 across 88 summaries (6 ignored), focused musl 55 and i686-musl 16. Cost images
 are captured; the rebuilt native image matches the profiled compact candidate
-byte for byte, and source manifests verify. Repeated hardware timing remains
-outstanding. The next campaign keeps the wide image as an additional control:
-six native and nine cost variants. Its parsers validate both references and
+byte for byte, and source manifests verify. Repeated hardware timing keeps the
+wide image as an additional control: six native and nine cost variants.
+Its parsers validate both references and
 unchanged thresholds, with six valid synthetic parser/proof outputs and six
 rejected mutations; those fixtures are explicitly not benchmark measurements.
+
+The compact campaign completes 36 native and 144 cost aggregate commands; all
+fail their unchanged gates. Fresh and wide comparisons each verify 108 native
+and 144 cost complete non-timing records; source/image manifests reverify.
+Native callback direct medians improve 1.03884/1.04282 on CPU0/16, all six
+windows favorable. However, CPU0 shipping disabled float/integer ratios fall
+to 0.79513/0.88699 against the original and 0.79785/0.89390 against wide, in all
+four windows. CPU16 speed float falls to 0.91119 against the original and
+adds four cost-gate failures. Shipping cold adds two CPU0 and one CPU16 failures.
+These losses remain despite the restored table size and positive GC-charge
+equality; compact storage is not a timing fix.
+
+Eighty compact disabled profiles retain unchanged numeric instruction,
+load/store, conditional/indirect branch counts and VM mnemonic execution counts
+across profiles/CPUs. They do not establish the hardware-time cause. Withdraw
+both cache forms and restore source/tests/Make exactly to b8e40a4. Keep the two
+independent lifecycle fixtures and table-access-miri; candidate-specific offset
+and footprint fixtures remain in Git history. Do not repeat cache-width,
+field-order or outlining permutations on instruction savings alone. Broad
+restoration checks and five rebuilt-image comparisons are pending.
 Evidence: `table-owner*` under
 `target/jit-evidence/short-slice-performance/`.
 
