@@ -11,6 +11,71 @@
 
 ### Progress snapshot — 2026-10-10
 
+#### Numeric payload binding — test-only (2026-10-10)
+
+`ac11c41` keeps typed integer/number descriptor binding inline and outlines
+the non-numeric typed match. No private `Value` layout, cold-path hint,
+cross-entry pointer cache or workload-specific dispatch is introduced.
+The existing bounds, descriptor lifetimes and canonical rebinding stay intact.
+The cost of calls for nil/Boolean/reference binding remains part of acceptance.
+
+Audited predecessor callback branch PCs show registers 0..5 each bind Integer
+64,837 times and Nil 12 times; register 6 binds Nil 64,849 times. This motivates
+testing numeric binding separately from the general scalar jump tables; it
+does not establish a speedup or justify discarding non-numeric workloads.
+
+GNU format/check-all/payload **52 / three summaries** and musl helper/payload
+**64 / four** pass. Pinned Miri Stacked seed 35 and Tree seed 36 each pass
+**19 ABI and 19 backend IR tests**. The new reference fixture checks typed
+pointer identity, scalar bit extremes, every `Value` enum kind, 169 canonical
+type transitions, sibling descriptor lifetime and invalid/empty bounds.
+Frozen candidate `b2167efd` completes ten profiles. Callback wrapper work
+falls **648,490** instructions, but outlined binding adds **1,557,084**,
+scalar materialization adds **584,064**, and helper 6 adds **64,836**.
+Whole callback work increases **1,557,413**, to **133,401,521**. Closure work
+increases 229,772, including 156,852 of unchanged admission iteration variation.
+All predecessor candidate non-timing fields match; Off profile totals are
+unchanged. Generated callback instructions and memory-access groups are
+unchanged. Wrapper stack reservation grows from 2,112 to 2,152 bytes and saves
+six registers instead of five. Historical strict comparison still fails the
+inherited callback snapshot peak (10,705 versus 11,141 bytes).
+
+Two ordinary-control timing screens retain **48 failed aggregate command
+gates**. Callback ordinary/candidate medians are **0.974250 / 0.973337** on
+CPU 0 and **0.989798 / 0.994716** on CPU 16 (above 1 is faster). Large second-
+screen CPU 0 scalar/closure ratios remain in the data, with placebo and
+contention records; they are not treated as isolated proof of improvement.
+
+Two additional screens directly compare preceding payload `d4e7bd6d` against
+the candidate, retaining another **48 failed original command gates**. All
+candidate non-timing fields match. Predecessor/candidate callback medians are
+**1.030818 / 1.031929** on CPU 0 and **1.005050 / 0.991499** on CPU 16.
+Thus the higher instruction count does not rule out the repeated CPU 0 timing
+gain, but CPU 16 is mixed. Allocation improves against the preceding candidate;
+cold/closure/Off variations remain recorded. The diagnostic parser retains
+historical-image field differences and enforces exact same-image placebo
+fields; it does not replace or relax the original benchmark gates.
+
+All screens use nine workloads, eleven paired samples, three rotating windows,
+CPU 0/16, historical/preceding-or-ordinary/placebo/candidate images and
+contention telemetry, without overlapping owned work. The model stays test-only
+for further work; production activation is withdrawn. Ordinary restoration
+is byte-identical to `dab0490e`; full GNU Force passes **1,576 / 88 summaries**
+with six existing ignores, and focused musl passes **122 / seven** without
+ignores. Format/check-all and source manifests pass. Full performance/resource/
+platform/release acceptance remains open.
+Evidence: `target/jit-evidence/short-slice-performance/payload-numeric-binding/`,
+`payload-numeric-binding-candidate/`, `payload-numeric-binding-profile/`,
+`payload-numeric-binding-native-vgdb/`, `payload-numeric-binding-invoke-attribution/`,
+`payload-numeric-binding-screen-{1,2}*` and
+`payload-numeric-binding-vs-sized-screen-{1,2}*`.
+
+Repeated profile/vgdb call arcs agree on **129,757** non-numeric binding calls:
+**64,921** from the seven-register wrapper and **64,836** from helper 6.
+The former matches its observed entry Nil population. Keeping Nil inline is
+a follow-up candidate, not an accepted optimization; emitted dispatch and
+whole-helper costs must be remeasured.
+
 #### Capacity-sized payload storage — test-only (2026-10-10)
 
 `b017f50` threads the existing invocation capacity through the payload bridge
