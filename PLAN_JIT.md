@@ -11,6 +11,38 @@
 
 ### Progress snapshot — 2026-10-10
 
+#### Separate post-store payload binding — reverted (2026-10-10)
+
+`5da8a28` gives `Frame::store` a fully inline typed binder for its just-written
+canonical destination, while leaving the entry-optimized numeric split
+unchanged. Bounds checks still precede the write and the descriptor is rebound
+afterward. No private enum-layout assumptions, cross-entry caching or changed
+helper behavior are introduced. The existing 169-transition oracle now also
+compares post-store descriptor addresses/tags with a fresh entry binding.
+
+GNU format/check-all/payload **52 / three summaries** and musl helper/payload
+**64 / four** pass. Pinned Miri Stacked seed 39 and Tree seed 40 each pass
+**19 ABI payload tests**. Unchanged backend IR Miri tests are not rerun in this
+trial; native backend/runtime checks remain included under GNU/musl.
+Exact assembly reduces Integer `write_scalar` from 33 to 24 executed
+instructions per call; callback self instructions fall from 133,401,521 to
+131,780,162. Generated callback instructions and direct predecessor non-timing
+counters are unchanged. The historical strict profile comparison still fails
+on the inherited snapshot-byte difference; it is not a passing comparison.
+
+Four four-way timing screens complete 96 commands with unchanged workloads,
+eleven paired samples, contention records and original gates. All 96 aggregate
+gates fail. In the two direct predecessor screens, callback speed ratios are
+0.9897/0.9833 on CPU 0 and 1.0186/1.0103 on CPU 16 (above one is faster).
+Allocation ratios are 0.9704/0.9721 on CPU 0 and 0.9561/0.9620 on CPU 16.
+The instruction reduction therefore does not justify retaining this trial.
+
+`9cb9a02` reverts the binder and retains the stronger pointer/tag parity test;
+both source commits are pushed. Temporary benchmark activation is withdrawn.
+The post-revert ordinary-image/full-GNU/focused-musl restoration is still
+running; its outcome is not yet claimed. Performance acceptance remains open.
+Evidence: `target/jit-evidence/short-slice-performance/payload-store-binding/`.
+
 #### Inline Nil payload binding — measured and reverted (2026-10-10)
 
 `28e9f9a` handles Nil in the typed inline binding match alongside Integer and
