@@ -1279,8 +1279,9 @@ fn compile_selected_rooted(
             .blocks()
             .map(|b| context.func.layout.block_insts(b).count())
             .sum();
-        expansion.verify_actual(actual, block_count)?;
-        (actual, block_count)
+        let actual_blocks = context.func.layout.blocks().count();
+        expansion.verify_actual(actual, actual_blocks)?;
+        (actual, actual_blocks)
     } else {
         (instructions, block_count)
     };

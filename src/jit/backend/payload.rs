@@ -8,6 +8,8 @@ use crate::jit::abi::payload::runtime::Bridge;
 #[cfg(not(miri))]
 use crate::jit::abi::payload::Payload;
 
+mod reads;
+
 enum Rewrite {
     Read(Inst, u32),
     Write {
@@ -136,11 +138,7 @@ pub(super) fn lower(
 ) -> Result<(), JitError> {
     let rewrites = plan(function, slots, host, registers, helpers)?;
     let mut candidate = function.clone();
-    let mut read = Signature::new(function.signature.call_conv);
-    read.params
-        .extend([types::I64, types::I32].map(AbiParam::new));
-    read.returns.push(AbiParam::new(types::I64));
-    let read = candidate.import_signature(read);
+    let mut reads = Vec::new();
     let mut write = Signature::new(function.signature.call_conv);
     write
         .params
@@ -149,19 +147,7 @@ pub(super) fn lower(
     for rewrite in rewrites {
         match rewrite {
             Rewrite::Read(inst, index) => {
-                let mut cursor = FuncCursor::new(&mut candidate);
-                cursor.goto_inst(inst);
-                let target = cursor.ins().load(
-                    types::I64,
-                    MemFlagsData::new(),
-                    host,
-                    std::mem::offset_of!(Bridge, read) as i32,
-                );
-                let index = cursor.ins().iconst(types::I32, i64::from(index));
-                cursor
-                    .func
-                    .replace(inst)
-                    .call_indirect(read, target, &[slots, index]);
+                reads.push(reads::emit(&mut candidate, inst, slots, index));
             }
             Rewrite::Write {
                 tag_store,
@@ -205,6 +191,9 @@ pub(super) fn lower(
                     .call_indirect(signature, target, &args);
             }
         }
+    }
+    for read in &reads {
+        reads::verify(&candidate, read, slots)?;
     }
     *function = candidate;
     Ok(())

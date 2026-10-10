@@ -101,6 +101,22 @@ for `src/jit/backend.rs`. The image audit is under `payload-opcodes-image-audit`
 Keep the original frozen control; these checks establish neither a speedup nor
 performance acceptance.
 
+The experimental ordinary lowering now inlines scalar reads instead of calling
+the Rust read transport. Guarded I64 loads handle Integer/Number, I8 loads handle
+Boolean, and nil/reference/null descriptors produce zero. The previous SSA
+result becomes a continuation parameter, and expansion checks include the new
+blocks. A separate checker validates addresses, widths, predicates, edges and
+result forwarding after the complete rewrite. It rejects 23 well-formed IR
+mutations, including an eight-byte Boolean load and an inserted store.
+
+The direct generated-read fixture contains no calls and matches scalar bit
+patterns, every reference variant, and null/unknown-tag refusal. All 24 ordinary
+Lua source/budget schedules still match the scratch oracle. GNU and musl pass
+17 focused tests; both Miri models pass 12 model/IR tests (seeds 13/14, machine
+code excluded). Logs are under `payload-inline-read-*`. Writes still use the
+materialization gateway, and helper rebinding/resource accounting remain open.
+This is still test-only and has no hardware performance acceptance.
+
 #### Sign-directed checked jump arithmetic — withdrawn (2026-10-10)
 
 On the restored runtime, a source trial replaces `checked_add_signed` with

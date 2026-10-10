@@ -25,6 +25,55 @@ pub(crate) struct Payload {
     pointer: *mut (),
 }
 
+pub(crate) const POINTER_OFFSET: usize = std::mem::offset_of!(Payload, pointer);
+
+#[cfg(all(
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+pub(crate) fn check_native_read(entry: unsafe extern "C" fn(*const Payload) -> u64) {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+        for value in [
+            Value::Nil,
+            Value::Boolean(false),
+            Value::Boolean(true),
+            Value::Integer(i64::MIN),
+            Value::Integer(i64::MAX),
+            Value::Number(-0.0),
+            Value::Number(f64::INFINITY),
+            Value::Number(f64::from_bits(0x7ff8000000000042)),
+            Value::String(ctx.intern(b"payload")),
+            Value::Table(crate::Table::new(&ctx)),
+            Value::Function(closure.into()),
+            Value::Thread(crate::Thread::new(ctx)),
+            Value::UserData(crate::UserData::new_static(&ctx, 7)),
+        ] {
+            let expected = Slot::from_value(value).bits;
+            let mut values = [value];
+            let mut frame = Frame::new(&mut values);
+            let descriptor = frame.bind(0).unwrap();
+            assert_eq!(unsafe { entry(&descriptor) }, expected);
+        }
+        for tag in [NIL, BOOLEAN, INTEGER, NUMBER, REFERENCE, u64::MAX] {
+            let descriptor = Payload {
+                tag,
+                pointer: std::ptr::null_mut(),
+            };
+            assert_eq!(unsafe { entry(&descriptor) }, 0);
+        }
+        let mut value = u64::MAX;
+        for tag in [NIL, REFERENCE, u64::MAX] {
+            let descriptor = Payload {
+                tag,
+                pointer: std::ptr::from_mut(&mut value).cast(),
+            };
+            assert_eq!(unsafe { entry(&descriptor) }, 0);
+        }
+    });
+}
+
 struct Frame<'a, 'gc> {
     values: NonNull<Value<'gc>>,
     len: usize,
