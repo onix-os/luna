@@ -1,5 +1,8 @@
 use crate::{Closure, Lua};
 
+#[path = "identity_memo.rs"]
+mod identity_memo;
+
 #[test]
 fn identities_survive_growth_collection_reset_and_reregistration() {
     let mut lua = Lua::empty();

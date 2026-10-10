@@ -11,6 +11,51 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Compact source-identity memo — runtime withdrawn (2026-10-10)
+
+`6679856` adds an independent scalar memo model: positive source IDs paired with
+nonzero owner/reset epochs, no cached misses, no epoch recycling at exhaustion,
+and distinct epochs under concurrent allocation. Its storage is sixteen bytes
+without a destructor; it retains neither code leases nor GC pointers. All ten
+registry/model tests pass normally and under Miri. This is a model, not a
+production identity cache or performance improvement.
+
+A runtime trial embeds the memo in private ClosureInner storage, assigns a fresh
+registry epoch on creation/reset, and resolves VM-slice identity through the
+owning closure's immutable prototype. Public FunctionPrototype literals remain
+unchanged. Three additional tests exercise aliases, reset/re-registration,
+collection, registration exhaustion and foreign-registry epochs. Formatting,
+all-target/all-feature checking and 64 focused executions across eleven summaries
+pass, including host/combined-memory and mode tests. Another 112 focused
+executions pass before the release build; runtime Miri passes all thirteen tests.
+The extra memo/epoch storage belongs to GC-managed objects: matching native JIT
+counters alone does not establish zero GC heap cost.
+
+Ten exact-image profiles verify all five full non-timing comparisons. Callback
+instructions fall 133,593,099 to 130,343,859 (2.43219%), but integer/float Off work
+rises 2.63190%/2.45131%, and upvalue Off rises 0.54839%. Two unchanged nine-case
+screens complete 48 commands, all aggregate gates failing, with 648 equal full
+non-timing comparisons. Callback control/candidate medians improve to
+1.04155/1.03743 on CPU0 and 1.03938/1.04112 on CPU16 (first/repeat). Off float
+instead falls to 0.78059/0.80197 and 0.93428/0.93748; corresponding same-inode
+placebos are 0.99694/0.99941 and 1.00018/0.99864. Off integer is
+0.79869/0.80028 and 0.95502/0.92000. All adverse data remain; no owned work
+overlaps timing.
+
+Withdraw all runtime fields, lookup methods and implementation-specific tests.
+Retain only the scalar model under the existing test-only identity module, so
+production source locations remain unchanged. Restored formatting/check-all and
+61 focused executions pass; restored Miri passes ten tests. The rebuilt ordinary
+release executable is byte-identical to the frozen baseline.
+
+A broader history search also found the earlier three-variant rejection under
+`Identity-cache decision: reject all three runtime variants`, with artifacts in
+`target/jit-evidence/identity-cache/`. The initial search was too narrow: do not
+present this as an entirely new cache architecture or repeat the failed outlining
+variant. Current compact-model/runtime evidence is under
+`target/jit-evidence/short-slice-performance/identity-memo*`. No runtime cache,
+new budget exclusion or accepted speedup remains; full-plan acceptance is open.
+
 #### Native lookup inlining with fresh PGO — withdrawn (2026-10-10)
 
 A source trial adds only `#[inline(always)]` to `Runtime::lookup`; ownership,

@@ -11,9 +11,6 @@ use crate::{Context, FunctionPrototype};
 #[cfg(test)]
 mod identity_tests;
 
-#[cfg(test)]
-mod identity_memo;
-
 #[derive(Collect)]
 #[collect(no_drop)]
 struct Registration<'gc> {
