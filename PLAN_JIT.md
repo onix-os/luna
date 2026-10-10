@@ -53,8 +53,47 @@ including setup, reporting and teardown, not just its timed interval. Cold Off
 instructions fall **13,466,892 → 13,410,122** and Auto **13,465,841 → 13,413,555**.
 String construction adds **34,202** self instructions in each; table insertion,
 rehashing and order maintenance fall. These are diagnostic counts, not elapsed
-time acceptance. Physical timing and original feature-cost/release gates remain
-open. Evidence prefix: `target/jit-evidence/short-slice-performance/inline-key-hash*`.
+time acceptance. Evidence prefix:
+`target/jit-evidence/short-slice-performance/inline-key-hash*`.
+
+Four completed four-way timing screens retain **96 checked commands**, every
+aggregate gate exiting 2. Image/source checks and every non-timing field match;
+no owned build, test, profile or source edit overlaps timing. With immediate
+rooted-control time divided by candidate time, callback Auto screen medians
+are CPU0 **1.018421 / 1.019385 / 1.018169 / 1.027739**, CPU16 **1.031663 /
+1.024718 / 1.029283 / 1.029487**. Callback Off also improves. Metamethod Auto
+medians improve on both CPUs in all four screens, but original callback gates
+fail 24/24 and metamethod gates fail 21/24. Arrays fail 4/24; other scored cases
+pass 24/24, with Oslo unscored. Passing a within-image gate does not establish
+non-regression against the previous image.
+
+Allocation Auto is adverse: CPU0 **0.973501 / 0.963757 / 0.966816 / 0.974854**,
+CPU16 **0.927666 / 0.945813 / 0.927598 / 0.989198**. Float Off is also adverse:
+CPU0 **0.956518 / 0.938886 / 0.953512 / 0.973793**, CPU16 **0.944354 /
+0.978967 / 0.980144 / 0.975998**. Retain external contention and same-image
+placebo variation, including allocation Auto CPU16 screen 2 at 1.074479.
+The candidate remains **unaccepted**, not a completed performance fix.
+
+Eight further exact-image profiles diagnose allocation in two scopes. VM-step
+Off instructions are **34,277,027 in both images**, Auto **31,131,042 in both**.
+Collection around the verified `Lua::execute::<i64>` symbol includes GC and
+all thirteen executions (two warmups plus eleven samples), excluding state
+setup and reporting. Off is **47,324,208 in both images**; Auto changes
+**56,677,849 → 56,677,898**, only 49 instructions in compilation/symbol work.
+GC self work is unchanged. All counters match; images and source hashes verify.
+Simulated cache/branch misses differ, but are not hardware attribution. Thus
+these runs do not support extra GC or eager string-construction work as the
+allocation slowdown's cause. Float Off's unchanged instruction count likewise
+does not establish the cause of its hardware regression.
+
+The allocation profiles expose **572,000** instructions in map-capacity setup
+for array-only tables. A separate trial selects the direct empty-map
+constructor when requested map capacity is zero, retaining the existing path
+for positive capacity. This removes actual unnecessary setup rather than
+adding arbitrary layout padding. Differential tests compare the original
+constructor's capacities, buckets, contents, weak conversion, growth and
+allocation/deallocation accounting. Its own correctness, instruction and
+hardware evidence is required before treating it as a regression fix.
 
 #### Compile-time constant upvalue-table keys — withdrawn
 
