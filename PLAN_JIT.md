@@ -11,6 +11,75 @@
 
 ### Progress snapshot — 2026-10-10
 
+#### Branch-local scalar materialization — test-only (2026-10-10)
+
+Scalar materialization now retains each scalar variant through a const-tag
+store, rather than merging the variants into `Option<Value>` before canonical
+storage. The existing `Frame::store` still writes the canonical Value and binds
+only the destination. No Rust enum layout, descriptor lifetime, helper ABI,
+resource quota or production transport selection changes. Stopped sessions
+return Panicked before input checks; malformed tags/Boolean bits and invalid
+indices still decline without writes.
+
+An independent test-only copy of the old implementation compares **900 paired
+cases**: widths 0/1/7/255/256, stopped/live sessions, boundary/invalid indices,
+scalar extremes, signed zero, infinities, NaN payloads and malformed inputs.
+It compares descriptor tags/nullness/bits, canonical scalar bits/table identity,
+PC, panic payload and all eight seeded helper counters. Existing sibling-pointer
+lifetime tests remain unchanged. GNU format/check-all/payload checks pass
+**38 executions / three summaries**, musl helper/payload **63 / four**, and
+pinned Stacked seed 29 / Tree seed 30 each **51 / three**. Miri warnings remain;
+Miri does not execute generated machine code. Oracle commit: `d1ba793`;
+test-only specialization: `dfca2a4`.
+
+Temporary release image `cfd7b2e6` completes ten exact-image profiles. Compared
+with the prior mask image `9a90d28a`, callback work falls
+**135,476,302 -> 134,892,238** (-0.431%). All 584,064 removed instructions are
+in scalar materialization, **2,141,568 -> 1,557,504** (-27.27%). Closure Auto
+increases **92,426** instructions to 170,443,681; several other functions change
+despite identical non-timing workload fields. Closure Off increases 242
+allocator instructions; integer/float Off remain equal. All ten compared self
+totals match raw profiles. No adverse deltas are discarded. The original
+historical-control profile gate still fails on existing payload resource-field
+differences; its failure is retained, not replaced by the diagnostic.
+
+A same-image historical-control comparison also verifies ten self totals.
+Its Closure Auto total changes by +208,420 instructions, mostly in admission,
+with identical non-timing counters; its other four totals are unchanged.
+Therefore the closure delta alone cannot be attributed to this source change.
+The callback reduction is localized to the changed materialization function,
+and its repeated historical control is instruction-identical.
+
+Two repeated four-way screens complete **48 commands**, each with nine workloads
+and eleven paired samples, CPU0/16, three rotating windows and ordinary,
+historical and same-image-placebo controls. All 48 commands fail the original
+gates. Ordinary `dab0490e` / candidate elapsed-time medians (above 1 is faster):
+
+| Auto workload | CPU 0, screen 1 / 2 | CPU 16, screen 1 / 2 |
+| --- | --- | --- |
+| Rust callbacks | 0.9498 / 0.9506 | 0.9481 / 0.9410 |
+| Integer loop | 0.8673 / 0.8679 | 0.7876 / 0.7904 |
+| Float loop | 0.8802 / 0.8802 | 0.8240 / 0.8210 |
+| Allocation/GC | 0.8409 / 0.8453 | 0.7757 / 0.7707 |
+| Closure/upvalue | 1.0107 / 1.0101 | 0.9676 / 0.9756 |
+| Array table | 1.0339 / 1.0285 | 1.0813 / 1.1043 |
+| Polymorphic metamethod | 0.9383 / 0.9387 | 0.9258 / 0.9093 |
+
+Release activation is withdrawn. The model saves instructions but does not
+establish elapsed-time acceptance; full performance/resource/platform/release
+gates remain open. Full counter/resource differences, source/image verification
+and external contention remain under `payload-materialize*` in the ignored
+short-slice evidence directory. No owned builds/tests/profiles/source edits
+overlapped the timing screens.
+
+After withdrawal, the rebuilt ordinary release is byte-identical to
+`dab0490e360b61353aafaf2730ac5aac11fbc64c59cb1df12b158df394ab2ecd`.
+GNU all-feature Force checks pass **1,562 executions / 88 summaries**, with six
+existing ignores; focused musl helper/model/resources pass **108 / seven**,
+with no ignores. Format/check-all and source verification pass. Evidence:
+`payload-materialize-withdrawal-image/`; this restoration does not satisfy the
+still-failing performance gates.
+
 #### Payload numeric-tag mask — test-only (2026-10-10)
 
 Payload scalar reads/writes now classify the Integer/Number pair with
