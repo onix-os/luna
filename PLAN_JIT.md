@@ -11,6 +11,124 @@
 
 ### Progress snapshot — 2026-10-10
 
+#### Bounded rooted-call fuel — measured and withdrawn (2026-10-10)
+
+Exact attribution of the frozen numeric-binding image validates **61,655,008**
+rooted-invocation self instructions against **170,383,348** global self
+instructions, with every executed PC decoded and image hashes unchanged.
+The entry-fuel block accounts for **3,824,634 instructions across 30 PCs**.
+Earlier small-copy, immutable-layout, direct-capture and combined-statistics
+trials remain rejected; this trial targets the repeated saturating fuel charges.
+
+`a169ae3` combines only the four unobserved entry charges, bounded by u8
+argument count and prefix at most 64 (maximum combined charge 327). The
+continuation check remains before the return charges, and host fuel changes
+only when the existing window commits. An independent sequential-charge oracle
+covers **499,200** boundary/interruption states, plus invalid prefixes; Miri
+uses **480** selected boundary states. Native policy, capacity, capture, PC,
+publication and resource checks are unchanged.
+
+The first GNU/musl focused runs pass, but the first Miri filter executes **zero
+tests**, because its original containing module is excluded under Miri; it is
+not Miri acceptance. The arithmetic helper and oracle now live in a pure module
+shared by native builds and Miri. Corrected GNU checks pass **129 executions /
+16 summaries**, two ignored; focused musl passes **63 / eleven**, none ignored.
+Pinned Miri Stacked seed 41 and Tree seed 42 each execute and pass the pure
+oracle. The source commit is pushed. The clean opt3 image `972471f9` completes
+ten exact-image profiles with unchanged non-timing fields. Against the ordinary
+control, rooted invocation self instructions fall **61,655,008 → 60,379,768**
+(ten fewer per invocation); total closure Auto instructions fall
+**169,861,074 → 168,636,751**. The separate admission traversal varies by
+**+52,284** and allocator deltas remain in the report; they are not credited to
+fuel coalescing. Callback instructions change by **+81**, closure Off **−242**,
+and integer/float Off are unchanged. All function self totals and symbol-image
+checks pass. Full GNU Force validation passes **1,577 executions / 88
+summaries**, six ignored.
+
+Four four-way CPU 0/16 hardware screens complete **96 commands**, all failing
+unchanged aggregate gates; strict analysis finds zero non-timing differences.
+CPU0 upvalue ratios are **1.014926 / 1.011554 / 1.014057 / 1.017509**; CPU16
+**0.996136 / 1.001530 / 0.992886 / 0.994588** (ordinary time / candidate time).
+CPU0 callbacks regress **0.988724 / 0.986893 / 0.988703 / 0.988557**, and CPU16
+compiled-Off allocation **0.969695 / 0.957822 / 0.966063 / 0.973942**. Full
+case/placebo distributions and contention remain in the evidence. In particular,
+round-two CPU16 float Off placebo is **1.237511**; its apparent candidate gain
+must not be generalized. The first variant is **not accepted**.
+
+`ed6c389` checks initial fuel against the bounded charge and interrupt
+flag before subtracting. Successful remaining fuel is positive at the original
+continuation boundary and at least −10 after return charges; rejected saturated
+clones were never observable. The same independent sequential oracle and native
+checks pass again: **129 GNU / 16 summaries**, two ignored; **63 musl / eleven**,
+none ignored; Miri Stacked seed 43 and Tree seed 44 each pass the pure test.
+The refinement's frozen image `0f4e4fba` passes ten exact-image profiles and
+full GNU Force **1,577 / 88**, six ignored. Closure Auto instructions fall to
+**167,798,621**, rooted invocation self instructions to **59,487,824**. Exact
+executed-PC/image checks pass and all non-timing fields match the ordinary
+control; allocator and admission-traversal variation remain reported separately.
+
+Four further four-way screens complete **96 aggregate commands**, all failing
+the original gates, with zero non-timing changes. Upvalue ratios improve on
+both CPUs: CPU0 **1.005782 / 1.010340 / 1.011341 / 1.008709**; CPU16
+**1.008264 / 1.016749 / 1.011626 / 1.010893**. However CPU0 callbacks remain
+**0.987062 / 0.998692 / 0.987677 / 0.986146**, metamethods
+**0.988582 / 0.982504 / 0.989188 / 0.989236**, and tables
+**0.972439 / 0.972139 / 1.010052 / 0.988540**. These cross-workload losses
+reject the refinement; narrower upvalue wins do not establish acceptance.
+
+`6d2d701` restores the original sequential runtime charges and retains the pure
+model under `cfg(test)` plus its Make targets. Both runtime variants and all
+192 aggregate timing failures remain available. The post-withdrawal release
+image is byte-identical to ordinary `dab0490e`; restoration passes **1,577 GNU /
+88 summaries**, six ignored, and **122 focused musl / seven**, none ignored.
+Source manifests verify after testing. No performance or release gate is closed
+by this trial.
+
+Follow-up exact ordinary-image attribution locates **8,161,536 instructions**
+in the rooted snapshot-validation loop: 14 executed PCs, six executed 1,020,192
+times and eight reference checks executed 255,048 times. The boundary's total
+self cost is **30,627,690**, with global self **169,861,074**; executed-PC
+decoding and image hashes verify. This identifies another cost to investigate,
+not grounds to remove tag, bounds, root-kind or publication checks. No snapshot
+validation optimization has been implemented. Evidence is under
+`rooted-boundary-attribution/` in the same ignored performance directory.
+Evidence: `target/jit-evidence/short-slice-performance/rooted-fuel/` and
+`rooted-cost-attribution-v2/`; the initial failed symbol extraction is retained.
+
+#### Separate post-store payload binding — reverted (2026-10-10)
+
+`5da8a28` gives `Frame::store` a fully inline typed binder for its just-written
+canonical destination, while leaving the entry-optimized numeric split
+unchanged. Bounds checks still precede the write and the descriptor is rebound
+afterward. No private enum-layout assumptions, cross-entry caching or changed
+helper behavior are introduced. The existing 169-transition oracle now also
+compares post-store descriptor addresses/tags with a fresh entry binding.
+
+GNU format/check-all/payload **52 / three summaries** and musl helper/payload
+**64 / four** pass. Pinned Miri Stacked seed 39 and Tree seed 40 each pass
+**19 ABI payload tests**. Unchanged backend IR Miri tests are not rerun in this
+trial; native backend/runtime checks remain included under GNU/musl.
+Exact assembly reduces Integer `write_scalar` from 33 to 24 executed
+instructions per call; callback self instructions fall from 133,401,521 to
+131,780,162. Generated callback instructions and direct predecessor non-timing
+counters are unchanged. The historical strict profile comparison still fails
+on the inherited snapshot-byte difference; it is not a passing comparison.
+
+Four four-way timing screens complete 96 commands with unchanged workloads,
+eleven paired samples, contention records and original gates. All 96 aggregate
+gates fail. In the two direct predecessor screens, callback speed ratios are
+0.9897/0.9833 on CPU 0 and 1.0186/1.0103 on CPU 16 (above one is faster).
+Allocation ratios are 0.9704/0.9721 on CPU 0 and 0.9561/0.9620 on CPU 16.
+The instruction reduction therefore does not justify retaining this trial.
+
+`9cb9a02` reverts the binder and retains the stronger pointer/tag parity test;
+both source commits are pushed. Temporary benchmark activation is withdrawn.
+Post-revert restoration passes: **1,576 GNU executions / 88 summaries**, six
+ignored; **122 focused musl / seven**, none ignored. The ordinary release image
+is byte-identical to `dab0490e`, and source manifests verify after testing.
+Performance acceptance remains open.
+Evidence: `target/jit-evidence/short-slice-performance/payload-store-binding/`.
+
 #### Inline Nil payload binding — measured and reverted (2026-10-10)
 
 `28e9f9a` handles Nil in the typed inline binding match alongside Integer and

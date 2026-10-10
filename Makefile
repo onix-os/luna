@@ -443,11 +443,18 @@ jit-direct-capture:
 jit-direct-capture-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::thread::tests::direct_capture -- --test-threads=1
 
-jit-atomic-call:
+jit-atomic-call: jit-snapshot-fuel
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical::tests::atomic $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::activation::atomic_call $(ARGS)
 
 .PHONY: jit-rooted-call jit-rooted-call-miri
+.PHONY: jit-snapshot-fuel jit-snapshot-fuel-miri
+jit-snapshot-fuel:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::activation::snapshot_fuel $(ARGS)
+
+jit-snapshot-fuel-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::activation::snapshot_fuel -- --test-threads=1
+
 jit-rooted-call:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::roots::call $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical::tests::rooted $(ARGS)

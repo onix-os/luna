@@ -63,6 +63,9 @@ fn numeric_binding_matches_reference_for_every_value_kind_and_rebind() {
                     assert!(unsafe { store(actual, slot) });
                 }
                 assert_eq!(unsafe { load(slots[1]) }.unwrap().bits, 1234);
+                let rebound = frame.bind(0).unwrap();
+                assert_eq!((actual.tag, actual.pointer), (rebound.tag, rebound.pointer));
+                slots[0] = rebound;
             }
         }
         assert!(Frame::new(&mut []).bind(0).is_none());
