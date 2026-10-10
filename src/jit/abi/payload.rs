@@ -204,8 +204,7 @@ impl<'a, 'gc> Frame<'a, 'gc> {
         let (tag, pointer) = match value {
             Value::Integer(value) => (INTEGER, std::ptr::from_mut(value).cast()),
             Value::Number(value) => (NUMBER, std::ptr::from_mut(value).cast()),
-            Value::Nil => (NIL, std::ptr::null_mut()),
-            _ => return Some(bind_boolean_or_reference(value)),
+            _ => return Some(bind_non_numeric(value)),
         };
         Some(Payload { tag, pointer })
     }
@@ -230,9 +229,10 @@ impl<'a, 'gc> Frame<'a, 'gc> {
 }
 
 #[inline(never)]
-fn bind_boolean_or_reference(value: &mut Value<'_>) -> Payload {
+fn bind_non_numeric(value: &mut Value<'_>) -> Payload {
     let (tag, pointer) = match value {
         Value::Boolean(value) => (BOOLEAN, std::ptr::from_mut(value).cast()),
+        Value::Nil => (NIL, std::ptr::null_mut()),
         _ => (REFERENCE, std::ptr::null_mut()),
     };
     Payload { tag, pointer }
