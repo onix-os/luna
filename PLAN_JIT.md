@@ -11,6 +11,31 @@
 
 ### Progress snapshot — 2026-10-10
 
+#### Native-only callback setup — candidate
+
+The rooted-state candidate improves upvalues but remains unaccepted. Fresh
+exact-image callback attribution confirms **20,233,235** invocation self
+instructions against **132,231,624** global instructions, with every executed
+PC decoded and frozen-image hashes intact. Earlier selective import/writeback,
+statistics and projection experiments remain rejected.
+
+This candidate applies the independently tested direct physical-callback setup
+only at native Call transitions (ordinary native exits and connected regions).
+The interpreter's original `call_function` body and call sites are unchanged.
+Previous shared-body variants saved the same work in Auto and Off; restricting
+this setup to native exits tests whether their incremental overhead can fall
+without adding checks to interpreter-only calls. Callback execution still takes
+place through the normal Executor, outside generated code. Fixed/variable
+arguments, physical frames, metamethod resolution, depth handling, fuel, errors,
+suspension and original dispatch accounting remain.
+
+The existing independent model compares complete physical state, errors/panics,
+fuel and interruption across **927 scenarios per feature lane**. Initial focused
+validation passes **120 executions / 13 summaries**, two ignored diagnostics;
+after naming the native-only entry, format/check-all and both model feature
+lanes pass again. Full integration and exact-image profiling are pending. This
+is not performance acceptance or a completed callback regression fix.
+
 #### Rooted register-state preservation — validation foundation
 
 The next candidate targets repeated `Snapshot::new` validation in the rooted

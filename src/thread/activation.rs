@@ -502,7 +502,7 @@ impl<'gc, 'a> ActivationHost<'gc, 'a> {
                             returns,
                         );
                     }
-                    frame.call_function(ctx, func, args, returns)
+                    frame.call_function_native(ctx, func, args, returns)
                 }
                 crate::opcode::CallTransition::TailCall { func, args } => {
                     frame.tail_call_function(ctx, func, args)

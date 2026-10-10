@@ -1127,8 +1127,8 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
 
     /// Call the function at the given register with the given arguments. On return, results will be
     /// placed starting at the function register.
-    #[cfg(test)]
-    fn call_function_common(
+    #[cfg(any(feature = "jit", test))]
+    pub(super) fn call_function_native(
         mut self,
         ctx: Context<'gc>,
         func: RegisterIndex,

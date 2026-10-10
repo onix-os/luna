@@ -449,7 +449,7 @@ fn run_vm_slice<'gc>(
                                     returns,
                                 );
                             }
-                            lua_frame.call_function(ctx, func, args, returns)?;
+                            lua_frame.call_function_native(ctx, func, args, returns)?;
                         }
                         crate::opcode::CallTransition::TailCall { func, args } => {
                             lua_frame.tail_call_function(ctx, func, args)?;
