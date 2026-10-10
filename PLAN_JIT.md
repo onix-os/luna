@@ -11,6 +11,34 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Typed string-key native reads — withdrawn (2026-10-10)
+
+A JIT-only string query bypasses generic array/numeric-key conversion while
+preserving the seeded hash, content equality, weak-slot reads and metamethod
+fallback. It introduces no cached pointers or table-layout changes. Focused
+checks and eight JIT-feature Miri tests pass. The new integration fixture checks
+five scripts at seven fuel budgets, exact Off/Auto execution traces, collection
+between steps, mutation, false values and fallback; each native run must report
+at least 80 native table reads.
+
+Two completed timing screens retain 48 checked commands and 648 equal full
+non-timing comparisons. All aggregate performance gates still fail. Callback
+control/candidate medians are only 1.01315/1.01939 on CPU0 and 1.01441/1.01493 on
+CPU16 (first/repeat). CPU0 compiled-Off integer ratios are 0.93542/0.93556;
+the repeat same-image placebo is 0.99883. CPU16 Off float is 0.97170/0.96270
+against placebo 1.00254/0.99964. Other same-image fluctuations remain in the
+evidence; these measurements do not establish a hardware cause.
+
+Withdraw the production specialization rather than accept these trade-offs.
+Retain the independent string-key model and native integration regression test.
+Restoration passes formatting/check-all and 139 focused executions in 18 suites;
+production source matches `f79fcd8`, and the rebuilt ordinary native benchmark
+is byte-identical to the retained baseline. No owned build, test or profiling
+job overlaps the hardware timing runs.
+No candidate full-suite, feature-cost, platform or release acceptance is claimed.
+Source patches, immutable binaries, failed formatting attempt, telemetry and
+analyses remain under `target/jit-evidence/short-slice-performance/typed-string-read*`.
+
 #### Callback return-path inlining — both forms withdrawn (2026-10-10)
 
 The PGO callback profile motivates two ordinary-build trials, without PGO flags:
