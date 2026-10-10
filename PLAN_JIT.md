@@ -11,6 +11,26 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Numeric import prefix — rejected before hardware timing
+
+Exact restored callback profiling attributes 20,233,235 instructions to the
+seven-register invocation bridge. A bounded trial added typed Integer/Number
+early returns to `Slot::from_value`, without changing representation, imported
+registers, writeback, counters or ABI. Formatting/check-all and eight ABI plus
+18 native tests pass. LLVM reconstructs the original numeric import sequence;
+this source rewrite does not remove the intended dispatch work.
+
+Fourteen exact-image native profiles verify all 13 event sums and all seven
+complete non-timing records. Callback and float instruction totals are exactly
+unchanged, including the callback bridge's 20,233,235 instructions. Other raw
+changes include allocator/memcpy work and 261,420 additional instructions in
+upvalue admission; they do not demonstrate an import improvement. The trial is
+removed without hardware timing or cost/platform campaigns. Restored checks and
+26 focused tests pass; the rebuilt native executable is byte-identical to the
+immutable control, and all source/tests/Make match the pre-trial revision.
+Evidence: `numeric-import-prefix*` and `invocation-bridge-callback.json` in the
+short-slice performance directory. No production optimization was retained.
+
 #### Indexed invoker selection — measured and withdrawn
 
 **Withdrawn after timing:** production uses the original branch selector again;
