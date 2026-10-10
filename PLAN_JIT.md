@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-10
 
-#### Bounded rooted-call fuel — refinement in progress (2026-10-10)
+#### Bounded rooted-call fuel — measured and withdrawn (2026-10-10)
 
 Exact attribution of the frozen numeric-binding image validates **61,655,008**
 rooted-invocation self instructions against **170,383,348** global self
@@ -61,8 +61,37 @@ continuation boundary and at least −10 after return charges; rejected saturate
 clones were never observable. The same independent sequential oracle and native
 checks pass again: **129 GNU / 16 summaries**, two ignored; **63 musl / eleven**,
 none ignored; Miri Stacked seed 43 and Tree seed 44 each pass the pure test.
-The refinement is committed and pushed. Its clean candidate/profile build and
-full GNU Force tests are running; no refinement timing or acceptance is claimed.
+The refinement's frozen image `0f4e4fba` passes ten exact-image profiles and
+full GNU Force **1,577 / 88**, six ignored. Closure Auto instructions fall to
+**167,798,621**, rooted invocation self instructions to **59,487,824**. Exact
+executed-PC/image checks pass and all non-timing fields match the ordinary
+control; allocator and admission-traversal variation remain reported separately.
+
+Four further four-way screens complete **96 aggregate commands**, all failing
+the original gates, with zero non-timing changes. Upvalue ratios improve on
+both CPUs: CPU0 **1.005782 / 1.010340 / 1.011341 / 1.008709**; CPU16
+**1.008264 / 1.016749 / 1.011626 / 1.010893**. However CPU0 callbacks remain
+**0.987062 / 0.998692 / 0.987677 / 0.986146**, metamethods
+**0.988582 / 0.982504 / 0.989188 / 0.989236**, and tables
+**0.972439 / 0.972139 / 1.010052 / 0.988540**. These cross-workload losses
+reject the refinement; narrower upvalue wins do not establish acceptance.
+
+`6d2d701` restores the original sequential runtime charges and retains the pure
+model under `cfg(test)` plus its Make targets. Both runtime variants and all
+192 aggregate timing failures remain available. The post-withdrawal release
+image is byte-identical to ordinary `dab0490e`; restoration passes **1,577 GNU /
+88 summaries**, six ignored, and **122 focused musl / seven**, none ignored.
+Source manifests verify after testing. No performance or release gate is closed
+by this trial.
+
+Follow-up exact ordinary-image attribution locates **8,161,536 instructions**
+in the rooted snapshot-validation loop: 14 executed PCs, six executed 1,020,192
+times and eight reference checks executed 255,048 times. The boundary's total
+self cost is **30,627,690**, with global self **169,861,074**; executed-PC
+decoding and image hashes verify. This identifies another cost to investigate,
+not grounds to remove tag, bounds, root-kind or publication checks. No snapshot
+validation optimization has been implemented. Evidence is under
+`rooted-boundary-attribution/` in the same ignored performance directory.
 Evidence: `target/jit-evidence/short-slice-performance/rooted-fuel/` and
 `rooted-cost-attribution-v2/`; the initial failed symbol extraction is retained.
 
