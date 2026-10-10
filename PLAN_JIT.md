@@ -107,6 +107,36 @@ the pre-existing performance failures.
 Evidence: `table-owner*` under
 `target/jit-evidence/short-slice-performance/`.
 
+#### Same-image calibration — compact rejection reproduced
+
+After restoration, a separate campaign runs the exact original images under
+two labels (control/placebo), alongside the frozen rejected compact images.
+Both original labels use the same inode and invocation path. No new build or
+runtime edit is involved. Original workloads, thresholds, 11 samples, 20 cost
+iterations, CPU0/16 and three native/four cost windows remain unchanged.
+The campaign exits 0 after 18 native and 48 cost commands; all 66 aggregate
+acceptance commands still fail. Complete non-timing records match in 216 native
+and 288 cost comparisons, and source/image manifests verify. The strict parser
+rejects six mutations: duplicate status, native/cost threshold changes, changed
+counter, mismatched same-image hash and missing log.
+
+CPU0 shipping float control/placebo median is 1.00147, with all four ratios
+between 0.99876 and 1.00400. Control/compact is 0.79711, with all four between
+0.78950 and 0.79915. Shipping integer is 0.99921 for placebo versus 0.89072
+for compact. CPU16 speed float is 1.00345 for placebo versus 0.91195 for compact.
+These are control-time/other-time ratios, not adjusted or noise-subtracted
+acceptance values. Same-image label/order variation in this campaign does not
+explain the compact image's repeated losses. CPU16 shipping placebo variation
+is wider and remains in the raw results; no idle-host or hardware-cause claim
+is made. Unrelated host work and contention telemetry are retained.
+
+Compact native callback medians improve 1.04778/1.04112 on CPU0/16, all six
+windows favorable; same-image medians are 1.00206/1.00202. These gains still do
+not offset the shipping regressions. Keep both table caches withdrawn. This
+calibration neither repairs the native callback gap nor closes performance,
+resource, platform or release acceptance. Evidence: `same-image-calibration*`
+under `target/jit-evidence/short-slice-performance/`.
+
 #### Suffix drain cleanup — withdrawn after timing
 
 Four new independent fixtures (`aec2654`) validate public Drain against
