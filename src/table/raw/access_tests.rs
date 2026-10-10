@@ -398,7 +398,9 @@ fn arbitrary_bucket_hints_match_uncached_lookup() {
                 })
                 .map_or(Value::Nil, |(_, value)| value.0.get(mc));
             for index in (0..=table.map.raw_table().buckets()).chain([usize::MAX]) {
-                table.string_bucket.set(index);
+                table
+                    .string_bucket
+                    .set(u32::try_from(index).unwrap_or(u32::MAX));
                 identical(table.get(mc, query), expected);
             }
         }
@@ -445,5 +447,75 @@ fn arbitrary_bucket_hints_match_uncached_lookup() {
                 check(&ctx, &table, &queries);
             }
         }
+    });
+}
+
+#[cfg(target_pointer_width = "64")]
+#[test]
+fn string_hint_preserves_uncached_table_layout_and_gc_charge() {
+    use ottavino_gc_arena::lock::RefLock;
+
+    #[derive(Collect)]
+    #[collect(no_drop)]
+    struct WithoutHint<'gc> {
+        array: vec::Vec<Value<'gc>, MetricsAlloc<'gc>>,
+        map: HashMap<Key<'gc>, (Slot<'gc>, usize), (), MetricsAlloc<'gc>>,
+        order: vec::Vec<Key<'gc>, MetricsAlloc<'gc>>,
+        weak_values: bool,
+        weak_keys: bool,
+    }
+
+    #[derive(Collect)]
+    #[collect(no_drop)]
+    struct WithoutHintState<'gc> {
+        raw_table: WithoutHint<'gc>,
+        metatable: Option<Table<'gc>>,
+        readonly: bool,
+        intercept_all_writes: bool,
+    }
+
+    type Original = WithoutHint<'static>;
+    type Current = RawTable<'static>;
+    assert_eq!(mem::size_of::<Original>(), mem::size_of::<Current>());
+    assert_eq!(mem::align_of::<Original>(), mem::align_of::<Current>());
+    assert_eq!(
+        mem::offset_of!(Original, array),
+        mem::offset_of!(Current, array)
+    );
+    assert_eq!(
+        mem::offset_of!(Original, map),
+        mem::offset_of!(Current, map)
+    );
+    assert_eq!(
+        mem::offset_of!(Original, order),
+        mem::offset_of!(Current, order)
+    );
+    assert_eq!(
+        mem::size_of::<WithoutHintState<'static>>(),
+        mem::size_of::<crate::table::TableState<'static>>()
+    );
+    crate::Lua::empty().enter(|ctx| {
+        let original = WithoutHintState {
+            raw_table: WithoutHint {
+                array: vec::Vec::new_in(MetricsAlloc::new(&ctx)),
+                map: HashMap::with_hasher_in((), MetricsAlloc::new(&ctx)),
+                order: vec::Vec::new_in(MetricsAlloc::new(&ctx)),
+                weak_values: false,
+                weak_keys: false,
+            },
+            metatable: None,
+            readonly: false,
+            intercept_all_writes: false,
+        };
+        let before = ctx.metrics().total_allocation();
+        let original = Gc::new(&ctx, RefLock::new(original));
+        let original_charge = ctx.metrics().total_allocation() - before;
+        let before = ctx.metrics().total_allocation();
+        let current = Table::new(&ctx);
+        let current_charge = ctx.metrics().total_allocation() - before;
+        assert!(original_charge > 0);
+        assert_eq!(original_charge, current_charge);
+        assert!(!Gc::as_ptr(original).is_null());
+        assert!(!Gc::as_ptr(current.into_inner()).is_null());
     });
 }

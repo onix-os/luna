@@ -54,7 +54,16 @@ They do not establish the hardware cause of those elapsed-time regressions.
 Offline type inspection finds RawTable at 120 bytes with the hint at offset 64
 and map at 72, plus six trailing padding bytes. A smaller checked offset might
 avoid growing every table and relocating the map; that resource/layout
-hypothesis needs baseline measurement and validation, not an assumed speedup.
+hypothesis is now measured separately: actual no-hint b8e40a4 source passes
+14 repeated focused checks and reports 112 bytes, with map at 64. The compact
+u32 trial also reports 112 bytes and preserves array/map/order offsets. Its
+64-bit fixture compares both layout and actual positive GC allocation charges
+against the uncached shape; no per-table allocation growth remains on this
+host. Unrepresentable offsets use an advisory sentinel, without limiting map
+capacity or bypassing current-bucket validation. Focused GNU passes 55 checks.
+This does not explain the wide trial's numeric slowdown or establish compact
+timing acceptance. Compact Miri, profiles, broad validation and timing remain
+outstanding; preserve the wide candidate as an additional control.
 Evidence: `table-owner*` under
 `target/jit-evidence/short-slice-performance/`.
 
