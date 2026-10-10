@@ -11,6 +11,66 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Numeric import prefix — rejected before hardware timing
+
+Exact restored callback profiling attributes 20,233,235 instructions to the
+seven-register invocation bridge. A bounded trial added typed Integer/Number
+early returns to `Slot::from_value`, without changing representation, imported
+registers, writeback, counters or ABI. Formatting/check-all and eight ABI plus
+18 native tests pass. LLVM reconstructs the original numeric import sequence;
+this source rewrite does not remove the intended dispatch work.
+
+Fourteen exact-image native profiles verify all 13 event sums and all seven
+complete non-timing records. Callback and float instruction totals are exactly
+unchanged, including the callback bridge's 20,233,235 instructions. Other raw
+changes include allocator/memcpy work and 261,420 additional instructions in
+upvalue admission; they do not demonstrate an import improvement. The trial is
+removed without hardware timing or cost/platform campaigns. Restored checks and
+26 focused tests pass; the rebuilt native executable is byte-identical to the
+immutable control, and all source/tests/Make match the pre-trial revision.
+Evidence: `numeric-import-prefix*` and `invocation-bridge-callback.json` in the
+short-slice performance directory. No production optimization was retained.
+
+#### Indexed invoker selection — measured and withdrawn
+
+**Withdrawn after timing:** production uses the original branch selector again;
+the exhaustive native tests and independent table model remain. The 30 native
+and 128 cost runs preserve all counters in 108 native/144 cost comparisons.
+All native aggregate gates fail; 127 cost gates fail and one passes. CPU0 native
+callbacks worsen in all three windows (fresh/candidate median 0.96379), while
+CPU16 is near parity (1.00243). Shipping Off integer/float execution worsens in
+all four windows on both CPUs: median ratios 0.91379/0.88435 on CPU0 and
+0.90381/0.90981 on CPU16. Paired normalization retains those losses despite
+recorded contention outliers. Favorable CPU0 speed Oslo results (three failures
+to zero) and all adverse samples remain in the evidence. Small instruction
+savings do not justify these elapsed regressions. Restoration passes formatting,
+check-all and 1,490 GNU Force tests (88 summaries, six ignored). All five rebuilt
+executables are byte-identical to the fresh controls; source manifests verify,
+and source/tests/Make match `bda9f15`. The full performance goal remains incomplete.
+
+The trial replaced the branch-based selector with a read-only table of the same
+14 native scratch-tier functions for register counts 0 through 256. Existing
+resume, entry-PC, canonical-prefix and maximum-register checks remain before
+the call. A higher-ranked Rust function-pointer type preserves GC/register
+lifetimes without unsafe casts, per-code fields or allocation.
+
+Independent models and exhaustive real native/reference coverage were committed
+as `bda9f15`: positive counts 1 through 256 plus explicitly zero-register bounded
+infinite-loop execution. Fresh controls rebuilt all five benchmark images
+byte-identical to the restored baseline before production edits. Integrated
+formatting/check-all and 21 focused checks pass; full GNU Force passes 1,490
+executions/88 summaries/six ignored, musl 21, and each Miri model three.
+
+Optimized native assembly contains one indexed indirect call through the table,
+not the old branch selector. The table occupies 2,056 bytes on this host; total
+native/speed/shipping files grow by 7,280/7,312/7,392 bytes, respectively. Both
+no-feature binaries remain byte-identical. Fourteen profiles verify exact-image
+identity, all 13 event totals and complete non-timing counter equality. Whole-path
+instructions fall 0.34% for callbacks and 0.012% for upvalues, but the unchanged
+paired elapsed-time gates above reject the trial. This is not performance acceptance.
+Evidence: `invoker-table-{model,control,candidate}/` under the short-slice
+performance directory, plus `invoker-table-native-control/` for baseline GNU.
+
 #### Typed projection capability — measured and withdrawn
 
 **Withdrawal, 2026-10-10:** production integration and the subsequent handoff
