@@ -73,17 +73,6 @@ impl<T> Shared<T> {
         left.pointer == right.pointer
     }
 
-    #[cold]
-    #[inline(never)]
-    unsafe fn release(pointer: NonNull<Inner<T>>) {
-        let allocation = Allocation {
-            pointer,
-            allocator: unsafe { pointer.as_ref() }.allocator.clone(),
-        };
-        unsafe { std::ptr::drop_in_place(pointer.as_ptr()) };
-        drop(allocation);
-    }
-
     #[cfg(test)]
     pub fn allocation_bytes() -> usize {
         Layout::new::<Inner<T>>().size()
@@ -115,13 +104,17 @@ impl<T> Deref for Shared<T> {
 }
 
 impl<T> Drop for Shared<T> {
-    #[inline]
     fn drop(&mut self) {
         let inner = unsafe { self.pointer.as_ref() };
         let strong = inner.strong.get();
         inner.strong.set(strong - 1);
         if strong == 1 {
-            unsafe { Self::release(self.pointer) };
+            let allocation = Allocation {
+                pointer: self.pointer,
+                allocator: inner.allocator.clone(),
+            };
+            unsafe { std::ptr::drop_in_place(self.pointer.as_ptr()) };
+            drop(allocation);
         }
     }
 }
