@@ -223,9 +223,21 @@ impl<'a, 'gc> Frame<'a, 'gc> {
             return false;
         }
         unsafe { self.values.as_ptr().add(index).write(value) };
-        slots[index] = self.bind(index).unwrap();
+        slots[index] = bind_stored(unsafe { &mut *self.values.as_ptr().add(index) });
         true
     }
+}
+
+#[inline(always)]
+fn bind_stored(value: &mut Value<'_>) -> Payload {
+    let (tag, pointer) = match value {
+        Value::Integer(value) => (INTEGER, std::ptr::from_mut(value).cast()),
+        Value::Number(value) => (NUMBER, std::ptr::from_mut(value).cast()),
+        Value::Boolean(value) => (BOOLEAN, std::ptr::from_mut(value).cast()),
+        Value::Nil => (NIL, std::ptr::null_mut()),
+        _ => (REFERENCE, std::ptr::null_mut()),
+    };
+    Payload { tag, pointer }
 }
 
 #[inline(never)]
