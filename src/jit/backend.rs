@@ -2577,7 +2577,9 @@ impl Emitter<'_, '_> {
         let (it, ib) = self.load(base);
         let (lt, lb) = self.load(base + 1);
         let (st, sb) = self.load(base + 2);
-        self.require_numeric_loop([it, lt, st]);
+        for tag in [it, lt, st] {
+            self.require_numeric(tag);
+        }
         let ii = self.tag_is(it, abi::INTEGER);
         let si = self.tag_is(st, abi::INTEGER);
         let integer = self.builder.create_block();
@@ -2707,24 +2709,6 @@ impl Emitter<'_, '_> {
             visible_store,
             next: [taken_next, done_next],
         });
-    }
-
-    fn require_numeric_loop(&mut self, tags: [IrValue; 3]) {
-        #[cfg(test)]
-        if self.omit_numeric_guards {
-            return;
-        }
-        const { assert!(abi::INTEGER & 1 == 0 && abi::NUMBER == (abi::INTEGER | 1)) };
-        let integer_tag = self.constant(abi::INTEGER);
-        let first = self.builder.ins().bxor(tags[0], integer_tag);
-        let limit = self.builder.ins().bxor(tags[1], integer_tag);
-        let step = self.builder.ins().bxor(tags[2], integer_tag);
-        let combined = self.builder.ins().bor(first, limit);
-        let combined = self.builder.ins().bor(combined, step);
-        let mask = self.constant(!1);
-        let invalid = self.builder.ins().band(combined, mask);
-        let numeric = self.tag_is(invalid, 0);
-        self.require(numeric);
     }
 }
 

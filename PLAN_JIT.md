@@ -11,7 +11,32 @@
 
 ### Progress snapshot — 2026-10-11
 
-#### Combined numeric-loop guard — unaccepted trial
+#### Combined numeric-loop guard — withdrawn
+
+Four native screens and two feature-cost screens complete **168 checked
+commands**, with original thresholds, raw pairs, complete counters, immutable
+images and same-image controls. No owned validation overlaps timing. The trial
+is rejected: its instruction savings do not deliver a reliable callback gain
+and repeated cross-workload regressions outweigh the float-native improvement.
+
+CPU0 array Off control/candidate ratios are **0.914456 / 0.903740 / 0.904519 /
+0.919034**, versus placebo **1.002205 / 0.984964 / 1.010247 / 1.009004**.
+CPU16 array Off is **0.905949 / 0.907916 / 0.919414 / 0.917449**. CPU0 float
+Off is **0.934217 / 0.902503 / 0.931456 / 0.931802**; CPU16 metamethod Auto
+is **0.948783 / 0.950186 / 0.963975 / 0.962104**. Float Auto gains roughly
+2–3%, but callbacks remain mixed and near parity. These measurements do not
+establish a layout or hardware cause for the regressions.
+
+Feature-cost speed callbacks fail **11/12**, CPU16 upvalues **6/6**, and
+shipping upvalues **12/12**. Other failures, resource-peak reductions and
+contention remain in the reports. Restore the original three guards and
+production predicate verifier; do not retain an unused production proof
+extension. Keep the native high-bit/three-operand/fuel corpus, a test-only
+known-bits algebra model and explicit refusal of combined guards without a
+matching verifier. Restoration build and validation are pending below.
+
+The following paragraphs describe the withdrawn trial, not enabled production
+code. Full JIT performance/resource/platform/release acceptance remains open.
 
 Two exact-image callback captures reproduce all baseline non-timing fields,
 132,231,624 VM-step instructions and 9,468,103 generated instructions. The

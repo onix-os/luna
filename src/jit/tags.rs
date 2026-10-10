@@ -10,8 +10,6 @@ use super::{
 };
 use crate::opcode::{Operation, RCIndex};
 
-mod known_bits;
-
 const ALL: u8 = (1 << (abi::REFERENCE + 1)) - 1;
 
 #[derive(Clone, Copy)]
@@ -2888,18 +2886,6 @@ impl Analysis<'_> {
         };
         match self.function.dfg.insts[inst] {
             InstructionData::IntCompare { cond, args, .. } => {
-                if args
-                    .iter()
-                    .all(|&arg| self.function.dfg.value_type(arg) == types::I64)
-                {
-                    let left = self.known_bits(args[0], queried, tag, remaining)?;
-                    let right = self.known_bits(args[1], queried, tag, remaining)?;
-                    return Some(match cond {
-                        IntCC::Equal => left.equal(right),
-                        IntCC::NotEqual => left.equal(right).map(|equal| !equal),
-                        _ => None,
-                    });
-                }
                 let left = self.literal(args[0], queried, tag, remaining);
                 let right = self.literal(args[1], queried, tag, remaining);
                 Some(match (left, right, cond) {
@@ -2928,46 +2914,6 @@ impl Analysis<'_> {
             } if matches!(imm.bits(), 0 | 1) => Some(Some(imm.bits() == 1)),
             _ => None,
         }
-    }
-
-    fn known_bits(
-        &self,
-        value: Value,
-        queried: Option<Value>,
-        tag: u64,
-        remaining: &mut usize,
-    ) -> Option<known_bits::KnownBits> {
-        use known_bits::KnownBits;
-        *remaining = remaining.checked_sub(1)?;
-        let value = self.function.dfg.resolve_aliases(value);
-        if self.function.dfg.value_type(value) != types::I64 {
-            return None;
-        }
-        if queried.is_some_and(|queried| value == queried) {
-            return Some(KnownBits::exact(tag));
-        }
-        let ValueDef::Result(inst, 0) = self.function.dfg.value_def(value) else {
-            return Some(KnownBits::UNKNOWN);
-        };
-        Some(match self.function.dfg.insts[inst] {
-            InstructionData::UnaryImm {
-                opcode: Opcode::Iconst,
-                imm,
-            } => KnownBits::exact(imm.bits() as u64),
-            InstructionData::Binary { opcode, args }
-                if matches!(opcode, Opcode::Band | Opcode::Bor | Opcode::Bxor) =>
-            {
-                let left = self.known_bits(args[0], queried, tag, remaining)?;
-                let right = self.known_bits(args[1], queried, tag, remaining)?;
-                match opcode {
-                    Opcode::Band => left.and(right),
-                    Opcode::Bor => left.or(right),
-                    Opcode::Bxor => left.xor(right),
-                    _ => unreachable!(),
-                }
-            }
-            _ => KnownBits::UNKNOWN,
-        })
     }
 
     fn literal(
@@ -3611,7 +3557,7 @@ mod tests {
     }
 
     #[test]
-    fn combined_numeric_guards_require_every_operand_and_exact_mask() {
+    fn combined_numeric_guards_are_refused_without_a_matching_proof() {
         for fault in 0..9 {
             for inverted in [false, true] {
                 let result = fixture(|builder, slots, _, stores| {
@@ -3681,11 +3627,7 @@ mod tests {
                     builder.switch_to_block(reject);
                     builder.ins().return_(&[]);
                 });
-                if fault == 0 {
-                    result.unwrap();
-                } else {
-                    rejected(result);
-                }
+                rejected(result);
             }
         }
     }
@@ -4717,3 +4659,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod known_bits;
