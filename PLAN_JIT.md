@@ -93,6 +93,14 @@ not machine code. Raw logs are under `payload-opcodes-*`. Added backend test hoo
 shift source locations, so production byte identity must be rechecked rather
 than inferred from cfg(test).
 
+The rebuilt GNU opt3 image has SHA256
+`76d76157b47128fa2df2bf60a36077bb4448762fb6d04633cd1e62b853bb1cac`,
+not the frozen control hash. Section extraction confirms identical `.text` and
+`.rodata`; all 46 changed `.data.rel.ro` words resolve to changed line numbers
+for `src/jit/backend.rs`. The image audit is under `payload-opcodes-image-audit`.
+Keep the original frozen control; these checks establish neither a speedup nor
+performance acceptance.
+
 #### Sign-directed checked jump arithmetic — withdrawn (2026-10-10)
 
 On the restored runtime, a source trial replaces `checked_add_signed` with
