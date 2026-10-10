@@ -119,7 +119,7 @@ impl<'gc, const N: usize> Shadow<'gc, N> {
                 return None;
             }
             drop(manager);
-            Some(ctx.jit().invoke_frame::<false, true>(
+            Some(ctx.jit().invoke_frame::<N, false, true>(
                 code,
                 ctx,
                 closure,

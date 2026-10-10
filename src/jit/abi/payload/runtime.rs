@@ -12,6 +12,10 @@ mod local_tests;
 #[path = "closed_table_tests.rs"]
 mod closed_table_tests;
 
+#[cfg(test)]
+#[path = "capacity_tests.rs"]
+mod capacity_tests;
+
 #[repr(C)]
 pub(crate) struct Bridge {
     pub base: abi::Host,
@@ -62,11 +66,11 @@ unsafe extern "C" fn helper<const KIND: u32>(
 }
 
 #[inline(always)]
-pub(crate) fn with_bridge(
+pub(crate) fn with_bridge<const CAPACITY: usize>(
     frame: &mut helpers::Frame<'_, '_, '_, '_>,
     body: impl FnOnce(*mut Payload, *mut Bridge),
 ) {
-    with_session(frame, |session, slots| {
+    with_session_capacity::<CAPACITY>(frame, |session, slots| {
         let mut bridge = Bridge {
             base: abi::Host {
                 data: session.cast(),
@@ -177,7 +181,7 @@ pub(crate) fn check_native_write(entry: unsafe extern "C" fn(*mut Payload, *mut 
                             panic: None,
                             projection: None,
                         };
-                        with_bridge(&mut frame, |slots, host| unsafe {
+                        with_bridge::<256>(&mut frame, |slots, host| unsafe {
                             let materializations =
                                 u64::from(Slot::from_value(initial).tag != expected.tag);
                             for bits in [expected.bits, final_bits] {
@@ -226,7 +230,7 @@ fn bridge_function_table_preserves_original_payload_and_host_pointers() {
                 panic: None,
                 projection: None,
             };
-            with_bridge(&mut frame, |slots, host| unsafe {
+            with_bridge::<256>(&mut frame, |slots, host| unsafe {
                 assert!(std::ptr::eq((*host).helpers, &HELPERS));
                 ((*host).write)(host, slots, 0, INTEGER, 42);
                 assert_eq!(((*host).read)(slots, 0), 42);
@@ -283,12 +287,12 @@ impl Session<'_, '_, '_, '_, '_> {
 }
 
 #[inline(always)]
-fn with_session(
+fn with_session_capacity<const CAPACITY: usize>(
     frame: &mut helpers::Frame<'_, '_, '_, '_>,
     body: impl FnOnce(*mut (), *mut Payload),
 ) {
     let count = frame.slot_count;
-    assert!(count <= 256 && count <= frame.registers.stack_frame.len());
+    assert!(CAPACITY <= 256 && count <= CAPACITY && count <= frame.registers.stack_frame.len());
     assert!(frame.projection.is_none());
     let stopped = frame.panic.is_some();
     let ctx = frame.ctx;
@@ -304,7 +308,7 @@ fn with_session(
         stopped,
         borrow: PhantomData,
     };
-    let mut slots = [std::mem::MaybeUninit::<Payload>::uninit(); 256];
+    let mut slots = [std::mem::MaybeUninit::<Payload>::uninit(); CAPACITY];
     session.bind_each(count, |index, value| {
         slots[index].write(value);
     });
@@ -312,6 +316,14 @@ fn with_session(
         std::ptr::from_mut(&mut session).cast(),
         slots.as_mut_ptr().cast(),
     );
+}
+
+#[cfg(test)]
+fn with_session(
+    frame: &mut helpers::Frame<'_, '_, '_, '_>,
+    body: impl FnOnce(*mut (), *mut Payload),
+) {
+    with_session_capacity::<256>(frame, body);
 }
 
 unsafe extern "C" fn call<const KIND: u32>(

@@ -1804,7 +1804,7 @@ impl Runtime {
         let register_count = if EXACT { CAPACITY } else { code.registers };
         #[cfg(all(test, not(miri)))]
         if code.payload && code.array_kernels.is_none() {
-            return self.invoke_frame::<false, false>(
+            return self.invoke_frame::<CAPACITY, false, false>(
                 code,
                 ctx,
                 closure,
@@ -1850,7 +1850,7 @@ impl Runtime {
                 closure.upvalues(),
                 slots,
                 |registers, pointer, projection| {
-                    self.invoke_frame::<true, false>(
+                    self.invoke_frame::<CAPACITY, true, false>(
                         code,
                         ctx,
                         closure,
@@ -1861,7 +1861,7 @@ impl Runtime {
                 },
             )
         } else {
-            self.invoke_frame::<false, false>(
+            self.invoke_frame::<CAPACITY, false, false>(
                 code,
                 ctx,
                 closure,
@@ -1928,7 +1928,7 @@ impl Runtime {
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
     #[inline(always)]
-    fn invoke_frame<'gc, const PROJECTED: bool, const DEFER: bool>(
+    fn invoke_frame<'gc, const CAPACITY: usize, const PROJECTED: bool, const DEFER: bool>(
         &self,
         code: &backend::Code,
         ctx: crate::Context<'gc>,
@@ -2014,7 +2014,7 @@ impl Runtime {
         #[cfg(all(test, not(miri)))]
         let payload_exit = code
             .payload
-            .then(|| code.invoke_payload(&mut frame, pc, budget));
+            .then(|| code.invoke_payload::<CAPACITY>(&mut frame, pc, budget));
         #[cfg(all(test, miri))]
         let payload_exit: Option<abi::Exit> = None;
         #[cfg(test)]
