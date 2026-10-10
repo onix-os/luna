@@ -23,8 +23,6 @@ mod call_tests;
 ))]
 pub(crate) mod atomic_call;
 
-mod snapshot_fuel;
-
 pub(crate) struct ActivationHost<'gc, 'a> {
     #[cfg(all(
         not(miri),
@@ -791,3 +789,6 @@ pub(crate) fn with_test_existing_thread<'gc, R>(
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod return_tests;
+
+#[cfg(test)]
+mod snapshot_fuel;
