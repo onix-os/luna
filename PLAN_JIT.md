@@ -74,9 +74,16 @@ placebos, contention, image hashes and source checks are retained.
 The native-only common-prelude variant is withdrawn. Runtime call sites and
 the original test-only setup models are restored to `d38f350`; the earlier
 rooted-state reuse candidate remains unchanged and still unaccepted. Exact
-binary restoration and fresh focused checks are required before the next
-experiment. Do not reactivate this common-prelude variant or report its
-instruction savings as a measured general speedup.
+binary restoration reproduces **`3d0dc224` byte-for-byte** after `1283d71`;
+fresh full GNU/musl restoration checks are still running. Do not reactivate
+this common-prelude variant or report its instruction savings as a measured
+general speedup.
+
+The exact ordinary-invocation attribution partitions its **20,233,235** self
+instructions into import **5,771,921**, entry setup **2,140,017**, exit/writeback/
+PC **6,484,887**, statistics **3,696,393**, prologue **1,102,433** and teardown
+**1,037,584**. These measured costs do not justify retrying previously rejected
+writeback masks, integer-first dispatch, same-integer stores or counter masks.
 
 #### Rooted register-state preservation — validation foundation
 
