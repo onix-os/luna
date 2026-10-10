@@ -10,6 +10,7 @@ use crate::{
 };
 
 thread_local! {
+    pub(super) static DEFERRED_ENABLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static ROOTED_PANIC: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
     static ROOTED_PANIC_SKIP: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     pub(super) static ROOTED_COMPLETIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -83,6 +84,7 @@ fn rooted_call_panic_publishes_pending_caller_and_committed_results() {
 
 #[test]
 fn rooted_deferred_calls_publish_on_late_panic() {
+    let _deferred = Deferred::new();
     fixture(|ctx, closure, region, start| {
         for skip in [1, 2, 7, 19] {
             for phase in [1, 2] {
@@ -131,6 +133,28 @@ fn rooted_deferred_calls_publish_on_late_panic() {
             }
         }
     });
+}
+
+struct Deferred(bool);
+
+impl Deferred {
+    fn new() -> Self {
+        Self(DEFERRED_ENABLED.with(|flag| flag.replace(true)))
+    }
+}
+
+impl Drop for Deferred {
+    fn drop(&mut self) {
+        DEFERRED_ENABLED.with(|flag| flag.set(self.0));
+    }
+}
+
+#[test]
+fn deferred_region_matches_canonical_bounded_frames_fuel_and_work() {
+    let _deferred = Deferred::new();
+    ROOTED_DEFERRED.with(|count| count.set(0));
+    generated_region_matches_canonical_bounded_frames_fuel_and_work();
+    assert!(ROOTED_DEFERRED.with(|count| count.get()) >= 20);
 }
 
 fn fixture(test: impl for<'gc> FnOnce(Context<'gc>, Closure<'gc>, Region, usize)) {

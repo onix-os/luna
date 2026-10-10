@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Rooted region publication deferral — experimental (2026-10-10)
+#### Rooted region publication deferral — test-only (2026-10-10)
 
 The current trial targets the measured 21.55 million instructions in rooted
 caller publication. After a successful compact upvalue call, a helper-free
@@ -37,8 +37,54 @@ executions. These are overlapping test executions, not full acceptance.
 
 The ordinary GNU opt3 image is frozen as
 `d51fa7a98f334401e82c8aa97dbe650a4946064f5a11ed990ff898036b3e00af`.
-Exact-image whole-workload profiles are running; no speedup is claimed yet.
-Evidence is under `target/jit-evidence/short-slice-performance/rooted-deferred*`.
+Ten exact-image profiles pass the strict full-record comparison. Upvalue work
+falls **170,017,519 -> 153,376,513 instructions (9.79%)**. Publication self-cost
+falls from about 21.55 million to 4.89 million. The other four profiles have
+unchanged instruction counts except 81 fewer callback instructions. Instrumented
+wall times are not used as hardware evidence.
+
+Two complete native rounds and two speed/shipping cost rounds finish **144
+commands**, retaining frozen thresholds, eleven samples, CPUs 0/16, alternating
+controls/placebos, all adverse results and contention telemetry. No owned
+build/test/profile/edit overlaps timing. Native full-record checks match in
+**648 comparisons**; cost native proofs match in **576 comparisons**. Both
+no-feature cost images are byte-identical to their frozen controls.
+
+Control time / candidate time ratios, first / repeat:
+
+| Workload | Profile / CPU | Ratio |
+| --- | --- | --- |
+| Upvalue Auto | native / 0 | 1.11836 / 1.12544 |
+| Upvalue Auto | native / 16 | 1.13515 / 1.12430 |
+| Integer Off | native / 0 | 0.93956 / 0.93702 |
+| Float Off | native / 0 | 0.96790 / 0.96672 |
+| Integer Off | speed / 0 | 1.03149 / 1.02688 |
+| Float Off | speed / 0 | 1.05873 / 1.05548 |
+| Integer Off | shipping / 16 | 0.88866 / 0.88910 |
+| Float Off | shipping / 16 | 0.91069 / 0.91100 |
+| Table Off | shipping / 16 | 0.90601 / 0.91257 |
+
+All twelve candidate upvalue speed gates pass, but every aggregate command
+still fails, including controls. The disabled shipping regressions are repeatable
+and cannot be waived by the native gain or passing individual overhead limits.
+The production change in `ce95b8f` is therefore withdrawn. The implementation
+is retained under `cfg(test)` in `native_region/deferred.rs`, with an opt-in
+test scope, late-panic proof and a full bounded fuel/frame differential. Ordinary
+tests default to the original production path; the explicit deferred tests
+exercise the prototype. Re-enabling the measured candidate is not acceptance.
+
+Before withdrawal, all-feature GNU Auto passes **1,548 executions / 88
+summaries**, six ignored; focused musl passes 79 executions. Native late-panic
+Memcheck reports zero errors and zero definite/indirect leaks; 48 possibly-lost
+and 632 reachable harness bytes remain visible. Source patches, exact symbol
+companions, manifests and complete analysis are retained under
+`target/jit-evidence/short-slice-performance/rooted-deferred*`.
+After withdrawal, GNU and musl each pass 71 focused executions across seven
+summaries, two ignored. The test-only late-panic path passes Memcheck again
+with the same zero-error/leak results and visible harness residues. A fresh
+ordinary GNU opt3 rebuild has `.text` and `.rodata` byte-identical to the
+frozen production control; whole-file identity is not claimed. The candidate
+images and their adverse evidence remain immutable.
 All original performance, resource, platform and release gates remain open.
 
 #### Typed scalar payload boundary — test-only (2026-10-10)

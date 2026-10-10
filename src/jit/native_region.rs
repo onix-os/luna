@@ -173,6 +173,7 @@ impl Region {
         }
         unsafe { (&mut *pointer).publish(&mut view) };
         unsafe { self.driver.invoke(&mut view, limit as u32) };
+        #[cfg(test)]
         assert!(!session.rooted_pending);
         let payload = session.panic.take();
         let outcome = session.outcome;
@@ -292,6 +293,10 @@ impl Session<'_, '_, '_, '_> {
     }
 
     fn complete_rooted(&mut self, view: &mut View) -> RootedCompletion {
+        #[cfg(test)]
+        if tests::DEFERRED_ENABLED.with(|flag| flag.get()) {
+            return self.complete_rooted_deferred(view);
+        }
         if self.frame.panic.is_some()
             || view.exit.instructions >= self.budget
             || self.limit - self.outcome.slices < 2
@@ -336,35 +341,30 @@ impl Session<'_, '_, '_, '_> {
             tests::ROOTED_COMPLETIONS.with(|count| count.set(count.get() + 1));
             tests::rooted_checkpoint(2);
         }
-        if completed {
-            self.outcome.slices += 2;
-            self.outcome.pairs += 1;
-        }
-        let continuing = completed
-            && self.outcome.slices < self.limit
-            && self.frame.host.fuel().should_continue()
-            && self.frame.host.lua_ready()
-            && self.frame.host.frame_identity() == self.identity;
         let pc = self.frame.host.with_registers(|caller, registers| {
-            let pc = (continuing
+            assert!(snapshot.publish(registers.stack_frame));
+            (completed
                 && caller == self.admitted.caller()
                 && registers.stack_frame.len() >= snapshot.len()
                 && self.region.caller.accepts_pc(*registers.pc))
-            .then_some(*registers.pc);
-            if pc.is_none() {
-                assert!(snapshot.publish(registers.stack_frame));
-            }
-            pc
+            .then_some(*registers.pc)
         });
-        self.rooted_pending = pc.is_some();
+        self.rooted_pending = false;
         if !completed {
             return RootedCompletion::Declined;
+        }
+        self.outcome.slices += 2;
+        self.outcome.pairs += 1;
+        if self.outcome.slices >= self.limit
+            || !self.frame.host.fuel().should_continue()
+            || !self.frame.host.lua_ready()
+            || self.frame.host.frame_identity() != self.identity
+        {
+            return RootedCompletion::Complete(0);
         }
         let Some(pc) = pc else {
             return RootedCompletion::Complete(0);
         };
-        #[cfg(test)]
-        tests::ROOTED_DEFERRED.with(|count| count.set(count.get() + 1));
         view.pc = pc as u64;
         self.publish(view);
         RootedCompletion::Complete(1)
@@ -402,7 +402,10 @@ impl Session<'_, '_, '_, '_> {
                 .get(*registers.pc)
                 .and_then(|op| op.call_transition())
         });
-        self.rooted_pending = false;
+        #[cfg(test)]
+        {
+            self.rooted_pending = false;
+        }
         if !recorded {
             record(ctx, &view.exit, std::mem::take(&mut self.frame.count));
         }
@@ -529,3 +532,6 @@ unsafe extern "C" fn boundary(view: *mut View) -> u32 {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod deferred;
