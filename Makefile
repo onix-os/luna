@@ -97,7 +97,7 @@ $(info ------------------------------------------)
 .PHONY: jit-coverage-environment jit-coverage-lock jit-coverage-check jit-coverage-test
 .PHONY: jit-coverage-help jit-coverage-fmt jit-coverage-fmt-check jit-coverage-build jit-coverage-run
 .PHONY: jit-coverage-replay jit-coverage-wrapper-tests
-.PHONY: jit-clippy table-access
+.PHONY: jit-clippy table-access table-access-miri
 
 .PHONY: jit-array-window jit-array-window-miri
 .PHONY: jit-code-index jit-code-index-miri
@@ -117,6 +117,9 @@ jit-array-window-miri:
 table-access:
 	@$(CARGO) test --locked -p luna --lib $(TARGET_ARG) table::raw::access_tests
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) table::raw::access_tests
+
+table-access-miri:
+	@$(CARGO) miri test --locked -p luna --lib --target '$(MIRI_TARGET)' table::raw::access_tests -- --test-threads=1
 
 .PHONY: metamethod-keys metamethod-keys-miri
 metamethod-keys:

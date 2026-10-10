@@ -278,3 +278,108 @@ fn weak_array_holes_fall_back_to_live_map_values() {
         assert!(table.get_value(ctx, 3).is_nil());
     });
 }
+
+#[test]
+fn repeated_string_reads_follow_map_mutations() {
+    fn repeated_read<'gc>(
+        mc: &Mutation<'gc>,
+        table: &RawTable<'gc>,
+        keys: [String<'gc>; 5],
+        expected: Value<'gc>,
+    ) {
+        for key in keys {
+            identical(table.get(mc, key.into()), expected);
+        }
+    }
+    crate::Lua::empty().enter(|ctx| {
+        let key = String::from_slice(&ctx, b"entry");
+        let equal = String::from_buffer(&ctx, b"entry".to_vec().into_boxed_slice());
+        let other = String::from_slice(&ctx, b"other");
+        for mode in 0..3 {
+            let mut table = RawTable::new(&ctx);
+            let queries = [key, key, equal, equal, key];
+            for round in 0..3 {
+                let value = Value::Number(f64::from_bits(0x8000_0000_0000_0000 + round));
+                table.set(&ctx, key.into(), value).unwrap();
+                repeated_read(&ctx, &table, queries, value);
+                table.set(&ctx, other.into(), Value::Integer(99)).unwrap();
+                repeated_read(&ctx, &table, queries, value);
+                for index in 1..=64 {
+                    table
+                        .set(&ctx, Value::Integer(index), Value::Integer(index))
+                        .unwrap();
+                    repeated_read(&ctx, &table, queries, value);
+                }
+                table.grow_array(128);
+                repeated_read(&ctx, &table, queries, value);
+                table.reserve_map(table.map.capacity() + 1);
+                repeated_read(&ctx, &table, queries, value);
+                identical(table.set(&ctx, equal.into(), Value::Nil).unwrap(), value);
+                repeated_read(&ctx, &table, queries, Value::Nil);
+                table.reserve_map(table.map.capacity() + 1);
+                repeated_read(&ctx, &table, queries, Value::Nil);
+                table.set(&ctx, equal.into(), Value::Integer(7)).unwrap();
+                repeated_read(&ctx, &table, queries, Value::Integer(7));
+                if mode == 1 {
+                    table.make_values_weak(&ctx);
+                } else if mode == 2 {
+                    table.make_keys_weak(&ctx);
+                }
+                repeated_read(&ctx, &table, queries, Value::Integer(7));
+                table.clear();
+                repeated_read(&ctx, &table, queries, Value::Nil);
+            }
+        }
+    });
+}
+
+#[test]
+fn repeated_reads_do_not_root_weak_values_after_conversion() {
+    for mode in ["v", "k", "kv"] {
+        let mut lua = crate::Lua::empty();
+        let (table, key) = lua.enter(|ctx| {
+            let table = Table::new(&ctx);
+            let key = String::from_slice(&ctx, b"entry");
+            let value = Table::new(&ctx);
+            table.set(ctx, key, value).unwrap();
+            for _ in 0..4 {
+                identical(table.get_value(ctx, key), Value::Table(value));
+            }
+            let meta = Table::new(&ctx);
+            meta.set_field(ctx, "__mode", mode);
+            table.set_metatable(ctx, Some(meta));
+            for _ in 0..4 {
+                identical(table.get_value(ctx, key), Value::Table(value));
+            }
+            (ctx.stash(table), ctx.stash(key))
+        });
+        lua.gc_collect();
+        lua.gc_collect();
+        lua.enter(|ctx| {
+            let table = ctx.fetch(&table);
+            let key = ctx.fetch(&key);
+            for _ in 0..4 {
+                let value = table.get_value(ctx, key);
+                if mode == "k" {
+                    assert!(matches!(value, Value::Table(_)));
+                } else {
+                    assert!(value.is_nil());
+                }
+            }
+        });
+        drop(key);
+        lua.gc_collect();
+        lua.gc_collect();
+        lua.enter(|ctx| {
+            let table = ctx.fetch(&table);
+            if mode == "k" {
+                assert!(matches!(
+                    table.next(&ctx, Value::Nil),
+                    NextValue::Found { .. }
+                ));
+            } else {
+                assert!(matches!(table.next(&ctx, Value::Nil), NextValue::Last));
+            }
+        });
+    }
+}
