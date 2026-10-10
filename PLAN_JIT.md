@@ -69,9 +69,14 @@ array and allocation instructions rise 0.12311%, 0.16493% and 0.08124%.
 Against a freshly profiled wide image, callback instructions are effectively
 unchanged, allocation falls 0.23407%, while metamethod rises 0.09083%.
 This does not explain the wide trial's numeric slowdown or establish compact
-timing acceptance. Broad validation/cost builds are running; repeated timing
-remains outstanding. The next campaign preserves the wide image as an
-additional control rather than replacing original/fresh/historical controls.
+timing acceptance. Broad validation exits 0: GNU Force passes 1,505 executions
+across 88 summaries (6 ignored), focused musl 55 and i686-musl 16. Cost images
+are captured; the rebuilt native image matches the profiled compact candidate
+byte for byte, and source manifests verify. Repeated hardware timing remains
+outstanding. The next campaign keeps the wide image as an additional control:
+six native and nine cost variants. Its parsers validate both references and
+unchanged thresholds, with six valid synthetic parser/proof outputs and six
+rejected mutations; those fixtures are explicitly not benchmark measurements.
 Evidence: `table-owner*` under
 `target/jit-evidence/short-slice-performance/`.
 
