@@ -445,3 +445,32 @@ pub(super) mod exit_buffer;
 
 #[cfg(test)]
 mod tag_encoding;
+
+#[cfg(test)]
+impl Slot {
+    #[inline(always)]
+    pub(super) fn import_integer_nil_prefix(
+        slots: &mut [std::mem::MaybeUninit<Self>],
+        values: &[Value<'_>],
+    ) {
+        let values = &values[..slots.len()];
+        for index in 0..slots.len() {
+            if let Value::Integer(value) = values[index] {
+                slots[index].write(Self {
+                    tag: INTEGER,
+                    bits: value as u64,
+                });
+            } else if matches!(values[index], Value::Nil) {
+                slots[index].write(Self { tag: NIL, bits: 0 });
+            } else {
+                for (slot, value) in slots[index..]
+                    .iter_mut()
+                    .zip(values[index..].iter().copied())
+                {
+                    slot.write(Self::from_value(value));
+                }
+                return;
+            }
+        }
+    }
+}
