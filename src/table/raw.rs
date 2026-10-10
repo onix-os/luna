@@ -141,7 +141,11 @@ impl<'gc> RawTable<'gc> {
         let mut array = vec::Vec::new_in(MetricsAlloc::new(mc));
         array.resize(array_capacity, Value::Nil);
 
-        let map = HashMap::with_capacity_and_hasher_in(map_capacity, (), MetricsAlloc::new(mc));
+        let map = if map_capacity == 0 {
+            HashMap::with_hasher_in((), MetricsAlloc::new(mc))
+        } else {
+            HashMap::with_capacity_and_hasher_in(map_capacity, (), MetricsAlloc::new(mc))
+        };
 
         Self {
             array,
@@ -1098,3 +1102,6 @@ impl<'gc> Key<'gc> {
 
 #[cfg(test)]
 mod key_hash_tests;
+
+#[cfg(test)]
+mod capacity_tests;
