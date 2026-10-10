@@ -11,6 +11,42 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Callback return-path inlining — both forms withdrawn (2026-10-10)
+
+The PGO callback profile motivates two ordinary-build trials, without PGO flags:
+force-inline `ThreadState::return_values_to`, then force-inline `return_to` as
+well. Each preserves return semantics, lifecycle boundaries, counters and gates;
+each passes formatting/check-all and 108 focused executions across 16 suites.
+
+Each trial completes two four-label timing screens (48 commands, all aggregate
+gates fail; 648 complete non-timing comparisons equal). The historical and fresh
+controls are identical baseline bytes, with a same-inode placebo. Severe CPU0
+variation is retained: the first single-helper callback median ratio 1.98510
+coincides with an identical-baseline historical ratio 1.91054. It is not a 2x
+optimization. Repeat callback ratios are 1.03761/1.01523 on CPU0/16, while CPU16
+compiled-Off float is 0.94659 against placebo 0.99878.
+
+Ten exact-image profiles per trial verify allocated bytes, metadata, program
+headers and all five full non-timing comparisons. Single-helper callback
+instructions fall only 0.92531%: most outlined work moves from `return_values_to`
+to `return_to`. The full-chain form eliminates both standalone return calls on
+the callback path and reduces callback instructions 2.18737% and upvalue Off
+2.61689%. Numeric Off instructions fall slightly; this does not predict timing.
+
+Full-chain callback control/candidate medians improve 1.05672/1.06302 on CPU0
+and 1.04186/1.03239 on CPU16 (first/repeat), but CPU0 compiled-Off integer
+regresses to 0.94273/0.94426; repeat placebo is 0.99614 and all three repeat
+candidate windows are adverse. CPU16 Off float medians are 0.96367/0.96710.
+Reject these trade-offs rather than promoting a local callback improvement.
+
+Both runtime attributes are removed. Restoration passes formatting/check-all
+and the same 108 focused executions; runtime/tests match `5198800` and the
+rebuilt ordinary native executable is byte-identical to the retained baseline.
+No owned builds/tests/profiles/source edits overlap timing. No candidate cost,
+full-suite, platform or release acceptance is claimed. Evidence:
+`callback-return-{inline,chain}*`, `callback-return-restored/` and
+`pgo-probe/return-*` under `target/jit-evidence/short-slice-performance/`.
+
 #### Held-out Rust PGO pilot — measured, not accepted (2026-10-10)
 
 **Follow-up:** exact-image profiling of the first pilot verifies both captured
