@@ -2577,9 +2577,7 @@ impl Emitter<'_, '_> {
         let (it, ib) = self.load(base);
         let (lt, lb) = self.load(base + 1);
         let (st, sb) = self.load(base + 2);
-        for tag in [it, lt, st] {
-            self.require_numeric(tag);
-        }
+        self.require_numeric_loop([it, lt, st]);
         let ii = self.tag_is(it, abi::INTEGER);
         let si = self.tag_is(st, abi::INTEGER);
         let integer = self.builder.create_block();
@@ -2709,6 +2707,24 @@ impl Emitter<'_, '_> {
             visible_store,
             next: [taken_next, done_next],
         });
+    }
+
+    fn require_numeric_loop(&mut self, tags: [IrValue; 3]) {
+        #[cfg(test)]
+        if self.omit_numeric_guards {
+            return;
+        }
+        const { assert!(abi::INTEGER & 1 == 0 && abi::NUMBER == (abi::INTEGER | 1)) };
+        let integer_tag = self.constant(abi::INTEGER);
+        let first = self.builder.ins().bxor(tags[0], integer_tag);
+        let limit = self.builder.ins().bxor(tags[1], integer_tag);
+        let step = self.builder.ins().bxor(tags[2], integer_tag);
+        let combined = self.builder.ins().bor(first, limit);
+        let combined = self.builder.ins().bor(combined, step);
+        let mask = self.constant(!1);
+        let invalid = self.builder.ins().band(combined, mask);
+        let numeric = self.tag_is(invalid, 0);
+        self.require(numeric);
     }
 }
 
@@ -4996,6 +5012,114 @@ mod memory_tests {
             matches!(result, Err(JitError::Compilation(ref message)) if message == "invalid scalar tag data flow")
         );
         assert_eq!(total.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn numeric_guards_reject_invalid_loop_operands_at_every_position() {
+        use crate::types::{RegisterIndex as R, VarCount};
+        let snapshot = Snapshot {
+            operations: super::super::resources::owned(&[
+                Operation::NumericForLoop {
+                    base: R(0),
+                    jump: 0,
+                },
+                Operation::Return {
+                    start: R(3),
+                    count: VarCount::constant(1),
+                },
+            ]),
+            constants: super::super::resources::owned(&[]),
+            registers: 4,
+            upvalues: 0,
+            prototypes: 0,
+        };
+        let total = MappingCounter::new(super::super::resources::Ledger::new(usize::MAX));
+        let code = compile(&snapshot, total, 1024 * 1024).unwrap();
+        let tags = [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            255,
+            256,
+            1 << 32,
+            (1 << 32) | 2,
+            1 << 63,
+            (1 << 63) | 3,
+            u64::MAX - 1,
+            u64::MAX,
+        ];
+        for a in tags {
+            for b in tags {
+                for c in tags {
+                    let numeric = [a, b, c]
+                        .iter()
+                        .all(|tag| matches!(*tag, abi::INTEGER | abi::NUMBER));
+                    let mut initial = [Slot {
+                        tag: abi::REFERENCE,
+                        bits: 0x1234,
+                    }; 4];
+                    for (index, tag) in [a, b, c].into_iter().enumerate() {
+                        let value = [1, 10, 1][index];
+                        initial[index] = Slot {
+                            tag,
+                            bits: if tag == abi::NUMBER {
+                                (value as f64).to_bits()
+                            } else {
+                                value
+                            },
+                        };
+                    }
+                    for budget in [0, 1, 2, 64] {
+                        let mut slots = initial;
+                        let exit = code.invoke(&mut slots, 0, budget);
+                        if budget == 0 || !numeric {
+                            let reason = if budget == 0 {
+                                ExitKind::Budget
+                            } else {
+                                ExitKind::Guard
+                            };
+                            assert_eq!(
+                                (exit.pc, exit.instructions, exit.reason),
+                                (0, 0, reason as u32)
+                            );
+                            assert_eq!(
+                                slots.map(|s| (s.tag, s.bits)),
+                                initial.map(|s| (s.tag, s.bits))
+                            );
+                        } else {
+                            let reason = if budget == 1 {
+                                ExitKind::Budget
+                            } else {
+                                ExitKind::Interpreter
+                            };
+                            assert_eq!(
+                                (exit.pc, exit.instructions, exit.reason),
+                                (1, 1, reason as u32)
+                            );
+                            let expected = if a == abi::INTEGER && c == abi::INTEGER {
+                                (abi::INTEGER, 2)
+                            } else {
+                                (abi::NUMBER, 2.0f64.to_bits())
+                            };
+                            for index in [0, 3] {
+                                assert_eq!((slots[index].tag, slots[index].bits), expected);
+                            }
+                            for index in [1, 2] {
+                                assert_eq!(
+                                    (slots[index].tag, slots[index].bits),
+                                    (initial[index].tag, initial[index].bits)
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

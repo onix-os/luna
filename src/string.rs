@@ -42,11 +42,7 @@ pub struct StringInner {
 #[derive(Copy, Clone)]
 enum Buffer {
     Indirect(*const [u8]),
-    Inline {
-        len: usize,
-        #[cfg(target_pointer_width = "64")]
-        table_hash: u64,
-    },
+    Inline(usize),
 }
 
 impl<'gc> String<'gc> {
@@ -66,7 +62,7 @@ impl<'gc> String<'gc> {
                         self.metrics.mark_external_deallocation(ptr.len());
                         drop(Box::from_raw(ptr as *mut [u8]));
                     },
-                    Buffer::Inline { .. } => unreachable!(),
+                    Buffer::Inline(_) => unreachable!(),
                 }
             }
         }
@@ -100,15 +96,10 @@ impl<'gc> String<'gc> {
             }
 
             assert!(s.len() <= N);
-            let hash = str_hash(s);
             let mut string = InlineString {
                 header: StringInner {
-                    hash,
-                    buffer: Buffer::Inline {
-                        len: s.len(),
-                        #[cfg(target_pointer_width = "64")]
-                        table_hash: crate::table::string_key_hash(hash),
-                    },
+                    hash: str_hash(&s),
+                    buffer: Buffer::Inline(s.len()),
                 },
                 array: [0; N],
             };
@@ -171,20 +162,12 @@ impl<'gc> String<'gc> {
         self.0.hash
     }
 
-    #[cfg(target_pointer_width = "64")]
-    pub(crate) fn table_key_hash(self) -> Option<u64> {
-        match self.0.buffer {
-            Buffer::Inline { table_hash, .. } => Some(table_hash),
-            Buffer::Indirect(_) => None,
-        }
-    }
-
     pub fn as_bytes(self) -> &'gc [u8] {
         // SAFETY: `&'gc [u8]` has the correct lifetime because `Gc::as_ref` also returns `&'gc T`.
         unsafe {
             match self.0.buffer {
                 Buffer::Indirect(p) => &(*p),
-                Buffer::Inline { len, .. } => {
+                Buffer::Inline(len) => {
                     let layout = alloc::Layout::new::<StringInner>();
                     let (_, offset) = layout
                         .extend(alloc::Layout::array::<u8>(len).unwrap())
@@ -446,7 +429,7 @@ mod tests {
                 let owned = strings.intern_buffer(mc, bytes.into());
                 let borrowed = strings.intern(mc, bytes);
                 assert!(Gc::ptr_eq(owned.0, borrowed.0));
-                assert!(matches!(owned.0.buffer, Buffer::Inline { .. }));
+                assert!(matches!(owned.0.buffer, Buffer::Inline(_)));
             }
         });
     }

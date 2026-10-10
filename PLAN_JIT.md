@@ -11,7 +11,149 @@
 
 ### Progress snapshot — 2026-10-11
 
-#### Seeded inline-string table hashes — candidate
+#### Combined numeric-loop guard — unaccepted trial
+
+Two exact-image callback captures reproduce all baseline non-timing fields,
+132,231,624 VM-step instructions and 9,468,103 generated instructions. The
+narrow entry-dispatch clamp costs only 259,396 instructions (0.196% of the
+whole); retain its full-width admission contract. Loop loads plus numeric
+guards cost 1,426,678 generated instructions in each capture.
+
+Trial a single full-width combined numeric guard for `NumericForLoop`:
+XOR each input tag with Integer, OR all differences, and reject if any bit
+other than the Integer/Number discriminator remains. Nil, Boolean, Reference
+and high-bit malformed tags cannot be hidden by another operand. No arithmetic,
+loop direction/overflow, mixed-limit conversion, fuel or fallback behavior changes.
+
+Verifier foundation `dcf0b4c` conservatively propagates known-zero/known-one
+bits through I64 AND/OR/XOR under the existing 64-node traversal bound.
+Unknown values stay unknown; equality uses conflicting bits or exact operands.
+The independent four-bit state/operand corpus, full-width boundaries, both
+guard polarities and eight corruption forms pass. A native corpus checks all
+16^3 tag triples at four budgets, exact exits and unchanged rejected state.
+Focused tags/loop/numeric checks pass **258 / 30 summaries**, and the separate
+proof gate **three / two**; fmt/check-all pass. These are correctness results,
+not performance acceptance. Generated-code profiles, broader correctness,
+Miri and unchanged repeated hardware/cost gates remain required.
+
+Evidence: `target/jit-evidence/short-slice-performance/rooted-native-callback/`
+and `combined-loop-guard-*`. The table/hash experiments below remain withdrawn.
+
+Runtime trial `a9498cb`, frozen opt3 **`c53d8269`**, completes full GNU
+Force/default all-feature checks plus docs: **3,183 test executions / 179
+summaries**, fourteen existing ignores. Separate no-JIT baseline/docs passes
+**449 / 87**, two ignores; focused musl **64 / eight**. Stacked and Tree
+Borrows each pass the pure proof lane **three / two**. This does not cover
+native execution under Miri or establish performance acceptance.
+
+Both generated-code captures reduce native callback instructions by
+**129,724**, from 9,468,103 to 9,338,379. Whole captured execution falls
+129,805; the independent paired profile falls 129,724. Preserve that scope
+difference. Upvalue profile totals fall 415,357, including generated work
+-519,340 and admission/allocator differences; three Off profiles are unchanged.
+Only callback snapshot peak changes, **10,705 -> 10,601 bytes**, among checked
+non-timing fields. The generic exact-counter analyzer exits nonzero on that
+change; retain the failure. A separate audit checks that exact resource delta
+and equality of every remaining field against rooted evidence. All ten profile
+collections and two page captures completed with source/image validation.
+This roughly **0.1% callback instruction reduction is not a hardware speedup**.
+
+Speed/shipping feature-cost artifacts are frozen and verified. Their no-JIT
+images differ from historical table-owner controls; cross-version cost deltas
+must not be attributed solely to this guard change. No owned validation job
+remains live before timing. Repeated hardware/cost screens remain pending,
+with original thresholds, complete counters, same-image controls and contention
+telemetry. A timing auditor may report candidate snapshot-peak reductions;
+other non-timing fields and control/placebo fields must remain identical.
+
+#### Hash/allocation experiments — runtime restored
+
+Neither the cached-hash variants nor allocation-only constructor satisfies the
+unchanged cross-workload gates. Restore all production string/table code to
+the pre-experiment rooted runtime, retaining the independent test models and
+all evidence. The following sections describe rejected experiments, not enabled
+optimizations. Full JIT acceptance remains open, including callback/metamethod
+and feature-cost gates.
+
+Restoration `f4ed9b8` is verified: a clean opt3 build is **byte-identical** to
+the frozen rooted baseline, SHA-256
+`3d0dc224826a8ef4359a4708c9443197e9c3d6c83c88a857beec8fee7e07bcc0`.
+Focused GNU checks pass **24 / six summaries**; focused musl **73 / eleven**,
+none ignored. Full GNU Force plus baseline/docs passes **2,035 / 175**, eight
+existing ignores (Force 1,586 / 88 / six, baseline/docs 449 / 87 / two).
+Source hashes verify and all owned jobs are terminal. This removes the rejected
+production changes, not the original unmet performance requirements. Evidence:
+`target/jit-evidence/short-slice-performance/hash-allocation-restored-*`.
+
+#### Allocation-only isolation — withdrawn
+
+Withdraw the seeded inline-string hash runtime and shared-constructor hint.
+String construction/storage, the non-generic canonical key enum and every
+production table-hashing site are restored to the rooted baseline. The only
+production difference in these files is the explicit empty-map constructor for
+requested map capacity zero. No eager final hash, hidden cache field, cached
+lookup or constructor helper remains. This isolates the measured allocation
+work removal from the cross-workload costs of the hash experiment.
+
+Keep the independent capacity/accounting differential, string-layout model,
+hash-stream/seed model and mixed-storage growth/weakening/reinsertion tests.
+The generic hash enum is now entirely test-only; cache-presence assertions are
+removed with the withdrawn cache, not replaced by a runtime shortcut. All
+original tests, native coverage and performance thresholds remain unchanged.
+Fresh correctness, exact-image profiles and repeated hardware comparisons are
+required. No regression fix or full-plan acceptance is claimed yet.
+
+`a3dc5be` implements this isolation. Frozen image **`4d368a1d`** passes GNU
+focused **24 / six**, musl **73 / eleven**, i686 **24 / six**, and full Force
+plus baseline/docs **2,035 / 175** (eight existing ignores). Miri Stacked 59
+and Tree 60 each pass **eleven / two** hash/layout/table-access tests. The
+capacity model itself is unchanged from its earlier two-model Miri validation.
+All 24 exact-image profiles retain matching counters and source/image checks.
+Allocation VM-step instructions fall **520,000 in both modes**; whole execution
+falls 520,000 Off and 519,939 Auto. Callback Auto/Off and closure/integer/float
+Off match the rooted baseline. Closure Auto adds 260,219, including admission
+variation. Whole cold-function counts rise 14,895 Off and 21,278 Auto despite
+constructor/capacity self work falling 8,629; interning/map/allocator changes
+are retained, not attributed to the constructor.
+
+Four native and two feature-cost screens complete **168 checked commands**.
+Allocation Auto is mixed: CPU0 **1.007688 / 0.990763 / 0.983279 / 0.998487**,
+CPU16 **1.006774 / 1.012334 / 1.014690 / 0.998773**. CPU0 float Off still
+regresses against rooted control: **0.918763 / 0.903250 / 0.886360 / 0.914949**,
+versus placebo **1.000622 / 0.997466 / 1.001841 / 1.004264**. CPU16 float Off
+is **0.944189 / 0.979590 / 0.943926 / 0.969093**, and metamethod Auto is
+**0.938942 / 0.963571 / 0.935486 / 0.961282**. Removing the cache did not
+remove those regressions; the cache is not necessary to reproduce them.
+This does not establish their hardware cause.
+
+Feature-cost speed callbacks fail 12/12, CPU16 upvalues and Oslo 6/6 each;
+shipping upvalues fail 12/12 and CPU16 Oslo 6/6. Other failures and placebo
+variation remain in the full reports. Original gates, native proofs, complete
+counters and artifact hashes verify; no owned build/test/profile/source edit
+overlaps timing. The allocation-only branch is **unaccepted**.
+
+Next compare a direct empty-map initialization followed by raw-table reserve,
+instead of two separate map-construction branches. The existing independent
+constructor oracle must prove capacity, accounting and growth equivalence.
+Require additional instruction/code-path savings before hardware testing;
+do not use alternate constructor syntax merely to search code placements.
+Evidence prefix: `target/jit-evidence/short-slice-performance/allocation-only*`.
+
+`6d3e059` tests that reserve alternative. GNU focused checks pass **24 / six**,
+none ignored; formatting and check-all pass. Frozen image **`c40133cd`** runs
+eight exact allocation profiles with unchanged counters. Relative to the
+allocation-only branch, constructor self work **increases 78,000 instructions**
+in each mode/scope. Off totals add exactly 78,000; Auto step adds 84,299 with
+allocator variation and whole execution adds 78,139 with compilation variation.
+The constructor grows **0x24d → 0x265 bytes**, and a separate **0x713-byte**
+reserve/rehash specialization is emitted. This fails the mechanism prerequisite:
+withdraw it without hardware timing, rather than searching for a favorable
+layout despite worse work and code size. Restore the original constructor too;
+its conditional alternative already failed repeated cross-workload timing.
+All tests and frozen artifacts remain available. Evidence prefix:
+`target/jit-evidence/short-slice-performance/empty-map-reserve*`.
+
+#### Seeded inline-string table hashes — withdrawn
 
 `00784ff` proves a representation prerequisite: a second inline-buffer word
 fits the existing string header and allocation layout on 64-bit targets.
@@ -152,7 +294,7 @@ must measure additional construction call overhead. This finding does not
 attribute the float timing regression to code placement.
 Evidence prefix: `target/jit-evidence/short-slice-performance/empty-map-capacity*`.
 
-#### Shared final hash construction — candidate
+#### Shared final hash construction — withdrawn
 
 `6e42eea` keeps the exact inline-cache representation and hash computation,
 but makes the final hash constructor a shared out-of-line function. Verified
@@ -174,10 +316,38 @@ Relative to rooted `3d0dc224`, callback Auto saves **1,495,000**, closure Auto
 adds 155,272, and closure/integer/float Off totals remain identical.
 
 GNU focused validation passes **24 / six summaries**, focused musl **73 /
-eleven**, none ignored. Full Force plus baseline/docs is still running; timing
-has not started. The attribute is omitted with the helper on 32-bit targets;
+eleven**, none ignored. Full Force plus baseline/docs passes **2,035 / 175**,
+eight ignored (Force 1,586 / 88, baseline/docs 449 / 87).
+The attribute is omitted with the helper on 32-bit targets;
 the previously checked constructor/model bodies are unchanged, but no fresh
-Miri run is claimed. Fresh speed/shipping feature-cost artifacts are building.
+Miri run is claimed. Fresh speed/shipping feature-cost artifacts verify.
+
+Four native screens and two feature-cost screens complete **168 checked
+commands**, retaining hashes, raw controls, all counters and unchanged gates.
+Callback Auto rooted-control/candidate medians are CPU0 **1.022565 / 1.014273 /
+1.023151 / 1.008774**, CPU16 **1.027357 / 1.026459 / 1.014488 / 1.041121**.
+Allocation Auto is near baseline or ahead: CPU0 **1.000751 / 1.012268 /
+1.008998 / 1.008241**, CPU16 **1.026685 / 1.001768 / 0.998640 / 1.013271**.
+But CPU0 float Off still regresses: **0.943429 / 0.929493 / 0.938641 /
+0.944018**, versus placebo **1.005282 / 1.000098 / 0.991713 / 0.998994**.
+CPU16 float Off is **0.989460 / 0.981924 / 0.940956 / 0.979853**. Keep the
+adverse CPU16 screen-2 Off allocation/upvalue ratios **0.912520 / 0.895839**,
+not just the favorable Auto results.
+
+Feature-cost checks retain additional repeated failures: speed CPU0 metamethod
+fails 6/6 at 1.0579–1.0629 overhead, speed CPU16 allocation fails 6/6 at
+1.0982–1.1267, and speed CPU16 arrays fail 5/6. Speed callbacks and CPU16
+upvalues, shipping upvalues and CPU0 cold setup still fail repeatedly. Full
+reports retain all remaining outcomes and external contention. No owned
+build/test/profile/source edit overlaps hardware timing.
+
+The shared-construction trial is **not accepted**. Removing measured code
+duplication did not resolve the cross-workload regressions, and does not prove
+their hardware cause. Next isolate the allocation-only change by withdrawing
+the experimental seeded-hash runtime path while preserving the zero-capacity
+map constructor and original acceptance requirements. Measure that combination
+against the frozen rooted baseline before retaining it; do not infer success
+from instruction savings or a selective workload.
 Evidence prefix: `target/jit-evidence/short-slice-performance/shared-inline-key-hash*`.
 
 #### Compile-time constant upvalue-table keys — withdrawn

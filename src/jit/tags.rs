@@ -10,6 +10,8 @@ use super::{
 };
 use crate::opcode::{Operation, RCIndex};
 
+mod known_bits;
+
 const ALL: u8 = (1 << (abi::REFERENCE + 1)) - 1;
 
 #[derive(Clone, Copy)]
@@ -2886,6 +2888,18 @@ impl Analysis<'_> {
         };
         match self.function.dfg.insts[inst] {
             InstructionData::IntCompare { cond, args, .. } => {
+                if args
+                    .iter()
+                    .all(|&arg| self.function.dfg.value_type(arg) == types::I64)
+                {
+                    let left = self.known_bits(args[0], queried, tag, remaining)?;
+                    let right = self.known_bits(args[1], queried, tag, remaining)?;
+                    return Some(match cond {
+                        IntCC::Equal => left.equal(right),
+                        IntCC::NotEqual => left.equal(right).map(|equal| !equal),
+                        _ => None,
+                    });
+                }
                 let left = self.literal(args[0], queried, tag, remaining);
                 let right = self.literal(args[1], queried, tag, remaining);
                 Some(match (left, right, cond) {
@@ -2914,6 +2928,46 @@ impl Analysis<'_> {
             } if matches!(imm.bits(), 0 | 1) => Some(Some(imm.bits() == 1)),
             _ => None,
         }
+    }
+
+    fn known_bits(
+        &self,
+        value: Value,
+        queried: Option<Value>,
+        tag: u64,
+        remaining: &mut usize,
+    ) -> Option<known_bits::KnownBits> {
+        use known_bits::KnownBits;
+        *remaining = remaining.checked_sub(1)?;
+        let value = self.function.dfg.resolve_aliases(value);
+        if self.function.dfg.value_type(value) != types::I64 {
+            return None;
+        }
+        if queried.is_some_and(|queried| value == queried) {
+            return Some(KnownBits::exact(tag));
+        }
+        let ValueDef::Result(inst, 0) = self.function.dfg.value_def(value) else {
+            return Some(KnownBits::UNKNOWN);
+        };
+        Some(match self.function.dfg.insts[inst] {
+            InstructionData::UnaryImm {
+                opcode: Opcode::Iconst,
+                imm,
+            } => KnownBits::exact(imm.bits() as u64),
+            InstructionData::Binary { opcode, args }
+                if matches!(opcode, Opcode::Band | Opcode::Bor | Opcode::Bxor) =>
+            {
+                let left = self.known_bits(args[0], queried, tag, remaining)?;
+                let right = self.known_bits(args[1], queried, tag, remaining)?;
+                match opcode {
+                    Opcode::Band => left.and(right),
+                    Opcode::Bor => left.or(right),
+                    Opcode::Bxor => left.xor(right),
+                    _ => unreachable!(),
+                }
+            }
+            _ => KnownBits::UNKNOWN,
+        })
     }
 
     fn literal(
@@ -3552,6 +3606,86 @@ mod tests {
                 result.unwrap();
             } else {
                 rejected(result);
+            }
+        }
+    }
+
+    #[test]
+    fn combined_numeric_guards_require_every_operand_and_exact_mask() {
+        for fault in 0..9 {
+            for inverted in [false, true] {
+                let result = fixture(|builder, slots, _, stores| {
+                    let inputs: [_; 3] = std::array::from_fn(|index| {
+                        let tag = builder.ins().load(
+                            types::I64,
+                            MemFlagsData::new(),
+                            slots,
+                            index as i32 * 16,
+                        );
+                        let bits = builder.ins().load(
+                            types::I64,
+                            MemFlagsData::new(),
+                            slots,
+                            index as i32 * 16 + 8,
+                        );
+                        (tag, bits)
+                    });
+                    let kind = builder
+                        .ins()
+                        .iconst(types::I64, if fault == 4 { 0 } else { abi::INTEGER as i64 });
+                    let zero = builder.ins().iconst(types::I64, 0);
+                    let mut combined = zero;
+                    for (index, &(tag, _)) in inputs.iter().enumerate() {
+                        if fault == index + 1 {
+                            continue;
+                        }
+                        let difference = builder.ins().bxor(tag, kind);
+                        combined = if fault == 5 {
+                            builder.ins().band(combined, difference)
+                        } else {
+                            builder.ins().bor(combined, difference)
+                        };
+                    }
+                    let mask = builder
+                        .ins()
+                        .iconst(types::I64, if fault == 6 { !3 } else { !1 });
+                    let invalid = builder.ins().band(combined, mask);
+                    let condition = builder.ins().icmp(
+                        if inverted {
+                            IntCC::NotEqual
+                        } else {
+                            IntCC::Equal
+                        },
+                        invalid,
+                        zero,
+                    );
+                    let accept = builder.create_block();
+                    let reject = builder.create_block();
+                    let (yes, no) = if inverted {
+                        (reject, accept)
+                    } else {
+                        (accept, reject)
+                    };
+                    if fault == 7 {
+                        builder.ins().brif(condition, accept, &[], accept, &[]);
+                    } else if fault == 8 {
+                        builder.ins().brif(condition, no, &[], yes, &[]);
+                    } else {
+                        builder.ins().brif(condition, yes, &[], no, &[]);
+                    }
+                    builder.switch_to_block(accept);
+                    for (tag, bits) in inputs {
+                        numeric_use(builder, stores, tag, bits, false);
+                    }
+                    builder.ins().return_(&[]);
+                    builder.switch_to_block(reject);
+                    builder.ins().return_(&[]);
+                });
+                if fault == 0 {
+                    result.unwrap();
+                } else {
+                    rejected(result);
+                }
             }
         }
     }
