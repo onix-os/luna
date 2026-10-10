@@ -27,6 +27,65 @@ fn invalid() -> JitError {
     JitError::Compilation("invalid payload transport grammar".into())
 }
 
+pub(super) fn expansion(
+    source: &Snapshot,
+    limits: super::super::work::Limits,
+) -> Result<super::super::work::Expansion, JitError> {
+    let mut bound = super::super::work::Expansion::admit(source, limits)?;
+    for operation in &source.operations {
+        if let Operation::LoadNil { count, .. } = operation {
+            bound.instructions = bound
+                .instructions
+                .checked_add(32 * usize::from(*count))
+                .ok_or(JitError::ResourceLimit("payload expansion overflow"))?;
+            bound.blocks = bound
+                .blocks
+                .checked_add(7 * usize::from(*count))
+                .ok_or(JitError::ResourceLimit("payload expansion overflow"))?;
+        }
+    }
+    if bound.instructions > limits.instructions {
+        return Err(JitError::ResourceLimit("IR instructions"));
+    }
+    if bound.blocks > limits.blocks {
+        return Err(JitError::ResourceLimit("IR blocks"));
+    }
+    Ok(bound)
+}
+
+#[test]
+fn payload_nil_fanout_expansion_respects_original_host_limits() {
+    crate::Lua::empty().enter(|ctx| {
+        let closure =
+            crate::Closure::load(ctx, None, b"local a,b,c,d,e,f,g return 'anchored'").unwrap();
+        let source = Snapshot::new(&closure.prototype(), 4096, 2 * 1024 * 1024).unwrap();
+        let limits = super::super::work::Limits::from(&super::super::JitConfig::default());
+        let original = super::super::work::Expansion::admit(&source, limits).unwrap();
+        let actual = expansion(&source, limits).unwrap();
+        assert_eq!(actual.instructions, original.instructions + 32 * 7);
+        assert_eq!(actual.blocks, original.blocks + 7 * 7);
+        for (instructions, blocks, accepted) in [
+            (actual.instructions - 1, actual.blocks, false),
+            (actual.instructions, actual.blocks - 1, false),
+            (actual.instructions, actual.blocks, true),
+        ] {
+            let result = expansion(
+                &source,
+                super::super::work::Limits {
+                    instructions,
+                    blocks,
+                    ..limits
+                },
+            );
+            if accepted {
+                assert_eq!(result.unwrap(), actual);
+            } else {
+                assert!(matches!(result, Err(JitError::ResourceLimit(_))));
+            }
+        }
+    });
+}
+
 fn scan(
     function: &Function,
     slots: IrValue,

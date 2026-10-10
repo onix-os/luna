@@ -752,6 +752,15 @@ fn compile_selected_rooted(
         None
     };
     let expansion = super::work::Expansion::admit(snapshot, work)?;
+    #[cfg(test)]
+    let expansion = if matches!(
+        failure,
+        Failure::RequirePayload | Failure::RequirePayloadLoop
+    ) {
+        payload::expansion(snapshot, work)?
+    } else {
+        expansion
+    };
     let graph = super::flow::FlowGraph::new(snapshot)?;
     let mut stores = super::tags::Stores::new(&graph, snapshot)?;
     if rooted_moves {

@@ -173,6 +173,8 @@ impl Region {
         }
         unsafe { (&mut *pointer).publish(&mut view) };
         unsafe { self.driver.invoke(&mut view, limit as u32) };
+        #[cfg(test)]
+        assert!(!session.rooted_pending);
         let payload = session.panic.take();
         let outcome = session.outcome;
         if let Some(payload) = payload {
@@ -291,6 +293,10 @@ impl Session<'_, '_, '_, '_> {
     }
 
     fn complete_rooted(&mut self, view: &mut View) -> RootedCompletion {
+        #[cfg(test)]
+        if tests::DEFERRED_ENABLED.with(|flag| flag.get()) {
+            return self.complete_rooted_deferred(view);
+        }
         if self.frame.panic.is_some()
             || view.exit.instructions >= self.budget
             || self.limit - self.outcome.slices < 2
@@ -396,6 +402,10 @@ impl Session<'_, '_, '_, '_> {
                 .get(*registers.pc)
                 .and_then(|op| op.call_transition())
         });
+        #[cfg(test)]
+        {
+            self.rooted_pending = false;
+        }
         if !recorded {
             record(ctx, &view.exit, std::mem::take(&mut self.frame.count));
         }
@@ -522,3 +532,6 @@ unsafe extern "C" fn boundary(view: *mut View) -> u32 {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod deferred;

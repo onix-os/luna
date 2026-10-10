@@ -11,6 +11,146 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Ordinary entry stack outlining — measured and withdrawn (2026-10-10)
+
+The callback profile attributes 20,233,235 instructions to the seven-register
+ordinary native entry, whose assembly reserves `0x828` (2,088) stack bytes.
+An initial array-kernel outlining trial passes 71 focused executions and ten
+exact-image profiles, but its entire seven-register entry assembly remains
+byte-identical: the original array call was already out of line. Callback and
+numeric-Off instruction totals are unchanged. Remove this annotation without
+hardware timing; the proposed mechanism did not occur.
+
+Assembly instead shows small-capacity upvalue projections embedded in the
+ordinary entry. Outlining `projection::bridge::with_frame` reduces that entry's
+reservation to `0x158` (344) bytes. No coverage, counters, ABI, cache, allocation
+or runtime semantics changes are introduced. Formatting/check-all and 54
+projection/native/upvalue test executions pass. Ten exact-image profiles match
+all full execution/resource records; the callback entry still executes exactly
+20,233,235 instructions. Whole callback work differs by only 81 instructions;
+numeric Off totals match and upvalue Auto work grows 0.03056%.
+
+Two complete native screens finish 48 commands and 648 equal full non-timing
+comparisons. Frozen workloads/thresholds, eleven samples, CPUs 0/16, controls,
+placebos and external telemetry remain; no owned work overlaps hardware timing.
+Control time / candidate time for callbacks is CPU0 **0.98578 / 1.00245** and
+CPU16 **1.00114 / 1.00116**, first / repeat. This does not establish the targeted
+callback improvement. Disabled float instead falls to CPU0
+**0.92614 / 0.93567**, CPU16 **0.94291 / 0.94248**. Upvalues improve roughly
+2–3%, but all aggregate gates still fail, including controls. Shrinking the
+frame is not enough to accept the change; the annotation is withdrawn before
+an expensive shipping/full-platform campaign.
+
+Both trial patches, symbols, profiles, assembly, raw windows and strict analysis
+are retained under `array-entry-outline*` and `projection-entry-outline*` in
+the existing ignored performance evidence directory. No runtime optimization
+or full performance acceptance is claimed from these trials.
+Restored source passes formatting/check-all and the same 54 focused executions.
+A fresh ordinary GNU opt3 build is byte-identical to the preceding restored
+production image and retains `.text`/`.rodata` identity with the frozen control.
+
+#### Rooted region publication deferral — test-only (2026-10-10)
+
+**Disabled shipping attribution follow-up:** twelve exact-image profiles compare
+control/candidate, no-feature/JIT-Off, and integer/float/table on CPU16. Integer
+and float JIT-Off totals remain **19,540,720 / 20,842,780** instructions; all
+individual function instruction counts match. Table adds 587 instructions in
+allocator/memory-copy paths, not in the interpreter. VM size is 42,776 bytes;
+its start moves from `0x398da1` to `0x398e28`, while executed relative-address
+counts and mnemonic totals match for all three workloads. This establishes no
+added interpreter work, not a hardware explanation or equal elapsed time.
+Simulated cache/branch differences remain diagnostic only. Host
+`perf_event_paranoid` remains 4; no privilege or kernel-policy change was made.
+
+The direct shipping losses and the frozen overhead gates are distinct: these
+three candidate workloads still pass the original 1.05 no-feature overhead
+ceiling. Their slower time versus the previous feature-enabled image must not
+be mislabeled as a failed 1.05 gate. Actual callback/upvalue cost and aggregate
+failures remain recorded; no ceiling or release criterion changes. The rejected
+deferral remains test-only while work targets the outstanding failing cases.
+
+Matching symbols verify every allocated section of the actual timed binaries.
+The archived candidate source manifest is paired with its retained patch; a
+separate current-source manifest verifies no source mutation during attribution.
+All twelve workloads verify their results and zero native work. Evidence:
+`rooted-deferred-disabled-profile/analysis.json`, raw profiles, per-address VM
+attribution, and the Make-backed `rooted-deferred-attribution.mk` under the
+existing ignored performance evidence directory.
+
+The current trial targets the measured 21.55 million instructions in rooted
+caller publication. After a successful compact upvalue call, a helper-free
+rooted region keeps its validated scalar/reference snapshot through the next
+generated caller entry. This replaces publication after every internal call,
+not publication at an externally observable exit. Immutable roots stay alive;
+fresh capture/type/frame checks, PC changes, fuel and all statistics remain.
+There is no new unsafe code, native pointer, allocation or persistent cache.
+
+Only successful continuations defer. Declined calls, ordinary fallback,
+budget/limit exits and caught panics publish before canonical execution or
+return. The pending flag survives internal continuations and clears after
+publication. Driver return asserts no pending canonical state remains.
+Source-certified rooted callers have no Rust helpers; other callers retain
+their original publication path.
+
+GNU focused checks pass 74 executions across nine summaries before the new
+late-panic test. The updated region checks pass 65 executions across five
+summaries. Late faults before/after calls 2, 3, 8 and 20 compare canonical state
+against the interpreter and prove preceding publication deferrals actually ran.
+Region, async-region, upvalue, native and heap integrations pass another 49
+executions. These are overlapping test executions, not full acceptance.
+
+The ordinary GNU opt3 image is frozen as
+`d51fa7a98f334401e82c8aa97dbe650a4946064f5a11ed990ff898036b3e00af`.
+Ten exact-image profiles pass the strict full-record comparison. Upvalue work
+falls **170,017,519 -> 153,376,513 instructions (9.79%)**. Publication self-cost
+falls from about 21.55 million to 4.89 million. The other four profiles have
+unchanged instruction counts except 81 fewer callback instructions. Instrumented
+wall times are not used as hardware evidence.
+
+Two complete native rounds and two speed/shipping cost rounds finish **144
+commands**, retaining frozen thresholds, eleven samples, CPUs 0/16, alternating
+controls/placebos, all adverse results and contention telemetry. No owned
+build/test/profile/edit overlaps timing. Native full-record checks match in
+**648 comparisons**; cost native proofs match in **576 comparisons**. Both
+no-feature cost images are byte-identical to their frozen controls.
+
+Control time / candidate time ratios, first / repeat:
+
+| Workload | Profile / CPU | Ratio |
+| --- | --- | --- |
+| Upvalue Auto | native / 0 | 1.11836 / 1.12544 |
+| Upvalue Auto | native / 16 | 1.13515 / 1.12430 |
+| Integer Off | native / 0 | 0.93956 / 0.93702 |
+| Float Off | native / 0 | 0.96790 / 0.96672 |
+| Integer Off | speed / 0 | 1.03149 / 1.02688 |
+| Float Off | speed / 0 | 1.05873 / 1.05548 |
+| Integer Off | shipping / 16 | 0.88866 / 0.88910 |
+| Float Off | shipping / 16 | 0.91069 / 0.91100 |
+| Table Off | shipping / 16 | 0.90601 / 0.91257 |
+
+All twelve candidate upvalue speed gates pass, but every aggregate command
+still fails, including controls. The disabled shipping regressions are repeatable
+and cannot be waived by the native gain or passing individual overhead limits.
+The production change in `ce95b8f` is therefore withdrawn. The implementation
+is retained under `cfg(test)` in `native_region/deferred.rs`, with an opt-in
+test scope, late-panic proof and a full bounded fuel/frame differential. Ordinary
+tests default to the original production path; the explicit deferred tests
+exercise the prototype. Re-enabling the measured candidate is not acceptance.
+
+Before withdrawal, all-feature GNU Auto passes **1,548 executions / 88
+summaries**, six ignored; focused musl passes 79 executions. Native late-panic
+Memcheck reports zero errors and zero definite/indirect leaks; 48 possibly-lost
+and 632 reachable harness bytes remain visible. Source patches, exact symbol
+companions, manifests and complete analysis are retained under
+`target/jit-evidence/short-slice-performance/rooted-deferred*`.
+After withdrawal, GNU and musl each pass 71 focused executions across seven
+summaries, two ignored. The test-only late-panic path passes Memcheck again
+with the same zero-error/leak results and visible harness residues. A fresh
+ordinary GNU opt3 rebuild has `.text` and `.rodata` byte-identical to the
+frozen production control; whole-file identity is not claimed. The candidate
+images and their adverse evidence remain immutable.
+All original performance, resource, platform and release gates remain open.
+
 #### Typed scalar payload boundary — test-only (2026-10-10)
 
 The next structural experiment supplies pointers to scalar fields from Rust,
@@ -257,6 +397,8 @@ The restored opt3 image's `.text` and `.rodata` are byte-identical to the frozen
 control (`payload-withdrawal-image`); this is not a whole-image identity claim.
 The retained test-only fanout fix passes 31 focused GNU/musl tests, including
 every register count and the 80 whole-runtime schedules.
+Both Miri borrow models pass 20 model/IR tests (seeds 25/26), excluding machine
+code. Withdrawal logs are retained under `payload-withdrawal-*`.
 
 #### Sign-directed checked jump arithmetic — withdrawn (2026-10-10)
 
