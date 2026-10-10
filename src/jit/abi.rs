@@ -442,3 +442,6 @@ mod tests {
 
 #[cfg(test)]
 pub(super) mod exit_buffer;
+
+#[cfg(test)]
+mod tag_encoding;

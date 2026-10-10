@@ -791,6 +791,25 @@ jit-gc-requests:
 jit-abi:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests
 
+.PHONY: jit-tag-encoding jit-tag-encoding-miri jit-tag-encoding-codegen
+TAG_ENCODING_DIR ?= target/jit-evidence/tag-encoding
+jit-tag-encoding:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::tag_encoding:: $(ARGS)
+
+jit-tag-encoding-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::tag_encoding:: -- --test-threads=1 $(ARGS)
+
+jit-tag-encoding-codegen:
+	@mkdir -p '$(TAG_ENCODING_DIR)'
+	@CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_STRIP=false $(CARGO) test --locked --release -p luna --features jit --lib $(TARGET_ARG) --no-run --message-format=json > '$(TAG_ENCODING_DIR)/build.json'
+	@jq -er 'select(.reason == "compiler-artifact" and .target.name == "luna" and .profile.test and .executable != null) | .executable' '$(TAG_ENCODING_DIR)/build.json' > '$(TAG_ENCODING_DIR)/executable'
+	@test "$$(wc -l < '$(TAG_ENCODING_DIR)/executable')" -eq 1
+	@set -o pipefail; "$$(cat '$(TAG_ENCODING_DIR)/executable')" jit::abi::tag_encoding:: 2>&1 | tee '$(TAG_ENCODING_DIR)/tests.log'
+	@set -o pipefail; objdump -Cd "$$(cat '$(TAG_ENCODING_DIR)/executable')" | awk '/<luna::jit::abi::tag_encoding::(original_import|offset_import)>:/ { emit=1 } emit { print } /^$$/ { emit=0 }' > '$(TAG_ENCODING_DIR)/assembly.log'
+	@grep -Fq '<luna::jit::abi::tag_encoding::original_import>:' '$(TAG_ENCODING_DIR)/assembly.log'
+	@grep -Fq '<luna::jit::abi::tag_encoding::offset_import>:' '$(TAG_ENCODING_DIR)/assembly.log'
+	@sha256sum "$$(cat '$(TAG_ENCODING_DIR)/executable')" > '$(TAG_ENCODING_DIR)/binary.sha256'
+
 .PHONY: jit-return-words jit-return-words-miri
 .PHONY: jit-output-buffer jit-output-buffer-miri
 jit-output-buffer:

@@ -11,6 +11,23 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Alternate scalar tags — model rejects integration
+
+A test-only seven-register import probe compares the existing 0–4 tags with
+2–6 tags using typed Rust matching, without changing `Value` layout or the live
+ABI. Two tests pass each on GNU, musl, both Miri alias models and an optimized
+release build. Fixtures cover every Value kind and 1,024 generated numeric bit
+patterns. `make jit-tag-encoding-codegen` retains both import symbols and their
+assembly; this is a code-generation diagnostic, not a benchmark build.
+
+The alternate encoding retains discriminant normalization and introduces an
+indirect numeric dispatch: the first numeric import path takes 17 instructions
+through the output stores versus 12 in the original model. It does not satisfy
+the prerequisite for integration. Keep the independent probe, but do not change
+production tags or run a timing campaign for this encoding. Live ABI validity,
+nil constants, positional masks and all runtime behavior remain unchanged.
+Evidence: `tag-encoding-model/` in the short-slice performance directory.
+
 #### Numeric import prefix — rejected before hardware timing
 
 Exact restored callback profiling attributes 20,233,235 instructions to the
