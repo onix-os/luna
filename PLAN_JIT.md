@@ -11,6 +11,34 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Combined numeric-loop guard — unaccepted trial
+
+Two exact-image callback captures reproduce all baseline non-timing fields,
+132,231,624 VM-step instructions and 9,468,103 generated instructions. The
+narrow entry-dispatch clamp costs only 259,396 instructions (0.196% of the
+whole); retain its full-width admission contract. Loop loads plus numeric
+guards cost 1,426,678 generated instructions in each capture.
+
+Trial a single full-width combined numeric guard for `NumericForLoop`:
+XOR each input tag with Integer, OR all differences, and reject if any bit
+other than the Integer/Number discriminator remains. Nil, Boolean, Reference
+and high-bit malformed tags cannot be hidden by another operand. No arithmetic,
+loop direction/overflow, mixed-limit conversion, fuel or fallback behavior changes.
+
+Verifier foundation `dcf0b4c` conservatively propagates known-zero/known-one
+bits through I64 AND/OR/XOR under the existing 64-node traversal bound.
+Unknown values stay unknown; equality uses conflicting bits or exact operands.
+The independent four-bit state/operand corpus, full-width boundaries, both
+guard polarities and eight corruption forms pass. A native corpus checks all
+16^3 tag triples at four budgets, exact exits and unchanged rejected state.
+Focused tags/loop/numeric checks pass **258 / 30 summaries**, and the separate
+proof gate **three / two**; fmt/check-all pass. These are correctness results,
+not performance acceptance. Generated-code profiles, broader correctness,
+Miri and unchanged repeated hardware/cost gates remain required.
+
+Evidence: `target/jit-evidence/short-slice-performance/rooted-native-callback/`
+and `combined-loop-guard-*`. The table/hash experiments below remain withdrawn.
+
 #### Hash/allocation experiments — runtime restored
 
 Neither the cached-hash variants nor allocation-only constructor satisfies the
