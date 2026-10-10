@@ -85,6 +85,65 @@ struct Frame<'a, 'gc> {
     borrow: PhantomData<&'a mut [Value<'gc>]>,
 }
 
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_numeric_read(entry: unsafe extern "C" fn(*const Payload) -> u64) {
+    crate::Lua::empty().enter(|ctx| {
+        for value in [
+            Value::Nil,
+            Value::Boolean(false),
+            Value::Boolean(true),
+            Value::Integer(i64::MIN),
+            Value::Integer(i64::MAX),
+            Value::Number(-0.0),
+            Value::Number(f64::INFINITY),
+            Value::Number(f64::from_bits(0x7ff8000000000042)),
+            Value::Table(crate::Table::new(&ctx)),
+        ] {
+            let scalar = Slot::from_value(value);
+            let expected = if matches!(scalar.tag, INTEGER | NUMBER) {
+                scalar.bits
+            } else {
+                0
+            };
+            let mut values = [value, Value::Integer(0)];
+            let mut frame = Frame::new(&mut values);
+            let slots = [frame.bind(0).unwrap(), frame.bind(1).unwrap()];
+            assert_eq!(unsafe { entry(slots.as_ptr()) }, expected);
+        }
+        let mut sentinel = 0xfedcba9876543210u64;
+        let mut other = 0u64;
+        for tag in (0..=255)
+            .chain((0..64).map(|bit| (1u64 << bit) | INTEGER))
+            .chain([u64::MAX])
+        {
+            for null in [false, true] {
+                if !null && matches!(tag, INTEGER | NUMBER) {
+                    continue;
+                }
+                let slots = [
+                    Payload {
+                        tag,
+                        pointer: if null {
+                            std::ptr::null_mut()
+                        } else {
+                            std::ptr::from_mut(&mut sentinel).cast()
+                        },
+                    },
+                    Payload {
+                        tag: INTEGER,
+                        pointer: std::ptr::from_mut(&mut other).cast(),
+                    },
+                ];
+                assert_eq!(
+                    unsafe { entry(slots.as_ptr()) },
+                    0,
+                    "tag={tag}, null={null}"
+                );
+            }
+        }
+    });
+}
+
 impl<'a, 'gc> Frame<'a, 'gc> {
     fn new(values: &'a mut [Value<'gc>]) -> Self {
         Self {

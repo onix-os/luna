@@ -8,8 +8,14 @@ use crate::jit::abi::payload::runtime::Bridge;
 #[cfg(not(miri))]
 use crate::jit::abi::payload::Payload;
 
+mod numeric_reads;
 mod reads;
 mod writes;
+
+enum Read {
+    Scalar(reads::Read),
+    Numeric(numeric_reads::Read),
+}
 
 enum Rewrite {
     Read(Inst, u32),
@@ -286,10 +292,21 @@ pub(super) fn lower(
     let refused = || JitError::ResourceLimit("payload rewrite records");
     let mut reads = BudgetVec::new_in(allocator.clone());
     reads.try_reserve_exact(plan.reads).map_err(|_| refused())?;
-    let mut writes = BudgetVec::new_in(allocator);
+    let mut writes = BudgetVec::new_in(allocator.clone());
     writes
         .try_reserve_exact(plan.writes)
         .map_err(|_| refused())?;
+    let mut has_numeric = false;
+    scan(function, slots, host, registers, helpers, |rewrite| {
+        if let Rewrite::Read(inst, index) = rewrite {
+            has_numeric |= numeric_reads::candidate(function, inst, slots, index).is_some();
+        }
+        Ok(())
+    })?;
+    let mut numeric = has_numeric
+        .then(|| numeric_reads::Analysis::new(function, allocator.clone()))
+        .transpose()?;
+    let mut numeric_count = 0;
     let mut candidate = function.clone();
     let mut write = Signature::new(function.signature.call_conv);
     write
@@ -303,7 +320,26 @@ pub(super) fn lower(
     scan(function, slots, host, registers, helpers, |rewrite| {
         match rewrite {
             Rewrite::Read(inst, index) => {
-                reads.push(reads::emit(&mut candidate, inst, slots, index));
+                if let Some(guard) = numeric
+                    .as_mut()
+                    .and_then(|a| a.admit(function, inst, slots, index))
+                {
+                    reads.push(Read::Numeric(numeric_reads::emit(
+                        &mut candidate,
+                        inst,
+                        slots,
+                        index,
+                        guard,
+                    )));
+                    numeric_count += 1;
+                } else {
+                    reads.push(Read::Scalar(reads::emit(
+                        &mut candidate,
+                        inst,
+                        slots,
+                        index,
+                    )));
+                }
             }
             Rewrite::Write {
                 tag_store,
@@ -351,13 +387,27 @@ pub(super) fn lower(
         }
         Ok(())
     })?;
-    if size(&candidate) != (plan.instructions, plan.blocks) {
+    drop(numeric);
+    if size(&candidate)
+        != (
+            plan.instructions - 13 * numeric_count,
+            plan.blocks - 2 * numeric_count,
+        )
+    {
         return Err(JitError::Compilation(
             "payload expansion differs from plan".into(),
         ));
     }
+    let predecessors = (numeric_count != 0)
+        .then(|| crate::jit::preds::Predecessors::new(&candidate, allocator))
+        .transpose()?;
     for read in &reads {
-        reads::verify(&candidate, read, slots)?;
+        match read {
+            Read::Scalar(read) => reads::verify(&candidate, read, slots)?,
+            Read::Numeric(read) => {
+                numeric_reads::verify(&candidate, read, slots, predecessors.as_ref().unwrap())?
+            }
+        }
     }
     for write in &writes {
         writes::verify(&candidate, write)?;
@@ -473,7 +523,7 @@ fn payload_workspace_quota_refusals_leave_source_and_ledger_unchanged() {
         instructions: 4096,
         blocks: 4096,
     };
-    let required = std::mem::size_of::<reads::Read>() + std::mem::size_of::<writes::Write>();
+    let required = std::mem::size_of::<Read>() + std::mem::size_of::<writes::Write>();
     for (limit, allocations, accepted) in [
         (0, usize::MAX, false),
         (required - 1, usize::MAX, false),
