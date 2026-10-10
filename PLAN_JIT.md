@@ -119,8 +119,28 @@ not an isolated attribution of all disabled overhead to this helper change.
 The CPU 16 shipping callback historical/candidate ratio changes from 1.0098
 to 0.9535 between screens; keep that adverse variability. Native callback
 improvements do not resolve disabled overhead or imply shipping acceptance.
-Evidence is retained under `table-continuation-cost*`; the next diagnostic is
-exact-image Off profiling of closure and callback execution in both profiles.
+Evidence is retained under `table-continuation-cost*`.
+
+Sixteen exact-image Off profiles now complete with verified linker companion
+segments, unchanged native-zero records and independently summed self costs.
+Compiled-Off callback work is identical to the historical control in both
+profiles; closure work differs by only 408 allocator instructions. Thus these
+disabled regressions are not newly introduced instruction work from the
+continuation helper. Current no-feature versus compiled-Off instruction totals:
+
+| Profile / workload | No feature | Compiled Off |
+| --- | --- | --- |
+| Speed / callbacks | 36,787,240 | 39,490,875 |
+| Shipping / callbacks | 45,686,830 | 47,814,770 |
+| Speed / closure | 72,523,479 | 81,879,248 |
+| Shipping / closure | 79,372,319 | 89,176,738 |
+
+The extra work is concentrated in VM dispatch and executor paths, with
+statistics publication also visible in shipping. This locates the next source
+inspection; it does not establish a hardware timing cause or justify removing
+observable counters. Earlier rejected statistics-batching trials remain
+relevant. Full function deltas, raw profiles and all sixteen checked self totals
+are in `table-continuation-disabled-profile*`.
 
 #### Guarded table-read storage — ordinary path (2026-10-10)
 
