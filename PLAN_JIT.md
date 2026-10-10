@@ -61,9 +61,17 @@ u32 trial also reports 112 bytes and preserves array/map/order offsets. Its
 against the uncached shape; no per-table allocation growth remains on this
 host. Unrepresentable offsets use an advisory sentinel, without limiting map
 capacity or bypassing current-bucket validation. Focused GNU passes 55 checks.
+Compact musl passes 18 checks and both Miri models pass nine each. Twenty-one
+exact-image profiles compare original, wide and compact images, with complete
+non-timing records equal in both seven-case comparisons. Against the original,
+compact callback instructions fall 4.23273%, metamethod 0.92877%; upvalue,
+array and allocation instructions rise 0.12311%, 0.16493% and 0.08124%.
+Against a freshly profiled wide image, callback instructions are effectively
+unchanged, allocation falls 0.23407%, while metamethod rises 0.09083%.
 This does not explain the wide trial's numeric slowdown or establish compact
-timing acceptance. Compact Miri, profiles, broad validation and timing remain
-outstanding; preserve the wide candidate as an additional control.
+timing acceptance. Broad validation/cost builds are running; repeated timing
+remains outstanding. The next campaign preserves the wide image as an
+additional control rather than replacing original/fresh/historical controls.
 Evidence: `table-owner*` under
 `target/jit-evidence/short-slice-performance/`.
 
