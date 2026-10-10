@@ -83,7 +83,44 @@ including controls/placebos. No release or full-performance acceptance follows.
 Contending processes, source/binary identity and all original gates remain in
 `table-continuation-screen-{1,2}*`; restoration evidence is in
 `payload-closed-withdrawal-image/`. Compiled-disabled and shipping-profile
-cost controls remain to be evaluated for this change.
+results follow; full acceptance remains incomplete.
+
+#### Ordinary continuation disabled-cost controls (2026-10-10)
+
+Fresh speed/shipping builds retain exact linker-captured symbol companions.
+Both no-feature images differ from the frozen original in exactly **102 bytes
+across 83 panic-location line fields**. Whole-file inspection confines changes
+to those fields; every corresponding source line is verified unchanged. This
+is not byte identity, and no image is edited or normalized for benchmarking.
+
+Two cost screens each finish 36 commands: CPUs 0/16, speed/shipping, three
+rotating control/placebo/candidate windows, eleven paired samples and twenty
+iterations. All 72 commands retain exit 2; drivers complete 0. Artifact/source
+hashes pass before and after, and native-proof counters match the controls.
+The analyzer independently reconstructs all nine median/min/max records and
+paired medians from the 22 raw child samples in each command, checks the
+unchanged 1.05 ratio limit, and verifies exits against the original results.
+
+Candidate failed controls across six windows per CPU/profile:
+
+| CPU / profile | Workload | Failures / 6 | Observed compiled-Off/no-feature ratios |
+| --- | --- | --- | --- |
+| 0 / speed | Rust callbacks | 6 | 1.0524–1.0606 |
+| 16 / speed | Rust callbacks | 6 | 1.0656–1.0743 |
+| 16 / speed | Closure/upvalue | 6 | 1.1079–1.1231 |
+| 0 / shipping | Closure/upvalue | 6 | 1.0784–1.2343 |
+| 16 / shipping | Closure/upvalue | 6 | 1.1311–1.1803 |
+| 16 / shipping | Rust callbacks | 4 | 1.0214–1.0888 |
+| 0 / shipping | Cold config | 1 | 1.0283–1.0505 |
+| 16 / shipping | Cold config | 1 | 1.0377–1.0547 |
+
+Controls/placebos also fail; comparisons are against historical artifacts,
+not an isolated attribution of all disabled overhead to this helper change.
+The CPU 16 shipping callback historical/candidate ratio changes from 1.0098
+to 0.9535 between screens; keep that adverse variability. Native callback
+improvements do not resolve disabled overhead or imply shipping acceptance.
+Evidence is retained under `table-continuation-cost*`; the next diagnostic is
+exact-image Off profiling of closure and callback execution in both profiles.
 
 #### Guarded table-read storage — ordinary path (2026-10-10)
 
