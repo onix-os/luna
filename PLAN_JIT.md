@@ -75,7 +75,9 @@ The native-only common-prelude variant is withdrawn. Runtime call sites and
 the original test-only setup models are restored to `d38f350`; the earlier
 rooted-state reuse candidate remains unchanged and still unaccepted. Exact
 binary restoration reproduces **`3d0dc224` byte-for-byte** after `1283d71`;
-fresh full GNU/musl restoration checks are still running. Do not reactivate
+fresh full GNU Force restoration passes **1,580 executions / 88 summaries**,
+six ignored, and focused musl passes **122 / seven**, none ignored. Source
+hashes and both restoration exit statuses verify. Do not reactivate
 this common-prelude variant or report its instruction savings as a measured
 general speedup.
 
