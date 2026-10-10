@@ -48,8 +48,15 @@ The speed cost pair builds and passes artifact verification, but the historical
 no-feature full-image identity check stops the builder before shipping: 102 bytes
 differ, all within `.data.rel.ro`. Whole-file comparison proves every byte outside
 that section equal, including `.text` and `.rodata`; section metadata also matches.
-The cause of those data changes is not yet established. No cost timings have run,
-and historical/full-image identity must not be claimed. Evidence: `integer-first*` and
+Relocation/record decoding identifies **83 panic-location line fields** in
+`src/thread/thread.rs`, shifted by 3 or 103 lines by retained test-only code.
+All 83 old/current source lines are byte-identical; filename bytes/relocations,
+lengths and columns are unchanged. Three positive and eight negative audit
+checks pass, rejecting code/data/column/length changes and wrong source lines.
+A fresh cost build permits only these independently verified source-coordinate
+differences; it does not assert full-image identity or relax timing gates.
+The original failed build remains intact. Cost timing is still pending.
+Evidence: `integer-first*` and
 `generated-entry*` under the ignored short-slice performance directory.
 
 #### Same-integer payload writeback — test-only (2026-10-10)
