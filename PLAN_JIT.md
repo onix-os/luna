@@ -9,7 +9,52 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Progress snapshot — 2026-10-10
+### Progress snapshot — 2026-10-11
+
+#### Seeded inline-string table hashes — candidate
+
+`00784ff` proves a representation prerequisite: a second inline-buffer word
+fits the existing string header and allocation layout on 64-bit targets.
+On 32-bit targets that field is omitted. Independent legacy-layout checks keep
+`StringInner` Copy, size and alignment unchanged; no raw padding is accessed.
+The private canonical-key enum accepts either a String or its content-hash word,
+using the same derived hashing. Complete Hasher write streams and seeded AHash
+results match across inline, owned, interned and static strings. Foundation
+tests pass four executions each on GNU, musl and real i686-musl; both Miri
+models pass two tests each.
+
+`34b8f15` stores the final randomized table hash when an inline string is built.
+Lookup, insertion, iteration lookup and live-key rehash reuse it. Indirect
+strings and 32-bit targets keep ordinary hashing. This does not repeat the
+rejected stored-string-hash replacement: the discriminator, randomized seed and
+final hash result are unchanged. There is no additional allocation, header
+growth, cached GC pointer or new unsafe code. Eager work on strings never used
+as keys is a tradeoff, not assumed free.
+
+Candidate model tests compare against independently hashed raw-entry lookup
+through growth, weakening, equal-content storage variants, removal and
+reinsertion. Focused GNU passes **78 / eight summaries**, none ignored.
+Full GNU Force passes **1,585 / 88**, six ignored; baseline/default plus docs
+passes **448 / 87**, two ignored. Focused musl passes **72 / nine**, none
+ignored; i686 **22 / four**, none ignored. Miri Stacked seed 55 and Tree seed 56
+each pass **11 / two** pure model/table-access executions. Source hashes verify.
+
+Frozen opt3 image **`816c067a`** completes ten ordinary exact-image profiles and
+six supplemental profiles with unchanged non-timing fields. Versus immediate
+rooted-state reuse, callback Auto instructions fall **132,231,624 → 130,736,543**;
+Off falls **102,871,353 → 101,376,353**. Table-map self work drops **1,495,000**
+instructions in each mode, so this is shared-runtime work removal, not a reduced
+native-only callback gap. Closure Auto rises 260,469, including admission
+traversal +261,420 and allocator variation −951; closure/integer/float Off are
+unchanged.
+
+Supplemental instrumentation covers the entire `jit_bench::cold` function,
+including setup, reporting and teardown, not just its timed interval. Cold Off
+instructions fall **13,466,892 → 13,410,122** and Auto **13,465,841 → 13,413,555**.
+String construction adds **34,202** self instructions in each; table insertion,
+rehashing and order maintenance fall. These are diagnostic counts, not elapsed
+time acceptance. Physical timing and original feature-cost/release gates remain
+open. Evidence prefix: `target/jit-evidence/short-slice-performance/inline-key-hash*`.
 
 #### Compile-time constant upvalue-table keys — withdrawn
 
