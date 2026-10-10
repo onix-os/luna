@@ -11,6 +11,23 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Guarded table-read storage — ordinary path (2026-10-10)
+
+Share table/metatable admission through an inline `FnOnce(Value)` continuation,
+so accepted values flow straight into each transport's store. An initial
+`Option<Value>` extraction passes correctness but increases callback work by
+518,769 instructions; that draft is rejected before production activation.
+The continuation version's ten exact-image profiles pass every full non-timing
+comparison and reduce ordinary callback work **133,593,180 -> 132,231,543**.
+After excluding 81 allocator instructions, 1,361,556 instructions disappear
+from the combined helper/table-read path. The table-read symbol is inlined;
+its entire old self count is not claimed as savings. Integer/float Off totals
+match; closure Off has 242 additional allocator instructions. Closure Auto
+increases 0.06208%, dominated by canonical admission, and remains adverse
+evidence. No elapsed-time or full-plan acceptance is claimed. Draft and final
+images/profiles remain under `payload-closed-refactor*` in the ignored
+short-slice performance directory.
+
 #### Payload entry wrapper inlining — test-only (2026-10-10)
 
 Inlining the whole `invoke_payload` / `with_bridge` / `with_session` chain

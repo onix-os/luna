@@ -131,6 +131,29 @@ pub(super) struct Frame<'gc, 'a, 'b, 'p> {
     pub projection: Option<&'p mut dyn projection::Bridge<'gc>>,
 }
 
+#[inline(always)]
+pub(super) fn with_table_value<'gc>(
+    ctx: Context<'gc>,
+    table: Value<'gc>,
+    key: Value<'gc>,
+    store: impl FnOnce(Value<'gc>),
+) -> bool {
+    let Value::Table(table) = table else {
+        return false;
+    };
+    let value = table.get_raw(&ctx, key);
+    if value.is_nil()
+        && table
+            .metatable()
+            .is_some_and(|mt| !mt.get_value(ctx, MetaMethod::Index).is_nil())
+    {
+        false
+    } else {
+        store(value);
+        true
+    }
+}
+
 impl<'gc> Frame<'gc, '_, '_, '_> {
     fn register(&self, slots: &(impl Transport<'gc> + ?Sized), index: u32) -> Value<'gc> {
         slots.read(index as usize, self.registers.stack_frame[index as usize])
@@ -164,20 +187,10 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
         table: Value<'gc>,
         key: Value<'gc>,
     ) -> bool {
-        let Value::Table(table) = table else {
-            return false;
-        };
-        let value = table.get_raw(&self.ctx, key);
-        if value.is_nil()
-            && table
-                .metatable()
-                .is_some_and(|mt| !mt.get_value(self.ctx, MetaMethod::Index).is_nil())
-        {
-            return false;
-        }
-        self.store(slots, dest, value);
-        self.count.table_reads += 1;
-        true
+        with_table_value(self.ctx, table, key, |value| {
+            self.store(slots, dest, value);
+            self.count.table_reads += 1;
+        })
     }
 
     fn table_write(&mut self, table: Value<'gc>, key: Value<'gc>, value: Value<'gc>) -> bool {
