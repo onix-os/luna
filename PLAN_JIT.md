@@ -42,7 +42,14 @@ CPU16 closure Off is adverse in both rounds (**0.98971 / 0.98546**); integer Off
 has variable losses and same-image noise. No timing outliers are removed, and no
 owned build/test/profile overlaps timing. This is a measured instruction-work
 improvement, **not performance acceptance**. Broader correctness and matched
-feature-cost validation remain pending. Evidence: `integer-first*` and
+feature-cost validation remain pending. The full GNU all-feature Force suite
+subsequently passes **1,554 executions / 88 summaries**, with six existing ignores.
+The speed cost pair builds and passes artifact verification, but the historical
+no-feature full-image identity check stops the builder before shipping: 102 bytes
+differ, all within `.data.rel.ro`. Whole-file comparison proves every byte outside
+that section equal, including `.text` and `.rodata`; section metadata also matches.
+The cause of those data changes is not yet established. No cost timings have run,
+and historical/full-image identity must not be claimed. Evidence: `integer-first*` and
 `generated-entry*` under the ignored short-slice performance directory.
 
 #### Same-integer payload writeback — test-only (2026-10-10)
