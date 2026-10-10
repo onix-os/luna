@@ -79,6 +79,53 @@ pub(crate) fn with_bridge(
     });
 }
 
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_write_guards(
+    entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u64, u64),
+) {
+    unsafe extern "C" fn declined(host: *mut Bridge, _: *mut Payload, _: u32, _: u64, _: u64) {
+        unsafe { (*host).materializations += 1 };
+    }
+    let mut bridge = Bridge {
+        base: abi::Host {
+            data: std::ptr::null_mut(),
+            projection: std::ptr::null_mut(),
+        },
+        read: read_bits,
+        write: declined,
+        helpers: [helper::<1>; 10],
+        materializations: 0,
+    };
+    let tags = (0..=255)
+        .chain((0..64).map(|bit| (1u64 << bit) | INTEGER))
+        .chain([u64::MAX - 1, u64::MAX]);
+    for tag in tags {
+        for null in [false, true] {
+            let bits = 0x0123_4567_89ab_cdef;
+            if (matches!(tag, INTEGER | NUMBER) && !null) || (tag == NIL && null) {
+                continue;
+            }
+            let mut sentinel = 0xfedc_ba98_7654_3210u64;
+            let pointer = if null {
+                std::ptr::null_mut()
+            } else {
+                std::ptr::from_mut(&mut sentinel).cast()
+            };
+            let mut descriptor = Payload { tag, pointer };
+            let before = bridge.materializations;
+            unsafe { entry(&mut descriptor, &mut bridge, tag, bits) };
+            assert_eq!(
+                bridge.materializations,
+                before + 1,
+                "tag={tag}, null={null}"
+            );
+            assert_eq!(sentinel, 0xfedc_ba98_7654_3210);
+            assert_eq!(descriptor.tag, tag);
+            assert_eq!(descriptor.pointer, pointer);
+        }
+    }
+}
+
 #[cfg(not(miri))]
 pub(crate) fn check_native_write(entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u64, u64)) {
     crate::Lua::empty().enter(|ctx| {
@@ -376,29 +423,45 @@ unsafe extern "C" fn materialize(
     if session.stopped {
         return abi::HELPER_PANICKED;
     }
-    let count = session.count;
-    let value = match tag {
-        NIL => Some(Value::Nil),
-        BOOLEAN if bits <= 1 => Some(Value::Boolean(bits != 0)),
-        INTEGER => Some(Value::Integer(bits as i64)),
-        NUMBER => Some(Value::Number(f64::from_bits(bits))),
-        _ => None,
-    };
-    if let Some(value) = value.filter(|_| (index as usize) < count) {
-        let mut canonical = Frame {
-            values: session.values,
-            len: count,
-            borrow: PhantomData,
-        };
-        assert!(canonical.store(
-            unsafe { std::slice::from_raw_parts_mut(slots, count) },
-            index as usize,
-            value,
-        ));
-        abi::HELPER_COMPLETED
-    } else {
-        abi::HELPER_DECLINED
+    if index as usize >= session.count {
+        return abi::HELPER_DECLINED;
     }
+    unsafe {
+        match tag {
+            NIL => materialize_scalar::<NIL>(session, slots, index, bits),
+            BOOLEAN if bits <= 1 => materialize_scalar::<BOOLEAN>(session, slots, index, bits),
+            INTEGER => materialize_scalar::<INTEGER>(session, slots, index, bits),
+            NUMBER => materialize_scalar::<NUMBER>(session, slots, index, bits),
+            _ => abi::HELPER_DECLINED,
+        }
+    }
+}
+
+#[inline(always)]
+unsafe fn materialize_scalar<const TAG: u64>(
+    session: &mut Session<'_, '_, '_, '_, '_>,
+    slots: *mut Payload,
+    index: u32,
+    bits: u64,
+) -> u32 {
+    let value = match TAG {
+        NIL => Value::Nil,
+        BOOLEAN => Value::Boolean(bits != 0),
+        INTEGER => Value::Integer(bits as i64),
+        NUMBER => Value::Number(f64::from_bits(bits)),
+        _ => unreachable!(),
+    };
+    let mut canonical = Frame {
+        values: session.values,
+        len: session.count,
+        borrow: PhantomData,
+    };
+    assert!(canonical.store(
+        unsafe { std::slice::from_raw_parts_mut(slots, session.count) },
+        index as usize,
+        value,
+    ));
+    abi::HELPER_COMPLETED
 }
 
 #[test]

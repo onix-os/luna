@@ -11,6 +11,191 @@
 
 ### Progress snapshot — 2026-10-10
 
+#### Branch-local scalar materialization — test-only (2026-10-10)
+
+Scalar materialization now retains each scalar variant through a const-tag
+store, rather than merging the variants into `Option<Value>` before canonical
+storage. The existing `Frame::store` still writes the canonical Value and binds
+only the destination. No Rust enum layout, descriptor lifetime, helper ABI,
+resource quota or production transport selection changes. Stopped sessions
+return Panicked before input checks; malformed tags/Boolean bits and invalid
+indices still decline without writes.
+
+An independent test-only copy of the old implementation compares **900 paired
+cases**: widths 0/1/7/255/256, stopped/live sessions, boundary/invalid indices,
+scalar extremes, signed zero, infinities, NaN payloads and malformed inputs.
+It compares descriptor tags/nullness/bits, canonical scalar bits/table identity,
+PC, panic payload and all eight seeded helper counters. Existing sibling-pointer
+lifetime tests remain unchanged. GNU format/check-all/payload checks pass
+**38 executions / three summaries**, musl helper/payload **63 / four**, and
+pinned Stacked seed 29 / Tree seed 30 each **51 / three**. Miri warnings remain;
+Miri does not execute generated machine code. Oracle commit: `d1ba793`;
+test-only specialization: `dfca2a4`.
+
+Temporary release image `cfd7b2e6` completes ten exact-image profiles. Compared
+with the prior mask image `9a90d28a`, callback work falls
+**135,476,302 -> 134,892,238** (-0.431%). All 584,064 removed instructions are
+in scalar materialization, **2,141,568 -> 1,557,504** (-27.27%). Closure Auto
+increases **92,426** instructions to 170,443,681; several other functions change
+despite identical non-timing workload fields. Closure Off increases 242
+allocator instructions; integer/float Off remain equal. All ten compared self
+totals match raw profiles. No adverse deltas are discarded. The original
+historical-control profile gate still fails on existing payload resource-field
+differences; its failure is retained, not replaced by the diagnostic.
+
+A same-image historical-control comparison also verifies ten self totals.
+Its Closure Auto total changes by +208,420 instructions, mostly in admission,
+with identical non-timing counters; its other four totals are unchanged.
+Therefore the closure delta alone cannot be attributed to this source change.
+The callback reduction is localized to the changed materialization function,
+and its repeated historical control is instruction-identical.
+
+Two repeated four-way screens complete **48 commands**, each with nine workloads
+and eleven paired samples, CPU0/16, three rotating windows and ordinary,
+historical and same-image-placebo controls. All 48 commands fail the original
+gates. Ordinary `dab0490e` / candidate elapsed-time medians (above 1 is faster):
+
+| Auto workload | CPU 0, screen 1 / 2 | CPU 16, screen 1 / 2 |
+| --- | --- | --- |
+| Rust callbacks | 0.9498 / 0.9506 | 0.9481 / 0.9410 |
+| Integer loop | 0.8673 / 0.8679 | 0.7876 / 0.7904 |
+| Float loop | 0.8802 / 0.8802 | 0.8240 / 0.8210 |
+| Allocation/GC | 0.8409 / 0.8453 | 0.7757 / 0.7707 |
+| Closure/upvalue | 1.0107 / 1.0101 | 0.9676 / 0.9756 |
+| Array table | 1.0339 / 1.0285 | 1.0813 / 1.1043 |
+| Polymorphic metamethod | 0.9383 / 0.9387 | 0.9258 / 0.9093 |
+
+Release activation is withdrawn. The model saves instructions but does not
+establish elapsed-time acceptance; full performance/resource/platform/release
+gates remain open. Full counter/resource differences, source/image verification
+and external contention remain under `payload-materialize*` in the ignored
+short-slice evidence directory. No owned builds/tests/profiles/source edits
+overlapped the timing screens.
+
+After withdrawal, the rebuilt ordinary release is byte-identical to
+`dab0490e360b61353aafaf2730ac5aac11fbc64c59cb1df12b158df394ab2ecd`.
+GNU all-feature Force checks pass **1,562 executions / 88 summaries**, with six
+existing ignores; focused musl helper/model/resources pass **108 / seven**,
+with no ignores. Format/check-all and source verification pass. Evidence:
+`payload-materialize-withdrawal-image/`; this restoration does not satisfy the
+still-failing performance gates.
+
+#### Payload numeric-tag mask — test-only (2026-10-10)
+
+Payload scalar reads/writes now classify the Integer/Number pair with
+`(tag & !1) == 2`, rather than separate equality comparisons and an OR.
+A compile-time assertion binds this to the existing private ABI tags 2/3.
+Null-pointer checks, Boolean byte access, Nil/reference handling, canonical
+materialization and helper refresh remain unchanged. No layout of Rust Value
+is inspected and no descriptor is reused across callback or GC boundaries.
+
+The exact IR checker requires the mask, integer constant, operation, input
+provenance and result types independently. Read/write mutation suites reject
+24/37 well-formed corruptions, including a mask that would misclassify tag 6
+and the wrong SSA input. Generated read probes cover low-byte tags, each high
+bit combined with Integer, extreme tags and nulls. Both generated write forms
+also test invalid/reference tags, null scalar pointers, invalid Boolean bits
+and nonnull Nil: exactly one fallback call, no direct store, unchanged sentinel
+and descriptor. Existing actual-Value writes and integrated schedules remain.
+
+Initial integrated checks correctly rejected stale exact expansion counts;
+the planner now accounts for one fewer IR instruction per read/write (19/29
+additional instructions). Global conservative bounds and resource limits are
+not relaxed; exact refusal/rollback checks pass. The failed draft is retained.
+Final GNU payload checks pass **37 executions / three summaries**, musl
+helper/payload checks **62 / four**, and pinned Stacked seed 27 / Tree seed 28
+each **50 / three**. Formatting/check-all pass; Miri warnings are retained.
+This is a test-only code-generation change, not release enablement or a claimed
+speedup. Exact-image profiling must establish whether generated machine work
+decreases before another timing campaign. Evidence: `payload-wide-mask/` under
+the ignored short-slice directory.
+
+The temporary release image `9a90d28a` completes ten exact-image profiles.
+Callback work falls **136,384,162 -> 135,476,302** versus the previous narrow
+payload, with all 907,860 removed instructions in the generated-address bucket.
+Relocated addresses are not counted as eliminated work. Its callback native
+code charge falls **8,192 -> 4,096 bytes**; other non-timing fields match that
+payload profile. All eleven compared self totals are independently verified.
+The original strict profile comparison still fails on closure code charge
+(32,768 versus 28,672) and callback snapshot peak (+60 bytes). Integer/float
+Off and closure Off instruction totals equal their original controls. Closure
+Auto increases 0.35082% versus the original control; that remains adverse.
+
+Two further four-way native screens complete **48 commands**, each with nine
+workloads and eleven paired samples, CPU0/16, three rotating windows and
+ordinary/historical/same-image-placebo controls. Drivers finish zero; all
+48 commands retain original failing gates. Full field differences, counters,
+artifact/source verification and external contention are retained. Ordinary
+`dab0490e` / candidate time medians:
+
+| Auto workload | CPU 0, screen 1 / 2 | CPU 16, screen 1 / 2 |
+| --- | --- | --- |
+| Rust callbacks | 0.9540 / 0.9427 | 0.9383 / 0.9449 |
+| Integer loop | 0.8652 / 0.8694 | 0.7933 / 0.7894 |
+| Float loop | 0.8712 / 0.8794 | 0.8243 / 0.8182 |
+| Allocation/GC | 0.8257 / 0.8329 | 0.7766 / 0.7806 |
+| Closure/upvalue | 1.0201 / 1.0142 | 0.9834 / 0.9703 |
+
+Below one means slower candidate execution. The reduced code/instruction cost
+does not clear the callback or wider regressions, so release activation is
+withdrawn again. Retain only the tested numeric-mask model. Fresh restored GNU
+all-feature Force passes **1,561 / 88**, six existing ignores; focused musl
+helper/model/resources pass **107 / seven**. Formatting/check-all and source
+hashes pass; the restored ordinary release image is byte-identical to `dab0490e`.
+
+Against that ordinary image, callback payload work still costs 3,244,759 extra
+instructions (81 allocator). The generated-address bucket adds 6,290,805 and
+`write_scalar` adds 2,141,568; invocation and combined helper/operand/upvalue
+savings do not offset them. This directs further work toward generated scalar
+access/materialization, not another rejected interpreter-policy reshuffle.
+Full deltas and all timing/restoration evidence are under `payload-wide-mask*`.
+
+#### Closure-only accessor inlining — withdrawn (2026-10-10)
+
+A feature-gated `inline(always)` on `LuaFrame::closure` targets the shipping
+profile's per-entry accessor call. Unlike the earlier rejected register-view
+constructor and tuple-view trials, it changes neither register construction
+nor the no-feature path. It introduces no cache, new representation, unsafe
+access, counter batching or interpreter specialization.
+
+Formatting/check-all and **62 focused executions / nine summaries** pass.
+Sixteen exact-image Off profiles verify symbol companions, native-zero records
+and all self totals. Speed callback/closure instructions are unchanged. Shipping
+callback work falls **47,814,770 -> 47,739,755**, and closure work
+**89,176,738 -> 88,876,723**. The removed accessor self count partly moves into
+the VM: actual savings are 75,015 / 300,015, not its whole old self count.
+No-feature callback counts match; shipping closure has only 158 allocator
+instructions of variation. Both no-feature ELFs differ by 41 panic-location
+line bytes, independently verified against unchanged source lines.
+
+Two three-way cost screens complete **72 commands**, speed/shipping, CPUs
+0/16, eleven paired samples and twenty iterations. Drivers finish zero; 71
+commands retain failing gates, with only one CPU0 speed control passing.
+Full raw-sample reconstruction, original 1.05 thresholds, native proof counters,
+artifact/source hashes and external contention telemetry are preserved.
+Direct prior/candidate medians above one mean faster candidate execution:
+
+| Shipping workload | CPU 0, screen 1 / 2 | CPU 16, screen 1 / 2 |
+| --- | --- | --- |
+| Integer loop | 0.9669 / 0.9644 | 0.9141 / 0.9056 |
+| Float loop | 0.9359 / 0.9427 | 0.9441 / 0.9466 |
+| Array table | 1.0013 / 1.0028 | 0.9139 / 0.9073 |
+| Closure/upvalue | 1.0025 / 1.0019 | 0.9967 / 0.9877 |
+| Rust callbacks | 1.0050 / 0.9996 | 1.1049 / 1.0882 |
+
+CPU16 shipping integer/array elapsed time grows roughly 9–10%, against much
+smaller no-feature variation. The callback gain does not cancel those losses,
+and all shipping closure controls still fail. The hint is removed before any
+native timing campaign or promotion; no native speedup is claimed for it.
+
+Restored GNU and musl each pass **62 / nine**, zero ignores/failures. All four
+fresh restored cost executables match the pretrial speed/shipping no-feature/
+compiled-Off images byte-for-byte. Production sources match `1ab8079` exactly.
+Evidence, the withdrawn one-line patch and all adverse results remain under
+`target/jit-evidence/short-slice-performance/frame-closure-inline*`.
+Future dispatch work must target distinct measured work rather than repeating
+this hint, the rejected unified execution counter or register-view inlining.
+
 #### Narrow payload release trial — withdrawn (2026-10-10)
 
 The closed constant-key helper removes another **12,198,978 callback
@@ -47,11 +232,100 @@ External molla compilation and CPU/I/O/frequency telemetry are preserved;
 these are contended-host results, not clean-host release acceptance.
 
 Release activation is withdrawn; the tested model and fixtures remain.
-The ordinary continuation image itself is slower than historical scratch on
-CPU 0 callbacks in both screens, so its instruction reduction is not accepted
-as a speedup. An exact pre-continuation comparison is the next timing check.
+The ordinary/historical callback ratios below one mean the ordinary image
+is faster, not slower. Historical scratch also differs in earlier refactors,
+so the direct pre-continuation comparison below isolates the latest change.
 Evidence: `payload-closed-screen-{1,2}*`, `payload-closed-profile*` and the
 withdrawn activation patch under the ignored short-slice evidence directory.
+
+#### Ordinary continuation timing and restoration (2026-10-10)
+
+The restored release executable is byte-identical to frozen `dab0490e`.
+GNU all-feature Force passes **1,561 executions / 88 summaries**, with six
+existing ignores. Focused musl helper/model/resource validation passes
+**107 / seven**, including the original public relocation-refusal fixture.
+Formatting, check-all and post-validation source hashes pass.
+
+Two further screens use the exact pre-continuation ordinary image `d5b00a9e`
+as control and placebo, `dab0490e` as candidate, and original `481eb5b2` as
+historical. Each completes 24 commands across both CPUs, nine workloads and
+eleven paired samples. Every compared non-timing field is equal. Ratios are
+pre-change/candidate time; above one means faster candidate execution:
+
+| Workload / Auto | CPU 0, screen 1 / 2 | CPU 16, screen 1 / 2 |
+| --- | --- | --- |
+| Rust callbacks | 1.0298 / 1.0323 | 1.0181 / 1.0015 |
+| Closure/upvalue | 0.9818 / 0.9802 | 0.9882 / 0.9988 |
+| Allocation/GC | 1.0161 / 1.0162 | 1.0181 / 1.0341 |
+| Array table | 1.0091 / 0.9935 | 0.9772 / 0.9613 |
+
+CPU 0 callbacks improve roughly 3% against the immediate predecessor;
+CPU 16 improvement is small/variable. CPU 0 closure timing worsens roughly
+2%, and CPU 16 array results are adverse. Keep those results rather than
+calling this an unconditional win. The unchanged callback gate fails in all
+48 commands; array/metamethod and occasional closure failures also remain,
+including controls/placebos. No release or full-performance acceptance follows.
+Contending processes, source/binary identity and all original gates remain in
+`table-continuation-screen-{1,2}*`; restoration evidence is in
+`payload-closed-withdrawal-image/`. Compiled-disabled and shipping-profile
+results follow; full acceptance remains incomplete.
+
+#### Ordinary continuation disabled-cost controls (2026-10-10)
+
+Fresh speed/shipping builds retain exact linker-captured symbol companions.
+Both no-feature images differ from the frozen original in exactly **102 bytes
+across 83 panic-location line fields**. Whole-file inspection confines changes
+to those fields; every corresponding source line is verified unchanged. This
+is not byte identity, and no image is edited or normalized for benchmarking.
+
+Two cost screens each finish 36 commands: CPUs 0/16, speed/shipping, three
+rotating control/placebo/candidate windows, eleven paired samples and twenty
+iterations. All 72 commands retain exit 2; drivers complete 0. Artifact/source
+hashes pass before and after, and native-proof counters match the controls.
+The analyzer independently reconstructs all nine median/min/max records and
+paired medians from the 22 raw child samples in each command, checks the
+unchanged 1.05 ratio limit, and verifies exits against the original results.
+
+Candidate failed controls across six windows per CPU/profile:
+
+| CPU / profile | Workload | Failures / 6 | Observed compiled-Off/no-feature ratios |
+| --- | --- | --- | --- |
+| 0 / speed | Rust callbacks | 6 | 1.0524–1.0606 |
+| 16 / speed | Rust callbacks | 6 | 1.0656–1.0743 |
+| 16 / speed | Closure/upvalue | 6 | 1.1079–1.1231 |
+| 0 / shipping | Closure/upvalue | 6 | 1.0784–1.2343 |
+| 16 / shipping | Closure/upvalue | 6 | 1.1311–1.1803 |
+| 16 / shipping | Rust callbacks | 4 | 1.0214–1.0888 |
+| 0 / shipping | Cold config | 1 | 1.0283–1.0505 |
+| 16 / shipping | Cold config | 1 | 1.0377–1.0547 |
+
+Controls/placebos also fail; comparisons are against historical artifacts,
+not an isolated attribution of all disabled overhead to this helper change.
+The CPU 16 shipping callback historical/candidate ratio changes from 1.0098
+to 0.9535 between screens; keep that adverse variability. Native callback
+improvements do not resolve disabled overhead or imply shipping acceptance.
+Evidence is retained under `table-continuation-cost*`.
+
+Sixteen exact-image Off profiles now complete with verified linker companion
+segments, unchanged native-zero records and independently summed self costs.
+Compiled-Off callback work is identical to the historical control in both
+profiles; closure work differs by only 408 allocator instructions. Thus these
+disabled regressions are not newly introduced instruction work from the
+continuation helper. Current no-feature versus compiled-Off instruction totals:
+
+| Profile / workload | No feature | Compiled Off |
+| --- | --- | --- |
+| Speed / callbacks | 36,787,240 | 39,490,875 |
+| Shipping / callbacks | 45,686,830 | 47,814,770 |
+| Speed / closure | 72,523,479 | 81,879,248 |
+| Shipping / closure | 79,372,319 | 89,176,738 |
+
+The extra work is concentrated in VM dispatch and executor paths, with
+statistics publication also visible in shipping. This locates the next source
+inspection; it does not establish a hardware timing cause or justify removing
+observable counters. Earlier rejected statistics-batching trials remain
+relevant. Full function deltas, raw profiles and all sixteen checked self totals
+are in `table-continuation-disabled-profile*`.
 
 #### Guarded table-read storage — ordinary path (2026-10-10)
 

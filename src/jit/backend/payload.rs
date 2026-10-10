@@ -247,7 +247,7 @@ fn plan(
             Rewrite::Read(inst, _) => {
                 plan.reads = add(plan.reads, 1)?;
                 (
-                    20 + usize::from(
+                    19 + usize::from(
                         function.dfg.value_type(function.dfg.first_result(inst)) == types::F64,
                     ),
                     5,
@@ -256,7 +256,7 @@ fn plan(
             Rewrite::Write { bits, .. } => {
                 plan.writes = add(plan.writes, 1)?;
                 (
-                    30 + usize::from(function.dfg.value_type(bits) == types::F64),
+                    29 + usize::from(function.dfg.value_type(bits) == types::F64),
                     7,
                 )
             }
