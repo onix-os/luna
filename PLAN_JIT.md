@@ -11,6 +11,52 @@
 
 ### Progress snapshot — 2026-10-10
 
+#### Compile-time constant upvalue-table keys — candidate
+
+`e79c724` selects an alternate GetUpTable helper import only when a compilation
+contains at least one such read and every such read has a constant key. Mixed
+or register-key functions retain the generic helper. This is compilation-time
+selection, not the rejected runtime operand-source dispatch or typed-string
+lookup. It still reads current upvalues, constants and tables on each call;
+there is no cached value, pointer, key hash or table bucket.
+
+Semantic helper IDs, import count, signatures and encoded operands are unchanged.
+The existing independent helper-flow verifier still proves each exact operand,
+source PC, effect and exit. Scoped helper selection remains separate. The
+alternate entry shares ordinary projection, panic publication and counter
+handling; only constant-key extraction bypasses register/constant dispatch.
+Actual symbol-name storage remains charged under the original limits.
+
+Focused GNU validation passes **103 executions / ten summaries**, none ignored.
+Full GNU Force passes **1,582 / 88**, six ignored; focused musl **88 / nine**,
+none ignored. The independent generic-helper differential covers reference
+identity, pending slots, open/closed cells, invalid bounds, readonly tables,
+missing keys, metamethod declines, non-table receivers, fuel, PCs, panic types
+and all eight counters. Original opt3 tests pass two executions.
+
+Initial Miri Stacked execution passes the behavior differential but fails a
+separate function-address assertion. `bd34e13` replaces that assumption with
+actual execution through the selected symbol. Corrected GNU/musl tests each
+pass two executions, with formatting/check-all passing. Corrected optimized
+tests, both Miri models and byte-identical image reproduction remain pending;
+the failed Miri log is retained, not counted as a pass.
+
+Ten exact-image profiles use frozen ELF **`4858730d`**. Against immediate
+rooted-state reuse, callback Auto instructions fall **132,231,624 → 131,194,248**
+(**1,037,376 fewer**). Generic helper self work 8,234,172 becomes 8,558,352 in
+the constant helper, while the separate operand reader's 1,361,556 disappears.
+Closure Auto rises 54,569, including admission traversal 52,284 and allocator
+variation 2,285. Closure/integer/float Off instruction totals are identical.
+
+Execution counters match. Callback snapshot peak increases **10,705 → 10,717**
+bytes: symbol-name lengths sum 173→176 and maximum 20→23, so the existing
+`3 * sum + maximum` reservation rises exactly 12 bytes. The original strict
+historical parser rejects this difference; its failure is retained. A separate
+immediate-baseline comparison explicitly checks and reports this sole resource
+change without relaxing execution counters, workloads or acceptance thresholds.
+Physical timing and all remaining performance/release gates are still open.
+Evidence prefix: `target/jit-evidence/short-slice-performance/constant-upvalue-key*`.
+
 #### Native-only callback setup — measured and withdrawn
 
 The rooted-state candidate improves upvalues but remains unaccepted. Fresh
