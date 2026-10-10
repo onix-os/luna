@@ -59,7 +59,10 @@ includes 1,725,000 table/string-probe instructions, distinct from the expected
 
 Withdraw both the split and simple suffix branches: the small callback gain
 does not justify the repeated shipping loss. Keep the four independent Drain
-fixtures and prior consumption tests. Restoration verification is pending.
+fixtures and prior consumption tests. Restoration verification exits 0:
+formatting and all-feature checks pass, with 1,501 passing GNU Force tests
+across 88 summaries (6 ignored). All five rebuilt native/speed/shipping images
+are byte-identical to their controls, and source manifests reverify.
 Evidence is under
 `drain-suffix*` in the short-slice directory; the earlier owning consumption
 iterator remains withdrawn.
