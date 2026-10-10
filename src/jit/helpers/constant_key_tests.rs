@@ -51,10 +51,6 @@ fn source_selection_requires_nonempty_exclusively_constant_reads() {
         .find(|symbol| symbol.0 == abi::HELPER_GET_UP_TABLE)
         .unwrap()
         .2;
-    assert!(std::ptr::fn_addr_eq(
-        entry,
-        call::<GET_UP_CONSTANT> as abi::HelperEntry
-    ));
     assert_eq!(
         unsafe { entry(std::ptr::null_mut(), std::ptr::null_mut(), 0, 0, 0, 0) },
         abi::HELPER_DECLINED
@@ -71,7 +67,8 @@ struct Observation<'gc> {
     panic: Option<std::any::TypeId>,
 }
 
-fn observe<'gc, const KIND: u32>(
+fn observe<'gc>(
+    entry: abi::HelperEntry,
     ctx: Context<'gc>,
     closure: Closure<'gc>,
     receiver: Value<'gc>,
@@ -124,7 +121,7 @@ fn observe<'gc, const KIND: u32>(
             };
             let b = if scenario == 5 { u32::MAX } else { 0 };
             let c = if scenario == 6 { u32::MAX } else { key };
-            let result = unsafe { call::<KIND>(&mut host, slots.as_mut_ptr(), dest, b, c, 17) };
+            let result = unsafe { entry(&mut host, slots.as_mut_ptr(), dest, b, c, 17) };
             let count = frame.count;
             (
                 result,
@@ -158,6 +155,11 @@ fn constant_entry_matches_generic_aliases_declines_and_panic_publication() {
     crate::Lua::empty().enter(|ctx| {
         let closure = Closure::load(ctx, None, b"return _ENV.key, _ENV[42], _ENV[1.5]").unwrap();
         assert!(closure.prototype().constants.len() >= 3);
+        let entry = symbols(&[read(RCIndex::Constant(ConstantIndex8(0)))])
+            .into_iter()
+            .find(|symbol| symbol.0 == abi::HELPER_GET_UP_TABLE)
+            .unwrap()
+            .2;
         let table = Table::new(&ctx);
         let missing = Table::new(&ctx);
         let meta = Table::new(&ctx);
@@ -190,12 +192,16 @@ fn constant_entry_matches_generic_aliases_declines_and_panic_publication() {
                     for scenario in 0..7 {
                         for dest in [0, 3, 6, 7] {
                             let key = abi::CONSTANT_OPERAND | index as u32;
-                            let old = observe::<{ abi::HELPER_GET_UP_TABLE }>(
-                                ctx, closure, receiver, key, scenario, dest,
+                            let old = observe(
+                                call::<{ abi::HELPER_GET_UP_TABLE }>,
+                                ctx,
+                                closure,
+                                receiver,
+                                key,
+                                scenario,
+                                dest,
                             );
-                            let new = observe::<GET_UP_CONSTANT>(
-                                ctx, closure, receiver, key, scenario, dest,
-                            );
+                            let new = observe(entry, ctx, closure, receiver, key, scenario, dest);
                             assert_eq!(
                                 (new.result, new.counts, new.pc, new.fuel, new.panic),
                                 (old.result, old.counts, old.pc, old.fuel, old.panic),
