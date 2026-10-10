@@ -11,6 +11,32 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Canonical-only helper entries — experimental (2026-10-10)
+
+Ordinary compilation now selects a distinct canonical helper table, while
+projected and scoped compilation retain their existing tables. The shared
+helper body specializes projection handling at compile time rather than testing
+it before and after every ordinary operation. Code layout, scratch transport,
+PC-before-effects, null-host decline, unwind capture, panic materialization,
+effect counters and native coverage remain unchanged. Canonical entries use
+private v5 names (fixed-list v2) with unchanged name lengths; general projected
+entries keep v4/fixed-list v1. No new host allocation or GC-pointer export is
+introduced. The canonical host requirement is checked in debug builds inside
+the existing unwind boundary.
+
+The new canonical test scope reruns fourteen independent helper fixtures,
+including every value kind, current-frame aliases, weak/metatable guards,
+partial list writes, bounds, panic PC and scalar publication. General-entry
+tests remain separate. Both symbol tables retain unique names, identical kind
+coverage and null-host refusal. Initial focused checks pass 90 executions;
+final symbol/fixed-list/backend checks pass 21. Twelve helper tests pass each
+Miri borrow model, seeds 27/28; 31 warnings per run remain recorded. These
+counts include overlapping test executions, not full platform certification.
+
+The ordinary GNU opt3 release candidate is frozen under `canonical-helper*`
+in the ignored performance evidence directory. Exact whole-workload profiles
+are running; no performance improvement or release acceptance is claimed yet.
+
 #### Ordinary entry stack outlining — measured and withdrawn (2026-10-10)
 
 The callback profile attributes 20,233,235 instructions to the seven-register

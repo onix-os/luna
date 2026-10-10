@@ -3,15 +3,11 @@ use super::*;
 use crate::{Fuel, Lua};
 
 fn invoke(frame: &mut Frame<'_, '_, '_, '_>, slots: &mut [Slot], count: u32) -> u32 {
-    let mut host = abi::Host {
-        data: std::ptr::from_mut(frame).cast(),
-        projection: std::ptr::null_mut(),
-    };
-    unsafe { call::<{ abi::HELPER_SET_LIST }>(&mut host, slots.as_mut_ptr(), 0, count, 0, 7) }
+    super::tests::invoke::<{ abi::HELPER_SET_LIST }>(frame, slots, 0, count, 0, 7)
 }
 
 #[test]
-fn pending_values_overflow_and_zero_count_preserve_index_and_fuel() {
+pub(super) fn pending_values_overflow_and_zero_count_preserve_index_and_fuel() {
     let mut lua = Lua::empty();
     lua.enter(|ctx| {
         let closure = Closure::load(ctx, None, b"return 42").unwrap();
@@ -88,7 +84,7 @@ fn pending_values_overflow_and_zero_count_preserve_index_and_fuel() {
 }
 
 #[test]
-fn invalid_types_and_variable_stack_decline_without_fuel_or_effects() {
+pub(super) fn invalid_types_and_variable_stack_decline_without_fuel_or_effects() {
     let mut lua = Lua::empty();
     lua.enter(|ctx| {
         let closure = Closure::load(ctx, None, b"return 42").unwrap();
@@ -151,7 +147,7 @@ fn invalid_types_and_variable_stack_decline_without_fuel_or_effects() {
 }
 
 #[test]
-fn readonly_panic_keeps_pending_scalars_and_charges_attempted_list_fuel() {
+pub(super) fn readonly_panic_keeps_pending_scalars_and_charges_attempted_list_fuel() {
     let mut lua = Lua::empty();
     lua.enter(|ctx| {
         let closure = Closure::load(ctx, None, b"return 42").unwrap();
@@ -201,7 +197,7 @@ fn readonly_panic_keeps_pending_scalars_and_charges_attempted_list_fuel() {
 }
 
 #[test]
-fn partial_writes_are_not_replayed_after_a_helper_panic() {
+pub(super) fn partial_writes_are_not_replayed_after_a_helper_panic() {
     let mut lua = Lua::empty();
     lua.enter(|ctx| {
         let closure = Closure::load(ctx, None, b"return 42").unwrap();

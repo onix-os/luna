@@ -816,7 +816,11 @@ fn compile_selected_rooted(
             "injected provider setup probe".into(),
         ));
     }
-    let helper_symbols = helpers::SYMBOLS;
+    let helper_symbols = if selection.projected {
+        helpers::SYMBOLS
+    } else {
+        helpers::CANONICAL_SYMBOLS
+    };
     #[cfg(not(miri))]
     let helper_symbols = if selection.scoped_helpers {
         super::scoped_helpers::SYMBOLS
@@ -5719,7 +5723,7 @@ mod memory_tests {
                 code.byte_len,
                 code.registers,
             );
-            for (_, symbol, entry) in helpers::SYMBOLS {
+            for (_, symbol, entry) in helpers::CANONICAL_SYMBOLS {
                 writeln!(metadata, "helper={symbol} address={:#x}", entry as usize).unwrap();
             }
             for (pc, operation) in snapshot.operations.iter().enumerate() {

@@ -36,6 +36,25 @@ pub(super) const SYMBOLS: [(u32, &str, abi::HelperEntry); 10] = [
     symbol::<{ abi::HELPER_SET_LIST }>("luna_set_list_v1"),
 ];
 
+const fn canonical_symbol<const KIND: u32>(
+    name: &'static str,
+) -> (u32, &'static str, abi::HelperEntry) {
+    (KIND, name, call_canonical::<KIND>)
+}
+
+pub(super) const CANONICAL_SYMBOLS: [(u32, &str, abi::HelperEntry); 10] = [
+    canonical_symbol::<{ abi::HELPER_MOVE }>("luna_move_v5"),
+    canonical_symbol::<{ abi::HELPER_CONSTANT }>("luna_constant_v5"),
+    canonical_symbol::<{ abi::HELPER_NEW_TABLE }>("luna_new_table_v5"),
+    canonical_symbol::<{ abi::HELPER_GET_TABLE }>("luna_get_table_v5"),
+    canonical_symbol::<{ abi::HELPER_SET_TABLE }>("luna_set_table_v5"),
+    canonical_symbol::<{ abi::HELPER_GET_UP_TABLE }>("luna_get_up_table_v5"),
+    canonical_symbol::<{ abi::HELPER_SET_UP_TABLE }>("luna_set_up_table_v5"),
+    canonical_symbol::<{ abi::HELPER_GET_UPVALUE }>("luna_get_upvalue_v5"),
+    canonical_symbol::<{ abi::HELPER_SET_UPVALUE }>("luna_set_upvalue_v5"),
+    canonical_symbol::<{ abi::HELPER_SET_LIST }>("luna_set_list_v2"),
+];
+
 #[derive(Default)]
 pub(super) struct Counts {
     pub calls: u64,
@@ -241,6 +260,29 @@ pub(super) unsafe extern "C" fn call<const KIND: u32>(
     c: u32,
     pc: u32,
 ) -> u32 {
+    unsafe { call_mode::<KIND, true>(host, slots, a, b, c, pc) }
+}
+
+pub(super) unsafe extern "C" fn call_canonical<const KIND: u32>(
+    host: *mut abi::Host,
+    slots: *mut Slot,
+    a: u32,
+    b: u32,
+    c: u32,
+    pc: u32,
+) -> u32 {
+    unsafe { call_mode::<KIND, false>(host, slots, a, b, c, pc) }
+}
+
+#[inline(always)]
+unsafe fn call_mode<const KIND: u32, const PROJECTED: bool>(
+    host: *mut abi::Host,
+    slots: *mut Slot,
+    a: u32,
+    b: u32,
+    c: u32,
+    pc: u32,
+) -> u32 {
     if host.is_null() {
         return abi::HELPER_DECLINED;
     }
@@ -248,20 +290,25 @@ pub(super) unsafe extern "C" fn call<const KIND: u32>(
     let frame = unsafe { &mut *data.cast::<Frame<'_, '_, '_, '_>>() };
     frame.count.calls += 1;
     let result = catch_unwind(AssertUnwindSafe(|| {
+        debug_assert!(PROJECTED || frame.projection.is_none());
         *frame.registers.pc = pc as usize + 1;
-        if let Some(projection) = frame.projection.as_deref_mut() {
-            projection
-                .flush(frame.ctx, frame.registers)
-                .expect("invalid pending projection");
+        if PROJECTED {
+            if let Some(projection) = frame.projection.as_deref_mut() {
+                projection
+                    .flush(frame.ctx, frame.registers)
+                    .expect("invalid pending projection");
+            }
         }
         let completed = {
             let slots = unsafe { std::slice::from_raw_parts_mut(slots, frame.slot_count) };
             frame.operation::<KIND>(slots, a, b, c)
         };
-        if let Some(projection) = frame.projection.as_deref_mut() {
-            projection
-                .refresh(frame.registers, frame.closure.upvalues())
-                .expect("invalid refreshed projection");
+        if PROJECTED {
+            if let Some(projection) = frame.projection.as_deref_mut() {
+                projection
+                    .refresh(frame.registers, frame.closure.upvalues())
+                    .expect("invalid refreshed projection");
+            }
         }
         if !completed {
             *frame.registers.pc = pc as usize;
@@ -298,6 +345,10 @@ pub(super) unsafe extern "C" fn call<const KIND: u32>(
 mod tests {
     use super::*;
 
+    thread_local! {
+        static CANONICAL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
     pub(super) fn assert_identical<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
         match (actual, expected) {
             (Value::Nil, Value::Nil) => {}
@@ -331,7 +382,38 @@ mod tests {
             data: (frame as *mut Frame<'_, '_, '_, '_>).cast(),
             projection: std::ptr::null_mut(),
         };
-        unsafe { call::<KIND>(&mut host, slots.as_mut_ptr(), a, b, c, pc) }
+        if CANONICAL.with(|flag| flag.get()) {
+            assert!(frame.projection.is_none());
+            unsafe { call_canonical::<KIND>(&mut host, slots.as_mut_ptr(), a, b, c, pc) }
+        } else {
+            unsafe { call::<KIND>(&mut host, slots.as_mut_ptr(), a, b, c, pc) }
+        }
+    }
+
+    #[test]
+    fn canonical_entries_preserve_helper_effects_and_panic_contracts() {
+        struct Reset(bool);
+        impl Drop for Reset {
+            fn drop(&mut self) {
+                CANONICAL.with(|flag| flag.set(self.0));
+            }
+        }
+        let _reset = Reset(CANONICAL.with(|flag| flag.replace(true)));
+        moves_preserve_reference_identity_aliases_pending_scalars_and_panic_bounds();
+        canonical_proxies_preserve_live_current_frame_cell_values();
+        current_frame_cells_read_pending_scalars_and_write_both_representations();
+        current_frame_table_aliases_decline_pending_scalars_before_effects();
+        current_frame_cells_outside_scratch_use_canonical_storage();
+        scoped_host_completes_all_helpers_with_canonical_reference_ownership();
+        scoped_host_declines_before_effect_and_transports_panic_after_materialization();
+        upvalue_bounds_panics_preserve_cells_pc_and_materialize_pending_values();
+        table_store_guards_preserve_metatable_and_interception_combinations();
+        table_guards_preserve_self_metatables_readonly_and_pending_keys();
+        super::set_list_tests::pending_values_overflow_and_zero_count_preserve_index_and_fuel();
+        super::set_list_tests::invalid_types_and_variable_stack_decline_without_fuel_or_effects();
+        super::set_list_tests::readonly_panic_keeps_pending_scalars_and_charges_attempted_list_fuel(
+        );
+        super::set_list_tests::partial_writes_are_not_replayed_after_a_helper_panic();
     }
 
     #[test]
@@ -1063,22 +1145,28 @@ slot_count: slots.len(),
 
     #[test]
     fn fixed_symbols_have_unique_keys_and_decline_null_hosts() {
-        let mut kinds = std::collections::HashSet::new();
         let mut names = std::collections::HashSet::new();
-        for (kind, name, entry) in SYMBOLS {
-            assert!(kinds.insert(kind));
-            assert!(names.insert(name));
-            let result = unsafe {
-                entry(
-                    std::ptr::null_mut(),
-                    std::ptr::null_mut(),
-                    u32::MAX,
-                    u32::MAX,
-                    u32::MAX,
-                    u32::MAX,
-                )
-            };
-            assert_eq!(result, abi::HELPER_DECLINED);
+        assert_eq!(
+            SYMBOLS.map(|symbol| symbol.0),
+            CANONICAL_SYMBOLS.map(|symbol| symbol.0)
+        );
+        for symbols in [SYMBOLS, CANONICAL_SYMBOLS] {
+            let mut kinds = std::collections::HashSet::new();
+            for (kind, name, entry) in symbols {
+                assert!(kinds.insert(kind));
+                assert!(names.insert(name));
+                let result = unsafe {
+                    entry(
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                        u32::MAX,
+                        u32::MAX,
+                        u32::MAX,
+                        u32::MAX,
+                    )
+                };
+                assert_eq!(result, abi::HELPER_DECLINED);
+            }
         }
     }
 }
