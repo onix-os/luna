@@ -47,11 +47,43 @@ External molla compilation and CPU/I/O/frequency telemetry are preserved;
 these are contended-host results, not clean-host release acceptance.
 
 Release activation is withdrawn; the tested model and fixtures remain.
-The ordinary continuation image itself is slower than historical scratch on
-CPU 0 callbacks in both screens, so its instruction reduction is not accepted
-as a speedup. An exact pre-continuation comparison is the next timing check.
+The ordinary/historical callback ratios below one mean the ordinary image
+is faster, not slower. Historical scratch also differs in earlier refactors,
+so the direct pre-continuation comparison below isolates the latest change.
 Evidence: `payload-closed-screen-{1,2}*`, `payload-closed-profile*` and the
 withdrawn activation patch under the ignored short-slice evidence directory.
+
+#### Ordinary continuation timing and restoration (2026-10-10)
+
+The restored release executable is byte-identical to frozen `dab0490e`.
+GNU all-feature Force passes **1,561 executions / 88 summaries**, with six
+existing ignores. Focused musl helper/model/resource validation passes
+**107 / seven**, including the original public relocation-refusal fixture.
+Formatting, check-all and post-validation source hashes pass.
+
+Two further screens use the exact pre-continuation ordinary image `d5b00a9e`
+as control and placebo, `dab0490e` as candidate, and original `481eb5b2` as
+historical. Each completes 24 commands across both CPUs, nine workloads and
+eleven paired samples. Every compared non-timing field is equal. Ratios are
+pre-change/candidate time; above one means faster candidate execution:
+
+| Workload / Auto | CPU 0, screen 1 / 2 | CPU 16, screen 1 / 2 |
+| --- | --- | --- |
+| Rust callbacks | 1.0298 / 1.0323 | 1.0181 / 1.0015 |
+| Closure/upvalue | 0.9818 / 0.9802 | 0.9882 / 0.9988 |
+| Allocation/GC | 1.0161 / 1.0162 | 1.0181 / 1.0341 |
+| Array table | 1.0091 / 0.9935 | 0.9772 / 0.9613 |
+
+CPU 0 callbacks improve roughly 3% against the immediate predecessor;
+CPU 16 improvement is small/variable. CPU 0 closure timing worsens roughly
+2%, and CPU 16 array results are adverse. Keep those results rather than
+calling this an unconditional win. The unchanged callback gate fails in all
+48 commands; array/metamethod and occasional closure failures also remain,
+including controls/placebos. No release or full-performance acceptance follows.
+Contending processes, source/binary identity and all original gates remain in
+`table-continuation-screen-{1,2}*`; restoration evidence is in
+`payload-closed-withdrawal-image/`. Compiled-disabled and shipping-profile
+cost controls remain to be evaluated for this change.
 
 #### Guarded table-read storage — ordinary path (2026-10-10)
 
