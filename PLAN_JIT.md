@@ -41,8 +41,13 @@ The subsequent 80 exact-image disabled-path profiles finish successfully.
 Executed VM mnemonic counts are unchanged across both profiles and CPUs;
 integer/float total instruction counts are also unchanged. This does not
 establish the hardware cause of the elapsed slowdown. The production change
-and matching test-only extraction are withdrawn; restoration verification is
-pending. No accepted performance improvement is claimed. Evidence is under
+and matching test-only extraction are withdrawn. Restoration passes formatting,
+all-feature checking and 1,492 GNU Force executions (88 summaries, six ignored).
+All five rebuilt native/speed/shipping images are byte-identical to the saved
+controls, source manifests verify, and source/tests/Make match `75875ea`.
+The first restoration attempt stopped at the source guard on an indentation
+mismatch before tests; corrected verification exits zero in a separate evidence
+directory. No accepted performance improvement is claimed. Evidence is under
 `panic-payload-move*` in the short-slice performance directory.
 
 #### Alternate scalar tags — model rejects integration
