@@ -259,16 +259,7 @@ unsafe extern "C" fn call<const KIND: u32>(
         return abi::HELPER_PANICKED;
     }
     let count = session.count;
-    let mut scratch = [std::mem::MaybeUninit::<Slot>::uninit(); 256];
-    for slot in &mut scratch[..count] {
-        slot.write(Slot::canonical());
-    }
-    let mut host = abi::Host {
-        data: session.frame.as_ptr().cast(),
-        projection: std::ptr::null_mut(),
-    };
-    let result =
-        unsafe { helpers::call::<KIND>(&mut host, scratch.as_mut_ptr().cast(), a, b, c, pc) };
+    let result = helpers::call_direct::<KIND>(unsafe { session.frame.as_mut() }, a, b, c, pc);
     if result != abi::HELPER_PANICKED {
         session.rebind(unsafe { std::slice::from_raw_parts_mut(slots, count) });
     } else {

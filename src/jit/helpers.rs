@@ -19,6 +19,58 @@ mod integer_table_tests;
 #[cfg(test)]
 mod operand_source_tests;
 
+#[cfg(test)]
+mod direct_tests;
+
+trait Transport<'gc> {
+    fn read(&self, index: usize, canonical: Value<'gc>) -> Value<'gc>;
+    fn read_alias(&self, index: usize, canonical: Value<'gc>) -> Value<'gc>;
+    fn write(&mut self, index: usize, value: Value<'gc>);
+    fn write_alias(&mut self, index: usize, value: Value<'gc>);
+}
+
+impl<'gc> Transport<'gc> for [Slot] {
+    fn read(&self, index: usize, canonical: Value<'gc>) -> Value<'gc> {
+        self[index].value(canonical)
+    }
+
+    fn read_alias(&self, index: usize, canonical: Value<'gc>) -> Value<'gc> {
+        self.get(index)
+            .map_or(canonical, |slot| slot.value(canonical))
+    }
+
+    fn write(&mut self, index: usize, value: Value<'gc>) {
+        self[index] = Slot::from_value(value);
+    }
+
+    fn write_alias(&mut self, index: usize, value: Value<'gc>) {
+        if let Some(slot) = self.get_mut(index) {
+            *slot = Slot::from_value(value);
+        }
+    }
+}
+
+#[cfg(test)]
+struct Direct(usize);
+
+#[cfg(test)]
+impl<'gc> Transport<'gc> for Direct {
+    fn read(&self, index: usize, canonical: Value<'gc>) -> Value<'gc> {
+        assert!(index < self.0);
+        canonical
+    }
+
+    fn read_alias(&self, _: usize, canonical: Value<'gc>) -> Value<'gc> {
+        canonical
+    }
+
+    fn write(&mut self, index: usize, _: Value<'gc>) {
+        assert!(index < self.0);
+    }
+
+    fn write_alias(&mut self, _: usize, _: Value<'gc>) {}
+}
+
 const fn symbol<const KIND: u32>(name: &'static str) -> (u32, &'static str, abi::HelperEntry) {
     (KIND, name, call::<KIND>)
 }
@@ -80,16 +132,16 @@ pub(super) struct Frame<'gc, 'a, 'b, 'p> {
 }
 
 impl<'gc> Frame<'gc, '_, '_, '_> {
-    fn register(&self, slots: &[Slot], index: u32) -> Value<'gc> {
-        slots[index as usize].value(self.registers.stack_frame[index as usize])
+    fn register(&self, slots: &(impl Transport<'gc> + ?Sized), index: u32) -> Value<'gc> {
+        slots.read(index as usize, self.registers.stack_frame[index as usize])
     }
 
-    fn store(&mut self, slots: &mut [Slot], index: u32, value: Value<'gc>) {
+    fn store(&mut self, slots: &mut (impl Transport<'gc> + ?Sized), index: u32, value: Value<'gc>) {
         self.registers.stack_frame[index as usize] = value;
-        slots[index as usize] = Slot::from_value(value);
+        slots.write(index as usize, value);
     }
 
-    fn operand(&self, slots: &[Slot], operand: u32) -> Value<'gc> {
+    fn operand(&self, slots: &(impl Transport<'gc> + ?Sized), operand: u32) -> Value<'gc> {
         if operand & abi::CONSTANT_OPERAND != 0 {
             self.closure.prototype().constants[(operand & !abi::CONSTANT_OPERAND) as usize].into()
         } else {
@@ -97,17 +149,17 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
         }
     }
 
-    fn upvalue(&self, slots: &[Slot], index: u32) -> Value<'gc> {
+    fn upvalue(&self, slots: &(impl Transport<'gc> + ?Sized), index: u32) -> Value<'gc> {
         self.registers.get_upvalue_with(
             &self.ctx,
             self.closure.upvalues()[index as usize].get(),
-            |register, value| slots.get(register).map_or(value, |slot| slot.value(value)),
+            |register, value| slots.read_alias(register, value),
         )
     }
 
     fn table_read(
         &mut self,
-        slots: &mut [Slot],
+        slots: &mut (impl Transport<'gc> + ?Sized),
         dest: u32,
         table: Value<'gc>,
         key: Value<'gc>,
@@ -151,7 +203,13 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
         true
     }
 
-    fn operation<const KIND: u32>(&mut self, slots: &mut [Slot], a: u32, b: u32, c: u32) -> bool {
+    fn operation<const KIND: u32>(
+        &mut self,
+        slots: &mut (impl Transport<'gc> + ?Sized),
+        a: u32,
+        b: u32,
+        c: u32,
+    ) -> bool {
         match KIND {
             abi::HELPER_MOVE => {
                 self.store(slots, a, self.register(slots, b));
@@ -213,11 +271,7 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
                     &self.ctx,
                     self.closure.upvalues()[a as usize].get(),
                     value,
-                    |register| {
-                        if let Some(slot) = slots.get_mut(register) {
-                            *slot = Slot::from_value(value);
-                        }
-                    },
+                    |register| slots.write_alias(register, value),
                 );
                 self.count.upvalue_writes += 1;
                 true
@@ -250,6 +304,41 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
                 true
             }
             _ => false,
+        }
+    }
+}
+
+#[cfg(test)]
+pub(super) fn call_direct<const KIND: u32>(
+    frame: &mut Frame<'_, '_, '_, '_>,
+    a: u32,
+    b: u32,
+    c: u32,
+    pc: u32,
+) -> u32 {
+    frame.count.calls += 1;
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        assert!(frame.projection.is_none());
+        *frame.registers.pc = pc as usize + 1;
+        if !frame.operation::<KIND>(&mut Direct(frame.slot_count), a, b, c) {
+            *frame.registers.pc = pc as usize;
+            return abi::HELPER_DECLINED;
+        }
+        *frame.registers.pc = pc as usize + 1;
+        abi::HELPER_COMPLETED
+    }));
+    match result {
+        Ok(abi::HELPER_COMPLETED) => {
+            frame.count.completed += 1;
+            abi::HELPER_COMPLETED
+        }
+        Ok(_) => {
+            frame.count.declined += 1;
+            abi::HELPER_DECLINED
+        }
+        Err(payload) => {
+            frame.panic = Some(payload);
+            abi::HELPER_PANICKED
         }
     }
 }

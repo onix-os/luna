@@ -11,6 +11,37 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Direct canonical helper transport — model (2026-10-10)
+
+A private static transport interface shares the original helper operations
+between scratch slots and a test-only canonical transport. The latter checks
+the register prefix but allocates no scratch array, reads canonical values,
+and omits scratch output conversion. Payload helper calls use that model;
+they still refresh every descriptor after ordinary helper access. Panic
+capture, PC-before-effects, counters, list fuel and upvalue methods remain.
+No new pointer lifetime assumption or runtime value cache is introduced.
+
+A 100-pair differential fixture compares all ten helper kinds across aliases,
+readonly/metatable guards, variable lists, small/empty prefixes, malformed
+operands and partial effects. It checks canonical values, table contents,
+upvalue, PC, fuel, panic status and every helper counter against the proxy
+path. GNU/musl each pass **58 executions / four summaries**; pinned Stacked
+seed 27 and Tree seed 28 each pass **47 / three**. Formatting/check-all pass.
+Initial fixture API/lifetime compile failures remain in the evidence.
+
+Although direct selection is test-only, sharing operation implementations
+changes production code generation: `.text` and `.rodata` are not identical.
+Ten refactor-only exact-image profiles pass full non-timing comparisons.
+Callback instructions are **133,593,180 -> 133,593,099**, with the difference
+confined to allocator internals; renamed generic helper symbols are not
+counted as removed work. All three Off instruction totals are identical.
+Closure Auto differs **170,017,460 -> 169,808,286**, dominated by canonical
+admission rather than the helper transport; do not attribute that to this
+optimization. No elapsed-time or full-plan acceptance is claimed. The payload
+release trial is still pending. Evidence: `payload-direct-*` under the ignored
+short-slice directory; the refactor image also has a supplemental hash/patch
+for the initially untracked test file.
+
 #### Local payload materialization — test-only (2026-10-10)
 
 The typed-payload adapter now materializes a scalar through the existing
