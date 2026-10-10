@@ -75,6 +75,27 @@ fn split_import(values: &[Value<'_>], slots: &mut [Encoded; 7]) {
     }
 }
 
+#[inline(never)]
+fn integer_prefix_import(values: &[Value<'_>], slots: &mut [Encoded; 7]) {
+    let values = &values[..7];
+    for index in 0..7 {
+        if let Value::Integer(value) = values[index] {
+            slots[index] = Encoded {
+                tag: 2,
+                bits: value as u64,
+            };
+        } else {
+            for (slot, value) in slots[index..]
+                .iter_mut()
+                .zip(values[index..].iter().copied())
+            {
+                *slot = encode::<0>(value);
+            }
+            return;
+        }
+    }
+}
+
 #[test]
 fn alternative_tags_preserve_payloads_without_value_layout_access() {
     let mut lua = crate::Lua::empty();
@@ -133,6 +154,23 @@ fn alternative_tags_preserve_payloads_without_value_layout_access() {
                 let production = super::Slot::from_value(value);
                 assert_eq!((production.tag, production.bits), expected[index]);
             }
+            for prefix in 0..=7 {
+                let mut input =
+                    std::array::from_fn::<_, 7, _>(|lane| Value::Integer(lane as i64 - 3));
+                input[prefix..].fill(value);
+                let input = std::hint::black_box(input);
+                let mut original = [Encoded { tag: 99, bits: 99 }; 7];
+                let mut prefix_slots = original;
+                original_import(&input, &mut original);
+                integer_prefix_import(&input, &mut prefix_slots);
+                assert_eq!(prefix_slots, original, "value {index}, prefix {prefix}");
+                let mut actual = [std::mem::MaybeUninit::uninit(); 7];
+                super::Slot::import_integer_nil_prefix(&mut actual, &input);
+                for (slot, expected) in actual.into_iter().zip(original) {
+                    let slot = unsafe { slot.assume_init() };
+                    assert_eq!((slot.tag, slot.bits), (expected.tag, expected.bits));
+                }
+            }
         }
     });
 }
@@ -154,5 +192,37 @@ fn alternative_encoding_preserves_generated_numeric_bits() {
             split_encode(Value::Number(f64::from_bits(bits))),
             encode::<0>(Value::Number(f64::from_bits(bits)))
         );
+    }
+}
+
+#[test]
+fn batch_integer_import_initializes_each_width_and_preserves_canaries() {
+    for width in [0, 1, 7, 8, 9, 16, 32, 64, 128, 255, 256] {
+        for prefix in 0..=width {
+            let values: Vec<_> = (0..width)
+                .map(|index| {
+                    if index == prefix {
+                        Value::Boolean(true)
+                    } else {
+                        Value::Integer(-(index as i64))
+                    }
+                })
+                .collect();
+            let canary = super::Slot {
+                tag: 99,
+                bits: u64::MAX,
+            };
+            let mut slots = vec![std::mem::MaybeUninit::new(canary); width + 2];
+            super::Slot::import_integer_nil_prefix(&mut slots[1..=width], &values);
+            for boundary in [0, width + 1] {
+                let slot = unsafe { slots[boundary].assume_init() };
+                assert_eq!((slot.tag, slot.bits), (canary.tag, canary.bits));
+            }
+            for (slot, value) in slots[1..=width].iter().zip(values) {
+                let slot = unsafe { slot.assume_init() };
+                let expected = encode::<0>(value);
+                assert_eq!((slot.tag, slot.bits), (expected.tag, expected.bits));
+            }
+        }
     }
 }
