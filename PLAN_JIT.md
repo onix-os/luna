@@ -174,10 +174,38 @@ Relative to rooted `3d0dc224`, callback Auto saves **1,495,000**, closure Auto
 adds 155,272, and closure/integer/float Off totals remain identical.
 
 GNU focused validation passes **24 / six summaries**, focused musl **73 /
-eleven**, none ignored. Full Force plus baseline/docs is still running; timing
-has not started. The attribute is omitted with the helper on 32-bit targets;
+eleven**, none ignored. Full Force plus baseline/docs passes **2,035 / 175**,
+eight ignored (Force 1,586 / 88, baseline/docs 449 / 87).
+The attribute is omitted with the helper on 32-bit targets;
 the previously checked constructor/model bodies are unchanged, but no fresh
-Miri run is claimed. Fresh speed/shipping feature-cost artifacts are building.
+Miri run is claimed. Fresh speed/shipping feature-cost artifacts verify.
+
+Four native screens and two feature-cost screens complete **168 checked
+commands**, retaining hashes, raw controls, all counters and unchanged gates.
+Callback Auto rooted-control/candidate medians are CPU0 **1.022565 / 1.014273 /
+1.023151 / 1.008774**, CPU16 **1.027357 / 1.026459 / 1.014488 / 1.041121**.
+Allocation Auto is near baseline or ahead: CPU0 **1.000751 / 1.012268 /
+1.008998 / 1.008241**, CPU16 **1.026685 / 1.001768 / 0.998640 / 1.013271**.
+But CPU0 float Off still regresses: **0.943429 / 0.929493 / 0.938641 /
+0.944018**, versus placebo **1.005282 / 1.000098 / 0.991713 / 0.998994**.
+CPU16 float Off is **0.989460 / 0.981924 / 0.940956 / 0.979853**. Keep the
+adverse CPU16 screen-2 Off allocation/upvalue ratios **0.912520 / 0.895839**,
+not just the favorable Auto results.
+
+Feature-cost checks retain additional repeated failures: speed CPU0 metamethod
+fails 6/6 at 1.0579–1.0629 overhead, speed CPU16 allocation fails 6/6 at
+1.0982–1.1267, and speed CPU16 arrays fail 5/6. Speed callbacks and CPU16
+upvalues, shipping upvalues and CPU0 cold setup still fail repeatedly. Full
+reports retain all remaining outcomes and external contention. No owned
+build/test/profile/source edit overlaps hardware timing.
+
+The shared-construction trial is **not accepted**. Removing measured code
+duplication did not resolve the cross-workload regressions, and does not prove
+their hardware cause. Next isolate the allocation-only change by withdrawing
+the experimental seeded-hash runtime path while preserving the zero-capacity
+map constructor and original acceptance requirements. Measure that combination
+against the frozen rooted baseline before retaining it; do not infer success
+from instruction savings or a selective workload.
 Evidence prefix: `target/jit-evidence/short-slice-performance/shared-inline-key-hash*`.
 
 #### Compile-time constant upvalue-table keys — withdrawn
