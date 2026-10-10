@@ -1069,3 +1069,14 @@ impl<'gc> Slot<'gc> {
 
 #[cfg(test)]
 mod access_tests;
+
+#[cfg(test)]
+impl<'gc> Key<'gc> {
+    fn eq_string(self, query: String<'gc>) -> bool {
+        match self {
+            Self::Live(CanonicalKey::String(key))
+            | Self::Weak(WeakKey::Immediate(CanonicalKeyRepr::String(key)), _) => key == query,
+            _ => false,
+        }
+    }
+}

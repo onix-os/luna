@@ -11,7 +11,138 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Split scalar tag/payload import — no runtime integration (2026-10-10)
+
+The seven-register import probe now also computes tags and payloads with
+separate safe Rust matches, keeping the original 0–4 tags and Value layout.
+Both model tests pass in debug, optimized release and Miri, covering every
+Value kind and 1,024 generated numeric bit patterns. Retained assembly shows
+the first numeric lane still takes 12 instructions through both output stores,
+the same as the original; discriminant normalization is unchanged. This does
+not remove the targeted import work, so production `Slot::from_value` remains
+unchanged and no runtime timing or acceptance claim follows. The diagnostic
+Make target retains all three import symbols. Evidence: `split-import/` under
+`target/jit-evidence/short-slice-performance/`.
+
+#### Typed string-key native reads — withdrawn (2026-10-10)
+
+A JIT-only string query bypasses generic array/numeric-key conversion while
+preserving the seeded hash, content equality, weak-slot reads and metamethod
+fallback. It introduces no cached pointers or table-layout changes. Focused
+checks and eight JIT-feature Miri tests pass. The new integration fixture checks
+five scripts at seven fuel budgets, exact Off/Auto execution traces, collection
+between steps, mutation, false values and fallback; each native run must report
+at least 80 native table reads.
+
+Two completed timing screens retain 48 checked commands and 648 equal full
+non-timing comparisons. All aggregate performance gates still fail. Callback
+control/candidate medians are only 1.01315/1.01939 on CPU0 and 1.01441/1.01493 on
+CPU16 (first/repeat). CPU0 compiled-Off integer ratios are 0.93542/0.93556;
+the repeat same-image placebo is 0.99883. CPU16 Off float is 0.97170/0.96270
+against placebo 1.00254/0.99964. Other same-image fluctuations remain in the
+evidence; these measurements do not establish a hardware cause.
+
+Withdraw the production specialization rather than accept these trade-offs.
+Retain the independent string-key model and native integration regression test.
+Restoration passes formatting/check-all and 139 focused executions in 18 suites;
+production source matches `f79fcd8`, and the rebuilt ordinary native benchmark
+is byte-identical to the retained baseline. No owned build, test or profiling
+job overlaps the hardware timing runs.
+No candidate full-suite, feature-cost, platform or release acceptance is claimed.
+Source patches, immutable binaries, failed formatting attempt, telemetry and
+analyses remain under `target/jit-evidence/short-slice-performance/typed-string-read*`.
+
+#### Callback return-path inlining — both forms withdrawn (2026-10-10)
+
+The PGO callback profile motivates two ordinary-build trials, without PGO flags:
+force-inline `ThreadState::return_values_to`, then force-inline `return_to` as
+well. Each preserves return semantics, lifecycle boundaries, counters and gates;
+each passes formatting/check-all and 108 focused executions across 16 suites.
+
+Each trial completes two four-label timing screens (48 commands, all aggregate
+gates fail; 648 complete non-timing comparisons equal). The historical and fresh
+controls are identical baseline bytes, with a same-inode placebo. Severe CPU0
+variation is retained: the first single-helper callback median ratio 1.98510
+coincides with an identical-baseline historical ratio 1.91054. It is not a 2x
+optimization. Repeat callback ratios are 1.03761/1.01523 on CPU0/16, while CPU16
+compiled-Off float is 0.94659 against placebo 0.99878.
+
+Ten exact-image profiles per trial verify allocated bytes, metadata, program
+headers and all five full non-timing comparisons. Single-helper callback
+instructions fall only 0.92531%: most outlined work moves from `return_values_to`
+to `return_to`. The full-chain form eliminates both standalone return calls on
+the callback path and reduces callback instructions 2.18737% and upvalue Off
+2.61689%. Numeric Off instructions fall slightly; this does not predict timing.
+
+Full-chain callback control/candidate medians improve 1.05672/1.06302 on CPU0
+and 1.04186/1.03239 on CPU16 (first/repeat), but CPU0 compiled-Off integer
+regresses to 0.94273/0.94426; repeat placebo is 0.99614 and all three repeat
+candidate windows are adverse. CPU16 Off float medians are 0.96367/0.96710.
+Reject these trade-offs rather than promoting a local callback improvement.
+
+Both runtime attributes are removed. Restoration passes formatting/check-all
+and the same 108 focused executions; runtime/tests match `5198800` and the
+rebuilt ordinary native executable is byte-identical to the retained baseline.
+No owned builds/tests/profiles/source edits overlap timing. No candidate cost,
+full-suite, platform or release acceptance is claimed. Evidence:
+`callback-return-{inline,chain}*`, `callback-return-restored/` and
+`pgo-probe/return-*` under `target/jit-evidence/short-slice-performance/`.
+
 #### Held-out Rust PGO pilot — measured, not accepted (2026-10-10)
+
+**Follow-up:** exact-image profiling of the first pilot verifies both captured
+stripped binaries byte-for-byte against the timed images and verifies symbol
+companions' allocated bytes, section metadata and program headers. Ten profiles
+preserve all five complete non-timing comparisons. Upvalue Auto instructions rise
+169,965,043 to 204,486,018 (+20.3106%), while callback Auto falls 12.9232% and
+upvalue Off falls 12.0028%. Integer/float Off rise 0.2266%/0.7014%. Out-of-line
+register-view, policy and accounting calls appear on the regressed path; self
+costs move across inlining boundaries and must not be summed as independent
+causal savings.
+
+The actual merged training profile has **zero in all 129 region-boundary and
+102 rooted-invocation counters**. Present-but-zero functions are not exposed by
+missing-function warnings. `b8a03bd` adds the existing `jit_regions` correctness
+suite and rejects profiles without nonzero region/rooted-call coverage. The
+old profile fails this guard. Do not add `jit_call_pairs` wholesale: it imports
+the frozen benchmark corpus.
+
+The second pilot passes 126 training plus 126 profile-use executions, none
+ignored; region-boundary/rooted-call block-count totals are 1,661,532/635,580.
+Both repeated screens finish (48 checked commands, all aggregate gates fail;
+648 complete non-timing comparisons agree). Fresh-control/candidate Auto
+upvalue medians are 1.19622/1.20541 on CPU0 and 1.22019/1.19791 on CPU16
+(first/repeat). Callback medians are 1.19132/1.18954 and 1.19322/1.13347.
+The earlier upvalue loss is no longer present in these medians, but individual
+failed upvalue checks, callback/metamethod failures and CPU0 compiled-Off float
+losses (0.87474/0.88898) remain. Nothing is promoted to default builds.
+
+The two fresh controls have equal file size but are not byte-identical: generated
+Cranelift source paths embed their build directories, with relocation/string
+differences. Do not attribute cross-pilot changes solely to added training.
+The pilot now uses one Cargo build directory across generation, control and use
+phases, removing that avoidable within-pilot path difference. A new run is
+required to evaluate that setup; earlier measurements remain immutable evidence.
+Follow-up artifacts: `pgo-heldout-1-capture/`, `pgo-heldout-1-profile/`,
+`pgo-heldout-2*` and `pgo-probe/`.
+
+**Shared-directory confirmation:** pilot3 passes 126 training and 126
+profile-use executions with the same nonzero region coverage. Two screens
+complete 48 checked commands; all aggregate gates still fail, and all 648
+complete non-timing comparisons match. All twelve candidate upvalue checks
+pass. Array fails three of six checks in each screen; callbacks and metamethods
+fail all six in each. Fresh-control/candidate Auto upvalue medians are
+1.18487/1.18111 on CPU0 and 1.18829/1.18258 on CPU16 (first/repeat).
+Callback medians are 1.15182/1.16862 and 1.14643/1.14031. Compiled-Off float
+medians remain adverse: 0.98520/0.97182 and 0.94386/0.94420.
+
+The directory root is now shared, but Cargo still changes the generated
+Cranelift output-directory hash between compiler-flag sets; embedded paths are
+not identical. This is an observed artifact comparison, not a claim that all
+path/layout effects are isolated. Keep the pilot experimental, without default
+flags or ordinary downstream performance acceptance. Evidence: `pgo-heldout-3*`
+and `pgo-probe/pilot-3-*`; source/image/profile verification succeeds before
+documentation changes and no owned work overlaps timing.
 
 `c2c9934` adds an isolated `pgo` Nix shell and `make jit-pgo-pilot`.
 Run it with `nix develop .#pgo -c make jit-pgo-pilot PGO_DIR=<new-directory>`.
