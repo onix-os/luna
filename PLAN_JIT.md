@@ -117,6 +117,14 @@ code excluded). Logs are under `payload-inline-read-*`. Writes still use the
 materialization gateway, and helper rebinding/resource accounting remain open.
 This is still test-only and has no hardware performance acceptance.
 
+Descriptor and canonical-proxy backing arrays now initialize only the live
+prefix, using `MaybeUninit` without constructing typed slices over uninitialized
+elements. Boundary tests cover 0/1/7/255/256 registers, real helper bounds panics
+and stopped reentry. GNU/musl pass 18 focused tests; both Miri models pass 13
+model/IR tests (seeds 15/16), with raw evidence under `payload-prefix-*`.
+Helpers still rebuild the entire live prefix after whole-frame borrows. Removing
+unused-tail initialization does not by itself establish a performance win.
+
 #### Sign-directed checked jump arithmetic — withdrawn (2026-10-10)
 
 On the restored runtime, a source trial replaces `checked_add_signed` with

@@ -114,13 +114,17 @@ struct Session<'s, 'gc, 'a, 'b, 'p> {
 }
 
 impl Session<'_, '_, '_, '_, '_> {
-    fn rebind(&mut self, slots: &mut [Payload]) {
+    fn bind_each(&mut self, count: usize, mut write: impl FnMut(usize, Payload)) {
         let frame = unsafe { self.frame.as_mut() };
-        assert_eq!(slots.len(), frame.slot_count);
-        let mut canonical = Frame::new(&mut frame.registers.stack_frame[..slots.len()]);
-        for (index, slot) in slots.iter_mut().enumerate() {
-            *slot = canonical.bind(index).unwrap();
+        assert_eq!(count, frame.slot_count);
+        let mut canonical = Frame::new(&mut frame.registers.stack_frame[..count]);
+        for index in 0..count {
+            write(index, canonical.bind(index).unwrap());
         }
+    }
+
+    fn rebind(&mut self, slots: &mut [Payload]) {
+        self.bind_each(slots.len(), |index, value| slots[index] = value);
     }
 }
 
@@ -135,12 +139,14 @@ fn with_session(
         frame: NonNull::from(frame),
         borrow: PhantomData,
     };
-    let mut slots = [Payload {
-        tag: REFERENCE,
-        pointer: std::ptr::null_mut(),
-    }; 256];
-    session.rebind(&mut slots[..count]);
-    body(std::ptr::from_mut(&mut session).cast(), slots.as_mut_ptr());
+    let mut slots = [std::mem::MaybeUninit::<Payload>::uninit(); 256];
+    session.bind_each(count, |index, value| {
+        slots[index].write(value);
+    });
+    body(
+        std::ptr::from_mut(&mut session).cast(),
+        slots.as_mut_ptr().cast(),
+    );
 }
 
 unsafe extern "C" fn call<const KIND: u32>(
@@ -157,12 +163,16 @@ unsafe extern "C" fn call<const KIND: u32>(
         return abi::HELPER_PANICKED;
     }
     let count = frame.slot_count;
-    let mut scratch = [Slot::canonical(); 256];
+    let mut scratch = [std::mem::MaybeUninit::<Slot>::uninit(); 256];
+    for slot in &mut scratch[..count] {
+        slot.write(Slot::canonical());
+    }
     let mut host = abi::Host {
         data: session.frame.as_ptr().cast(),
         projection: std::ptr::null_mut(),
     };
-    let result = unsafe { helpers::call::<KIND>(&mut host, scratch.as_mut_ptr(), a, b, c, pc) };
+    let result =
+        unsafe { helpers::call::<KIND>(&mut host, scratch.as_mut_ptr().cast(), a, b, c, pc) };
     if result != abi::HELPER_PANICKED {
         session.rebind(unsafe { std::slice::from_raw_parts_mut(slots, count) });
     }
@@ -197,6 +207,73 @@ unsafe extern "C" fn materialize(
     };
     session.rebind(unsafe { std::slice::from_raw_parts_mut(slots, count) });
     result
+}
+
+#[test]
+fn initialized_prefix_bounds_hold_for_empty_small_and_full_frames() {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+        for count in [0, 1, 7, 255, 256] {
+            let mut values = vec![Value::Integer(1); count];
+            let mut pc = 0;
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                let mut frame = helpers::Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: count,
+                    panic: None,
+                    projection: None,
+                };
+                with_session(&mut frame, |host, slots| unsafe {
+                    if count != 0 {
+                        assert!(store(
+                            slots.add(count - 1).read(),
+                            Slot {
+                                tag: INTEGER,
+                                bits: 42
+                            }
+                        ));
+                        assert_eq!(
+                            call::<{ abi::HELPER_MOVE }>(host, slots, 0, (count - 1) as u32, 0, 7),
+                            abi::HELPER_COMPLETED
+                        );
+                        assert_eq!(load(slots.read()).unwrap().bits, 42);
+                    }
+                    assert_eq!(
+                        call::<{ abi::HELPER_MOVE }>(
+                            host,
+                            slots,
+                            0,
+                            count as u32,
+                            0,
+                            if count == 0 { 7 } else { 8 }
+                        ),
+                        abi::HELPER_PANICKED
+                    );
+                    assert_eq!(
+                        materialize(host, slots, 0, INTEGER, 99),
+                        abi::HELPER_PANICKED
+                    );
+                });
+                assert_eq!(
+                    (frame.count.calls, frame.count.completed),
+                    if count == 0 { (1, 0) } else { (2, 1) }
+                );
+                assert!(frame.panic.is_some());
+            });
+            assert_eq!(pc, if count == 0 { 8 } else { 9 });
+            for (index, value) in values.into_iter().enumerate() {
+                let expected = if index == 0 || index + 1 == count {
+                    42
+                } else {
+                    1
+                };
+                assert!(matches!(value, Value::Integer(actual) if actual == expected));
+            }
+        }
+    });
 }
 
 #[test]
