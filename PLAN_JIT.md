@@ -11,6 +11,49 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Batch integer imports — both runtime forms withdrawn (2026-10-10)
+
+The public `ThreadState::stack()` API exposes a retainable, mutable stack Gc.
+Tracking only internal writes therefore cannot validate a cross-callback scalar
+cache. A new independent regression retains that alias in a later callback and
+writes Integer, Number, Table and Boolean parent locals. Off/Auto results and
+exact fuel traces agree at five budgets with GC after every step; each Auto run
+requires at least 80 native entries. No persistent cache is introduced.
+
+A stateless batch probe instead imports leading integers directly, then uses
+the unchanged generic conversion for the remaining suffix. Its seven-lane model
+has five instructions per integer instead of twelve. Every first-fallback
+position and Value kind agrees with the original. Runtime integration uses safe
+`MaybeUninit::write`, rereads all canonical inputs and preserves full writeback.
+Each of two runtime candidates passes formatting/check-all, 49 focused test
+executions and three Miri tests, including widths through 256 and canaries.
+
+Ten exact-image profiles per variant verify allocated bytes, metadata and
+program headers, with all five full non-timing comparisons equal. V1 callback
+instructions fall 133,593,180 to 132,621,465 (0.72737%). Bridge attribution finds
+64,837 of 64,849 entries import six integers then enter the generic suffix for
+a trailing nil; all 64,921 generic lane executions take its nil arm. This
+motivates v2's Integer-or-Nil prefix, but its callback reduction is only 0.63120%
+(133,593,099 to 132,749,855). Both preserve exact Off numeric instruction totals.
+Instruction savings do not establish faster execution.
+
+Each variant completes two timing screens: 48 commands, all aggregate gates
+fail, and 648 complete non-timing comparisons match. V1 CPU0 callback ratios
+are 1.01150/1.01122, but CPU16 is 0.98318/0.98618 (first/repeat). V2 CPU0 callbacks
+improve 1.02102/1.01842 while CPU16 remains near parity. V2 CPU0 compiled-Off
+integer ratios are 0.89767/0.93473 versus placebo 0.99131/1.00459; native float
+is also adverse on both CPUs. Keep all same-image variation and contention
+evidence; neither variant merits promotion and no hardware cause is established.
+
+Restore the original ordinary import loop and retain only test-gated models and
+mutation regressions. Restoration passes formatting/check-all and the same 49
+focused executions; the rebuilt ordinary native executable is byte-identical
+to the retained baseline. No owned builds, tests or profiles overlap hardware
+timing. No candidate full-suite, feature-cost, platform or release
+acceptance is claimed. Evidence is under `batch-integer-import*` and
+`pgo-probe/batch-integer-import-v*-profile-analysis.json` in
+`target/jit-evidence/short-slice-performance/`.
+
 #### Split scalar tag/payload import — no runtime integration (2026-10-10)
 
 The seven-register import probe now also computes tags and payloads with
