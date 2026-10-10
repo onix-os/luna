@@ -1,4 +1,4 @@
-use std::{fmt, hash::Hash, i64, mem};
+use std::{cell::Cell, fmt, hash::Hash, i64, mem};
 
 use allocator_api2::vec;
 use hashbrown::{hash_map, HashMap};
@@ -63,6 +63,8 @@ pub struct RawTable<'gc> {
     // when next encountered.
     #[collect(require_static)]
     weak_keys: bool,
+    #[collect(require_static)]
+    string_bucket: Cell<usize>,
 }
 
 /// The seed every table hashes with.
@@ -133,6 +135,7 @@ impl<'gc> RawTable<'gc> {
             order: vec::Vec::new_in(MetricsAlloc::new(mc)),
             weak_values: false,
             weak_keys: false,
+            string_bucket: Cell::new(usize::MAX),
         }
     }
 
@@ -181,12 +184,26 @@ impl<'gc> RawTable<'gc> {
     #[inline(never)]
     fn get_map(&self, mc: &Mutation<'gc>, key: Value<'gc>) -> Value<'gc> {
         if let Ok(key) = CanonicalKey::new(key) {
-            if let Some((_, v)) = self
-                .map
-                .raw_entry()
-                .from_hash(hasher().hash_one(key), |k| k.eq(key))
-            {
-                v.0.get(mc)
+            let map = self.map.raw_table();
+            if let CanonicalKey::String(query) = key {
+                let index = self.string_bucket.get();
+                // Bounds and current occupancy precede access to the current map allocation.
+                if index < map.buckets() && unsafe { map.is_bucket_full(index) } {
+                    let (stored, value) = unsafe { map.bucket(index).as_ref() };
+                    if let Key::Live(CanonicalKey::String(stored)) = stored {
+                        if Gc::ptr_eq(stored.into_inner(), query.into_inner()) {
+                            return value.0.get(mc);
+                        }
+                    }
+                }
+            }
+            if let Some(bucket) = map.find(hasher().hash_one(key), |(k, _)| k.eq(key)) {
+                // The successful lookup returns an initialized bucket in this map.
+                let (stored, value) = unsafe { bucket.as_ref() };
+                if matches!(stored, Key::Live(CanonicalKey::String(_))) {
+                    self.string_bucket.set(unsafe { map.bucket_index(&bucket) });
+                }
+                value.0.get(mc)
             } else {
                 Value::Nil
             }

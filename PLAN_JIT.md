@@ -11,6 +11,30 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Table-owned string bucket — performance trial
+
+Baseline-tested lifecycle fixtures (`b8e40a4`) cover repeated same-allocation and
+equal-content reads across mutations, growth, deletion, weak conversion, clear
+and actual GC. The candidate adds one primitive bucket-offset cell to RawTable.
+Every hit checks current bounds, occupancy and live string allocation identity;
+misses retain canonical hashing/content equality. No pointer, value or GC root
+is cached, no mutation invalidation discipline is trusted, and weak slots still
+upgrade through the ordinary accessor. The field belongs to the accounted table
+allocation and applies equally to interpreter and native-helper access.
+
+Focused GNU checks pass 53 executions, musl 16 and both Miri models eight each.
+The candidate fixture forces every current bucket offset, one-past-end and
+usize::MAX through empty, mutated, rehashed, weakened and cleared maps against
+uncached lookup. The fresh native control matches the previous control byte for
+byte. Fourteen exact-image profiles preserve all seven non-timing records.
+Callback instructions fall 4.23275%, with almost all repeated string/key
+comparisons removed; metamethod instructions fall 1.17346%. Upvalue, array and
+allocation instructions rise 0.15388%, 0.17576% and 0.34710%, respectively.
+These are instrumented instruction results, not hardware speedups. Broad
+validation, resource/cost measurements and repeated timing remain outstanding;
+this trial is not accepted as a performance fix. Evidence: `table-owner*` under
+`target/jit-evidence/short-slice-performance/`.
+
 #### Suffix drain cleanup — withdrawn after timing
 
 Four new independent fixtures (`aec2654`) validate public Drain against

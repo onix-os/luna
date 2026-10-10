@@ -383,3 +383,67 @@ fn repeated_reads_do_not_root_weak_values_after_conversion() {
         });
     }
 }
+
+#[test]
+fn arbitrary_bucket_hints_match_uncached_lookup() {
+    fn check<'gc>(mc: &Mutation<'gc>, table: &RawTable<'gc>, queries: &[Value<'gc>]) {
+        for query in queries.iter().copied() {
+            let expected = CanonicalKey::new(query)
+                .ok()
+                .and_then(|key| {
+                    table
+                        .map
+                        .raw_entry()
+                        .from_hash(hasher().hash_one(key), |k| k.eq(key))
+                })
+                .map_or(Value::Nil, |(_, value)| value.0.get(mc));
+            for index in (0..=table.map.raw_table().buckets()).chain([usize::MAX]) {
+                table.string_bucket.set(index);
+                identical(table.get(mc, query), expected);
+            }
+        }
+    }
+    crate::Lua::empty().enter(|ctx| {
+        let key = String::from_slice(&ctx, b"entry");
+        let equal = String::from_buffer(&ctx, b"entry".to_vec().into_boxed_slice());
+        let other = String::from_slice(&ctx, b"other");
+        let queries = [
+            key.into(),
+            equal.into(),
+            other.into(),
+            Value::Boolean(true),
+            Value::Nil,
+        ];
+        for mode in 0..3 {
+            let mut table = RawTable::new(&ctx);
+            check(&ctx, &table, &queries);
+            for round in 0..3 {
+                let marker = Value::Table(Table::new(&ctx));
+                for (key, value) in [
+                    (key.into(), marker),
+                    (other.into(), Value::Number(-0.0)),
+                    (Value::Boolean(true), Value::Integer(round)),
+                ] {
+                    table.set(&ctx, key, value).unwrap();
+                    check(&ctx, &table, &queries);
+                }
+                table.reserve_map(table.map.capacity() + 1);
+                check(&ctx, &table, &queries);
+                table.set(&ctx, equal.into(), Value::Nil).unwrap();
+                check(&ctx, &table, &queries);
+                table.grow_array(8);
+                check(&ctx, &table, &queries);
+                table.set(&ctx, equal.into(), marker).unwrap();
+                check(&ctx, &table, &queries);
+                if mode == 1 {
+                    table.make_values_weak(&ctx);
+                } else if mode == 2 {
+                    table.make_keys_weak(&ctx);
+                }
+                check(&ctx, &table, &queries);
+                table.clear();
+                check(&ctx, &table, &queries);
+            }
+        }
+    });
+}
