@@ -22,6 +22,11 @@ mod operand_source_tests;
 #[cfg(test)]
 mod direct_tests;
 
+#[cfg(test)]
+mod constant_key_tests;
+
+const GET_UP_CONSTANT: u32 = 11;
+
 trait Transport<'gc> {
     fn read(&self, index: usize, canonical: Value<'gc>) -> Value<'gc>;
     fn read_alias(&self, index: usize, canonical: Value<'gc>) -> Value<'gc>;
@@ -87,6 +92,34 @@ pub(super) const SYMBOLS: [(u32, &str, abi::HelperEntry); 10] = [
     symbol::<{ abi::HELPER_SET_UPVALUE }>("luna_set_upvalue_v4"),
     symbol::<{ abi::HELPER_SET_LIST }>("luna_set_list_v1"),
 ];
+
+pub(super) fn symbols(
+    operations: &[crate::opcode::Operation],
+) -> [(u32, &'static str, abi::HelperEntry); 10] {
+    use crate::opcode::{Operation, RCIndex};
+    let mut found = false;
+    for operation in operations {
+        if let Operation::GetUpTable { key, .. } = operation {
+            if matches!(key, RCIndex::Register(_)) {
+                return SYMBOLS;
+            }
+            found = true;
+        }
+    }
+    let mut symbols = SYMBOLS;
+    if found {
+        let symbol = symbols
+            .iter_mut()
+            .find(|symbol| symbol.0 == abi::HELPER_GET_UP_TABLE)
+            .unwrap();
+        *symbol = (
+            abi::HELPER_GET_UP_TABLE,
+            "luna_get_up_constant_v1",
+            call::<GET_UP_CONSTANT>,
+        );
+    }
+    symbols
+}
 
 #[cfg(test)]
 const fn canonical_symbol<const KIND: u32>(
@@ -260,6 +293,14 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
             abi::HELPER_GET_UP_TABLE => {
                 let table = self.upvalue(slots, b);
                 let key = self.operand(slots, c);
+                let completed = self.table_read(slots, a, table, key);
+                self.count.upvalue_reads += u64::from(completed);
+                completed
+            }
+            GET_UP_CONSTANT => {
+                let table = self.upvalue(slots, b);
+                let key = self.closure.prototype().constants[(c & !abi::CONSTANT_OPERAND) as usize]
+                    .into();
                 let completed = self.table_read(slots, a, table, key);
                 self.count.upvalue_reads += u64::from(completed);
                 completed
