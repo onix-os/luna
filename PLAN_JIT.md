@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Shared-owner final-release split — provisional (2026-10-10)
+#### Shared-owner final-release split — withdrawn (2026-10-10)
 
 `8ba3eb1` keeps the shared-owner decrement and last-owner test inline, moving
 final allocation destruction into a cold, non-inlined function. The allocation
@@ -49,12 +49,47 @@ is 0.97191/0.99407. Do not discard those samples or call the aggregate regressio
 fixed. All build/test/profile jobs finish before timing; unrelated host jobs and
 contention telemetry remain untouched.
 
-Retain this as a small development candidate, not performance or release
-acceptance. Full GNU verification, focused musl checks, fixture-only release
-identity verification, shipping-profile/compiled-disabled cost checks and the
-remaining platform/release obligations are still separate gates. Evidence is
-under `target/jit-evidence/short-slice-performance/lease-release*`; analysis is
-under its `pgo-probe/lease-release*` files. The original thresholds remain frozen.
+Full GNU `jit-verify` subsequently passes 7,966 executions/530 summaries, zero
+failures and 34 existing/repeated ignores, including the supervised scalar and
+heap fuzz campaigns. Focused musl checks pass 996 executions/fifteen summaries,
+six ignores. The fixture-only rebuild matches the timed native image byte for
+byte. These correctness results do not establish performance acceptance.
+
+Two additional feature-cost screens finish 96 commands with 576 matching native
+proof comparisons; these are the cost worker's instruction proofs, not the full
+native-benchmark counter records above. Both profiles use eleven paired samples,
+twenty iterations, CPUs 0/16 and four alternating windows, with same-inode
+placebos and unchanged 5% limits. No-feature binaries at both profiles are
+byte-identical to their controls. The analyzer's six checks include equal-image
+ratios and rejection of changed limits, changed/missing proofs and invalid
+warm/cold native coverage.
+
+**Reject the runtime change.** Shipping integer control/candidate medians are
+0.83536/0.83501 on CPU0 and 0.88650/0.89022 on CPU16 (first/repeat); shipping
+float is 0.79017/0.78567 and 0.90355/0.90422. No-feature controls and same-inode
+placebos stay near one. CPU16 shipping arrays also regress to 0.90755/0.91944;
+CPU0 speed metamethods reach 0.96436/0.96703. Some absolute cost checks still
+pass because the original compiled-disabled control is faster than its
+no-feature counterpart: passing that limit does not excuse these substantial
+direct regressions. All adverse data and host-contention observations remain.
+
+Eight exact-image shipping profiles identify changed interpreter work. Integer
+instructions rise only 19,540,720 to 19,547,015; float rises 20,842,780 to
+20,849,085, but each adds 100,005 writes and about 96,870 reads. Assembly
+attribution finds the numeric-loop jump-sign temporary spilled to the stack:
+the candidate's `mov %r14w,0x48(%rsp)` and `cmpw $0,0x48(%rsp)` execute
+100,005/100,000 times, replacing a register copy/test in the control. This proves
+changed hot-loop spilling, not that it alone explains the entire hardware loss.
+
+Remove the cold final-release function and Drop inlining annotation. Retain the
+reentrant/panic ledger regression. Restored formatting/check-all and 56 focused
+executions pass; restored Miri passes ten owner tests. All four restored cost
+images (no-feature/compiled-disabled at speed/shipping) and the native opt3
+benchmark rebuild are byte-identical to the frozen controls. Do not
+retry another owner-inline hint on the earlier callback-only result. Evidence is
+under `target/jit-evidence/short-slice-performance/lease-release*`; native-screen
+analysis is under its `pgo-probe/lease-release*` files. Full-plan acceptance and
+the original thresholds remain unchanged.
 
 #### Compact source-identity memo — runtime withdrawn (2026-10-10)
 
