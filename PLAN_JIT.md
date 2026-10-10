@@ -34,8 +34,21 @@ evidence only. Full GNU Force passes 1,497 executions (88 summaries, six ignored
 musl passes 47 and each Miri model passes five. Candidate native rebuild matches
 the profiled image exactly; source manifests verify. Fresh speed/shipping
 controls are captured from exact pretrial source `4e1414a`, then candidate source
-is restored exactly to `645839c`. Elapsed gates remain pending. Evidence is under
-`suffix-consume*` in the short-slice directory.
+is restored exactly to `645839c`. Ten additional i686-musl checks pass in the
+fallback shell; an initial i686-GNU attempt failed for missing target standard
+libraries before tests and is not counted as passing.
+
+The first 30-native/128-cost timing campaign finishes with every aggregate gate
+failing. All 108 native and 144 cost-native full-record comparisons match;
+source and artifact manifests verify. Native CPU16 callbacks improve in all
+three windows (fresh/candidate median 1.03072); CPU0 is mixed (0.99970).
+CPU0 upvalue, metamethod and allocation are adverse in all three windows, while
+CPU16 upvalue improves in all three. Callback compiled-Off medians improve in
+both profiles and CPUs, alongside gains in the no-feature binaries. There are
+also adverse non-callback cost samples and a new speed CPU16 cold gate failure.
+Keep all observations; instruction savings do not establish overall acceptance.
+A second unchanged full campaign is required before a retention decision.
+Evidence is under `suffix-consume*` in the short-slice directory.
 
 #### Owned panic payload — withdrawn after timing
 
