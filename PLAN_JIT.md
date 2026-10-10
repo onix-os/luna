@@ -33,7 +33,7 @@ contention remain in the reports. Restore the original three guards and
 production predicate verifier; do not retain an unused production proof
 extension. Keep the native high-bit/three-operand/fuel corpus, a test-only
 known-bits algebra model and explicit refusal of combined guards without a
-matching verifier. Restoration build and validation are pending below.
+matching verifier. Restoration verification follows.
 
 Restoration `de855f6` is verified: the freshly built opt3 executable is
 **byte-identical** to rooted baseline SHA-256
