@@ -28,6 +28,28 @@ evidence. No elapsed-time or full-plan acceptance is claimed. Draft and final
 images/profiles remain under `payload-closed-refactor*` in the ignored
 short-slice performance directory.
 
+#### Closed constant-key table helper — test-only (2026-10-10)
+
+The payload model now handles closed-upvalue constant-key table reads without
+borrowing the whole helper frame. Its scoped session retains PC/count pointers
+and Context/Closure copies, and writes/rebinds only the destination through
+the existing per-cell model. Every ordinary helper refresh renews both control
+pointers and the canonical base. Open upvalues, register keys and malformed
+inputs retain the original helper/full-refresh path. No cached Lua value or
+payload pointer survives a callback, collection or session boundary.
+
+New tests keep and dereference old sibling descriptors at widths 1/7/255/256,
+across first/middle/last destinations and all Value kinds. They cover readonly
+reads, open/register-key/MOVE fallback transitions, metamethod and non-table
+declines, malformed constant validation before decline, a real table-borrow
+panic, pending scalar preservation and stopped reentry. GNU and musl each
+pass **62 executions / four summaries**, including the existing integrated
+schedules. Pinned Stacked seed 27 and Tree seed 28 each pass **50 / three**.
+Formatting/check-all pass. This proves the tested scope, not a release speedup;
+the narrow path remains test-only pending separate release profiling. Evidence:
+`payload-closed-*`, final checks suffixed `v2`, in the ignored short-slice
+directory; the initial guard-extraction regression remains intact.
+
 #### Payload entry wrapper inlining — test-only (2026-10-10)
 
 Inlining the whole `invoke_payload` / `with_bridge` / `with_session` chain

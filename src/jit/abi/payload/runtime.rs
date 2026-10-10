@@ -8,6 +8,10 @@ use crate::{
 #[path = "local_materialize_tests.rs"]
 mod local_tests;
 
+#[cfg(test)]
+#[path = "closed_table_tests.rs"]
+mod closed_table_tests;
+
 #[repr(C)]
 pub(crate) struct Bridge {
     pub base: abi::Host,
@@ -201,6 +205,10 @@ fn bridge_function_table_preserves_original_payload_and_host_pointers() {
 struct Session<'s, 'gc, 'a, 'b, 'p> {
     frame: NonNull<helpers::Frame<'gc, 'a, 'b, 'p>>,
     values: NonNull<Value<'gc>>,
+    counts: NonNull<helpers::Counts>,
+    pc: NonNull<usize>,
+    ctx: crate::Context<'gc>,
+    closure: crate::Closure<'gc>,
     count: usize,
     stopped: bool,
     borrow: PhantomData<&'s mut helpers::Frame<'gc, 'a, 'b, 'p>>,
@@ -210,6 +218,8 @@ impl Session<'_, '_, '_, '_, '_> {
     fn bind_each(&mut self, count: usize, mut write: impl FnMut(usize, Payload)) {
         let frame = unsafe { self.frame.as_mut() };
         assert_eq!(count, frame.slot_count);
+        self.counts = NonNull::from(&mut frame.count);
+        self.pc = NonNull::from(&mut *frame.registers.pc);
         let mut canonical = Frame::new(&mut frame.registers.stack_frame[..count]);
         self.values = canonical.values;
         for index in 0..count {
@@ -231,9 +241,15 @@ fn with_session(
     assert!(count <= 256 && count <= frame.registers.stack_frame.len());
     assert!(frame.projection.is_none());
     let stopped = frame.panic.is_some();
+    let ctx = frame.ctx;
+    let closure = frame.closure;
     let mut session = Session {
         frame: NonNull::from(frame),
         values: NonNull::dangling(),
+        counts: NonNull::dangling(),
+        pc: NonNull::dangling(),
+        ctx,
+        closure,
         count,
         stopped,
         borrow: PhantomData,
@@ -260,6 +276,11 @@ unsafe extern "C" fn call<const KIND: u32>(
     if session.stopped {
         return abi::HELPER_PANICKED;
     }
+    if KIND == abi::HELPER_GET_UP_TABLE {
+        if let Some(result) = closed_table(session, slots, a, b, c, pc) {
+            return result;
+        }
+    }
     let count = session.count;
     let result = helpers::call_direct::<KIND>(unsafe { session.frame.as_mut() }, a, b, c, pc);
     if result != abi::HELPER_PANICKED {
@@ -268,6 +289,80 @@ unsafe extern "C" fn call<const KIND: u32>(
         session.stopped = true;
     }
     result
+}
+
+fn closed_table(
+    session: &mut Session<'_, '_, '_, '_, '_>,
+    slots: *mut Payload,
+    dest: u32,
+    upvalue: u32,
+    operand: u32,
+    pc: u32,
+) -> Option<u32> {
+    if dest as usize >= session.count || operand & abi::CONSTANT_OPERAND == 0 {
+        return None;
+    }
+    let crate::closure::UpValueState::Closed(table) = session
+        .closure
+        .upvalues()
+        .get(upvalue as usize)?
+        .get()
+        .get()
+    else {
+        return None;
+    };
+    let key = session
+        .closure
+        .prototype()
+        .constants
+        .get((operand & !abi::CONSTANT_OPERAND) as usize)
+        .copied()?
+        .into();
+    unsafe {
+        session.counts.as_mut().calls += 1;
+        *session.pc.as_ptr() = pc as usize + 1;
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        helpers::with_table_value(session.ctx, table, key, |value| {
+            let mut canonical = Frame {
+                values: session.values,
+                len: session.count,
+                borrow: PhantomData,
+            };
+            assert!(canonical.store(
+                unsafe { std::slice::from_raw_parts_mut(slots, session.count) },
+                dest as usize,
+                value
+            ));
+        })
+    }));
+    Some(match result {
+        Ok(completed) => {
+            let counts = unsafe { session.counts.as_mut() };
+            if completed {
+                counts.completed += 1;
+                counts.table_reads += 1;
+                counts.upvalue_reads += 1;
+                unsafe {
+                    *session.pc.as_ptr() = pc as usize + 1;
+                }
+                abi::HELPER_COMPLETED
+            } else {
+                counts.declined += 1;
+                unsafe {
+                    *session.pc.as_ptr() = pc as usize;
+                }
+                abi::HELPER_DECLINED
+            }
+        }
+        Err(payload) => {
+            unsafe {
+                session.frame.as_mut().panic = Some(payload);
+            }
+            session.stopped = true;
+            abi::HELPER_PANICKED
+        }
+    })
 }
 
 unsafe extern "C" fn materialize(
