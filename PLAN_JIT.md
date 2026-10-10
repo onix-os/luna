@@ -50,6 +50,20 @@ test module, not the production quota-aware installation path. No resource or
 performance acceptance follows from these passes. Raw draft failures and final
 passes are retained under `payload-native-*`; production integration is next.
 
+A bounded test adapter now calls the unchanged production helpers against real
+`LuaRegisters`. Canonical proxy slots supply helper operands without scalar
+snapshots; all descriptors are rebound after a helper's whole-frame borrow.
+Tests cover current-frame upvalue aliases, closed upvalues, table identity and
+allocation, closed-table reachability after collection, declined operations,
+and readonly-list panic with exact PC/fuel/counter effects. A generated-code
+fixture calls the real move helper and exits on its caught bounds panic.
+Eleven tests pass on GNU/musl x86_64; eight Rust tests pass under both Miri borrow
+models (the three machine-code fixtures are excluded). Evidence is under
+`payload-runtime-*`, including final model seeds 7/8. This adapter initializes
+256 proxy slots and rebinds the full descriptor prefix per helper: it is a
+correctness bridge, not an accepted fast path. Production dispatch, ordinary
+opcode lowering, quota accounting and performance remain unchanged/unproven.
+
 #### Sign-directed checked jump arithmetic — withdrawn (2026-10-10)
 
 On the restored runtime, a source trial replaces `checked_add_signed` with

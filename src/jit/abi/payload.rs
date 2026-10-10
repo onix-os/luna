@@ -11,6 +11,13 @@ use crate::Value;
 #[path = "payload/native.rs"]
 mod native;
 
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[path = "payload/runtime.rs"]
+mod runtime;
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct Payload {

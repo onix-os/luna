@@ -7,7 +7,7 @@ use cranelift_module::{default_libcall_names, Module};
 
 use super::*;
 
-type Entry = unsafe extern "C" fn(*mut Payload, *mut (), MoveHelper, u64, u64) -> u32;
+pub(super) type Entry = unsafe extern "C" fn(*mut Payload, *mut (), MoveHelper, u64, u64) -> u32;
 
 struct Code(Option<JITModule>);
 
@@ -70,7 +70,7 @@ fn emit_store(
     b.switch_to_block(done);
 }
 
-fn with_entry(body: impl FnOnce(Entry)) {
+pub(super) fn with_entry(body: impl FnOnce(Entry)) {
     let mut owner = Code(Some(JITModule::new(
         JITBuilder::new(default_libcall_names()).unwrap(),
     )));
