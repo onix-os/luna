@@ -29,7 +29,7 @@ export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
 printf 'target=%s\nfeatures=jit,async\nopt_level=3\nlto=true\ncodegen_units=1\nstrip=true\njobs=%s\ntraining=scripts,callback,metamethods,jit_native,jit_regions\nmodes=off,auto,force\nbenchmark_training=false\n' "$host" "$CARGO_BUILD_JOBS" > "$out/configuration.log"
 args=(--locked --release --target "$host" --features jit,async)
 tests=(--test scripts --test callback --test metamethods --test jit_native --test jit_regions)
-export CARGO_TARGET_DIR="$out/generate"
+export CARGO_TARGET_DIR="$out/build"
 export RUSTFLAGS="-Cprofile-generate=$out/raw"
 export LLVM_PROFILE_FILE="$out/raw/%m-%p.profraw"
 for mode in off auto force; do
@@ -45,12 +45,10 @@ sha256sum "${raw[@]}" > "$out/raw.sha256"
 awk -f examples/jit_support/pgo_coverage.awk "$out/profile-counts.log" > "$out/coverage.log"
 sha256sum "$out/merged.profdata" > "$out/profile.sha256"
 unset LLVM_PROFILE_FILE
-export CARGO_TARGET_DIR="$out/control-build"
 unset RUSTFLAGS
 echo 'PGO uninstrumented control build'
 cargo build "${args[@]}" --example jit_bench > "$out/control-build.log" 2>&1
 cp "$CARGO_TARGET_DIR/$host/release/examples/jit_bench" "$out/control"
-export CARGO_TARGET_DIR="$out/use-build"
 export RUSTFLAGS="-Cprofile-use=$out/merged.profdata -Cllvm-args=-pgo-warn-missing-function"
 echo 'PGO candidate build'
 cargo build "${args[@]}" --example jit_bench > "$out/use-build.log" 2>&1

@@ -13,6 +13,42 @@
 
 #### Held-out Rust PGO pilot — measured, not accepted (2026-10-10)
 
+**Follow-up:** exact-image profiling of the first pilot verifies both captured
+stripped binaries byte-for-byte against the timed images and verifies symbol
+companions' allocated bytes, section metadata and program headers. Ten profiles
+preserve all five complete non-timing comparisons. Upvalue Auto instructions rise
+169,965,043 to 204,486,018 (+20.3106%), while callback Auto falls 12.9232% and
+upvalue Off falls 12.0028%. Integer/float Off rise 0.2266%/0.7014%. Out-of-line
+register-view, policy and accounting calls appear on the regressed path; self
+costs move across inlining boundaries and must not be summed as independent
+causal savings.
+
+The actual merged training profile has **zero in all 129 region-boundary and
+102 rooted-invocation counters**. Present-but-zero functions are not exposed by
+missing-function warnings. `b8a03bd` adds the existing `jit_regions` correctness
+suite and rejects profiles without nonzero region/rooted-call coverage. The
+old profile fails this guard. Do not add `jit_call_pairs` wholesale: it imports
+the frozen benchmark corpus.
+
+The second pilot passes 126 training plus 126 profile-use executions, none
+ignored; region-boundary/rooted-call block-count totals are 1,661,532/635,580.
+Both repeated screens finish (48 checked commands, all aggregate gates fail;
+648 complete non-timing comparisons agree). Fresh-control/candidate Auto
+upvalue medians are 1.19622/1.20541 on CPU0 and 1.22019/1.19791 on CPU16
+(first/repeat). Callback medians are 1.19132/1.18954 and 1.19322/1.13347.
+The earlier upvalue loss is no longer present in these medians, but individual
+failed upvalue checks, callback/metamethod failures and CPU0 compiled-Off float
+losses (0.87474/0.88898) remain. Nothing is promoted to default builds.
+
+The two fresh controls have equal file size but are not byte-identical: generated
+Cranelift source paths embed their build directories, with relocation/string
+differences. Do not attribute cross-pilot changes solely to added training.
+The pilot now uses one Cargo build directory across generation, control and use
+phases, removing that avoidable within-pilot path difference. A new run is
+required to evaluate that setup; earlier measurements remain immutable evidence.
+Follow-up artifacts: `pgo-heldout-1-capture/`, `pgo-heldout-1-profile/`,
+`pgo-heldout-2*` and `pgo-probe/`.
+
 `c2c9934` adds an isolated `pgo` Nix shell and `make jit-pgo-pilot`.
 Run it with `nix develop .#pgo -c make jit-pgo-pilot PGO_DIR=<new-directory>`.
 Existing directories are refused. Default shells, runtime source, Cargo release
