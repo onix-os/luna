@@ -11,6 +11,39 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Isolated PGO branch-conversion switches — rejected (2026-10-10)
+
+Two profile-use ablations disable either `disable-select-optimize` or
+`x86-cmov-converter` independently, retaining pilot4's frozen training profile,
+shared build root and original PGO control. Each passes 129 correctness
+executions and ten exact-image profiles with five equal full non-timing
+comparisons. All 261 missing-profile warning lines match the original PGO build;
+neither build reports a profile/hash mismatch. These are compiler experiments,
+not retrained production configurations or accepted default flags.
+
+Neither switch reduces numeric work: integer/float Off totals remain
+50,343,020/53,987,661 instructions. Address-level float VM attribution is identical
+for both experiments and their controls: 52,688,194 instructions, 8,175,453
+conditional branches and 24,414 conditional moves. Reject both isolated settings
+before hardware timing; unchanged instruction counts do not prove equal elapsed
+time, but neither removes the targeted extra work.
+
+An apparent 2.8545% callback instruction reduction with select optimization
+disabled is not a compiler win: `RawTable::get_map` accounts for 3,445,000 of the
+3,444,919-instruction difference. The identical original PGO image previously
+recorded the lower lookup count. Table probing uses a process-global randomized
+hasher, so lookup work can vary between processes. Preserve the raw measurements;
+do not change hash policy or subtract this variation from acceptance results.
+The cmov-only trial's remaining instruction differences are allocator paths.
+
+The first cmov profiling launch lacked Valgrind in the PGO build shell and failed
+before measurement. Its artifacts remain; the successful fresh run uses the
+default profiler-equipped Nix shell. No runtime/default build flags change.
+Evidence: `pgo-select-disabled-*`, `pgo-cmov-disabled-*` and
+`pgo-training-mix/` under `target/jit-evidence/short-slice-performance/`.
+The combined two-switch interaction is still being tested; the full performance,
+resource, platform and release gates remain open.
+
 #### PGO training mix and numeric-path attribution — still experimental (2026-10-10)
 
 An audit of all 15 pilot3 raw profiles confirms that `jit_native` and `jit_regions`
