@@ -11,6 +11,48 @@
 
 ### Progress snapshot — 2026-10-10
 
+#### Explicit host stack reloads — test-only (2026-10-10)
+
+`aad3c19` adds a private initialized native stack word for the helper host
+pointer, with per-use reloads, charged proof storage, exact expansion accounting
+and an independent escape/initialization verifier. The original four model
+failures were corrected; host-null comparisons and nil-fanout expansion are
+accounted for without increasing configured limits. GNU format/check-all and
+46 payload tests pass; musl helper/payload tests pass 58 executions; pinned Miri
+Stacked seed 31 and Tree seed 32 each pass 16 backend IR tests. Native execution
+is tested outside Miri. Initial failed checks remain in the evidence directory.
+
+Exact prior generated-code captures attribute all additional guarded-read
+memory traffic to native stack accesses, not payload accesses. Candidate
+`9440a3aa` reduces callback generated stack reads **1,361,811 -> 648,512** and
+writes **907,896 -> 648,524**, with other generated reads/writes unchanged.
+Generated instructions fall **15,175,111 -> 14,915,646**. Ten full profiles
+show callback total instructions down 259,546 but closure Auto up 162,540;
+all non-timing benchmark fields match the preceding guarded-read candidate.
+The strict historical comparison still rejects inherited resource differences.
+Modeled conditional mispredictions increase; these are not hardware counters.
+Original/vgdb captures agree on generated instructions and data traffic; the
+strict all-event comparison fails on three modeled instruction-cache misses.
+
+Two repeated four-way screens retain all **48 failed command gates**, nine
+workloads, eleven paired samples, CPU 0/16, three rotating windows, image/source
+identities and contention telemetry. Ordinary/candidate callback medians are
+**0.953632 / 0.953710** on CPU 0 and **0.946373 / 0.943110** on CPU 16
+(above 1 is faster). Scalar/allocation regressions remain. Ordinary controls
+also fail callback gates; lower modeled stack traffic is not release acceptance.
+Temporary release activation is withdrawn; only the test model is committed.
+The restored ordinary image is byte-identical to `dab0490e`; full GNU Force
+passes **1,570 tests / 88 summaries**, with six existing ignores. Focused musl
+passes **116 / seven**, without ignores. Format/check-all and source manifests
+pass; all restoration commands have completed.
+
+Evidence: `target/jit-evidence/short-slice-performance/payload-host-stack/`,
+`payload-host-stack-candidate/`, `payload-host-stack-profile/`,
+`payload-host-stack-native-vgdb/` and `payload-host-stack-screen-{1,2}*`.
+The remaining work includes reducing total callback/native-boundary overhead,
+not merely generated spills, and satisfying the original performance, resource,
+platform and release gates. The full goal remains incomplete.
+
 #### Guarded numeric payload reads — test-only (2026-10-10)
 
 `4f2a73b` defers eligible payload reads behind their existing numeric guards.
