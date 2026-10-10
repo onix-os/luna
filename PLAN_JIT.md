@@ -11,6 +11,28 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Owned panic payload — performance trial
+
+The completed ordinary helper frame now moves its panic option instead of
+taking it immediately before destruction. Materialization, PC/counter
+publication, manager release and original payload resumption retain their
+order. The existing helper payload-identity regression uses the same owned
+extraction; all its assertions remain.
+
+Formatting/check-all, 45 initial ABI/native/heap checks, 11 helper checks,
+1,492 GNU Force executions (88 summaries, six ignored), 56 musl checks and
+11 helper checks in each Miri model pass. Fourteen exact-image native profiles
+retain all 13 event totals and seven complete non-timing records. Callback
+invocation self work falls 20,233,235 to 19,908,990: five instructions per
+successful profiled entry. Whole callback work falls 0.24%; upvalue work instead
+rises 0.085%, including admission/allocator differences preserved in the logs.
+
+All captured release builds finish and source manifests verify. The native
+image is byte-identical before/after the test-only extraction update; both
+no-feature cost images match the immutable controls. Elapsed-time gates are
+pending; this is not an accepted performance fix. Evidence is under
+`panic-payload-move*` in the short-slice performance directory.
+
 #### Alternate scalar tags — model rejects integration
 
 A test-only seven-register import probe compares the existing 0–4 tags with
