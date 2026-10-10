@@ -34,8 +34,27 @@ These are instrumented instruction results, not hardware speedups. Broad
 validation exits 0: GNU Force passes 1,504 tests across 88 summaries (6 ignored),
 focused musl passes 53 and i686-musl passes 16. Speed/shipping cost images are
 built, and the rebuilt native image matches the profiled candidate byte for
-byte. Source manifests verify. Fresh cost controls and repeated hardware timing
-remain outstanding; this trial is not accepted as a performance fix.
+byte. Source manifests verify. All five fresh control images match the previous
+controls byte for byte. Repeated timing completes 30 native and 128 cost
+commands; all aggregate gates fail. All 108 native and 144 cost non-timing
+comparisons match, including snapshot peaks, and source/image manifests verify.
+
+Native callback control/candidate medians are 1.06071 on CPU0 and 1.04351 on
+CPU16; five of six windows improve. Metamethod medians improve 1.00490/1.01905.
+Shipping disabled callbacks improve 1.14788/1.14619. However, CPU0 speed
+no-feature integer/float medians regress to 0.91549/0.91180 in all four windows;
+CPU16 shipping disabled integer/float regress to 0.94532/0.94675 in all four.
+The candidate adds cold/metamethod cost failures in individual windows, and
+native callback/metamethod targets remain unmet. These losses are not hidden
+by the favorable callback results: the machine-word trial is not accepted.
+
+Eighty exact-image disabled profiles show unchanged integer/float instruction,
+load/store and conditional/indirect branch counts in both profiles and CPUs.
+They do not establish the hardware cause of those elapsed-time regressions.
+Offline type inspection finds RawTable at 120 bytes with the hint at offset 64
+and map at 72, plus six trailing padding bytes. A smaller checked offset might
+avoid growing every table and relocating the map; that resource/layout
+hypothesis needs baseline measurement and validation, not an assumed speedup.
 Evidence: `table-owner*` under
 `target/jit-evidence/short-slice-performance/`.
 
