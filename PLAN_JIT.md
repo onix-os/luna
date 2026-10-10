@@ -11,6 +11,216 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Sign-directed checked jump arithmetic — withdrawn (2026-10-10)
+
+On the restored runtime, a source trial replaces `checked_add_signed` with
+negative-offset `checked_sub(offset.unsigned_abs())` and nonnegative-offset
+`checked_add`. Both branches remain checked and preserve the full i16 domain;
+this does not restore the old narrow-negation overflow at -32768. It is an
+independent trial, not a retained owner-release variant.
+
+Formatting/check-all and seventeen focused executions/five summaries pass,
+including exhaustive valid signed offsets, invalid edge rejection, a real
+maximum-backward loop and executor mode/fuel checks. Another 112 candidate
+executions/sixteen summaries pass. i686 fallback compiler/offset checks pass
+eleven executions/three summaries, with warnings retained. These are focused
+correctness results, not another complete platform matrix.
+
+Ten exact-image opt3 profiles preserve all five full non-timing records.
+Integer/float Off instructions rise 2.10511%/1.96031%; callbacks rise 0.04896%.
+Upvalue Auto falls 0.15234%, while Off rises 0.18259%. Two unchanged native
+screens and two feature-cost screens complete 144 commands, all aggregate gates
+failing. Native screens retain 648 equal full-counter comparisons; cost screens
+retain 576 equal native-instruction proofs. No owned work overlaps timing.
+
+Reject the rewrite. Shipping integer control/candidate first/repeat medians are
+0.75045/0.74902 on CPU0 and 0.82251/0.82646 on CPU16; float is
+0.74721/0.75207 and 0.80332/0.81322. Unlike the owner trial, the no-feature
+interpreter also changes: CPU0 shipping integer controls are 0.92445/0.93382,
+float 0.93320/0.93946. Keep these direct no-feature comparisons rather than
+masking regressions behind candidate Off/Auto ratios. Same-inode placebos remain
+near one. CPU0 speed float reaches 0.84119/0.83468 with no-feature
+0.91597/0.91544; all eight candidate windows fail the original 5% cost gate,
+versus zero controls. Native upvalue CPU16 improves 1.03236/1.03144, but does
+not justify the numeric and disabled costs.
+
+Restore `checked_add_signed` and keep its existing signed-domain regression
+tests. Restored formatting/check-all and seventeen focused executions pass.
+All five rebuilt images (no-feature/compiled-disabled at speed/shipping and
+native opt3) match the frozen controls byte-for-byte; checks are recorded under
+`checked-jump-restored-images`.
+No source or test change from this trial remains. Evidence is under
+`target/jit-evidence/short-slice-performance/checked-jump*` and its
+`pgo-probe/checked-jump*` analyses. Do not repeat another sign-split jump rewrite
+without materially new evidence; the full JIT acceptance gates remain open.
+
+#### Shared-owner final-release split — withdrawn (2026-10-10)
+
+`8ba3eb1` keeps the shared-owner decrement and last-owner test inline, moving
+final allocation destruction into a cold, non-inlined function. The allocation
+guard still retains the allocator through value destruction and Rust unwinding.
+No owner storage, lease duration, lookup/cache behavior, native instruction
+coverage, counter publication or callback boundary changes. In particular, this
+does not keep generated frames or mutable native host borrows across callbacks.
+
+The retained regression exercises final destruction that releases another owner,
+allocates and releases a replacement against the same ledger, then either returns
+or panics. It checks that the outer allocation stays charged throughout its
+destructor and that both paths reclaim every charge. Ten owner tests pass under
+pinned Miri; normal owner/eviction checks pass 27 executions. Initial default-shell
+Miri fails because cargo-miri is unavailable there; the pinned shell succeeds with
+31 existing warnings. The first new-fixture formatting check fails before test
+compilation; the corrected fixture passes. All logs remain.
+
+Before the fixture-only addition, formatting/check-all and 112 focused executions
+across sixteen summaries pass. Another 990 boundary/policy/host-memory executions
+across fourteen summaries pass. Ten exact-image profiles match all five full
+non-timing records. Callback instructions fall 133,593,099 to 131,774,950 (1.36096%).
+Upvalue Auto changes 169,859,933 to 169,914,032 (+0.03185%); upvalue Off improves
+1.09621%, integer Off 0.14800%, and float Off 0.13783%. Code-owner drop glue's
+713,339 instructions disappear, but VM self work rises 64,836: removed symbols
+are not themselves net savings. Executor self work also changes; attribution is
+to the complete candidate, not exclusively its lease decrement.
+
+Two unchanged nine-case screens finish 48 checked commands, all original
+aggregate gates failing, with 648 equal full non-timing comparisons. Callback
+control/candidate medians are 1.02114/1.01468 on CPU0 and 1.02194/1.00594 on CPU16
+(first/repeat; higher is better). Corresponding callback placebos are
+0.99611/0.99911 and 1.00239/0.99066. Other results remain mixed: CPU16 integer Off
+is 0.95791 then 1.02495; CPU0 cold Auto is 0.97721/0.97831; CPU0 native array
+is 0.97191/0.99407. Do not discard those samples or call the aggregate regression
+fixed. All build/test/profile jobs finish before timing; unrelated host jobs and
+contention telemetry remain untouched.
+
+Full GNU `jit-verify` subsequently passes 7,966 executions/530 summaries, zero
+failures and 34 existing/repeated ignores, including the supervised scalar and
+heap fuzz campaigns. Focused musl checks pass 996 executions/fifteen summaries,
+six ignores. The fixture-only rebuild matches the timed native image byte for
+byte. These correctness results do not establish performance acceptance.
+
+Two additional feature-cost screens finish 96 commands with 576 matching native
+proof comparisons; these are the cost worker's instruction proofs, not the full
+native-benchmark counter records above. Both profiles use eleven paired samples,
+twenty iterations, CPUs 0/16 and four alternating windows, with same-inode
+placebos and unchanged 5% limits. No-feature binaries at both profiles are
+byte-identical to their controls. The analyzer's six checks include equal-image
+ratios and rejection of changed limits, changed/missing proofs and invalid
+warm/cold native coverage.
+
+**Reject the runtime change.** Shipping integer control/candidate medians are
+0.83536/0.83501 on CPU0 and 0.88650/0.89022 on CPU16 (first/repeat); shipping
+float is 0.79017/0.78567 and 0.90355/0.90422. No-feature controls and same-inode
+placebos stay near one. CPU16 shipping arrays also regress to 0.90755/0.91944;
+CPU0 speed metamethods reach 0.96436/0.96703. Some absolute cost checks still
+pass because the original compiled-disabled control is faster than its
+no-feature counterpart: passing that limit does not excuse these substantial
+direct regressions. All adverse data and host-contention observations remain.
+
+Eight exact-image shipping profiles identify changed interpreter work. Integer
+instructions rise only 19,540,720 to 19,547,015; float rises 20,842,780 to
+20,849,085, but each adds 100,005 writes and about 96,870 reads. Assembly
+attribution finds the numeric-loop jump-sign temporary spilled to the stack:
+the candidate's `mov %r14w,0x48(%rsp)` and `cmpw $0,0x48(%rsp)` execute
+100,005/100,000 times, replacing a register copy/test in the control. This proves
+changed hot-loop spilling, not that it alone explains the entire hardware loss.
+
+Remove the cold final-release function and Drop inlining annotation. Retain the
+reentrant/panic ledger regression. Restored formatting/check-all and 56 focused
+executions pass; restored Miri passes ten owner tests. All four restored cost
+images (no-feature/compiled-disabled at speed/shipping) and the native opt3
+benchmark rebuild are byte-identical to the frozen controls. Do not
+retry another owner-inline hint on the earlier callback-only result. Evidence is
+under `target/jit-evidence/short-slice-performance/lease-release*`; native-screen
+analysis is under its `pgo-probe/lease-release*` files. Full-plan acceptance and
+the original thresholds remain unchanged.
+
+#### Compact source-identity memo — runtime withdrawn (2026-10-10)
+
+`6679856` adds an independent scalar memo model: positive source IDs paired with
+nonzero owner/reset epochs, no cached misses, no epoch recycling at exhaustion,
+and distinct epochs under concurrent allocation. Its storage is sixteen bytes
+without a destructor; it retains neither code leases nor GC pointers. All ten
+registry/model tests pass normally and under Miri. This is a model, not a
+production identity cache or performance improvement.
+
+A runtime trial embeds the memo in private ClosureInner storage, assigns a fresh
+registry epoch on creation/reset, and resolves VM-slice identity through the
+owning closure's immutable prototype. Public FunctionPrototype literals remain
+unchanged. Three additional tests exercise aliases, reset/re-registration,
+collection, registration exhaustion and foreign-registry epochs. Formatting,
+all-target/all-feature checking and 64 focused executions across eleven summaries
+pass, including host/combined-memory and mode tests. Another 112 focused
+executions pass before the release build; runtime Miri passes all thirteen tests.
+The extra memo/epoch storage belongs to GC-managed objects: matching native JIT
+counters alone does not establish zero GC heap cost.
+
+Ten exact-image profiles verify all five full non-timing comparisons. Callback
+instructions fall 133,593,099 to 130,343,859 (2.43219%), but integer/float Off work
+rises 2.63190%/2.45131%, and upvalue Off rises 0.54839%. Two unchanged nine-case
+screens complete 48 commands, all aggregate gates failing, with 648 equal full
+non-timing comparisons. Callback control/candidate medians improve to
+1.04155/1.03743 on CPU0 and 1.03938/1.04112 on CPU16 (first/repeat). Off float
+instead falls to 0.78059/0.80197 and 0.93428/0.93748; corresponding same-inode
+placebos are 0.99694/0.99941 and 1.00018/0.99864. Off integer is
+0.79869/0.80028 and 0.95502/0.92000. All adverse data remain; no owned work
+overlaps timing.
+
+Withdraw all runtime fields, lookup methods and implementation-specific tests.
+Retain only the scalar model under the existing test-only identity module, so
+production source locations remain unchanged. Restored formatting/check-all and
+61 focused executions pass; restored Miri passes ten tests. The rebuilt ordinary
+release executable is byte-identical to the frozen baseline.
+
+A broader history search also found the earlier three-variant rejection under
+`Identity-cache decision: reject all three runtime variants`, with artifacts in
+`target/jit-evidence/identity-cache/`. The initial search was too narrow: do not
+present this as an entirely new cache architecture or repeat the failed outlining
+variant. Current compact-model/runtime evidence is under
+`target/jit-evidence/short-slice-performance/identity-memo*`. No runtime cache,
+new budget exclusion or accepted speedup remains; full-plan acceptance is open.
+
+#### Native lookup inlining with fresh PGO — withdrawn (2026-10-10)
+
+A source trial adds only `#[inline(always)]` to `Runtime::lookup`; ownership,
+accounting, fallback and benchmark code remain unchanged. Fresh training is
+necessary: the VM profile record changes from 1,360 counters/hash
+583356077739729873 to 1,391/hash 1115366972344205894. Formatting/check-all,
+89 training executions and 129 full-PGO correctness executions pass. Exact-link
+recapture reproduces both new unprofiled/full-PGO binaries byte-for-byte. A fresh
+one-record VM-profile exclusion preserves every other serialized record and
+region/rooted coverage, and its build passes another 129 correctness executions.
+Missing-profile diagnostics differ only by the expected VM record (261 to 262);
+no profile hash mismatch is reported.
+
+Thirty exact-image profiles compare filtered PGO, full PGO and unprofiled images
+against their respective prior controls; all fifteen full non-timing comparisons
+match. In filtered PGO, callback instructions fall 119,421,635 to 118,121,387
+(1.08879%). Lookup self cost 3,513,374 disappears, but VM self increases 2,213,126:
+the net saving is 1,300,248, not the entire removed symbol. Code-owner drop glue
+remains 713,339. Numeric Off totals improve by only 8,138 instructions each.
+Full-PGO numeric totals stay unchanged and callback differs by 81 allocator
+instructions. Unprofiled numeric work improves about 1%, while callback work
+increases 0.14581%. Fresh training and generated build paths remain attribution
+constraints; no pure single-annotation hardware cause is claimed.
+
+Two unchanged nine-case screens for each of filtered and unprofiled builds finish
+96 commands, all aggregate gates failing, with 1,296 equal full non-timing
+comparisons. Filtered callback control/candidate medians improve to
+1.00956/1.01253 on CPU0 and 1.03628/1.01511 on CPU16 (first/repeat). However,
+filtered CPU0 Off float falls to 0.91558/0.91823 versus same-inode placebos
+0.99775/0.98895. Unprofiled callback medians instead regress to 0.97759/0.98599 on
+CPU0 and 0.98611/0.98961 on CPU16. Unprofiled CPU16 Off float is 0.94142/0.97615
+versus placebos 1.00019/0.99828. Preserve all variation and adverse controls.
+
+Withdraw the annotation rather than retain a small filtered-only gain with these
+costs. Restoration passes baseline source identity, formatting/check-all and
+identity of the untouched ordinary release binary; no fresh ordinary release
+rebuild is claimed. No owned work overlaps hardware timing. No default flag,
+training policy, runtime annotation or acceptance gate changes remain.
+Evidence: `pgo-lookup-inline*` and `pgo-training-mix/lookup-*` under
+`target/jit-evidence/short-slice-performance/`. Full performance, resource,
+platform and release acceptance remain incomplete.
+
 #### Interpreter-profile exclusion — numeric gain, callback cost (2026-10-10)
 
 An isolated profile-use experiment removes only the `run_vm_slice` record from
