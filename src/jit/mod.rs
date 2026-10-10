@@ -2131,7 +2131,7 @@ impl Runtime {
             .native_allocations
             .saturating_add(counts.allocations);
         manager.stats.record_native_exit(&exit);
-        if let Some(payload) = frame.panic {
+        if let Some(payload) = frame.panic.take() {
             drop(manager);
             std::panic::resume_unwind(payload);
         }

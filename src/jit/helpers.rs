@@ -808,7 +808,7 @@ slot_count: slots.len(),
                 assert!(slots[8..]
                     .iter()
                     .all(|slot| slot.tag == sentinel.tag && slot.bits == sentinel.bits));
-                let payload = frame.panic.unwrap();
+                let payload = frame.panic.take().unwrap();
                 let original = payload.as_ref() as *const dyn Any as *const ();
                 let propagated =
                     catch_unwind(AssertUnwindSafe(|| std::panic::resume_unwind(payload)))

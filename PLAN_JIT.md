@@ -11,13 +11,13 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Owned panic payload — performance trial
+#### Owned panic payload — withdrawn after timing
 
-The completed ordinary helper frame now moves its panic option instead of
+The trial moved the completed ordinary helper frame's panic option instead of
 taking it immediately before destruction. Materialization, PC/counter
 publication, manager release and original payload resumption retain their
-order. The existing helper payload-identity regression uses the same owned
-extraction; all its assertions remain.
+order. The existing helper payload-identity regression used the same owned
+extraction during the trial; all its assertions remain.
 
 Formatting/check-all, 45 initial ABI/native/heap checks, 11 helper checks,
 1,492 GNU Force executions (88 summaries, six ignored), 56 musl checks and
@@ -29,8 +29,20 @@ rises 0.085%, including admission/allocator differences preserved in the logs.
 
 All captured release builds finish and source manifests verify. The native
 image is byte-identical before/after the test-only extraction update; both
-no-feature cost images match the immutable controls. Elapsed-time gates are
-pending; this is not an accepted performance fix. Evidence is under
+no-feature cost images match the immutable controls. All 30 native and 128 cost
+aggregate timing gates fail, with all 108 native and 144 cost-native full-record
+comparisons equal. Native elapsed results are mixed. Shipping Off integer/float
+fresh/candidate median ratios are 0.90965/0.90272 on CPU0 and 0.87999/0.89849 on
+CPU16; all four paired windows are adverse on both CPUs. Speed float improves,
+but that does not offset the repeated shipping losses. Contention outliers and
+all controls remain in the evidence.
+
+The subsequent 80 exact-image disabled-path profiles finish successfully.
+Executed VM mnemonic counts are unchanged across both profiles and CPUs;
+integer/float total instruction counts are also unchanged. This does not
+establish the hardware cause of the elapsed slowdown. The production change
+and matching test-only extraction are withdrawn; restoration verification is
+pending. No accepted performance improvement is claimed. Evidence is under
 `panic-payload-move*` in the short-slice performance directory.
 
 #### Alternate scalar tags — model rejects integration
