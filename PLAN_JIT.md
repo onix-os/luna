@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-10
 
-#### Native-only callback setup — candidate
+#### Native-only callback setup — measured and withdrawn
 
 The rooted-state candidate improves upvalues but remains unaccepted. Fresh
 exact-image callback attribution confirms **20,233,235** invocation self
@@ -51,8 +51,32 @@ and allocator deltas remain reported. Closure Off differs by **242** allocator
 instructions; integer/float Off are unchanged. Full workload/counter records
 match in every profile. Optimized integration passes **68 executions / seven
 summaries**, two ignored diagnostics, including both model feature lanes and
-native-region transition/panic checks. Physical timing remains pending; this
-is not performance acceptance or a completed callback fix.
+native-region transition/panic checks.
+
+Eight four-way hardware screens complete **192 aggregate commands**, with
+unchanged workload/counter records and all aggregate gates still failing.
+Four screens compare against rooted-state reuse; four compare against the
+ordinary image. Relative to rooted reuse, CPU16 callback ratios improve to
+**1.031727 / 1.025198 / 1.024997 / 1.023787**, but CPU0 callbacks worsen to
+**0.986401 / 0.991070 / 0.985250 / 0.989178** and CPU0 compiled-Off integers
+to **0.934728 / 0.932944 / 0.937034 / 0.939815**. The corresponding integer
+placebos stay **1.001199 / 0.994074 / 1.005180 / 1.003411**. Ratios are
+control time divided by candidate time; fewer instructions do not excuse these
+repeated losses.
+
+Against ordinary, CPU0 callbacks are **0.963154 / 0.977954 / 0.970176 /
+0.981474** and Off integers **0.933567 / 0.933777 / 0.877291 / 0.841721**.
+Upvalues retain their earlier gains, not a new callback acceptance result.
+All 48 candidate callback gates fail; metamethod gates fail 25/48. Other
+scored candidate gates pass 48/48; Oslo remains unscored. Full distributions,
+placebos, contention, image hashes and source checks are retained.
+
+The native-only common-prelude variant is withdrawn. Runtime call sites and
+the original test-only setup models are restored to `d38f350`; the earlier
+rooted-state reuse candidate remains unchanged and still unaccepted. Exact
+binary restoration and fresh focused checks are required before the next
+experiment. Do not reactivate this common-prelude variant or report its
+instruction savings as a measured general speedup.
 
 #### Rooted register-state preservation — validation foundation
 

@@ -107,7 +107,7 @@ fn callback_setup_matches_physical_call_and_declines_without_effects() {
                             fuel: &mut fuel,
                         };
                         if candidate == 2 {
-                            return frame.call_function_native(
+                            return frame.call_function_common(
                                 ctx,
                                 RegisterIndex(register as u8),
                                 args,
