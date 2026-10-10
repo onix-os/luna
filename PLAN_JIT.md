@@ -13,8 +13,8 @@
 
 #### Isolated PGO branch-conversion switches — rejected (2026-10-10)
 
-Two profile-use ablations disable either `disable-select-optimize` or
-`x86-cmov-converter` independently, retaining pilot4's frozen training profile,
+Two profile-use ablations set either `-disable-select-optimize` or
+`-x86-cmov-converter=false` independently, retaining pilot4's frozen training profile,
 shared build root and original PGO control. Each passes 129 correctness
 executions and ten exact-image profiles with five equal full non-timing
 comparisons. All 261 missing-profile warning lines match the original PGO build;
@@ -41,8 +41,45 @@ before measurement. Its artifacts remain; the successful fresh run uses the
 default profiler-equipped Nix shell. No runtime/default build flags change.
 Evidence: `pgo-select-disabled-*`, `pgo-cmov-disabled-*` and
 `pgo-training-mix/` under `target/jit-evidence/short-slice-performance/`.
-The combined two-switch interaction is still being tested; the full performance,
-resource, platform and release gates remain open.
+The combined two-switch trial also passes 129 correctness executions and ten
+exact profiles, with matching full counters and warning diagnostics. Its numeric
+totals and float VM branch/cmov counts remain unchanged, while upvalue Auto adds
+156,979 instructions, including 156,852 in `Executor::step`. Reject it before
+hardware timing as well. Evidence: `pgo-both-disabled-*` in the same directory.
+
+#### CodeGenPrepare branch conversion — measured, not accepted (2026-10-10)
+
+A separate `-disable-cgp-select2branch` ablation against the same frozen profile
+passes 129 correctness executions, matching missing-profile diagnostics, ten
+exact-image profiles and five equal full non-timing comparisons. Float VM cmovs
+rise 24,414 to 804,505; conditional branches fall 8,175,453 to 7,395,362. However,
+VM instructions increase 52,688,194 to 53,484,444. Integer/float Off total work
+rises 0.54876%/1.47490%. This switch changes the targeted code shape, unlike the
+previous switches; instruction counts alone cannot decide elapsed performance.
+Generated-code addresses also move between images and are not comparable symbol
+identities. Preserve their raw records rather than treating relocated code as
+work removed or added.
+
+Two unchanged nine-case hardware screens complete 48 commands, all aggregate
+gates failing, with 648 equal full non-timing comparisons. Original PGO control
+time divided by candidate time for Off float is 1.04328/1.19198 on CPU0 and
+1.00253/1.00423 on CPU16 (first/repeat); the corresponding same-inode placebo is
+1.00227/1.04379 and 0.99652/1.00235. Substantial noise remains: CPU0 repeat integer
+Off placebo is 0.58761. No samples are discarded or contention removed.
+
+Against the ordinary historical baseline, per-window historical/candidate
+Off-float ratios have medians 0.95206/0.95687 on CPU0 and 0.94553/0.95149 on CPU16.
+Thus the local improvement does not remove the original regression. Candidate
+callback Auto versus PGO control is 0.99257/0.99476 on CPU0 and 0.98841/0.97077 on
+CPU16. All twelve callback gates fail; arrays fail six of twelve, upvalues two
+of twelve, and metamethods eleven of twelve. `oslo_predicate` remains unscored.
+
+Do not accept this global flag or claim PGO is ready. No owned builds, tests,
+profiles or source edits overlap timing; unrelated host jobs remain untouched.
+The ordinary release binary stays byte-identical to the retained baseline.
+Evidence: `pgo-cgp-disabled-*` and `pgo-training-mix/cgp-*` under
+`target/jit-evidence/short-slice-performance/`. Targeted codegen work and the
+original performance/resource/platform/release acceptance remain outstanding.
 
 #### PGO training mix and numeric-path attribution — still experimental (2026-10-10)
 
