@@ -64,6 +64,15 @@ models (the three machine-code fixtures are excluded). Evidence is under
 correctness bridge, not an accepted fast path. Production dispatch, ordinary
 opcode lowering, quota accounting and performance remain unchanged/unproven.
 
+The adapter also has a scalar materialization gateway for type-changing native
+destinations. It creates canonical Rust values, refuses reference/invalid tags,
+invalid Boolean bits and out-of-prefix registers, then rebinds descriptors.
+Tests exercise two- and 256-register frames, including an open upvalue at
+register 255, with unchanged transport PC/fuel/logical helper counters. Twelve
+GNU/musl tests and nine Rust tests under each Miri model pass (seeds 9/10), under
+`payload-materialize-*`. Generated ordinary opcode lowering still does not use
+this gateway, and full-prefix rebinding remains a performance question.
+
 #### Sign-directed checked jump arithmetic — withdrawn (2026-10-10)
 
 On the restored runtime, a source trial replaces `checked_add_signed` with
