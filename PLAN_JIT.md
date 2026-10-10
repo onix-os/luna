@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Rust integer argument conversion — measured trial (2026-10-10)
+#### Rust integer argument conversion — withdrawn (2026-10-10)
 
 The exact callback control profile attributes 2,470,000 instructions to
 `i64::from_value`; its integer path still uses general numeric normalization.
@@ -40,8 +40,45 @@ outlier (0.44156); it remains recorded. Disabled float ratios are CPU0
 
 A refinement separates general coercion/error classification into one outlined
 function and gives integer callers a small inline conversion with checked target
-range. It is pending validation and measurement. Neither form is accepted.
-Evidence is under `integer-conversion*` in the ignored performance directory.
+range. The same 196 focused executions pass. Ten refined exact profiles retain
+all five full non-timing records; callback work falls to **129,823,099 (2.82206%
+below control)**, with all three Off profiles unchanged. Upvalue Auto increases
+0.18486%, not attributed to integer argument conversion.
+
+Two refined screens complete another 48 commands / 648 equal full comparisons.
+Callback Auto control/candidate ratios are CPU0 **1.08195 / 1.08414**, CPU16
+**1.03400 / 1.04013**. Disabled float remains slower: CPU0 **0.96999 / 0.94237**,
+CPU16 **0.98081 / 0.98022**. All 96 aggregate native commands across both forms
+fail, including controls. No owned builds/tests/profiles overlap timing.
+
+Baseline/full GNU Auto/doc validation passes **1,998 executions / 178 summaries**,
+ten ignored. The refined speed/shipping cost campaign completes **96 commands**,
+all aggregate gates failing including controls. All **576 native instruction
+proof comparisons** match; these cost proofs are narrower than the native
+screens' full-record comparisons. Both no-feature executables differ, and both
+baselines remain measured. Four rotating windows/CPU, eleven samples, twenty
+iterations, unchanged nine cases and the original 1.05 gate remain intact.
+
+Cost callback control/candidate ratios improve: speed CPU0 **1.04847 / 1.05423**,
+CPU16 **1.05835 / 1.05097**; shipping CPU0 **1.02112 / 1.03045**, CPU16
+**1.11260 / 1.06885**. However, shipping CPU16 integer falls to **0.87915 /
+0.88978**, float to **0.90890 / 0.89969**, and table to **0.90951 / 0.93428**.
+Speed float also loses roughly 2–4%. Numeric/table cases still pass the original
+no-feature overhead gate: direct historical losses are not mislabeled as gate
+failures. Speed CPU0 metamethod instead newly fails all four windows in both
+rounds, as its no-feature baseline improves while compiled-Off barely changes.
+Total candidate case failures fall to 24/144 and 25/144 versus control 33/144
+and 31/144; aggregate counts do not cancel the individual regressions.
+
+Both production forms (`a603603`, `c1a0a9a`) are withdrawn. Preserve the independent
+conversion regression and Make target, not the runtime fast path or outlined
+coercion. All source patches, images, profiles, adverse samples and telemetry
+remain under `integer-conversion*` in the ignored performance directory.
+No owned build/test/profile overlaps hardware timing. Withdrawal passes
+formatting/check-all and the same 196 focused executions. The ordinary GNU opt3
+rebuild succeeds; `.text` and `.rodata` match the frozen control byte-for-byte.
+Production source matches `f6b9d3d`. No performance, musl, Force-wide or release
+acceptance is claimed.
 
 #### Canonical-only helper entries — test-only (2026-10-10)
 
