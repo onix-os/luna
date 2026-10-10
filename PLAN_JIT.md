@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Suffix drain cleanup — performance trial, 2026-10-10
+#### Suffix drain cleanup — withdrawn after timing
 
 Four new independent fixtures (`aec2654`) validate public Drain against
 `Vec::drain` across 1,260 small range/iteration combinations, partial-unwind
@@ -39,7 +39,28 @@ passes 55, each Miri model passes nine and i686-musl passes 18. Candidate native
 rebuild equals the profiled image; source manifests verify. Fresh speed/shipping
 controls are built from exact `aec2654` source, and all five fresh control images
 match the preceding immutable controls. Candidate source is restored exactly
-to `867db0d` before timing. Elapsed acceptance remains pending. Evidence is under
+to `867db0d` before timing.
+
+The 30 native and 128 cost commands finish with all aggregate gates failing;
+108 native and 144 cost-native full-record comparisons and all manifests agree.
+Native callback medians improve on CPU0/16 (1.00589/1.01215), favorable in all
+six windows, as do upvalues. Shipping CPU0 float instead worsens in all four
+windows: direct/paired median ratios 0.88562/0.89181 against a 0.99126 no-feature
+control. Speed CPU0 metamethod also worsens, and new cold/Oslo/allocation cost
+failures remain in the evidence.
+
+Eighty exact-image disabled profiles show unchanged VM mnemonic counts and
+unchanged integer/float instruction totals in both profiles and CPUs. Shipping
+CPU0 float has only small simulated cache/predictor differences; these do not
+establish the hardware cause. A hardware-counter permission probe fails; no
+system settings are changed. The extra speed CPU16 callback instruction gain
+includes 1,725,000 table/string-probe instructions, distinct from the expected
+375,000 cleanup instructions in that shorter profile.
+
+Withdraw both the split and simple suffix branches: the small callback gain
+does not justify the repeated shipping loss. Keep the four independent Drain
+fixtures and prior consumption tests. Restoration verification is pending.
+Evidence is under
 `drain-suffix*` in the short-slice directory; the earlier owning consumption
 iterator remains withdrawn.
 

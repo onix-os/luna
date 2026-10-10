@@ -327,17 +327,8 @@ impl<'gc, 'a> DoubleEndedIterator for Drain<'gc, 'a> {
 
 impl<'gc, 'a> Drop for Drain<'gc, 'a> {
     fn drop(&mut self) {
-        #[inline(never)]
-        fn remove_range(values: &mut StackVec<'_>, start: usize, end: usize) {
-            values.drain(start..end);
-        }
-
         // The whole range goes, iterated or not, matching `Vec::drain`.
-        if self.end == self.values.len() {
-            self.values.truncate(self.start);
-        } else {
-            remove_range(&mut self.values, self.start, self.end);
-        }
+        self.values.drain(self.start..self.end);
     }
 }
 
