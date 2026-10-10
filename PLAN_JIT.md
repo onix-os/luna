@@ -11,9 +11,112 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Callback suffix consumption — performance trial, 2026-10-10
+#### Table-owned string bucket — performance trial
 
-`Stack::consume` now uses an owning suffix iterator rather than the public,
+Baseline-tested lifecycle fixtures (`b8e40a4`) cover repeated same-allocation and
+equal-content reads across mutations, growth, deletion, weak conversion, clear
+and actual GC. The candidate adds one primitive bucket-offset cell to RawTable.
+Every hit checks current bounds, occupancy and live string allocation identity;
+misses retain canonical hashing/content equality. No pointer, value or GC root
+is cached, no mutation invalidation discipline is trusted, and weak slots still
+upgrade through the ordinary accessor. The field belongs to the accounted table
+allocation and applies equally to interpreter and native-helper access.
+
+Focused GNU checks pass 53 executions, musl 16 and both Miri models eight each.
+The candidate fixture forces every current bucket offset, one-past-end and
+usize::MAX through empty, mutated, rehashed, weakened and cleared maps against
+uncached lookup. The fresh native control matches the previous control byte for
+byte. Fourteen exact-image profiles preserve all seven non-timing records.
+Callback instructions fall 4.23275%, with almost all repeated string/key
+comparisons removed; metamethod instructions fall 1.17346%. Upvalue, array and
+allocation instructions rise 0.15388%, 0.17576% and 0.34710%, respectively.
+These are instrumented instruction results, not hardware speedups. Broad
+validation exits 0: GNU Force passes 1,504 tests across 88 summaries (6 ignored),
+focused musl passes 53 and i686-musl passes 16. Speed/shipping cost images are
+built, and the rebuilt native image matches the profiled candidate byte for
+byte. Source manifests verify. All five fresh control images match the previous
+controls byte for byte. Repeated timing completes 30 native and 128 cost
+commands; all aggregate gates fail. All 108 native and 144 cost non-timing
+comparisons match, including snapshot peaks, and source/image manifests verify.
+
+Native callback control/candidate medians are 1.06071 on CPU0 and 1.04351 on
+CPU16; five of six windows improve. Metamethod medians improve 1.00490/1.01905.
+Shipping disabled callbacks improve 1.14788/1.14619. However, CPU0 speed
+no-feature integer/float medians regress to 0.91549/0.91180 in all four windows;
+CPU16 shipping disabled integer/float regress to 0.94532/0.94675 in all four.
+The candidate adds cold/metamethod cost failures in individual windows, and
+native callback/metamethod targets remain unmet. These losses are not hidden
+by the favorable callback results: the machine-word trial is not accepted.
+
+Eighty exact-image disabled profiles show unchanged integer/float instruction,
+load/store and conditional/indirect branch counts in both profiles and CPUs.
+They do not establish the hardware cause of those elapsed-time regressions.
+Offline type inspection finds RawTable at 120 bytes with the hint at offset 64
+and map at 72, plus six trailing padding bytes. A smaller checked offset might
+avoid growing every table and relocating the map; that resource/layout
+hypothesis needs baseline measurement and validation, not an assumed speedup.
+Evidence: `table-owner*` under
+`target/jit-evidence/short-slice-performance/`.
+
+#### Suffix drain cleanup — withdrawn after timing
+
+Four new independent fixtures (`aec2654`) validate public Drain against
+`Vec::drain` across 1,260 small range/iteration combinations, partial-unwind
+cleanup, bound variants and 13 Value/payload fixtures. Prefix/tail contents,
+capacity, reference identity, numeric bits, iterator lengths and lock exclusion
+are checked. The five prior consumption fixtures remain. All nine fixtures
+pass with and without JIT before production changes.
+
+The simple `end == len` truncation branch reduces callback cleanup from 18 to
+17 instructions, retaining three register saves/restores; it is not timed.
+The selected trial also separates general-range removal into a private
+non-inlined function. Suffix removal uses safe `truncate`, while general ranges
+still use `Vec::drain`. Public iterator and consumption implementations,
+callbacks, GC roots and JIT accounting are unchanged.
+
+Formatting/check-all, 55 focused GNU executions, 18 musl executions and nine
+checks in each Miri model pass. Fourteen exact-image native profiles retain
+all event totals and seven complete non-timing records. The callback body gains
+195,000 instructions but loses 1,170,000 cleanup-call instructions: a net saving
+of 15 per 65,000 calls, or 0.72983% of total callback-workload instructions.
+The callback reserves the same 0x98-byte stack frame as the control. Other
+admission/allocator variations remain separate; they are not claimed as cleanup
+gains. Full GNU Force passes 1,501 executions (88 summaries, six ignored), musl
+passes 55, each Miri model passes nine and i686-musl passes 18. Candidate native
+rebuild equals the profiled image; source manifests verify. Fresh speed/shipping
+controls are built from exact `aec2654` source, and all five fresh control images
+match the preceding immutable controls. Candidate source is restored exactly
+to `867db0d` before timing.
+
+The 30 native and 128 cost commands finish with all aggregate gates failing;
+108 native and 144 cost-native full-record comparisons and all manifests agree.
+Native callback medians improve on CPU0/16 (1.00589/1.01215), favorable in all
+six windows, as do upvalues. Shipping CPU0 float instead worsens in all four
+windows: direct/paired median ratios 0.88562/0.89181 against a 0.99126 no-feature
+control. Speed CPU0 metamethod also worsens, and new cold/Oslo/allocation cost
+failures remain in the evidence.
+
+Eighty exact-image disabled profiles show unchanged VM mnemonic counts and
+unchanged integer/float instruction totals in both profiles and CPUs. Shipping
+CPU0 float has only small simulated cache/predictor differences; these do not
+establish the hardware cause. A hardware-counter permission probe fails; no
+system settings are changed. The extra speed CPU16 callback instruction gain
+includes 1,725,000 table/string-probe instructions, distinct from the expected
+375,000 cleanup instructions in that shorter profile.
+
+Withdraw both the split and simple suffix branches: the small callback gain
+does not justify the repeated shipping loss. Keep the four independent Drain
+fixtures and prior consumption tests. Restoration verification exits 0:
+formatting and all-feature checks pass, with 1,501 passing GNU Force tests
+across 88 summaries (6 ignored). All five rebuilt native/speed/shipping images
+are byte-identical to their controls, and source manifests reverify.
+Evidence is under
+`drain-suffix*` in the short-slice directory; the earlier owning consumption
+iterator remains withdrawn.
+
+#### Callback suffix consumption — withdrawn after repeat timing
+
+The trial made `Stack::consume` use an owning suffix iterator rather than the public,
 general range `Drain`. It retains the exclusive stack borrow during conversion,
 counts exhausted argument pulls, and truncates the original suffix on success,
 error or panic. Public signatures, general draining, GC roots, prefix values,
@@ -47,7 +150,24 @@ CPU16 upvalue improves in all three. Callback compiled-Off medians improve in
 both profiles and CPUs, alongside gains in the no-feature binaries. There are
 also adverse non-callback cost samples and a new speed CPU16 cold gate failure.
 Keep all observations; instruction savings do not establish overall acceptance.
-A second unchanged full campaign is required before a retention decision.
+A second unchanged full campaign also finishes with all 158 aggregate gates
+failing and complete counter/manifest agreement. CPU16 callbacks improve in
+all six windows across the two campaigns (second median 1.02232); CPU0 improves
+in the second campaign (1.03406). However speed CPU0 compiled-Off metamethod
+ratios repeat at 0.97366/0.97003 against near-parity no-feature controls, adverse
+in all eight windows. Shipping CPU0 no-feature float ratios repeat at
+0.96546/0.96088, also adverse in all eight windows. Speed CPU16 cold adds one
+failure in each campaign, and native arrays worsen in all six second-campaign
+CPU/window pairs. Other mixed and favorable vectors are retained.
+
+These repeated losses outweigh the partial callback improvement: withdraw the
+owning suffix iterator and restore the original consume implementation. Keep
+the independent contract tests. Restoration passes formatting/check-all and
+1,497 GNU Force executions (88 summaries, six ignored); all five rebuilt native,
+speed and shipping binaries are byte-identical to the fresh saved controls.
+Source manifests verify and source/tests/Make match `4e1414a`. No
+hardware cause is established for the non-callback losses, and full original
+performance acceptance remains incomplete.
 Evidence is under `suffix-consume*` in the short-slice directory.
 
 #### Owned panic payload — withdrawn after timing
