@@ -23,8 +23,10 @@ all four windows on both CPUs: median ratios 0.91379/0.88435 on CPU0 and
 0.90381/0.90981 on CPU16. Paired normalization retains those losses despite
 recorded contention outliers. Favorable CPU0 speed Oslo results (three failures
 to zero) and all adverse samples remain in the evidence. Small instruction
-savings do not justify these elapsed regressions. Restoration validation is
-pending; the full performance goal remains incomplete.
+savings do not justify these elapsed regressions. Restoration passes formatting,
+check-all and 1,490 GNU Force tests (88 summaries, six ignored). All five rebuilt
+executables are byte-identical to the fresh controls; source manifests verify,
+and source/tests/Make match `bda9f15`. The full performance goal remains incomplete.
 
 The trial replaced the branch-based selector with a read-only table of the same
 14 native scratch-tier functions for register counts 0 through 256. Existing
