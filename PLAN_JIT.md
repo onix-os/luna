@@ -11,6 +11,39 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Static helper-effect publication — withdrawn (2026-10-10)
+
+The independent `f8e229a` model classifies verified helper effects and checks
+2,048 whole-stat saturation states. Ten helper kinds at eight source positions,
+plus mixed write operations, exercise the classifier. Both tests pass under
+Miri. GetUpTable counts both table and upvalue reads; neither may be omitted.
+
+A runtime trial stores one static capability in Code and omits only table-write,
+upvalue-write and allocation counter merges for read-effect-only code. It keeps
+publication at the original boundary, with no dynamic zero tests or batching.
+Formatting/check-all and 74 focused executions across seven suites pass. Ten
+exact-image profiles verify headers, allocated metadata/bytes and image identity;
+all five full non-timing comparisons, including resource usage, match. Callback
+instructions fall 133,593,099 to 133,398,552 (0.14563%), entirely in the invocation
+bridge. Upvalue Auto work increases 0.03807%; all three Off profiles are unchanged.
+
+Two original nine-case screens finish 48 commands, all aggregate gates failing,
+with 648 equal complete non-timing comparisons. Callback control/candidate
+medians are 0.98572/0.99451 on CPU0 and 1.02059/1.01642 on CPU16 (first/repeat).
+Upvalues improve 1.01432/1.01580 and 1.04595/1.03984 respectively. CPU0 compiled-Off
+float instead falls to 0.92674/0.92416 versus placebo 1.00620/0.95601; CPU16 float
+is 0.97902/0.98233 versus placebo 0.99818/0.99900. Same-image variation and
+contention remain recorded; these observations do not establish a hardware cause.
+
+Withdraw the production capability and publisher rather than accept those costs.
+Keep the test-only models and Make targets. Restoration passes formatting/check-all
+and the same 74 executions; the rebuilt ordinary release image is byte-identical
+to the retained baseline. No owned builds/tests/profiles overlap
+hardware timing. No full-suite, feature-cost, platform or release acceptance is
+claimed. Evidence: `static-helper-counts*` and
+`pgo-probe/static-helper-counts-profile-analysis.json` under
+`target/jit-evidence/short-slice-performance/`.
+
 #### Callback result transport — rejected before timing (2026-10-10)
 
 A private erased-call trial returns a bool for normal Return and writes other
