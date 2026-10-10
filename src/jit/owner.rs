@@ -73,6 +73,17 @@ impl<T> Shared<T> {
         left.pointer == right.pointer
     }
 
+    #[cold]
+    #[inline(never)]
+    unsafe fn release(pointer: NonNull<Inner<T>>) {
+        let allocation = Allocation {
+            pointer,
+            allocator: unsafe { pointer.as_ref() }.allocator.clone(),
+        };
+        unsafe { std::ptr::drop_in_place(pointer.as_ptr()) };
+        drop(allocation);
+    }
+
     #[cfg(test)]
     pub fn allocation_bytes() -> usize {
         Layout::new::<Inner<T>>().size()
@@ -104,17 +115,13 @@ impl<T> Deref for Shared<T> {
 }
 
 impl<T> Drop for Shared<T> {
+    #[inline]
     fn drop(&mut self) {
         let inner = unsafe { self.pointer.as_ref() };
         let strong = inner.strong.get();
         inner.strong.set(strong - 1);
         if strong == 1 {
-            let allocation = Allocation {
-                pointer: self.pointer,
-                allocator: inner.allocator.clone(),
-            };
-            unsafe { std::ptr::drop_in_place(self.pointer.as_ptr()) };
-            drop(allocation);
+            unsafe { Self::release(self.pointer) };
         }
     }
 }
@@ -318,5 +325,51 @@ mod tests {
         assert_eq!(Shared::strong_count(&first), 1);
         drop(first);
         assert_eq!(ledger.current(), 0);
+    }
+
+    #[test]
+    fn final_drop_reenters_shared_ledger_and_reclaims_on_panic() {
+        struct Reenter(Option<std::boxed::Box<dyn FnOnce()>>);
+        impl Drop for Reenter {
+            fn drop(&mut self) {
+                self.0.take().unwrap()();
+            }
+        }
+        for panics in [false, true] {
+            let ledger = Ledger::new(65536);
+            let dropped = Rc::new(Cell::new(0));
+            let peer =
+                Shared::try_new(Probe(dropped.clone()), BudgetAllocator(ledger.clone())).unwrap();
+            let inner_ledger = ledger.clone();
+            let inner_dropped = dropped.clone();
+            let owner_bytes = Shared::<Reenter>::allocation_bytes();
+            let peer_bytes = Shared::<Probe>::allocation_bytes();
+            let value = Reenter(Some(std::boxed::Box::new(move || {
+                assert_eq!(inner_ledger.current(), owner_bytes + peer_bytes);
+                drop(peer);
+                assert_eq!(inner_ledger.current(), owner_bytes);
+                let replacement = Shared::try_new(
+                    Probe(inner_dropped.clone()),
+                    BudgetAllocator(inner_ledger.clone()),
+                )
+                .unwrap();
+                assert_eq!(inner_ledger.current(), owner_bytes + peer_bytes);
+                drop(replacement);
+                assert_eq!(inner_ledger.current(), owner_bytes);
+                if panics {
+                    panic!("reentrant owner drop");
+                }
+            })));
+            let first = Shared::try_new(value, BudgetAllocator(ledger.clone())).unwrap();
+            let last = first.clone();
+            drop(first);
+            assert_eq!(dropped.get(), 0);
+            assert_eq!(ledger.current(), owner_bytes + peer_bytes);
+            assert_eq!(
+                catch_unwind(AssertUnwindSafe(|| drop(last))).is_err(),
+                panics
+            );
+            assert_eq!((dropped.get(), ledger.current()), (2, 0));
+        }
     }
 }
