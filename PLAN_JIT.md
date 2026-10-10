@@ -11,6 +11,65 @@
 
 ### Progress snapshot — 2026-10-10
 
+#### Shared payload helper table — test-only (2026-10-10)
+
+`b125d2f` replaces the per-entry ten-function helper array with a reference to
+an immutable process-static table. Per-invocation state and canonical payload
+pointers remain local. Generated helper calls load the table pointer and then
+the selected function; the additional instruction is charged to the unchanged
+expansion limit. The bridge fixture checks shared-table identity and still
+exercises its original payload/host pointers.
+
+GNU format/check-all and payload tests pass **50 / three summaries**; musl
+helper/payload tests pass **62 / four**. Pinned Miri Stacked seed 31 and Tree
+seed 32 each pass **17 ABI and 19 backend IR tests**. Native execution is
+covered outside Miri. The model is committed and pushed; candidate measurement
+is complete but does not establish performance acceptance or release activation.
+
+Frozen candidate `38d15aa0` completes ten profiles. Against the preceding
+`c0343982` candidate, callback instructions fall **1,167,283**, of which
+**1,167,282 = 18 times 64,849 entries** are removed from the invocation wrapper.
+All non-timing benchmark fields match that candidate. Whole callback work is
+**132,103,504** instructions; generated work is **14,137,456**. Exact generated
+stack writes fall **64,849**, stack reads fall 24, and non-stack reads rise
+**64,836**. Whole-step reads rise **64,812** and writes fall **648,490**;
+modeled branch/cache misses also increase. All events are retained, not only
+instruction savings. Closure instructions fall 98,052, including 52,284 from
+unchanged admission iteration variability; historical control profiles also
+vary. Integer/float Off instructions are unchanged. Strict historical
+comparison still fails the inherited callback snapshot peak (10,705 versus
+11,141 bytes), which is retained as a failure.
+
+Two four-way native timing screens complete **48 commands**, all failing their
+unchanged aggregate benchmark gates. Each uses nine workloads, eleven paired
+samples, CPU 0/16, three rotating windows, ordinary/historical/placebo controls
+and contention telemetry. Ordinary/candidate callback median ratios are
+**0.945757 / 0.956312** on CPU 0 and **0.968685 / 0.946887** on CPU 16 across
+the two screens (above 1 is faster). Scalar/allocation regressions remain.
+No owned builds, profiles, tests or source edits overlap hardware timing.
+Temporary release activation is withdrawn. Ordinary-image restoration is
+byte-identical to `dab0490e`; full GNU Force passes **1,574 / 88 summaries**
+with six existing ignores, and focused musl passes **120 / seven** without
+ignores. Format/check-all and source manifests pass. The full goal remains
+incomplete.
+
+The motivating exact-image profiles account for all 350 executed ordinary
+callback-wrapper PCs, with identical repeated per-PC costs. Import/writeback
+accounts for **12,321,657 of 20,233,235** self instructions; statistics accounts
+for **3,696,393**. Earlier import/counter shortcuts remain rejected. Payload
+assembly separately shows ten helper address/store pairs reconstructed at
+each of 64,849 native entries. Sharing the table removes that setup but adds
+a load to each generated helper call; measurement must retain both effects.
+The initial ordinary-attribution wrapper produced empty output because of
+hexadecimal awk bounds and a masked pipeline error; it is retained as invalid.
+The corrected decimal-bound, pipefail-enabled run verifies exact totals and
+symbol-image hashes. These are instruction profiles, not elapsed-time proof.
+
+Evidence: `target/jit-evidence/short-slice-performance/payload-shared-helpers/`,
+`payload-shared-helpers-candidate/`, `payload-shared-helpers-profile/`,
+`payload-shared-helpers-native-vgdb/`, `payload-shared-helpers-screen-{1,2}*`,
+`ordinary-invoke-attribution-v2/` and `payload-invoke-attribution/`.
+
 #### Later numeric operand guards — test-only (2026-10-10)
 
 `e503946` follows at most eight true-edge guard blocks when discovering a
