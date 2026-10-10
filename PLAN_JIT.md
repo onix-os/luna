@@ -34,7 +34,12 @@ all event totals and seven complete non-timing records. The callback body gains
 of 15 per 65,000 calls, or 0.72983% of total callback-workload instructions.
 The callback reserves the same 0x98-byte stack frame as the control. Other
 admission/allocator variations remain separate; they are not claimed as cleanup
-gains. Full validation and elapsed acceptance remain pending. Evidence is under
+gains. Full GNU Force passes 1,501 executions (88 summaries, six ignored), musl
+passes 55, each Miri model passes nine and i686-musl passes 18. Candidate native
+rebuild equals the profiled image; source manifests verify. Fresh speed/shipping
+controls are built from exact `aec2654` source, and all five fresh control images
+match the preceding immutable controls. Candidate source is restored exactly
+to `867db0d` before timing. Elapsed acceptance remains pending. Evidence is under
 `drain-suffix*` in the short-slice directory; the earlier owning consumption
 iterator remains withdrawn.
 
