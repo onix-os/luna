@@ -385,3 +385,6 @@ impl<'gc: 'b, 'a, 'b, 'c> Extend<&'b Value<'gc>> for &'c mut Stack<'gc, 'a> {
         self.write().extend(iter.into_iter().copied());
     }
 }
+
+#[cfg(test)]
+mod drain_tests;
