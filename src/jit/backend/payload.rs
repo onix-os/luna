@@ -711,7 +711,7 @@ fn incompatible_payload_selections_refuse_before_allocating_native_memory() {
 #[cfg(not(miri))]
 impl Code {
     #[inline(always)]
-    pub(in crate::jit) fn invoke_payload(
+    pub(in crate::jit) fn invoke_payload<const CAPACITY: usize>(
         &self,
         frame: &mut helpers::Frame<'_, '_, '_, '_>,
         pc: usize,
@@ -722,7 +722,7 @@ impl Code {
         type Entry = unsafe extern "C" fn(*mut Payload, u64, u32, *mut Exit, *mut Bridge);
         let entry: Entry = unsafe { std::mem::transmute(self.entry) };
         let mut exit = Exit::default();
-        crate::jit::abi::payload::runtime::with_bridge(frame, |slots, host| unsafe {
+        crate::jit::abi::payload::runtime::with_bridge::<CAPACITY>(frame, |slots, host| unsafe {
             entry(slots, pc as u64, budget.min(64), &mut exit, host);
         });
         exit
@@ -823,7 +823,7 @@ fn run<'gc>(
             projection: None,
         };
         let exit = if let Some(payload) = payload {
-            payload.0.invoke_payload(&mut frame, pc, budget)
+            payload.0.invoke_payload::<256>(&mut frame, pc, budget)
         } else {
             let mut host = abi::Host {
                 data: std::ptr::from_mut(&mut frame).cast(),

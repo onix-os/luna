@@ -3,6 +3,10 @@ use std::{marker::PhantomData, ptr::NonNull};
 use super::{Slot, BOOLEAN, INTEGER, NIL, NUMBER, REFERENCE};
 use crate::Value;
 
+#[cfg(test)]
+#[path = "payload/binding_tests.rs"]
+mod binding_tests;
+
 #[cfg(all(
     not(miri),
     target_os = "linux",
@@ -200,9 +204,7 @@ impl<'a, 'gc> Frame<'a, 'gc> {
         let (tag, pointer) = match value {
             Value::Integer(value) => (INTEGER, std::ptr::from_mut(value).cast()),
             Value::Number(value) => (NUMBER, std::ptr::from_mut(value).cast()),
-            Value::Boolean(value) => (BOOLEAN, std::ptr::from_mut(value).cast()),
-            Value::Nil => (NIL, std::ptr::null_mut()),
-            _ => (REFERENCE, std::ptr::null_mut()),
+            _ => return Some(bind_non_numeric(value)),
         };
         Some(Payload { tag, pointer })
     }
@@ -224,6 +226,16 @@ impl<'a, 'gc> Frame<'a, 'gc> {
         slots[index] = self.bind(index).unwrap();
         true
     }
+}
+
+#[inline(never)]
+fn bind_non_numeric(value: &mut Value<'_>) -> Payload {
+    let (tag, pointer) = match value {
+        Value::Boolean(value) => (BOOLEAN, std::ptr::from_mut(value).cast()),
+        Value::Nil => (NIL, std::ptr::null_mut()),
+        _ => (REFERENCE, std::ptr::null_mut()),
+    };
+    Payload { tag, pointer }
 }
 
 /// The descriptor must be live and rebound after canonical access to its value.

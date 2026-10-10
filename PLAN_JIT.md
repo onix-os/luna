@@ -11,6 +11,187 @@
 
 ### Progress snapshot — 2026-10-10
 
+#### Inline Nil payload binding — measured and reverted (2026-10-10)
+
+`28e9f9a` handles Nil in the typed inline binding match alongside Integer and
+Number. Only Boolean/reference binding remains outlined. The previous profile
+recorded 64,921 entry Nil fallback calls; this trial targets those without
+changing canonical representation, descriptor lifetime, bounds or dispatch
+selection. The existing 169-transition reference fixture remains unchanged.
+
+GNU format/check-all/payload **52 / three summaries** and musl helper/payload
+**64 / four** pass. Pinned Miri Stacked seed 37 and Tree seed 38 each pass
+**19 ABI payload tests**; unchanged backend IR Miri tests were not rerun in
+this trial. Native backend/runtime behavior is covered by GNU/musl tests.
+Frozen candidate `ced09d72` completes ten profiles. Repeated ordinary-profile/
+vgdb call arcs confirm all **64,921 entry fallback calls disappear**; the
+remaining **64,836** calls originate in helper 6. Callback total instructions
+fall **1,557,605** to **131,843,916**, including wrapper -324,461, fallback
+-1,038,396, materialization -259,584 and helper 6 +64,836. Generated native
+instructions and memory groups are unchanged. All preceding candidate
+non-timing fields match. Closure total falls 197,155, but unchanged admission
+iteration falls 209,136, so the entire decrease cannot be attributed to this
+change. Closure Off varies by 242 allocator instructions; scalar Off totals
+remain unchanged. Historical strict comparison retains the inherited callback
+snapshot-peak failure (10,705 versus 11,141 bytes).
+
+Four four-way native screens complete **96 commands**, all failing the original
+aggregate gates: two ordinary-control and two direct predecessor-control
+screens. Ordinary/candidate callback ratios are **0.957933 / 0.955545** on
+CPU 0 and **0.960503 / 0.963161** on CPU 16. Direct predecessor/candidate
+callback ratios are **0.978852 / 0.984648** on CPU 0 and
+**0.989381 / 0.985087** on CPU 16 (above 1 is faster). CPU 0 allocation also
+regresses directly, at **0.970395 / 0.977533**. Favorable CPU 16 closure
+ratios **1.077334 / 1.027062** and all other results are retained; they do not
+excuse repeated callback losses. Direct candidate non-timing fields all match.
+Workloads, thresholds, eleven paired samples, three windows, CPU affinity,
+four-way controls and contention telemetry are unchanged. No other owned work
+overlaps hardware timing.
+
+Both release activation and the test-only Nil-inlining change are withdrawn.
+Revert commit `68076a6` restores source exactly to `ac11c41`; the existing
+reference fixture remains. Restored ordinary image is byte-identical to
+`dab0490e`; full GNU Force passes **1,576 / 88 summaries** with six existing
+ignores; focused musl passes **122 / seven** without ignores. Format/check-all
+and source manifests pass.
+The lower instruction count is not accepted as a substitute for timing.
+Evidence: `target/jit-evidence/short-slice-performance/payload-inline-nil/`,
+`payload-inline-nil-{candidate,profile,native-vgdb,invoke-attribution}/`,
+`payload-inline-nil-screen-{1,2}*` and
+`payload-inline-nil-vs-previous-screen-{1,2}*`.
+
+Fresh exact-image materialization attribution explains the preceding numeric
+split's cost: all **64,896** observed `write_scalar` calls take the Integer arm,
+but it grows from **24 to 33 executed instructions per call**. The outlined
+non-numeric arms add saved registers and a merged descriptor-store epilogue
+even though those arms are not called here. Both exclusive totals and every
+decoded executed PC verify against frozen images. Separating post-store typed
+binding from entry-optimized binding is the next source-grounded candidate;
+simply moving entry Nil handling inline has already failed timing.
+Evidence: `payload-materialization-attribution/` under the same evidence root.
+
+#### Numeric payload binding — test-only (2026-10-10)
+
+`ac11c41` keeps typed integer/number descriptor binding inline and outlines
+the non-numeric typed match. No private `Value` layout, cold-path hint,
+cross-entry pointer cache or workload-specific dispatch is introduced.
+The existing bounds, descriptor lifetimes and canonical rebinding stay intact.
+The cost of calls for nil/Boolean/reference binding remains part of acceptance.
+
+Audited predecessor callback branch PCs show registers 0..5 each bind Integer
+64,837 times and Nil 12 times; register 6 binds Nil 64,849 times. This motivates
+testing numeric binding separately from the general scalar jump tables; it
+does not establish a speedup or justify discarding non-numeric workloads.
+
+GNU format/check-all/payload **52 / three summaries** and musl helper/payload
+**64 / four** pass. Pinned Miri Stacked seed 35 and Tree seed 36 each pass
+**19 ABI and 19 backend IR tests**. The new reference fixture checks typed
+pointer identity, scalar bit extremes, every `Value` enum kind, 169 canonical
+type transitions, sibling descriptor lifetime and invalid/empty bounds.
+Frozen candidate `b2167efd` completes ten profiles. Callback wrapper work
+falls **648,490** instructions, but outlined binding adds **1,557,084**,
+scalar materialization adds **584,064**, and helper 6 adds **64,836**.
+Whole callback work increases **1,557,413**, to **133,401,521**. Closure work
+increases 229,772, including 156,852 of unchanged admission iteration variation.
+All predecessor candidate non-timing fields match; Off profile totals are
+unchanged. Generated callback instructions and memory-access groups are
+unchanged. Wrapper stack reservation grows from 2,112 to 2,152 bytes and saves
+six registers instead of five. Historical strict comparison still fails the
+inherited callback snapshot peak (10,705 versus 11,141 bytes).
+
+Two ordinary-control timing screens retain **48 failed aggregate command
+gates**. Callback ordinary/candidate medians are **0.974250 / 0.973337** on
+CPU 0 and **0.989798 / 0.994716** on CPU 16 (above 1 is faster). Large second-
+screen CPU 0 scalar/closure ratios remain in the data, with placebo and
+contention records; they are not treated as isolated proof of improvement.
+
+Two additional screens directly compare preceding payload `d4e7bd6d` against
+the candidate, retaining another **48 failed original command gates**. All
+candidate non-timing fields match. Predecessor/candidate callback medians are
+**1.030818 / 1.031929** on CPU 0 and **1.005050 / 0.991499** on CPU 16.
+Thus the higher instruction count does not rule out the repeated CPU 0 timing
+gain, but CPU 16 is mixed. Allocation improves against the preceding candidate;
+cold/closure/Off variations remain recorded. The diagnostic parser retains
+historical-image field differences and enforces exact same-image placebo
+fields; it does not replace or relax the original benchmark gates.
+
+All screens use nine workloads, eleven paired samples, three rotating windows,
+CPU 0/16, historical/preceding-or-ordinary/placebo/candidate images and
+contention telemetry, without overlapping owned work. The model stays test-only
+for further work; production activation is withdrawn. Ordinary restoration
+is byte-identical to `dab0490e`; full GNU Force passes **1,576 / 88 summaries**
+with six existing ignores, and focused musl passes **122 / seven** without
+ignores. Format/check-all and source manifests pass. Full performance/resource/
+platform/release acceptance remains open.
+Evidence: `target/jit-evidence/short-slice-performance/payload-numeric-binding/`,
+`payload-numeric-binding-candidate/`, `payload-numeric-binding-profile/`,
+`payload-numeric-binding-native-vgdb/`, `payload-numeric-binding-invoke-attribution/`,
+`payload-numeric-binding-screen-{1,2}*` and
+`payload-numeric-binding-vs-sized-screen-{1,2}*`.
+
+Repeated profile/vgdb call arcs agree on **129,757** non-numeric binding calls:
+**64,921** from the seven-register wrapper and **64,836** from helper 6.
+The former matches its observed entry Nil population. Keeping Nil inline is
+a follow-up candidate, not an accepted optimization; emitted dispatch and
+whole-helper costs must be remeasured.
+
+#### Capacity-sized payload storage — test-only (2026-10-10)
+
+`b017f50` threads the existing invocation capacity through the payload bridge
+and session storage. Exact widths 1..8 and bounded tiers through 256 retain
+the same dispatch; no new per-entry tier selection is added. The descriptor
+array now uses that capacity instead of always reserving 256 slots. Bounds
+checks reject capacities above 256 and prefixes exceeding either storage or
+canonical frame length before binding or entering native code. Per-invocation
+lifetime, initialized-prefix and helper-rebinding rules are unchanged.
+
+GNU format/check-all and payload tests pass **51 / three summaries**; musl
+helper/payload **63 / four**. Pinned Miri Stacked seed 33 and Tree seed 34 each
+pass **18 ABI and 19 backend IR tests**. The new fixture covers empty, partial,
+full and oversized prefixes at all tiers, invalid capacity 257, helper type
+changes, negative-zero bits, unwinding and untouched canonical tail values.
+An initial all-feature check caught the caller-shadow generic call site;
+it now forwards its own existing capacity, and the failed log is retained.
+
+Frozen candidate `d4e7bd6d` reduces the seven-register wrapper's stack
+reservation from **5,352 to 2,112 bytes**, removes the page probe, and reduces
+saved-register pushes from six to five. Ten profiles complete. Callback work
+falls **259,396** instructions, exactly four per entry, all in the wrapper;
+whole-step work is **131,844,108**, wrapper self work **16,471,646**. Generated
+instructions and memory-access groups are unchanged; cache/branch-model
+differences are retained. All predecessor candidate non-timing fields match.
+Closure work falls 116,050, but 104,568 comes from unchanged admission iteration
+variability and is not attributed to this optimization. Scalar Off instruction
+counts are unchanged. Historical strict comparison still fails the inherited
+callback snapshot-peak difference (10,705 versus 11,141 bytes).
+
+Two unchanged four-way timing screens complete **48 commands**, all failing
+their aggregate acceptance gates. Ordinary/candidate callback median ratios
+are **0.942579 / 0.940601** on CPU 0 and **0.987243 / 0.983979** on CPU 16
+across the screens (above 1 is faster). CPU 0 closure improves slightly;
+CPU 16 closure and scalar/allocation regressions remain. Eleven paired
+samples, all nine workloads, three rotating windows, historical/ordinary/
+placebo controls and contention telemetry are retained. No owned work overlaps
+hardware timing. Temporary release activation is withdrawn; the restored
+ordinary image is byte-identical to `dab0490e`. Full GNU Force passes
+**1,575 / 88 summaries**, with six existing ignores; focused musl passes
+**121 / seven**, with no ignores. Format/check-all and source manifests pass.
+Stack reduction is verified, but production performance and the full goal
+remain unaccepted.
+
+Evidence: `target/jit-evidence/short-slice-performance/payload-sized-stack/`,
+`payload-sized-stack-candidate/`, `payload-sized-stack-profile/`,
+`payload-sized-stack-native-vgdb/`, `payload-sized-stack-invoke-attribution/`
+and `payload-sized-stack-screen-{1,2}*`.
+
+Repeated ordinary-profile/vgdb attribution agrees at all **272 executed wrapper
+PCs**. Audited assembly ranges account for every self instruction: descriptor
+binding **6,809,145**, statistics **3,696,393**, frame/session setup **2,529,111**,
+prologue/epilogue **1,361,829**, bridge/entry **972,735**, panic cleanup
+**583,641**, and exit-PC handling **518,792**. These are modeled instruction
+counts, not elapsed costs. Binding remains the largest wrapper component;
+prior rejected import/counter shortcuts must not be silently repeated.
+
 #### Shared payload helper table — test-only (2026-10-10)
 
 `b125d2f` replaces the per-entry ten-function helper array with a reference to
