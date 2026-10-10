@@ -26,9 +26,9 @@ export CARGO_PROFILE_RELEASE_STRIP=true
 export LUNA_BENCH_OPT_LEVEL=3
 export CARGO_INCREMENTAL=0
 export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
-printf 'target=%s\nfeatures=jit,async\nopt_level=3\nlto=true\ncodegen_units=1\nstrip=true\njobs=%s\ntraining=scripts,callback,metamethods,jit_native\nmodes=off,auto,force\nbenchmark_training=false\n' "$host" "$CARGO_BUILD_JOBS" > "$out/configuration.log"
+printf 'target=%s\nfeatures=jit,async\nopt_level=3\nlto=true\ncodegen_units=1\nstrip=true\njobs=%s\ntraining=scripts,callback,metamethods,jit_native,jit_regions\nmodes=off,auto,force\nbenchmark_training=false\n' "$host" "$CARGO_BUILD_JOBS" > "$out/configuration.log"
 args=(--locked --release --target "$host" --features jit,async)
-tests=(--test scripts --test callback --test metamethods --test jit_native)
+tests=(--test scripts --test callback --test metamethods --test jit_native --test jit_regions)
 export CARGO_TARGET_DIR="$out/generate"
 export RUSTFLAGS="-Cprofile-generate=$out/raw"
 export LLVM_PROFILE_FILE="$out/raw/%m-%p.profraw"
@@ -41,6 +41,8 @@ raw=("$out/raw/"*.profraw)
 sha256sum "${raw[@]}" > "$out/raw.sha256"
 "$profdata" merge -o "$out/merged.profdata" "${raw[@]}" > "$out/merge.log" 2>&1
 "$profdata" show "$out/merged.profdata" > "$out/profile-summary.log"
+"$profdata" show --all-functions --counts "$out/merged.profdata" > "$out/profile-counts.log"
+awk -f examples/jit_support/pgo_coverage.awk "$out/profile-counts.log" > "$out/coverage.log"
 sha256sum "$out/merged.profdata" > "$out/profile.sha256"
 unset LLVM_PROFILE_FILE
 export CARGO_TARGET_DIR="$out/control-build"
