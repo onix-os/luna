@@ -1077,6 +1077,7 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
         Ok(())
     }
 
+    #[cfg(test)]
     #[inline(always)]
     fn try_callback_call(
         &mut self,
@@ -1133,14 +1134,49 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
         args: VarCount,
         returns: VarCount,
     ) -> Result<(), VMError> {
-        if self.try_callback_call(func, args, returns) {
-            Ok(())
-        } else {
-            self.call_function_general(ctx, func, args, returns)
+        let Some(Frame::Lua {
+            expected_return,
+            is_variable,
+            base,
+            ..
+        }) = self.state.frames.last_mut()
+        else {
+            panic!("top frame is not lua frame");
+        };
+        if *is_variable != args.is_variable() {
+            return Err(VMError::ExpectedVariableStack(args.is_variable()));
         }
+        self.fuel.consume(Self::FUEL_PER_CALL);
+        let function_index = *base + func.0 as usize;
+        let arg_count = args
+            .to_constant()
+            .map(|c| c as usize)
+            .unwrap_or(self.stack.len() - function_index - 1);
+        let call = match self.stack[function_index] {
+            Value::Function(Function::Callback(callback)) => Function::Callback(callback),
+            value => meta_ops::call(ctx, value)?,
+        };
+        *expected_return = Some(LuaReturn::Normal(returns));
+        self.fuel
+            .consume(count_fuel(Self::FUEL_PER_ITEM, arg_count));
+        self.stack.copy_within(
+            function_index + 1..function_index + 1 + arg_count,
+            function_index,
+        );
+        self.stack.truncate(function_index + arg_count);
+        match call {
+            Function::Callback(callback) if self.state.frames.len() < self.state.max_call_depth => {
+                self.state.frames.push(Frame::Callback {
+                    bottom: function_index,
+                    callback,
+                });
+            }
+            call => self.state.push_call(&mut self.stack, function_index, call),
+        }
+        Ok(())
     }
 
-    #[inline(never)]
+    #[cfg(test)]
     fn call_function_general(
         mut self,
         ctx: Context<'gc>,

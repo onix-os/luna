@@ -11,11 +11,11 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Fixed callback call setup — trial (2026-10-10)
+#### Callback call setup — trial (2026-10-10)
 
 Exact callback attribution finds 65,000 `LuaFrame::call_function` entries at
 111 self instructions each (7,215,000 total), in addition to general call
-resolution and frame dispatch. The new path admits only an actual Rust callback,
+resolution and frame dispatch. The first path admits only an actual Rust callback,
 fixed arguments, a fixed caller stack, a complete argument span and available
 call depth. It performs the existing call/item fuel charges, return expectation,
 argument movement and physical callback-frame push without general resolution
@@ -30,8 +30,22 @@ bits. Candidate tests keep their oracle on the original general body rather
 than the new dispatcher. Formatting/check-all and 158 focused executions across
 21 summaries pass, including callback, mode, native, error and suspension checks.
 The initial model's ambiguous integer type error and corrected retry are retained.
-Exact profiling and hardware/cost acceptance are pending; this is not a speedup
-claim. Evidence: `callback-setup*` in the ignored performance directory.
+Ten exact profiles retain all five full non-timing records. Callback work falls
+**133,593,180 -> 130,213,180 (2.53007%)**, removing general `push_call` and
+`meta_ops::call` but adding an outlined argument-copy helper. Closure Off instead
+grows **213,407,295 -> 219,127,295 (2.68032%)** from the duplicate setup wrapper.
+Numeric Off profiles are unchanged. Reject this form before hardware timing.
+
+The refinement keeps a single original validation/fuel/argument prelude, resolves
+actual callback values directly and inserts physical callback frames below the
+depth limit. Other values retain generic resolution; depth failure retains
+generic `push_call`. Fixed and variable arguments use the original common copy
+and fuel logic. The unchanged general body and first admission prototype remain
+test-only. Each model scenario now compares both that prototype and the real
+public method against the original body, rather than comparing the new dispatcher
+to itself. Refined validation/profiling and hardware/cost acceptance are pending;
+this is not a speedup claim. Evidence: `callback-setup*` in the ignored performance
+directory.
 
 #### Rust integer argument conversion — withdrawn (2026-10-10)
 

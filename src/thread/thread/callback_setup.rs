@@ -51,7 +51,7 @@ fn callback_setup_matches_physical_call_and_declines_without_effects() {
                 } else {
                     VarCount::constant(2)
                 };
-                let run = |candidate: bool| {
+                let run = |candidate: u8| {
                     let thread = Thread::new(ctx);
                     let mut state = thread.0.borrow_mut(&ctx);
                     state.max_call_depth = depth;
@@ -105,7 +105,15 @@ fn callback_setup_matches_physical_call_and_declines_without_effects() {
                             stack,
                             fuel: &mut fuel,
                         };
-                        if candidate {
+                        if candidate == 2 {
+                            return frame.call_function(
+                                ctx,
+                                RegisterIndex(register as u8),
+                                args,
+                                returns,
+                            );
+                        }
+                        if candidate == 1 {
                             let before = (
                                 format!("{:?}", frame.state.frames),
                                 values(&frame.stack),
@@ -155,9 +163,10 @@ fn callback_setup_matches_physical_call_and_declines_without_effects() {
                     );
                     (snapshot, used)
                 };
-                let (expected, _) = run(false);
-                let (actual, used) = run(true);
+                let (expected, _) = run(0);
+                let (actual, used) = run(1);
                 assert_eq!(actual, expected, "case={index}, fuel={available}");
+                assert_eq!(run(2).0, expected, "public case={index}, fuel={available}");
                 accepted += usize::from(used);
             }
         }
