@@ -11,6 +11,40 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Integer-first arithmetic admission — candidate (2026-10-10)
+
+Same-run vgdb capture of the frozen callback image maps all **9,468,103**
+generated self instructions to actual executable bytes. Full non-timing records
+match the earlier control; its 81-instruction total difference is confined to
+allocator internals. Integer arithmetic repeats numeric admission before its
+Integer/Integer predicate. Candidate `abc4655` keeps that predicate and moves
+general numeric guards onto the non-integer arm, before conversions or stores.
+The independent source/data-flow verifiers remain unchanged.
+
+The initial four arithmetic checks catch the emitter's sibling-arm written-state
+leak. Restoring the saved pre-split state fixes it; a new four-operator regression
+also refuses retry exits after an incoming store. The corrected focused run
+passes 210 executions/25 summaries. Final saved-state model/input checks pass
+168/21 and exit/entry/region checks pass 120/8, none ignored, including the existing
+185,856 arithmetic differential cases. Initial failed logs remain.
+
+Ten exact-image profiles preserve all five full records. Callback instructions
+fall **133,593,099 -> 132,944,729 (0.48533%)**, entirely in generated code:
+**9,468,103 -> 8,819,733**. A second same-run native capture independently confirms
+those removed checks. All three Off instruction profiles are unchanged. Closure
+Auto grows 0.04834% in this pair; retain that adverse result rather than treating
+callback savings as a whole-suite improvement.
+
+Two nine-case timing screens complete 48 commands with 648 equal full non-timing
+comparisons; every aggregate still fails its original gates. Callback direct
+control/candidate medians are CPU0 **1.01044 / 1.01241**, CPU16 **1.00809 / 1.00052**.
+CPU16 closure Off is adverse in both rounds (**0.98971 / 0.98546**); integer Off
+has variable losses and same-image noise. No timing outliers are removed, and no
+owned build/test/profile overlaps timing. This is a measured instruction-work
+improvement, **not performance acceptance**. Broader correctness and matched
+feature-cost validation remain pending. Evidence: `integer-first*` and
+`generated-entry*` under the ignored short-slice performance directory.
+
 #### Same-integer payload writeback — test-only (2026-10-10)
 
 Independent model `d4db5f3` checks updating an existing Integer payload through
