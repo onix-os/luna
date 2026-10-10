@@ -694,10 +694,20 @@ jit-ir:
 
 jit-tags:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::tags::tests
+	@$(MAKE) --no-print-directory jit-known-bits
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::corrupted_scalar_store_is_refused_before_codegen_and_mapping
 	@$(MAKE) --no-print-directory jit-input
 	@$(MAKE) --no-print-directory jit-read-cache
 	@$(MAKE) --no-print-directory jit-integer-loop
+
+.PHONY: jit-known-bits jit-known-bits-miri
+jit-known-bits:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::tags::known_bits::tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::tags::tests::combined_numeric_guards_
+
+jit-known-bits-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::tags::known_bits::tests -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::tags::tests::combined_numeric_guards_ -- --test-threads=1
 
 .PHONY: jit-read-cache
 .PHONY: jit-integer-loop
