@@ -9,7 +9,183 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Progress snapshot — 2026-10-09
+### Progress snapshot — 2026-10-10
+
+#### Narrow payload release trial — withdrawn (2026-10-10)
+
+The closed constant-key helper removes another **12,198,978 callback
+instructions** relative to entry-wrapper inlining: 148,583,140 -> 136,384,162.
+It remains 2.089% above the original scratch profile and about 3.14% above
+the ordinary continuation helper. Ten exact-image profiles complete; strict
+comparison still fails on increased code/snapshot charges, retained in the
+diagnostic report. Instruction savings do not establish elapsed-time gains.
+
+Two independent screens each run 24 commands, nine frozen workloads and
+eleven paired samples, on CPUs 0/16 with rotating candidate/control/placebo/
+historical order. All 48 commands complete with original gate exit 2; both
+screen drivers finish 0. Candidate image `43d505f4`, ordinary `dab0490e`, and
+historical `481eb5b2` retain exact hashes, native counters and source manifests.
+The placebo is the identical ordinary image. Source/artifact verification and
+complete-record analysis pass; no thresholds or workloads are changed.
+
+Median ordinary/candidate time ratios across three windows:
+
+| Workload / Auto | CPU 0, screen 1 / 2 | CPU 16, screen 1 / 2 |
+| --- | --- | --- |
+| Rust callbacks | 0.9423 / 0.9363 | 0.9345 / 0.9376 |
+| Allocation/GC | 0.8213 / 0.8265 | 0.7744 / 0.7724 |
+| Integer loop | 0.8690 / 0.8855 | 0.7858 / 0.7839 |
+| Float loop | 0.8756 / 0.8820 | 0.8149 / 0.8157 |
+| Polymorphic/metamethod | 0.9349 / 0.9340 | 0.8572 / 0.8296 |
+| Closure/upvalue | 1.0156 / 1.0114 | 0.9977 / 1.0067 |
+
+Below one means slower candidate execution. Callback placebo medians range
+1.0004–1.0119; callback regressions repeat at roughly 6–7% longer elapsed time.
+Allocation/GC and scalar loops regress more. All nine workloads, Off controls,
+gate failures and non-timing field changes remain in the analysis files.
+External molla compilation and CPU/I/O/frequency telemetry are preserved;
+these are contended-host results, not clean-host release acceptance.
+
+Release activation is withdrawn; the tested model and fixtures remain.
+The ordinary continuation image itself is slower than historical scratch on
+CPU 0 callbacks in both screens, so its instruction reduction is not accepted
+as a speedup. An exact pre-continuation comparison is the next timing check.
+Evidence: `payload-closed-screen-{1,2}*`, `payload-closed-profile*` and the
+withdrawn activation patch under the ignored short-slice evidence directory.
+
+#### Guarded table-read storage — ordinary path (2026-10-10)
+
+Share table/metatable admission through an inline `FnOnce(Value)` continuation,
+so accepted values flow straight into each transport's store. An initial
+`Option<Value>` extraction passes correctness but increases callback work by
+518,769 instructions; that draft is rejected before production activation.
+The continuation version's ten exact-image profiles pass every full non-timing
+comparison and reduce ordinary callback work **133,593,180 -> 132,231,543**.
+After excluding 81 allocator instructions, 1,361,556 instructions disappear
+from the combined helper/table-read path. The table-read symbol is inlined;
+its entire old self count is not claimed as savings. Integer/float Off totals
+match; closure Off has 242 additional allocator instructions. Closure Auto
+increases 0.06208%, dominated by canonical admission, and remains adverse
+evidence. No elapsed-time or full-plan acceptance is claimed. Draft and final
+images/profiles remain under `payload-closed-refactor*` in the ignored
+short-slice performance directory.
+
+#### Closed constant-key table helper — test-only (2026-10-10)
+
+The payload model now handles closed-upvalue constant-key table reads without
+borrowing the whole helper frame. Its scoped session retains PC/count pointers
+and Context/Closure copies, and writes/rebinds only the destination through
+the existing per-cell model. Every ordinary helper refresh renews both control
+pointers and the canonical base. Open upvalues, register keys and malformed
+inputs retain the original helper/full-refresh path. No cached Lua value or
+payload pointer survives a callback, collection or session boundary.
+
+New tests keep and dereference old sibling descriptors at widths 1/7/255/256,
+across first/middle/last destinations and all Value kinds. They cover readonly
+reads, open/register-key/MOVE fallback transitions, metamethod and non-table
+declines, malformed constant validation before decline, a real table-borrow
+panic, pending scalar preservation and stopped reentry. GNU and musl each
+pass **62 executions / four summaries**, including the existing integrated
+schedules. Pinned Stacked seed 27 and Tree seed 28 each pass **50 / three**.
+Formatting/check-all pass. This proves the tested scope, not a release speedup;
+the narrow path remains test-only pending separate release profiling. Evidence:
+`payload-closed-*`, final checks suffixed `v2`, in the ignored short-slice
+directory; the initial guard-extraction regression remains intact.
+
+#### Payload entry wrapper inlining — test-only (2026-10-10)
+
+Inlining the whole `invoke_payload` / `with_bridge` / `with_session` chain
+reduces callback work **153,112,754 -> 148,583,140** versus direct helpers alone.
+The frozen scratch pair remains **133,593,099**, so the candidate still costs
+**11.22067% more instructions**. Entry setup removes 4,539,502 instructions,
+offset by 9,888 additional enqueue instructions. The 16,666,768-instruction
+generated block only relocates; it is not removed work. Ten exact-image profiles
+finish, with previous/current payload callback non-timing records equal and
+all eleven per-function totals independently checked. Original strict scratch
+comparison still fails on the same code/snapshot deltas. Integer/float Off
+totals match; closure Off differs by 242, and closure Auto increases 0.31077%.
+No hardware-timing campaign or elapsed-time improvement is claimed.
+
+Diagnostic-only `3eb9158` preserves the relocation-refusal assertion and limit
+while printing the actual result: the candidate returns **`Ok(1)`**. A new
+native fixture compiles that exact table source with both transports and finds
+**five emitted relocations for scratch, zero for payload** on GNU and musl.
+It requires the requested transport and tests budgets 0, 1, count-1 and count,
+including refusal/admission boundaries and complete mapping/metadata/snapshot
+charge cleanup. Indirect helper dispatch eliminates those relocations; this
+evidence does not indicate that the actual relocation count exceeded its limit.
+It also does not turn the unchanged public fixture into a passing release gate.
+The public test is retained, not weakened or given fabricated relocation costs.
+
+Withdraw release selection; retain the inline attributes in test-only payload
+modules and the physical-relocation regression. Restored GNU/musl each pass
+**80 executions / seven summaries**, including the original resource-refusal
+test and existing integrated payload schedules. The ordinary GNU opt3 image
+matches the pretrial refactor image, not the older historical scratch image.
+The final strengthened selector fixture passes on both targets; formatting,
+check-all and full-image/source-hash verification also pass. Full performance
+and release acceptance remain incomplete. Evidence: `payload-entry-*` under
+the ignored short-slice performance directory.
+
+#### Direct canonical helper transport — model (2026-10-10)
+
+A private static transport interface shares the original helper operations
+between scratch slots and a test-only canonical transport. The latter checks
+the register prefix but allocates no scratch array, reads canonical values,
+and omits scratch output conversion. Payload helper calls use that model;
+they still refresh every descriptor after ordinary helper access. Panic
+capture, PC-before-effects, counters, list fuel and upvalue methods remain.
+No new pointer lifetime assumption or runtime value cache is introduced.
+
+A 100-pair differential fixture compares all ten helper kinds across aliases,
+readonly/metatable guards, variable lists, small/empty prefixes, malformed
+operands and partial effects. It checks canonical values, table contents,
+upvalue, PC, fuel, panic status and every helper counter against the proxy
+path. GNU/musl each pass **58 executions / four summaries**; pinned Stacked
+seed 27 and Tree seed 28 each pass **47 / three**. Formatting/check-all pass.
+Initial fixture API/lifetime compile failures remain in the evidence.
+
+Although direct selection is test-only, sharing operation implementations
+changes production code generation: `.text` and `.rodata` are not identical.
+Ten refactor-only exact-image profiles pass full non-timing comparisons.
+Callback instructions are **133,593,180 -> 133,593,099**, with the difference
+confined to allocator internals; renamed generic helper symbols are not
+counted as removed work. All three Off instruction totals are identical.
+Closure Auto differs **170,017,460 -> 169,808,286**, dominated by canonical
+admission rather than the helper transport; do not attribute that to this
+optimization. Model/refactor `83637b7` is committed; elapsed-time acceptance
+of the shared implementation remains unproven.
+
+The separate direct-payload release removes **6,872,616** callback instructions
+versus local materialization: **159,985,370 -> 153,112,754**. This still exceeds
+the original scratch **133,593,180** by **14.61121%**. Savings are the original
+helper entry (4,733,028), operand transport (1,361,556) and table-read transport
+(778,032). The unchanged 16,666,768-instruction generated block relocates, and
+the 1,037,376-instruction upvalue routine is renamed; neither is saved work.
+All previous/current payload callback non-timing records match. Against scratch,
+code/snapshot deltas remain the same as local materialization, and the original
+strict comparison still fails. Separate diagnostics verify all eleven self
+totals and retain every resource delta. Integer/float Off totals are identical;
+closure Off retains its 242-instruction variation. No hardware timing is run.
+
+An additional `invoke_payload` inline trial increases callback work by 129,698
+to **153,242,452**. It moves setup into `with_session` and the outer entry rather
+than removing it. Its full GNU all-feature Force run stops with **1,255 passing
+executions and one failure**, before later suites run: the existing
+`relocation_refusal_preserves_peer_and_interpretation_until_explicit_retry`
+test no longer observes its expected `ResourceLimit("native relocations")`.
+The assertion does not print the actual result; do not infer a specific quota
+accounting defect from that alone. The original test and limit are unchanged.
+
+Both payload release activations and the inline attribute are withdrawn.
+Retain the direct-helper model and all failed logs/images/patches. Restored
+ordinary GNU all-feature Force passes **1,557 executions / 88 summaries**, with
+six existing ignores, including the unchanged relocation-refusal test.
+Formatting/check-all and the ordinary GNU opt3 rebuild pass; its full image
+matches the refactor-only candidate. This is not identity with the older
+historical baseline, and does not establish elapsed-time acceptance. Evidence:
+`payload-direct-*` under the ignored short-slice directory; the refactor image
+also has a supplemental hash/patch for the initially untracked test file.
 
 #### Local payload materialization — test-only (2026-10-10)
 

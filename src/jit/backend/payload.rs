@@ -610,6 +610,7 @@ fn incompatible_payload_selections_refuse_before_allocating_native_memory() {
 
 #[cfg(not(miri))]
 impl Code {
+    #[inline(always)]
     pub(in crate::jit) fn invoke_payload(
         &self,
         frame: &mut helpers::Frame<'_, '_, '_, '_>,
@@ -626,6 +627,73 @@ impl Code {
         });
         exit
     }
+}
+
+#[test]
+#[cfg(not(miri))]
+fn relocation_budget_counts_emitted_direct_and_indirect_helper_calls() {
+    crate::Lua::empty().enter(|ctx| {
+        let closure =
+            crate::Closure::load(ctx, None, b"local t={} t.x=40 t.y=2 return t.x+t.y").unwrap();
+        let snapshot = Snapshot::new(&closure.prototype(), 4096, 2 * 1024 * 1024).unwrap();
+        let baseline = snapshot.operations.allocator().0.current();
+        let total = MappingCounter::new(super::super::resources::Ledger::new(8 * 1024 * 1024));
+        let metadata = BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024));
+        let limits = super::super::work::Limits::from(&super::super::JitConfig::default());
+        for failure in [Failure::None, Failure::RequirePayload] {
+            let code = compile_in(
+                &snapshot,
+                total.clone(),
+                1024 * 1024,
+                metadata.clone(),
+                limits,
+                failure,
+            )
+            .unwrap();
+            let count = code.relocations;
+            let payload = matches!(failure, Failure::RequirePayload);
+            assert_eq!(code.payload, payload);
+            if payload {
+                assert_eq!(count, 0);
+            } else {
+                assert!(count > 1);
+            }
+            eprintln!("payload={payload} emitted_relocations={count}");
+            drop(code);
+            assert_eq!(total.load(Ordering::Relaxed), 0);
+            assert_eq!(metadata.0.current(), 0);
+            for limit in [0, 1, count.saturating_sub(1), count] {
+                let result = compile_in(
+                    &snapshot,
+                    total.clone(),
+                    1024 * 1024,
+                    metadata.clone(),
+                    super::super::work::Limits {
+                        relocations: limit,
+                        ..limits
+                    },
+                    failure,
+                );
+                match result {
+                    Ok(code) => {
+                        assert!(count <= limit);
+                        assert_eq!(code.relocations, count);
+                        assert_eq!(code.payload, payload);
+                    }
+                    Err(error) => {
+                        assert!(count > limit);
+                        assert!(matches!(
+                            error,
+                            JitError::ResourceLimit("native relocations")
+                        ));
+                    }
+                }
+                assert_eq!(total.load(Ordering::Relaxed), 0);
+                assert_eq!(metadata.0.current(), 0);
+                assert_eq!(snapshot.operations.allocator().0.current(), baseline);
+            }
+        }
+    });
 }
 
 #[cfg(not(miri))]

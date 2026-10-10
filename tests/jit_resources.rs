@@ -95,10 +95,11 @@ fn relocation_refusal_preserves_peer_and_interpretation_until_explicit_retry(
             b"local t={} t.x=40 t.y=2 return t.x+t.y",
         )?))
     })?;
-    assert!(matches!(
-        lua.prepare_jit(),
-        Err(JitError::ResourceLimit("native relocations"))
-    ));
+    let prepared = lua.prepare_jit();
+    assert!(
+        matches!(prepared, Err(JitError::ResourceLimit("native relocations"))),
+        "expected relocation refusal, got {prepared:?}"
+    );
     let refused = lua.jit_stats();
     assert_eq!(refused.code_bytes, baseline.code_bytes);
     assert_eq!(refused.snapshot_bytes, 0);
