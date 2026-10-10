@@ -37,10 +37,39 @@ confined to allocator internals; renamed generic helper symbols are not
 counted as removed work. All three Off instruction totals are identical.
 Closure Auto differs **170,017,460 -> 169,808,286**, dominated by canonical
 admission rather than the helper transport; do not attribute that to this
-optimization. No elapsed-time or full-plan acceptance is claimed. The payload
-release trial is still pending. Evidence: `payload-direct-*` under the ignored
-short-slice directory; the refactor image also has a supplemental hash/patch
-for the initially untracked test file.
+optimization. Model/refactor `83637b7` is committed; elapsed-time acceptance
+of the shared implementation remains unproven.
+
+The separate direct-payload release removes **6,872,616** callback instructions
+versus local materialization: **159,985,370 -> 153,112,754**. This still exceeds
+the original scratch **133,593,180** by **14.61121%**. Savings are the original
+helper entry (4,733,028), operand transport (1,361,556) and table-read transport
+(778,032). The unchanged 16,666,768-instruction generated block relocates, and
+the 1,037,376-instruction upvalue routine is renamed; neither is saved work.
+All previous/current payload callback non-timing records match. Against scratch,
+code/snapshot deltas remain the same as local materialization, and the original
+strict comparison still fails. Separate diagnostics verify all eleven self
+totals and retain every resource delta. Integer/float Off totals are identical;
+closure Off retains its 242-instruction variation. No hardware timing is run.
+
+An additional `invoke_payload` inline trial increases callback work by 129,698
+to **153,242,452**. It moves setup into `with_session` and the outer entry rather
+than removing it. Its full GNU all-feature Force run stops with **1,255 passing
+executions and one failure**, before later suites run: the existing
+`relocation_refusal_preserves_peer_and_interpretation_until_explicit_retry`
+test no longer observes its expected `ResourceLimit("native relocations")`.
+The assertion does not print the actual result; do not infer a specific quota
+accounting defect from that alone. The original test and limit are unchanged.
+
+Both payload release activations and the inline attribute are withdrawn.
+Retain the direct-helper model and all failed logs/images/patches. Restored
+ordinary GNU all-feature Force passes **1,557 executions / 88 summaries**, with
+six existing ignores, including the unchanged relocation-refusal test.
+Formatting/check-all and the ordinary GNU opt3 rebuild pass; its full image
+matches the refactor-only candidate. This is not identity with the older
+historical baseline, and does not establish elapsed-time acceptance. Evidence:
+`payload-direct-*` under the ignored short-slice directory; the refactor image
+also has a supplemental hash/patch for the initially untracked test file.
 
 #### Local payload materialization — test-only (2026-10-10)
 
