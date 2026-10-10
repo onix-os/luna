@@ -199,6 +199,65 @@ measured speedup. The next performance step is a release-profile candidate
 with preserved shipping specializations and unchanged benchmark controls;
 complete compiler-memory/platform/release acceptance remains outstanding.
 
+#### Scalar payload release trial — withdrawn (2026-10-10)
+
+A real opt3 release candidate enabled the payload ABI for ordinary code while
+retaining scoped/rooted scratch entries and array kernels. The first integration
+run exposed an underestimated `LoadNil` fanout bound. A payload-specific estimate
+fixed that without raising configured instruction/block limits; exact-bound
+refusal and all 1–256 register-prefix tests remain in the test-only prototype.
+The corrected release candidate passed 111 focused/model/native/upvalue/heap/
+suspension executions across eight summaries. This did not establish speed.
+
+The captured candidate hash is
+`9325af093c53effa402fc5f861aab808bbd598cc8f4c9664c405c1b744bfea0b`;
+the frozen control remains
+`481eb5b2548d9ed8b684bb5d803a2786583db0e04d079ed6303ec9b0b1b5a87c`.
+Ten exact-image instruction profiles show callback Auto instructions rising
+from 133,593,099 to 169,785,373 (about 27.1%). Upvalue Auto rises about 0.52%;
+integer/float Off instruction totals are unchanged. The largest callback costs
+include payload entry setup, the real-helper bridge and scalar materialization.
+The dominant upvalue cost remains the existing rooted/scoped invocation path.
+
+Two native screens and two feature-cost screens completed 144 timing commands,
+with eleven paired samples, CPUs 0/16, unchanged thresholds, common invocation
+paths, placebo controls and contention logs. Median control/candidate Auto
+ratios across the two screens are below (greater than one favors the candidate):
+
+| Workload | CPU 0 | CPU 16 |
+| --- | --- | --- |
+| Integer loop | 0.8557–0.8594 | 0.7801–0.7806 |
+| Float loop | 0.8563–0.8658 | 0.8066–0.8109 |
+| Array table | 0.9916–1.0293 | 0.9951–1.0196 |
+| Closure/upvalue | 1.0098–1.0175 | 1.0203–1.0315 |
+| Rust callbacks | 0.7866–0.7874 | 0.7962–0.7994 |
+| Allocation/GC | 0.7156–0.7305 | 0.6764–0.7157 |
+
+Callbacks, polymorphic metamethods and allocation/GC fail their gates in all
+twelve candidate windows. All 48 native aggregate gates fail, including the
+controls; the small upvalue improvement does not offset the broad regressions.
+The 648 full non-timing comparisons retain every field: differences are confined
+to code bytes and snapshot peaks, not execution counters. The original strict
+analyzer consequently fails; a separate diagnostic records those differences
+rather than waiving or hiding them. Upvalue Auto mappings grow 28,672→32,768
+bytes; callback mappings grow 4,096→8,192 and snapshot peak 10,705→10,765 bytes.
+
+Feature-cost analysis validates 576 native proofs, but all 96 aggregate gates
+fail, again including controls. Shipping float Off control/candidate medians
+are 0.87145/0.87030 on CPU 0 and 0.92053/0.91987 on CPU 16. Both no-feature
+images are byte-identical to their frozen controls, with timing ratios near
+one. Raw adverse windows and strict-analysis failures are preserved under
+`payload-release-{candidate,profile,screen-*,cost,cost-screen-*}`.
+
+The release-enabling source changes were withdrawn. Production again uses its
+previous ABI; no performance acceptance is claimed. The prototype and the
+fanout regression fix remain. Full-prefix descriptor rebuilding after type
+changes is a measured optimization target, not a reason to ship this candidate.
+The restored opt3 image's `.text` and `.rodata` are byte-identical to the frozen
+control (`payload-withdrawal-image`); this is not a whole-image identity claim.
+The retained test-only fanout fix passes 31 focused GNU/musl tests, including
+every register count and the 80 whole-runtime schedules.
+
 #### Sign-directed checked jump arithmetic — withdrawn (2026-10-10)
 
 On the restored runtime, a source trial replaces `checked_add_signed` with
