@@ -11,6 +11,55 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Interpreter-profile exclusion — numeric gain, callback cost (2026-10-10)
+
+An isolated profile-use experiment removes only the `run_vm_slice` record from
+pilot4's merged profile using the installed LLVM 22.1.6 `llvm-profdata merge
+--no-function` filter. All original training data remain intact. Comparing
+serialized profiles proves that exactly one record, hash 583356077739729873
+with 1,360 counters, was removed; every other record and value-profile target
+is byte-identical. The filtered profile contains 12,044 functions and unchanged
+region/rooted coverage. Profile summaries also change, so generated-code effects
+need not be confined to that function. This is a diagnostic ablation, not an
+accepted training policy. The [LLVM profdata reference](https://llvm.org/docs/CommandGuide/llvm-profdata.html)
+documents the filter; installed-tool output and exact record comparison establish
+what this experiment actually removed.
+
+The ordinary PGO flags, original PGO control and shared build root remain;
+none of the branch-conversion switches are used. All 129 correctness executions
+pass. Build diagnostics contain exactly one additional missing-profile warning
+for the expected VM hash (262 total); the other 261 warnings match and no profile
+hash mismatch is reported. Ten exact-image profiles verify five equal full
+non-timing comparisons. Integer/float Off instruction totals fall
+50,343,020 to 48,539,387 and 53,987,661 to 51,924,548 (3.58269%/3.82145%). Float VM
+self work falls 52,688,194 to 50,624,522, conditional branches 8,175,453 to
+7,135,128, while cmovs rise 24,414 to 284,492. Upvalue Auto/Off instead add
+0.12706%/0.20829%; callbacks add 1.86207%.
+
+Two unchanged nine-case screens finish 48 commands, all aggregate gates failing,
+with 648 equal full non-timing comparisons. PGO-control/candidate Off-float
+medians are 1.10601/1.14224 on CPU0 and 1.06773/1.12032 on CPU16 (first/repeat),
+against same-inode placebos 0.99203/1.03926 and 1.00328/1.00834. Against the ordinary
+historical baseline, per-window Off-float ratio medians are 0.98942/0.98540 and
+1.00656/1.04295. Preserve the variation; this is not a clean-host confidence bound
+or complete feature-cost acceptance.
+
+Callback Auto control/candidate medians instead fall to 0.96084/0.96483 on CPU0
+and 0.97789/0.95173 on CPU16. All twelve callback gates fail, arrays fail six of
+twelve, upvalues one of twelve and metamethods ten of twelve. The callback
+profile now exposes out-of-line `Runtime::lookup` (3,513,374 self instructions)
+and code-owner drop glue (713,339), while VM self work falls by 2,145,669.
+These costs cross inlining boundaries; do not count disappearing or relocated
+symbols as independent savings. The measured total still increases.
+
+Do not promote the filtered profile or change runtime defaults. The next targeted
+question is whether native-entry inlining can retain the numeric improvement
+without the callback cost; blanket compiler-switch changes have not solved both.
+No owned builds/tests/profiles/source edits overlap timing. Evidence:
+`pgo-vm-exclusion/`, `pgo-vmprofile-disabled-*` and `pgo-training-mix/vmprofile-*`
+under `target/jit-evidence/short-slice-performance/`. All original performance,
+resource, platform and release requirements remain in scope and incomplete.
+
 #### Isolated PGO branch-conversion switches — rejected (2026-10-10)
 
 Two profile-use ablations set either `-disable-select-optimize` or
