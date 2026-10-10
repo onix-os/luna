@@ -125,9 +125,7 @@ impl<'gc> RawTable<'gc> {
         let mut array = vec::Vec::new_in(MetricsAlloc::new(mc));
         array.resize(array_capacity, Value::Nil);
 
-        let mut map = HashMap::with_hasher_in((), MetricsAlloc::new(mc));
-        map.raw_table_mut()
-            .reserve(map_capacity, |(key, _)| key_hash(key));
+        let map = HashMap::with_capacity_and_hasher_in(map_capacity, (), MetricsAlloc::new(mc));
 
         Self {
             array,
