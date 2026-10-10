@@ -145,12 +145,40 @@ callback failures remain in the full reports. Neither feature-cost nor native
 performance acceptance is achieved.
 
 Symbol inspection finds duplicated eager hash construction: `from_slice`
-grows from 0x51b to 0x6eb bytes, and eight outlined capacity-specific constructors
+grows from 0x51b to 0x6eb bytes, and nine outlined capacity-specific constructors
 grow another 104–113 bytes each. There is no standalone `string_key_hash`
 symbol. A separate shared-helper trial can remove that code duplication, but
 must measure additional construction call overhead. This finding does not
 attribute the float timing regression to code placement.
 Evidence prefix: `target/jit-evidence/short-slice-performance/empty-map-capacity*`.
+
+#### Shared final hash construction — candidate
+
+`6e42eea` keeps the exact inline-cache representation and hash computation,
+but makes the final hash constructor a shared out-of-line function. Verified
+symbol inventories count `from_slice`, its nine emitted capacity-specific
+constructors and the new helper: **5,121 → 3,957 bytes**, a **1,164-byte**
+reduction. The pre-cache rooted image uses 3,679 bytes for the same constructors.
+This removes measured code duplication; it is not proof of the float slowdown's
+hardware cause. No layout padding, hash-policy change or new unsafe code is used.
+
+Frozen image **`46237abc`** completes **24 exact-image profiles**, with matching
+non-timing fields and source/image checks. Relative to immediate empty-map
+`16d329fb`, callback Off is unchanged. Whole cold-function instructions change
+**13,393,165 → 13,400,253** Off and **13,419,848 → 13,405,891** Auto. Combined
+string-constructor/helper self work falls **4,427** in each mode; interning,
+map and allocator variation is retained rather than attributed to call overhead.
+Allocation Off is unchanged in VM-step and whole-execution scopes. Auto step
+falls 6,299 with enqueue variation; whole execution adds twelve instructions.
+Relative to rooted `3d0dc224`, callback Auto saves **1,495,000**, closure Auto
+adds 155,272, and closure/integer/float Off totals remain identical.
+
+GNU focused validation passes **24 / six summaries**, focused musl **73 /
+eleven**, none ignored. Full Force plus baseline/docs is still running; timing
+has not started. The attribute is omitted with the helper on 32-bit targets;
+the previously checked constructor/model bodies are unchanged, but no fresh
+Miri run is claimed. Fresh speed/shipping feature-cost artifacts are building.
+Evidence prefix: `target/jit-evidence/short-slice-performance/shared-inline-key-hash*`.
 
 #### Compile-time constant upvalue-table keys — withdrawn
 
