@@ -76,8 +76,10 @@ test-only; production helper registration is restored. The first restoration
 image did not match because test-only additions displaced existing helper source
 locations. Isolating the model with an EOF module registration restores the
 original production source positions: clean ELF **`3d0dc224` is byte-identical**
-to rooted-state reuse. Fresh full GNU/musl checks and both Miri models for the
-isolated test entry are running; they are not yet counted as passes.
+to rooted-state reuse. Fresh full GNU Force passes **1,582 / 88 summaries**,
+six ignored; focused musl passes **126 / eight**, none ignored. The isolated
+entry model passes two tests each under Miri Stacked seed 51 and Tree seed 52,
+with 31 inherited warnings per run. Restoration source hashes verify.
 Full performance/resource/platform/release acceptance
 remains open; this is not an accepted callback optimization.
 Evidence prefix: `target/jit-evidence/short-slice-performance/constant-upvalue-key*`.
