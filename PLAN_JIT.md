@@ -174,6 +174,31 @@ This bounds the pass's owned records and live-IR expansion, not Cranelift's
 internal allocations, allocator overhead or process RSS. Whole-compiler memory
 policy and production/runtime performance acceptance remain open.
 
+The test selector now executes payload code through the real runtime dispatch,
+not only the standalone frame oracle. Without array kernels it skips scalar
+scratch import/writeback. With array kernels it keeps the existing kernel,
+commits its scalar results before binding payload pointers, and combines the
+same exit budget and table counters. Existing panic, PC and statistics
+publication remain shared with scratch execution. No payload descriptor escapes
+the scoped invocation.
+
+Ten programs across eight initial budgets compare the interpreter, optimized
+scratch Auto mode and payload Auto mode after every executor step. The 80
+schedules include interrupts, callback calls, aliased/foreign-stack upvalues,
+debug mutations, caught errors, scalar/reference transitions and periodic GC.
+All 25 execution counters match the optimized control, as do compilation
+request/failure/install counts and actual array-kernel counts; result values,
+fuel, modes and dispatch counts also match the interpreter. Tests require
+native execution, payload-marked installed entries, retained array execution
+and mapped-code reclamation. GNU/musl pass 29 focused tests; GNU also passes
+33 existing array tests (`payload-dispatch-*`).
+Both Miri models pass 19 model/IR tests (seeds 23/24); these do not execute
+the generated-code runtime schedules.
+This is still a test-only runtime selection, not an enabled release path or a
+measured speedup. The next performance step is a release-profile candidate
+with preserved shipping specializations and unchanged benchmark controls;
+complete compiler-memory/platform/release acceptance remains outstanding.
+
 #### Sign-directed checked jump arithmetic — withdrawn (2026-10-10)
 
 On the restored runtime, a source trial replaces `checked_add_signed` with

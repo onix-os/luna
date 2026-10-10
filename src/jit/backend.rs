@@ -223,7 +223,7 @@ pub(super) struct Code {
     #[cfg(test)]
     cell_kernel: bool,
     #[cfg(test)]
-    payload: bool,
+    pub(super) payload: bool,
     #[cfg(test)]
     pub integer_activation: bool,
     #[cfg(all(test, not(miri)))]
