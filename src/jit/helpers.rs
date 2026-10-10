@@ -25,6 +25,7 @@ mod direct_tests;
 #[cfg(test)]
 mod constant_key_tests;
 
+#[cfg(test)]
 const GET_UP_CONSTANT: u32 = 11;
 
 trait Transport<'gc> {
@@ -93,6 +94,7 @@ pub(super) const SYMBOLS: [(u32, &str, abi::HelperEntry); 10] = [
     symbol::<{ abi::HELPER_SET_LIST }>("luna_set_list_v1"),
 ];
 
+#[cfg(test)]
 pub(super) fn symbols(
     operations: &[crate::opcode::Operation],
 ) -> [(u32, &'static str, abi::HelperEntry); 10] {
@@ -297,6 +299,7 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
                 self.count.upvalue_reads += u64::from(completed);
                 completed
             }
+            #[cfg(test)]
             GET_UP_CONSTANT => {
                 let table = self.upvalue(slots, b);
                 let key = self.closure.prototype().constants[(c & !abi::CONSTANT_OPERAND) as usize]

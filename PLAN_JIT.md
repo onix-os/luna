@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-10
 
-#### Compile-time constant upvalue-table keys — candidate
+#### Compile-time constant upvalue-table keys — withdrawn
 
 `e79c724` selects an alternate GetUpTable helper import only when a compilation
 contains at least one such read and every such read has a constant key. Mixed
@@ -37,9 +37,11 @@ and all eight counters. Original opt3 tests pass two executions.
 Initial Miri Stacked execution passes the behavior differential but fails a
 separate function-address assertion. `bd34e13` replaces that assumption with
 actual execution through the selected symbol. Corrected GNU/musl tests each
-pass two executions, with formatting/check-all passing. Corrected optimized
-tests, both Miri models and byte-identical image reproduction remain pending;
-the failed Miri log is retained, not counted as a pass.
+pass two executions, with formatting/check-all passing. Corrected opt3 tests
+also pass two executions. Pinned Miri Stacked seed 49 and Tree seed 50 each
+pass two tests with 31 inherited warnings. A clean rebuild after the test-only
+correction reproduces the profiled ELF byte-for-byte. The failed initial Miri
+log remains retained, not counted as a pass.
 
 Ten exact-image profiles use frozen ELF **`4858730d`**. Against immediate
 rooted-state reuse, callback Auto instructions fall **132,231,624 → 131,194,248**
@@ -54,7 +56,25 @@ bytes: symbol-name lengths sum 173→176 and maximum 20→23, so the existing
 historical parser rejects this difference; its failure is retained. A separate
 immediate-baseline comparison explicitly checks and reports this sole resource
 change without relaxing execution counters, workloads or acceptance thresholds.
-Physical timing and all remaining performance/release gates are still open.
+Four four-way screens complete **96 aggregate commands**, all failing original
+aggregate gates. Rooted-control/candidate callback ratios on CPU0 are
+**0.991448 / 0.995527 / 0.990888 / 0.988390**; CPU16 **1.010967 / 1.007796 /
+1.001651 / 1.003651**. Native metamethod ratios are CPU0 **0.974182 / 0.963896 /
+0.986605 / 0.967013**, CPU16 **0.972256 / 0.929919 / 0.956282 / 0.959846**,
+with all 24 individual metamethod windows adverse. Above one means faster.
+All 24 candidate callback gates fail; metamethod gates fail 15/24. Other scored
+cases pass 24/24; Oslo remains unscored. Same-image placebo variation, including
+large disabled-float swings, and external contention remain in the evidence.
+No owned build, test, profile or source edit overlaps these timing screens.
+
+All execution counters match. The only reported resource differences are the
+derived 12-byte snapshot-peak increases in callback, metamethod and Oslo Auto.
+Hashes, complete workloads and original thresholds verify in each screen.
+Withdraw runtime selection rather than accept the repeated cross-workload
+losses. The alternate helper/selector and independent differential remain
+test-only; production helper registration is restored. Fresh restoration
+validation is pending. Full performance/resource/platform/release acceptance
+remains open; this is not an accepted callback optimization.
 Evidence prefix: `target/jit-evidence/short-slice-performance/constant-upvalue-key*`.
 
 #### Native-only callback setup — measured and withdrawn
