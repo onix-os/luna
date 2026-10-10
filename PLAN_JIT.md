@@ -11,6 +11,44 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Ordinary entry stack outlining — measured and withdrawn (2026-10-10)
+
+The callback profile attributes 20,233,235 instructions to the seven-register
+ordinary native entry, whose assembly reserves `0x828` (2,088) stack bytes.
+An initial array-kernel outlining trial passes 71 focused executions and ten
+exact-image profiles, but its entire seven-register entry assembly remains
+byte-identical: the original array call was already out of line. Callback and
+numeric-Off instruction totals are unchanged. Remove this annotation without
+hardware timing; the proposed mechanism did not occur.
+
+Assembly instead shows small-capacity upvalue projections embedded in the
+ordinary entry. Outlining `projection::bridge::with_frame` reduces that entry's
+reservation to `0x158` (344) bytes. No coverage, counters, ABI, cache, allocation
+or runtime semantics changes are introduced. Formatting/check-all and 54
+projection/native/upvalue test executions pass. Ten exact-image profiles match
+all full execution/resource records; the callback entry still executes exactly
+20,233,235 instructions. Whole callback work differs by only 81 instructions;
+numeric Off totals match and upvalue Auto work grows 0.03056%.
+
+Two complete native screens finish 48 commands and 648 equal full non-timing
+comparisons. Frozen workloads/thresholds, eleven samples, CPUs 0/16, controls,
+placebos and external telemetry remain; no owned work overlaps hardware timing.
+Control time / candidate time for callbacks is CPU0 **0.98578 / 1.00245** and
+CPU16 **1.00114 / 1.00116**, first / repeat. This does not establish the targeted
+callback improvement. Disabled float instead falls to CPU0
+**0.92614 / 0.93567**, CPU16 **0.94291 / 0.94248**. Upvalues improve roughly
+2–3%, but all aggregate gates still fail, including controls. Shrinking the
+frame is not enough to accept the change; the annotation is withdrawn before
+an expensive shipping/full-platform campaign.
+
+Both trial patches, symbols, profiles, assembly, raw windows and strict analysis
+are retained under `array-entry-outline*` and `projection-entry-outline*` in
+the existing ignored performance evidence directory. No runtime optimization
+or full performance acceptance is claimed from these trials.
+Restored source passes formatting/check-all and the same 54 focused executions.
+A fresh ordinary GNU opt3 build is byte-identical to the preceding restored
+production image and retains `.text`/`.rodata` identity with the frozen control.
+
 #### Rooted region publication deferral — test-only (2026-10-10)
 
 **Disabled shipping attribution follow-up:** twelve exact-image profiles compare
