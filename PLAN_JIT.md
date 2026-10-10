@@ -11,9 +11,9 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Callback suffix consumption — performance trial, 2026-10-10
+#### Callback suffix consumption — withdrawn after repeat timing
 
-`Stack::consume` now uses an owning suffix iterator rather than the public,
+The trial made `Stack::consume` use an owning suffix iterator rather than the public,
 general range `Drain`. It retains the exclusive stack borrow during conversion,
 counts exhausted argument pulls, and truncates the original suffix on success,
 error or panic. Public signatures, general draining, GC roots, prefix values,
@@ -47,7 +47,21 @@ CPU16 upvalue improves in all three. Callback compiled-Off medians improve in
 both profiles and CPUs, alongside gains in the no-feature binaries. There are
 also adverse non-callback cost samples and a new speed CPU16 cold gate failure.
 Keep all observations; instruction savings do not establish overall acceptance.
-A second unchanged full campaign is required before a retention decision.
+A second unchanged full campaign also finishes with all 158 aggregate gates
+failing and complete counter/manifest agreement. CPU16 callbacks improve in
+all six windows across the two campaigns (second median 1.02232); CPU0 improves
+in the second campaign (1.03406). However speed CPU0 compiled-Off metamethod
+ratios repeat at 0.97366/0.97003 against near-parity no-feature controls, adverse
+in all eight windows. Shipping CPU0 no-feature float ratios repeat at
+0.96546/0.96088, also adverse in all eight windows. Speed CPU16 cold adds one
+failure in each campaign, and native arrays worsen in all six second-campaign
+CPU/window pairs. Other mixed and favorable vectors are retained.
+
+These repeated losses outweigh the partial callback improvement: withdraw the
+owning suffix iterator and restore the original consume implementation. Keep
+the independent contract tests. Restoration verification is pending. No
+hardware cause is established for the non-callback losses, and full original
+performance acceptance remains incomplete.
 Evidence is under `suffix-consume*` in the short-slice directory.
 
 #### Owned panic payload — withdrawn after timing

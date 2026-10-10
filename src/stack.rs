@@ -254,40 +254,24 @@ impl<'gc, 'a> Stack<'gc, 'a> {
     /// sees a lone value — but the number of times the conversion has pulled from this iterator is
     /// exactly the argument number, so counting here gets it for free.
     pub fn consume<V: FromMultiValue<'gc>>(&mut self, ctx: Context<'gc>) -> Result<V, BadArgument> {
-        struct Consume<'gc, 'a> {
-            values: RefMut<'a, StackVec<'gc>>,
-            bottom: usize,
-            next: usize,
+        struct Counting<I> {
+            inner: I,
             taken: usize,
         }
 
-        impl<'gc> Iterator for Consume<'gc, '_> {
+        impl<'gc, I: Iterator<Item = Value<'gc>>> Iterator for Counting<I> {
             type Item = Value<'gc>;
 
             fn next(&mut self) -> Option<Value<'gc>> {
                 // Counted whether or not a value comes back: a conversion that reads past the end
                 // and rejects the `nil` is still complaining about that argument position.
                 self.taken += 1;
-                let value = self.values.get(self.next).copied();
-                if value.is_some() {
-                    self.next += 1;
-                }
-                value
+                self.inner.next()
             }
         }
 
-        impl Drop for Consume<'_, '_> {
-            fn drop(&mut self) {
-                self.values.truncate(self.bottom);
-            }
-        }
-
-        let borrowed = self.write();
-        assert!(self.bottom <= borrowed.len(), "drain range out of bounds");
-        let mut values = Consume {
-            values: borrowed,
-            bottom: self.bottom,
-            next: self.bottom,
+        let mut values = Counting {
+            inner: self.drain(..),
             taken: 0,
         };
         V::from_multi_value(ctx, &mut values).map_err(|source| BadArgument {
