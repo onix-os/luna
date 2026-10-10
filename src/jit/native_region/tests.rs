@@ -11,12 +11,21 @@ use crate::{
 
 thread_local! {
     static ROOTED_PANIC: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+    static ROOTED_PANIC_SKIP: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     pub(super) static ROOTED_COMPLETIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(super) static ROOTED_DEFERRED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 pub(super) fn rooted_checkpoint(phase: u8) {
     ROOTED_PANIC.with(|fault| {
         if fault.get() == phase {
+            if ROOTED_PANIC_SKIP.with(|skip| {
+                let remaining = skip.get();
+                skip.set(remaining.saturating_sub(1));
+                remaining != 0
+            }) {
+                return;
+            }
             fault.set(0);
             panic!("rooted publication fault {phase}");
         }
@@ -67,6 +76,58 @@ fn rooted_call_panic_publishes_pending_caller_and_committed_results() {
                 assert_eq!(failed.5, expected.5);
             } else {
                 assert_eq!(failed, expected);
+            }
+        }
+    });
+}
+
+#[test]
+fn rooted_deferred_calls_publish_on_late_panic() {
+    fixture(|ctx, closure, region, start| {
+        for skip in [1, 2, 7, 19] {
+            for phase in [1, 2] {
+                let run = |fault| {
+                    with_test_thread(ctx, closure, &mut Fuel::with(10000), |host| {
+                        ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
+                        host.run(ctx, 1, start as u32, 4).result.unwrap();
+                        let before = stats(ctx);
+                        if fault {
+                            ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+                            ROOTED_DEFERRED.with(|count| count.set(0));
+                            ROOTED_PANIC_SKIP.with(|value| value.set(skip));
+                            ROOTED_PANIC.with(|value| value.set(phase));
+                            let result =
+                                catch_unwind(AssertUnwindSafe(|| region.run(ctx, host, 64, 64)));
+                            assert!(result.is_err());
+                            assert_eq!(ROOTED_PANIC.with(|value| value.replace(0)), 0);
+                            assert_eq!(ROOTED_PANIC_SKIP.with(|value| value.replace(0)), 0);
+                            assert!(ROOTED_DEFERRED.with(|count| count.get()) >= skip);
+                        } else {
+                            for _ in 0..skip {
+                                host.run(ctx, 2, 64, 4).result.unwrap();
+                            }
+                            if phase == 1 {
+                                let pc = region.pair.program.key().pc;
+                                while host.with_registers(|_, registers| *registers.pc) != pc {
+                                    host.run(ctx, 1, 1, 4).result.unwrap();
+                                }
+                            } else {
+                                host.run(ctx, 2, 64, 4).result.unwrap();
+                            }
+                        }
+                        trace(ctx, host, before)
+                    })
+                };
+                let actual = run(true);
+                let expected = run(false);
+                assert_eq!(actual.0, expected.0, "phase={phase} skip={skip}");
+                assert_eq!(actual.1, expected.1, "phase={phase} skip={skip}");
+                assert_eq!(actual.2, expected.2, "phase={phase} skip={skip}");
+                assert_eq!(actual.4, expected.4, "phase={phase} skip={skip}");
+                assert_eq!(actual.5, expected.5, "phase={phase} skip={skip}");
+                if phase == 2 {
+                    assert_eq!(actual, expected, "phase={phase} skip={skip}");
+                }
             }
         }
     });

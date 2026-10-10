@@ -11,6 +11,36 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Rooted region publication deferral — experimental (2026-10-10)
+
+The current trial targets the measured 21.55 million instructions in rooted
+caller publication. After a successful compact upvalue call, a helper-free
+rooted region keeps its validated scalar/reference snapshot through the next
+generated caller entry. This replaces publication after every internal call,
+not publication at an externally observable exit. Immutable roots stay alive;
+fresh capture/type/frame checks, PC changes, fuel and all statistics remain.
+There is no new unsafe code, native pointer, allocation or persistent cache.
+
+Only successful continuations defer. Declined calls, ordinary fallback,
+budget/limit exits and caught panics publish before canonical execution or
+return. The pending flag survives internal continuations and clears after
+publication. Driver return asserts no pending canonical state remains.
+Source-certified rooted callers have no Rust helpers; other callers retain
+their original publication path.
+
+GNU focused checks pass 74 executions across nine summaries before the new
+late-panic test. The updated region checks pass 65 executions across five
+summaries. Late faults before/after calls 2, 3, 8 and 20 compare canonical state
+against the interpreter and prove preceding publication deferrals actually ran.
+Region, async-region, upvalue, native and heap integrations pass another 49
+executions. These are overlapping test executions, not full acceptance.
+
+The ordinary GNU opt3 image is frozen as
+`d51fa7a98f334401e82c8aa97dbe650a4946064f5a11ed990ff898036b3e00af`.
+Exact-image whole-workload profiles are running; no speedup is claimed yet.
+Evidence is under `target/jit-evidence/short-slice-performance/rooted-deferred*`.
+All original performance, resource, platform and release gates remain open.
+
 #### Typed scalar payload boundary — test-only (2026-10-10)
 
 The next structural experiment supplies pointers to scalar fields from Rust,
