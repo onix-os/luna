@@ -13,6 +13,9 @@ use thiserror::Error;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod callback_setup;
+
 use crate::{
     closure::{UpValue, UpValueState},
     fuel::count_fuel,
@@ -1072,6 +1075,53 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
         }
 
         Ok(())
+    }
+
+    #[cfg(test)]
+    fn try_callback_call(
+        &mut self,
+        func: RegisterIndex,
+        args: VarCount,
+        returns: VarCount,
+    ) -> bool {
+        if self.state.frames.len() >= self.state.max_call_depth {
+            return false;
+        }
+        let Some(count) = args.to_constant() else {
+            return false;
+        };
+        let Some(Frame::Lua {
+            base,
+            is_variable: false,
+            expected_return,
+            ..
+        }) = self.state.frames.last_mut()
+        else {
+            return false;
+        };
+        let Some(start) = base.checked_add(usize::from(func.0)) else {
+            return false;
+        };
+        let Some(Value::Function(Function::Callback(callback))) = self.stack.get(start).copied()
+        else {
+            return false;
+        };
+        let Some(end) = start.checked_add(usize::from(count) + 1) else {
+            return false;
+        };
+        if end > self.stack.len() {
+            return false;
+        }
+        self.fuel.consume(Self::FUEL_PER_CALL);
+        *expected_return = Some(LuaReturn::Normal(returns));
+        self.fuel.consume(i32::from(count) * Self::FUEL_PER_ITEM);
+        self.stack.copy_within(start + 1..end, start);
+        self.stack.truncate(end - 1);
+        self.state.frames.push(Frame::Callback {
+            bottom: start,
+            callback,
+        });
+        true
     }
 
     /// Call the function at the given register with the given arguments. On return, results will be
