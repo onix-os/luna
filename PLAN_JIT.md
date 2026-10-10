@@ -11,6 +11,52 @@
 
 ### Progress snapshot — 2026-10-10
 
+#### Closure-only accessor inlining — withdrawn (2026-10-10)
+
+A feature-gated `inline(always)` on `LuaFrame::closure` targets the shipping
+profile's per-entry accessor call. Unlike the earlier rejected register-view
+constructor and tuple-view trials, it changes neither register construction
+nor the no-feature path. It introduces no cache, new representation, unsafe
+access, counter batching or interpreter specialization.
+
+Formatting/check-all and **62 focused executions / nine summaries** pass.
+Sixteen exact-image Off profiles verify symbol companions, native-zero records
+and all self totals. Speed callback/closure instructions are unchanged. Shipping
+callback work falls **47,814,770 -> 47,739,755**, and closure work
+**89,176,738 -> 88,876,723**. The removed accessor self count partly moves into
+the VM: actual savings are 75,015 / 300,015, not its whole old self count.
+No-feature callback counts match; shipping closure has only 158 allocator
+instructions of variation. Both no-feature ELFs differ by 41 panic-location
+line bytes, independently verified against unchanged source lines.
+
+Two three-way cost screens complete **72 commands**, speed/shipping, CPUs
+0/16, eleven paired samples and twenty iterations. Drivers finish zero; 71
+commands retain failing gates, with only one CPU0 speed control passing.
+Full raw-sample reconstruction, original 1.05 thresholds, native proof counters,
+artifact/source hashes and external contention telemetry are preserved.
+Direct prior/candidate medians above one mean faster candidate execution:
+
+| Shipping workload | CPU 0, screen 1 / 2 | CPU 16, screen 1 / 2 |
+| --- | --- | --- |
+| Integer loop | 0.9669 / 0.9644 | 0.9141 / 0.9056 |
+| Float loop | 0.9359 / 0.9427 | 0.9441 / 0.9466 |
+| Array table | 1.0013 / 1.0028 | 0.9139 / 0.9073 |
+| Closure/upvalue | 1.0025 / 1.0019 | 0.9967 / 0.9877 |
+| Rust callbacks | 1.0050 / 0.9996 | 1.1049 / 1.0882 |
+
+CPU16 shipping integer/array elapsed time grows roughly 9–10%, against much
+smaller no-feature variation. The callback gain does not cancel those losses,
+and all shipping closure controls still fail. The hint is removed before any
+native timing campaign or promotion; no native speedup is claimed for it.
+
+Restored GNU and musl each pass **62 / nine**, zero ignores/failures. All four
+fresh restored cost executables match the pretrial speed/shipping no-feature/
+compiled-Off images byte-for-byte. Production sources match `1ab8079` exactly.
+Evidence, the withdrawn one-line patch and all adverse results remain under
+`target/jit-evidence/short-slice-performance/frame-closure-inline*`.
+Future dispatch work must target distinct measured work rather than repeating
+this hint, the rejected unified execution counter or register-view inlining.
+
 #### Narrow payload release trial — withdrawn (2026-10-10)
 
 The closed constant-key helper removes another **12,198,978 callback
