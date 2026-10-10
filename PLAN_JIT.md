@@ -11,6 +11,36 @@
 
 ### Progress snapshot — 2026-10-10
 
+#### Payload numeric-tag mask — test-only (2026-10-10)
+
+Payload scalar reads/writes now classify the Integer/Number pair with
+`(tag & !1) == 2`, rather than separate equality comparisons and an OR.
+A compile-time assertion binds this to the existing private ABI tags 2/3.
+Null-pointer checks, Boolean byte access, Nil/reference handling, canonical
+materialization and helper refresh remain unchanged. No layout of Rust Value
+is inspected and no descriptor is reused across callback or GC boundaries.
+
+The exact IR checker requires the mask, integer constant, operation, input
+provenance and result types independently. Read/write mutation suites reject
+24/37 well-formed corruptions, including a mask that would misclassify tag 6
+and the wrong SSA input. Generated read probes cover low-byte tags, each high
+bit combined with Integer, extreme tags and nulls. Both generated write forms
+also test invalid/reference tags, null scalar pointers, invalid Boolean bits
+and nonnull Nil: exactly one fallback call, no direct store, unchanged sentinel
+and descriptor. Existing actual-Value writes and integrated schedules remain.
+
+Initial integrated checks correctly rejected stale exact expansion counts;
+the planner now accounts for one fewer IR instruction per read/write (19/29
+additional instructions). Global conservative bounds and resource limits are
+not relaxed; exact refusal/rollback checks pass. The failed draft is retained.
+Final GNU payload checks pass **53 executions / three summaries**, musl
+helper/payload checks **62 / four**, and pinned Stacked seed 27 / Tree seed 28
+each **50 / three**. Formatting/check-all pass; Miri warnings are retained.
+This is a test-only code-generation change, not release enablement or a claimed
+speedup. Exact-image profiling must establish whether generated machine work
+decreases before another timing campaign. Evidence: `payload-wide-mask/` under
+the ignored short-slice directory.
+
 #### Closure-only accessor inlining — withdrawn (2026-10-10)
 
 A feature-gated `inline(always)` on `LuaFrame::closure` targets the shipping

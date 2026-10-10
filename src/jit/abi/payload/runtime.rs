@@ -79,6 +79,53 @@ pub(crate) fn with_bridge(
     });
 }
 
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_write_guards(
+    entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u64, u64),
+) {
+    unsafe extern "C" fn declined(host: *mut Bridge, _: *mut Payload, _: u32, _: u64, _: u64) {
+        unsafe { (*host).materializations += 1 };
+    }
+    let mut bridge = Bridge {
+        base: abi::Host {
+            data: std::ptr::null_mut(),
+            projection: std::ptr::null_mut(),
+        },
+        read: read_bits,
+        write: declined,
+        helpers: [helper::<1>; 10],
+        materializations: 0,
+    };
+    let tags = (0..=255)
+        .chain((0..64).map(|bit| (1u64 << bit) | INTEGER))
+        .chain([u64::MAX - 1, u64::MAX]);
+    for tag in tags {
+        for null in [false, true] {
+            let bits = 0x0123_4567_89ab_cdef;
+            if (matches!(tag, INTEGER | NUMBER) && !null) || (tag == NIL && null) {
+                continue;
+            }
+            let mut sentinel = 0xfedc_ba98_7654_3210u64;
+            let pointer = if null {
+                std::ptr::null_mut()
+            } else {
+                std::ptr::from_mut(&mut sentinel).cast()
+            };
+            let mut descriptor = Payload { tag, pointer };
+            let before = bridge.materializations;
+            unsafe { entry(&mut descriptor, &mut bridge, tag, bits) };
+            assert_eq!(
+                bridge.materializations,
+                before + 1,
+                "tag={tag}, null={null}"
+            );
+            assert_eq!(sentinel, 0xfedc_ba98_7654_3210);
+            assert_eq!(descriptor.tag, tag);
+            assert_eq!(descriptor.pointer, pointer);
+        }
+    }
+}
+
 #[cfg(not(miri))]
 pub(crate) fn check_native_write(entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u64, u64)) {
     crate::Lua::empty().enter(|ctx| {

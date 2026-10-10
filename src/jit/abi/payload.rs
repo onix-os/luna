@@ -56,7 +56,12 @@ pub(crate) fn check_native_read(entry: unsafe extern "C" fn(*const Payload) -> u
             let descriptor = frame.bind(0).unwrap();
             assert_eq!(unsafe { entry(&descriptor) }, expected);
         }
-        for tag in [NIL, BOOLEAN, INTEGER, NUMBER, REFERENCE, u64::MAX] {
+        let tags = || {
+            (0..=255)
+                .chain((0..64).map(|bit| (1u64 << bit) | INTEGER))
+                .chain([u64::MAX - 1, u64::MAX])
+        };
+        for tag in tags() {
             let descriptor = Payload {
                 tag,
                 pointer: std::ptr::null_mut(),
@@ -64,7 +69,7 @@ pub(crate) fn check_native_read(entry: unsafe extern "C" fn(*const Payload) -> u
             assert_eq!(unsafe { entry(&descriptor) }, 0);
         }
         let mut value = u64::MAX;
-        for tag in [NIL, REFERENCE, u64::MAX] {
+        for tag in tags().filter(|tag| !matches!(*tag, BOOLEAN | INTEGER | NUMBER)) {
             let descriptor = Payload {
                 tag,
                 pointer: std::ptr::from_mut(&mut value).cast(),

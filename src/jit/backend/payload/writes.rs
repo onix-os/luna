@@ -1,4 +1,6 @@
-use super::reads::{bitcast, block, branch, compare, constant, load, value};
+use super::reads::{
+    bitcast, block, branch, compare, constant, emit_wide, load, value, verify_wide,
+};
 use super::*;
 
 #[derive(Clone, Copy)]
@@ -57,11 +59,7 @@ pub(super) fn emit(f: &mut Function, tag_store: Inst, bits_store: Inst, input: I
     let same = c.ins().icmp(IntCC::Equal, actual, tag);
     c.ins().brif(same, kind, &[], slow, &[]);
     c.goto_bottom(kind);
-    let integer = c.ins().iconst(types::I64, abi::INTEGER as i64);
-    let is_integer = c.ins().icmp(IntCC::Equal, tag, integer);
-    let number = c.ins().iconst(types::I64, abi::NUMBER as i64);
-    let is_number = c.ins().icmp(IntCC::Equal, tag, number);
-    let is_wide = c.ins().bor(is_integer, is_number);
+    let is_wide = emit_wide(&mut c, tag);
     let null = c.ins().iconst(types::I64, 0);
     let nonnull = c.ins().icmp(IntCC::NotEqual, pointer, null);
     let valid = c.ins().band(is_wide, nonnull);
@@ -171,13 +169,9 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
     )?;
     let same = compare(f, same, IntCC::Equal, [actual, tag])?;
     branch(f, split, same, kind, slow)?;
-    let [integer, is_integer, number, is_number, is_wide, null, nonnull, valid, split] =
+    let [mask, masked, integer, is_wide, null, nonnull, valid, split] =
         shape(f.layout.block_insts(kind))?;
-    let integer = constant(f, integer, abi::INTEGER as i64)?;
-    let is_integer = compare(f, is_integer, IntCC::Equal, [tag, integer])?;
-    let number = constant(f, number, abi::NUMBER as i64)?;
-    let is_number = compare(f, is_number, IntCC::Equal, [tag, number])?;
-    let is_wide = value(f, is_wide, Opcode::Bor, &[is_integer, is_number], types::I8)?;
+    let is_wide = verify_wide(f, [mask, masked, integer, is_wide], tag)?;
     let null = constant(f, null, 0)?;
     let nonnull = compare(f, nonnull, IntCC::NotEqual, [pointer, null])?;
     let valid = value(f, valid, Opcode::Band, &[is_wide, nonnull], types::I8)?;
@@ -329,6 +323,7 @@ fn generated_float_write_preserves_payload_bits() {
             >(pointer)
         };
         crate::jit::abi::payload::runtime::check_native_write(entry);
+        crate::jit::abi::payload::runtime::check_native_write_guards(entry);
     })
     .unwrap();
 }
@@ -399,7 +394,14 @@ fn inline_write_checker_rejects_well_formed_guard_store_and_gateway_mutations() 
     let mut changed = function.clone();
     changed.dfg.inst_args_mut(slow[2]).swap(4, 5);
     reject(changed);
-    assert_eq!(rejected, 36);
+    let kind: Vec<_> = function.layout.block_insts(write.blocks[2]).collect();
+    let mut changed = function.clone();
+    changed.replace(kind[0]).iconst(types::I64, -6);
+    reject(changed);
+    let mut changed = function.clone();
+    changed.dfg.inst_args_mut(kind[1])[0] = write.input.bits;
+    reject(changed);
+    assert_eq!(rejected, 37);
 }
 
 #[cfg(not(miri))]
@@ -415,6 +417,7 @@ fn generated_inline_write_preserves_values_and_only_materializes_type_changes() 
             >(pointer)
         };
         crate::jit::abi::payload::runtime::check_native_write(entry);
+        crate::jit::abi::payload::runtime::check_native_write_guards(entry);
     })
     .unwrap();
 }

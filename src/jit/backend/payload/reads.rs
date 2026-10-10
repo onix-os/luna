@@ -1,5 +1,26 @@
 use super::*;
 
+const _: () = assert!(abi::INTEGER == 2 && abi::NUMBER == 3);
+
+pub(super) fn emit_wide(c: &mut FuncCursor<'_>, tag: IrValue) -> IrValue {
+    let mask = c.ins().iconst(types::I64, -2);
+    let masked = c.ins().band(tag, mask);
+    let integer = c.ins().iconst(types::I64, abi::INTEGER as i64);
+    c.ins().icmp(IntCC::Equal, masked, integer)
+}
+
+pub(super) fn verify_wide(
+    f: &Function,
+    instructions: [Inst; 4],
+    tag: IrValue,
+) -> Result<IrValue, JitError> {
+    let [mask, masked, integer, predicate] = instructions;
+    let mask = constant(f, mask, -2)?;
+    let masked = value(f, masked, Opcode::Band, &[tag, mask], types::I64)?;
+    let integer = constant(f, integer, abi::INTEGER as i64)?;
+    compare(f, predicate, IntCC::Equal, [masked, integer])
+}
+
 pub(super) struct Read {
     blocks: [Block; 6],
     result: IrValue,
@@ -44,11 +65,7 @@ pub(super) fn emit(function: &mut Function, inst: Inst, slots: IrValue, index: u
         slots,
         offset + crate::jit::abi::payload::POINTER_OFFSET as i32,
     );
-    let integer = c.ins().iconst(types::I64, abi::INTEGER as i64);
-    let is_integer = c.ins().icmp(IntCC::Equal, tag, integer);
-    let number = c.ins().iconst(types::I64, abi::NUMBER as i64);
-    let is_number = c.ins().icmp(IntCC::Equal, tag, number);
-    let is_wide = c.ins().bor(is_integer, is_number);
+    let is_wide = emit_wide(&mut c, tag);
     let null = c.ins().iconst(types::I64, 0);
     let nonnull = c.ins().icmp(IntCC::NotEqual, pointer, null);
     let valid_wide = c.ins().band(is_wide, nonnull);
@@ -213,10 +230,9 @@ pub(super) fn verify(f: &Function, read: &Read, slots: IrValue) -> Result<(), Ji
             return Err(invalid());
         }
     }
-    let mut head: [Inst; 11] = shape(f.layout.block_insts(before).rev().take(11))?;
+    let mut head: [Inst; 10] = shape(f.layout.block_insts(before).rev().take(10))?;
     head.reverse();
-    let [tag, pointer, integer, is_integer, number, is_number, is_wide, null, nonnull, valid, split] =
-        head;
+    let [tag, pointer, mask, masked, integer, is_wide, null, nonnull, valid, split] = head;
     let tag = load(f, tag, slots, read.index as i32 * 16, types::I64)?;
     let pointer = load(
         f,
@@ -225,11 +241,7 @@ pub(super) fn verify(f: &Function, read: &Read, slots: IrValue) -> Result<(), Ji
         read.index as i32 * 16 + crate::jit::abi::payload::POINTER_OFFSET as i32,
         types::I64,
     )?;
-    let integer = constant(f, integer, abi::INTEGER as i64)?;
-    let is_integer = compare(f, is_integer, IntCC::Equal, [tag, integer])?;
-    let number = constant(f, number, abi::NUMBER as i64)?;
-    let is_number = compare(f, is_number, IntCC::Equal, [tag, number])?;
-    let is_wide = value(f, is_wide, Opcode::Bor, &[is_integer, is_number], types::I8)?;
+    let is_wide = verify_wide(f, [mask, masked, integer, is_wide], tag)?;
     let null = constant(f, null, 0)?;
     let nonnull = compare(f, nonnull, IntCC::NotEqual, [pointer, null])?;
     let valid = value(f, valid, Opcode::Band, &[is_wide, nonnull], types::I8)?;
@@ -328,8 +340,8 @@ fn inline_read_checker_rejects_well_formed_guard_width_and_result_mutations() {
     let flags = settings::Flags::new(settings::builder());
     cranelift_codegen::verify_function(&function, &flags).unwrap();
     let before: Vec<_> = function.layout.block_insts(read.blocks[0]).collect();
-    let null = function.dfg.first_result(before[7]);
-    let integer = function.dfg.first_result(before[2]);
+    let null = function.dfg.first_result(before[6]);
+    let integer = function.dfg.first_result(before[4]);
     let mut rejected = 0;
     let mut reject = |changed: Function| {
         cranelift_codegen::verify_function(&changed, &flags).unwrap();
@@ -385,7 +397,13 @@ fn inline_read_checker_rejects_well_formed_guard_width_and_result_mutations() {
     cursor.goto_inst(end);
     cursor.ins().store(MemFlagsData::new(), null, slots, 0);
     reject(changed);
-    assert_eq!(rejected, 23);
+    let mut changed = function.clone();
+    changed.replace(before[2]).iconst(types::I64, -6);
+    reject(changed);
+    let mut changed = function.clone();
+    changed.dfg.inst_args_mut(before[3])[0] = slots;
+    reject(changed);
+    assert_eq!(rejected, 24);
 }
 
 #[cfg(not(miri))]
