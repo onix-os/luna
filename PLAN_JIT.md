@@ -53,8 +53,23 @@ Initial formatting/check-all and focused native/accounting validation pass
 **127 executions / 14 summaries**, with two ignored diagnostics. Focused musl
 passes **220 / 18**, two ignored; pinned Miri Stacked seed 47 and Tree seed 48
 each pass **eight pure ownership/scoped-helper tests / two summaries**, none
-ignored. Full GNU, optimized integration and exact-image profiling are being
-validated separately. No physical timing or regression-fix claim yet.
+ignored. Full GNU Force passes **1,580 / 88**, six ignored. Source hashes remain
+unchanged across validation; `88b98a4` is committed and pushed.
+
+The clean opt3 image `3d0dc224` passes ten exact-image profiles with unchanged
+non-timing fields. Against the ordinary control, closure Auto instructions fall
+**169,861,074 → 160,033,194** (5.8% fewer); boundary self instructions fall
+**30,627,690 → 20,540,967**. Rooted-invocation self instructions remain
+**61,655,008**. Owner construction adds **322,322** self instructions; checked
+materialization moves from **374,081** to **379,406**. Admission traversal
+changes by **−156,852** and allocator variation remains reported separately,
+not credited to validation reuse. Callback total instructions change by **+81**,
+closure Off by **−242**, and integer/float Off are unchanged. The profile alias
+is removed and frozen-image/source checks pass. Opt3 integration passes **98
+executions / eleven summaries**, two ignored diagnostics, including the native
+preservation corpus and rooted completion/fallback/panic tests with debug
+revalidation disabled. Physical timing remains outstanding; no regression-fix
+claim yet.
 
 #### Bounded rooted-call fuel — measured and withdrawn (2026-10-10)
 
