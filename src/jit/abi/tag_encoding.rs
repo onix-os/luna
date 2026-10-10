@@ -75,6 +75,27 @@ fn split_import(values: &[Value<'_>], slots: &mut [Encoded; 7]) {
     }
 }
 
+#[inline(never)]
+fn integer_prefix_import(values: &[Value<'_>], slots: &mut [Encoded; 7]) {
+    let values = &values[..7];
+    for index in 0..7 {
+        if let Value::Integer(value) = values[index] {
+            slots[index] = Encoded {
+                tag: 2,
+                bits: value as u64,
+            };
+        } else {
+            for (slot, value) in slots[index..]
+                .iter_mut()
+                .zip(values[index..].iter().copied())
+            {
+                *slot = encode::<0>(value);
+            }
+            return;
+        }
+    }
+}
+
 #[test]
 fn alternative_tags_preserve_payloads_without_value_layout_access() {
     let mut lua = crate::Lua::empty();
@@ -132,6 +153,17 @@ fn alternative_tags_preserve_payloads_without_value_layout_access() {
                 );
                 let production = super::Slot::from_value(value);
                 assert_eq!((production.tag, production.bits), expected[index]);
+            }
+            for prefix in 0..=7 {
+                let mut input =
+                    std::array::from_fn::<_, 7, _>(|lane| Value::Integer(lane as i64 - 3));
+                input[prefix..].fill(value);
+                let input = std::hint::black_box(input);
+                let mut original = [Encoded { tag: 99, bits: 99 }; 7];
+                let mut prefix_slots = original;
+                original_import(&input, &mut original);
+                integer_prefix_import(&input, &mut prefix_slots);
+                assert_eq!(prefix_slots, original, "value {index}, prefix {prefix}");
             }
         }
     });

@@ -813,10 +813,11 @@ jit-tag-encoding-codegen:
 	@test "$$(wc -l < '$(TAG_ENCODING_DIR)/executable')" -eq 1
 	@cp "$$(cat '$(TAG_ENCODING_DIR)/executable')" '$(TAG_ENCODING_DIR)/probe'
 	@set -o pipefail; '$(TAG_ENCODING_DIR)/probe' jit::abi::tag_encoding:: 2>&1 | tee '$(TAG_ENCODING_DIR)/tests.log'
-	@set -o pipefail; objdump -Cd '$(TAG_ENCODING_DIR)/probe' | awk '/<luna::jit::abi::tag_encoding::(original_import|offset_import|split_import)>:/ { emit=1 } emit { print } /^$$/ { emit=0 }' > '$(TAG_ENCODING_DIR)/assembly.log'
+	@set -o pipefail; objdump -Cd '$(TAG_ENCODING_DIR)/probe' | awk '/<luna::jit::abi::tag_encoding::(original_import|offset_import|split_import|integer_prefix_import)>:/ { emit=1 } emit { print } /^$$/ { emit=0 }' > '$(TAG_ENCODING_DIR)/assembly.log'
 	@grep -Fq '<luna::jit::abi::tag_encoding::original_import>:' '$(TAG_ENCODING_DIR)/assembly.log'
 	@grep -Fq '<luna::jit::abi::tag_encoding::offset_import>:' '$(TAG_ENCODING_DIR)/assembly.log'
 	@grep -Fq '<luna::jit::abi::tag_encoding::split_import>:' '$(TAG_ENCODING_DIR)/assembly.log'
+	@grep -Fq '<luna::jit::abi::tag_encoding::integer_prefix_import>:' '$(TAG_ENCODING_DIR)/assembly.log'
 	@sha256sum '$(TAG_ENCODING_DIR)/probe' > '$(TAG_ENCODING_DIR)/binary.sha256'
 
 .PHONY: jit-return-words jit-return-words-miri
