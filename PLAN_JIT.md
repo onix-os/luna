@@ -11,6 +11,137 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Local payload materialization — test-only (2026-10-10)
+
+The typed-payload adapter now materializes a scalar through the existing
+per-cell `Frame::store` model and rebinds only that destination. Its scoped
+session retains the canonical base and register count; ordinary helpers still
+rebind the entire prefix and refresh that base. Initial and helper-produced
+panics stop both helper reentry and later materialization. This does not cache
+Lua values across callbacks or retain payload pointers across frame lifetimes.
+
+New tests retain and dereference sibling descriptors across type changes and
+refusals at widths 0/1/7/255/256, check exact scalar bits/reference identity,
+and exercise materialization after an ordinary helper refresh. GNU and musl
+each pass **33 executions / three summaries**, including the existing 80
+integrated schedules. Pinned Stacked Borrows seed 27 and Tree Borrows seed 28
+each pass **22 executions / two summaries**. Formatting and check-all pass.
+The model is committed as `e67f81a`. A separate release activation preserves
+rooted/scoped helper selection and array kernels. Ten exact-image profiles show
+callback work dropping **169,785,373 -> 159,985,370** versus the earlier payload
+trial. Full non-timing callback records match that trial. `write_scalar` removes
+**10,124,316** self instructions, partly offset by entry/helper setup. The current
+scratch baseline still wins: **133,593,180 -> 159,985,370 (+19.75564%)**.
+Closure Auto increases 0.43397%; integer/float Off totals are unchanged. Closure
+Off differs by 242 instructions, retained rather than reported as identical.
+
+The original strict profile comparison fails: closure code bytes increase
+28,672 -> 32,768; callback code bytes 4,096 -> 8,192 and snapshot peak bytes
+10,705 -> 10,765. A separate diagnostic verifies all eleven per-function totals
+and both-direction record key comparisons, preserving those resource deltas;
+it does not turn the failed strict comparison into acceptance. Entry descriptor
+binding and the ordinary helper's full-prefix refresh remain major costs.
+
+Withdraw the release activation without a hardware-timing campaign. Production
+source matches `e67f81a`; formatting/check-all and the ordinary GNU opt3 rebuild
+pass. The restored full binary matches the pretrial integer-first withdrawal
+image, and `.text`/`.rodata` match the historical frozen baseline. Keep the
+test-only model, candidate image/patch and all adverse evidence. No elapsed-time
+speedup, full platform gate or release acceptance is claimed. Evidence:
+`payload-local-*` under the ignored short-slice performance directory.
+
+#### Integer-first arithmetic admission — withdrawn (2026-10-10)
+
+Same-run vgdb capture of the frozen callback image maps all **9,468,103**
+generated self instructions to actual executable bytes. Full non-timing records
+match the earlier control; its 81-instruction total difference is confined to
+allocator internals. Integer arithmetic repeats numeric admission before its
+Integer/Integer predicate. Candidate `abc4655` keeps that predicate and moves
+general numeric guards onto the non-integer arm, before conversions or stores.
+The independent source/data-flow verifiers remain unchanged.
+
+The initial four arithmetic checks catch the emitter's sibling-arm written-state
+leak. Restoring the saved pre-split state fixes it; a new four-operator regression
+also refuses retry exits after an incoming store. The corrected focused run
+passes 210 executions/25 summaries. Final saved-state model/input checks pass
+168/21 and exit/entry/region checks pass 120/8, none ignored, including the existing
+185,856 arithmetic differential cases. Initial failed logs remain.
+
+Ten exact-image profiles preserve all five full records. Callback instructions
+fall **133,593,099 -> 132,944,729 (0.48533%)**, entirely in generated code:
+**9,468,103 -> 8,819,733**. A second same-run native capture independently confirms
+those removed checks. All three Off instruction profiles are unchanged. Closure
+Auto grows 0.04834% in this pair; retain that adverse result rather than treating
+callback savings as a whole-suite improvement.
+
+Two nine-case timing screens complete 48 commands with 648 equal full non-timing
+comparisons; every aggregate still fails its original gates. Callback direct
+control/candidate medians are CPU0 **1.01044 / 1.01241**, CPU16 **1.00809 / 1.00052**.
+CPU16 closure Off is adverse in both rounds (**0.98971 / 0.98546**); integer Off
+has variable losses and same-image noise. No timing outliers are removed, and no
+owned build/test/profile overlaps timing. This is a measured instruction-work
+improvement, **not performance acceptance**. Broader correctness and matched
+feature-cost validation remain pending. The full GNU all-feature Force suite
+subsequently passes **1,554 executions / 88 summaries**, with six existing ignores.
+The speed cost pair builds and passes artifact verification, but the historical
+no-feature full-image identity check stops the builder before shipping: 102 bytes
+differ, all within `.data.rel.ro`. Whole-file comparison proves every byte outside
+that section equal, including `.text` and `.rodata`; section metadata also matches.
+Relocation/record decoding identifies **83 panic-location line fields** in
+`src/thread/thread.rs`, shifted by 3 or 103 lines by retained test-only code.
+All 83 old/current source lines are byte-identical; filename bytes/relocations,
+lengths and columns are unchanged. Three positive and eight negative audit
+checks pass, rejecting code/data/column/length changes and wrong source lines.
+A fresh cost build permits only these independently verified source-coordinate
+differences; it does not assert full-image identity or relax timing gates.
+The original failed build remains intact. Both fresh cost profiles pass the
+same strict audit: 102 bytes/83 source locations each. Two cost screens then
+complete **96 commands**, preserving all **576 native-proof comparisons** and
+the original 1.05 ceiling. CPU16 shipping compiled-Off callbacks regress in all
+eight windows: direct control/candidate medians **0.93538 / 0.92715**, versus
+same-image placebo **1.00036 / 0.95990**. No-feature medians are **0.99653 / 1.00128**.
+Candidate cost-case failures are **34 / 31** versus control **33 / 32**, out of
+144 checks each. Better aggregate counts in one round do not erase that loss.
+
+Four exact-image shipping callback profiles find identical per-function self
+counts: no-feature **45,686,830** instructions and compiled-Off **47,814,770**
+for both images. Memory read/write counts also match; cache/branch simulation
+differences do not establish a hardware-time cause. External compiler activity,
+I/O pressure and placebo variation remain in telemetry. No owned work overlaps
+timing. Withdraw production integer-first admission rather than accept this
+tradeoff; keep the incoming-store regression and all negative evidence.
+Withdrawal passes formatting/check-all and **330 executions / 33 summaries**,
+none ignored. The ordinary GNU opt3 rebuild succeeds with `.text` and `.rodata`
+byte-identical to the frozen control; full-image identity is not asserted.
+Evidence: `integer-first*` and
+`generated-entry*` under the ignored short-slice performance directory.
+
+#### Same-integer payload writeback — test-only (2026-10-10)
+
+Independent model `d4db5f3` checks updating an existing Integer payload through
+a typed mutable match before generic materialization. It compares 15,720 valid
+tag/payload/destination combinations and 24 invalid-tag refusals against the
+unchanged scalar oracle, including reference identity and exact float bits.
+The baseline passes formatting/check-all and all nine ABI tests. Production
+activation passes 74 focused executions across eight summaries, none ignored.
+
+Twelve exact-image profiles reject the candidate before hardware timing:
+callback Auto instructions rise **133,593,180 -> 133,917,357 (0.24266%)**;
+closure Auto rises **169,808,190 -> 169,865,037 (0.03348%)**. Closure, integer,
+float and callback Off totals are unchanged. All six complete non-timing
+comparisons match. The callback Auto-minus-Off gap grows from **30,721,827**
+to **31,046,004** instructions. Exact ordinary-entry attribution increases
+**20,233,235 -> 20,557,493**: destination checks outweigh saved stores.
+Production retains generic writeback; the model and focused Miri target remain
+test-only. No hardware timing, Miri or release acceptance is claimed for this
+trial. Evidence: `same-integer*` under the ignored short-slice performance
+directory, including the candidate patch and exact symbol companions. The first
+assembly selector accidentally selected the closure symbol and failed its
+address check; the corrected exact-symbol selector passed before attribution.
+Withdrawal passes formatting/check-all and the same 74 focused executions.
+The ordinary GNU opt3 rebuild succeeds with `.text` and `.rodata` byte-identical
+to the frozen control; full-image identity is not asserted.
+
 #### Callback call setup — test-only (2026-10-10)
 
 Exact callback attribution finds 65,000 `LuaFrame::call_function` entries at

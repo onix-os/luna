@@ -57,6 +57,18 @@ impl Slot {
         *dest = self.value(*dest);
     }
 
+    #[cfg(test)]
+    #[inline(always)]
+    fn write_back_same_integer(self, dest: &mut Value<'_>) {
+        if self.tag == INTEGER {
+            if let Value::Integer(value) = dest {
+                *value = self.bits as i64;
+                return;
+            }
+        }
+        *dest = self.value(*dest);
+    }
+
     pub fn value<'gc>(self, reference: Value<'gc>) -> Value<'gc> {
         match self.tag {
             NIL => Value::Nil,
@@ -363,6 +375,73 @@ mod tests {
             let number = Slot::from_value(Value::Number(f64::from_bits(bits)));
             assert_eq!((number.tag, number.bits), (NUMBER, bits));
         }
+    }
+
+    #[test]
+    fn same_integer_writeback_preserves_bits_references_and_refusals() {
+        crate::Lua::empty().enter(|ctx| {
+            let destinations = [
+                Value::Nil,
+                Value::Boolean(false),
+                Value::Boolean(true),
+                Value::Integer(i64::MIN),
+                Value::Integer(i64::MAX),
+                Value::Number(-0.0),
+                Value::String(ctx.intern(b"retained")),
+                Value::Table(crate::Table::new(&ctx)),
+                Value::Function(
+                    crate::Closure::load(ctx, None, b"return 42")
+                        .unwrap()
+                        .into(),
+                ),
+                Value::Function(
+                    crate::Callback::from_fn(&ctx, |_, _, _| Ok(crate::CallbackReturn::Return))
+                        .into(),
+                ),
+                Value::Thread(crate::Thread::new(ctx)),
+                Value::UserData(crate::UserData::new_static(&ctx, 42i64)),
+            ];
+            let payloads = [
+                0,
+                1,
+                u64::MAX,
+                1 << 63,
+                0x7ff0_0000_0000_0001,
+                0x7ff8_0000_0000_1234,
+            ]
+            .into_iter()
+            .chain(
+                std::iter::successors(Some(0x123456789abcdef0u64), |bits| {
+                    Some(bits.wrapping_mul(6364136223846793005).wrapping_add(1))
+                })
+                .take(256),
+            );
+            for bits in payloads {
+                for tag in [NIL, BOOLEAN, INTEGER, NUMBER, REFERENCE] {
+                    for original in destinations {
+                        let slot = Slot { tag, bits };
+                        let expected = slot.value(original);
+                        let mut actual = original;
+                        slot.write_back_same_integer(&mut actual);
+                        assert_identical(actual, expected);
+                    }
+                }
+            }
+            for tag in [REFERENCE + 1, u64::MAX] {
+                for original in destinations {
+                    let mut actual = original;
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        Slot {
+                            tag,
+                            bits: u64::MAX,
+                        }
+                        .write_back_same_integer(&mut actual);
+                    }));
+                    assert!(result.is_err());
+                    assert_identical(actual, original);
+                }
+            }
+        });
     }
 
     #[test]

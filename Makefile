@@ -827,6 +827,10 @@ jit-gc-requests:
 jit-abi:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests
 
+.PHONY: jit-same-integer-miri
+jit-same-integer-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::tests::same_integer_writeback_preserves_bits_references_and_refusals -- --exact --test-threads=1
+
 .PHONY: jit-tag-encoding jit-tag-encoding-miri jit-tag-encoding-codegen
 TAG_ENCODING_DIR ?= target/jit-evidence/tag-encoding
 jit-tag-encoding:

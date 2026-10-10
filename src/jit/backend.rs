@@ -2793,6 +2793,38 @@ mod exit_tests {
     }
 
     #[test]
+    fn arithmetic_sibling_guards_preserve_incoming_store_state() {
+        let dest = RegisterIndex(0);
+        let left = RegisterIndex(1).into();
+        let right = RegisterIndex(2).into();
+        for op in [
+            Operation::Add { dest, left, right },
+            Operation::Sub { dest, left, right },
+            Operation::Mul { dest, left, right },
+            Operation::Div { dest, left, right },
+        ] {
+            with_emitter(op, |emitter| {
+                let tag = emitter.constant(abi::INTEGER);
+                let bits = emitter.constant(42);
+                emitter.store(0, tag, bits);
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    emitter.arithmetic(op, dest.0, left, right);
+                }));
+                let payload = result.expect_err("arithmetic lost its incoming store state");
+                let message = payload
+                    .downcast_ref::<String>()
+                    .map(String::as_str)
+                    .or_else(|| payload.downcast_ref::<&str>().copied())
+                    .unwrap();
+                assert!(
+                    message.contains("invalid native exit snapshot"),
+                    "{message}"
+                );
+            });
+        }
+    }
+
+    #[test]
     fn scalar_guard_after_a_store_is_rejected_before_branch_emission() {
         rejects_after_store(
             Operation::Add {
