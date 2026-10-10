@@ -35,6 +35,16 @@ extension. Keep the native high-bit/three-operand/fuel corpus, a test-only
 known-bits algebra model and explicit refusal of combined guards without a
 matching verifier. Restoration build and validation are pending below.
 
+Restoration `de855f6` is verified: the freshly built opt3 executable is
+**byte-identical** to rooted baseline SHA-256
+`3d0dc224826a8ef4359a4708c9443197e9c3d6c83c88a857beec8fee7e07bcc0`.
+Restored focused GNU passes **230 / 32 summaries**, musl **64 / eight**,
+and Stacked/Tree Miri **three / two each**, with no ignores in those lanes.
+Full Force plus no-JIT baseline/docs passes **2,039 / 175**, eight existing
+ignores. Source hashes verify; every owned benchmark/build/validation process
+is terminal. No production guard or verifier optimization from this trial
+remains enabled. This removes its regressions, not the original unmet gates.
+
 The following paragraphs describe the withdrawn trial, not enabled production
 code. Full JIT performance/resource/platform/release acceptance remains open.
 
