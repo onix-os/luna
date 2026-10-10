@@ -78,6 +78,7 @@ fn hasher() -> &'static ahash::random_state::RandomState {
 }
 
 #[cfg(target_pointer_width = "64")]
+#[inline(never)]
 pub(crate) fn string_key_hash(content_hash: u64) -> u64 {
     hasher().hash_one(CanonicalKey::<'static, u64>::String(content_hash))
 }
