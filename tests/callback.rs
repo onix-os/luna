@@ -305,4 +305,112 @@ fn resume_with_err() {
     );
 }
 
+#[test]
+fn nested_callback_outcomes_preserve_payloads_and_single_drops() -> Result<(), ExternError> {
+    use std::{
+        cell::Cell,
+        panic::{catch_unwind, AssertUnwindSafe},
+        rc::Rc,
+    };
+
+    #[derive(Collect)]
+    #[collect(require_static)]
+    struct Counted(Rc<Cell<usize>>);
+
+    impl Drop for Counted {
+        fn drop(&mut self) {
+            self.0.set(self.0.get() + 1);
+        }
+    }
+
+    impl<'gc> Sequence<'gc> for Counted {
+        fn poll(
+            self: Pin<&mut Self>,
+            _: Context<'gc>,
+            _: Execution<'gc, '_>,
+            _: Stack<'gc, '_>,
+        ) -> Result<SequencePoll<'gc>, Error<'gc>> {
+            panic!("forwarded sequence must not be polled");
+        }
+    }
+
+    let drops = Rc::new(Cell::new(0));
+    let mut lua = common::core();
+    let executor = lua.try_enter(|ctx| {
+        let counts = drops.clone();
+        ctx.set_global(
+            "probe",
+            Callback::from_fn(&ctx, move |ctx, mut exec, mut stack| {
+                let choice: i64 = stack.consume(ctx)?;
+                let counts = counts.clone();
+                let child = Callback::from_fn(&ctx, move |ctx, _, _| {
+                    let sequence = || BoxSequence::new(&ctx, Counted(counts.clone()));
+                    Ok(match choice {
+                        0 => CallbackReturn::Return,
+                        1 => CallbackReturn::Sequence(sequence()),
+                        2 => CallbackReturn::Call {
+                            function: Callback::from_fn(&ctx, |_, _, _| Ok(CallbackReturn::Return))
+                                .into(),
+                            then: Some(sequence()),
+                        },
+                        3 => CallbackReturn::Yield {
+                            to_thread: Some(Thread::new(ctx)),
+                            then: Some(sequence()),
+                        },
+                        4 => CallbackReturn::Resume {
+                            thread: Thread::new(ctx),
+                            then: Some(sequence()),
+                        },
+                        5 => return Err(Value::Integer(91).into()),
+                        6 => {
+                            let _sequence = sequence();
+                            std::panic::panic_any(73usize);
+                        }
+                        _ => unreachable!(),
+                    })
+                });
+                let outcome = catch_unwind(AssertUnwindSafe(|| {
+                    child.call(ctx, exec.reborrow(), stack.reborrow())
+                }));
+                let actual = match outcome {
+                    Ok(Ok(CallbackReturn::Return)) => 0,
+                    Ok(Ok(CallbackReturn::Sequence(_))) => 1,
+                    Ok(Ok(CallbackReturn::Call { function, then })) => {
+                        assert!(matches!(function, Function::Callback(_)) && then.is_some());
+                        2
+                    }
+                    Ok(Ok(CallbackReturn::Yield { to_thread, then })) => {
+                        assert!(to_thread.is_some() && then.is_some());
+                        3
+                    }
+                    Ok(Ok(CallbackReturn::Resume { thread, then })) => {
+                        assert_eq!(thread.mode(), luna::ThreadMode::Stopped);
+                        assert!(then.is_some());
+                        4
+                    }
+                    Ok(Err(Error::Lua(error))) => {
+                        assert!(matches!(error.0, Value::Integer(91)));
+                        5
+                    }
+                    Err(payload) => {
+                        assert_eq!(payload.downcast_ref::<usize>(), Some(&73));
+                        6
+                    }
+                    _ => panic!("unexpected forwarded outcome"),
+                };
+                assert_eq!(actual, choice);
+                stack.replace(ctx, true);
+                Ok(CallbackReturn::Return)
+            }),
+        );
+        let closure = Closure::load(ctx, None, b"for i=0,6 do assert(probe(i)) end return 42")?;
+        Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+    })?;
+    assert_eq!(lua.execute::<i64>(&executor)?, 42);
+    assert_eq!(drops.get(), 5);
+    lua.gc_collect();
+    assert_eq!(drops.get(), 5);
+    Ok(())
+}
+
 mod common;

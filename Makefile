@@ -568,7 +568,10 @@ vm-upvalue-returns:
 vm-upvalue-returns-miri:
 	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' thread::thread::tests -- --test-threads=1
 
-.PHONY: vm-call-resolution
+.PHONY: vm-call-resolution vm-callback-outcomes-miri
+vm-callback-outcomes-miri:
+	@$(CARGO) miri test --locked -p luna --no-default-features --test callback --target '$(MIRI_TARGET)' nested_callback_outcomes_preserve_payloads_and_single_drops -- --exact --test-threads=1
+
 vm-call-resolution:
 	@$(CARGO) test --locked -p luna --no-default-features --test callback --test metamethods --test tail_call_stack_panic $(TARGET_ARG)
 	@for mode in off auto force; do \
