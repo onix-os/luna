@@ -33,8 +33,26 @@ The existing independent model compares complete physical state, errors/panics,
 fuel and interruption across **927 scenarios per feature lane**. Initial focused
 validation passes **120 executions / 13 summaries**, two ignored diagnostics;
 after naming the native-only entry, format/check-all and both model feature
-lanes pass again. Full integration and exact-image profiling are pending. This
-is not performance acceptance or a completed callback regression fix.
+lanes pass again. Full GNU Force passes **1,580 / 88**, six ignored; focused
+musl passes **120 / 13**, two ignored. Candidate `adaad1c` is pushed.
+
+The frozen opt3 image `5eb0ad79` passes ten exact-image profiles plus three
+callback-Off profiles. Relative to the immediately preceding rooted-state
+candidate, callback Auto instructions fall **132,231,624 → 128,600,808**;
+callback Off remains **102,871,353** with identical non-timing records. Thus
+**3,630,816** instructions are removed from incremental native work, unlike the
+rejected shared-body trial. Comparisons against the older historical control
+show a larger **4,992,372** reduction, including earlier unrelated changes;
+do not attribute that whole difference to this candidate.
+
+Closure Auto increases **325,153** instructions, chiefly admission traversal
+variation (**313,704**); changed native Lua-call setup contributes **12,350**
+and allocator deltas remain reported. Closure Off differs by **242** allocator
+instructions; integer/float Off are unchanged. Full workload/counter records
+match in every profile. Optimized integration passes **68 executions / seven
+summaries**, two ignored diagnostics, including both model feature lanes and
+native-region transition/panic checks. Physical timing remains pending; this
+is not performance acceptance or a completed callback fix.
 
 #### Rooted register-state preservation — validation foundation
 
