@@ -2368,9 +2368,10 @@ impl Emitter<'_, '_> {
     }
 
     fn arithmetic(&mut self, op: Operation, dest: u8, left: RCIndex, right: RCIndex) {
-        let entry_written = self.written;
         let (lt, lb) = self.operand(left);
         let (rt, rb) = self.operand(right);
+        self.require_numeric(lt);
+        self.require_numeric(rt);
         let float = self.builder.create_block();
         if matches!(op, Operation::Div { .. }) {
             self.builder.ins().jump(float, &[]);
@@ -2394,9 +2395,6 @@ impl Emitter<'_, '_> {
             self.advance(self.pc + 1);
         }
         self.builder.switch_to_block(float);
-        self.written = entry_written;
-        self.require_numeric(lt);
-        self.require_numeric(rt);
         let left = self.as_float(lt, lb);
         let right = self.as_float(rt, rb);
         let value = match op {

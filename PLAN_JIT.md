@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Integer-first arithmetic admission — candidate (2026-10-10)
+#### Integer-first arithmetic admission — withdrawn (2026-10-10)
 
 Same-run vgdb capture of the frozen callback image maps all **9,468,103**
 generated self instructions to actual executable bytes. Full non-timing records
@@ -55,7 +55,25 @@ lengths and columns are unchanged. Three positive and eight negative audit
 checks pass, rejecting code/data/column/length changes and wrong source lines.
 A fresh cost build permits only these independently verified source-coordinate
 differences; it does not assert full-image identity or relax timing gates.
-The original failed build remains intact. Cost timing is still pending.
+The original failed build remains intact. Both fresh cost profiles pass the
+same strict audit: 102 bytes/83 source locations each. Two cost screens then
+complete **96 commands**, preserving all **576 native-proof comparisons** and
+the original 1.05 ceiling. CPU16 shipping compiled-Off callbacks regress in all
+eight windows: direct control/candidate medians **0.93538 / 0.92715**, versus
+same-image placebo **1.00036 / 0.95990**. No-feature medians are **0.99653 / 1.00128**.
+Candidate cost-case failures are **34 / 31** versus control **33 / 32**, out of
+144 checks each. Better aggregate counts in one round do not erase that loss.
+
+Four exact-image shipping callback profiles find identical per-function self
+counts: no-feature **45,686,830** instructions and compiled-Off **47,814,770**
+for both images. Memory read/write counts also match; cache/branch simulation
+differences do not establish a hardware-time cause. External compiler activity,
+I/O pressure and placebo variation remain in telemetry. No owned work overlaps
+timing. Withdraw production integer-first admission rather than accept this
+tradeoff; keep the incoming-store regression and all negative evidence.
+Withdrawal passes formatting/check-all and **330 executions / 33 summaries**,
+none ignored. The ordinary GNU opt3 rebuild succeeds with `.text` and `.rodata`
+byte-identical to the frozen control; full-image identity is not asserted.
 Evidence: `integer-first*` and
 `generated-entry*` under the ignored short-slice performance directory.
 
