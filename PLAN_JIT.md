@@ -11,6 +11,43 @@
 
 ### Progress snapshot — 2026-10-10
 
+#### Bounded rooted-call fuel — validation in progress (2026-10-10)
+
+Exact attribution of the frozen numeric-binding image validates **61,655,008**
+rooted-invocation self instructions against **170,383,348** global self
+instructions, with every executed PC decoded and image hashes unchanged.
+The entry-fuel block accounts for **3,824,634 instructions across 30 PCs**.
+Earlier small-copy, immutable-layout, direct-capture and combined-statistics
+trials remain rejected; this trial targets the repeated saturating fuel charges.
+
+`a169ae3` combines only the four unobserved entry charges, bounded by u8
+argument count and prefix at most 64 (maximum combined charge 327). The
+continuation check remains before the return charges, and host fuel changes
+only when the existing window commits. An independent sequential-charge oracle
+covers **499,200** boundary/interruption states, plus invalid prefixes; Miri
+uses **480** selected boundary states. Native policy, capacity, capture, PC,
+publication and resource checks are unchanged.
+
+The first GNU/musl focused runs pass, but the first Miri filter executes **zero
+tests**, because its original containing module is excluded under Miri; it is
+not Miri acceptance. The arithmetic helper and oracle now live in a pure module
+shared by native builds and Miri. Corrected GNU checks pass **129 executions /
+16 summaries**, two ignored; focused musl passes **63 / eleven**, none ignored.
+Pinned Miri Stacked seed 41 and Tree seed 42 each execute and pass the pure
+oracle. The source commit is pushed. The clean opt3 image `972471f9` completes
+ten exact-image profiles with unchanged non-timing fields. Against the ordinary
+control, rooted invocation self instructions fall **61,655,008 → 60,379,768**
+(ten fewer per invocation); total closure Auto instructions fall
+**169,861,074 → 168,636,751**. The separate admission traversal varies by
+**+52,284** and allocator deltas remain in the report; they are not credited to
+fuel coalescing. Callback instructions change by **+81**, closure Off **−242**,
+and integer/float Off are unchanged. All function self totals and symbol-image
+checks pass. Full GNU Force validation passes **1,577 executions / 88
+summaries**, six ignored. Repeated four-way CPU 0/16 hardware screens are next;
+no physical speedup or performance acceptance is claimed yet.
+Evidence: `target/jit-evidence/short-slice-performance/rooted-fuel/` and
+`rooted-cost-attribution-v2/`; the initial failed symbol extraction is retained.
+
 #### Separate post-store payload binding — reverted (2026-10-10)
 
 `5da8a28` gives `Frame::store` a fully inline typed binder for its just-written
@@ -39,8 +76,10 @@ The instruction reduction therefore does not justify retaining this trial.
 
 `9cb9a02` reverts the binder and retains the stronger pointer/tag parity test;
 both source commits are pushed. Temporary benchmark activation is withdrawn.
-The post-revert ordinary-image/full-GNU/focused-musl restoration is still
-running; its outcome is not yet claimed. Performance acceptance remains open.
+Post-revert restoration passes: **1,576 GNU executions / 88 summaries**, six
+ignored; **122 focused musl / seven**, none ignored. The ordinary release image
+is byte-identical to `dab0490e`, and source manifests verify after testing.
+Performance acceptance remains open.
 Evidence: `target/jit-evidence/short-slice-performance/payload-store-binding/`.
 
 #### Inline Nil payload binding — measured and reverted (2026-10-10)
