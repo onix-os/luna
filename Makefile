@@ -612,6 +612,13 @@ jit-in-place-call:
 jit-in-place-return:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::activation::return_tests $(ARGS)
 
+.PHONY: jit-payload-model jit-payload-model-miri
+jit-payload-model:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload:: $(ARGS)
+
+jit-payload-model-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload:: -- --test-threads=1
+
 .PHONY: vm-jump-offset
 vm-jump-offset:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) compiler::compiler::jump_offset_tests $(ARGS)
@@ -1508,6 +1515,8 @@ help:
 	@echo "  jit-stats    Verify native exit reasons and execution counters"
 	@echo "  jit-accounting Check mixed counters, dispatches and exact fuel"
 	@echo "  jit-chain    Test source-bound native caller continuations"
+	@echo "  jit-payload-model       Test scoped scalar payloads"
+	@echo "  jit-payload-model-miri  Check scalar payloads under Miri"
 	@echo "  jit-test-modes Test Force preparation and explicit exclusions"
 	@echo "  jit-numeric-exits Check numeric fallbacks between native work"
 	@echo "  jit-registers Test register-255 and stack-256 boundaries"

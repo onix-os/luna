@@ -11,6 +11,33 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Typed scalar payload boundary — test-only (2026-10-10)
+
+The next structural experiment supplies pointers to scalar fields from Rust,
+rather than teaching generated code the layout of `Value`. The scoped model
+exposes integer, number and Boolean payloads; nil and reference variants have
+null pointers. Canonical helper reads and writes rebind the accessed descriptor,
+and the native caller reloads descriptors after each helper. Whole-frame mutable
+reborrows, callback/suspension lifetimes, relocation and collection are not
+permitted while these pointers are live.
+
+Five tests pass on GNU x86_64, musl x86_64 and fallback i686, and under pinned
+Miri with both Stacked and Tree Borrows. They cover scalar bits/type changes,
+reference identity, partial writes during unwinding, and an original-pointer
+extern-C gateway. The gateway exercises aliased source/destination moves,
+descriptor rebinding, bounds refusal and caught helper panic without unwinding
+across C. Miri warnings are retained in the raw logs.
+
+This is not a production ABI change or measured speedup. Existing native code
+still uses scalar scratch slots. Generated-code lowering, real helper/upvalue
+integration, root/barrier handling, bounded resources and whole-profile cost
+acceptance remain unproven. In particular, the model does not authorize keeping
+canonical payload pointers across any existing callback or collection boundary.
+Focused evidence is under
+`target/jit-evidence/short-slice-performance/payload-gateway-*`.
+The ordinary opt3 GNU benchmark rebuild is byte-identical to the frozen control
+(`481eb5b2548d9ed8b684bb5d803a2786583db0e04d079ed6303ec9b0b1b5a87c`).
+
 #### Sign-directed checked jump arithmetic — withdrawn (2026-10-10)
 
 On the restored runtime, a source trial replaces `checked_add_signed` with

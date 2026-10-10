@@ -132,6 +132,10 @@ const _: () = {
 };
 
 #[cfg(test)]
+#[path = "abi/payload.rs"]
+mod payload;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
