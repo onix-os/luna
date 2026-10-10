@@ -868,6 +868,21 @@ fn compile_selected_rooted(
     )?;
     #[cfg(test)]
     let signature_bytes = signature_bytes
+        .checked_add(
+            if matches!(
+                failure,
+                Failure::RequirePayload | Failure::RequirePayloadLoop
+            ) {
+                Layout::array::<AbiParam>(5)
+                    .map_err(|_| JitError::ResourceLimit("payload signature size"))?
+                    .size()
+            } else {
+                0
+            },
+        )
+        .ok_or(JitError::ResourceLimit("native signature size"))?;
+    #[cfg(test)]
+    let signature_bytes = signature_bytes
         .checked_add(if leaf_pattern.is_some() {
             Layout::array::<AbiParam>(
                 (helper_types.len() + helper_returns.len()) * projection_count,
@@ -1298,6 +1313,8 @@ fn compile_selected_rooted(
             parameters[4],
             snapshot.registers,
             &helper_refs,
+            snapshot.operations.allocator().clone(),
+            expansion,
         )?;
         cranelift_codegen::verify_function(&context.func, module.isa())
             .map_err(|error| JitError::Compilation(error.to_string()))?;

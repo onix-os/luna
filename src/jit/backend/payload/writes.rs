@@ -151,9 +151,9 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
             return Err(invalid());
         }
     }
-    let mut head: Vec<_> = f.layout.block_insts(before).rev().take(4).collect();
+    let mut head: [Inst; 4] = shape(f.layout.block_insts(before).rev().take(4))?;
     head.reverse();
-    let [actual, pointer, same, split]: [Inst; 4] = head.try_into().map_err(|_| invalid())?;
+    let [actual, pointer, same, split] = head;
     let bits = match (f.dfg.value_type(bits), write.cast) {
         (types::I64, None) => bits,
         (types::F64, Some(cast)) if f.layout.prev_inst(actual) == Some(cast) => {
@@ -171,12 +171,8 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
     )?;
     let same = compare(f, same, IntCC::Equal, [actual, tag])?;
     branch(f, split, same, kind, slow)?;
-    let [integer, is_integer, number, is_number, is_wide, null, nonnull, valid, split]: [Inst; 9] =
-        f.layout
-            .block_insts(kind)
-            .collect::<Vec<_>>()
-            .try_into()
-            .map_err(|_| invalid())?;
+    let [integer, is_integer, number, is_number, is_wide, null, nonnull, valid, split] =
+        shape(f.layout.block_insts(kind))?;
     let integer = constant(f, integer, abi::INTEGER as i64)?;
     let is_integer = compare(f, is_integer, IntCC::Equal, [tag, integer])?;
     let number = constant(f, number, abi::NUMBER as i64)?;
@@ -186,20 +182,11 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
     let nonnull = compare(f, nonnull, IntCC::NotEqual, [pointer, null])?;
     let valid = value(f, valid, Opcode::Band, &[is_wide, nonnull], types::I8)?;
     branch(f, split, valid, wide, other)?;
-    let [write_inst, end]: [Inst; 2] = f
-        .layout
-        .block_insts(wide)
-        .collect::<Vec<_>>()
-        .try_into()
-        .map_err(|_| invalid())?;
+    let [write_inst, end] = shape(f.layout.block_insts(wide))?;
     store(f, write_inst, bits, pointer)?;
     jump(f, end, after)?;
-    let [boolean_tag, is_boolean, valid_bits, nonnull_boolean, valid, split]: [Inst; 6] = f
-        .layout
-        .block_insts(other)
-        .collect::<Vec<_>>()
-        .try_into()
-        .map_err(|_| invalid())?;
+    let [boolean_tag, is_boolean, valid_bits, nonnull_boolean, valid, split] =
+        shape(f.layout.block_insts(other))?;
     let boolean_tag = constant(f, boolean_tag, abi::BOOLEAN as i64)?;
     let is_boolean = compare(f, is_boolean, IntCC::Equal, [tag, boolean_tag])?;
     let valid_bits = compare(
@@ -223,31 +210,16 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
         types::I8,
     )?;
     branch(f, split, valid, boolean, nil)?;
-    let [reduce, write_inst, end]: [Inst; 3] = f
-        .layout
-        .block_insts(boolean)
-        .collect::<Vec<_>>()
-        .try_into()
-        .map_err(|_| invalid())?;
+    let [reduce, write_inst, end] = shape(f.layout.block_insts(boolean))?;
     let byte = value(f, reduce, Opcode::Ireduce, &[bits], types::I8)?;
     store(f, write_inst, byte, pointer)?;
     jump(f, end, after)?;
-    let [is_nil, is_null, valid, split]: [Inst; 4] = f
-        .layout
-        .block_insts(nil)
-        .collect::<Vec<_>>()
-        .try_into()
-        .map_err(|_| invalid())?;
+    let [is_nil, is_null, valid, split] = shape(f.layout.block_insts(nil))?;
     let is_nil = compare(f, is_nil, IntCC::Equal, [tag, null])?;
     let is_null = compare(f, is_null, IntCC::Equal, [pointer, null])?;
     let valid = value(f, valid, Opcode::Band, &[is_nil, is_null], types::I8)?;
     branch(f, split, valid, after, slow)?;
-    let [target, register, call, end]: [Inst; 4] = f
-        .layout
-        .block_insts(slow)
-        .collect::<Vec<_>>()
-        .try_into()
-        .map_err(|_| invalid())?;
+    let [target, register, call, end] = shape(f.layout.block_insts(slow))?;
     let target = load(
         f,
         target,

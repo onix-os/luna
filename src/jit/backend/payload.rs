@@ -27,17 +27,17 @@ fn invalid() -> JitError {
     JitError::Compilation("invalid payload transport grammar".into())
 }
 
-fn plan(
+fn scan(
     function: &Function,
     slots: IrValue,
     host: IrValue,
     registers: usize,
     helpers: &[(u32, FuncRef)],
-) -> Result<Vec<Rewrite>, JitError> {
+    mut visit: impl FnMut(Rewrite) -> Result<(), JitError>,
+) -> Result<(), JitError> {
     if registers > 256 {
         return Err(invalid());
     }
-    let mut rewrites = Vec::new();
     for block in function.layout.blocks() {
         let mut instructions = function.layout.block_insts(block);
         while let Some(inst) = instructions.next() {
@@ -64,7 +64,7 @@ fn plan(
                     {
                         return Err(invalid());
                     }
-                    rewrites.push(Rewrite::Helper(inst, (*kind - 1) as usize, func_ref));
+                    visit(Rewrite::Helper(inst, (*kind - 1) as usize, func_ref))?;
                 }
                 InstructionData::Load {
                     opcode: Opcode::Load,
@@ -88,7 +88,7 @@ fn plan(
                         return Err(invalid());
                     }
                     if offset % 16 == 8 {
-                        rewrites.push(Rewrite::Read(inst, offset as u32 / 16));
+                        visit(Rewrite::Read(inst, offset as u32 / 16))?;
                     }
                 }
                 InstructionData::Store {
@@ -120,20 +120,98 @@ fn plan(
                     {
                         return Err(invalid());
                     }
-                    rewrites.push(Rewrite::Write {
+                    visit(Rewrite::Write {
                         tag_store: inst,
                         bits_store,
                         index: offset as u32 / 16,
                         tag: args[0],
                         bits: second[0],
-                    });
+                    })?;
                 }
                 _ if function.dfg.inst_args(inst).contains(&slots) => return Err(invalid()),
                 _ => {}
             }
         }
     }
-    Ok(rewrites)
+    Ok(())
+}
+
+fn shape<const N: usize>(
+    mut instructions: impl Iterator<Item = Inst>,
+) -> Result<[Inst; N], JitError> {
+    let result = super::super::arrays::try_array(|_| instructions.next().ok_or_else(invalid))?;
+    if instructions.next().is_some() {
+        return Err(invalid());
+    }
+    Ok(result)
+}
+
+fn size(function: &Function) -> (usize, usize) {
+    (
+        function
+            .layout
+            .blocks()
+            .map(|block| function.layout.block_insts(block).count())
+            .sum(),
+        function.layout.blocks().count(),
+    )
+}
+
+struct Plan {
+    reads: usize,
+    writes: usize,
+    instructions: usize,
+    blocks: usize,
+}
+
+fn plan(
+    function: &Function,
+    slots: IrValue,
+    host: IrValue,
+    registers: usize,
+    helpers: &[(u32, FuncRef)],
+    expansion: super::super::work::Expansion,
+) -> Result<Plan, JitError> {
+    let (original_instructions, original_blocks) = size(function);
+    let mut plan = Plan {
+        reads: 0,
+        writes: 0,
+        instructions: original_instructions,
+        blocks: original_blocks,
+    };
+    let add = |left: usize, right: usize| {
+        left.checked_add(right)
+            .ok_or(JitError::ResourceLimit("payload expansion overflow"))
+    };
+    scan(function, slots, host, registers, helpers, |rewrite| {
+        let (instructions, blocks) = match rewrite {
+            Rewrite::Read(inst, _) => {
+                plan.reads = add(plan.reads, 1)?;
+                (
+                    20 + usize::from(
+                        function.dfg.value_type(function.dfg.first_result(inst)) == types::F64,
+                    ),
+                    5,
+                )
+            }
+            Rewrite::Write { bits, .. } => {
+                plan.writes = add(plan.writes, 1)?;
+                (
+                    30 + usize::from(function.dfg.value_type(bits) == types::F64),
+                    7,
+                )
+            }
+            Rewrite::Helper(..) => (1, 0),
+        };
+        plan.instructions = add(plan.instructions, instructions)?;
+        plan.blocks = add(plan.blocks, blocks)?;
+        Ok(())
+    })?;
+    expansion.verify_actual(
+        add(original_instructions, plan.instructions)?,
+        add(original_blocks, plan.blocks)?,
+    )?;
+    Ok(plan)
 }
 
 pub(super) fn lower(
@@ -142,17 +220,28 @@ pub(super) fn lower(
     host: IrValue,
     registers: usize,
     helpers: &[(u32, FuncRef)],
+    allocator: BudgetAllocator,
+    expansion: super::super::work::Expansion,
 ) -> Result<(), JitError> {
-    let rewrites = plan(function, slots, host, registers, helpers)?;
+    let plan = plan(function, slots, host, registers, helpers, expansion)?;
+    let refused = || JitError::ResourceLimit("payload rewrite records");
+    let mut reads = BudgetVec::new_in(allocator.clone());
+    reads.try_reserve_exact(plan.reads).map_err(|_| refused())?;
+    let mut writes = BudgetVec::new_in(allocator);
+    writes
+        .try_reserve_exact(plan.writes)
+        .map_err(|_| refused())?;
     let mut candidate = function.clone();
-    let mut reads = Vec::new();
-    let mut writes = Vec::new();
     let mut write = Signature::new(function.signature.call_conv);
+    write
+        .params
+        .try_reserve_exact(5)
+        .map_err(|_| JitError::ResourceLimit("payload signature"))?;
     write
         .params
         .extend([types::I64, types::I64, types::I32, types::I64, types::I64].map(AbiParam::new));
     let write = candidate.import_signature(write);
-    for rewrite in rewrites {
+    scan(function, slots, host, registers, helpers, |rewrite| {
         match rewrite {
             Rewrite::Read(inst, index) => {
                 reads.push(reads::emit(&mut candidate, inst, slots, index));
@@ -179,7 +268,11 @@ pub(super) fn lower(
                 ));
             }
             Rewrite::Helper(inst, index, reference) => {
-                let args = candidate.dfg.inst_args(inst).to_vec();
+                let args: [IrValue; 6] = candidate
+                    .dfg
+                    .inst_args(inst)
+                    .try_into()
+                    .map_err(|_| invalid())?;
                 let signature = candidate.dfg.ext_funcs[reference].signature;
                 let mut cursor = FuncCursor::new(&mut candidate);
                 cursor.goto_inst(inst);
@@ -197,6 +290,12 @@ pub(super) fn lower(
                     .call_indirect(signature, target, &args);
             }
         }
+        Ok(())
+    })?;
+    if size(&candidate) != (plan.instructions, plan.blocks) {
+        return Err(JitError::Compilation(
+            "payload expansion differs from plan".into(),
+        ));
     }
     for read in &reads {
         reads::verify(&candidate, read, slots)?;
@@ -284,13 +383,123 @@ fn transport_grammar_refuses_malformed_accesses_without_mutating_source() {
         let (mut function, slots, host) = grammar_fixture(fault);
         cranelift_codegen::verify_function(&function, &flags).unwrap();
         let original = function.clone();
-        let result = lower(&mut function, slots, host, 1, &[]);
+        let allocator = BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024));
+        let result = lower(
+            &mut function,
+            slots,
+            host,
+            1,
+            &[],
+            allocator.clone(),
+            super::super::work::Expansion {
+                instructions: 4096,
+                blocks: 4096,
+            },
+        );
+        assert_eq!(allocator.0.current(), 0);
         if fault == 0 {
             result.unwrap();
             cranelift_codegen::verify_function(&function, &flags).unwrap();
         } else {
             assert!(result.is_err(), "fault {fault}");
             assert_eq!(function, original);
+        }
+    }
+}
+
+#[test]
+fn payload_workspace_quota_refusals_leave_source_and_ledger_unchanged() {
+    let (source, slots, host) = grammar_fixture(0);
+    let expansion = super::super::work::Expansion {
+        instructions: 4096,
+        blocks: 4096,
+    };
+    let required = std::mem::size_of::<reads::Read>() + std::mem::size_of::<writes::Write>();
+    for (limit, allocations, accepted) in [
+        (0, usize::MAX, false),
+        (required - 1, usize::MAX, false),
+        (required, 0, false),
+        (required, 1, false),
+        (required, 2, true),
+    ] {
+        let allocator = BudgetAllocator(super::super::resources::Ledger::new(limit));
+        allocator.0.fail_after(allocations);
+        let mut function = source.clone();
+        let result = lower(
+            &mut function,
+            slots,
+            host,
+            1,
+            &[],
+            allocator.clone(),
+            expansion,
+        );
+        assert_eq!(allocator.0.current(), 0);
+        if accepted {
+            result.unwrap();
+            assert_eq!(allocator.0.peak(), required);
+            cranelift_codegen::verify_function(
+                &function,
+                &settings::Flags::new(settings::builder()),
+            )
+            .unwrap();
+        } else {
+            assert!(matches!(
+                result,
+                Err(JitError::ResourceLimit("payload rewrite records"))
+            ));
+            assert_eq!(function, source);
+        }
+    }
+}
+
+#[test]
+fn payload_expansion_is_admitted_before_workspace_or_source_changes() {
+    let (source, slots, host) = grammar_fixture(0);
+    let generous = super::super::work::Expansion {
+        instructions: 4096,
+        blocks: 4096,
+    };
+    let plan = plan(&source, slots, host, 1, &[], generous).unwrap();
+    let (instructions, blocks) = size(&source);
+    for (instructions, blocks, accepted) in [
+        (
+            instructions + plan.instructions - 1,
+            blocks + plan.blocks,
+            false,
+        ),
+        (
+            instructions + plan.instructions,
+            blocks + plan.blocks - 1,
+            false,
+        ),
+        (instructions + plan.instructions, blocks + plan.blocks, true),
+    ] {
+        let allocator = BudgetAllocator(super::super::resources::Ledger::new(4096));
+        let mut function = source.clone();
+        let expansion = super::super::work::Expansion {
+            instructions,
+            blocks,
+        };
+        let result = lower(
+            &mut function,
+            slots,
+            host,
+            1,
+            &[],
+            allocator.clone(),
+            expansion,
+        );
+        assert_eq!(allocator.0.current(), 0);
+        if accepted {
+            result.unwrap();
+            assert_eq!(size(&function), (plan.instructions, plan.blocks));
+        } else {
+            assert!(
+                matches!(result, Err(JitError::Compilation(message)) if message == "IR expansion exceeds admitted bound")
+            );
+            assert_eq!(allocator.0.peak(), 0);
+            assert_eq!(function, source);
         }
     }
 }

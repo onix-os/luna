@@ -158,6 +158,22 @@ passes 18 tests (`payload-loop-*`). Both Miri models pass 17 model/IR tests
 (seeds 19/20; machine-code fixtures excluded). This is still test-only: resource accounting,
 runtime/array integration and benchmark acceptance remain incomplete.
 
+The payload pass now validates and sizes its rewrites with an allocation-free
+scan before allocating or cloning. Read/write verification records use exact,
+fallible snapshot-ledger allocations; fixed-shape verification and helper-call
+arguments use stack arrays. The existing signature reservation also accounts
+for the payload gateway's parameter buffer. Admission checks the combined live
+instruction/block count of source and candidate before cloning; the emitted
+candidate must match the predicted counts exactly before commit.
+Quota/allocation refusal tests preserve source IR and release every record
+charge, including failure after the first successful allocation. Instruction
+and block boundary tests establish refusal before workspace allocation.
+GNU/musl pass 28 focused tests; both Miri models pass 19 model/IR tests
+(seeds 21/22), with raw logs under `payload-workspace-*`.
+This bounds the pass's owned records and live-IR expansion, not Cranelift's
+internal allocations, allocator overhead or process RSS. Whole-compiler memory
+policy and production/runtime performance acceptance remain open.
+
 #### Sign-directed checked jump arithmetic — withdrawn (2026-10-10)
 
 On the restored runtime, a source trial replaces `checked_add_signed` with

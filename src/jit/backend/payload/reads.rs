@@ -213,9 +213,10 @@ pub(super) fn verify(f: &Function, read: &Read, slots: IrValue) -> Result<(), Ji
             return Err(invalid());
         }
     }
-    let mut head: Vec<_> = f.layout.block_insts(before).rev().take(11).collect();
+    let mut head: [Inst; 11] = shape(f.layout.block_insts(before).rev().take(11))?;
     head.reverse();
-    let [tag, pointer, integer, is_integer, number, is_number, is_wide, null, nonnull, valid, split]: [Inst; 11] = head.try_into().map_err(|_| invalid())?;
+    let [tag, pointer, integer, is_integer, number, is_number, is_wide, null, nonnull, valid, split] =
+        head;
     let tag = load(f, tag, slots, read.index as i32 * 16, types::I64)?;
     let pointer = load(
         f,
@@ -233,39 +234,19 @@ pub(super) fn verify(f: &Function, read: &Read, slots: IrValue) -> Result<(), Ji
     let nonnull = compare(f, nonnull, IntCC::NotEqual, [pointer, null])?;
     let valid = value(f, valid, Opcode::Band, &[is_wide, nonnull], types::I8)?;
     branch(f, split, valid, wide, other)?;
-    let [load_inst, end]: [Inst; 2] = f
-        .layout
-        .block_insts(wide)
-        .collect::<Vec<_>>()
-        .try_into()
-        .map_err(|_| invalid())?;
+    let [load_inst, end] = shape(f.layout.block_insts(wide))?;
     let bits = load(f, load_inst, pointer, 0, types::I64)?;
     jump(f, end, after, bits)?;
-    let [tag_inst, cmp, valid, split]: [Inst; 4] = f
-        .layout
-        .block_insts(other)
-        .collect::<Vec<_>>()
-        .try_into()
-        .map_err(|_| invalid())?;
+    let [tag_inst, cmp, valid, split] = shape(f.layout.block_insts(other))?;
     let boolean_tag = constant(f, tag_inst, abi::BOOLEAN as i64)?;
     let is_boolean = compare(f, cmp, IntCC::Equal, [tag, boolean_tag])?;
     let valid = value(f, valid, Opcode::Band, &[is_boolean, nonnull], types::I8)?;
     branch(f, split, valid, boolean, zero)?;
-    let [load_inst, extend, end]: [Inst; 3] = f
-        .layout
-        .block_insts(boolean)
-        .collect::<Vec<_>>()
-        .try_into()
-        .map_err(|_| invalid())?;
+    let [load_inst, extend, end] = shape(f.layout.block_insts(boolean))?;
     let byte = load(f, load_inst, pointer, 0, types::I8)?;
     let bits = value(f, extend, Opcode::Uextend, &[byte], types::I64)?;
     jump(f, end, after, bits)?;
-    let [end]: [Inst; 1] = f
-        .layout
-        .block_insts(zero)
-        .collect::<Vec<_>>()
-        .try_into()
-        .map_err(|_| invalid())?;
+    let [end] = shape(f.layout.block_insts(zero))?;
     jump(f, end, after, null)
 }
 
