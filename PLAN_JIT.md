@@ -29,6 +29,42 @@ original tests, native coverage and performance thresholds remain unchanged.
 Fresh correctness, exact-image profiles and repeated hardware comparisons are
 required. No regression fix or full-plan acceptance is claimed yet.
 
+`a3dc5be` implements this isolation. Frozen image **`4d368a1d`** passes GNU
+focused **24 / six**, musl **73 / eleven**, i686 **24 / six**, and full Force
+plus baseline/docs **2,035 / 175** (eight existing ignores). Miri Stacked 59
+and Tree 60 each pass **eleven / two** hash/layout/table-access tests. The
+capacity model itself is unchanged from its earlier two-model Miri validation.
+All 24 exact-image profiles retain matching counters and source/image checks.
+Allocation VM-step instructions fall **520,000 in both modes**; whole execution
+falls 520,000 Off and 519,939 Auto. Callback Auto/Off and closure/integer/float
+Off match the rooted baseline. Closure Auto adds 260,219, including admission
+variation. Whole cold-function counts rise 14,895 Off and 21,278 Auto despite
+constructor/capacity self work falling 8,629; interning/map/allocator changes
+are retained, not attributed to the constructor.
+
+Four native and two feature-cost screens complete **168 checked commands**.
+Allocation Auto is mixed: CPU0 **1.007688 / 0.990763 / 0.983279 / 0.998487**,
+CPU16 **1.006774 / 1.012334 / 1.014690 / 0.998773**. CPU0 float Off still
+regresses against rooted control: **0.918763 / 0.903250 / 0.886360 / 0.914949**,
+versus placebo **1.000622 / 0.997466 / 1.001841 / 1.004264**. CPU16 float Off
+is **0.944189 / 0.979590 / 0.943926 / 0.969093**, and metamethod Auto is
+**0.938942 / 0.963571 / 0.935486 / 0.961282**. Removing the cache did not
+remove those regressions; the cache is not necessary to reproduce them.
+This does not establish their hardware cause.
+
+Feature-cost speed callbacks fail 12/12, CPU16 upvalues and Oslo 6/6 each;
+shipping upvalues fail 12/12 and CPU16 Oslo 6/6. Other failures and placebo
+variation remain in the full reports. Original gates, native proofs, complete
+counters and artifact hashes verify; no owned build/test/profile/source edit
+overlaps timing. The allocation-only branch is **unaccepted**.
+
+Next compare a direct empty-map initialization followed by raw-table reserve,
+instead of two separate map-construction branches. The existing independent
+constructor oracle must prove capacity, accounting and growth equivalence.
+Require additional instruction/code-path savings before hardware testing;
+do not use alternate constructor syntax merely to search code placements.
+Evidence prefix: `target/jit-evidence/short-slice-performance/allocation-only*`.
+
 #### Seeded inline-string table hashes — withdrawn
 
 `00784ff` proves a representation prerequisite: a second inline-buffer word
