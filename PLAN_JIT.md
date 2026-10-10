@@ -11,6 +11,40 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Callback activation borrow fusion — rejected in early timing
+
+`bb63bf5` strengthens the existing minimum-progress callback fixture to verify
+the running flag, popped root frame, shared thread-state access and exclusive
+stack access from inside user code. Both feature lanes pass before production
+changes. The trial then combines frame removal and callback activation in one
+short mutable state borrow, ending it before user code; fuel, immutable frame
+inspection, callback results and native coverage remain unchanged.
+
+Candidate formatting/check-all and 105 focused executions across 15 suites pass.
+Each Miri model passes three mode tests. Fourteen exact-image profiles preserve
+all seven complete non-timing records. Callback instructions fall only 0.24297%
+(133,593,180 to 133,268,583), with executor self work falling 324,597 instructions.
+Numeric executor self work rises 8,268; separate registry/allocator variations
+remain in the profiles without an unsupported causal attribution.
+
+The five-way early native screen completes 30 aggregate commands, all failing
+unchanged gates, with 108 complete non-timing comparisons equal. It retains
+three windows, eleven samples, CPU0/16, all nine cases and historical controls;
+source/image manifests verify and no owned tests/builds/profiles/source edits
+overlap timing. Direct fresh/candidate callback medians are 0.89731/0.97046,
+with all six windows adverse. CPU0 native integer/float medians are
+0.88774/0.89602, also adverse in every window; CPU16 medians are 0.95985/0.96334.
+CPU0 compiled-Off callback/upvalue medians fall to 0.81726/0.81576. The favorable
+CPU16 native upvalue median 1.02263 does not offset these losses.
+
+The runtime change is withdrawn before a cost-build/full-validation campaign.
+Restoration exits 0: formatting/check-all and the same 105 focused executions
+pass, source/tests/Make match `bb63bf5`, and the rebuilt native executable is
+byte-identical to the original table-owner control. The stronger independent
+fixture remains. No candidate shipping-cost, full-suite or speedup acceptance
+is claimed. Evidence: `callback-activation*` under
+`target/jit-evidence/short-slice-performance/`.
+
 #### Table-owned string bucket — both trials withdrawn
 
 Baseline-tested lifecycle fixtures (`b8e40a4`) cover repeated same-allocation and
