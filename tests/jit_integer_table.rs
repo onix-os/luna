@@ -62,3 +62,28 @@ fn integer_and_generic_reads_preserve_fuel_gc_and_metamethods() {
         }
     }
 }
+
+#[test]
+fn string_reads_preserve_traces_mutation_weak_values_and_fallback() {
+    let cases = [
+        ("local t={field=7} local s=0 for i=1,80 do s=s+t.field end return s", 560),
+        ("local key=string.char(102,105,101,108,100) local t={field=7,[1]=9,['1']=11} local s=0 for i=1,80 do s=s+t[key]+t['1']+t[1] end return s", 2160),
+        ("local t={field=false} setmetatable(t,{__index=function() error('unexpected fallback') end}) local s=0 for i=1,80 do if t.field==false then s=s+1 end end return s", 80),
+        ("local t={} local s=0 for i=1,80 do t.field=i s=s+t.field if i==40 then t.field=nil setmetatable(t,{__index=function(_,k) assert(k=='field') return 100 end}) s=s+t.field setmetatable(t,nil) end end return s", 3340),
+        ("local kept={n=7} local t=setmetatable({field=kept},{__mode='kv'}) local s=0 for i=1,80 do assert(t.field==kept) s=s+t.field.n end return s", 560),
+    ];
+    for (source, expected) in cases {
+        for budget in [i32::MIN, -1, 0, 1, 7, 64, 10000] {
+            let reference = run(source.as_bytes(), false, budget);
+            let native = run(source.as_bytes(), true, budget);
+            assert_eq!(native.0, reference.0, "budget {budget}: {source}");
+            assert_eq!((reference.1, native.1), (expected, expected));
+            assert_eq!(reference.2.native_table_reads, 0);
+            assert!(
+                native.2.native_table_reads >= 80,
+                "{source}: {:?}",
+                native.2
+            );
+        }
+    }
+}
