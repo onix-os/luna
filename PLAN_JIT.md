@@ -33,7 +33,7 @@ Initial integrated checks correctly rejected stale exact expansion counts;
 the planner now accounts for one fewer IR instruction per read/write (19/29
 additional instructions). Global conservative bounds and resource limits are
 not relaxed; exact refusal/rollback checks pass. The failed draft is retained.
-Final GNU payload checks pass **53 executions / three summaries**, musl
+Final GNU payload checks pass **37 executions / three summaries**, musl
 helper/payload checks **62 / four**, and pinned Stacked seed 27 / Tree seed 28
 each **50 / three**. Formatting/check-all pass; Miri warnings are retained.
 This is a test-only code-generation change, not release enablement or a claimed
