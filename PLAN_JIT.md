@@ -30,8 +30,12 @@ complete non-timing records. Callback work falls 1.60562%: the callback body
 loses 975,000 instructions and general Drain destruction loses 1,170,000,
 totalling 33 per 65,000 measured callbacks. Other admission/allocator changes
 remain recorded and are not attributed to consumption. This is instruction
-evidence only; full validation, fresh cost controls and elapsed gates remain
-pending. Evidence is under `suffix-consume*` in the short-slice directory.
+evidence only. Full GNU Force passes 1,497 executions (88 summaries, six ignored),
+musl passes 47 and each Miri model passes five. Candidate native rebuild matches
+the profiled image exactly; source manifests verify. Fresh speed/shipping
+controls are captured from exact pretrial source `4e1414a`, then candidate source
+is restored exactly to `645839c`. Elapsed gates remain pending. Evidence is under
+`suffix-consume*` in the short-slice directory.
 
 #### Owned panic payload — withdrawn after timing
 
