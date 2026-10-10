@@ -13,6 +13,32 @@
 
 #### Rooted region publication deferral — test-only (2026-10-10)
 
+**Disabled shipping attribution follow-up:** twelve exact-image profiles compare
+control/candidate, no-feature/JIT-Off, and integer/float/table on CPU16. Integer
+and float JIT-Off totals remain **19,540,720 / 20,842,780** instructions; all
+individual function instruction counts match. Table adds 587 instructions in
+allocator/memory-copy paths, not in the interpreter. VM size is 42,776 bytes;
+its start moves from `0x398da1` to `0x398e28`, while executed relative-address
+counts and mnemonic totals match for all three workloads. This establishes no
+added interpreter work, not a hardware explanation or equal elapsed time.
+Simulated cache/branch differences remain diagnostic only. Host
+`perf_event_paranoid` remains 4; no privilege or kernel-policy change was made.
+
+The direct shipping losses and the frozen overhead gates are distinct: these
+three candidate workloads still pass the original 1.05 no-feature overhead
+ceiling. Their slower time versus the previous feature-enabled image must not
+be mislabeled as a failed 1.05 gate. Actual callback/upvalue cost and aggregate
+failures remain recorded; no ceiling or release criterion changes. The rejected
+deferral remains test-only while work targets the outstanding failing cases.
+
+Matching symbols verify every allocated section of the actual timed binaries.
+The archived candidate source manifest is paired with its retained patch; a
+separate current-source manifest verifies no source mutation during attribution.
+All twelve workloads verify their results and zero native work. Evidence:
+`rooted-deferred-disabled-profile/analysis.json`, raw profiles, per-address VM
+attribution, and the Make-backed `rooted-deferred-attribution.mk` under the
+existing ignored performance evidence directory.
+
 The current trial targets the measured 21.55 million instructions in rooted
 caller publication. After a successful compact upvalue call, a helper-free
 rooted region keeps its validated scalar/reference snapshot through the next
