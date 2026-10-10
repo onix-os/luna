@@ -72,8 +72,13 @@ derived 12-byte snapshot-peak increases in callback, metamethod and Oslo Auto.
 Hashes, complete workloads and original thresholds verify in each screen.
 Withdraw runtime selection rather than accept the repeated cross-workload
 losses. The alternate helper/selector and independent differential remain
-test-only; production helper registration is restored. Fresh restoration
-validation is pending. Full performance/resource/platform/release acceptance
+test-only; production helper registration is restored. The first restoration
+image did not match because test-only additions displaced existing helper source
+locations. Isolating the model with an EOF module registration restores the
+original production source positions: clean ELF **`3d0dc224` is byte-identical**
+to rooted-state reuse. Fresh full GNU/musl checks and both Miri models for the
+isolated test entry are running; they are not yet counted as passes.
+Full performance/resource/platform/release acceptance
 remains open; this is not an accepted callback optimization.
 Evidence prefix: `target/jit-evidence/short-slice-performance/constant-upvalue-key*`.
 
