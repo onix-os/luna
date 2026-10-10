@@ -11,6 +11,28 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Callback suffix consumption — performance trial, 2026-10-10
+
+`Stack::consume` now uses an owning suffix iterator rather than the public,
+general range `Drain`. It retains the exclusive stack borrow during conversion,
+counts exhausted argument pulls, and truncates the original suffix on success,
+error or panic. Public signatures, general draining, GC roots, prefix values,
+capacity, callback routing and all JIT counters remain unchanged.
+
+Five independent fixtures first pass with and without JIT on the unchanged
+implementation (`4e1414a`). They cover unread tails, zero/missing/type errors,
+panic payload and lock release, lock exclusion during conversion and invalid
+substack refusal without mutation. The trial passes formatting/check-all,
+47 focused GNU executions, ten musl executions and five in each Miri model.
+
+Fourteen exact-image native profiles preserve all 13 event sums and seven
+complete non-timing records. Callback work falls 1.60562%: the callback body
+loses 975,000 instructions and general Drain destruction loses 1,170,000,
+totalling 33 per 65,000 measured callbacks. Other admission/allocator changes
+remain recorded and are not attributed to consumption. This is instruction
+evidence only; full validation, fresh cost controls and elapsed gates remain
+pending. Evidence is under `suffix-consume*` in the short-slice directory.
+
 #### Owned panic payload — withdrawn after timing
 
 The trial moved the completed ordinary helper frame's panic option instead of
