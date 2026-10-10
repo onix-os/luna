@@ -50,6 +50,31 @@ fn offset_import(values: &[Value<'_>], slots: &mut [Encoded; 7]) {
     import::<2>(values, slots);
 }
 
+#[inline(always)]
+fn split_encode(value: Value<'_>) -> Encoded {
+    let tag = match value {
+        Value::Nil => 0,
+        Value::Boolean(_) => 1,
+        Value::Integer(_) => 2,
+        Value::Number(_) => 3,
+        _ => 4,
+    };
+    let bits = match value {
+        Value::Boolean(value) => u64::from(value),
+        Value::Integer(value) => value as u64,
+        Value::Number(value) => value.to_bits(),
+        _ => 0,
+    };
+    Encoded { tag, bits }
+}
+
+#[inline(never)]
+fn split_import(values: &[Value<'_>], slots: &mut [Encoded; 7]) {
+    for (slot, value) in slots.iter_mut().zip(values[..7].iter().copied()) {
+        *slot = split_encode(value);
+    }
+}
+
 #[test]
 fn alternative_tags_preserve_payloads_without_value_layout_access() {
     let mut lua = crate::Lua::empty();
@@ -94,8 +119,11 @@ fn alternative_tags_preserve_payloads_without_value_layout_access() {
             let input = std::hint::black_box([value; 7]);
             let mut original = [Encoded { tag: 99, bits: 99 }; 7];
             let mut offset = original;
+            let mut split = original;
             original_import(&input, &mut original);
             offset_import(&input, &mut offset);
+            split_import(&input, &mut split);
+            assert_eq!(split, original);
             for (original, offset) in original.into_iter().zip(offset) {
                 assert_eq!((original.tag, original.bits), expected[index]);
                 assert_eq!(
@@ -118,5 +146,13 @@ fn alternative_encoding_preserves_generated_numeric_bits() {
         let number = encode::<2>(Value::Number(f64::from_bits(bits)));
         assert_eq!(integer, Encoded { tag: 4, bits });
         assert_eq!(number, Encoded { tag: 5, bits });
+        assert_eq!(
+            split_encode(Value::Integer(bits as i64)),
+            encode::<0>(Value::Integer(bits as i64))
+        );
+        assert_eq!(
+            split_encode(Value::Number(f64::from_bits(bits))),
+            encode::<0>(Value::Number(f64::from_bits(bits)))
+        );
     }
 }
