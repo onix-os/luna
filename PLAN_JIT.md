@@ -41,6 +41,46 @@ speedup. Exact-image profiling must establish whether generated machine work
 decreases before another timing campaign. Evidence: `payload-wide-mask/` under
 the ignored short-slice directory.
 
+The temporary release image `9a90d28a` completes ten exact-image profiles.
+Callback work falls **136,384,162 -> 135,476,302** versus the previous narrow
+payload, with all 907,860 removed instructions in the generated-address bucket.
+Relocated addresses are not counted as eliminated work. Its callback native
+code charge falls **8,192 -> 4,096 bytes**; other non-timing fields match that
+payload profile. All eleven compared self totals are independently verified.
+The original strict profile comparison still fails on closure code charge
+(32,768 versus 28,672) and callback snapshot peak (+60 bytes). Integer/float
+Off and closure Off instruction totals equal their original controls. Closure
+Auto increases 0.35082% versus the original control; that remains adverse.
+
+Two further four-way native screens complete **48 commands**, each with nine
+workloads and eleven paired samples, CPU0/16, three rotating windows and
+ordinary/historical/same-image-placebo controls. Drivers finish zero; all
+48 commands retain original failing gates. Full field differences, counters,
+artifact/source verification and external contention are retained. Ordinary
+`dab0490e` / candidate time medians:
+
+| Auto workload | CPU 0, screen 1 / 2 | CPU 16, screen 1 / 2 |
+| --- | --- | --- |
+| Rust callbacks | 0.9540 / 0.9427 | 0.9383 / 0.9449 |
+| Integer loop | 0.8652 / 0.8694 | 0.7933 / 0.7894 |
+| Float loop | 0.8712 / 0.8794 | 0.8243 / 0.8182 |
+| Allocation/GC | 0.8257 / 0.8329 | 0.7766 / 0.7806 |
+| Closure/upvalue | 1.0201 / 1.0142 | 0.9834 / 0.9703 |
+
+Below one means slower candidate execution. The reduced code/instruction cost
+does not clear the callback or wider regressions, so release activation is
+withdrawn again. Retain only the tested numeric-mask model. Fresh restored GNU
+all-feature Force passes **1,561 / 88**, six existing ignores; focused musl
+helper/model/resources pass **107 / seven**. Formatting/check-all and source
+hashes pass; the restored ordinary release image is byte-identical to `dab0490e`.
+
+Against that ordinary image, callback payload work still costs 3,244,759 extra
+instructions (81 allocator). The generated-address bucket adds 6,290,805 and
+`write_scalar` adds 2,141,568; invocation and combined helper/operand/upvalue
+savings do not offset them. This directs further work toward generated scalar
+access/materialization, not another rejected interpreter-policy reshuffle.
+Full deltas and all timing/restoration evidence are under `payload-wide-mask*`.
+
 #### Closure-only accessor inlining — withdrawn (2026-10-10)
 
 A feature-gated `inline(always)` on `LuaFrame::closure` targets the shipping
