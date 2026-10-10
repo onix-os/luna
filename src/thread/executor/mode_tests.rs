@@ -46,6 +46,12 @@ fn ordinary_callback_preserves_minimum_progress_interrupts_and_fuel() {
                         execution.threads.last().unwrap().mode(),
                         ThreadMode::Running
                     );
+                    let thread = execution.current_thread().thread;
+                    let state = thread.into_inner().try_borrow().unwrap();
+                    assert!(state.running);
+                    assert!(state.frames.is_empty());
+                    assert!(state.stack.try_borrow_mut(&ctx).is_ok());
+                    drop(state);
                     observed.set(observed.get() + 1);
                     stack.replace(ctx, 42);
                     Ok(CallbackReturn::Return)
