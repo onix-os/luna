@@ -18,8 +18,17 @@ unchanged cross-workload gates. Restore all production string/table code to
 the pre-experiment rooted runtime, retaining the independent test models and
 all evidence. The following sections describe rejected experiments, not enabled
 optimizations. Full JIT acceptance remains open, including callback/metamethod
-and feature-cost gates. Verify restoration with a fresh exact-image build and
-correctness checks before claiming byte identity.
+and feature-cost gates.
+
+Restoration `f4ed9b8` is verified: a clean opt3 build is **byte-identical** to
+the frozen rooted baseline, SHA-256
+`3d0dc224826a8ef4359a4708c9443197e9c3d6c83c88a857beec8fee7e07bcc0`.
+Focused GNU checks pass **24 / six summaries**; focused musl **73 / eleven**,
+none ignored. Full GNU Force plus baseline/docs passes **2,035 / 175**, eight
+existing ignores (Force 1,586 / 88 / six, baseline/docs 449 / 87 / two).
+Source hashes verify and all owned jobs are terminal. This removes the rejected
+production changes, not the original unmet performance requirements. Evidence:
+`target/jit-evidence/short-slice-performance/hash-allocation-restored-*`.
 
 #### Allocation-only isolation — withdrawn
 
