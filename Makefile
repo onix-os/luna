@@ -1336,6 +1336,14 @@ numeric-conversions:
 
 # `--all-targets` covers the integration suites under tests/, which are the ones that actually
 # exercise the Lua scripts; it does *not* cover doc tests, so `test-doc` runs beside it.
+.PHONY: stack-consume stack-consume-miri
+stack-consume:
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) stack::consume_tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) stack::consume_tests
+
+stack-consume-miri:
+	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' stack::consume_tests -- --test-threads=1
+
 test:
 	@$(CARGO) test --workspace --all-targets $(TARGET_ARG)
 	@$(MAKE) --no-print-directory test-doc

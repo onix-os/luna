@@ -11,6 +11,9 @@ use crate::{
     BadArgument, Context, FromMultiValue, FromValue, IntoMultiValue, IntoValue, TypeError, Value,
 };
 
+#[cfg(test)]
+mod consume_tests;
+
 /// A thread's value stack.
 pub(crate) type StackVec<'gc> = vec::Vec<Value<'gc>, MetricsAlloc<'gc>>;
 
