@@ -11,6 +11,19 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Split scalar tag/payload import — no runtime integration (2026-10-10)
+
+The seven-register import probe now also computes tags and payloads with
+separate safe Rust matches, keeping the original 0–4 tags and Value layout.
+Both model tests pass in debug, optimized release and Miri, covering every
+Value kind and 1,024 generated numeric bit patterns. Retained assembly shows
+the first numeric lane still takes 12 instructions through both output stores,
+the same as the original; discriminant normalization is unchanged. This does
+not remove the targeted import work, so production `Slot::from_value` remains
+unchanged and no runtime timing or acceptance claim follows. The diagnostic
+Make target retains all three import symbols. Evidence: `split-import/` under
+`target/jit-evidence/short-slice-performance/`.
+
 #### Typed string-key native reads — withdrawn (2026-10-10)
 
 A JIT-only string query bypasses generic array/numeric-key conversion while
