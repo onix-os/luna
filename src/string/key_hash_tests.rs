@@ -16,11 +16,37 @@ struct ExtendedHeader {
     buffer: ExtendedBuffer,
 }
 
+#[derive(Copy, Clone)]
+enum LegacyBuffer {
+    Indirect(*const [u8]),
+    Inline(usize),
+}
+
+#[derive(Copy, Clone)]
+struct LegacyHeader {
+    hash: u64,
+    buffer: LegacyBuffer,
+}
+
 #[test]
 fn inline_hash_word_fits_existing_header_and_allocation_layout() {
     fn copy_type<T: Copy>() {}
     copy_type::<StringInner>();
     copy_type::<ExtendedHeader>();
+    assert_eq!(
+        alloc::Layout::new::<StringInner>(),
+        alloc::Layout::new::<LegacyHeader>()
+    );
+    assert_eq!(
+        alloc::Layout::new::<Buffer>(),
+        alloc::Layout::new::<LegacyBuffer>()
+    );
+    let legacy = LegacyHeader {
+        hash: 37,
+        buffer: LegacyBuffer::Inline(7),
+    };
+    assert_eq!(legacy.hash, 37);
+    assert!(matches!(legacy.buffer, LegacyBuffer::Inline(7)));
     assert_eq!(
         alloc::Layout::new::<ExtendedBuffer>(),
         alloc::Layout::new::<Buffer>()
@@ -57,6 +83,10 @@ fn inline_hash_word_fits_existing_header_and_allocation_layout() {
     }
     let bytes = b"indirect";
     let ExtendedBuffer::Indirect(pointer) = ExtendedBuffer::Indirect(bytes.as_slice()) else {
+        unreachable!()
+    };
+    assert!(std::ptr::eq(pointer, bytes.as_slice()));
+    let LegacyBuffer::Indirect(pointer) = LegacyBuffer::Indirect(bytes.as_slice()) else {
         unreachable!()
     };
     assert!(std::ptr::eq(pointer, bytes.as_slice()));
