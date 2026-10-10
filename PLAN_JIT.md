@@ -11,7 +11,25 @@
 
 ### Progress snapshot — 2026-10-11
 
-#### Seeded inline-string table hashes — candidate
+#### Allocation-only isolation — candidate
+
+Withdraw the seeded inline-string hash runtime and shared-constructor hint.
+String construction/storage, the non-generic canonical key enum and every
+production table-hashing site are restored to the rooted baseline. The only
+production difference in these files is the explicit empty-map constructor for
+requested map capacity zero. No eager final hash, hidden cache field, cached
+lookup or constructor helper remains. This isolates the measured allocation
+work removal from the cross-workload costs of the hash experiment.
+
+Keep the independent capacity/accounting differential, string-layout model,
+hash-stream/seed model and mixed-storage growth/weakening/reinsertion tests.
+The generic hash enum is now entirely test-only; cache-presence assertions are
+removed with the withdrawn cache, not replaced by a runtime shortcut. All
+original tests, native coverage and performance thresholds remain unchanged.
+Fresh correctness, exact-image profiles and repeated hardware comparisons are
+required. No regression fix or full-plan acceptance is claimed yet.
+
+#### Seeded inline-string table hashes — withdrawn
 
 `00784ff` proves a representation prerequisite: a second inline-buffer word
 fits the existing string header and allocation layout on 64-bit targets.
@@ -152,7 +170,7 @@ must measure additional construction call overhead. This finding does not
 attribute the float timing regression to code placement.
 Evidence prefix: `target/jit-evidence/short-slice-performance/empty-map-capacity*`.
 
-#### Shared final hash construction — candidate
+#### Shared final hash construction — withdrawn
 
 `6e42eea` keeps the exact inline-cache representation and hash computation,
 but makes the final hash constructor a shared out-of-line function. Verified
