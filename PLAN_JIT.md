@@ -11,6 +11,25 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Rust integer argument conversion — measured trial (2026-10-10)
+
+The exact callback control profile attributes 2,470,000 instructions to
+`i64::from_value`; its integer path still uses general numeric normalization.
+The new trial recognizes `Value::Integer` directly in the Rust integer
+conversion macro. All other values retain `to_integer`, and all twelve target
+types retain checked range conversion and the existing Lua-facing errors.
+This changes neither native coverage nor callback lifecycle/ABI contracts.
+
+Independent regression `73e16fd` compares all twelve types with the original
+coercion/range/error contract across signed and unsigned boundaries, float
+boundaries, signed zero, subnormals, infinities/NaNs, strings and nonnumbers.
+It passes unchanged production in all four feature/mode lanes (12 executions).
+The candidate passes formatting/check-all and 196 focused executions across
+22 summaries, including numeric semantics and callback/metamethod/tail-call
+contracts. Exact-image profiling and elapsed-time acceptance are pending;
+this is not an accepted optimization. Evidence is under `integer-conversion*`
+in the ignored performance directory.
+
 #### Canonical-only helper entries — test-only (2026-10-10)
 
 The measured trial selected a distinct canonical helper table for ordinary

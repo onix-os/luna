@@ -233,7 +233,11 @@ macro_rules! impl_int_from {
                     _: Context<'gc>,
                     value: Value<'gc>,
                 ) -> Result<Self, TypeError> {
-                    if let Some(i) = value.to_integer() {
+                    let integer = match value {
+                        Value::Integer(integer) => Some(integer),
+                        _ => value.to_integer(),
+                    };
+                    if let Some(i) = integer {
                         if let Ok(i) = <$i>::try_from(i) {
                             Ok(i)
                         } else {
