@@ -11,6 +11,48 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Native lookup inlining with fresh PGO — withdrawn (2026-10-10)
+
+A source trial adds only `#[inline(always)]` to `Runtime::lookup`; ownership,
+accounting, fallback and benchmark code remain unchanged. Fresh training is
+necessary: the VM profile record changes from 1,360 counters/hash
+583356077739729873 to 1,391/hash 1115366972344205894. Formatting/check-all,
+89 training executions and 129 full-PGO correctness executions pass. Exact-link
+recapture reproduces both new unprofiled/full-PGO binaries byte-for-byte. A fresh
+one-record VM-profile exclusion preserves every other serialized record and
+region/rooted coverage, and its build passes another 129 correctness executions.
+Missing-profile diagnostics differ only by the expected VM record (261 to 262);
+no profile hash mismatch is reported.
+
+Thirty exact-image profiles compare filtered PGO, full PGO and unprofiled images
+against their respective prior controls; all fifteen full non-timing comparisons
+match. In filtered PGO, callback instructions fall 119,421,635 to 118,121,387
+(1.08879%). Lookup self cost 3,513,374 disappears, but VM self increases 2,213,126:
+the net saving is 1,300,248, not the entire removed symbol. Code-owner drop glue
+remains 713,339. Numeric Off totals improve by only 8,138 instructions each.
+Full-PGO numeric totals stay unchanged and callback differs by 81 allocator
+instructions. Unprofiled numeric work improves about 1%, while callback work
+increases 0.14581%. Fresh training and generated build paths remain attribution
+constraints; no pure single-annotation hardware cause is claimed.
+
+Two unchanged nine-case screens for each of filtered and unprofiled builds finish
+96 commands, all aggregate gates failing, with 1,296 equal full non-timing
+comparisons. Filtered callback control/candidate medians improve to
+1.00956/1.01253 on CPU0 and 1.03628/1.01511 on CPU16 (first/repeat). However,
+filtered CPU0 Off float falls to 0.91558/0.91823 versus same-inode placebos
+0.99775/0.98895. Unprofiled callback medians instead regress to 0.97759/0.98599 on
+CPU0 and 0.98611/0.98961 on CPU16. Unprofiled CPU16 Off float is 0.94142/0.97615
+versus placebos 1.00019/0.99828. Preserve all variation and adverse controls.
+
+Withdraw the annotation rather than retain a small filtered-only gain with these
+costs. Restoration passes baseline source identity, formatting/check-all and
+identity of the untouched ordinary release binary; no fresh ordinary release
+rebuild is claimed. No owned work overlaps hardware timing. No default flag,
+training policy, runtime annotation or acceptance gate changes remain.
+Evidence: `pgo-lookup-inline*` and `pgo-training-mix/lookup-*` under
+`target/jit-evidence/short-slice-performance/`. Full performance, resource,
+platform and release acceptance remain incomplete.
+
 #### Interpreter-profile exclusion — numeric gain, callback cost (2026-10-10)
 
 An isolated profile-use experiment removes only the `run_vm_slice` record from
