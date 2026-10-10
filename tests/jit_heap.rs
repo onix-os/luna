@@ -809,6 +809,73 @@ fn native_resumption_observes_debug_local_and_upvalue_mutation() -> Result<(), E
 }
 
 #[test]
+fn retained_public_stack_alias_mutations_survive_native_reentry() -> Result<(), ExternError> {
+    let cases = [
+        ("local n=0 local s=0 capture_stack() for i=1,80 do n=n+1 mutate_stack(i*3) s=s+n end return s", 9720),
+        ("local n=0 local s=0 capture_stack() for i=1,80 do n=n+1 mutate_stack(i+0.5) s=s+n end return s", 3280),
+        ("local n=0 local s=0 capture_stack() for i=1,80 do n=n+1 mutate_stack({n=i*3}) s=s+n.n n=0 end return s", 9720),
+        ("local n=0 local s=0 capture_stack() for i=1,80 do n=n+1 mutate_stack(i%2==0) if n then s=s+1 end n=0 end return s", 40),
+    ];
+    for (script, expected) in cases {
+        for budget in [0, 1, 7, 64, 10000] {
+            let mut traces = Vec::new();
+            for native in [false, true] {
+                let mut lua = state(native);
+                lua.enter(|ctx| {
+                    ctx.set_global(
+                        "capture_stack",
+                        Callback::from_fn(&ctx, |ctx, exec, _| {
+                            let base = exec.upper_lua_frame().unwrap().base;
+                            let values = exec.current_thread().thread.into_inner().borrow().stack();
+                            ctx.set_global(
+                                "mutate_stack",
+                                Callback::from_fn_with(
+                                    &ctx,
+                                    (values, base),
+                                    |root, ctx, _, mut args| {
+                                        let value: Value = args.consume(ctx)?;
+                                        root.0.borrow_mut(&ctx)[root.1] = value;
+                                        Ok(CallbackReturn::Return)
+                                    },
+                                ),
+                            );
+                            Ok(CallbackReturn::Return)
+                        }),
+                    );
+                });
+                let executor = source(&mut lua, script.as_bytes())?;
+                let mut trace = Vec::new();
+                for _ in 0..10000 {
+                    let step = lua.try_enter(|ctx| {
+                        let mut fuel = Fuel::with(budget);
+                        let done = ctx.fetch(&executor).step(ctx, &mut fuel)?;
+                        Ok((done, fuel.remaining()))
+                    })?;
+                    trace.push(step);
+                    lua.gc_collect();
+                    lua.prepare_jit().unwrap();
+                    if step.0 {
+                        break;
+                    }
+                }
+                assert!(trace.last().unwrap().0, "{script}, budget {budget}");
+                assert_eq!(lua.execute::<i64>(&executor)?, expected);
+                if native {
+                    assert!(
+                        lua.jit_stats().native_entries >= 80,
+                        "{:?}",
+                        lua.jit_stats()
+                    );
+                }
+                traces.push(trace);
+            }
+            assert_eq!(traces[0], traces[1], "{script}, budget {budget}");
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn native_finalizer_resurrection_preserves_heap_and_upvalue_effects() -> Result<(), ExternError> {
     let script=b"local ran=0 local saved local function make() local t=setmetatable({marker=40},{__gc=function(self) ran=ran+1 self.marker=self.marker+2 saved=self end}) return tostring(t) end make() for i=1,2000 do local t={} t[i]=i end collectgarbage('collect') collectgarbage('collect') assert(saved.marker==42) saved=nil for i=1,2000 do local t={} t[i]=i end collectgarbage('collect') collectgarbage('collect') return ran";
     for native in [false, true] {
