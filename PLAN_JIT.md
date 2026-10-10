@@ -125,6 +125,21 @@ model/IR tests (seeds 15/16), with raw evidence under `payload-prefix-*`.
 Helpers still rebuild the entire live prefix after whole-frame borrows. Removing
 unused-tail initialization does not by itself establish a performance win.
 
+The test-only transport now inlines same-tag scalar writes: eight-byte stores
+for integers/numbers, one-byte stores for valid Booleans, and no write for nil.
+Type changes still use canonical materialization and full descriptor rebinding.
+The independent checker validates guards, store widths/addresses, continuation
+edges and the complete slow-call signature/arguments; 36 well-formed mutations
+are refused, including widened Boolean writes and changed calling conventions.
+An executable fixture covers 104 initial/destination pairs, with a second
+same-type write using changed bits. Gateway counts prove that only the initial
+type change materializes; sibling values, all eight logical helper counters,
+PC and fuel remain unchanged. The 24 ordinary source/budget schedules also pass.
+GNU and musl pass 20 focused tests (`payload-inline-write-*` evidence).
+Both Miri models pass 14 model/IR tests (seeds 17/18; machine code excluded).
+Production dispatch is unchanged; integer-loop specialization, remaining
+optimized paths, resource accounting and whole-profile performance remain open.
+
 #### Sign-directed checked jump arithmetic — withdrawn (2026-10-10)
 
 On the restored runtime, a source trial replaces `checked_add_signed` with

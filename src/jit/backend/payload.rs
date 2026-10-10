@@ -9,6 +9,7 @@ use crate::jit::abi::payload::runtime::Bridge;
 use crate::jit::abi::payload::Payload;
 
 mod reads;
+mod writes;
 
 enum Rewrite {
     Read(Inst, u32),
@@ -139,6 +140,7 @@ pub(super) fn lower(
     let rewrites = plan(function, slots, host, registers, helpers)?;
     let mut candidate = function.clone();
     let mut reads = Vec::new();
+    let mut writes = Vec::new();
     let mut write = Signature::new(function.signature.call_conv);
     write
         .params
@@ -156,21 +158,19 @@ pub(super) fn lower(
                 tag,
                 bits,
             } => {
-                let mut cursor = FuncCursor::new(&mut candidate);
-                cursor.goto_inst(bits_store);
-                let target = cursor.ins().load(
-                    types::I64,
-                    MemFlagsData::new(),
-                    host,
-                    std::mem::offset_of!(Bridge, write) as i32,
-                );
-                let index = cursor.ins().iconst(types::I32, i64::from(index));
-                cursor.func.replace(bits_store).call_indirect(
-                    write,
-                    target,
-                    &[host, slots, index, tag, bits],
-                );
-                cursor.func.layout.remove_inst(tag_store);
+                writes.push(writes::emit(
+                    &mut candidate,
+                    tag_store,
+                    bits_store,
+                    writes::Input {
+                        slots,
+                        host,
+                        index,
+                        tag,
+                        bits,
+                        signature: write,
+                    },
+                ));
             }
             Rewrite::Helper(inst, index, reference) => {
                 let args = candidate.dfg.inst_args(inst).to_vec();
@@ -194,6 +194,9 @@ pub(super) fn lower(
     }
     for read in &reads {
         reads::verify(&candidate, read, slots)?;
+    }
+    for write in &writes {
+        writes::verify(&candidate, write)?;
     }
     *function = candidate;
     Ok(())

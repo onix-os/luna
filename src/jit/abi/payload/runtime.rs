@@ -10,6 +10,7 @@ pub(crate) struct Bridge {
     pub read: unsafe extern "C" fn(*mut Payload, u32) -> u64,
     pub write: unsafe extern "C" fn(*mut Bridge, *mut Payload, u32, u64, u64),
     pub helpers: [abi::HelperEntry; 10],
+    materializations: u64,
 }
 
 unsafe extern "C" fn read_bits(slots: *mut Payload, index: u32) -> u64 {
@@ -23,6 +24,7 @@ unsafe extern "C" fn write_scalar(
     tag: u64,
     bits: u64,
 ) {
+    unsafe { (*host).materializations += 1 };
     let result = unsafe { materialize((*host).base.data.cast(), slots, index, tag, bits) };
     assert_eq!(result, abi::HELPER_COMPLETED);
 }
@@ -62,8 +64,91 @@ pub(crate) fn with_bridge(
                 helper::<9>,
                 helper::<10>,
             ],
+            materializations: 0,
         };
         body(slots, &mut bridge);
+    });
+}
+
+#[cfg(not(miri))]
+pub(crate) fn check_native_write(entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u64, u64)) {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+        let scalars = [
+            Value::Nil,
+            Value::Boolean(false),
+            Value::Boolean(true),
+            Value::Integer(i64::MIN),
+            Value::Integer(i64::MAX),
+            Value::Number(-0.0),
+            Value::Number(f64::INFINITY),
+            Value::Number(f64::from_bits(0x7ff8000000000042)),
+        ];
+        for initial in scalars.into_iter().chain([
+            Value::String(ctx.intern(b"payload")),
+            Value::Table(crate::Table::new(&ctx)),
+            Value::Function(closure.into()),
+            Value::Thread(crate::Thread::new(ctx)),
+            Value::UserData(crate::UserData::new_static(&ctx, 7)),
+        ]) {
+            for destination in scalars {
+                let expected = Slot::from_value(destination);
+                let final_bits = expected.bits
+                    ^ match expected.tag {
+                        BOOLEAN => 1,
+                        INTEGER => u64::MAX,
+                        NUMBER => 1 << 63,
+                        _ => 0,
+                    };
+                let mut values = [initial, Value::Integer(12345)];
+                let mut pc = 17;
+                let mut fuel = crate::Fuel::with(67);
+                LuaRegisters::with_test_frame_state(
+                    ctx,
+                    &mut pc,
+                    &mut values,
+                    &mut fuel,
+                    false,
+                    |mut registers| {
+                        let mut frame = helpers::Frame {
+                            ctx,
+                            closure,
+                            registers: &mut registers,
+                            count: helpers::Counts::default(),
+                            slot_count: 2,
+                            panic: None,
+                            projection: None,
+                        };
+                        with_bridge(&mut frame, |slots, host| unsafe {
+                            let materializations =
+                                u64::from(Slot::from_value(initial).tag != expected.tag);
+                            for bits in [expected.bits, final_bits] {
+                                entry(slots, host, expected.tag, bits);
+                                assert_eq!((*host).materializations, materializations);
+                                let actual = load(slots.read()).unwrap();
+                                assert_eq!((actual.tag, actual.bits), (expected.tag, bits));
+                                let sibling = load(slots.add(1).read()).unwrap();
+                                assert_eq!((sibling.tag, sibling.bits), (INTEGER, 12345));
+                            }
+                        });
+                        assert_eq!(frame.count.calls, 0);
+                        assert_eq!(frame.count.completed, 0);
+                        assert_eq!(frame.count.declined, 0);
+                        assert_eq!(frame.count.allocations, 0);
+                        assert_eq!(frame.count.table_reads, 0);
+                        assert_eq!(frame.count.table_writes, 0);
+                        assert_eq!(frame.count.upvalue_reads, 0);
+                        assert_eq!(frame.count.upvalue_writes, 0);
+                        assert!(frame.panic.is_none());
+                    },
+                );
+                let actual = Slot::from_value(values[0]);
+                assert_eq!((actual.tag, actual.bits), (expected.tag, final_bits));
+                assert!(matches!(values[1], Value::Integer(12345)));
+                assert_eq!(pc, 17);
+                assert_eq!(fuel.remaining(), 67);
+            }
+        }
     });
 }
 

@@ -6,7 +6,7 @@ pub(super) struct Read {
     index: u32,
 }
 
-fn block(function: &mut Function) -> Block {
+pub(super) fn block(function: &mut Function) -> Block {
     let block = function.dfg.make_block();
     function.layout.append_block(block);
     block
@@ -64,7 +64,7 @@ pub(super) fn emit(function: &mut Function, inst: Inst, slots: IrValue, index: u
     }
 }
 
-fn value(
+pub(super) fn value(
     f: &Function,
     inst: Inst,
     opcode: Opcode,
@@ -84,7 +84,7 @@ fn value(
     Ok(result)
 }
 
-fn load(
+pub(super) fn load(
     f: &Function,
     inst: Inst,
     base: IrValue,
@@ -106,7 +106,7 @@ fn load(
     Ok(result)
 }
 
-fn constant(f: &Function, inst: Inst, expected: i64) -> Result<IrValue, JitError> {
+pub(super) fn constant(f: &Function, inst: Inst, expected: i64) -> Result<IrValue, JitError> {
     let result = value(f, inst, Opcode::Iconst, &[], types::I64)?;
     let InstructionData::UnaryImm { imm, .. } = f.dfg.insts[inst] else {
         return Err(invalid());
@@ -117,7 +117,12 @@ fn constant(f: &Function, inst: Inst, expected: i64) -> Result<IrValue, JitError
     Ok(result)
 }
 
-fn compare(f: &Function, inst: Inst, cc: IntCC, args: [IrValue; 2]) -> Result<IrValue, JitError> {
+pub(super) fn compare(
+    f: &Function,
+    inst: Inst,
+    cc: IntCC,
+    args: [IrValue; 2],
+) -> Result<IrValue, JitError> {
     let result = value(f, inst, Opcode::Icmp, &args, types::I8)?;
     let InstructionData::IntCompare { cond, .. } = f.dfg.insts[inst] else {
         return Err(invalid());
@@ -128,7 +133,7 @@ fn compare(f: &Function, inst: Inst, cc: IntCC, args: [IrValue; 2]) -> Result<Ir
     Ok(result)
 }
 
-fn branch(
+pub(super) fn branch(
     f: &Function,
     inst: Inst,
     condition: IrValue,
