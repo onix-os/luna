@@ -5,6 +5,98 @@ use crate::{
     types::{ConstantIndex8, RegisterIndex, UpValueIndex},
 };
 
+fn symbols(operations: &[crate::opcode::Operation]) -> [(u32, &'static str, abi::HelperEntry); 10] {
+    use crate::opcode::{Operation, RCIndex};
+    let mut found = false;
+    for operation in operations {
+        if let Operation::GetUpTable { key, .. } = operation {
+            if matches!(key, RCIndex::Register(_)) {
+                return SYMBOLS;
+            }
+            found = true;
+        }
+    }
+    let mut symbols = SYMBOLS;
+    if found {
+        let symbol = symbols
+            .iter_mut()
+            .find(|symbol| symbol.0 == abi::HELPER_GET_UP_TABLE)
+            .unwrap();
+        *symbol = (
+            abi::HELPER_GET_UP_TABLE,
+            "luna_get_up_constant_v1",
+            call_constant,
+        );
+    }
+    symbols
+}
+
+unsafe extern "C" fn call_constant(
+    host: *mut abi::Host,
+    slots: *mut Slot,
+    a: u32,
+    b: u32,
+    c: u32,
+    pc: u32,
+) -> u32 {
+    if host.is_null() {
+        return abi::HELPER_DECLINED;
+    }
+    let data = unsafe { (*host).data };
+    let frame = unsafe { &mut *data.cast::<Frame<'_, '_, '_, '_>>() };
+    frame.count.calls += 1;
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        *frame.registers.pc = pc as usize + 1;
+        if let Some(projection) = frame.projection.as_deref_mut() {
+            projection
+                .flush(frame.ctx, frame.registers)
+                .expect("invalid pending projection");
+        }
+        let completed = {
+            let slots = unsafe { std::slice::from_raw_parts_mut(slots, frame.slot_count) };
+            let table = frame.upvalue(slots, b);
+            let key =
+                frame.closure.prototype().constants[(c & !abi::CONSTANT_OPERAND) as usize].into();
+            let completed = frame.table_read(slots, a, table, key);
+            frame.count.upvalue_reads += u64::from(completed);
+            completed
+        };
+        if let Some(projection) = frame.projection.as_deref_mut() {
+            projection
+                .refresh(frame.registers, frame.closure.upvalues())
+                .expect("invalid refreshed projection");
+        }
+        if !completed {
+            *frame.registers.pc = pc as usize;
+            return abi::HELPER_DECLINED;
+        }
+        *frame.registers.pc = pc as usize + 1;
+        abi::HELPER_COMPLETED
+    }));
+    match result {
+        Ok(abi::HELPER_COMPLETED) => {
+            frame.count.completed += 1;
+            abi::HELPER_COMPLETED
+        }
+        Ok(_) => {
+            frame.count.declined += 1;
+            abi::HELPER_DECLINED
+        }
+        Err(payload) => {
+            let slots = unsafe { std::slice::from_raw_parts_mut(slots, frame.slot_count) };
+            for (slot, dest) in slots
+                .iter()
+                .copied()
+                .zip(frame.registers.stack_frame.iter_mut())
+            {
+                slot.write_back(dest);
+            }
+            frame.panic = Some(payload);
+            abi::HELPER_PANICKED
+        }
+    }
+}
+
 fn read(key: RCIndex) -> Operation {
     Operation::GetUpTable {
         dest: RegisterIndex(0),
