@@ -179,7 +179,10 @@ jit-bench-run:
 jit-bench: jit-bench-build
 	@$(MAKE) --no-print-directory jit-bench-run
 
-.PHONY: jit-pgo-pilot
+.PHONY: jit-pgo-pilot jit-pgo-script-check
+jit-pgo-script-check:
+	@bash -n examples/jit_support/pgo_pilot.sh
+
 jit-pgo-pilot:
 	@bash examples/jit_support/pgo_pilot.sh '$(PGO_DIR)'
 
