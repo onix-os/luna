@@ -11,6 +11,65 @@
 
 ### Progress snapshot — 2026-10-10
 
+#### Inline Nil payload binding — measured and reverted (2026-10-10)
+
+`28e9f9a` handles Nil in the typed inline binding match alongside Integer and
+Number. Only Boolean/reference binding remains outlined. The previous profile
+recorded 64,921 entry Nil fallback calls; this trial targets those without
+changing canonical representation, descriptor lifetime, bounds or dispatch
+selection. The existing 169-transition reference fixture remains unchanged.
+
+GNU format/check-all/payload **52 / three summaries** and musl helper/payload
+**64 / four** pass. Pinned Miri Stacked seed 37 and Tree seed 38 each pass
+**19 ABI payload tests**; unchanged backend IR Miri tests were not rerun in
+this trial. Native backend/runtime behavior is covered by GNU/musl tests.
+Frozen candidate `ced09d72` completes ten profiles. Repeated ordinary-profile/
+vgdb call arcs confirm all **64,921 entry fallback calls disappear**; the
+remaining **64,836** calls originate in helper 6. Callback total instructions
+fall **1,557,605** to **131,843,916**, including wrapper -324,461, fallback
+-1,038,396, materialization -259,584 and helper 6 +64,836. Generated native
+instructions and memory groups are unchanged. All preceding candidate
+non-timing fields match. Closure total falls 197,155, but unchanged admission
+iteration falls 209,136, so the entire decrease cannot be attributed to this
+change. Closure Off varies by 242 allocator instructions; scalar Off totals
+remain unchanged. Historical strict comparison retains the inherited callback
+snapshot-peak failure (10,705 versus 11,141 bytes).
+
+Four four-way native screens complete **96 commands**, all failing the original
+aggregate gates: two ordinary-control and two direct predecessor-control
+screens. Ordinary/candidate callback ratios are **0.957933 / 0.955545** on
+CPU 0 and **0.960503 / 0.963161** on CPU 16. Direct predecessor/candidate
+callback ratios are **0.978852 / 0.984648** on CPU 0 and
+**0.989381 / 0.985087** on CPU 16 (above 1 is faster). CPU 0 allocation also
+regresses directly, at **0.970395 / 0.977533**. Favorable CPU 16 closure
+ratios **1.077334 / 1.027062** and all other results are retained; they do not
+excuse repeated callback losses. Direct candidate non-timing fields all match.
+Workloads, thresholds, eleven paired samples, three windows, CPU affinity,
+four-way controls and contention telemetry are unchanged. No other owned work
+overlaps hardware timing.
+
+Both release activation and the test-only Nil-inlining change are withdrawn.
+Revert commit `68076a6` restores source exactly to `ac11c41`; the existing
+reference fixture remains. Restored ordinary image is byte-identical to
+`dab0490e`; full GNU Force passes **1,576 / 88 summaries** with six existing
+ignores; focused musl passes **122 / seven** without ignores. Format/check-all
+and source manifests pass.
+The lower instruction count is not accepted as a substitute for timing.
+Evidence: `target/jit-evidence/short-slice-performance/payload-inline-nil/`,
+`payload-inline-nil-{candidate,profile,native-vgdb,invoke-attribution}/`,
+`payload-inline-nil-screen-{1,2}*` and
+`payload-inline-nil-vs-previous-screen-{1,2}*`.
+
+Fresh exact-image materialization attribution explains the preceding numeric
+split's cost: all **64,896** observed `write_scalar` calls take the Integer arm,
+but it grows from **24 to 33 executed instructions per call**. The outlined
+non-numeric arms add saved registers and a merged descriptor-store epilogue
+even though those arms are not called here. Both exclusive totals and every
+decoded executed PC verify against frozen images. Separating post-store typed
+binding from entry-optimized binding is the next source-grounded candidate;
+simply moving entry Nil handling inline has already failed timing.
+Evidence: `payload-materialization-attribution/` under the same evidence root.
+
 #### Numeric payload binding — test-only (2026-10-10)
 
 `ac11c41` keeps typed integer/number descriptor binding inline and outlines
