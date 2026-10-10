@@ -13,6 +13,9 @@ use thiserror::Error;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod callback_setup;
+
 use crate::{
     closure::{UpValue, UpValueState},
     fuel::count_fuel,
@@ -1074,8 +1077,108 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
         Ok(())
     }
 
+    #[cfg(test)]
+    #[inline(always)]
+    fn try_callback_call(
+        &mut self,
+        func: RegisterIndex,
+        args: VarCount,
+        returns: VarCount,
+    ) -> bool {
+        if self.state.frames.len() >= self.state.max_call_depth {
+            return false;
+        }
+        let Some(count) = args.to_constant() else {
+            return false;
+        };
+        let Some(Frame::Lua {
+            base,
+            is_variable: false,
+            expected_return,
+            ..
+        }) = self.state.frames.last_mut()
+        else {
+            return false;
+        };
+        let Some(start) = base.checked_add(usize::from(func.0)) else {
+            return false;
+        };
+        let Some(Value::Function(Function::Callback(callback))) = self.stack.get(start).copied()
+        else {
+            return false;
+        };
+        let Some(end) = start.checked_add(usize::from(count) + 1) else {
+            return false;
+        };
+        if end > self.stack.len() {
+            return false;
+        }
+        self.fuel.consume(Self::FUEL_PER_CALL);
+        *expected_return = Some(LuaReturn::Normal(returns));
+        self.fuel.consume(i32::from(count) * Self::FUEL_PER_ITEM);
+        self.stack.copy_within(start + 1..end, start);
+        self.stack.truncate(end - 1);
+        self.state.frames.push(Frame::Callback {
+            bottom: start,
+            callback,
+        });
+        true
+    }
+
     /// Call the function at the given register with the given arguments. On return, results will be
     /// placed starting at the function register.
+    #[cfg(test)]
+    fn call_function_common(
+        mut self,
+        ctx: Context<'gc>,
+        func: RegisterIndex,
+        args: VarCount,
+        returns: VarCount,
+    ) -> Result<(), VMError> {
+        let Some(Frame::Lua {
+            expected_return,
+            is_variable,
+            base,
+            ..
+        }) = self.state.frames.last_mut()
+        else {
+            panic!("top frame is not lua frame");
+        };
+        if *is_variable != args.is_variable() {
+            return Err(VMError::ExpectedVariableStack(args.is_variable()));
+        }
+        self.fuel.consume(Self::FUEL_PER_CALL);
+        let function_index = *base + func.0 as usize;
+        let arg_count = args
+            .to_constant()
+            .map(|c| c as usize)
+            .unwrap_or(self.stack.len() - function_index - 1);
+        let call = match self.stack[function_index] {
+            Value::Function(Function::Callback(callback)) => Function::Callback(callback),
+            value => meta_ops::call(ctx, value)?,
+        };
+        *expected_return = Some(LuaReturn::Normal(returns));
+        self.fuel
+            .consume(count_fuel(Self::FUEL_PER_ITEM, arg_count));
+        self.stack.copy_within(
+            function_index + 1..function_index + 1 + arg_count,
+            function_index,
+        );
+        self.stack.truncate(function_index + arg_count);
+        match call {
+            Function::Callback(callback) if self.state.frames.len() < self.state.max_call_depth => {
+                self.state.frames.push(Frame::Callback {
+                    bottom: function_index,
+                    callback,
+                });
+            }
+            call => self.state.push_call(&mut self.stack, function_index, call),
+        }
+        Ok(())
+    }
+
+    /// Call the function at the given register with the given arguments.
+    /// Results replace the function register on return.
     pub(super) fn call_function(
         mut self,
         ctx: Context<'gc>,

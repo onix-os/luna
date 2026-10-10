@@ -11,6 +11,193 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Callback call setup — test-only (2026-10-10)
+
+Exact callback attribution finds 65,000 `LuaFrame::call_function` entries at
+111 self instructions each (7,215,000 total), in addition to general call
+resolution and frame dispatch. The first path admits only an actual Rust callback,
+fixed arguments, a fixed caller stack, a complete argument span and available
+call depth. It performs the existing call/item fuel charges, return expectation,
+argument movement and physical callback-frame push without general resolution
+or closure-frame setup. It does not execute user code, elide the callback frame,
+retain borrowed pointers or move any suspension/hook boundary. Refusals have no
+effects and use the unchanged general call body.
+
+Independent baseline model `6c02f07` compares 927 physical-state scenarios per
+feature lane: all fixed counts 0–254, variable arguments, invalid spans, depth
+limits, fuel saturation/interruption, noncallbacks, reference identities and NaN
+bits. Candidate tests keep their oracle on the original general body rather
+than the new dispatcher. Formatting/check-all and 158 focused executions across
+21 summaries pass, including callback, mode, native, error and suspension checks.
+The initial model's ambiguous integer type error and corrected retry are retained.
+Ten exact profiles retain all five full non-timing records. Callback work falls
+**133,593,180 -> 130,213,180 (2.53007%)**, removing general `push_call` and
+`meta_ops::call` but adding an outlined argument-copy helper. Closure Off instead
+grows **213,407,295 -> 219,127,295 (2.68032%)** from the duplicate setup wrapper.
+Numeric Off profiles are unchanged. Reject this form before hardware timing.
+
+The refinement keeps a single original validation/fuel/argument prelude, resolves
+actual callback values directly and inserts physical callback frames below the
+depth limit. Other values retain generic resolution; depth failure retains
+generic `push_call`. Fixed and variable arguments use the original common copy
+and fuel logic. The unchanged general body and first admission prototype remain
+test-only. Each model scenario now compares both that prototype and the real
+public method against the original body, rather than comparing the new dispatcher
+to itself. The same 158 focused executions pass. Ten refined profiles preserve
+all five full non-timing records. Callback Auto falls to **129,953,180
+instructions (2.72469% below control)**; closure Off grows 0.30470%, including
+650,000 extra call-setup instructions. Numeric Off profiles remain unchanged.
+
+Two additional exact-image callback Off profiles expose the shared-work issue:
+Off falls **102,871,353 -> 99,231,353**, exactly the same **3,640,000 instructions**
+removed from Auto. Its full non-timing comparison matches. The Auto-minus-Off
+gap remains **30,721,827 instructions** in both images. This is not a measured
+elapsed regression, but it disproves removal of incremental native work by this
+mechanism. Reject both production forms before hardware/cost campaigns; the
+original call body is restored and both alternatives remain test-only.
+
+The control's native entry/marshaling adds 20,233,235 self instructions; generated
+code adds 9,468,103, helper table reads 4,862,700, helper entry 4,733,028 and lookup
+3,513,539. These are not independent net overhead totals: Auto also removes
+10,865,850 VM instructions and 5,511,060 generic index instructions, among other
+differences. Future native-regression candidates must separate shared savings
+from incremental JIT savings before broad timing campaigns. Instruction counts
+still do not replace elapsed acceptance gates.
+
+This round completes 22 profiles; no new hardware timing, feature-cost, Miri or
+full-platform acceptance is claimed. Withdrawal passes formatting/check-all and
+158 focused executions across 21 summaries, zero ignored. The original production
+call body matches `b93df24`; the ordinary GNU opt3 rebuild succeeds with `.text`
+and `.rodata` byte-identical to the frozen control. A final oracle audit moves
+no-effect assertions outside the expected-panic catch and compares panic payload
+kind/message; failed test assertions cannot stand in for expected VM panics.
+Both feature-lane model executions pass again with formatting/check-all.
+Evidence: `callback-setup*`
+in the ignored performance directory.
+
+#### Rust integer argument conversion — withdrawn (2026-10-10)
+
+The exact callback control profile attributes 2,470,000 instructions to
+`i64::from_value`; its integer path still uses general numeric normalization.
+The new trial recognizes `Value::Integer` directly in the Rust integer
+conversion macro. All other values retain `to_integer`, and all twelve target
+types retain checked range conversion and the existing Lua-facing errors.
+This changes neither native coverage nor callback lifecycle/ABI contracts.
+
+Independent regression `73e16fd` compares all twelve types with the original
+coercion/range/error contract across signed and unsigned boundaries, float
+boundaries, signed zero, subnormals, infinities/NaNs, strings and nonnumbers.
+It passes unchanged production in all four feature/mode lanes (12 executions).
+The candidate passes formatting/check-all and 196 focused executions across
+22 summaries, including numeric semantics and callback/metamethod/tail-call
+contracts. Ten exact profiles preserve all five complete non-timing records.
+Callback instructions fall **133,593,180 -> 131,123,099 (1.84896%)**: conversion
+and normalization each remove 1,170,000, the wrapper removes 130,000, and 81
+are allocator variation. Disabled integer/float instruction totals are unchanged.
+
+Two screens complete 48 commands and 648 equal full non-timing comparisons.
+Callback Auto control/candidate ratios are CPU0 **1.01646 / 1.05688**, CPU16
+**1.02441 / 1.02455**. The first CPU0 window set includes a severe candidate
+outlier (0.44156); it remains recorded. Disabled float ratios are CPU0
+**0.98519 / 0.93096**, CPU16 **0.97899 / 0.97938**, against repeat placebos
+1.00458 / 1.00066. These losses prevent acceptance of the first form.
+
+A refinement separates general coercion/error classification into one outlined
+function and gives integer callers a small inline conversion with checked target
+range. The same 196 focused executions pass. Ten refined exact profiles retain
+all five full non-timing records; callback work falls to **129,823,099 (2.82206%
+below control)**, with all three Off profiles unchanged. Upvalue Auto increases
+0.18486%, not attributed to integer argument conversion.
+
+Two refined screens complete another 48 commands / 648 equal full comparisons.
+Callback Auto control/candidate ratios are CPU0 **1.08195 / 1.08414**, CPU16
+**1.03400 / 1.04013**. Disabled float remains slower: CPU0 **0.96999 / 0.94237**,
+CPU16 **0.98081 / 0.98022**. All 96 aggregate native commands across both forms
+fail, including controls. No owned builds/tests/profiles overlap timing.
+
+Baseline/full GNU Auto/doc validation passes **1,998 executions / 178 summaries**,
+ten ignored. The refined speed/shipping cost campaign completes **96 commands**,
+all aggregate gates failing including controls. All **576 native instruction
+proof comparisons** match; these cost proofs are narrower than the native
+screens' full-record comparisons. Both no-feature executables differ, and both
+baselines remain measured. Four rotating windows/CPU, eleven samples, twenty
+iterations, unchanged nine cases and the original 1.05 gate remain intact.
+
+Cost callback control/candidate ratios improve: speed CPU0 **1.04847 / 1.05423**,
+CPU16 **1.05835 / 1.05097**; shipping CPU0 **1.02112 / 1.03045**, CPU16
+**1.11260 / 1.06885**. However, shipping CPU16 integer falls to **0.87915 /
+0.88978**, float to **0.90890 / 0.89969**, and table to **0.90951 / 0.93428**.
+Speed float also loses roughly 2–4%. Numeric/table cases still pass the original
+no-feature overhead gate: direct historical losses are not mislabeled as gate
+failures. Speed CPU0 metamethod instead newly fails all four windows in both
+rounds, as its no-feature baseline improves while compiled-Off barely changes.
+Total candidate case failures fall to 24/144 and 25/144 versus control 33/144
+and 31/144; aggregate counts do not cancel the individual regressions.
+
+Both production forms (`a603603`, `c1a0a9a`) are withdrawn. Preserve the independent
+conversion regression and Make target, not the runtime fast path or outlined
+coercion. All source patches, images, profiles, adverse samples and telemetry
+remain under `integer-conversion*` in the ignored performance directory.
+No owned build/test/profile overlaps hardware timing. Withdrawal passes
+formatting/check-all and the same 196 focused executions. The ordinary GNU opt3
+rebuild succeeds; `.text` and `.rodata` match the frozen control byte-for-byte.
+Production source matches `f6b9d3d`. No performance, musl, Force-wide or release
+acceptance is claimed.
+
+#### Canonical-only helper entries — test-only (2026-10-10)
+
+The measured trial selected a distinct canonical helper table for ordinary
+compilation; projected and scoped compilation retained their existing tables. The shared
+helper body specializes projection handling at compile time rather than testing
+it before and after every ordinary operation. Code layout, scratch transport,
+PC-before-effects, null-host decline, unwind capture, panic materialization,
+effect counters and native coverage remain unchanged. Canonical entries use
+private v5 names (fixed-list v2) with unchanged name lengths; general projected
+entries keep v4/fixed-list v1. No new host allocation or GC-pointer export is
+introduced. The canonical host requirement is checked in debug builds inside
+the existing unwind boundary.
+
+The new canonical test scope reruns fourteen independent helper fixtures,
+including every value kind, current-frame aliases, weak/metatable guards,
+partial list writes, bounds, panic PC and scalar publication. General-entry
+tests remain separate. Both symbol tables retain unique names, identical kind
+coverage and null-host refusal. Initial focused checks pass 90 executions;
+final symbol/fixed-list/backend checks pass 21. Twelve helper tests pass each
+Miri borrow model, seeds 27/28; 31 warnings per run remain recorded. These
+counts include overlapping test executions, not full platform certification.
+
+Ten exact-image profiles pass strict full execution/resource comparisons.
+Callback work falls **133,593,180 -> 133,074,411 instructions (0.38832%)**:
+the ordinary helper contributes 518,688 fewer instructions, with the remaining
+81 in allocator variation. The bridge itself remains at 20,233,235 instructions.
+Upvalue Auto work increases 0.11785%; all three Off profiles retain identical
+instruction totals. Relocated anonymous/native symbols are not counted as
+removed work. These instruction counts alone do not establish elapsed savings.
+
+Two full native screens complete 48 commands, all aggregate gates failing
+including controls, with **648 equal full non-timing comparisons**. Frozen
+thresholds, nine workloads, eleven samples, CPU0/16, common invocation paths,
+controls/placebos and contention telemetry remain unchanged. No owned
+build/test/profile/source edit overlaps timing.
+
+Control time / candidate time for callbacks is CPU0 **0.93238 / 0.94015** and
+CPU16 **1.00996 / 1.01709**, first / repeat. All twelve candidate callback gates
+fail; the targeted CPU0 path is materially worse. Disabled float also falls
+to CPU0 **0.89488 / 0.92238**, CPU16 **0.98225 / 0.98406**. Upvalue gains of
+roughly 1–4% and favorable allocation/table samples do not erase those losses.
+
+Production integration in `7afb9df` is withdrawn before a shipping/full-platform
+campaign. Canonical entries and their differential fixtures remain `cfg(test)`;
+the original production helper body, table selection and diagnostic names are
+restored. Withdrawal validation passes 64 focused executions across six test
+summaries, with zero ignored tests, plus formatting/check-all and the ordinary
+GNU opt3 release rebuild. Restored `.text` and `.rodata` match the frozen control
+byte-for-byte; the complete binary hash differs, so this is not full-image
+identity. The ordinary GNU opt3 candidate, source patch, symbol companions,
+all profiles and complete timing analyses remain frozen under `canonical-helper*`
+in the ignored performance evidence directory. No performance or release
+acceptance is claimed.
+
 #### Ordinary entry stack outlining — measured and withdrawn (2026-10-10)
 
 The callback profile attributes 20,233,235 instructions to the seven-register

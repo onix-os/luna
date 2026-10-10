@@ -571,7 +571,11 @@ vm-upvalue-returns:
 vm-upvalue-returns-miri:
 	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' thread::thread::tests -- --test-threads=1
 
-.PHONY: vm-call-resolution vm-callback-outcomes-miri
+.PHONY: vm-call-resolution vm-callback-outcomes-miri vm-callback-setup
+vm-callback-setup:
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) thread::thread::callback_setup:: $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::thread::callback_setup:: $(ARGS)
+
 .PHONY: jit-helper-counts jit-helper-counts-miri
 jit-helper-counts:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helper_counts:: $(ARGS)
@@ -1358,6 +1362,13 @@ vm-constants-memcheck:
 	@test "$$(wc -l < '$(VM_CONSTANTS_DIR)/binary-path')" -eq 1
 	@for mode in off auto force; do \
 		LUNA_TEST_JIT_MODE=$$mode valgrind --tool=memcheck --error-exitcode=99 --leak-check=full --show-leak-kinds=all --errors-for-leak-kinds=definite,indirect "$$(cat '$(VM_CONSTANTS_DIR)/binary-path')" --test-threads=1 > '$(VM_CONSTANTS_DIR)'/$$mode.log 2>&1 || exit $$?; \
+	done
+
+.PHONY: integer-conversions
+integer-conversions:
+	@$(CARGO) test --locked -p luna --no-default-features --test conversion $(TARGET_ARG)
+	@for mode in off auto force; do \
+		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test conversion $(TARGET_ARG) || exit $$?; \
 	done
 
 numeric-conversions:
