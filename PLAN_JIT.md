@@ -11,6 +11,101 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Callback suffix consumption — performance trial, 2026-10-10
+
+`Stack::consume` now uses an owning suffix iterator rather than the public,
+general range `Drain`. It retains the exclusive stack borrow during conversion,
+counts exhausted argument pulls, and truncates the original suffix on success,
+error or panic. Public signatures, general draining, GC roots, prefix values,
+capacity, callback routing and all JIT counters remain unchanged.
+
+Five independent fixtures first pass with and without JIT on the unchanged
+implementation (`4e1414a`). They cover unread tails, zero/missing/type errors,
+panic payload and lock release, lock exclusion during conversion and invalid
+substack refusal without mutation. The trial passes formatting/check-all,
+47 focused GNU executions, ten musl executions and five in each Miri model.
+
+Fourteen exact-image native profiles preserve all 13 event sums and seven
+complete non-timing records. Callback work falls 1.60562%: the callback body
+loses 975,000 instructions and general Drain destruction loses 1,170,000,
+totalling 33 per 65,000 measured callbacks. Other admission/allocator changes
+remain recorded and are not attributed to consumption. This is instruction
+evidence only. Full GNU Force passes 1,497 executions (88 summaries, six ignored),
+musl passes 47 and each Miri model passes five. Candidate native rebuild matches
+the profiled image exactly; source manifests verify. Fresh speed/shipping
+controls are captured from exact pretrial source `4e1414a`, then candidate source
+is restored exactly to `645839c`. Ten additional i686-musl checks pass in the
+fallback shell; an initial i686-GNU attempt failed for missing target standard
+libraries before tests and is not counted as passing.
+
+The first 30-native/128-cost timing campaign finishes with every aggregate gate
+failing. All 108 native and 144 cost-native full-record comparisons match;
+source and artifact manifests verify. Native CPU16 callbacks improve in all
+three windows (fresh/candidate median 1.03072); CPU0 is mixed (0.99970).
+CPU0 upvalue, metamethod and allocation are adverse in all three windows, while
+CPU16 upvalue improves in all three. Callback compiled-Off medians improve in
+both profiles and CPUs, alongside gains in the no-feature binaries. There are
+also adverse non-callback cost samples and a new speed CPU16 cold gate failure.
+Keep all observations; instruction savings do not establish overall acceptance.
+A second unchanged full campaign is required before a retention decision.
+Evidence is under `suffix-consume*` in the short-slice directory.
+
+#### Owned panic payload — withdrawn after timing
+
+The trial moved the completed ordinary helper frame's panic option instead of
+taking it immediately before destruction. Materialization, PC/counter
+publication, manager release and original payload resumption retain their
+order. The existing helper payload-identity regression used the same owned
+extraction during the trial; all its assertions remain.
+
+Formatting/check-all, 45 initial ABI/native/heap checks, 11 helper checks,
+1,492 GNU Force executions (88 summaries, six ignored), 56 musl checks and
+11 helper checks in each Miri model pass. Fourteen exact-image native profiles
+retain all 13 event totals and seven complete non-timing records. Callback
+invocation self work falls 20,233,235 to 19,908,990: five instructions per
+successful profiled entry. Whole callback work falls 0.24%; upvalue work instead
+rises 0.085%, including admission/allocator differences preserved in the logs.
+
+All captured release builds finish and source manifests verify. The native
+image is byte-identical before/after the test-only extraction update; both
+no-feature cost images match the immutable controls. All 30 native and 128 cost
+aggregate timing gates fail, with all 108 native and 144 cost-native full-record
+comparisons equal. Native elapsed results are mixed. Shipping Off integer/float
+fresh/candidate median ratios are 0.90965/0.90272 on CPU0 and 0.87999/0.89849 on
+CPU16; all four paired windows are adverse on both CPUs. Speed float improves,
+but that does not offset the repeated shipping losses. Contention outliers and
+all controls remain in the evidence.
+
+The subsequent 80 exact-image disabled-path profiles finish successfully.
+Executed VM mnemonic counts are unchanged across both profiles and CPUs;
+integer/float total instruction counts are also unchanged. This does not
+establish the hardware cause of the elapsed slowdown. The production change
+and matching test-only extraction are withdrawn. Restoration passes formatting,
+all-feature checking and 1,492 GNU Force executions (88 summaries, six ignored).
+All five rebuilt native/speed/shipping images are byte-identical to the saved
+controls, source manifests verify, and source/tests/Make match `75875ea`.
+The first restoration attempt stopped at the source guard on an indentation
+mismatch before tests; corrected verification exits zero in a separate evidence
+directory. No accepted performance improvement is claimed. Evidence is under
+`panic-payload-move*` in the short-slice performance directory.
+
+#### Alternate scalar tags — model rejects integration
+
+A test-only seven-register import probe compares the existing 0–4 tags with
+2–6 tags using typed Rust matching, without changing `Value` layout or the live
+ABI. Two tests pass each on GNU, musl, both Miri alias models and an optimized
+release build. Fixtures cover every Value kind and 1,024 generated numeric bit
+patterns. `make jit-tag-encoding-codegen` retains both import symbols and their
+assembly; this is a code-generation diagnostic, not a benchmark build.
+
+The alternate encoding retains discriminant normalization and introduces an
+indirect numeric dispatch: the first numeric import path takes 17 instructions
+through the output stores versus 12 in the original model. It does not satisfy
+the prerequisite for integration. Keep the independent probe, but do not change
+production tags or run a timing campaign for this encoding. Live ABI validity,
+nil constants, positional masks and all runtime behavior remain unchanged.
+Evidence: `tag-encoding-model/` in the short-slice performance directory.
+
 #### Numeric import prefix — rejected before hardware timing
 
 Exact restored callback profiling attributes 20,233,235 instructions to the
