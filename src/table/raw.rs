@@ -424,9 +424,10 @@ impl<'gc> RawTable<'gc> {
             while self
                 .map
                 .raw_entry()
-                .from_hash(hasher().hash_one(CanonicalKey::Integer(max)), |k| {
-                    k.eq(CanonicalKey::Integer(max))
-                })
+                .from_hash(
+                    hasher().hash_one(CanonicalKey::<String<'gc>>::Integer(max)),
+                    |k| k.eq(CanonicalKey::Integer(max)),
+                )
                 .is_some_and(|(_, v)| !v.0.is_empty(mc))
             {
                 if max == i64::MAX {
@@ -444,12 +445,10 @@ impl<'gc> RawTable<'gc> {
 
             // We have found a max where table[max] == nil, so we can now binary search
             binary_search(min, max, |i| {
-                match self
-                    .map
-                    .raw_entry()
-                    .from_hash(hasher().hash_one(CanonicalKey::Integer(i)), |k| {
-                        k.eq(CanonicalKey::Integer(i))
-                    }) {
+                match self.map.raw_entry().from_hash(
+                    hasher().hash_one(CanonicalKey::<String<'gc>>::Integer(i)),
+                    |k| k.eq(CanonicalKey::Integer(i)),
+                ) {
                     Some((_, v)) => v.0.is_empty(mc),
                     None => true,
                 }
@@ -637,11 +636,11 @@ impl<'gc> RawTable<'gc> {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Collect)]
 #[collect(no_drop)]
-enum CanonicalKey<'gc> {
+enum CanonicalKey<'gc, S = String<'gc>> {
     Boolean(bool),
     Integer(i64),
     Number(u64),
-    String(String<'gc>),
+    String(S),
     Table(Table<'gc>),
     Closure(Closure<'gc>),
     Callback(Callback<'gc>),
@@ -1080,3 +1079,6 @@ impl<'gc> Key<'gc> {
         }
     }
 }
+
+#[cfg(test)]
+mod key_hash_tests;

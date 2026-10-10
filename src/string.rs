@@ -455,3 +455,6 @@ mod tests {
         });
     }
 }
+
+#[cfg(test)]
+mod key_hash_tests;
