@@ -49,6 +49,24 @@ required to evaluate that setup; earlier measurements remain immutable evidence.
 Follow-up artifacts: `pgo-heldout-1-capture/`, `pgo-heldout-1-profile/`,
 `pgo-heldout-2*` and `pgo-probe/`.
 
+**Shared-directory confirmation:** pilot3 passes 126 training and 126
+profile-use executions with the same nonzero region coverage. Two screens
+complete 48 checked commands; all aggregate gates still fail, and all 648
+complete non-timing comparisons match. All twelve candidate upvalue checks
+pass. Array fails three of six checks in each screen; callbacks and metamethods
+fail all six in each. Fresh-control/candidate Auto upvalue medians are
+1.18487/1.18111 on CPU0 and 1.18829/1.18258 on CPU16 (first/repeat).
+Callback medians are 1.15182/1.16862 and 1.14643/1.14031. Compiled-Off float
+medians remain adverse: 0.98520/0.97182 and 0.94386/0.94420.
+
+The directory root is now shared, but Cargo still changes the generated
+Cranelift output-directory hash between compiler-flag sets; embedded paths are
+not identical. This is an observed artifact comparison, not a claim that all
+path/layout effects are isolated. Keep the pilot experimental, without default
+flags or ordinary downstream performance acceptance. Evidence: `pgo-heldout-3*`
+and `pgo-probe/pilot-3-*`; source/image/profile verification succeeds before
+documentation changes and no owned work overlaps timing.
+
 `c2c9934` adds an isolated `pgo` Nix shell and `make jit-pgo-pilot`.
 Run it with `nix develop .#pgo -c make jit-pgo-pilot PGO_DIR=<new-directory>`.
 Existing directories are refused. Default shells, runtime source, Cargo release
