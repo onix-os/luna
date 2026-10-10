@@ -257,6 +257,8 @@ The restored opt3 image's `.text` and `.rodata` are byte-identical to the frozen
 control (`payload-withdrawal-image`); this is not a whole-image identity claim.
 The retained test-only fanout fix passes 31 focused GNU/musl tests, including
 every register count and the 80 whole-runtime schedules.
+Both Miri borrow models pass 20 model/IR tests (seeds 25/26), excluding machine
+code. Withdrawal logs are retained under `payload-withdrawal-*`.
 
 #### Sign-directed checked jump arithmetic — withdrawn (2026-10-10)
 

@@ -61,6 +61,35 @@ fn counters(s: JitStats) -> [u64; 25] {
 }
 
 #[test]
+fn payload_nil_fanout_preserves_every_register_prefix() {
+    for registers in 1u16..=256 {
+        let names = (0..registers - 1)
+            .map(|index| format!("r{index}"))
+            .collect::<std::vec::Vec<_>>();
+        let script = if names.is_empty() {
+            "return 'anchored'".to_owned()
+        } else {
+            format!("local {} return 'anchored'", names.join(","))
+        };
+        let mut lua = Lua::empty();
+        lua.set_jit_config(JitConfig {
+            mode: JitMode::Auto,
+            hot_threshold: 1,
+            ..Default::default()
+        })
+        .unwrap();
+        lua.enter(|ctx| ctx.jit().0.borrow_mut().memory_failure = backend::Failure::RequirePayload);
+        let executor = source(&mut lua, &script);
+        assert_eq!(lua.prepare_jit().unwrap(), 1);
+        assert_eq!(lua.execute::<String>(&executor).unwrap(), "anchored");
+        lua.gc_collect();
+        assert!(lua.jit_stats().native_instructions >= if registers == 1 { 1 } else { 2 });
+        lua.clear_jit_cache();
+        assert_eq!(lua.jit_stats().code_bytes, 0);
+    }
+}
+
+#[test]
 fn payload_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
     for (script, expected, arrays) in [
         ("local s=0 for i=1,120 do s=s+i end return s", 7260, false),
