@@ -95,6 +95,35 @@ constructor's capacities, buckets, contents, weak conversion, growth and
 allocation/deallocation accounting. Its own correctness, instruction and
 hardware evidence is required before treating it as a regression fix.
 
+#### Zero-capacity map construction — candidate
+
+`41e997a` implements that separate constructor trial atop seeded inline hashes.
+The original constructor remains an independent test oracle. Twenty-five
+array/map-capacity combinations cover zero and positive sizes, insertion,
+removal, reinsertion, growth, weak conversion and exact allocation/deallocation
+charges. GNU focused checks pass **24 executions / six summaries**, real
+i686-musl **24 / six**, and focused x86_64-musl **73 / eleven**, none ignored.
+The first fixture failed to compile because Value has no PartialEq and length
+requires a mutation context; the corrected fixture checks scalar variants
+explicitly. The failure log is retained. Full all-feature Off plus baseline/docs
+passes **2,035 / 175**, eight ignored. Full Force passes **1,586 / 88**, six
+ignored. Stacked Miri seed 57 passes its constructor differential; Tree seed 58
+is still running at this checkpoint.
+
+Frozen image **`16d329fb`** completes eighteen exact-image profiles. Against
+seeded-hash `816c067a`, allocation Off removes **520,000 instructions** in both
+VM-step and whole-execution scopes: capacity setup falls 572,000 while the
+constructor adds 52,000. Auto VM-step falls **31,131,042 → 30,638,690**, including
+27,648 additional enqueue instructions; whole-execution falls
+**56,677,873 → 56,157,837**, with minor compiler/trace-symbol variation retained.
+Against rooted `3d0dc224`, callback Auto's **1,495,081** reduction remains.
+Closure Auto adds 51,440 (admission +52,284 with allocator variation); closure,
+integer and float Off instruction totals remain identical. Non-timing fields
+and source/image hashes match throughout. This is not hardware acceptance;
+four repeated rooted-control screens are prepared but have not started.
+Fresh shipping/speed feature-cost artifacts are also being built.
+Evidence prefix: `target/jit-evidence/short-slice-performance/empty-map-capacity*`.
+
 #### Compile-time constant upvalue-table keys — withdrawn
 
 `e79c724` selects an alternate GetUpTable helper import only when a compilation
