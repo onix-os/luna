@@ -11,6 +11,49 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### PGO training mix and numeric-path attribution — still experimental (2026-10-10)
+
+An audit of all 15 pilot3 raw profiles confirms that `jit_native` and `jit_regions`
+choose their own modes rather than reading `LUNA_TEST_JIT_MODE`. All sixteen
+VM/executor/native-entry summary records agree across each suite's three runs.
+This is not a claim that entire raw profiles are identical. `d56d1aa` runs these
+self-configuring suites once during training, while scripts/callback/metamethods
+retain Off/Auto/Force training. All profile-use correctness checks remain intact.
+The configuration log records the split; frozen benchmarks remain held out.
+
+Fresh pilot4 passes 89 training and 129 profile-use test executions, none ignored,
+and merges eleven raw profiles. All fourteen ordinary entry families remain
+nonzero; region/rooted block totals are 553,844/211,860. Two original nine-case
+screens complete 48 commands, all aggregate gates failing, with 648 matching
+full non-timing comparisons. Upvalue gates pass 11/12; arrays fail 3/6 in each
+screen, and callbacks/metamethods fail all twelve. Auto upvalue control/candidate
+medians are 1.19272/1.20002 on CPU0 and 1.15696/1.15651 on CPU16 (first/repeat).
+Callbacks are 1.17770/1.18236 and 1.13484/1.12927. Off float instead regresses:
+CPU0 0.90264/0.89767 versus placebo 0.99165/0.98596; CPU16 0.94518/0.94199 versus
+placebo 1.00373/0.99986. Keep all contention and same-image variation. The new
+callback regression and differing generated build paths also prevent attributing
+cross-pilot differences solely to the weighting change.
+
+Exact-link recapture reproduces both timed binaries byte-for-byte. Ten profiles
+verify allocated bytes/metadata/program headers and all five full non-timing
+comparisons. Upvalue Auto/Off instructions fall 15.1023%/12.1808%, callbacks
+12.2421%; integer/float Off increase 1.9093%/1.7771%. Costs move across inlined
+functions, so individual disappearing symbols are not independent savings.
+
+Address-level float attribution finds VM self work rising 51,583,103 to
+52,688,194 instructions. Conditional branches rise 6,615,141 to 8,175,453 while
+conditional moves fall 804,505 to 24,414. Both images execute the same 520,169
+interpreted instructions across 8,138 slices. This identifies a concrete codegen
+difference, not a proven hardware-time cause. The installed LLVM exposes
+`disable-select-optimize` and `x86-cmov-converter`; an isolated select/branch
+conversion experiment is the next hypothesis, not an accepted compiler flag.
+
+No runtime/default release flags change, and the ordinary release binary remains
+byte-identical to the retained baseline. No owned work overlaps hardware timing.
+Evidence: `pgo-training-mix/` and `pgo-heldout-4*` under
+`target/jit-evidence/short-slice-performance/`. Full feature-cost, platform and
+release acceptance remain open.
+
 #### Static helper-effect publication — withdrawn (2026-10-10)
 
 The independent `f8e229a` model classifies verified helper effects and checks
