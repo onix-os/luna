@@ -11,7 +11,17 @@
 
 ### Progress snapshot — 2026-10-11
 
-#### Allocation-only isolation — candidate
+#### Hash/allocation experiments — runtime restored
+
+Neither the cached-hash variants nor allocation-only constructor satisfies the
+unchanged cross-workload gates. Restore all production string/table code to
+the pre-experiment rooted runtime, retaining the independent test models and
+all evidence. The following sections describe rejected experiments, not enabled
+optimizations. Full JIT acceptance remains open, including callback/metamethod
+and feature-cost gates. Verify restoration with a fresh exact-image build and
+correctness checks before claiming byte identity.
+
+#### Allocation-only isolation — withdrawn
 
 Withdraw the seeded inline-string hash runtime and shared-constructor hint.
 String construction/storage, the non-generic canonical key enum and every
@@ -64,6 +74,20 @@ constructor oracle must prove capacity, accounting and growth equivalence.
 Require additional instruction/code-path savings before hardware testing;
 do not use alternate constructor syntax merely to search code placements.
 Evidence prefix: `target/jit-evidence/short-slice-performance/allocation-only*`.
+
+`6d3e059` tests that reserve alternative. GNU focused checks pass **24 / six**,
+none ignored; formatting and check-all pass. Frozen image **`c40133cd`** runs
+eight exact allocation profiles with unchanged counters. Relative to the
+allocation-only branch, constructor self work **increases 78,000 instructions**
+in each mode/scope. Off totals add exactly 78,000; Auto step adds 84,299 with
+allocator variation and whole execution adds 78,139 with compilation variation.
+The constructor grows **0x24d → 0x265 bytes**, and a separate **0x713-byte**
+reserve/rehash specialization is emitted. This fails the mechanism prerequisite:
+withdraw it without hardware timing, rather than searching for a favorable
+layout despite worse work and code size. Restore the original constructor too;
+its conditional alternative already failed repeated cross-workload timing.
+All tests and frozen artifacts remain available. Evidence prefix:
+`target/jit-evidence/short-slice-performance/empty-map-reserve*`.
 
 #### Seeded inline-string table hashes — withdrawn
 
