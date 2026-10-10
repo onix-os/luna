@@ -26,16 +26,20 @@ export CARGO_PROFILE_RELEASE_STRIP=true
 export LUNA_BENCH_OPT_LEVEL=3
 export CARGO_INCREMENTAL=0
 export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
-printf 'target=%s\nfeatures=jit,async\nopt_level=3\nlto=true\ncodegen_units=1\nstrip=true\njobs=%s\ntraining=scripts,callback,metamethods,jit_native,jit_regions\nmodes=off,auto,force\nbenchmark_training=false\n' "$host" "$CARGO_BUILD_JOBS" > "$out/configuration.log"
+printf 'target=%s\nfeatures=jit,async\nopt_level=3\nlto=true\ncodegen_units=1\nstrip=true\njobs=%s\ntraining=scripts,callback,metamethods,jit_native,jit_regions\nmode_sensitive_training=scripts,callback,metamethods\nself_configuring_training=jit_native,jit_regions\nself_configuring_repetitions=1\nmodes=off,auto,force\nbenchmark_training=false\n' "$host" "$CARGO_BUILD_JOBS" > "$out/configuration.log"
 args=(--locked --release --target "$host" --features jit,async)
-tests=(--test scripts --test callback --test metamethods --test jit_native --test jit_regions)
+mode_tests=(--test scripts --test callback --test metamethods)
+native_tests=(--test jit_native --test jit_regions)
+tests=("${mode_tests[@]}" "${native_tests[@]}")
 export CARGO_TARGET_DIR="$out/build"
 export RUSTFLAGS="-Cprofile-generate=$out/raw"
 export LLVM_PROFILE_FILE="$out/raw/%m-%p.profraw"
 for mode in off auto force; do
     echo "PGO training: $mode"
-    LUNA_TEST_JIT_MODE=$mode cargo test "${args[@]}" "${tests[@]}" -- --test-threads=1 > "$out/train-$mode.log" 2>&1
+    LUNA_TEST_JIT_MODE=$mode cargo test "${args[@]}" "${mode_tests[@]}" -- --test-threads=1 > "$out/train-$mode.log" 2>&1
 done
+echo 'PGO training: self-configuring native suites'
+LUNA_TEST_JIT_MODE=off cargo test "${args[@]}" "${native_tests[@]}" -- --test-threads=1 > "$out/train-native.log" 2>&1
 raw=("$out/raw/"*.profraw)
 [[ -f ${raw[0]} ]]
 sha256sum "${raw[@]}" > "$out/raw.sha256"

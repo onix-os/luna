@@ -3661,6 +3661,51 @@ mod helper_flow_tests {
         ]
     }
 
+    #[test]
+    fn read_effect_classification_covers_every_helper_and_position() {
+        let allowed = [
+            true, true, false, true, false, true, false, true, false, false,
+        ];
+        assert_eq!(allowed.len(), helpers::SYMBOLS.len());
+        for (op, expected) in operations().into_iter().zip(allowed) {
+            for position in 0..8 {
+                let mut snapshot = Snapshot {
+                    operations: super::super::resources::owned(
+                        &[Operation::Return {
+                            start: R(0),
+                            count: VarCount::constant(0),
+                        }; 9],
+                    ),
+                    constants: super::super::resources::owned(&[
+                        Slot {
+                            tag: abi::INTEGER,
+                            bits: 42,
+                        },
+                        Slot {
+                            tag: abi::REFERENCE,
+                            bits: 0,
+                        },
+                    ]),
+                    registers: 4,
+                    upvalues: 1,
+                    prototypes: 0,
+                };
+                snapshot.operations[position] = op;
+                snapshot.verify().unwrap();
+                assert_eq!(
+                    super::super::helper_flow::read_effects_only(&snapshot),
+                    expected
+                );
+                snapshot.operations[7 - position] = Operation::SetUpValue {
+                    dest: U(0),
+                    source: R(0),
+                };
+                snapshot.verify().unwrap();
+                assert!(!super::super::helper_flow::read_effects_only(&snapshot));
+            }
+        }
+    }
+
     fn fixture(op: Operation, fault: Option<Fault>) -> Result<(), JitError> {
         let snapshot = Snapshot {
             operations: super::super::resources::owned(&[

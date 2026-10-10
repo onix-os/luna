@@ -666,3 +666,19 @@ fn no_stores(function: &Function, block: Block) -> Result<(), JitError> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+pub(super) fn read_effects_only(snapshot: &Snapshot) -> bool {
+    snapshot.operations.iter().all(|&op| {
+        expected(op, snapshot).is_none_or(|(kind, _)| {
+            matches!(
+                kind,
+                abi::HELPER_MOVE
+                    | abi::HELPER_CONSTANT
+                    | abi::HELPER_GET_TABLE
+                    | abi::HELPER_GET_UP_TABLE
+                    | abi::HELPER_GET_UPVALUE
+            )
+        })
+    })
+}

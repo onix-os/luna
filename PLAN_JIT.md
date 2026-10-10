@@ -11,6 +11,201 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Interpreter-profile exclusion — numeric gain, callback cost (2026-10-10)
+
+An isolated profile-use experiment removes only the `run_vm_slice` record from
+pilot4's merged profile using the installed LLVM 22.1.6 `llvm-profdata merge
+--no-function` filter. All original training data remain intact. Comparing
+serialized profiles proves that exactly one record, hash 583356077739729873
+with 1,360 counters, was removed; every other record and value-profile target
+is byte-identical. The filtered profile contains 12,044 functions and unchanged
+region/rooted coverage. Profile summaries also change, so generated-code effects
+need not be confined to that function. This is a diagnostic ablation, not an
+accepted training policy. The [LLVM profdata reference](https://llvm.org/docs/CommandGuide/llvm-profdata.html)
+documents the filter; installed-tool output and exact record comparison establish
+what this experiment actually removed.
+
+The ordinary PGO flags, original PGO control and shared build root remain;
+none of the branch-conversion switches are used. All 129 correctness executions
+pass. Build diagnostics contain exactly one additional missing-profile warning
+for the expected VM hash (262 total); the other 261 warnings match and no profile
+hash mismatch is reported. Ten exact-image profiles verify five equal full
+non-timing comparisons. Integer/float Off instruction totals fall
+50,343,020 to 48,539,387 and 53,987,661 to 51,924,548 (3.58269%/3.82145%). Float VM
+self work falls 52,688,194 to 50,624,522, conditional branches 8,175,453 to
+7,135,128, while cmovs rise 24,414 to 284,492. Upvalue Auto/Off instead add
+0.12706%/0.20829%; callbacks add 1.86207%.
+
+Two unchanged nine-case screens finish 48 commands, all aggregate gates failing,
+with 648 equal full non-timing comparisons. PGO-control/candidate Off-float
+medians are 1.10601/1.14224 on CPU0 and 1.06773/1.12032 on CPU16 (first/repeat),
+against same-inode placebos 0.99203/1.03926 and 1.00328/1.00834. Against the ordinary
+historical baseline, per-window Off-float ratio medians are 0.98942/0.98540 and
+1.00656/1.04295. Preserve the variation; this is not a clean-host confidence bound
+or complete feature-cost acceptance.
+
+Callback Auto control/candidate medians instead fall to 0.96084/0.96483 on CPU0
+and 0.97789/0.95173 on CPU16. All twelve callback gates fail, arrays fail six of
+twelve, upvalues one of twelve and metamethods ten of twelve. The callback
+profile now exposes out-of-line `Runtime::lookup` (3,513,374 self instructions)
+and code-owner drop glue (713,339), while VM self work falls by 2,145,669.
+These costs cross inlining boundaries; do not count disappearing or relocated
+symbols as independent savings. The measured total still increases.
+
+Do not promote the filtered profile or change runtime defaults. The next targeted
+question is whether native-entry inlining can retain the numeric improvement
+without the callback cost; blanket compiler-switch changes have not solved both.
+No owned builds/tests/profiles/source edits overlap timing. Evidence:
+`pgo-vm-exclusion/`, `pgo-vmprofile-disabled-*` and `pgo-training-mix/vmprofile-*`
+under `target/jit-evidence/short-slice-performance/`. All original performance,
+resource, platform and release requirements remain in scope and incomplete.
+
+#### Isolated PGO branch-conversion switches — rejected (2026-10-10)
+
+Two profile-use ablations set either `-disable-select-optimize` or
+`-x86-cmov-converter=false` independently, retaining pilot4's frozen training profile,
+shared build root and original PGO control. Each passes 129 correctness
+executions and ten exact-image profiles with five equal full non-timing
+comparisons. All 261 missing-profile warning lines match the original PGO build;
+neither build reports a profile/hash mismatch. These are compiler experiments,
+not retrained production configurations or accepted default flags.
+
+Neither switch reduces numeric work: integer/float Off totals remain
+50,343,020/53,987,661 instructions. Address-level float VM attribution is identical
+for both experiments and their controls: 52,688,194 instructions, 8,175,453
+conditional branches and 24,414 conditional moves. Reject both isolated settings
+before hardware timing; unchanged instruction counts do not prove equal elapsed
+time, but neither removes the targeted extra work.
+
+An apparent 2.8545% callback instruction reduction with select optimization
+disabled is not a compiler win: `RawTable::get_map` accounts for 3,445,000 of the
+3,444,919-instruction difference. The identical original PGO image previously
+recorded the lower lookup count. Table probing uses a process-global randomized
+hasher, so lookup work can vary between processes. Preserve the raw measurements;
+do not change hash policy or subtract this variation from acceptance results.
+The cmov-only trial's remaining instruction differences are allocator paths.
+
+The first cmov profiling launch lacked Valgrind in the PGO build shell and failed
+before measurement. Its artifacts remain; the successful fresh run uses the
+default profiler-equipped Nix shell. No runtime/default build flags change.
+Evidence: `pgo-select-disabled-*`, `pgo-cmov-disabled-*` and
+`pgo-training-mix/` under `target/jit-evidence/short-slice-performance/`.
+The combined two-switch trial also passes 129 correctness executions and ten
+exact profiles, with matching full counters and warning diagnostics. Its numeric
+totals and float VM branch/cmov counts remain unchanged, while upvalue Auto adds
+156,979 instructions, including 156,852 in `Executor::step`. Reject it before
+hardware timing as well. Evidence: `pgo-both-disabled-*` in the same directory.
+
+#### CodeGenPrepare branch conversion — measured, not accepted (2026-10-10)
+
+A separate `-disable-cgp-select2branch` ablation against the same frozen profile
+passes 129 correctness executions, matching missing-profile diagnostics, ten
+exact-image profiles and five equal full non-timing comparisons. Float VM cmovs
+rise 24,414 to 804,505; conditional branches fall 8,175,453 to 7,395,362. However,
+VM instructions increase 52,688,194 to 53,484,444. Integer/float Off total work
+rises 0.54876%/1.47490%. This switch changes the targeted code shape, unlike the
+previous switches; instruction counts alone cannot decide elapsed performance.
+Generated-code addresses also move between images and are not comparable symbol
+identities. Preserve their raw records rather than treating relocated code as
+work removed or added.
+
+Two unchanged nine-case hardware screens complete 48 commands, all aggregate
+gates failing, with 648 equal full non-timing comparisons. Original PGO control
+time divided by candidate time for Off float is 1.04328/1.19198 on CPU0 and
+1.00253/1.00423 on CPU16 (first/repeat); the corresponding same-inode placebo is
+1.00227/1.04379 and 0.99652/1.00235. Substantial noise remains: CPU0 repeat integer
+Off placebo is 0.58761. No samples are discarded or contention removed.
+
+Against the ordinary historical baseline, per-window historical/candidate
+Off-float ratios have medians 0.95206/0.95687 on CPU0 and 0.94553/0.95149 on CPU16.
+Thus the local improvement does not remove the original regression. Candidate
+callback Auto versus PGO control is 0.99257/0.99476 on CPU0 and 0.98841/0.97077 on
+CPU16. All twelve callback gates fail; arrays fail six of twelve, upvalues two
+of twelve, and metamethods eleven of twelve. `oslo_predicate` remains unscored.
+
+Do not accept this global flag or claim PGO is ready. No owned builds, tests,
+profiles or source edits overlap timing; unrelated host jobs remain untouched.
+The ordinary release binary stays byte-identical to the retained baseline.
+Evidence: `pgo-cgp-disabled-*` and `pgo-training-mix/cgp-*` under
+`target/jit-evidence/short-slice-performance/`. Targeted codegen work and the
+original performance/resource/platform/release acceptance remain outstanding.
+
+#### PGO training mix and numeric-path attribution — still experimental (2026-10-10)
+
+An audit of all 15 pilot3 raw profiles confirms that `jit_native` and `jit_regions`
+choose their own modes rather than reading `LUNA_TEST_JIT_MODE`. All sixteen
+VM/executor/native-entry summary records agree across each suite's three runs.
+This is not a claim that entire raw profiles are identical. `d56d1aa` runs these
+self-configuring suites once during training, while scripts/callback/metamethods
+retain Off/Auto/Force training. All profile-use correctness checks remain intact.
+The configuration log records the split; frozen benchmarks remain held out.
+
+Fresh pilot4 passes 89 training and 129 profile-use test executions, none ignored,
+and merges eleven raw profiles. All fourteen ordinary entry families remain
+nonzero; region/rooted block totals are 553,844/211,860. Two original nine-case
+screens complete 48 commands, all aggregate gates failing, with 648 matching
+full non-timing comparisons. Upvalue gates pass 11/12; arrays fail 3/6 in each
+screen, and callbacks/metamethods fail all twelve. Auto upvalue control/candidate
+medians are 1.19272/1.20002 on CPU0 and 1.15696/1.15651 on CPU16 (first/repeat).
+Callbacks are 1.17770/1.18236 and 1.13484/1.12927. Off float instead regresses:
+CPU0 0.90264/0.89767 versus placebo 0.99165/0.98596; CPU16 0.94518/0.94199 versus
+placebo 1.00373/0.99986. Keep all contention and same-image variation. The new
+callback regression and differing generated build paths also prevent attributing
+cross-pilot differences solely to the weighting change.
+
+Exact-link recapture reproduces both timed binaries byte-for-byte. Ten profiles
+verify allocated bytes/metadata/program headers and all five full non-timing
+comparisons. Upvalue Auto/Off instructions fall 15.1023%/12.1808%, callbacks
+12.2421%; integer/float Off increase 1.9093%/1.7771%. Costs move across inlined
+functions, so individual disappearing symbols are not independent savings.
+
+Address-level float attribution finds VM self work rising 51,583,103 to
+52,688,194 instructions. Conditional branches rise 6,615,141 to 8,175,453 while
+conditional moves fall 804,505 to 24,414. Both images execute the same 520,169
+interpreted instructions across 8,138 slices. This identifies a concrete codegen
+difference, not a proven hardware-time cause. The installed LLVM exposes
+`disable-select-optimize` and `x86-cmov-converter`; an isolated select/branch
+conversion experiment is the next hypothesis, not an accepted compiler flag.
+
+No runtime/default release flags change, and the ordinary release binary remains
+byte-identical to the retained baseline. No owned work overlaps hardware timing.
+Evidence: `pgo-training-mix/` and `pgo-heldout-4*` under
+`target/jit-evidence/short-slice-performance/`. Full feature-cost, platform and
+release acceptance remain open.
+
+#### Static helper-effect publication — withdrawn (2026-10-10)
+
+The independent `f8e229a` model classifies verified helper effects and checks
+2,048 whole-stat saturation states. Ten helper kinds at eight source positions,
+plus mixed write operations, exercise the classifier. Both tests pass under
+Miri. GetUpTable counts both table and upvalue reads; neither may be omitted.
+
+A runtime trial stores one static capability in Code and omits only table-write,
+upvalue-write and allocation counter merges for read-effect-only code. It keeps
+publication at the original boundary, with no dynamic zero tests or batching.
+Formatting/check-all and 74 focused executions across seven suites pass. Ten
+exact-image profiles verify headers, allocated metadata/bytes and image identity;
+all five full non-timing comparisons, including resource usage, match. Callback
+instructions fall 133,593,099 to 133,398,552 (0.14563%), entirely in the invocation
+bridge. Upvalue Auto work increases 0.03807%; all three Off profiles are unchanged.
+
+Two original nine-case screens finish 48 commands, all aggregate gates failing,
+with 648 equal complete non-timing comparisons. Callback control/candidate
+medians are 0.98572/0.99451 on CPU0 and 1.02059/1.01642 on CPU16 (first/repeat).
+Upvalues improve 1.01432/1.01580 and 1.04595/1.03984 respectively. CPU0 compiled-Off
+float instead falls to 0.92674/0.92416 versus placebo 1.00620/0.95601; CPU16 float
+is 0.97902/0.98233 versus placebo 0.99818/0.99900. Same-image variation and
+contention remain recorded; these observations do not establish a hardware cause.
+
+Withdraw the production capability and publisher rather than accept those costs.
+Keep the test-only models and Make targets. Restoration passes formatting/check-all
+and the same 74 executions; the rebuilt ordinary release image is byte-identical
+to the retained baseline. No owned builds/tests/profiles overlap
+hardware timing. No full-suite, feature-cost, platform or release acceptance is
+claimed. Evidence: `static-helper-counts*` and
+`pgo-probe/static-helper-counts-profile-analysis.json` under
+`target/jit-evidence/short-slice-performance/`.
+
 #### Callback result transport — rejected before timing (2026-10-10)
 
 A private erased-call trial returns a bool for normal Return and writes other
