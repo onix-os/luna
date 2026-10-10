@@ -26,8 +26,28 @@ and exercise materialization after an ordinary helper refresh. GNU and musl
 each pass **33 executions / three summaries**, including the existing 80
 integrated schedules. Pinned Stacked Borrows seed 27 and Tree Borrows seed 28
 each pass **22 executions / two summaries**. Formatting and check-all pass.
-Production selection remains unchanged; these results establish model checks,
-not performance acceptance. Release profiling is next. Evidence:
+The model is committed as `e67f81a`. A separate release activation preserves
+rooted/scoped helper selection and array kernels. Ten exact-image profiles show
+callback work dropping **169,785,373 -> 159,985,370** versus the earlier payload
+trial. Full non-timing callback records match that trial. `write_scalar` removes
+**10,124,316** self instructions, partly offset by entry/helper setup. The current
+scratch baseline still wins: **133,593,180 -> 159,985,370 (+19.75564%)**.
+Closure Auto increases 0.43397%; integer/float Off totals are unchanged. Closure
+Off differs by 242 instructions, retained rather than reported as identical.
+
+The original strict profile comparison fails: closure code bytes increase
+28,672 -> 32,768; callback code bytes 4,096 -> 8,192 and snapshot peak bytes
+10,705 -> 10,765. A separate diagnostic verifies all eleven per-function totals
+and both-direction record key comparisons, preserving those resource deltas;
+it does not turn the failed strict comparison into acceptance. Entry descriptor
+binding and the ordinary helper's full-prefix refresh remain major costs.
+
+Withdraw the release activation without a hardware-timing campaign. Production
+source matches `e67f81a`; formatting/check-all and the ordinary GNU opt3 rebuild
+pass. The restored full binary matches the pretrial integer-first withdrawal
+image, and `.text`/`.rodata` match the historical frozen baseline. Keep the
+test-only model, candidate image/patch and all adverse evidence. No elapsed-time
+speedup, full platform gate or release acceptance is claimed. Evidence:
 `payload-local-*` under the ignored short-slice performance directory.
 
 #### Integer-first arithmetic admission — withdrawn (2026-10-10)
