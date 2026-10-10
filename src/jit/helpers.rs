@@ -1326,3 +1326,6 @@ slot_count: slots.len(),
         }
     }
 }
+
+#[cfg(test)]
+mod constant_key_tests;

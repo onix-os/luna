@@ -1314,6 +1314,13 @@ repl:
 
 .PHONY: numeric-conversions jit-vm-dispatch jit-set-list jit-set-list-miri jit-frame-view jit-frame-view-miri jit-integer-table jit-integer-table-miri
 .PHONY: jit-operand-sources jit-operand-sources-miri
+.PHONY: jit-constant-keys jit-constant-keys-miri
+jit-constant-keys:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::constant_key_tests $(ARGS)
+
+jit-constant-keys-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::helpers::constant_key_tests -- --test-threads=1
+
 jit-operand-sources:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::operand_source_tests
 	@$(CARGO) test --locked -p luna --features jit --test jit_operand_sources $(TARGET_ARG)
