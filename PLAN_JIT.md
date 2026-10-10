@@ -11,6 +11,72 @@
 
 ### Progress snapshot — 2026-10-10
 
+#### Guarded numeric payload reads — test-only (2026-10-10)
+
+`4f2a73b` defers eligible payload reads behind their existing numeric guards.
+The original emitter and adjacent tag/payload proof remain unchanged. Inside
+the transactional payload lowering pass, budget-allocated predecessor and
+dominator analysis proves that every use follows the accepted guard edge.
+A bounded read-only-path check rejects stale tags across stores or calls.
+Unsupported shapes or exhausted optimization work retain generic reads.
+The independent emitted-IR checker requires the same fresh masked tag, unique
+guarded entries, null-pointer test, exact load width, result edges and optional
+bit-preserving float conversion. Canonical layout and callback rules do not
+change. Conservative expansion limits remain; each admitted read removes
+13 instructions and two blocks from the exact generic expansion count.
+
+Tests cover source effects/early uses/alternate entries/wrong masks/work limits,
+generated guard/pointer/control mutations, integer/float native probes, malformed
+tags/null pointers and graph-quota refusal with source/ledger rollback. The
+rewrite-record fixture now charges the actual enum size. Initial fixture-size
+and test-construction compile failures are retained. Final GNU format/check-all
+and payload checks pass **42 executions / three summaries**; musl helper/payload
+**67 / four**; focused backend payload IR under pinned Stacked seed 31 and Tree
+seed 32 each **12 / one**. Miri does not execute the native probes or rerun the
+unchanged canonical runtime alias suite in this focused check.
+
+Temporary image `5c2a3a48` completes ten exact-image profiles. Versus materialize
+image `cfd7b2e6`, callback work falls **134,892,238 -> 134,308,441**, entirely in
+the aggregated generated-address bucket (**583,797 fewer instructions**).
+However, modeled data reads/writes rise **194,353 / 64,837**; this is a lead for
+generated-code/register-allocation inspection, not hardware cache evidence.
+Closure Auto falls 366,402 instructions and its code charge falls
+**32,768 -> 28,672 bytes**. The same historical control also varies in closure
+and allocator work, so not all closure savings are attributable to the change.
+Twenty candidate/control self totals are independently checked. Callback
+`snapshot_peak_bytes` rises **10,765 -> 11,141**, versus historical 10,705;
+the strict original comparison still fails on that field. No quota is relaxed.
+
+Two repeated four-way screens complete **48 commands**, nine workloads,
+eleven paired samples, CPU0/16 and three rotating windows, retaining ordinary,
+historical and same-image-placebo controls. All 48 command-level gates fail.
+Ordinary `dab0490e` / candidate elapsed-time medians (above 1 is faster):
+
+| Auto workload | CPU 0, screen 1 / 2 | CPU 16, screen 1 / 2 |
+| --- | --- | --- |
+| Rust callbacks | 0.9442 / 0.9520 | 0.9451 / 0.9506 |
+| Integer loop | 0.8646 / 0.8812 | 0.7878 / 0.7902 |
+| Float loop | 0.8779 / 0.8755 | 0.8164 / 0.8150 |
+| Allocation/GC | 0.8345 / 0.8350 | 0.7675 / 0.7366 |
+| Closure/upvalue | 1.0118 / 1.0114 | 0.9716 / 0.9636 |
+| Array table | 1.0177 / 1.0535 | 0.9752 / 0.9974 |
+| Polymorphic metamethod | 0.9441 / 0.9416 | 0.9227 / 0.9112 |
+
+Release activation is withdrawn; the verified lowering remains test-only.
+No owned build/test/profile/source edits overlapped hardware timing. Full
+non-timing differences, failures, source/image checks and external contention
+remain under `payload-numeric-read*` in the ignored short-slice directory.
+Instruction savings do not establish elapsed-time acceptance or full-plan
+completion. Ordinary controls still fail callback gates in every window and
+metamethod gates on CPU0; these are not only experimental-payload regressions.
+
+The restored ordinary release is byte-identical to
+`dab0490e360b61353aafaf2730ac5aac11fbc64c59cb1df12b158df394ab2ecd`.
+GNU all-feature Force passes **1,566 executions / 88 summaries**, six existing
+ignores; focused musl helper/model/resources passes **112 / seven**, no ignores.
+Formatting/check-all/source verification pass. Restoration evidence is in
+`payload-numeric-read-withdrawal-image/`; performance acceptance remains open.
+
 #### Branch-local scalar materialization — test-only (2026-10-10)
 
 Scalar materialization now retains each scalar variant through a const-tag
