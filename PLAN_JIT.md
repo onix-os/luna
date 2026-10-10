@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-10
 
-#### Bounded rooted-call fuel — validation in progress (2026-10-10)
+#### Bounded rooted-call fuel — refinement in progress (2026-10-10)
 
 Exact attribution of the frozen numeric-binding image validates **61,655,008**
 rooted-invocation self instructions against **170,383,348** global self
@@ -43,8 +43,26 @@ control, rooted invocation self instructions fall **61,655,008 → 60,379,768**
 fuel coalescing. Callback instructions change by **+81**, closure Off **−242**,
 and integer/float Off are unchanged. All function self totals and symbol-image
 checks pass. Full GNU Force validation passes **1,577 executions / 88
-summaries**, six ignored. Repeated four-way CPU 0/16 hardware screens are next;
-no physical speedup or performance acceptance is claimed yet.
+summaries**, six ignored.
+
+Four four-way CPU 0/16 hardware screens complete **96 commands**, all failing
+unchanged aggregate gates; strict analysis finds zero non-timing differences.
+CPU0 upvalue ratios are **1.014926 / 1.011554 / 1.014057 / 1.017509**; CPU16
+**0.996136 / 1.001530 / 0.992886 / 0.994588** (ordinary time / candidate time).
+CPU0 callbacks regress **0.988724 / 0.986893 / 0.988703 / 0.988557**, and CPU16
+compiled-Off allocation **0.969695 / 0.957822 / 0.966063 / 0.973942**. Full
+case/placebo distributions and contention remain in the evidence. In particular,
+round-two CPU16 float Off placebo is **1.237511**; its apparent candidate gain
+must not be generalized. The first variant is **not accepted**.
+
+`ed6c389` checks initial fuel against the bounded charge and interrupt
+flag before subtracting. Successful remaining fuel is positive at the original
+continuation boundary and at least −10 after return charges; rejected saturated
+clones were never observable. The same independent sequential oracle and native
+checks pass again: **129 GNU / 16 summaries**, two ignored; **63 musl / eleven**,
+none ignored; Miri Stacked seed 43 and Tree seed 44 each pass the pure test.
+The refinement is committed and pushed. Its clean candidate/profile build and
+full GNU Force tests are running; no refinement timing or acceptance is claimed.
 Evidence: `target/jit-evidence/short-slice-performance/rooted-fuel/` and
 `rooted-cost-attribution-v2/`; the initial failed symbol extraction is retained.
 
