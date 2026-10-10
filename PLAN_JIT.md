@@ -38,6 +38,18 @@ Focused evidence is under
 The ordinary opt3 GNU benchmark rebuild is byte-identical to the frozen control
 (`481eb5b2548d9ed8b684bb5d803a2786583db0e04d079ed6303ec9b0b1b5a87c`).
 
+The next test fixture executes Cranelift-generated stores through these payload
+pointers, including indirect calls into the Rust gateway and descriptor reloads
+after a nil destination changes type. Both GNU and musl x86_64 pass seven tests
+(five model tests plus two generated-code tests). Generated guards reject type
+mismatch, null scalar pointers, invalid Boolean bits and reference stores without
+canonical writes; caught helper panic preserves preceding canonical mutations.
+The five Rust model tests also pass again under both Miri borrow models; Miri
+does not execute the two machine-code fixtures. Generated fixtures use a scoped
+test module, not the production quota-aware installation path. No resource or
+performance acceptance follows from these passes. Raw draft failures and final
+passes are retained under `payload-native-*`; production integration is next.
+
 #### Sign-directed checked jump arithmetic — withdrawn (2026-10-10)
 
 On the restored runtime, a source trial replaces `checked_add_signed` with

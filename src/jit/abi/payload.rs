@@ -3,6 +3,14 @@ use std::{marker::PhantomData, ptr::NonNull};
 use super::{Slot, BOOLEAN, INTEGER, NIL, NUMBER, REFERENCE};
 use crate::Value;
 
+#[cfg(all(
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[path = "payload/native.rs"]
+mod native;
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct Payload {
