@@ -11,6 +11,253 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Typed scalar payload boundary — test-only (2026-10-10)
+
+The next structural experiment supplies pointers to scalar fields from Rust,
+rather than teaching generated code the layout of `Value`. The scoped model
+exposes integer, number and Boolean payloads; nil and reference variants have
+null pointers. Canonical helper reads and writes rebind the accessed descriptor,
+and the native caller reloads descriptors after each helper. Whole-frame mutable
+reborrows, callback/suspension lifetimes, relocation and collection are not
+permitted while these pointers are live.
+
+Five tests pass on GNU x86_64, musl x86_64 and fallback i686, and under pinned
+Miri with both Stacked and Tree Borrows. They cover scalar bits/type changes,
+reference identity, partial writes during unwinding, and an original-pointer
+extern-C gateway. The gateway exercises aliased source/destination moves,
+descriptor rebinding, bounds refusal and caught helper panic without unwinding
+across C. Miri warnings are retained in the raw logs.
+
+This is not a production ABI change or measured speedup. Existing native code
+still uses scalar scratch slots. Generated-code lowering, real helper/upvalue
+integration, root/barrier handling, bounded resources and whole-profile cost
+acceptance remain unproven. In particular, the model does not authorize keeping
+canonical payload pointers across any existing callback or collection boundary.
+Focused evidence is under
+`target/jit-evidence/short-slice-performance/payload-gateway-*`.
+The ordinary opt3 GNU benchmark rebuild is byte-identical to the frozen control
+(`481eb5b2548d9ed8b684bb5d803a2786583db0e04d079ed6303ec9b0b1b5a87c`).
+
+The next test fixture executes Cranelift-generated stores through these payload
+pointers, including indirect calls into the Rust gateway and descriptor reloads
+after a nil destination changes type. Both GNU and musl x86_64 pass seven tests
+(five model tests plus two generated-code tests). Generated guards reject type
+mismatch, null scalar pointers, invalid Boolean bits and reference stores without
+canonical writes; caught helper panic preserves preceding canonical mutations.
+The five Rust model tests also pass again under both Miri borrow models; Miri
+does not execute the two machine-code fixtures. Generated fixtures use a scoped
+test module, not the production quota-aware installation path. No resource or
+performance acceptance follows from these passes. Raw draft failures and final
+passes are retained under `payload-native-*`; production integration is next.
+
+A bounded test adapter now calls the unchanged production helpers against real
+`LuaRegisters`. Canonical proxy slots supply helper operands without scalar
+snapshots; all descriptors are rebound after a helper's whole-frame borrow.
+Tests cover current-frame upvalue aliases, closed upvalues, table identity and
+allocation, closed-table reachability after collection, declined operations,
+and readonly-list panic with exact PC/fuel/counter effects. A generated-code
+fixture calls the real move helper and exits on its caught bounds panic.
+Eleven tests pass on GNU/musl x86_64; eight Rust tests pass under both Miri borrow
+models (the three machine-code fixtures are excluded). Evidence is under
+`payload-runtime-*`, including final model seeds 7/8. This adapter initializes
+256 proxy slots and rebinds the full descriptor prefix per helper: it is a
+correctness bridge, not an accepted fast path. Production dispatch, ordinary
+opcode lowering, quota accounting and performance remain unchanged/unproven.
+
+The adapter also has a scalar materialization gateway for type-changing native
+destinations. It creates canonical Rust values, refuses reference/invalid tags,
+invalid Boolean bits and out-of-prefix registers, then rebinds descriptors.
+Tests exercise two- and 256-register frames, including an open upvalue at
+register 255, with unchanged transport PC/fuel/logical helper counters. Twelve
+GNU/musl tests and nine Rust tests under each Miri model pass (seeds 9/10), under
+`payload-materialize-*`. Generated ordinary opcode lowering still does not use
+this gateway, and full-prefix rebinding remains a performance question.
+
+An opt-in test selector now translates ordinary backend output after the existing
+source/tag/guard/helper-flow verifiers. Four parsed Lua scripts cover integer and
+float loops, tables and Boolean/type-changing branches. Across initial budgets
+0/1/63/64/65/u32::MAX, each slice matches ordinary scratch execution for exit
+PC/count/reason, all eight helper counters and scalar register bits, reaches the
+expected return value, and releases generated mappings. The ordinary scratch
+entry rejects payload code; a distinct typed wrapper invokes it. Ten malformed
+access/escape patterns are refused without changing the input IR.
+
+This first translation uses indirect scalar read/materialization calls, so it
+is a correctness baseline rather than a performance candidate. The pass's clone
+and temporary allocation accounting, inline transport, whole-frame helper cost,
+integer-loop fast-path integration and post-translation verification still need
+work before production selection. The selection flag is test-only. GNU passes
+15 focused tests plus 18 existing native integration tests; musl passes the 15
+focused tests. Each Miri model passes ten ABI/model tests and one IR-grammar test,
+not machine code. Raw logs are under `payload-opcodes-*`. Added backend test hooks
+shift source locations, so production byte identity must be rechecked rather
+than inferred from cfg(test).
+
+The rebuilt GNU opt3 image has SHA256
+`76d76157b47128fa2df2bf60a36077bb4448762fb6d04633cd1e62b853bb1cac`,
+not the frozen control hash. Section extraction confirms identical `.text` and
+`.rodata`; all 46 changed `.data.rel.ro` words resolve to changed line numbers
+for `src/jit/backend.rs`. The image audit is under `payload-opcodes-image-audit`.
+Keep the original frozen control; these checks establish neither a speedup nor
+performance acceptance.
+
+The experimental ordinary lowering now inlines scalar reads instead of calling
+the Rust read transport. Guarded I64 loads handle Integer/Number, I8 loads handle
+Boolean, and nil/reference/null descriptors produce zero. The previous SSA
+result becomes a continuation parameter, and expansion checks include the new
+blocks. A separate checker validates addresses, widths, predicates, edges and
+result forwarding after the complete rewrite. It rejects 23 well-formed IR
+mutations, including an eight-byte Boolean load and an inserted store.
+
+The direct generated-read fixture contains no calls and matches scalar bit
+patterns, every reference variant, and null/unknown-tag refusal. All 24 ordinary
+Lua source/budget schedules still match the scratch oracle. GNU and musl pass
+17 focused tests; both Miri models pass 12 model/IR tests (seeds 13/14, machine
+code excluded). Logs are under `payload-inline-read-*`. Writes still use the
+materialization gateway, and helper rebinding/resource accounting remain open.
+This is still test-only and has no hardware performance acceptance.
+
+Descriptor and canonical-proxy backing arrays now initialize only the live
+prefix, using `MaybeUninit` without constructing typed slices over uninitialized
+elements. Boundary tests cover 0/1/7/255/256 registers, real helper bounds panics
+and stopped reentry. GNU/musl pass 18 focused tests; both Miri models pass 13
+model/IR tests (seeds 15/16), with raw evidence under `payload-prefix-*`.
+Helpers still rebuild the entire live prefix after whole-frame borrows. Removing
+unused-tail initialization does not by itself establish a performance win.
+
+The test-only transport now inlines same-tag scalar writes: eight-byte stores
+for integers/numbers, one-byte stores for valid Booleans, and no write for nil.
+Type changes still use canonical materialization and full descriptor rebinding.
+The independent checker validates guards, store widths/addresses, continuation
+edges and the complete slow-call signature/arguments; 36 well-formed mutations
+are refused, including widened Boolean writes and changed calling conventions.
+An executable fixture covers 104 initial/destination pairs, with a second
+same-type write using changed bits. Gateway counts prove that only the initial
+type change materializes; sibling values, all eight logical helper counters,
+PC and fuel remain unchanged. The 24 ordinary source/budget schedules also pass.
+GNU and musl pass 20 focused tests (`payload-inline-write-*` evidence).
+Both Miri models pass 14 model/IR tests (seeds 17/18; machine code excluded).
+Production dispatch is unchanged; integer-loop specialization, remaining
+optimized paths, resource accounting and whole-profile performance remain open.
+
+Payload lowering now retains the existing optimized numeric-loop regions.
+Their F64 scratch accesses become checked, bit-preserving conversions around
+the same typed payload transport; numerical conversions are refused by the
+independent checker. The required-loop selector fails compilation if the
+optimization is absent. Four ascending/descending integer/float programs match
+the optimized scratch control at every entry PC (including invalid PCs), eight
+budget values and scalar guard mutations, comparing exits, all helper counters
+and all canonical scalar bits. Additional executable F64 transport fixtures
+preserve scalar bit patterns and same-type write behavior.
+
+Incompatible projected/leaf/cell/activation/scoped/rooted compiler selections
+are explicitly refused before native allocation rather than silently dropping
+their contracts. They remain integration work, not accepted disabled features.
+GNU/musl pass 26 focused tests and the unchanged GNU native integration suite
+passes 18 tests (`payload-loop-*`). Both Miri models pass 17 model/IR tests
+(seeds 19/20; machine-code fixtures excluded). This is still test-only: resource accounting,
+runtime/array integration and benchmark acceptance remain incomplete.
+
+The payload pass now validates and sizes its rewrites with an allocation-free
+scan before allocating or cloning. Read/write verification records use exact,
+fallible snapshot-ledger allocations; fixed-shape verification and helper-call
+arguments use stack arrays. The existing signature reservation also accounts
+for the payload gateway's parameter buffer. Admission checks the combined live
+instruction/block count of source and candidate before cloning; the emitted
+candidate must match the predicted counts exactly before commit.
+Quota/allocation refusal tests preserve source IR and release every record
+charge, including failure after the first successful allocation. Instruction
+and block boundary tests establish refusal before workspace allocation.
+GNU/musl pass 28 focused tests; both Miri models pass 19 model/IR tests
+(seeds 21/22), with raw logs under `payload-workspace-*`.
+This bounds the pass's owned records and live-IR expansion, not Cranelift's
+internal allocations, allocator overhead or process RSS. Whole-compiler memory
+policy and production/runtime performance acceptance remain open.
+
+The test selector now executes payload code through the real runtime dispatch,
+not only the standalone frame oracle. Without array kernels it skips scalar
+scratch import/writeback. With array kernels it keeps the existing kernel,
+commits its scalar results before binding payload pointers, and combines the
+same exit budget and table counters. Existing panic, PC and statistics
+publication remain shared with scratch execution. No payload descriptor escapes
+the scoped invocation.
+
+Ten programs across eight initial budgets compare the interpreter, optimized
+scratch Auto mode and payload Auto mode after every executor step. The 80
+schedules include interrupts, callback calls, aliased/foreign-stack upvalues,
+debug mutations, caught errors, scalar/reference transitions and periodic GC.
+All 25 execution counters match the optimized control, as do compilation
+request/failure/install counts and actual array-kernel counts; result values,
+fuel, modes and dispatch counts also match the interpreter. Tests require
+native execution, payload-marked installed entries, retained array execution
+and mapped-code reclamation. GNU/musl pass 29 focused tests; GNU also passes
+33 existing array tests (`payload-dispatch-*`).
+Both Miri models pass 19 model/IR tests (seeds 23/24); these do not execute
+the generated-code runtime schedules.
+This is still a test-only runtime selection, not an enabled release path or a
+measured speedup. The next performance step is a release-profile candidate
+with preserved shipping specializations and unchanged benchmark controls;
+complete compiler-memory/platform/release acceptance remains outstanding.
+
+#### Scalar payload release trial — withdrawn (2026-10-10)
+
+A real opt3 release candidate enabled the payload ABI for ordinary code while
+retaining scoped/rooted scratch entries and array kernels. The first integration
+run exposed an underestimated `LoadNil` fanout bound. A payload-specific estimate
+fixed that without raising configured instruction/block limits; exact-bound
+refusal and all 1–256 register-prefix tests remain in the test-only prototype.
+The corrected release candidate passed 111 focused/model/native/upvalue/heap/
+suspension executions across eight summaries. This did not establish speed.
+
+The captured candidate hash is
+`9325af093c53effa402fc5f861aab808bbd598cc8f4c9664c405c1b744bfea0b`;
+the frozen control remains
+`481eb5b2548d9ed8b684bb5d803a2786583db0e04d079ed6303ec9b0b1b5a87c`.
+Ten exact-image instruction profiles show callback Auto instructions rising
+from 133,593,099 to 169,785,373 (about 27.1%). Upvalue Auto rises about 0.52%;
+integer/float Off instruction totals are unchanged. The largest callback costs
+include payload entry setup, the real-helper bridge and scalar materialization.
+The dominant upvalue cost remains the existing rooted/scoped invocation path.
+
+Two native screens and two feature-cost screens completed 144 timing commands,
+with eleven paired samples, CPUs 0/16, unchanged thresholds, common invocation
+paths, placebo controls and contention logs. Median control/candidate Auto
+ratios across the two screens are below (greater than one favors the candidate):
+
+| Workload | CPU 0 | CPU 16 |
+| --- | --- | --- |
+| Integer loop | 0.8557–0.8594 | 0.7801–0.7806 |
+| Float loop | 0.8563–0.8658 | 0.8066–0.8109 |
+| Array table | 0.9916–1.0293 | 0.9951–1.0196 |
+| Closure/upvalue | 1.0098–1.0175 | 1.0203–1.0315 |
+| Rust callbacks | 0.7866–0.7874 | 0.7962–0.7994 |
+| Allocation/GC | 0.7156–0.7305 | 0.6764–0.7157 |
+
+Callbacks, polymorphic metamethods and allocation/GC fail their gates in all
+twelve candidate windows. All 48 native aggregate gates fail, including the
+controls; the small upvalue improvement does not offset the broad regressions.
+The 648 full non-timing comparisons retain every field: differences are confined
+to code bytes and snapshot peaks, not execution counters. The original strict
+analyzer consequently fails; a separate diagnostic records those differences
+rather than waiving or hiding them. Upvalue Auto mappings grow 28,672→32,768
+bytes; callback mappings grow 4,096→8,192 and snapshot peak 10,705→10,765 bytes.
+
+Feature-cost analysis validates 576 native proofs, but all 96 aggregate gates
+fail, again including controls. Shipping float Off control/candidate medians
+are 0.87145/0.87030 on CPU 0 and 0.92053/0.91987 on CPU 16. Both no-feature
+images are byte-identical to their frozen controls, with timing ratios near
+one. Raw adverse windows and strict-analysis failures are preserved under
+`payload-release-{candidate,profile,screen-*,cost,cost-screen-*}`.
+
+The release-enabling source changes were withdrawn. Production again uses its
+previous ABI; no performance acceptance is claimed. The prototype and the
+fanout regression fix remain. Full-prefix descriptor rebuilding after type
+changes is a measured optimization target, not a reason to ship this candidate.
+The restored opt3 image's `.text` and `.rodata` are byte-identical to the frozen
+control (`payload-withdrawal-image`); this is not a whole-image identity claim.
+The retained test-only fanout fix passes 31 focused GNU/musl tests, including
+every register count and the 80 whole-runtime schedules.
+
 #### Sign-directed checked jump arithmetic — withdrawn (2026-10-10)
 
 On the restored runtime, a source trial replaces `checked_add_signed` with

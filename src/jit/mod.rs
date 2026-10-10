@@ -1802,6 +1802,17 @@ impl Runtime {
         budget: u32,
     ) -> u32 {
         let register_count = if EXACT { CAPACITY } else { code.registers };
+        #[cfg(all(test, not(miri)))]
+        if code.payload && code.array_kernels.is_none() {
+            return self.invoke_frame::<false, false>(
+                code,
+                ctx,
+                closure,
+                registers,
+                (std::ptr::null_mut(), None, register_count),
+                budget,
+            );
+        }
         let mut scratch = [std::mem::MaybeUninit::<abi::Slot>::uninit(); CAPACITY];
         for (slot, value) in scratch[..register_count]
             .iter_mut()
@@ -1970,6 +1981,17 @@ impl Runtime {
             budget
         };
         let pc = *frame.registers.pc;
+        #[cfg(all(test, not(miri)))]
+        if code.payload && array_prefix.is_some() {
+            let slots = unsafe { std::slice::from_raw_parts(slots, register_count) };
+            for (slot, dest) in slots
+                .iter()
+                .copied()
+                .zip(frame.registers.stack_frame.iter_mut())
+            {
+                slot.write_back(dest);
+            }
+        }
         let projection = if PROJECTED {
             frame
                 .projection
@@ -1989,8 +2011,16 @@ impl Runtime {
             let scratch = unsafe { std::slice::from_raw_parts(slots, register_count) };
             leaf::Binding::from_origin(origin, scratch)
         });
+        #[cfg(all(test, not(miri)))]
+        let payload_exit = code
+            .payload
+            .then(|| code.invoke_payload(&mut frame, pc, budget));
+        #[cfg(all(test, miri))]
+        let payload_exit: Option<abi::Exit> = None;
         #[cfg(test)]
-        let (exit, scalar_delta) = if let Some(binding) = scalar_binding {
+        let (exit, scalar_delta) = if let Some(exit) = payload_exit {
+            (exit, None)
+        } else if let Some(binding) = scalar_binding {
             let scratch = unsafe { std::slice::from_raw_parts_mut(slots, register_count) };
             let (exit, delta) = binding
                 .with_native(scratch, |pointer, view| {
@@ -2019,8 +2049,11 @@ impl Runtime {
         } else {
             exit
         };
-        let slots = unsafe { std::slice::from_raw_parts(slots, register_count) };
-        if !DEFER || frame.panic.is_some() {
+        let write_back = !DEFER || frame.panic.is_some();
+        #[cfg(test)]
+        let write_back = write_back && !code.payload;
+        if write_back {
+            let slots = unsafe { std::slice::from_raw_parts(slots, register_count) };
             for (slot, dest) in slots
                 .iter()
                 .copied()
@@ -3371,3 +3404,11 @@ mod invoke_dispatch;
 
 #[cfg(test)]
 mod helper_counts;
+
+#[cfg(all(
+    test,
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod payload_runtime_tests;

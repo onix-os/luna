@@ -223,6 +223,8 @@ pub(super) struct Code {
     #[cfg(test)]
     cell_kernel: bool,
     #[cfg(test)]
+    pub(super) payload: bool,
+    #[cfg(test)]
     pub integer_activation: bool,
     #[cfg(all(test, not(miri)))]
     pub scalar_kernel: Option<super::owner::Shared<Code>>,
@@ -304,6 +306,8 @@ impl Code {
     ) -> Exit {
         #[cfg(test)]
         assert!(!self.cell_kernel, "scalar kernel requires a cell view");
+        #[cfg(test)]
+        assert!(!self.payload, "payload code requires a canonical frame");
         unsafe { abi::invoke(self.entry, slots, pc, budget, host) }
     }
 
@@ -331,6 +335,8 @@ impl Code {
 #[cfg(test)]
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum Failure {
+    RequirePayload,
+    RequirePayloadLoop,
     RequireReadCache,
     RequireWriteback,
     RequireIntegerLoop,
@@ -719,6 +725,24 @@ fn compile_selected_rooted(
     #[cfg(test)]
     let failure = selection.failure;
     #[cfg(test)]
+    if matches!(
+        failure,
+        Failure::RequirePayload | Failure::RequirePayloadLoop
+    ) {
+        let incompatible = rooted_moves
+            || selection.projected
+            || selection.leaf
+            || selection.cell_kernel
+            || selection.integer_activation;
+        #[cfg(not(miri))]
+        let incompatible = incompatible || selection.scoped_helpers;
+        if incompatible {
+            return Err(JitError::Compilation(
+                "payload transport requires ordinary lowering".into(),
+            ));
+        }
+    }
+    #[cfg(test)]
     let leaf_pattern = if selection.leaf {
         Some(
             super::leaf::Pattern::recognize(snapshot)
@@ -842,6 +866,21 @@ fn compile_selected_rooted(
         helper_returns.len(),
         helpers::SYMBOLS.len() + 2 * projection_count,
     )?;
+    #[cfg(test)]
+    let signature_bytes = signature_bytes
+        .checked_add(
+            if matches!(
+                failure,
+                Failure::RequirePayload | Failure::RequirePayloadLoop
+            ) {
+                Layout::array::<AbiParam>(5)
+                    .map_err(|_| JitError::ResourceLimit("payload signature size"))?
+                    .size()
+            } else {
+                0
+            },
+        )
+        .ok_or(JitError::ResourceLimit("native signature size"))?;
     #[cfg(test)]
     let signature_bytes = signature_bytes
         .checked_add(if leaf_pattern.is_some() {
@@ -1179,7 +1218,11 @@ fn compile_selected_rooted(
     #[cfg(test)]
     let optimize_integer_loop = matches!(
         failure,
-        Failure::None | Failure::RequireIntegerLoop | Failure::ProbeIntegerLoop
+        Failure::None
+            | Failure::RequireIntegerLoop
+            | Failure::ProbeIntegerLoop
+            | Failure::RequirePayload
+            | Failure::RequirePayloadLoop
     );
     #[cfg(not(test))]
     let optimize_integer_loop = true;
@@ -1200,7 +1243,9 @@ fn compile_selected_rooted(
         if !applied
             && matches!(
                 failure,
-                Failure::RequireIntegerLoop | Failure::ProbeIntegerLoop
+                Failure::RequireIntegerLoop
+                    | Failure::ProbeIntegerLoop
+                    | Failure::RequirePayloadLoop
             )
         {
             return Err(JitError::Compilation("integer loop was not applied".into()));
@@ -1256,6 +1301,34 @@ fn compile_selected_rooted(
         actual
     } else {
         instructions
+    };
+    #[cfg(test)]
+    let (instructions, block_count) = if matches!(
+        failure,
+        Failure::RequirePayload | Failure::RequirePayloadLoop
+    ) {
+        payload::lower(
+            &mut context.func,
+            parameters[0],
+            parameters[4],
+            snapshot.registers,
+            &helper_refs,
+            snapshot.operations.allocator().clone(),
+            expansion,
+        )?;
+        cranelift_codegen::verify_function(&context.func, module.isa())
+            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        let actual = context
+            .func
+            .layout
+            .blocks()
+            .map(|b| context.func.layout.block_insts(b).count())
+            .sum();
+        let actual_blocks = context.func.layout.blocks().count();
+        expansion.verify_actual(actual, actual_blocks)?;
+        (actual, actual_blocks)
+    } else {
+        (instructions, block_count)
     };
     drop((stores, paths, graph, blocks));
     let mut projection_contexts = [None, None];
@@ -1642,6 +1715,11 @@ fn compile_selected_rooted(
         scalar_leaf: leaf_pattern,
         #[cfg(test)]
         cell_kernel: selection.cell_kernel,
+        #[cfg(test)]
+        payload: matches!(
+            failure,
+            Failure::RequirePayload | Failure::RequirePayloadLoop
+        ),
         #[cfg(test)]
         integer_activation: selection.integer_activation,
         #[cfg(all(test, not(miri)))]
@@ -6644,3 +6722,6 @@ pub(super) mod projection_probe;
 
 #[cfg(all(test, not(miri)))]
 mod return_words;
+
+#[cfg(test)]
+mod payload;
