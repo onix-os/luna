@@ -31,8 +31,12 @@ Callback instructions fall 4.23275%, with almost all repeated string/key
 comparisons removed; metamethod instructions fall 1.17346%. Upvalue, array and
 allocation instructions rise 0.15388%, 0.17576% and 0.34710%, respectively.
 These are instrumented instruction results, not hardware speedups. Broad
-validation, resource/cost measurements and repeated timing remain outstanding;
-this trial is not accepted as a performance fix. Evidence: `table-owner*` under
+validation exits 0: GNU Force passes 1,504 tests across 88 summaries (6 ignored),
+focused musl passes 53 and i686-musl passes 16. Speed/shipping cost images are
+built, and the rebuilt native image matches the profiled candidate byte for
+byte. Source manifests verify. Fresh cost controls and repeated hardware timing
+remain outstanding; this trial is not accepted as a performance fix.
+Evidence: `table-owner*` under
 `target/jit-evidence/short-slice-performance/`.
 
 #### Suffix drain cleanup — withdrawn after timing
