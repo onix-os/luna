@@ -1360,6 +1360,13 @@ vm-constants-memcheck:
 		LUNA_TEST_JIT_MODE=$$mode valgrind --tool=memcheck --error-exitcode=99 --leak-check=full --show-leak-kinds=all --errors-for-leak-kinds=definite,indirect "$$(cat '$(VM_CONSTANTS_DIR)/binary-path')" --test-threads=1 > '$(VM_CONSTANTS_DIR)'/$$mode.log 2>&1 || exit $$?; \
 	done
 
+.PHONY: integer-conversions
+integer-conversions:
+	@$(CARGO) test --locked -p luna --no-default-features --test conversion $(TARGET_ARG)
+	@for mode in off auto force; do \
+		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test conversion $(TARGET_ARG) || exit $$?; \
+	done
+
 numeric-conversions:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) constant::tests
 	@$(CARGO) test --locked -p luna --no-default-features --test numeric_semantics $(TARGET_ARG)
