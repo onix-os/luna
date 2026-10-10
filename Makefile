@@ -448,6 +448,13 @@ jit-atomic-call: jit-snapshot-fuel
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::activation::atomic_call $(ARGS)
 
 .PHONY: jit-rooted-call jit-rooted-call-miri
+.PHONY: jit-preserved-roots jit-preserved-roots-miri
+jit-preserved-roots:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::roots::call::preserved $(ARGS)
+
+jit-preserved-roots-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::roots::call::preserved -- --test-threads=1
+
 .PHONY: jit-snapshot-fuel jit-snapshot-fuel-miri
 jit-snapshot-fuel:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::activation::snapshot_fuel $(ARGS)

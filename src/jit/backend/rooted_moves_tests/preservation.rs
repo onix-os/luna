@@ -186,18 +186,31 @@ fn rooted_transfers_and_scalar_operations_preserve_snapshots_across_exits() {
                                     &source, &mut expected, start, budget,
                                 );
                                 let mut actual = initial.clone();
+                                let mut file = abi::roots::call::preserved::Preserved::new(
+                                    &mut roots, &mut actual,
+                                ).unwrap();
                                 let exit = unsafe {
-                                    code.invoke_raw(actual.as_mut_ptr(), start, budget, std::ptr::null_mut())
+                                    code.invoke_raw(file.native_slots(), start, budget, std::ptr::null_mut())
                                 };
                                 assert_eq!(
                                     (exit.pc, exit.instructions, exit.reason),
                                     (reference.pc, reference.instructions, reference.reason),
                                     "op={op:?} width={width} a={a} b={b} start={start} budget={budget}"
                                 );
+                                let mut published = vec![Value::Nil; width];
+                                assert!(file.snapshot().publish(&mut published));
+                                drop(file);
                                 let snapshot = abi::roots::call::Snapshot::new(&roots, &mut actual)
                                     .expect("native rooted output must retain valid tags and roots");
-                                let mut published = vec![Value::Nil; width];
-                                assert!(snapshot.publish(&mut published));
+                                let mut checked = vec![Value::Nil; width];
+                                assert!(snapshot.publish(&mut checked));
+                                for (actual, expected) in published.iter().zip(&checked) {
+                                    let (a, b) = (Slot::from_value(*actual), Slot::from_value(*expected));
+                                    assert_eq!((a.tag, a.bits), (b.tag, b.bits));
+                                    if a.tag == abi::REFERENCE {
+                                        same_reference(*actual, *expected);
+                                    }
+                                }
                                 for (index, (actual, expected)) in
                                     actual.iter().zip(&expected).enumerate()
                                 {

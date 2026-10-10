@@ -11,6 +11,33 @@
 
 ### Progress snapshot — 2026-10-10
 
+#### Rooted register-state preservation — validation foundation
+
+The next candidate targets repeated `Snapshot::new` validation in the rooted
+native-region boundary. Exact ordinary-image attribution counts **8,161,536**
+self instructions in that scan, within **30,627,690** boundary self instructions
+and **169,861,074** global instructions. This identifies cost, not a speedup.
+
+`ca7e3f5` adds **1,421,880 actual-native attempts per execution**: 41 operation
+variants, 17 scalar/reference value cases, widths 6/17/256, five entry PCs and
+eight budgets. Every exit and slot is compared with the independent scalar
+model extended only for rooted Move. Only executed arithmetic destinations may
+differ in NaN payload; moves, constants and untouched slots remain bit-exact.
+GNU and musl each pass 23 executions across three summaries, none ignored.
+
+A test-only borrowed register-file owner validates initial state and hides its
+root/slot slices. Its mutations are canonical recapture, checked virtual calls,
+or explicitly contracted native writes through a freshly borrowed pointer.
+The same native corpus compares owner publication against independently checked
+snapshot publication. Initial GNU and musl focused runs each pass **32
+executions / six summaries**, none ignored. Pinned Miri Stacked seed 45 and
+Tree seed 46 each pass two pure ownership tests; malformed slots use all widths
+but first/middle/last positions under Miri, versus every position normally.
+GNU optimized tests also pass **25 executions / four summaries**, none ignored,
+including the full native corpus with the owner's debug validation disabled.
+Generated code is not Miri-tested. Production scan reuse and physical timing
+acceptance remain outstanding; this foundation does not change runtime behavior.
+
 #### Bounded rooted-call fuel — measured and withdrawn (2026-10-10)
 
 Exact attribution of the frozen numeric-binding image validates **61,655,008**
