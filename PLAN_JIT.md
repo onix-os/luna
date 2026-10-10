@@ -11,6 +11,33 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Suffix drain cleanup — performance trial, 2026-10-10
+
+Four new independent fixtures (`aec2654`) validate public Drain against
+`Vec::drain` across 1,260 small range/iteration combinations, partial-unwind
+cleanup, bound variants and 13 Value/payload fixtures. Prefix/tail contents,
+capacity, reference identity, numeric bits, iterator lengths and lock exclusion
+are checked. The five prior consumption fixtures remain. All nine fixtures
+pass with and without JIT before production changes.
+
+The simple `end == len` truncation branch reduces callback cleanup from 18 to
+17 instructions, retaining three register saves/restores; it is not timed.
+The selected trial also separates general-range removal into a private
+non-inlined function. Suffix removal uses safe `truncate`, while general ranges
+still use `Vec::drain`. Public iterator and consumption implementations,
+callbacks, GC roots and JIT accounting are unchanged.
+
+Formatting/check-all, 55 focused GNU executions, 18 musl executions and nine
+checks in each Miri model pass. Fourteen exact-image native profiles retain
+all event totals and seven complete non-timing records. The callback body gains
+195,000 instructions but loses 1,170,000 cleanup-call instructions: a net saving
+of 15 per 65,000 calls, or 0.72983% of total callback-workload instructions.
+The callback reserves the same 0x98-byte stack frame as the control. Other
+admission/allocator variations remain separate; they are not claimed as cleanup
+gains. Full validation and elapsed acceptance remain pending. Evidence is under
+`drain-suffix*` in the short-slice directory; the earlier owning consumption
+iterator remains withdrawn.
+
 #### Callback suffix consumption — withdrawn after repeat timing
 
 The trial made `Stack::consume` use an owning suffix iterator rather than the public,
