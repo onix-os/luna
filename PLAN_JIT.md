@@ -107,8 +107,8 @@ The first fixture failed to compile because Value has no PartialEq and length
 requires a mutation context; the corrected fixture checks scalar variants
 explicitly. The failure log is retained. Full all-feature Off plus baseline/docs
 passes **2,035 / 175**, eight ignored. Full Force passes **1,586 / 88**, six
-ignored. Stacked Miri seed 57 passes its constructor differential; Tree seed 58
-is still running at this checkpoint.
+ignored. Stacked Miri seed 57 and Tree seed 58 each pass their constructor
+differential (595.17s and 600.81s).
 
 Frozen image **`16d329fb`** completes eighteen exact-image profiles. Against
 seeded-hash `816c067a`, allocation Off removes **520,000 instructions** in both
@@ -119,9 +119,37 @@ constructor adds 52,000. Auto VM-step falls **31,131,042 → 30,638,690**, inclu
 Against rooted `3d0dc224`, callback Auto's **1,495,081** reduction remains.
 Closure Auto adds 51,440 (admission +52,284 with allocator variation); closure,
 integer and float Off instruction totals remain identical. Non-timing fields
-and source/image hashes match throughout. This is not hardware acceptance;
-four repeated rooted-control screens are prepared but have not started.
-Fresh shipping/speed feature-cost artifacts are also being built.
+and source/image hashes match throughout.
+
+Four completed rooted-control timing screens retain **96 checked commands**.
+Allocation Auto ratios (control time / candidate time) are CPU0 **1.006336 /
+0.992293 / 1.014905 / 1.000612**, CPU16 **1.004661 / 1.006846 / 1.027084 /
+1.008583**. The earlier allocation losses no longer repeat consistently, but
+CPU0 float Off is worse: **0.898519 / 0.904909 / 0.909630 / 0.892778**, while
+its same-image placebo medians stay 0.9953–1.0106. CPU16 float Off is mixed
+at **1.020283 / 0.981339 / 0.983910 / 0.985056**. Callback Auto improves on
+CPU0 (**1.012701 / 1.003704 / 1.015616 / 1.016429**), but CPU16 is mixed and
+mostly adverse (**0.956543 / 0.965873 / 1.013893 / 0.965124**). Candidate
+callback gates fail 24/24, metamethod 23/24 and arrays 5/24. Other scored gates
+pass 24/24; Oslo is unscored. All counters/hashes match; contention is retained.
+No owned build, test, profile or source edit overlaps timing.
+
+Fresh speed/shipping feature-cost images and two three-way screens complete
+**72 checked commands**, all aggregate gates failing. The comparison control
+is historical `table-owner-control`, not the immediate rooted or hash image.
+Native proofs, raw eleven-pair timings, recomputed ratios, original 1.05 cap
+and artifact/source hashes verify. Speed callbacks fail 12/12 candidate checks;
+speed CPU16 upvalues fail 6/6 (overhead 1.1117–1.1264). Shipping upvalues fail
+12/12 across both CPUs, reaching 1.2635–1.2901 on CPU16. Cold, Oslo and other
+callback failures remain in the full reports. Neither feature-cost nor native
+performance acceptance is achieved.
+
+Symbol inspection finds duplicated eager hash construction: `from_slice`
+grows from 0x51b to 0x6eb bytes, and eight outlined capacity-specific constructors
+grow another 104–113 bytes each. There is no standalone `string_key_hash`
+symbol. A separate shared-helper trial can remove that code duplication, but
+must measure additional construction call overhead. This finding does not
+attribute the float timing regression to code placement.
 Evidence prefix: `target/jit-evidence/short-slice-performance/empty-map-capacity*`.
 
 #### Compile-time constant upvalue-table keys — withdrawn
