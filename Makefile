@@ -569,6 +569,15 @@ vm-upvalue-returns-miri:
 	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' thread::thread::tests -- --test-threads=1
 
 .PHONY: vm-call-resolution vm-callback-outcomes-miri
+.PHONY: jit-helper-counts jit-helper-counts-miri
+jit-helper-counts:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helper_counts:: $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::helper_flow_tests::read_effect_classification_covers_every_helper_and_position $(ARGS)
+
+jit-helper-counts-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::helper_counts:: -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::helper_flow_tests::read_effect_classification_covers_every_helper_and_position -- --exact --test-threads=1
+
 vm-callback-outcomes-miri:
 	@$(CARGO) miri test --locked -p luna --no-default-features --test callback --target '$(MIRI_TARGET)' nested_callback_outcomes_preserve_payloads_and_single_drops -- --exact --test-threads=1
 

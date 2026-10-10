@@ -3368,3 +3368,6 @@ mod runtime_projection_tests {
 
 #[cfg(test)]
 mod invoke_dispatch;
+
+#[cfg(test)]
+mod helper_counts;
