@@ -179,6 +179,10 @@ jit-bench-run:
 jit-bench: jit-bench-build
 	@$(MAKE) --no-print-directory jit-bench-run
 
+.PHONY: jit-pgo-pilot
+jit-pgo-pilot:
+	@bash examples/jit_support/pgo_pilot.sh '$(PGO_DIR)'
+
 .PHONY: jit-bench-paired-profile-run jit-bench-paired-profile-verify jit-bench-paired-profile-annotate jit-bench-paired-profile-tests
 jit-bench-paired-profile-run:
 	@bash examples/jit_support/paired_profile.sh '$(JIT_BENCH_BINARY)' '$(PAIRED_PROFILE_DIR)'
