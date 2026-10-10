@@ -38,6 +38,24 @@ including the full native corpus with the owner's debug validation disabled.
 Generated code is not Miri-tested. Production scan reuse and physical timing
 acceptance remain outstanding; this foundation does not change runtime behavior.
 
+#### Rooted register-state reuse — runtime candidate
+
+The subsequent candidate enables the validated owner in native-region sessions.
+Only initially validated, exclusively borrowed rooted state bypasses repeated
+release-mode scans. Source/IR-certified native stores, checked virtual calls and
+canonical recapture preserve the invariant. The generic checked constructor and
+observable fallback/panic materialization remain. Native entry, dependency,
+publication, fuel, policy and resource checks are not relaxed. Non-rooted callers
+retain the original scalar/helper path; the earlier deferred-publication model
+remains test-only.
+
+Initial formatting/check-all and focused native/accounting validation pass
+**127 executions / 14 summaries**, with two ignored diagnostics. Focused musl
+passes **220 / 18**, two ignored; pinned Miri Stacked seed 47 and Tree seed 48
+each pass **eight pure ownership/scoped-helper tests / two summaries**, none
+ignored. Full GNU, optimized integration and exact-image profiling are being
+validated separately. No physical timing or regression-fix claim yet.
+
 #### Bounded rooted-call fuel — measured and withdrawn (2026-10-10)
 
 Exact attribution of the frozen numeric-binding image validates **61,655,008**

@@ -735,6 +735,17 @@ Native-region differentials exercise physical transitions and overwritten
 closure-source slots. This candidate improves measured upvalue timing but still
 fails full performance and disabled-cost gates; see `PLAN_JIT.md`.
 
+The current register-state reuse candidate validates rooted storage when a
+native region acquires it. A private borrowed owner exposes no mutable slot or
+root slices; safe mutation goes through canonical recapture or checked virtual
+calls. Each native continuation receives a fresh pointer, under the linked
+caller's source/store/transfer/no-helper certificates. Repeated rooted calls
+reuse that valid state; debug builds additionally rescan it. Generic snapshot
+construction, observable fallback and panic materialization remain checked.
+The scalar-helper path retains its original register handling. The owner adds
+no allocation or machine-code access to Rust `Value` layouts. Its native
+preservation corpus and selected Miri tests are not performance acceptance.
+
 Current-frame alias repair (`710dd33`) passes full GNU/musl
 `nix develop -c make jit-verify clippy jit-clippy`: each reports 4941 passing
 executions across 434 suites, with 24 ignored tests. Existing 141 lib-test

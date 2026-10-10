@@ -11,6 +11,10 @@ impl<'a, 'gc> Preserved<'a, 'gc> {
         Some(Self { roots, slots })
     }
 
+    pub(in crate::jit) fn len(&self) -> usize {
+        self.slots.len()
+    }
+
     pub(in crate::jit) fn snapshot(&mut self) -> Snapshot<'_, 'gc> {
         debug_assert!(Snapshot::new(self.roots, self.slots).is_some());
         Snapshot {
@@ -28,7 +32,7 @@ impl<'a, 'gc> Preserved<'a, 'gc> {
     }
 
     /// # Safety
-    /// Writes must stay within the slot prefix and preserve tags and root indices.
+    /// Writes must stay within the slot prefix, use valid tags, and index reference-valued roots.
     /// No use of this pointer may follow another borrow of the register file.
     pub(in crate::jit) unsafe fn native_slots(&mut self) -> *mut Slot {
         self.slots.as_mut_ptr()
@@ -108,6 +112,7 @@ fn recapture_calls_and_native_reborrows_preserve_root_identity() {
         let mut slots = [Slot::from_value(Value::Nil); 8];
         assert!(super::super::capture(&mut roots, &mut slots, &values));
         let mut file = Preserved::new(&mut roots, &mut slots).unwrap();
+        assert_eq!(file.len(), values.len());
         for round in 0..16 {
             let before: Vec<_> = file
                 .slots
