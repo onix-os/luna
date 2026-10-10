@@ -77,6 +77,23 @@ fn hasher() -> &'static ahash::random_state::RandomState {
     HASHER.get_or_init(ahash::random_state::RandomState::new)
 }
 
+#[cfg(target_pointer_width = "64")]
+#[inline(never)]
+pub(crate) fn string_key_hash(content_hash: u64) -> u64 {
+    hasher().hash_one(CanonicalKey::<'static, u64>::String(content_hash))
+}
+
+#[inline]
+fn canonical_hash(key: CanonicalKey<'_>) -> u64 {
+    #[cfg(target_pointer_width = "64")]
+    if let CanonicalKey::String(string) = key {
+        if let Some(hash) = string.table_key_hash() {
+            return hash;
+        }
+    }
+    hasher().hash_one(key)
+}
+
 /// The hash an entry is stored under.
 ///
 /// A key that is not live carries its own, because it cannot be recomputed: a weak key may have
@@ -84,7 +101,7 @@ fn hasher() -> &'static ahash::random_state::RandomState {
 /// key it replaced did. Rehashing on growth needs the *original* hash either way.
 fn key_hash<'gc>(key: &Key<'gc>) -> u64 {
     match key {
-        Key::Live(k) => hasher().hash_one(*k),
+        Key::Live(k) => canonical_hash(*k),
         Key::Weak(_, hash) | Key::Dead(_, hash) => *hash,
     }
 }
@@ -125,7 +142,11 @@ impl<'gc> RawTable<'gc> {
         let mut array = vec::Vec::new_in(MetricsAlloc::new(mc));
         array.resize(array_capacity, Value::Nil);
 
-        let map = HashMap::with_capacity_and_hasher_in(map_capacity, (), MetricsAlloc::new(mc));
+        let map = if map_capacity == 0 {
+            HashMap::with_hasher_in((), MetricsAlloc::new(mc))
+        } else {
+            HashMap::with_capacity_and_hasher_in(map_capacity, (), MetricsAlloc::new(mc))
+        };
 
         Self {
             array,
@@ -184,7 +205,7 @@ impl<'gc> RawTable<'gc> {
             if let Some((_, v)) = self
                 .map
                 .raw_entry()
-                .from_hash(hasher().hash_one(key), |k| k.eq(key))
+                .from_hash(canonical_hash(key), |k| k.eq(key))
             {
                 v.0.get(mc)
             } else {
@@ -239,7 +260,7 @@ impl<'gc> RawTable<'gc> {
         index_key: Option<usize>,
     ) -> Result<Value<'gc>, InvalidTableKey> {
         let table_key = CanonicalKey::new(key)?;
-        let hash = hasher().hash_one(table_key);
+        let hash = canonical_hash(table_key);
 
         // If the value is nil then we are removing from the map part, which cannot fail.
         if value.is_nil() {
@@ -424,9 +445,10 @@ impl<'gc> RawTable<'gc> {
             while self
                 .map
                 .raw_entry()
-                .from_hash(hasher().hash_one(CanonicalKey::Integer(max)), |k| {
-                    k.eq(CanonicalKey::Integer(max))
-                })
+                .from_hash(
+                    hasher().hash_one(CanonicalKey::<String<'gc>>::Integer(max)),
+                    |k| k.eq(CanonicalKey::Integer(max)),
+                )
                 .is_some_and(|(_, v)| !v.0.is_empty(mc))
             {
                 if max == i64::MAX {
@@ -444,12 +466,10 @@ impl<'gc> RawTable<'gc> {
 
             // We have found a max where table[max] == nil, so we can now binary search
             binary_search(min, max, |i| {
-                match self
-                    .map
-                    .raw_entry()
-                    .from_hash(hasher().hash_one(CanonicalKey::Integer(i)), |k| {
-                        k.eq(CanonicalKey::Integer(i))
-                    }) {
+                match self.map.raw_entry().from_hash(
+                    hasher().hash_one(CanonicalKey::<String<'gc>>::Integer(i)),
+                    |k| k.eq(CanonicalKey::Integer(i)),
+                ) {
                     Some((_, v)) => v.0.is_empty(mc),
                     None => true,
                 }
@@ -528,7 +548,7 @@ impl<'gc> RawTable<'gc> {
             if let Some((_, &(_, order_index))) = self
                 .map
                 .raw_entry()
-                .from_hash(hasher().hash_one(table_key), |k| k.eq(table_key))
+                .from_hash(canonical_hash(table_key), |k| k.eq(table_key))
             {
                 return from_order(order_index + 1);
             }
@@ -637,11 +657,11 @@ impl<'gc> RawTable<'gc> {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Collect)]
 #[collect(no_drop)]
-enum CanonicalKey<'gc> {
+enum CanonicalKey<'gc, S = String<'gc>> {
     Boolean(bool),
     Integer(i64),
     Number(u64),
-    String(String<'gc>),
+    String(S),
     Table(Table<'gc>),
     Closure(Closure<'gc>),
     Callback(Callback<'gc>),
@@ -1080,3 +1100,9 @@ impl<'gc> Key<'gc> {
         }
     }
 }
+
+#[cfg(test)]
+mod key_hash_tests;
+
+#[cfg(test)]
+mod capacity_tests;

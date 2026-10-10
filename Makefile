@@ -99,6 +99,14 @@ $(info ------------------------------------------)
 .PHONY: jit-coverage-replay jit-coverage-wrapper-tests
 .PHONY: jit-clippy table-access table-access-miri
 
+.PHONY: table-capacity table-capacity-miri
+table-capacity:
+	@$(CARGO) test --locked -p luna --lib $(TARGET_ARG) table::raw::capacity_tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) table::raw::capacity_tests
+
+table-capacity-miri:
+	@$(CARGO) miri test --locked -p luna --lib --target '$(MIRI_TARGET)' table::raw::capacity_tests -- --test-threads=1
+
 .PHONY: jit-array-window jit-array-window-miri
 .PHONY: jit-code-index jit-code-index-miri
 jit-code-index:
@@ -1315,6 +1323,14 @@ repl:
 .PHONY: numeric-conversions jit-vm-dispatch jit-set-list jit-set-list-miri jit-frame-view jit-frame-view-miri jit-integer-table jit-integer-table-miri
 .PHONY: jit-operand-sources jit-operand-sources-miri
 .PHONY: jit-constant-keys jit-constant-keys-miri
+.PHONY: string-key-hash string-key-hash-miri
+string-key-hash:
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) key_hash_tests $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) key_hash_tests $(ARGS)
+
+string-key-hash-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' key_hash_tests -- --test-threads=1
+
 jit-constant-keys:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::constant_key_tests $(ARGS)
 
