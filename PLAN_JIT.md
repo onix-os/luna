@@ -11,10 +11,10 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Canonical-only helper entries — experimental (2026-10-10)
+#### Canonical-only helper entries — test-only (2026-10-10)
 
-Ordinary compilation now selects a distinct canonical helper table, while
-projected and scoped compilation retain their existing tables. The shared
+The measured trial selected a distinct canonical helper table for ordinary
+compilation; projected and scoped compilation retained their existing tables. The shared
 helper body specializes projection handling at compile time rather than testing
 it before and after every ordinary operation. Code layout, scratch transport,
 PC-before-effects, null-host decline, unwind capture, panic materialization,
@@ -33,9 +33,37 @@ final symbol/fixed-list/backend checks pass 21. Twelve helper tests pass each
 Miri borrow model, seeds 27/28; 31 warnings per run remain recorded. These
 counts include overlapping test executions, not full platform certification.
 
-The ordinary GNU opt3 release candidate is frozen under `canonical-helper*`
-in the ignored performance evidence directory. Exact whole-workload profiles
-are running; no performance improvement or release acceptance is claimed yet.
+Ten exact-image profiles pass strict full execution/resource comparisons.
+Callback work falls **133,593,180 -> 133,074,411 instructions (0.38832%)**:
+the ordinary helper contributes 518,688 fewer instructions, with the remaining
+81 in allocator variation. The bridge itself remains at 20,233,235 instructions.
+Upvalue Auto work increases 0.11785%; all three Off profiles retain identical
+instruction totals. Relocated anonymous/native symbols are not counted as
+removed work. These instruction counts alone do not establish elapsed savings.
+
+Two full native screens complete 48 commands, all aggregate gates failing
+including controls, with **648 equal full non-timing comparisons**. Frozen
+thresholds, nine workloads, eleven samples, CPU0/16, common invocation paths,
+controls/placebos and contention telemetry remain unchanged. No owned
+build/test/profile/source edit overlaps timing.
+
+Control time / candidate time for callbacks is CPU0 **0.93238 / 0.94015** and
+CPU16 **1.00996 / 1.01709**, first / repeat. All twelve candidate callback gates
+fail; the targeted CPU0 path is materially worse. Disabled float also falls
+to CPU0 **0.89488 / 0.92238**, CPU16 **0.98225 / 0.98406**. Upvalue gains of
+roughly 1–4% and favorable allocation/table samples do not erase those losses.
+
+Production integration in `7afb9df` is withdrawn before a shipping/full-platform
+campaign. Canonical entries and their differential fixtures remain `cfg(test)`;
+the original production helper body, table selection and diagnostic names are
+restored. Withdrawal validation passes 64 focused executions across six test
+summaries, with zero ignored tests, plus formatting/check-all and the ordinary
+GNU opt3 release rebuild. Restored `.text` and `.rodata` match the frozen control
+byte-for-byte; the complete binary hash differs, so this is not full-image
+identity. The ordinary GNU opt3 candidate, source patch, symbol companions,
+all profiles and complete timing analyses remain frozen under `canonical-helper*`
+in the ignored performance evidence directory. No performance or release
+acceptance is claimed.
 
 #### Ordinary entry stack outlining — measured and withdrawn (2026-10-10)
 

@@ -36,12 +36,14 @@ pub(super) const SYMBOLS: [(u32, &str, abi::HelperEntry); 10] = [
     symbol::<{ abi::HELPER_SET_LIST }>("luna_set_list_v1"),
 ];
 
+#[cfg(test)]
 const fn canonical_symbol<const KIND: u32>(
     name: &'static str,
 ) -> (u32, &'static str, abi::HelperEntry) {
     (KIND, name, call_canonical::<KIND>)
 }
 
+#[cfg(test)]
 pub(super) const CANONICAL_SYMBOLS: [(u32, &str, abi::HelperEntry); 10] = [
     canonical_symbol::<{ abi::HELPER_MOVE }>("luna_move_v5"),
     canonical_symbol::<{ abi::HELPER_CONSTANT }>("luna_constant_v5"),
@@ -260,9 +262,60 @@ pub(super) unsafe extern "C" fn call<const KIND: u32>(
     c: u32,
     pc: u32,
 ) -> u32 {
-    unsafe { call_mode::<KIND, true>(host, slots, a, b, c, pc) }
+    if host.is_null() {
+        return abi::HELPER_DECLINED;
+    }
+    let data = unsafe { (*host).data };
+    let frame = unsafe { &mut *data.cast::<Frame<'_, '_, '_, '_>>() };
+    frame.count.calls += 1;
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        *frame.registers.pc = pc as usize + 1;
+        if let Some(projection) = frame.projection.as_deref_mut() {
+            projection
+                .flush(frame.ctx, frame.registers)
+                .expect("invalid pending projection");
+        }
+        let completed = {
+            let slots = unsafe { std::slice::from_raw_parts_mut(slots, frame.slot_count) };
+            frame.operation::<KIND>(slots, a, b, c)
+        };
+        if let Some(projection) = frame.projection.as_deref_mut() {
+            projection
+                .refresh(frame.registers, frame.closure.upvalues())
+                .expect("invalid refreshed projection");
+        }
+        if !completed {
+            *frame.registers.pc = pc as usize;
+            return abi::HELPER_DECLINED;
+        }
+        *frame.registers.pc = pc as usize + 1;
+        abi::HELPER_COMPLETED
+    }));
+    match result {
+        Ok(abi::HELPER_COMPLETED) => {
+            frame.count.completed += 1;
+            abi::HELPER_COMPLETED
+        }
+        Ok(_) => {
+            frame.count.declined += 1;
+            abi::HELPER_DECLINED
+        }
+        Err(payload) => {
+            let slots = unsafe { std::slice::from_raw_parts_mut(slots, frame.slot_count) };
+            for (slot, dest) in slots
+                .iter()
+                .copied()
+                .zip(frame.registers.stack_frame.iter_mut())
+            {
+                slot.write_back(dest);
+            }
+            frame.panic = Some(payload);
+            abi::HELPER_PANICKED
+        }
+    }
 }
 
+#[cfg(test)]
 pub(super) unsafe extern "C" fn call_canonical<const KIND: u32>(
     host: *mut abi::Host,
     slots: *mut Slot,
@@ -274,6 +327,7 @@ pub(super) unsafe extern "C" fn call_canonical<const KIND: u32>(
     unsafe { call_mode::<KIND, false>(host, slots, a, b, c, pc) }
 }
 
+#[cfg(test)]
 #[inline(always)]
 unsafe fn call_mode<const KIND: u32, const PROJECTED: bool>(
     host: *mut abi::Host,
