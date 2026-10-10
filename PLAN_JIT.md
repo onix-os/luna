@@ -96,7 +96,14 @@ both cache forms and restore source/tests/Make exactly to b8e40a4. Keep the two
 independent lifecycle fixtures and table-access-miri; candidate-specific offset
 and footprint fixtures remain in Git history. Do not repeat cache-width,
 field-order or outlining permutations on instruction savings alone. Broad
-restoration checks and five rebuilt-image comparisons are pending.
+restoration validation exits 0 after withdrawal commit `74f3bcf`: formatting,
+all-target/all-feature checking and 14 focused GNU table checks pass. Full GNU
+Force passes 1,503 executions across 88 summaries (6 ignored); focused musl and
+i686-musl pass 14 each, and default/Tree Borrows Miri pass seven each. All five
+rebuilt release images (native, speed/shipping with/without JIT) are byte-identical
+to the original table-owner controls. Source/test/Make files match `b8e40a4`, and
+the source-after manifest verifies. This establishes restoration, not a fix for
+the pre-existing performance failures.
 Evidence: `table-owner*` under
 `target/jit-evidence/short-slice-performance/`.
 
