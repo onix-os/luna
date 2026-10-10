@@ -68,8 +68,29 @@ closure Off by **−242**, and integer/float Off are unchanged. The profile alia
 is removed and frozen-image/source checks pass. Opt3 integration passes **98
 executions / eleven summaries**, two ignored diagnostics, including the native
 preservation corpus and rooted completion/fallback/panic tests with debug
-revalidation disabled. Physical timing remains outstanding; no regression-fix
-claim yet.
+revalidation disabled.
+
+Four four-way CPU 0/16 hardware screens complete **96 aggregate commands**;
+all retain the original failing aggregate gates, with zero non-timing changes.
+Ordinary-time/candidate-time upvalue ratios are CPU0 **1.076289 / 1.071915 /
+1.067901 / 1.071803**, CPU16 **1.064833 / 1.064093 / 1.068274 / 1.067560**.
+The consistent upvalue improvement does not establish general acceptance:
+CPU0 callbacks are **0.993120 / 0.983409 / 0.976679 / 0.983740**, compiled-Off
+tables **0.966445 / 0.977475 / 0.976636 / 0.982685**, and compiled-Off
+metamethods **0.989596 / 0.982583 / 0.975168 / 0.982170**. Float Off has large
+placebo variation (CPU16 round-four median **1.174896**); do not generalize
+its apparent gains. All case/window/placebo distributions, contention logs,
+source hashes and frozen-image checks remain in the evidence.
+
+Across the 24 candidate invocations, callback gates fail **24/24**, metamethod
+gates **13/24**, table gates **2/24**, and upvalue gates **1/24**. Integer,
+float, allocation and cold-config gates pass all 24; Oslo stays unscored.
+This runtime candidate remains **unaccepted and under refinement**, not a
+release fix. The exact callback profile changes no Luna function's instruction
+count: its +81 total comes only from allocator variation. Next work must address
+the callback path's existing cost and the repeated cross-workload losses, not
+waive them because upvalues improved. `Runtime::invoke::<7, true>` accounts for
+**20,233,235** callback self instructions in the current exact-image profile.
 
 #### Bounded rooted-call fuel — measured and withdrawn (2026-10-10)
 
