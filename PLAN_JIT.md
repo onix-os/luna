@@ -39,6 +39,33 @@ Miri and unchanged repeated hardware/cost gates remain required.
 Evidence: `target/jit-evidence/short-slice-performance/rooted-native-callback/`
 and `combined-loop-guard-*`. The table/hash experiments below remain withdrawn.
 
+Runtime trial `a9498cb`, frozen opt3 **`c53d8269`**, completes full GNU
+Force/default all-feature checks plus docs: **3,183 test executions / 179
+summaries**, fourteen existing ignores. Separate no-JIT baseline/docs passes
+**449 / 87**, two ignores; focused musl **64 / eight**. Stacked and Tree
+Borrows each pass the pure proof lane **three / two**. This does not cover
+native execution under Miri or establish performance acceptance.
+
+Both generated-code captures reduce native callback instructions by
+**129,724**, from 9,468,103 to 9,338,379. Whole captured execution falls
+129,805; the independent paired profile falls 129,724. Preserve that scope
+difference. Upvalue profile totals fall 415,357, including generated work
+-519,340 and admission/allocator differences; three Off profiles are unchanged.
+Only callback snapshot peak changes, **10,705 -> 10,601 bytes**, among checked
+non-timing fields. The generic exact-counter analyzer exits nonzero on that
+change; retain the failure. A separate audit checks that exact resource delta
+and equality of every remaining field against rooted evidence. All ten profile
+collections and two page captures completed with source/image validation.
+This roughly **0.1% callback instruction reduction is not a hardware speedup**.
+
+Speed/shipping feature-cost artifacts are frozen and verified. Their no-JIT
+images differ from historical table-owner controls; cross-version cost deltas
+must not be attributed solely to this guard change. No owned validation job
+remains live before timing. Repeated hardware/cost screens remain pending,
+with original thresholds, complete counters, same-image controls and contention
+telemetry. A timing auditor may report candidate snapshot-peak reductions;
+other non-timing fields and control/placebo fields must remain identical.
+
 #### Hash/allocation experiments — runtime restored
 
 Neither the cached-hash variants nor allocation-only constructor satisfies the
