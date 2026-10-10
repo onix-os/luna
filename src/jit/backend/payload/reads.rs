@@ -4,6 +4,7 @@ pub(super) struct Read {
     blocks: [Block; 6],
     result: IrValue,
     index: u32,
+    cast: Option<(Inst, IrValue)>,
 }
 
 pub(super) fn block(function: &mut Function) -> Block {
@@ -17,9 +18,18 @@ pub(super) fn emit(function: &mut Function, inst: Inst, slots: IrValue, index: u
     let after = function.dfg.make_block();
     function.layout.split_block(after, inst);
     let result = function.dfg.first_result(inst);
-    function.dfg.detach_inst_results(inst);
-    function.dfg.attach_block_param(after, result);
-    function.layout.remove_inst(inst);
+    let (result, cast) = if function.dfg.value_type(result) == types::F64 {
+        let parameter = function.dfg.append_block_param(after, types::I64);
+        function
+            .replace(inst)
+            .bitcast(types::F64, MemFlagsData::new(), parameter);
+        (parameter, Some((inst, result)))
+    } else {
+        function.dfg.detach_inst_results(inst);
+        function.dfg.attach_block_param(after, result);
+        function.layout.remove_inst(inst);
+        (result, None)
+    };
     let wide = block(function);
     let other = block(function);
     let boolean = block(function);
@@ -61,7 +71,24 @@ pub(super) fn emit(function: &mut Function, inst: Inst, slots: IrValue, index: u
         blocks: [before, after, wide, other, boolean, zero],
         result,
         index,
+        cast,
     }
+}
+
+pub(super) fn bitcast(
+    f: &Function,
+    inst: Inst,
+    input: IrValue,
+    ty: cranelift_codegen::ir::Type,
+) -> Result<IrValue, JitError> {
+    let result = value(f, inst, Opcode::Bitcast, &[input], ty)?;
+    let InstructionData::LoadNoOffset { flags, .. } = f.dfg.insts[inst] else {
+        return Err(invalid());
+    };
+    if f.dfg.mem_flags[flags] != MemFlagsData::new() {
+        return Err(invalid());
+    }
+    Ok(result)
 }
 
 pub(super) fn value(
@@ -174,6 +201,13 @@ pub(super) fn verify(f: &Function, read: &Read, slots: IrValue) -> Result<(), Ji
     if f.dfg.block_params(after) != [read.result] || f.dfg.value_type(read.result) != types::I64 {
         return Err(invalid());
     }
+    if let Some((inst, result)) = read.cast {
+        if f.layout.first_inst(after) != Some(inst)
+            || bitcast(f, inst, read.result, types::F64)? != result
+        {
+            return Err(invalid());
+        }
+    }
     for block in [wide, other, boolean, zero] {
         if !f.dfg.block_params(block).is_empty() {
             return Err(invalid());
@@ -236,6 +270,10 @@ pub(super) fn verify(f: &Function, read: &Read, slots: IrValue) -> Result<(), Ji
 }
 
 fn fixture() -> (Function, Read, IrValue) {
+    typed_fixture(types::I64)
+}
+
+fn typed_fixture(ty: cranelift_codegen::ir::Type) -> (Function, Read, IrValue) {
     let mut function = Function::new();
     function.signature.call_conv = cranelift_codegen::isa::CallConv::SystemV;
     function.signature.params.push(AbiParam::new(types::I64));
@@ -248,8 +286,13 @@ fn fixture() -> (Function, Read, IrValue) {
         b.append_block_params_for_function_params(entry);
         b.switch_to_block(entry);
         slots = b.block_params(entry)[0];
-        let bits = b.ins().load(types::I64, MemFlagsData::new(), slots, 8);
+        let bits = b.ins().load(ty, MemFlagsData::new(), slots, 8);
         inst = b.func.dfg.value_def(bits).inst().unwrap();
+        let bits = if ty == types::F64 {
+            b.ins().bitcast(types::I64, MemFlagsData::new(), bits)
+        } else {
+            bits
+        };
         b.ins().return_(&[bits]);
         b.seal_all_blocks();
         let isa = cranelift_codegen::isa::lookup_by_name(std::env::consts::ARCH)
@@ -261,6 +304,41 @@ fn fixture() -> (Function, Read, IrValue) {
     let read = emit(&mut function, inst, slots, 0);
     verify(&function, &read, slots).unwrap();
     (function, read, slots)
+}
+
+#[test]
+fn float_read_checker_requires_bit_preserving_conversion() {
+    let (function, read, slots) = typed_fixture(types::F64);
+    let flags = settings::Flags::new(settings::builder());
+    cranelift_codegen::verify_function(&function, &flags).unwrap();
+    let (cast, _) = read.cast.unwrap();
+    let mut changed = function.clone();
+    changed
+        .replace(cast)
+        .fcvt_from_sint(types::F64, read.result);
+    cranelift_codegen::verify_function(&changed, &flags).unwrap();
+    assert!(verify(&changed, &read, slots).is_err());
+    let mut changed = function.clone();
+    changed.dfg.inst_args_mut(cast)[0] = slots;
+    cranelift_codegen::verify_function(&changed, &flags).unwrap();
+    assert!(verify(&changed, &read, slots).is_err());
+}
+
+#[cfg(not(miri))]
+#[test]
+fn generated_float_read_preserves_payload_bits() {
+    let (function, read, slots) = typed_fixture(types::F64);
+    verify(&function, &read, slots).unwrap();
+    crate::jit::backend::projection_probe::with_projection_probe(function, |pointer| {
+        let entry = unsafe {
+            std::mem::transmute::<
+                *const u8,
+                unsafe extern "C" fn(*const crate::jit::abi::payload::Payload) -> u64,
+            >(pointer)
+        };
+        crate::jit::abi::payload::check_native_read(entry);
+    })
+    .unwrap();
 }
 
 #[test]

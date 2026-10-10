@@ -76,7 +76,13 @@ fn plan(
                     if offset < 0
                         || offset % 8 != 0
                         || offset as usize / 16 >= registers
-                        || function.dfg.value_type(function.dfg.first_result(inst)) != types::I64
+                        || !matches!(
+                            (
+                                offset % 16,
+                                function.dfg.value_type(function.dfg.first_result(inst))
+                            ),
+                            (_, types::I64) | (8, types::F64)
+                        )
                         || function.dfg.mem_flags[flags] != MemFlagsData::new()
                     {
                         return Err(invalid());
@@ -108,7 +114,7 @@ fn plan(
                         || second[1] != slots
                         || i32::from(second_offset) != offset + 8
                         || function.dfg.value_type(args[0]) != types::I64
-                        || function.dfg.value_type(second[0]) != types::I64
+                        || !matches!(function.dfg.value_type(second[0]), types::I64 | types::F64)
                         || function.dfg.mem_flags[flags] != MemFlagsData::new()
                         || function.dfg.mem_flags[second_flags] != MemFlagsData::new()
                     {
@@ -292,6 +298,48 @@ fn transport_grammar_refuses_malformed_accesses_without_mutating_source() {
 #[cfg(not(miri))]
 struct Compiled(Code);
 
+#[test]
+fn incompatible_payload_selections_refuse_before_allocating_native_memory() {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+        let snapshot = Snapshot::new(&closure.prototype(), 4096, 2 * 1024 * 1024).unwrap();
+        let baseline = snapshot.operations.allocator().0.current();
+        let total = MappingCounter::new(super::super::resources::Ledger::new(8 * 1024 * 1024));
+        let metadata = BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024));
+        for failure in [Failure::RequirePayload, Failure::RequirePayloadLoop] {
+            for mode in 0..6 {
+                #[cfg(miri)]
+                if mode == 5 {
+                    continue;
+                }
+                let selection = Selection {
+                    projected: mode == 0,
+                    leaf: mode == 1,
+                    cell_kernel: mode == 2,
+                    integer_activation: mode == 3,
+                    #[cfg(not(miri))]
+                    scoped_helpers: mode == 5,
+                    failure,
+                };
+                let result = compile_selected_rooted(
+                    &snapshot,
+                    total.clone(),
+                    1024 * 1024,
+                    metadata.clone(),
+                    super::super::work::Limits::from(&super::super::JitConfig::default()),
+                    selection,
+                    mode == 4,
+                );
+                assert!(matches!(result, Err(JitError::Compilation(message))
+                    if message == "payload transport requires ordinary lowering"));
+                assert_eq!(total.load(Ordering::Relaxed), 0);
+                assert_eq!(metadata.0.current(), 0);
+                assert_eq!(snapshot.operations.allocator().0.current(), baseline);
+            }
+        }
+    });
+}
+
 #[cfg(not(miri))]
 impl Compiled {
     fn invoke(&self, frame: &mut helpers::Frame<'_, '_, '_, '_>, pc: usize, budget: u32) -> Exit {
@@ -396,7 +444,11 @@ fn ordinary_lua_lowering_preserves_each_exit_and_canonical_register() {
                     1024 * 1024,
                     BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
                     super::super::work::Limits::from(&super::super::JitConfig::default()),
-                    Failure::RequirePayload,
+                    if source.contains("for i") {
+                        Failure::RequirePayloadLoop
+                    } else {
+                        Failure::RequirePayload
+                    },
                 )
                 .unwrap(),
             );
@@ -468,6 +520,65 @@ fn ordinary_lua_lowering_preserves_each_exit_and_canonical_register() {
             }
             drop((control, candidate));
             assert_eq!(total.load(Ordering::Relaxed), 0);
+        });
+    }
+}
+
+#[cfg(not(miri))]
+#[test]
+fn optimized_payload_loops_match_every_entry_budget_and_scalar_guard() {
+    for (source, floating) in [
+        ("local s=0 for i=1,20 do s=s+i end return s", false),
+        ("local s=0 for i=20,1,-1 do s=s-i end return s", false),
+        ("local s=0.0 for i=1,20 do s=s+0.5 end return s", true),
+        ("local s=0.0 for i=20,1,-1 do s=i-s*0.5 end return s", true),
+    ] {
+        crate::Lua::empty().enter(|ctx| {
+            let closure = crate::Closure::load(ctx, None, source.as_bytes()).unwrap();
+            let snapshot = Snapshot::new(&closure.prototype(), 4096, 2 * 1024 * 1024).unwrap();
+            let total = MappingCounter::new(super::super::resources::Ledger::new(8 * 1024 * 1024));
+            let metadata = BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024));
+            let work = super::super::work::Limits::from(&super::super::JitConfig::default());
+            let control = compile_in(&snapshot, total.clone(), 1024 * 1024, metadata.clone(), work, Failure::RequireIntegerLoop).unwrap();
+            let candidate = Compiled(compile_in(&snapshot, total.clone(), 1024 * 1024, metadata.clone(), work, Failure::RequirePayloadLoop).unwrap());
+            let base = snapshot.operations.iter().find_map(|op| match op {
+                Operation::NumericForLoop { base, .. } => Some(usize::from(base.0)),
+                _ => None,
+            }).unwrap();
+            let accumulator = snapshot.operations.iter().find_map(|op| match op {
+                Operation::Add { dest, .. } | Operation::Sub { dest, .. } => Some(usize::from(dest.0)),
+                _ => None,
+            }).unwrap();
+            for pc in (0..=snapshot.operations.len()).chain([usize::MAX]) {
+                for budget in [0, 1, 2, 3, 63, 64, 65, u32::MAX] {
+                    for invalid in [None, Some(base), Some(base + 1), Some(base + 2), Some(base + 3), Some(accumulator)] {
+                        for value in [
+                            crate::Value::Nil, crate::Value::Boolean(false), crate::Value::Boolean(true),
+                            crate::Value::Integer(i64::MIN), crate::Value::Integer(i64::MAX),
+                            crate::Value::Number(-0.0), crate::Value::Number(f64::INFINITY),
+                            crate::Value::Number(f64::from_bits(0x7ff8000000000042)),
+                        ] {
+                            let initial = if floating { crate::Value::Number(0.5) } else { crate::Value::Integer(1) };
+                            let mut expected_values = vec![initial; snapshot.registers];
+                            expected_values[base..base + 4].fill(crate::Value::Integer(1));
+                            if let Some(index) = invalid { expected_values[index] = value; }
+                            let mut actual_values = expected_values.clone();
+                            let (expected, expected_counts) = run(&control, None, (ctx, closure), &mut expected_values, pc, budget);
+                            let (actual, actual_counts) = run(&candidate.0, Some(&candidate), (ctx, closure), &mut actual_values, pc, budget);
+                            assert_eq!((actual.pc, actual.instructions, actual.reason), (expected.pc, expected.instructions, expected.reason), "{source}: pc={pc} budget={budget} invalid={invalid:?} value={value:?}");
+                            assert_eq!(actual_counts, expected_counts);
+                            for (actual, expected) in actual_values.into_iter().zip(expected_values) {
+                                let actual = Slot::from_value(actual);
+                                let expected = Slot::from_value(expected);
+                                assert_eq!((actual.tag, actual.bits), (expected.tag, expected.bits));
+                            }
+                        }
+                    }
+                }
+            }
+            drop((control, candidate));
+            assert_eq!(total.load(Ordering::Relaxed), 0);
+            assert_eq!(metadata.0.current(), 0);
         });
     }
 }

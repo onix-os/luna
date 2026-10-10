@@ -140,6 +140,24 @@ Both Miri models pass 14 model/IR tests (seeds 17/18; machine code excluded).
 Production dispatch is unchanged; integer-loop specialization, remaining
 optimized paths, resource accounting and whole-profile performance remain open.
 
+Payload lowering now retains the existing optimized numeric-loop regions.
+Their F64 scratch accesses become checked, bit-preserving conversions around
+the same typed payload transport; numerical conversions are refused by the
+independent checker. The required-loop selector fails compilation if the
+optimization is absent. Four ascending/descending integer/float programs match
+the optimized scratch control at every entry PC (including invalid PCs), eight
+budget values and scalar guard mutations, comparing exits, all helper counters
+and all canonical scalar bits. Additional executable F64 transport fixtures
+preserve scalar bit patterns and same-type write behavior.
+
+Incompatible projected/leaf/cell/activation/scoped/rooted compiler selections
+are explicitly refused before native allocation rather than silently dropping
+their contracts. They remain integration work, not accepted disabled features.
+GNU/musl pass 26 focused tests and the unchanged GNU native integration suite
+passes 18 tests (`payload-loop-*`). Both Miri models pass 17 model/IR tests
+(seeds 19/20; machine-code fixtures excluded). This is still test-only: resource accounting,
+runtime/array integration and benchmark acceptance remain incomplete.
+
 #### Sign-directed checked jump arithmetic — withdrawn (2026-10-10)
 
 On the restored runtime, a source trial replaces `checked_add_signed` with

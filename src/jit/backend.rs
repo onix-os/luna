@@ -336,6 +336,7 @@ impl Code {
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum Failure {
     RequirePayload,
+    RequirePayloadLoop,
     RequireReadCache,
     RequireWriteback,
     RequireIntegerLoop,
@@ -723,6 +724,24 @@ fn compile_selected_rooted(
 ) -> Result<Code, JitError> {
     #[cfg(test)]
     let failure = selection.failure;
+    #[cfg(test)]
+    if matches!(
+        failure,
+        Failure::RequirePayload | Failure::RequirePayloadLoop
+    ) {
+        let incompatible = rooted_moves
+            || selection.projected
+            || selection.leaf
+            || selection.cell_kernel
+            || selection.integer_activation;
+        #[cfg(not(miri))]
+        let incompatible = incompatible || selection.scoped_helpers;
+        if incompatible {
+            return Err(JitError::Compilation(
+                "payload transport requires ordinary lowering".into(),
+            ));
+        }
+    }
     #[cfg(test)]
     let leaf_pattern = if selection.leaf {
         Some(
@@ -1184,7 +1203,11 @@ fn compile_selected_rooted(
     #[cfg(test)]
     let optimize_integer_loop = matches!(
         failure,
-        Failure::None | Failure::RequireIntegerLoop | Failure::ProbeIntegerLoop
+        Failure::None
+            | Failure::RequireIntegerLoop
+            | Failure::ProbeIntegerLoop
+            | Failure::RequirePayload
+            | Failure::RequirePayloadLoop
     );
     #[cfg(not(test))]
     let optimize_integer_loop = true;
@@ -1205,7 +1228,9 @@ fn compile_selected_rooted(
         if !applied
             && matches!(
                 failure,
-                Failure::RequireIntegerLoop | Failure::ProbeIntegerLoop
+                Failure::RequireIntegerLoop
+                    | Failure::ProbeIntegerLoop
+                    | Failure::RequirePayloadLoop
             )
         {
             return Err(JitError::Compilation("integer loop was not applied".into()));
@@ -1263,7 +1288,10 @@ fn compile_selected_rooted(
         instructions
     };
     #[cfg(test)]
-    let (instructions, block_count) = if failure == Failure::RequirePayload {
+    let (instructions, block_count) = if matches!(
+        failure,
+        Failure::RequirePayload | Failure::RequirePayloadLoop
+    ) {
         payload::lower(
             &mut context.func,
             parameters[0],
@@ -1671,7 +1699,10 @@ fn compile_selected_rooted(
         #[cfg(test)]
         cell_kernel: selection.cell_kernel,
         #[cfg(test)]
-        payload: failure == Failure::RequirePayload,
+        payload: matches!(
+            failure,
+            Failure::RequirePayload | Failure::RequirePayloadLoop
+        ),
         #[cfg(test)]
         integer_activation: selection.integer_activation,
         #[cfg(all(test, not(miri)))]

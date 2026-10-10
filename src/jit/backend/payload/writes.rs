@@ -1,4 +1,4 @@
-use super::reads::{block, branch, compare, constant, load, value};
+use super::reads::{bitcast, block, branch, compare, constant, load, value};
 use super::*;
 
 #[derive(Clone, Copy)]
@@ -14,6 +14,7 @@ pub(super) struct Input {
 pub(super) struct Write {
     blocks: [Block; 8],
     input: Input,
+    cast: Option<Inst>,
 }
 
 pub(super) fn emit(f: &mut Function, tag_store: Inst, bits_store: Inst, input: Input) -> Write {
@@ -38,6 +39,12 @@ pub(super) fn emit(f: &mut Function, tag_store: Inst, bits_store: Inst, input: I
     } = input;
     let mut c = FuncCursor::new(f);
     c.goto_bottom(before);
+    let (bits, cast) = if c.func.dfg.value_type(bits) == types::F64 {
+        let bits = c.ins().bitcast(types::I64, MemFlagsData::new(), bits);
+        (bits, c.func.dfg.value_def(bits).inst())
+    } else {
+        (bits, None)
+    };
     let actual = c
         .ins()
         .load(types::I64, MemFlagsData::new(), slots, index as i32 * 16);
@@ -94,6 +101,7 @@ pub(super) fn emit(f: &mut Function, tag_store: Inst, bits_store: Inst, input: I
     Write {
         blocks: [before, after, kind, wide, other, boolean, nil, slow],
         input,
+        cast,
     }
 }
 
@@ -146,6 +154,13 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
     let mut head: Vec<_> = f.layout.block_insts(before).rev().take(4).collect();
     head.reverse();
     let [actual, pointer, same, split]: [Inst; 4] = head.try_into().map_err(|_| invalid())?;
+    let bits = match (f.dfg.value_type(bits), write.cast) {
+        (types::I64, None) => bits,
+        (types::F64, Some(cast)) if f.layout.prev_inst(actual) == Some(cast) => {
+            bitcast(f, cast, bits, types::I64)?
+        }
+        _ => return Err(invalid()),
+    };
     let actual = load(f, actual, slots, index as i32 * 16, types::I64)?;
     let pointer = load(
         f,
@@ -269,6 +284,10 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
 }
 
 fn fixture() -> (Function, Write) {
+    typed_fixture(false)
+}
+
+fn typed_fixture(floating: bool) -> (Function, Write) {
     let mut function = Function::new();
     function.signature.call_conv = cranelift_codegen::isa::CallConv::SystemV;
     function.signature.params = vec![AbiParam::new(types::I64); 4];
@@ -287,6 +306,11 @@ fn fixture() -> (Function, Write) {
     let [slots, host, tag, bits]: [IrValue; 4] = args.try_into().unwrap();
     let mut c = FuncCursor::new(&mut function);
     c.goto_bottom(entry);
+    let bits = if floating {
+        c.ins().bitcast(types::F64, MemFlagsData::new(), bits)
+    } else {
+        bits
+    };
     let tag_store = c.ins().store(MemFlagsData::new(), tag, slots, 0);
     let bits_store = c.ins().store(MemFlagsData::new(), bits, slots, 8);
     c.ins().return_(&[]);
@@ -305,6 +329,36 @@ fn fixture() -> (Function, Write) {
     );
     verify(&function, &write).unwrap();
     (function, write)
+}
+
+#[test]
+fn float_write_checker_requires_bit_preserving_conversion() {
+    let (function, write) = typed_fixture(true);
+    let flags = settings::Flags::new(settings::builder());
+    cranelift_codegen::verify_function(&function, &flags).unwrap();
+    let mut changed = function.clone();
+    changed
+        .replace(write.cast.unwrap())
+        .fcvt_to_sint_sat(types::I64, write.input.bits);
+    cranelift_codegen::verify_function(&changed, &flags).unwrap();
+    assert!(verify(&changed, &write).is_err());
+}
+
+#[cfg(not(miri))]
+#[test]
+fn generated_float_write_preserves_payload_bits() {
+    let (function, write) = typed_fixture(true);
+    verify(&function, &write).unwrap();
+    crate::jit::backend::projection_probe::with_projection_probe(function, |pointer| {
+        let entry = unsafe {
+            std::mem::transmute::<
+                *const u8,
+                unsafe extern "C" fn(*mut Payload, *mut Bridge, u64, u64),
+            >(pointer)
+        };
+        crate::jit::abi::payload::runtime::check_native_write(entry);
+    })
+    .unwrap();
 }
 
 #[test]
