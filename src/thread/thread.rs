@@ -1077,7 +1077,7 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[inline(always)]
     fn try_callback_call(
         &mut self,
         func: RegisterIndex,
@@ -1127,6 +1127,21 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
     /// Call the function at the given register with the given arguments. On return, results will be
     /// placed starting at the function register.
     pub(super) fn call_function(
+        mut self,
+        ctx: Context<'gc>,
+        func: RegisterIndex,
+        args: VarCount,
+        returns: VarCount,
+    ) -> Result<(), VMError> {
+        if self.try_callback_call(func, args, returns) {
+            Ok(())
+        } else {
+            self.call_function_general(ctx, func, args, returns)
+        }
+    }
+
+    #[inline(never)]
+    fn call_function_general(
         mut self,
         ctx: Context<'gc>,
         func: RegisterIndex,

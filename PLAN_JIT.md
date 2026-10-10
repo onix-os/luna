@@ -11,6 +11,28 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Fixed callback call setup — trial (2026-10-10)
+
+Exact callback attribution finds 65,000 `LuaFrame::call_function` entries at
+111 self instructions each (7,215,000 total), in addition to general call
+resolution and frame dispatch. The new path admits only an actual Rust callback,
+fixed arguments, a fixed caller stack, a complete argument span and available
+call depth. It performs the existing call/item fuel charges, return expectation,
+argument movement and physical callback-frame push without general resolution
+or closure-frame setup. It does not execute user code, elide the callback frame,
+retain borrowed pointers or move any suspension/hook boundary. Refusals have no
+effects and use the unchanged general call body.
+
+Independent baseline model `6c02f07` compares 927 physical-state scenarios per
+feature lane: all fixed counts 0–254, variable arguments, invalid spans, depth
+limits, fuel saturation/interruption, noncallbacks, reference identities and NaN
+bits. Candidate tests keep their oracle on the original general body rather
+than the new dispatcher. Formatting/check-all and 158 focused executions across
+21 summaries pass, including callback, mode, native, error and suspension checks.
+The initial model's ambiguous integer type error and corrected retry are retained.
+Exact profiling and hardware/cost acceptance are pending; this is not a speedup
+claim. Evidence: `callback-setup*` in the ignored performance directory.
+
 #### Rust integer argument conversion — withdrawn (2026-10-10)
 
 The exact callback control profile attributes 2,470,000 instructions to

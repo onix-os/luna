@@ -130,7 +130,12 @@ fn callback_setup_matches_physical_call_and_declines_without_effects() {
                                 )
                             );
                         }
-                        frame.call_function(ctx, RegisterIndex(register as u8), args, returns)
+                        frame.call_function_general(
+                            ctx,
+                            RegisterIndex(register as u8),
+                            args,
+                            returns,
+                        )
                     }));
                     #[cfg(feature = "jit")]
                     drop(stack);
