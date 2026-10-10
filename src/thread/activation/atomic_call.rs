@@ -93,17 +93,7 @@ impl<'gc, 'host> ActivationHost<'gc, 'host> {
         {
             return None;
         }
-        let mut fuel = self.fuel.clone();
-        fuel.consume(LuaFrame::FUEL_PER_CALL);
-        fuel.consume(crate::fuel::count_fuel(LuaFrame::FUEL_PER_ITEM, count));
-        fuel.consume(4);
-        fuel.consume(spec.prefix as i32);
-        if !fuel.should_continue() {
-            return None;
-        }
-        fuel.consume(LuaFrame::FUEL_PER_CALL);
-        fuel.consume(3);
-        fuel.consume(4);
+        let fuel = super::snapshot_fuel::prepare(self.fuel, spec.arguments, spec.prefix)?;
         Some(Window {
             host: self,
             fuel,

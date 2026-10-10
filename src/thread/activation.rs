@@ -23,6 +23,8 @@ mod call_tests;
 ))]
 pub(crate) mod atomic_call;
 
+mod snapshot_fuel;
+
 pub(crate) struct ActivationHost<'gc, 'a> {
     #[cfg(all(
         not(miri),
