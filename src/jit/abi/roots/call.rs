@@ -252,3 +252,5 @@ fn snapshot_reads_preserve_all_scalar_bits_and_reference_identities() {
         assert!(snapshot.integer(usize::MAX).is_none());
     });
 }
+
+pub(in crate::jit) mod preserved;

@@ -5,6 +5,8 @@ use crate::{
     Lua, Table, Value,
 };
 
+mod preservation;
+
 fn source() -> Snapshot {
     Snapshot {
         operations: owned(&[

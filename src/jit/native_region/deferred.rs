@@ -10,10 +10,7 @@ impl Session<'_, '_, '_, '_> {
         {
             return RootedCompletion::Unavailable;
         }
-        let Some(roots) = self.roots.as_deref() else {
-            return RootedCompletion::Unavailable;
-        };
-        let Some(mut snapshot) = abi::roots::call::Snapshot::new(roots, self.slots) else {
+        let Some(mut snapshot) = self.registers.snapshot() else {
             return RootedCompletion::Unavailable;
         };
         let ready = self.frame.host.with_registers(|caller, registers| {

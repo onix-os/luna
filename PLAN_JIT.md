@@ -11,6 +11,161 @@
 
 ### Progress snapshot — 2026-10-10
 
+#### Native-only callback setup — measured and withdrawn
+
+The rooted-state candidate improves upvalues but remains unaccepted. Fresh
+exact-image callback attribution confirms **20,233,235** invocation self
+instructions against **132,231,624** global instructions, with every executed
+PC decoded and frozen-image hashes intact. Earlier selective import/writeback,
+statistics and projection experiments remain rejected.
+
+This candidate applies the independently tested direct physical-callback setup
+only at native Call transitions (ordinary native exits and connected regions).
+The interpreter's original `call_function` body and call sites are unchanged.
+Previous shared-body variants saved the same work in Auto and Off; restricting
+this setup to native exits tests whether their incremental overhead can fall
+without adding checks to interpreter-only calls. Callback execution still takes
+place through the normal Executor, outside generated code. Fixed/variable
+arguments, physical frames, metamethod resolution, depth handling, fuel, errors,
+suspension and original dispatch accounting remain.
+
+The existing independent model compares complete physical state, errors/panics,
+fuel and interruption across **927 scenarios per feature lane**. Initial focused
+validation passes **120 executions / 13 summaries**, two ignored diagnostics;
+after naming the native-only entry, format/check-all and both model feature
+lanes pass again. Full GNU Force passes **1,580 / 88**, six ignored; focused
+musl passes **120 / 13**, two ignored. Candidate `adaad1c` is pushed.
+
+The frozen opt3 image `5eb0ad79` passes ten exact-image profiles plus three
+callback-Off profiles. Relative to the immediately preceding rooted-state
+candidate, callback Auto instructions fall **132,231,624 → 128,600,808**;
+callback Off remains **102,871,353** with identical non-timing records. Thus
+**3,630,816** instructions are removed from incremental native work, unlike the
+rejected shared-body trial. Comparisons against the older historical control
+show a larger **4,992,372** reduction, including earlier unrelated changes;
+do not attribute that whole difference to this candidate.
+
+Closure Auto increases **325,153** instructions, chiefly admission traversal
+variation (**313,704**); changed native Lua-call setup contributes **12,350**
+and allocator deltas remain reported. Closure Off differs by **242** allocator
+instructions; integer/float Off are unchanged. Full workload/counter records
+match in every profile. Optimized integration passes **68 executions / seven
+summaries**, two ignored diagnostics, including both model feature lanes and
+native-region transition/panic checks.
+
+Eight four-way hardware screens complete **192 aggregate commands**, with
+unchanged workload/counter records and all aggregate gates still failing.
+Four screens compare against rooted-state reuse; four compare against the
+ordinary image. Relative to rooted reuse, CPU16 callback ratios improve to
+**1.031727 / 1.025198 / 1.024997 / 1.023787**, but CPU0 callbacks worsen to
+**0.986401 / 0.991070 / 0.985250 / 0.989178** and CPU0 compiled-Off integers
+to **0.934728 / 0.932944 / 0.937034 / 0.939815**. The corresponding integer
+placebos stay **1.001199 / 0.994074 / 1.005180 / 1.003411**. Ratios are
+control time divided by candidate time; fewer instructions do not excuse these
+repeated losses.
+
+Against ordinary, CPU0 callbacks are **0.963154 / 0.977954 / 0.970176 /
+0.981474** and Off integers **0.933567 / 0.933777 / 0.877291 / 0.841721**.
+Upvalues retain their earlier gains, not a new callback acceptance result.
+All 48 candidate callback gates fail; metamethod gates fail 25/48. Other
+scored candidate gates pass 48/48; Oslo remains unscored. Full distributions,
+placebos, contention, image hashes and source checks are retained.
+
+The native-only common-prelude variant is withdrawn. Runtime call sites and
+the original test-only setup models are restored to `d38f350`; the earlier
+rooted-state reuse candidate remains unchanged and still unaccepted. Exact
+binary restoration reproduces **`3d0dc224` byte-for-byte** after `1283d71`;
+fresh full GNU/musl restoration checks are still running. Do not reactivate
+this common-prelude variant or report its instruction savings as a measured
+general speedup.
+
+The exact ordinary-invocation attribution partitions its **20,233,235** self
+instructions into import **5,771,921**, entry setup **2,140,017**, exit/writeback/
+PC **6,484,887**, statistics **3,696,393**, prologue **1,102,433** and teardown
+**1,037,584**. These measured costs do not justify retrying previously rejected
+writeback masks, integer-first dispatch, same-integer stores or counter masks.
+
+#### Rooted register-state preservation — validation foundation
+
+The next candidate targets repeated `Snapshot::new` validation in the rooted
+native-region boundary. Exact ordinary-image attribution counts **8,161,536**
+self instructions in that scan, within **30,627,690** boundary self instructions
+and **169,861,074** global instructions. This identifies cost, not a speedup.
+
+`ca7e3f5` adds **1,421,880 actual-native attempts per execution**: 41 operation
+variants, 17 scalar/reference value cases, widths 6/17/256, five entry PCs and
+eight budgets. Every exit and slot is compared with the independent scalar
+model extended only for rooted Move. Only executed arithmetic destinations may
+differ in NaN payload; moves, constants and untouched slots remain bit-exact.
+GNU and musl each pass 23 executions across three summaries, none ignored.
+
+A test-only borrowed register-file owner validates initial state and hides its
+root/slot slices. Its mutations are canonical recapture, checked virtual calls,
+or explicitly contracted native writes through a freshly borrowed pointer.
+The same native corpus compares owner publication against independently checked
+snapshot publication. Initial GNU and musl focused runs each pass **32
+executions / six summaries**, none ignored. Pinned Miri Stacked seed 45 and
+Tree seed 46 each pass two pure ownership tests; malformed slots use all widths
+but first/middle/last positions under Miri, versus every position normally.
+GNU optimized tests also pass **25 executions / four summaries**, none ignored,
+including the full native corpus with the owner's debug validation disabled.
+Generated code is not Miri-tested. Production scan reuse and physical timing
+acceptance remain outstanding; this foundation does not change runtime behavior.
+
+#### Rooted register-state reuse — runtime candidate
+
+The subsequent candidate enables the validated owner in native-region sessions.
+Only initially validated, exclusively borrowed rooted state bypasses repeated
+release-mode scans. Source/IR-certified native stores, checked virtual calls and
+canonical recapture preserve the invariant. The generic checked constructor and
+observable fallback/panic materialization remain. Native entry, dependency,
+publication, fuel, policy and resource checks are not relaxed. Non-rooted callers
+retain the original scalar/helper path; the earlier deferred-publication model
+remains test-only.
+
+Initial formatting/check-all and focused native/accounting validation pass
+**127 executions / 14 summaries**, with two ignored diagnostics. Focused musl
+passes **220 / 18**, two ignored; pinned Miri Stacked seed 47 and Tree seed 48
+each pass **eight pure ownership/scoped-helper tests / two summaries**, none
+ignored. Full GNU Force passes **1,580 / 88**, six ignored. Source hashes remain
+unchanged across validation; `88b98a4` is committed and pushed.
+
+The clean opt3 image `3d0dc224` passes ten exact-image profiles with unchanged
+non-timing fields. Against the ordinary control, closure Auto instructions fall
+**169,861,074 → 160,033,194** (5.8% fewer); boundary self instructions fall
+**30,627,690 → 20,540,967**. Rooted-invocation self instructions remain
+**61,655,008**. Owner construction adds **322,322** self instructions; checked
+materialization moves from **374,081** to **379,406**. Admission traversal
+changes by **−156,852** and allocator variation remains reported separately,
+not credited to validation reuse. Callback total instructions change by **+81**,
+closure Off by **−242**, and integer/float Off are unchanged. The profile alias
+is removed and frozen-image/source checks pass. Opt3 integration passes **98
+executions / eleven summaries**, two ignored diagnostics, including the native
+preservation corpus and rooted completion/fallback/panic tests with debug
+revalidation disabled.
+
+Four four-way CPU 0/16 hardware screens complete **96 aggregate commands**;
+all retain the original failing aggregate gates, with zero non-timing changes.
+Ordinary-time/candidate-time upvalue ratios are CPU0 **1.076289 / 1.071915 /
+1.067901 / 1.071803**, CPU16 **1.064833 / 1.064093 / 1.068274 / 1.067560**.
+The consistent upvalue improvement does not establish general acceptance:
+CPU0 callbacks are **0.993120 / 0.983409 / 0.976679 / 0.983740**, compiled-Off
+tables **0.966445 / 0.977475 / 0.976636 / 0.982685**, and compiled-Off
+metamethods **0.989596 / 0.982583 / 0.975168 / 0.982170**. Float Off has large
+placebo variation (CPU16 round-four median **1.174896**); do not generalize
+its apparent gains. All case/window/placebo distributions, contention logs,
+source hashes and frozen-image checks remain in the evidence.
+
+Across the 24 candidate invocations, callback gates fail **24/24**, metamethod
+gates **13/24**, table gates **2/24**, and upvalue gates **1/24**. Integer,
+float, allocation and cold-config gates pass all 24; Oslo stays unscored.
+This runtime candidate remains **unaccepted and under refinement**, not a
+release fix. The exact callback profile changes no Luna function's instruction
+count: its +81 total comes only from allocator variation. Next work must address
+the callback path's existing cost and the repeated cross-workload losses, not
+waive them because upvalues improved. `Runtime::invoke::<7, true>` accounts for
+**20,233,235** callback self instructions in the current exact-image profile.
+
 #### Bounded rooted-call fuel — measured and withdrawn (2026-10-10)
 
 Exact attribution of the frozen numeric-binding image validates **61,655,008**

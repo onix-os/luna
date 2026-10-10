@@ -448,6 +448,13 @@ jit-atomic-call: jit-snapshot-fuel
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::activation::atomic_call $(ARGS)
 
 .PHONY: jit-rooted-call jit-rooted-call-miri
+.PHONY: jit-preserved-roots jit-preserved-roots-miri
+jit-preserved-roots:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::roots::call::preserved $(ARGS)
+
+jit-preserved-roots-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::roots::call::preserved -- --test-threads=1
+
 .PHONY: jit-snapshot-fuel jit-snapshot-fuel-miri
 jit-snapshot-fuel:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::activation::snapshot_fuel $(ARGS)
@@ -898,10 +905,13 @@ jit-import-bits:
 jit-import-bits-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::tests::scalar_import_preserves_generated_payload_bits -- --exact --test-threads=1
 
-.PHONY: jit-rooted-moves
+.PHONY: jit-rooted-moves jit-rooted-preservation
 jit-rooted-moves:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::roots::tests $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::rooted_moves_tests $(ARGS)
+
+jit-rooted-preservation: jit-rooted-moves
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::model::tests $(ARGS)
 
 .PHONY: jit-rooted-moves-miri
 jit-rooted-moves-miri:

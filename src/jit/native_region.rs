@@ -19,6 +19,8 @@ use super::{
 };
 
 pub(super) mod cache;
+mod registers;
+use registers::Registers;
 mod request;
 pub(super) mod resume;
 pub(super) mod schedule;
@@ -135,12 +137,17 @@ impl Region {
             caller.source(),
             identity,
         )?;
+        let registers = match roots {
+            Some(roots) => {
+                Registers::Rooted(abi::roots::call::preserved::Preserved::new(roots, slots)?)
+            }
+            None => Registers::Scalar(slots),
+        };
         let mut session = Session {
             region: self,
             admitted,
             frame,
-            slots,
-            roots,
+            registers,
             host: abi::Host {
                 data: std::ptr::null_mut(),
                 projection: std::ptr::null_mut(),
@@ -217,8 +224,7 @@ struct Session<'gc, 'host, 'borrow, 'region> {
     region: &'region Region,
     admitted: super::canonical::admission::Admitted<'region, 'gc>,
     frame: scoped_helpers::Frame<'gc, 'host, 'borrow>,
-    slots: &'borrow mut [abi::Slot],
-    roots: Option<&'borrow mut [crate::Value<'gc>]>,
+    registers: Registers<'borrow, 'gc>,
     host: abi::Host,
     identity: (usize, usize),
     limit: usize,
@@ -236,7 +242,17 @@ enum RootedCompletion {
 
 impl Session<'_, '_, '_, '_> {
     fn publish(&mut self, view: &mut View) {
-        scoped_helpers::publish_region(&mut self.frame, self.slots, &mut self.host, view);
+        match &mut self.registers {
+            Registers::Scalar(slots) => {
+                scoped_helpers::publish_region(&mut self.frame, slots, &mut self.host, view);
+            }
+            Registers::Rooted(file) => {
+                self.host = self.frame.publish(file.len());
+                view.host = std::ptr::from_mut(&mut self.host);
+                // The linked rooted caller has verified scalar stores and reference transfers, with no helper calls.
+                view.slots = unsafe { file.native_slots() };
+            }
+        }
     }
 
     #[inline(never)]
@@ -305,10 +321,7 @@ impl Session<'_, '_, '_, '_> {
         {
             return RootedCompletion::Unavailable;
         }
-        let Some(roots) = self.roots.as_deref() else {
-            return RootedCompletion::Unavailable;
-        };
-        let Some(mut snapshot) = abi::roots::call::Snapshot::new(roots, self.slots) else {
+        let Some(mut snapshot) = self.registers.snapshot() else {
             return RootedCompletion::Unavailable;
         };
         let ready = self.frame.host.with_registers(|caller, registers| {
@@ -381,17 +394,7 @@ impl Session<'_, '_, '_, '_> {
         let transition = self.frame.host.with_registers(|closure, registers| {
             assert_eq!(closure, self.admitted.caller());
             if !recorded {
-                if let Some(roots) = self.roots.as_deref() {
-                    assert!(abi::roots::materialize(
-                        roots,
-                        self.slots,
-                        registers.stack_frame
-                    ));
-                } else {
-                    for (slot, value) in self.slots.iter().zip(registers.stack_frame.iter_mut()) {
-                        slot.write_back(value);
-                    }
-                }
+                assert!(self.registers.materialize(registers.stack_frame));
                 if self.frame.panic.is_none() {
                     *registers.pc = view.exit.pc as usize;
                 }
@@ -455,27 +458,13 @@ impl Session<'_, '_, '_, '_> {
             return 0;
         }
         let pc = self.frame.host.with_registers(|closure, registers| {
-            if registers.stack_frame.len() < self.slots.len()
+            if registers.stack_frame.len() < self.registers.len()
                 || closure != self.admitted.caller()
                 || !self.region.caller.accepts_pc(*registers.pc)
             {
                 return None;
             }
-            if let Some(roots) = self.roots.as_deref_mut() {
-                assert!(abi::roots::capture(
-                    roots,
-                    self.slots,
-                    registers.stack_frame
-                ));
-            } else {
-                for (slot, value) in self
-                    .slots
-                    .iter_mut()
-                    .zip(registers.stack_frame.iter().copied())
-                {
-                    *slot = abi::Slot::from_value(value);
-                }
-            }
+            assert!(self.registers.recapture(registers.stack_frame));
             Some(*registers.pc)
         });
         let Some(pc) = pc else {
@@ -516,11 +505,10 @@ unsafe extern "C" fn boundary(view: *mut View) -> u32 {
         Err(payload) => {
             if session.rooted_pending {
                 session.frame.host.with_registers(|_, registers| {
-                    assert!(abi::roots::materialize(
-                        session.roots.as_deref().unwrap(),
-                        session.slots,
-                        registers.stack_frame
-                    ));
+                    let Registers::Rooted(file) = &session.registers else {
+                        unreachable!("pending rooted caller has no register owner");
+                    };
+                    assert!(file.materialize(registers.stack_frame));
                 });
                 session.rooted_pending = false;
             }

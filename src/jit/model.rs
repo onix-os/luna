@@ -50,6 +50,26 @@ fn truth(value: Slot) -> bool {
 }
 
 pub(super) fn run(snapshot: &Snapshot, slots: &mut [Slot], start: usize, budget: u32) -> Exit {
+    run_with_references(snapshot, slots, start, budget, false)
+}
+
+#[cfg(not(miri))]
+pub(super) fn run_rooted(
+    snapshot: &Snapshot,
+    slots: &mut [Slot],
+    start: usize,
+    budget: u32,
+) -> Exit {
+    run_with_references(snapshot, slots, start, budget, true)
+}
+
+fn run_with_references(
+    snapshot: &Snapshot,
+    slots: &mut [Slot],
+    start: usize,
+    budget: u32,
+    rooted: bool,
+) -> Exit {
     let mut pc = start;
     let mut count = 0;
     loop {
@@ -93,7 +113,7 @@ pub(super) fn run(snapshot: &Snapshot, slots: &mut [Slot], start: usize, budget:
             }
             Move { dest, source } => {
                 let value = slots[usize::from(source.0)];
-                if value.tag == abi::REFERENCE {
+                if value.tag == abi::REFERENCE && !rooted {
                     return fail();
                 }
                 slots[usize::from(dest.0)] = value;
