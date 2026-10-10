@@ -1,6 +1,49 @@
 use super::*;
 
 #[test]
+fn typed_string_queries_match_every_stored_key_kind() {
+    crate::Lua::empty().enter(|ctx| {
+        let mut queries = Vec::new();
+        for bytes in [&b""[..], &b"field"[..], &b"\0\xffkey"[..], &[b'x'; 300][..]] {
+            let first = String::from_slice(&ctx, bytes);
+            let second = String::from_buffer(&ctx, bytes.into());
+            assert!(!Gc::ptr_eq(first.into_inner(), second.into_inner()));
+            queries.extend([first, second]);
+        }
+        let mut keys = std::vec![
+            CanonicalKey::Boolean(false),
+            CanonicalKey::Boolean(true),
+            CanonicalKey::Integer(i64::MIN),
+            CanonicalKey::Integer(0),
+            CanonicalKey::Integer(i64::MAX),
+            CanonicalKey::Number(1.5f64.to_bits()),
+            CanonicalKey::Number(f64::INFINITY.to_bits()),
+            CanonicalKey::Table(Table::new(&ctx)),
+            CanonicalKey::Closure(Closure::load(ctx, None, b"return 1").unwrap()),
+            CanonicalKey::Callback(Callback::from_fn(&ctx, |_, _, _| {
+                Ok(crate::CallbackReturn::Return)
+            })),
+            CanonicalKey::Thread(Thread::new(ctx)),
+            CanonicalKey::UserData(UserData::new_static(&ctx, 7)),
+        ];
+        keys.extend(queries.iter().copied().map(CanonicalKey::String));
+        let mut stored = Vec::new();
+        for key in keys {
+            let hash = hasher().hash_one(key);
+            stored.extend([Key::Live(key), Key::Weak(weaken(key), hash)]);
+            stored.extend(Key::Live(key).kill(hash));
+        }
+        stored.push(Key::Dead(std::ptr::null(), 0));
+        stored.push(Key::Dead(Gc::as_ptr(queries[0].into_inner()).cast(), 0));
+        for key in stored {
+            for query in queries.iter().copied() {
+                assert_eq!(key.eq_string(query), key.eq(CanonicalKey::String(query)));
+            }
+        }
+    });
+}
+
+#[test]
 fn mixed_keys_survive_rehash_weakening_deletion_and_clear() {
     crate::Lua::empty().enter(|ctx| {
         let mut keys = std::vec::Vec::new();
