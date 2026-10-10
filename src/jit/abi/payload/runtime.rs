@@ -423,29 +423,45 @@ unsafe extern "C" fn materialize(
     if session.stopped {
         return abi::HELPER_PANICKED;
     }
-    let count = session.count;
-    let value = match tag {
-        NIL => Some(Value::Nil),
-        BOOLEAN if bits <= 1 => Some(Value::Boolean(bits != 0)),
-        INTEGER => Some(Value::Integer(bits as i64)),
-        NUMBER => Some(Value::Number(f64::from_bits(bits))),
-        _ => None,
-    };
-    if let Some(value) = value.filter(|_| (index as usize) < count) {
-        let mut canonical = Frame {
-            values: session.values,
-            len: count,
-            borrow: PhantomData,
-        };
-        assert!(canonical.store(
-            unsafe { std::slice::from_raw_parts_mut(slots, count) },
-            index as usize,
-            value,
-        ));
-        abi::HELPER_COMPLETED
-    } else {
-        abi::HELPER_DECLINED
+    if index as usize >= session.count {
+        return abi::HELPER_DECLINED;
     }
+    unsafe {
+        match tag {
+            NIL => materialize_scalar::<NIL>(session, slots, index, bits),
+            BOOLEAN if bits <= 1 => materialize_scalar::<BOOLEAN>(session, slots, index, bits),
+            INTEGER => materialize_scalar::<INTEGER>(session, slots, index, bits),
+            NUMBER => materialize_scalar::<NUMBER>(session, slots, index, bits),
+            _ => abi::HELPER_DECLINED,
+        }
+    }
+}
+
+#[inline(always)]
+unsafe fn materialize_scalar<const TAG: u64>(
+    session: &mut Session<'_, '_, '_, '_, '_>,
+    slots: *mut Payload,
+    index: u32,
+    bits: u64,
+) -> u32 {
+    let value = match TAG {
+        NIL => Value::Nil,
+        BOOLEAN => Value::Boolean(bits != 0),
+        INTEGER => Value::Integer(bits as i64),
+        NUMBER => Value::Number(f64::from_bits(bits)),
+        _ => unreachable!(),
+    };
+    let mut canonical = Frame {
+        values: session.values,
+        len: session.count,
+        borrow: PhantomData,
+    };
+    assert!(canonical.store(
+        unsafe { std::slice::from_raw_parts_mut(slots, session.count) },
+        index as usize,
+        value,
+    ));
+    abi::HELPER_COMPLETED
 }
 
 #[test]
