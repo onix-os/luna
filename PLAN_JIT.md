@@ -11,6 +11,32 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Same-integer payload writeback — test-only (2026-10-10)
+
+Independent model `d4db5f3` checks updating an existing Integer payload through
+a typed mutable match before generic materialization. It compares 15,720 valid
+tag/payload/destination combinations and 24 invalid-tag refusals against the
+unchanged scalar oracle, including reference identity and exact float bits.
+The baseline passes formatting/check-all and all nine ABI tests. Production
+activation passes 74 focused executions across eight summaries, none ignored.
+
+Twelve exact-image profiles reject the candidate before hardware timing:
+callback Auto instructions rise **133,593,180 -> 133,917,357 (0.24266%)**;
+closure Auto rises **169,808,190 -> 169,865,037 (0.03348%)**. Closure, integer,
+float and callback Off totals are unchanged. All six complete non-timing
+comparisons match. The callback Auto-minus-Off gap grows from **30,721,827**
+to **31,046,004** instructions. Exact ordinary-entry attribution increases
+**20,233,235 -> 20,557,493**: destination checks outweigh saved stores.
+Production retains generic writeback; the model and focused Miri target remain
+test-only. No hardware timing, Miri or release acceptance is claimed for this
+trial. Evidence: `same-integer*` under the ignored short-slice performance
+directory, including the candidate patch and exact symbol companions. The first
+assembly selector accidentally selected the closure symbol and failed its
+address check; the corrected exact-symbol selector passed before attribution.
+Withdrawal passes formatting/check-all and the same 74 focused executions.
+The ordinary GNU opt3 rebuild succeeds with `.text` and `.rodata` byte-identical
+to the frozen control; full-image identity is not asserted.
+
 #### Callback call setup — test-only (2026-10-10)
 
 Exact callback attribution finds 65,000 `LuaFrame::call_function` entries at
