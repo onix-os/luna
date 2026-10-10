@@ -68,7 +68,11 @@ This round completes 22 profiles; no new hardware timing, feature-cost, Miri or
 full-platform acceptance is claimed. Withdrawal passes formatting/check-all and
 158 focused executions across 21 summaries, zero ignored. The original production
 call body matches `b93df24`; the ordinary GNU opt3 rebuild succeeds with `.text`
-and `.rodata` byte-identical to the frozen control. Evidence: `callback-setup*`
+and `.rodata` byte-identical to the frozen control. A final oracle audit moves
+no-effect assertions outside the expected-panic catch and compares panic payload
+kind/message; failed test assertions cannot stand in for expected VM panics.
+Both feature-lane model executions pass again with formatting/check-all.
+Evidence: `callback-setup*`
 in the ignored performance directory.
 
 #### Rust integer argument conversion — withdrawn (2026-10-10)

@@ -89,6 +89,7 @@ fn callback_setup_matches_physical_call_and_declines_without_effects() {
                         fuel.interrupt();
                     }
                     let mut used = false;
+                    let mut decline_unchanged = true;
                     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         let mut frame = LuaFrame {
                             #[cfg(all(
@@ -128,23 +129,32 @@ fn callback_setup_matches_physical_call_and_declines_without_effects() {
                             if used {
                                 return Ok(());
                             }
-                            assert_eq!(
-                                before,
-                                (
+                            decline_unchanged = before
+                                == (
                                     format!("{:?}", frame.state.frames),
                                     values(&frame.stack),
                                     frame.fuel.remaining(),
-                                    frame.fuel.is_interrupted()
-                                )
-                            );
+                                    frame.fuel.is_interrupted(),
+                                );
                         }
                         frame.call_function(ctx, RegisterIndex(register as u8), args, returns)
                     }));
                     #[cfg(feature = "jit")]
                     drop(stack);
+                    assert!(decline_unchanged, "decline changed state: case={index}");
                     let outcome = match outcome {
                         Ok(result) => format!("{result:?}"),
-                        Err(_) => "panic".to_owned(),
+                        Err(payload) => {
+                            if let Some(message) = payload.downcast_ref::<&str>() {
+                                format!("panic str:{message}")
+                            } else if let Some(message) =
+                                payload.downcast_ref::<std::string::String>()
+                            {
+                                format!("panic string:{message}")
+                            } else {
+                                format!("panic type:{:?}", payload.as_ref().type_id())
+                            }
+                        }
                     };
                     let snapshot = (
                         outcome,
