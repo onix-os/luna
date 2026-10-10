@@ -11,6 +11,49 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Sign-directed checked jump arithmetic — withdrawn (2026-10-10)
+
+On the restored runtime, a source trial replaces `checked_add_signed` with
+negative-offset `checked_sub(offset.unsigned_abs())` and nonnegative-offset
+`checked_add`. Both branches remain checked and preserve the full i16 domain;
+this does not restore the old narrow-negation overflow at -32768. It is an
+independent trial, not a retained owner-release variant.
+
+Formatting/check-all and seventeen focused executions/five summaries pass,
+including exhaustive valid signed offsets, invalid edge rejection, a real
+maximum-backward loop and executor mode/fuel checks. Another 112 candidate
+executions/sixteen summaries pass. i686 fallback compiler/offset checks pass
+eleven executions/three summaries, with warnings retained. These are focused
+correctness results, not another complete platform matrix.
+
+Ten exact-image opt3 profiles preserve all five full non-timing records.
+Integer/float Off instructions rise 2.10511%/1.96031%; callbacks rise 0.04896%.
+Upvalue Auto falls 0.15234%, while Off rises 0.18259%. Two unchanged native
+screens and two feature-cost screens complete 144 commands, all aggregate gates
+failing. Native screens retain 648 equal full-counter comparisons; cost screens
+retain 576 equal native-instruction proofs. No owned work overlaps timing.
+
+Reject the rewrite. Shipping integer control/candidate first/repeat medians are
+0.75045/0.74902 on CPU0 and 0.82251/0.82646 on CPU16; float is
+0.74721/0.75207 and 0.80332/0.81322. Unlike the owner trial, the no-feature
+interpreter also changes: CPU0 shipping integer controls are 0.92445/0.93382,
+float 0.93320/0.93946. Keep these direct no-feature comparisons rather than
+masking regressions behind candidate Off/Auto ratios. Same-inode placebos remain
+near one. CPU0 speed float reaches 0.84119/0.83468 with no-feature
+0.91597/0.91544; all eight candidate windows fail the original 5% cost gate,
+versus zero controls. Native upvalue CPU16 improves 1.03236/1.03144, but does
+not justify the numeric and disabled costs.
+
+Restore `checked_add_signed` and keep its existing signed-domain regression
+tests. Restored formatting/check-all and seventeen focused executions pass.
+All five rebuilt images (no-feature/compiled-disabled at speed/shipping and
+native opt3) match the frozen controls byte-for-byte; checks are recorded under
+`checked-jump-restored-images`.
+No source or test change from this trial remains. Evidence is under
+`target/jit-evidence/short-slice-performance/checked-jump*` and its
+`pgo-probe/checked-jump*` analyses. Do not repeat another sign-split jump rewrite
+without materially new evidence; the full JIT acceptance gates remain open.
+
 #### Shared-owner final-release split — withdrawn (2026-10-10)
 
 `8ba3eb1` keeps the shared-owner decrement and last-owner test inline, moving
