@@ -199,7 +199,7 @@ pub(super) fn branch(
     Ok(())
 }
 
-fn jump(f: &Function, inst: Inst, target: Block, arg: IrValue) -> Result<(), JitError> {
+pub(super) fn jump(f: &Function, inst: Inst, target: Block, arg: IrValue) -> Result<(), JitError> {
     let InstructionData::Jump { destination, .. } = f.dfg.insts[inst] else {
         return Err(invalid());
     };

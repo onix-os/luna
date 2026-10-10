@@ -8,8 +8,15 @@ use crate::jit::abi::payload::runtime::Bridge;
 #[cfg(not(miri))]
 use crate::jit::abi::payload::Payload;
 
+mod host_stack;
+mod numeric_reads;
 mod reads;
 mod writes;
+
+enum Read {
+    Scalar(reads::Read),
+    Numeric(numeric_reads::Read),
+}
 
 enum Rewrite {
     Read(Inst, u32),
@@ -36,7 +43,7 @@ pub(super) fn expansion(
         if let Operation::LoadNil { count, .. } = operation {
             bound.instructions = bound
                 .instructions
-                .checked_add(32 * usize::from(*count))
+                .checked_add(36 * usize::from(*count))
                 .ok_or(JitError::ResourceLimit("payload expansion overflow"))?;
             bound.blocks = bound
                 .blocks
@@ -62,7 +69,7 @@ fn payload_nil_fanout_expansion_respects_original_host_limits() {
         let limits = super::super::work::Limits::from(&super::super::JitConfig::default());
         let original = super::super::work::Expansion::admit(&source, limits).unwrap();
         let actual = expansion(&source, limits).unwrap();
-        assert_eq!(actual.instructions, original.instructions + 32 * 7);
+        assert_eq!(actual.instructions, original.instructions + 36 * 7);
         assert_eq!(actual.blocks, original.blocks + 7 * 7);
         for (instructions, blocks, accepted) in [
             (actual.instructions - 1, actual.blocks, false),
@@ -219,6 +226,7 @@ fn size(function: &Function) -> (usize, usize) {
 struct Plan {
     reads: usize,
     writes: usize,
+    host_instructions: usize,
     instructions: usize,
     blocks: usize,
 }
@@ -235,6 +243,7 @@ fn plan(
     let mut plan = Plan {
         reads: 0,
         writes: 0,
+        host_instructions: 0,
         instructions: original_instructions,
         blocks: original_blocks,
     };
@@ -242,6 +251,19 @@ fn plan(
         left.checked_add(right)
             .ok_or(JitError::ResourceLimit("payload expansion overflow"))
     };
+    let mut host_uses = function
+        .layout
+        .blocks()
+        .flat_map(|b| function.layout.block_insts(b))
+        .filter(|&i| {
+            function
+                .dfg
+                .inst_args(i)
+                .iter()
+                .any(|&v| function.dfg.resolve_aliases(v) == host)
+        })
+        .count();
+    let mut host_calls = false;
     scan(function, slots, host, registers, helpers, |rewrite| {
         let (instructions, blocks) = match rewrite {
             Rewrite::Read(inst, _) => {
@@ -255,17 +277,29 @@ fn plan(
             }
             Rewrite::Write { bits, .. } => {
                 plan.writes = add(plan.writes, 1)?;
+                host_uses = add(host_uses, 2)?;
+                host_calls = true;
                 (
                     29 + usize::from(function.dfg.value_type(bits) == types::F64),
                     7,
                 )
             }
-            Rewrite::Helper(..) => (1, 0),
+            Rewrite::Helper(..) => {
+                host_uses = add(host_uses, 1)?;
+                host_calls = true;
+                (2, 0)
+            }
         };
         plan.instructions = add(plan.instructions, instructions)?;
         plan.blocks = add(plan.blocks, blocks)?;
         Ok(())
     })?;
+    if host_calls {
+        plan.host_instructions = add(host_uses, 1)?
+            .checked_mul(2)
+            .ok_or(JitError::ResourceLimit("payload expansion overflow"))?;
+        plan.instructions = add(plan.instructions, plan.host_instructions)?;
+    }
     expansion.verify_actual(
         add(original_instructions, plan.instructions)?,
         add(original_blocks, plan.blocks)?,
@@ -286,10 +320,21 @@ pub(super) fn lower(
     let refused = || JitError::ResourceLimit("payload rewrite records");
     let mut reads = BudgetVec::new_in(allocator.clone());
     reads.try_reserve_exact(plan.reads).map_err(|_| refused())?;
-    let mut writes = BudgetVec::new_in(allocator);
+    let mut writes = BudgetVec::new_in(allocator.clone());
     writes
         .try_reserve_exact(plan.writes)
         .map_err(|_| refused())?;
+    let mut has_numeric = false;
+    scan(function, slots, host, registers, helpers, |rewrite| {
+        if let Rewrite::Read(inst, index) = rewrite {
+            has_numeric |= numeric_reads::candidate(function, inst, slots, index).is_some();
+        }
+        Ok(())
+    })?;
+    let mut numeric = has_numeric
+        .then(|| numeric_reads::Analysis::new(function, allocator.clone()))
+        .transpose()?;
+    let mut numeric_count = 0;
     let mut candidate = function.clone();
     let mut write = Signature::new(function.signature.call_conv);
     write
@@ -303,7 +348,26 @@ pub(super) fn lower(
     scan(function, slots, host, registers, helpers, |rewrite| {
         match rewrite {
             Rewrite::Read(inst, index) => {
-                reads.push(reads::emit(&mut candidate, inst, slots, index));
+                if let Some(guard) = numeric
+                    .as_mut()
+                    .and_then(|a| a.admit(function, inst, slots, index))
+                {
+                    reads.push(Read::Numeric(numeric_reads::emit(
+                        &mut candidate,
+                        inst,
+                        slots,
+                        index,
+                        guard,
+                    )));
+                    numeric_count += 1;
+                } else {
+                    reads.push(Read::Scalar(reads::emit(
+                        &mut candidate,
+                        inst,
+                        slots,
+                        index,
+                    )));
+                }
             }
             Rewrite::Write {
                 tag_store,
@@ -335,13 +399,17 @@ pub(super) fn lower(
                 let signature = candidate.dfg.ext_funcs[reference].signature;
                 let mut cursor = FuncCursor::new(&mut candidate);
                 cursor.goto_inst(inst);
-                let target = cursor.ins().load(
+                let table = cursor.ins().load(
                     types::I64,
                     MemFlagsData::new(),
                     host,
-                    (std::mem::offset_of!(Bridge, helpers)
-                        + index * std::mem::size_of::<abi::HelperEntry>())
-                        as i32,
+                    std::mem::offset_of!(Bridge, helpers) as i32,
+                );
+                let target = cursor.ins().load(
+                    types::I64,
+                    MemFlagsData::new(),
+                    table,
+                    (index * std::mem::size_of::<abi::HelperEntry>()) as i32,
                 );
                 cursor
                     .func
@@ -351,16 +419,44 @@ pub(super) fn lower(
         }
         Ok(())
     })?;
-    if size(&candidate) != (plan.instructions, plan.blocks) {
+    drop(numeric);
+    if size(&candidate)
+        != (
+            plan.instructions - plan.host_instructions - 13 * numeric_count,
+            plan.blocks - 2 * numeric_count,
+        )
+    {
         return Err(JitError::Compilation(
             "payload expansion differs from plan".into(),
         ));
     }
+    let predecessors = (numeric_count != 0)
+        .then(|| crate::jit::preds::Predecessors::new(&candidate, allocator.clone()))
+        .transpose()?;
     for read in &reads {
-        reads::verify(&candidate, read, slots)?;
+        match read {
+            Read::Scalar(read) => reads::verify(&candidate, read, slots)?,
+            Read::Numeric(read) => {
+                numeric_reads::verify(&candidate, read, slots, predecessors.as_ref().unwrap())?
+            }
+        }
     }
     for write in &writes {
         writes::verify(&candidate, write)?;
+    }
+    drop((reads, writes, predecessors));
+    if let Some(copy) = host_stack::lower(&mut candidate, host, allocator, expansion)? {
+        host_stack::verify(&candidate, &copy)?;
+    }
+    if size(&candidate)
+        != (
+            plan.instructions - 13 * numeric_count,
+            plan.blocks - 2 * numeric_count,
+        )
+    {
+        return Err(JitError::Compilation(
+            "payload host expansion differs from plan".into(),
+        ));
     }
     *function = candidate;
     Ok(())
@@ -473,13 +569,15 @@ fn payload_workspace_quota_refusals_leave_source_and_ledger_unchanged() {
         instructions: 4096,
         blocks: 4096,
     };
-    let required = std::mem::size_of::<reads::Read>() + std::mem::size_of::<writes::Write>();
+    let required = (std::mem::size_of::<Read>() + std::mem::size_of::<writes::Write>())
+        .max(host_stack::workspace(2));
     for (limit, allocations, accepted) in [
         (0, usize::MAX, false),
         (required - 1, usize::MAX, false),
         (required, 0, false),
         (required, 1, false),
-        (required, 2, true),
+        (required, 2, false),
+        (required, 3, true),
     ] {
         let allocator = BudgetAllocator(super::super::resources::Ledger::new(limit));
         allocator.0.fail_after(allocations);
@@ -505,7 +603,9 @@ fn payload_workspace_quota_refusals_leave_source_and_ledger_unchanged() {
         } else {
             assert!(matches!(
                 result,
-                Err(JitError::ResourceLimit("payload rewrite records"))
+                Err(JitError::ResourceLimit(
+                    "payload rewrite records" | "payload host copy records"
+                ))
             ));
             assert_eq!(function, source);
         }

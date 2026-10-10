@@ -17,9 +17,22 @@ pub(crate) struct Bridge {
     pub base: abi::Host,
     pub read: unsafe extern "C" fn(*mut Payload, u32) -> u64,
     pub write: unsafe extern "C" fn(*mut Bridge, *mut Payload, u32, u64, u64),
-    pub helpers: [abi::HelperEntry; 10],
+    pub helpers: &'static [abi::HelperEntry; 10],
     materializations: u64,
 }
+
+static HELPERS: [abi::HelperEntry; 10] = [
+    helper::<1>,
+    helper::<2>,
+    helper::<3>,
+    helper::<4>,
+    helper::<5>,
+    helper::<6>,
+    helper::<7>,
+    helper::<8>,
+    helper::<9>,
+    helper::<10>,
+];
 
 unsafe extern "C" fn read_bits(slots: *mut Payload, index: u32) -> u64 {
     unsafe { load(slots.add(index as usize).read()) }.map_or(0, |slot| slot.bits)
@@ -61,18 +74,7 @@ pub(crate) fn with_bridge(
             },
             read: read_bits,
             write: write_scalar,
-            helpers: [
-                helper::<1>,
-                helper::<2>,
-                helper::<3>,
-                helper::<4>,
-                helper::<5>,
-                helper::<6>,
-                helper::<7>,
-                helper::<8>,
-                helper::<9>,
-                helper::<10>,
-            ],
+            helpers: &HELPERS,
             materializations: 0,
         };
         body(slots, &mut bridge);
@@ -93,7 +95,7 @@ pub(crate) fn check_native_write_guards(
         },
         read: read_bits,
         write: declined,
-        helpers: [helper::<1>; 10],
+        helpers: &[helper::<1>; 10],
         materializations: 0,
     };
     let tags = (0..=255)
@@ -225,6 +227,7 @@ fn bridge_function_table_preserves_original_payload_and_host_pointers() {
                 projection: None,
             };
             with_bridge(&mut frame, |slots, host| unsafe {
+                assert!(std::ptr::eq((*host).helpers, &HELPERS));
                 ((*host).write)(host, slots, 0, INTEGER, 42);
                 assert_eq!(((*host).read)(slots, 0), 42);
                 assert_eq!(

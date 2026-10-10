@@ -11,6 +11,225 @@
 
 ### Progress snapshot — 2026-10-10
 
+#### Shared payload helper table — test-only (2026-10-10)
+
+`b125d2f` replaces the per-entry ten-function helper array with a reference to
+an immutable process-static table. Per-invocation state and canonical payload
+pointers remain local. Generated helper calls load the table pointer and then
+the selected function; the additional instruction is charged to the unchanged
+expansion limit. The bridge fixture checks shared-table identity and still
+exercises its original payload/host pointers.
+
+GNU format/check-all and payload tests pass **50 / three summaries**; musl
+helper/payload tests pass **62 / four**. Pinned Miri Stacked seed 31 and Tree
+seed 32 each pass **17 ABI and 19 backend IR tests**. Native execution is
+covered outside Miri. The model is committed and pushed; candidate measurement
+is complete but does not establish performance acceptance or release activation.
+
+Frozen candidate `38d15aa0` completes ten profiles. Against the preceding
+`c0343982` candidate, callback instructions fall **1,167,283**, of which
+**1,167,282 = 18 times 64,849 entries** are removed from the invocation wrapper.
+All non-timing benchmark fields match that candidate. Whole callback work is
+**132,103,504** instructions; generated work is **14,137,456**. Exact generated
+stack writes fall **64,849**, stack reads fall 24, and non-stack reads rise
+**64,836**. Whole-step reads rise **64,812** and writes fall **648,490**;
+modeled branch/cache misses also increase. All events are retained, not only
+instruction savings. Closure instructions fall 98,052, including 52,284 from
+unchanged admission iteration variability; historical control profiles also
+vary. Integer/float Off instructions are unchanged. Strict historical
+comparison still fails the inherited callback snapshot peak (10,705 versus
+11,141 bytes), which is retained as a failure.
+
+Two four-way native timing screens complete **48 commands**, all failing their
+unchanged aggregate benchmark gates. Each uses nine workloads, eleven paired
+samples, CPU 0/16, three rotating windows, ordinary/historical/placebo controls
+and contention telemetry. Ordinary/candidate callback median ratios are
+**0.945757 / 0.956312** on CPU 0 and **0.968685 / 0.946887** on CPU 16 across
+the two screens (above 1 is faster). Scalar/allocation regressions remain.
+No owned builds, profiles, tests or source edits overlap hardware timing.
+Temporary release activation is withdrawn. Ordinary-image restoration is
+byte-identical to `dab0490e`; full GNU Force passes **1,574 / 88 summaries**
+with six existing ignores, and focused musl passes **120 / seven** without
+ignores. Format/check-all and source manifests pass. The full goal remains
+incomplete.
+
+The motivating exact-image profiles account for all 350 executed ordinary
+callback-wrapper PCs, with identical repeated per-PC costs. Import/writeback
+accounts for **12,321,657 of 20,233,235** self instructions; statistics accounts
+for **3,696,393**. Earlier import/counter shortcuts remain rejected. Payload
+assembly separately shows ten helper address/store pairs reconstructed at
+each of 64,849 native entries. Sharing the table removes that setup but adds
+a load to each generated helper call; measurement must retain both effects.
+The initial ordinary-attribution wrapper produced empty output because of
+hexadecimal awk bounds and a masked pipeline error; it is retained as invalid.
+The corrected decimal-bound, pipefail-enabled run verifies exact totals and
+symbol-image hashes. These are instruction profiles, not elapsed-time proof.
+
+Evidence: `target/jit-evidence/short-slice-performance/payload-shared-helpers/`,
+`payload-shared-helpers-candidate/`, `payload-shared-helpers-profile/`,
+`payload-shared-helpers-native-vgdb/`, `payload-shared-helpers-screen-{1,2}*`,
+`ordinary-invoke-attribution-v2/` and `payload-invoke-attribution/`.
+
+#### Later numeric operand guards — test-only (2026-10-10)
+
+`e503946` follows at most eight true-edge guard blocks when discovering a
+numeric payload read. Arithmetic/comparison lowering loads both operands before
+checking their tags in successive blocks; the prior same-block search missed
+the later operand. Discovery still requires independent all-path freshness,
+unique guarded entry and domination of every result use. Those proofs, source
+emission, ABI and configured limits are unchanged. Ineligible searches retain
+generic reads. Paired tests prove both reads transform together with exact
+expansion accounting, including floats, stale stores/calls, early uses, search
+limits, mutated guards, null descriptors and malformed tags.
+
+GNU format/check-all and payload tests pass **50 / three summaries**; musl
+helper/payload **62 / four**; pinned Miri Stacked seed 31 and Tree seed 32 each
+**19 backend IR tests**. Native execution is tested outside Miri.
+
+Frozen candidate `c0343982` completes ten profiles. Versus `9440a3aa`, callback
+total instructions fall **778,108**, with all non-timing benchmark fields equal.
+Exact generated instructions fall **14,915,646 -> 14,137,457**, but stack writes
+increase **64,849** and reads increase 11; non-stack accesses are unchanged. Closure total
+instructions rise 127,859, while its generated-address bucket falls 17,000.
+Canonical admission varies in the unchanged historical control too; the whole
+closure difference is not attributable to this change. Historical strict
+comparison still fails the inherited callback snapshot-peak difference.
+
+Two four-way screens retain all **48 failed command gates**, nine workloads,
+eleven paired samples, CPU 0/16, three rotating windows and contention telemetry.
+Ordinary/candidate callback medians are **0.959148 / 0.957674** on CPU 0 and
+**0.957035 / 0.959117** on CPU 16 (above 1 is faster). Scalar/allocation regressions
+remain. Temporary release activation is withdrawn; the full performance,
+resource, platform and release gates remain open.
+Restoration is complete: ordinary ELF is byte-identical to `dab0490e`, GNU
+Force passes **1,574 / 88 summaries** with six existing ignores, and focused
+musl passes **120 / seven** without ignores. Format/check-all and source
+manifests pass. No release activation remains.
+
+Evidence: `target/jit-evidence/short-slice-performance/payload-guard-chain/`,
+`payload-guard-chain-candidate/`, `payload-guard-chain-profile/`,
+`payload-guard-chain-native-vgdb/` and `payload-guard-chain-screen-{1,2}*`.
+
+Fresh ordinary-image callback profiles now compare Auto directly with Off,
+twice using the same `dab0490e` ELF and exact allocated-byte-matching symbols.
+Four exclusive instruction totals and repeated full non-timing records verify.
+Auto executes **132,231,543 / 132,231,624** instructions versus Off
+**102,871,353 / 102,871,353**. Auto saves 10,865,850 VM instructions but adds
+20,233,235 in `Runtime::invoke<7, true>`, 9,468,103 in the generated-address bucket and
+3,513,539 in lookup. Helper/metamethod differences and all cache-model/repeat
+variations are retained in `ordinary-callback-boundary/analysis.json`.
+These profiles ran without hardware-timing claims; they identify invocation
+and helper-boundary overhead as the next attribution target, rather than more
+small spill-only changes. Prior rejected conversion/dispatch trials still apply.
+
+#### Explicit host stack reloads — test-only (2026-10-10)
+
+`aad3c19` adds a private initialized native stack word for the helper host
+pointer, with per-use reloads, charged proof storage, exact expansion accounting
+and an independent escape/initialization verifier. The original four model
+failures were corrected; host-null comparisons and nil-fanout expansion are
+accounted for without increasing configured limits. GNU format/check-all and
+46 payload tests pass; musl helper/payload tests pass 58 executions; pinned Miri
+Stacked seed 31 and Tree seed 32 each pass 16 backend IR tests. Native execution
+is tested outside Miri. Initial failed checks remain in the evidence directory.
+
+Exact prior generated-code captures attribute all additional guarded-read
+memory traffic to native stack accesses, not payload accesses. Candidate
+`9440a3aa` reduces callback generated stack reads **1,361,811 -> 648,512** and
+writes **907,896 -> 648,524**, with other generated reads/writes unchanged.
+Generated instructions fall **15,175,111 -> 14,915,646**. Ten full profiles
+show callback total instructions down 259,546 but closure Auto up 162,540;
+all non-timing benchmark fields match the preceding guarded-read candidate.
+The strict historical comparison still rejects inherited resource differences.
+Modeled conditional mispredictions increase; these are not hardware counters.
+Original/vgdb captures agree on generated instructions and data traffic; the
+strict all-event comparison fails on three modeled instruction-cache misses.
+
+Two repeated four-way screens retain all **48 failed command gates**, nine
+workloads, eleven paired samples, CPU 0/16, three rotating windows, image/source
+identities and contention telemetry. Ordinary/candidate callback medians are
+**0.953632 / 0.953710** on CPU 0 and **0.946373 / 0.943110** on CPU 16
+(above 1 is faster). Scalar/allocation regressions remain. Ordinary controls
+also fail callback gates; lower modeled stack traffic is not release acceptance.
+Temporary release activation is withdrawn; only the test model is committed.
+The restored ordinary image is byte-identical to `dab0490e`; full GNU Force
+passes **1,570 tests / 88 summaries**, with six existing ignores. Focused musl
+passes **116 / seven**, without ignores. Format/check-all and source manifests
+pass; all restoration commands have completed.
+
+Evidence: `target/jit-evidence/short-slice-performance/payload-host-stack/`,
+`payload-host-stack-candidate/`, `payload-host-stack-profile/`,
+`payload-host-stack-native-vgdb/` and `payload-host-stack-screen-{1,2}*`.
+The remaining work includes reducing total callback/native-boundary overhead,
+not merely generated spills, and satisfying the original performance, resource,
+platform and release gates. The full goal remains incomplete.
+
+#### Guarded numeric payload reads — test-only (2026-10-10)
+
+`4f2a73b` defers eligible payload reads behind their existing numeric guards.
+The original emitter and adjacent tag/payload proof remain unchanged. Inside
+the transactional payload lowering pass, budget-allocated predecessor and
+dominator analysis proves that every use follows the accepted guard edge.
+A bounded read-only-path check rejects stale tags across stores or calls.
+Unsupported shapes or exhausted optimization work retain generic reads.
+The independent emitted-IR checker requires the same fresh masked tag, unique
+guarded entries, null-pointer test, exact load width, result edges and optional
+bit-preserving float conversion. Canonical layout and callback rules do not
+change. Conservative expansion limits remain; each admitted read removes
+13 instructions and two blocks from the exact generic expansion count.
+
+Tests cover source effects/early uses/alternate entries/wrong masks/work limits,
+generated guard/pointer/control mutations, integer/float native probes, malformed
+tags/null pointers and graph-quota refusal with source/ledger rollback. The
+rewrite-record fixture now charges the actual enum size. Initial fixture-size
+and test-construction compile failures are retained. Final GNU format/check-all
+and payload checks pass **42 executions / three summaries**; musl helper/payload
+**67 / four**; focused backend payload IR under pinned Stacked seed 31 and Tree
+seed 32 each **12 / one**. Miri does not execute the native probes or rerun the
+unchanged canonical runtime alias suite in this focused check.
+
+Temporary image `5c2a3a48` completes ten exact-image profiles. Versus materialize
+image `cfd7b2e6`, callback work falls **134,892,238 -> 134,308,441**, entirely in
+the aggregated generated-address bucket (**583,797 fewer instructions**).
+However, modeled data reads/writes rise **194,353 / 64,837**; this is a lead for
+generated-code/register-allocation inspection, not hardware cache evidence.
+Closure Auto falls 366,402 instructions and its code charge falls
+**32,768 -> 28,672 bytes**. The same historical control also varies in closure
+and allocator work, so not all closure savings are attributable to the change.
+Twenty candidate/control self totals are independently checked. Callback
+`snapshot_peak_bytes` rises **10,765 -> 11,141**, versus historical 10,705;
+the strict original comparison still fails on that field. No quota is relaxed.
+
+Two repeated four-way screens complete **48 commands**, nine workloads,
+eleven paired samples, CPU0/16 and three rotating windows, retaining ordinary,
+historical and same-image-placebo controls. All 48 command-level gates fail.
+Ordinary `dab0490e` / candidate elapsed-time medians (above 1 is faster):
+
+| Auto workload | CPU 0, screen 1 / 2 | CPU 16, screen 1 / 2 |
+| --- | --- | --- |
+| Rust callbacks | 0.9442 / 0.9520 | 0.9451 / 0.9506 |
+| Integer loop | 0.8646 / 0.8812 | 0.7878 / 0.7902 |
+| Float loop | 0.8779 / 0.8755 | 0.8164 / 0.8150 |
+| Allocation/GC | 0.8345 / 0.8350 | 0.7675 / 0.7366 |
+| Closure/upvalue | 1.0118 / 1.0114 | 0.9716 / 0.9636 |
+| Array table | 1.0177 / 1.0535 | 0.9752 / 0.9974 |
+| Polymorphic metamethod | 0.9441 / 0.9416 | 0.9227 / 0.9112 |
+
+Release activation is withdrawn; the verified lowering remains test-only.
+No owned build/test/profile/source edits overlapped hardware timing. Full
+non-timing differences, failures, source/image checks and external contention
+remain under `payload-numeric-read*` in the ignored short-slice directory.
+Instruction savings do not establish elapsed-time acceptance or full-plan
+completion. Ordinary controls still fail callback gates in every window and
+metamethod gates on CPU0; these are not only experimental-payload regressions.
+
+The restored ordinary release is byte-identical to
+`dab0490e360b61353aafaf2730ac5aac11fbc64c59cb1df12b158df394ab2ecd`.
+GNU all-feature Force passes **1,566 executions / 88 summaries**, six existing
+ignores; focused musl helper/model/resources passes **112 / seven**, no ignores.
+Formatting/check-all/source verification pass. Restoration evidence is in
+`payload-numeric-read-withdrawal-image/`; performance acceptance remains open.
+
 #### Branch-local scalar materialization — test-only (2026-10-10)
 
 Scalar materialization now retains each scalar variant through a const-tag
