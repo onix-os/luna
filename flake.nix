@@ -77,6 +77,15 @@
         ];
       in
       {
+        devShells.pgo = pkgs.mkShell {
+          packages = [
+            (pkgs.rust-bin.stable.latest.default.override {
+              extensions = [ "llvm-tools-preview" ];
+            })
+            pkgs.clang
+          ];
+        };
+
         devShells.fallback = pkgs.mkShell {
           packages = [
             (pkgs.rust-bin.stable.latest.default.override {

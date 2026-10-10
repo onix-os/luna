@@ -11,7 +11,86 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Table-owned string bucket — performance trial
+#### Held-out Rust PGO pilot — measured, not accepted (2026-10-10)
+
+`c2c9934` adds an isolated `pgo` Nix shell and `make jit-pgo-pilot`.
+Run it with `nix develop .#pgo -c make jit-pgo-pilot PGO_DIR=<new-directory>`.
+Existing directories are refused. Default shells, runtime source, Cargo release
+defaults and performance thresholds are unchanged. The pilot follows the
+[rustc PGO workflow](https://doc.rust-lang.org/rustc/profile-guided-optimization.html),
+using the toolchain's LLVM profiler, absolute profile paths and an explicit target.
+
+The completed pilot uses rustc 1.97.1 / LLVM 22.1.6, GNU x86_64,
+`jit,async`, opt-level 3, LTO, one codegen unit and stripped executables.
+Training executes the existing scripts, callback, metamethods and native-JIT
+integration suites in Off/Auto/Force modes: 120 executions pass, none ignored.
+The frozen benchmark is not executed during training. Twelve raw profiles merge
+into 11,828 profiled functions. The PGO build passes the same 120 executions.
+Its build log retains 261 missing-function-profile warnings; no profile hash
+mismatch is reported. This is partial training coverage, not a full-suite claim.
+
+Two timing screens each retain three windows, eleven paired samples, CPU0/16,
+all nine workloads, a fresh same-configuration control, an identical-image
+placebo and the historical baseline. The historical baseline uses `jit` alone;
+the PGO effect is measured against the fresh `jit,async` control, not attributed
+from the historical comparison. All 48 aggregate commands fail unchanged gates.
+All 648 complete non-timing record comparisons agree. Source/profile/image
+manifests verify; no owned builds, tests, profiles or edits overlap timing.
+The analyzer rejects six damaged fixtures, including changed counters, limits,
+placebo identity, duplicate/incomplete records and inconsistent exit status.
+
+Ratios below are fresh-control time divided by candidate time; larger is better:
+
+| Auto workload | CPU0 first / repeat | CPU16 first / repeat |
+| --- | --- | --- |
+| Rust callbacks | 1.20322 / 1.20116 | 1.12886 / 1.12587 |
+| Closure/upvalue | 0.78618 / 0.78706 | 0.81874 / 0.83033 |
+
+Callback gains and upvalue losses reproduce in every window. CPU0 compiled-Off
+integer/float medians also regress: 0.90299/0.92454 initially and
+0.90405/0.91677 on repeat. A smaller benchmark executable (7,135,472 to
+6,056,832 bytes) does not substitute for matched feature-cost/resource gates.
+Do not promote this training recipe or claim ordinary downstream builds fixed.
+Next performance work must explain the upvalue loss before any PGO acceptance;
+shipping/no-feature costs, full correctness/platform and resource gates remain
+unproven for this build. Evidence: `pgo-heldout-1*`, `pgo-probe/` and parser
+fixture `pgo-parser-oGXe/` under `target/jit-evidence/short-slice-performance/`.
+
+#### Callback activation borrow fusion — rejected in early timing
+
+`bb63bf5` strengthens the existing minimum-progress callback fixture to verify
+the running flag, popped root frame, shared thread-state access and exclusive
+stack access from inside user code. Both feature lanes pass before production
+changes. The trial then combines frame removal and callback activation in one
+short mutable state borrow, ending it before user code; fuel, immutable frame
+inspection, callback results and native coverage remain unchanged.
+
+Candidate formatting/check-all and 105 focused executions across 15 suites pass.
+Each Miri model passes three mode tests. Fourteen exact-image profiles preserve
+all seven complete non-timing records. Callback instructions fall only 0.24297%
+(133,593,180 to 133,268,583), with executor self work falling 324,597 instructions.
+Numeric executor self work rises 8,268; separate registry/allocator variations
+remain in the profiles without an unsupported causal attribution.
+
+The five-way early native screen completes 30 aggregate commands, all failing
+unchanged gates, with 108 complete non-timing comparisons equal. It retains
+three windows, eleven samples, CPU0/16, all nine cases and historical controls;
+source/image manifests verify and no owned tests/builds/profiles/source edits
+overlap timing. Direct fresh/candidate callback medians are 0.89731/0.97046,
+with all six windows adverse. CPU0 native integer/float medians are
+0.88774/0.89602, also adverse in every window; CPU16 medians are 0.95985/0.96334.
+CPU0 compiled-Off callback/upvalue medians fall to 0.81726/0.81576. The favorable
+CPU16 native upvalue median 1.02263 does not offset these losses.
+
+The runtime change is withdrawn before a cost-build/full-validation campaign.
+Restoration exits 0: formatting/check-all and the same 105 focused executions
+pass, source/tests/Make match `bb63bf5`, and the rebuilt native executable is
+byte-identical to the original table-owner control. The stronger independent
+fixture remains. No candidate shipping-cost, full-suite or speedup acceptance
+is claimed. Evidence: `callback-activation*` under
+`target/jit-evidence/short-slice-performance/`.
+
+#### Table-owned string bucket — both trials withdrawn
 
 Baseline-tested lifecycle fixtures (`b8e40a4`) cover repeated same-allocation and
 equal-content reads across mutations, growth, deletion, weak conversion, clear
@@ -54,9 +133,88 @@ They do not establish the hardware cause of those elapsed-time regressions.
 Offline type inspection finds RawTable at 120 bytes with the hint at offset 64
 and map at 72, plus six trailing padding bytes. A smaller checked offset might
 avoid growing every table and relocating the map; that resource/layout
-hypothesis needs baseline measurement and validation, not an assumed speedup.
+hypothesis is now measured separately: actual no-hint b8e40a4 source passes
+14 repeated focused checks and reports 112 bytes, with map at 64. The compact
+u32 trial also reports 112 bytes and preserves array/map/order offsets. Its
+64-bit fixture compares both layout and actual positive GC allocation charges
+against the uncached shape; no per-table allocation growth remains on this
+host. Unrepresentable offsets use an advisory sentinel, without limiting map
+capacity or bypassing current-bucket validation. Focused GNU passes 55 checks.
+Compact musl passes 18 checks and both Miri models pass nine each. Twenty-one
+exact-image profiles compare original, wide and compact images, with complete
+non-timing records equal in both seven-case comparisons. Against the original,
+compact callback instructions fall 4.23273%, metamethod 0.92877%; upvalue,
+array and allocation instructions rise 0.12311%, 0.16493% and 0.08124%.
+Against a freshly profiled wide image, callback instructions are effectively
+unchanged, allocation falls 0.23407%, while metamethod rises 0.09083%.
+This does not explain the wide trial's numeric slowdown or establish compact
+timing acceptance. Broad validation exits 0: GNU Force passes 1,505 executions
+across 88 summaries (6 ignored), focused musl 55 and i686-musl 16. Cost images
+are captured; the rebuilt native image matches the profiled compact candidate
+byte for byte, and source manifests verify. Repeated hardware timing keeps the
+wide image as an additional control: six native and nine cost variants.
+Its parsers validate both references and
+unchanged thresholds, with six valid synthetic parser/proof outputs and six
+rejected mutations; those fixtures are explicitly not benchmark measurements.
+
+The compact campaign completes 36 native and 144 cost aggregate commands; all
+fail their unchanged gates. Fresh and wide comparisons each verify 108 native
+and 144 cost complete non-timing records; source/image manifests reverify.
+Native callback direct medians improve 1.03884/1.04282 on CPU0/16, all six
+windows favorable. However, CPU0 shipping disabled float/integer ratios fall
+to 0.79513/0.88699 against the original and 0.79785/0.89390 against wide, in all
+four windows. CPU16 speed float falls to 0.91119 against the original and
+adds four cost-gate failures. Shipping cold adds two CPU0 and one CPU16 failures.
+These losses remain despite the restored table size and positive GC-charge
+equality; compact storage is not a timing fix.
+
+Eighty compact disabled profiles retain unchanged numeric instruction,
+load/store, conditional/indirect branch counts and VM mnemonic execution counts
+across profiles/CPUs. They do not establish the hardware-time cause. Withdraw
+both cache forms and restore source/tests/Make exactly to b8e40a4. Keep the two
+independent lifecycle fixtures and table-access-miri; candidate-specific offset
+and footprint fixtures remain in Git history. Do not repeat cache-width,
+field-order or outlining permutations on instruction savings alone. Broad
+restoration validation exits 0 after withdrawal commit `74f3bcf`: formatting,
+all-target/all-feature checking and 14 focused GNU table checks pass. Full GNU
+Force passes 1,503 executions across 88 summaries (6 ignored); focused musl and
+i686-musl pass 14 each, and default/Tree Borrows Miri pass seven each. All five
+rebuilt release images (native, speed/shipping with/without JIT) are byte-identical
+to the original table-owner controls. Source/test/Make files match `b8e40a4`, and
+the source-after manifest verifies. This establishes restoration, not a fix for
+the pre-existing performance failures.
 Evidence: `table-owner*` under
 `target/jit-evidence/short-slice-performance/`.
+
+#### Same-image calibration — compact rejection reproduced
+
+After restoration, a separate campaign runs the exact original images under
+two labels (control/placebo), alongside the frozen rejected compact images.
+Both original labels use the same inode and invocation path. No new build or
+runtime edit is involved. Original workloads, thresholds, 11 samples, 20 cost
+iterations, CPU0/16 and three native/four cost windows remain unchanged.
+The campaign exits 0 after 18 native and 48 cost commands; all 66 aggregate
+acceptance commands still fail. Complete non-timing records match in 216 native
+and 288 cost comparisons, and source/image manifests verify. The strict parser
+rejects six mutations: duplicate status, native/cost threshold changes, changed
+counter, mismatched same-image hash and missing log.
+
+CPU0 shipping float control/placebo median is 1.00147, with all four ratios
+between 0.99876 and 1.00400. Control/compact is 0.79711, with all four between
+0.78950 and 0.79915. Shipping integer is 0.99921 for placebo versus 0.89072
+for compact. CPU16 speed float is 1.00345 for placebo versus 0.91195 for compact.
+These are control-time/other-time ratios, not adjusted or noise-subtracted
+acceptance values. Same-image label/order variation in this campaign does not
+explain the compact image's repeated losses. CPU16 shipping placebo variation
+is wider and remains in the raw results; no idle-host or hardware-cause claim
+is made. Unrelated host work and contention telemetry are retained.
+
+Compact native callback medians improve 1.04778/1.04112 on CPU0/16, all six
+windows favorable; same-image medians are 1.00206/1.00202. These gains still do
+not offset the shipping regressions. Keep both table caches withdrawn. This
+calibration neither repairs the native callback gap nor closes performance,
+resource, platform or release acceptance. Evidence: `same-image-calibration*`
+under `target/jit-evidence/short-slice-performance/`.
 
 #### Suffix drain cleanup — withdrawn after timing
 
