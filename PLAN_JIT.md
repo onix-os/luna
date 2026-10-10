@@ -59,7 +59,10 @@ CPU/window pairs. Other mixed and favorable vectors are retained.
 
 These repeated losses outweigh the partial callback improvement: withdraw the
 owning suffix iterator and restore the original consume implementation. Keep
-the independent contract tests. Restoration verification is pending. No
+the independent contract tests. Restoration passes formatting/check-all and
+1,497 GNU Force executions (88 summaries, six ignored); all five rebuilt native,
+speed and shipping binaries are byte-identical to the fresh saved controls.
+Source manifests verify and source/tests/Make match `4e1414a`. No
 hardware cause is established for the non-callback losses, and full original
 performance acceptance remains incomplete.
 Evidence is under `suffix-consume*` in the short-slice directory.
