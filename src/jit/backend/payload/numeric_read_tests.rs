@@ -5,6 +5,14 @@ fn allocator(limit: usize) -> BudgetAllocator {
 }
 
 fn fixture(floating: bool, extra_read: bool) -> (Function, Inst, IrValue) {
+    guarded_fixture(floating, extra_read, 0)
+}
+
+fn guarded_fixture(
+    floating: bool,
+    extra_read: bool,
+    preceding: usize,
+) -> (Function, Inst, IrValue) {
     let mut f = Function::new();
     f.signature.call_conv = cranelift_codegen::isa::CallConv::SystemV;
     f.signature.params.push(AbiParam::new(types::I64));
@@ -32,6 +40,16 @@ fn fixture(floating: bool, extra_read: bool) -> (Function, Inst, IrValue) {
         } else {
             None
         };
+        for _ in 0..preceding {
+            let other = b.ins().load(types::I64, MemFlagsData::new(), slots, 16);
+            let mask = b.ins().iconst(types::I64, -2);
+            let kind = b.ins().band(other, mask);
+            let integer = b.ins().iconst(types::I64, abi::INTEGER as i64);
+            let valid = b.ins().icmp(IntCC::Equal, kind, integer);
+            let next = b.create_block();
+            b.ins().brif(valid, next, &[], no, &[]);
+            b.switch_to_block(next);
+        }
         let mask = b.ins().iconst(types::I64, -2);
         let kind = b.ins().band(tag, mask);
         let integer = b.ins().iconst(types::I64, abi::INTEGER as i64);
@@ -64,6 +82,195 @@ fn fixture(floating: bool, extra_read: bool) -> (Function, Inst, IrValue) {
 
 fn valid(f: &Function) {
     cranelift_codegen::verify_function(f, &settings::Flags::new(settings::builder())).unwrap();
+}
+
+fn paired_fixture(floating: bool) -> (Function, IrValue) {
+    let (mut f, _, slots) = guarded_fixture(floating, false, 1);
+    let entry = f.layout.entry_block().unwrap();
+    let tag = f.layout.block_insts(entry).find(|&i|
+        matches!(f.dfg.insts[i], InstructionData::Load { offset, .. } if i32::from(offset) == 16)
+    ).unwrap();
+    let first = f.layout.next_inst(tag).unwrap();
+    let mut c = FuncCursor::new(&mut f);
+    c.goto_inst(first);
+    let other = c.ins().load(types::I64, MemFlagsData::new(), slots, 24);
+    let end = f.layout.blocks().flat_map(|b| f.layout.block_insts(b)).find(|&i| {
+        f.dfg.insts[i].opcode() == Opcode::Return
+            && !matches!(f.dfg.value_def(f.dfg.inst_args(i)[0]),
+                cranelift_codegen::ir::ValueDef::Result(v, _) if f.dfg.insts[v].opcode() == Opcode::Iconst)
+    }).unwrap();
+    let bits = f.dfg.inst_args(end)[0];
+    let mut c = FuncCursor::new(&mut f);
+    c.goto_inst(end);
+    let result = c.ins().bxor(bits, other);
+    c.func.replace(end).return_(&[result]);
+    (f, slots)
+}
+
+#[test]
+fn numeric_read_chains_lower_both_operands_with_exact_savings() {
+    for floating in [false, true] {
+        let (mut f, slots) = paired_fixture(floating);
+        valid(&f);
+        let original = size(&f);
+        lower(
+            &mut f,
+            slots,
+            slots,
+            2,
+            &[],
+            allocator(1 << 20),
+            crate::jit::work::Expansion {
+                instructions: 4096,
+                blocks: 4096,
+            },
+        )
+        .unwrap();
+        valid(&f);
+        assert_eq!(
+            size(&f),
+            (original.0 + 12 + usize::from(floating), original.1 + 6)
+        );
+    }
+}
+
+#[test]
+fn numeric_read_searches_bounded_guard_chains_with_freshness_and_dominance() {
+    for preceding in [1, 7, 8] {
+        let (f, inst, slots) = guarded_fixture(false, false, preceding);
+        valid(&f);
+        let g = Analysis::new(&f, allocator(1 << 20))
+            .unwrap()
+            .admit(&f, inst, slots, 0);
+        assert_eq!(g.is_some(), preceding < 8);
+        let Some(g) = g else { continue };
+        for effect in 0..4 {
+            let mut changed = f.clone();
+            let bits = changed.dfg.first_result(inst);
+            let tag = changed.dfg.first_result(g.tag);
+            let convention = changed.signature.call_conv;
+            let sig = changed.import_signature(Signature::new(convention));
+            let mut c = FuncCursor::new(&mut changed);
+            c.goto_inst(g.branch);
+            match effect {
+                0 => {
+                    c.ins().store(MemFlagsData::new(), tag, slots, 0);
+                }
+                1 => {
+                    c.ins().call_indirect(sig, slots, &[]);
+                }
+                2 => {
+                    c.ins().iadd(bits, bits);
+                }
+                _ => {
+                    c.ins().store(MemFlagsData::new(), bits, slots, 8);
+                }
+            }
+            valid(&changed);
+            assert!(Analysis::new(&changed, allocator(1 << 20))
+                .unwrap()
+                .admit(&changed, inst, slots, 0)
+                .is_none());
+        }
+        let mut changed = f.clone();
+        let first = changed
+            .layout
+            .last_inst(changed.layout.entry_block().unwrap())
+            .unwrap();
+        if let InstructionData::Brif { blocks, .. } = &mut changed.dfg.insts[first] {
+            blocks.swap(0, 1);
+        } else {
+            unreachable!()
+        }
+        assert!(Analysis::new(&changed, allocator(1 << 20))
+            .unwrap()
+            .admit(&changed, inst, slots, 0)
+            .is_none());
+        let mut changed = f.clone();
+        let original = size(&changed);
+        lower(
+            &mut changed,
+            slots,
+            slots,
+            2,
+            &[],
+            allocator(1 << 20),
+            crate::jit::work::Expansion {
+                instructions: 4096,
+                blocks: 4096,
+            },
+        )
+        .unwrap();
+        valid(&changed);
+        assert_eq!(size(&changed), (original.0 + 6, original.1 + 3));
+    }
+}
+
+#[test]
+fn numeric_read_chain_verifier_rejects_intervening_effects() {
+    let (mut f, inst, slots) = guarded_fixture(false, false, 2);
+    let g = Analysis::new(&f, allocator(1 << 20))
+        .unwrap()
+        .admit(&f, inst, slots, 0)
+        .unwrap();
+    let read = emit(&mut f, inst, slots, 0, g);
+    let check = |f: &Function| {
+        verify(
+            f,
+            &read,
+            slots,
+            &Predecessors::new(f, allocator(1 << 20)).unwrap(),
+        )
+    };
+    check(&f).unwrap();
+    for effect in 0..2 {
+        let mut changed = f.clone();
+        let tag = changed.dfg.first_result(g.tag);
+        let convention = changed.signature.call_conv;
+        let sig = changed.import_signature(Signature::new(convention));
+        let mut c = FuncCursor::new(&mut changed);
+        c.goto_inst(g.branch);
+        if effect == 0 {
+            c.ins().store(MemFlagsData::new(), tag, slots, 0);
+        } else {
+            c.ins().call_indirect(sig, slots, &[]);
+        }
+        valid(&changed);
+        assert!(check(&changed).is_err());
+    }
+}
+
+#[cfg(not(miri))]
+#[test]
+fn native_numeric_read_chains_preserve_bits_and_both_operand_guards() {
+    for floating in [false, true] {
+        let (mut f, slots) = paired_fixture(floating);
+        lower(
+            &mut f,
+            slots,
+            slots,
+            2,
+            &[],
+            allocator(1 << 20),
+            crate::jit::work::Expansion {
+                instructions: 4096,
+                blocks: 4096,
+            },
+        )
+        .unwrap();
+        valid(&f);
+        crate::jit::backend::projection_probe::with_projection_probe(f, |pointer| {
+            let entry = unsafe {
+                std::mem::transmute::<
+                    *const u8,
+                    unsafe extern "C" fn(*const crate::jit::abi::payload::Payload) -> u64,
+                >(pointer)
+            };
+            crate::jit::abi::payload::check_native_numeric_read(entry);
+            crate::jit::abi::payload::check_native_numeric_pair(entry);
+        })
+        .unwrap();
+    }
 }
 
 #[test]

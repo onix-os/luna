@@ -67,25 +67,30 @@ pub(super) fn candidate(f: &Function, inst: Inst, slots: IrValue, index: u32) ->
         return None;
     }
     load(f, inst, slots, index as i32 * 16 + 8, ty).ok()?;
-    let parent = f.layout.inst_block(inst)?;
+    let mut parent = f.layout.inst_block(inst)?;
     let tag = f.layout.prev_inst(inst)?;
     let tag_value = load(f, tag, slots, index as i32 * 16, types::I64).ok()?;
-    let branch = f.layout.last_inst(parent)?;
-    let InstructionData::Brif { arg, blocks, .. } = f.dfg.insts[branch] else {
-        return None;
-    };
-    numeric(f, arg, tag_value)?;
-    let accepted = blocks[0].block(&f.dfg.value_lists);
-    let rejected = blocks[1].block(&f.dfg.value_lists);
-    if accepted == rejected || blocks[0].args(&f.dfg.value_lists).next().is_some() {
-        return None;
+    for _ in 0..8 {
+        let branch = f.layout.last_inst(parent)?;
+        let InstructionData::Brif { arg, blocks, .. } = f.dfg.insts[branch] else {
+            return None;
+        };
+        let accepted = blocks[0].block(&f.dfg.value_lists);
+        let rejected = blocks[1].block(&f.dfg.value_lists);
+        if accepted == rejected || blocks[0].args(&f.dfg.value_lists).next().is_some() {
+            return None;
+        }
+        if numeric(f, arg, tag_value).is_some() {
+            return Some(Guard {
+                tag,
+                branch,
+                accepted,
+                rejected,
+            });
+        }
+        parent = accepted;
     }
-    Some(Guard {
-        tag,
-        branch,
-        accepted,
-        rejected,
-    })
+    None
 }
 
 fn fresh(

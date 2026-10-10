@@ -144,6 +144,45 @@ pub(crate) fn check_native_numeric_read(entry: unsafe extern "C" fn(*const Paylo
     });
 }
 
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_numeric_pair(entry: unsafe extern "C" fn(*const Payload) -> u64) {
+    for left in [NIL, BOOLEAN, INTEGER, NUMBER, REFERENCE, 255, u64::MAX] {
+        for right in [NIL, BOOLEAN, INTEGER, NUMBER, REFERENCE, 255, u64::MAX] {
+            for null in [false, true] {
+                let mut bits = 0x7ff8000000000042u64;
+                let mut other = 0u64;
+                let expected = if matches!(left, INTEGER | NUMBER)
+                    && matches!(right, INTEGER | NUMBER)
+                    && !null
+                {
+                    bits
+                } else {
+                    0
+                };
+                let slots = [
+                    Payload {
+                        tag: left,
+                        pointer: if null {
+                            std::ptr::null_mut()
+                        } else {
+                            std::ptr::from_mut(&mut bits).cast()
+                        },
+                    },
+                    Payload {
+                        tag: right,
+                        pointer: std::ptr::from_mut(&mut other).cast(),
+                    },
+                ];
+                assert_eq!(
+                    unsafe { entry(slots.as_ptr()) },
+                    expected,
+                    "left={left}, right={right}, null={null}"
+                );
+            }
+        }
+    }
+}
+
 impl<'a, 'gc> Frame<'a, 'gc> {
     fn new(values: &'a mut [Value<'gc>]) -> Self {
         Self {
