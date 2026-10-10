@@ -9,7 +9,49 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Progress snapshot — 2026-10-09
+### Progress snapshot — 2026-10-10
+
+#### Narrow payload release trial — withdrawn (2026-10-10)
+
+The closed constant-key helper removes another **12,198,978 callback
+instructions** relative to entry-wrapper inlining: 148,583,140 -> 136,384,162.
+It remains 2.089% above the original scratch profile and about 3.14% above
+the ordinary continuation helper. Ten exact-image profiles complete; strict
+comparison still fails on increased code/snapshot charges, retained in the
+diagnostic report. Instruction savings do not establish elapsed-time gains.
+
+Two independent screens each run 24 commands, nine frozen workloads and
+eleven paired samples, on CPUs 0/16 with rotating candidate/control/placebo/
+historical order. All 48 commands complete with original gate exit 2; both
+screen drivers finish 0. Candidate image `43d505f4`, ordinary `dab0490e`, and
+historical `481eb5b2` retain exact hashes, native counters and source manifests.
+The placebo is the identical ordinary image. Source/artifact verification and
+complete-record analysis pass; no thresholds or workloads are changed.
+
+Median ordinary/candidate time ratios across three windows:
+
+| Workload / Auto | CPU 0, screen 1 / 2 | CPU 16, screen 1 / 2 |
+| --- | --- | --- |
+| Rust callbacks | 0.9423 / 0.9363 | 0.9345 / 0.9376 |
+| Allocation/GC | 0.8213 / 0.8265 | 0.7744 / 0.7724 |
+| Integer loop | 0.8690 / 0.8855 | 0.7858 / 0.7839 |
+| Float loop | 0.8756 / 0.8820 | 0.8149 / 0.8157 |
+| Polymorphic/metamethod | 0.9349 / 0.9340 | 0.8572 / 0.8296 |
+| Closure/upvalue | 1.0156 / 1.0114 | 0.9977 / 1.0067 |
+
+Below one means slower candidate execution. Callback placebo medians range
+1.0004–1.0119; callback regressions repeat at roughly 6–7% longer elapsed time.
+Allocation/GC and scalar loops regress more. All nine workloads, Off controls,
+gate failures and non-timing field changes remain in the analysis files.
+External molla compilation and CPU/I/O/frequency telemetry are preserved;
+these are contended-host results, not clean-host release acceptance.
+
+Release activation is withdrawn; the tested model and fixtures remain.
+The ordinary continuation image itself is slower than historical scratch on
+CPU 0 callbacks in both screens, so its instruction reduction is not accepted
+as a speedup. An exact pre-continuation comparison is the next timing check.
+Evidence: `payload-closed-screen-{1,2}*`, `payload-closed-profile*` and the
+withdrawn activation patch under the ignored short-slice evidence directory.
 
 #### Guarded table-read storage — ordinary path (2026-10-10)
 
