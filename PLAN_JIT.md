@@ -11,6 +11,51 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Held-out Rust PGO pilot — measured, not accepted (2026-10-10)
+
+`c2c9934` adds an isolated `pgo` Nix shell and `make jit-pgo-pilot`.
+Run it with `nix develop .#pgo -c make jit-pgo-pilot PGO_DIR=<new-directory>`.
+Existing directories are refused. Default shells, runtime source, Cargo release
+defaults and performance thresholds are unchanged. The pilot follows the
+[rustc PGO workflow](https://doc.rust-lang.org/rustc/profile-guided-optimization.html),
+using the toolchain's LLVM profiler, absolute profile paths and an explicit target.
+
+The completed pilot uses rustc 1.97.1 / LLVM 22.1.6, GNU x86_64,
+`jit,async`, opt-level 3, LTO, one codegen unit and stripped executables.
+Training executes the existing scripts, callback, metamethods and native-JIT
+integration suites in Off/Auto/Force modes: 120 executions pass, none ignored.
+The frozen benchmark is not executed during training. Twelve raw profiles merge
+into 11,828 profiled functions. The PGO build passes the same 120 executions.
+Its build log retains 261 missing-function-profile warnings; no profile hash
+mismatch is reported. This is partial training coverage, not a full-suite claim.
+
+Two timing screens each retain three windows, eleven paired samples, CPU0/16,
+all nine workloads, a fresh same-configuration control, an identical-image
+placebo and the historical baseline. The historical baseline uses `jit` alone;
+the PGO effect is measured against the fresh `jit,async` control, not attributed
+from the historical comparison. All 48 aggregate commands fail unchanged gates.
+All 648 complete non-timing record comparisons agree. Source/profile/image
+manifests verify; no owned builds, tests, profiles or edits overlap timing.
+The analyzer rejects six damaged fixtures, including changed counters, limits,
+placebo identity, duplicate/incomplete records and inconsistent exit status.
+
+Ratios below are fresh-control time divided by candidate time; larger is better:
+
+| Auto workload | CPU0 first / repeat | CPU16 first / repeat |
+| --- | --- | --- |
+| Rust callbacks | 1.20322 / 1.20116 | 1.12886 / 1.12587 |
+| Closure/upvalue | 0.78618 / 0.78706 | 0.81874 / 0.83033 |
+
+Callback gains and upvalue losses reproduce in every window. CPU0 compiled-Off
+integer/float medians also regress: 0.90299/0.92454 initially and
+0.90405/0.91677 on repeat. A smaller benchmark executable (7,135,472 to
+6,056,832 bytes) does not substitute for matched feature-cost/resource gates.
+Do not promote this training recipe or claim ordinary downstream builds fixed.
+Next performance work must explain the upvalue loss before any PGO acceptance;
+shipping/no-feature costs, full correctness/platform and resource gates remain
+unproven for this build. Evidence: `pgo-heldout-1*`, `pgo-probe/` and parser
+fixture `pgo-parser-oGXe/` under `target/jit-evidence/short-slice-performance/`.
+
 #### Callback activation borrow fusion — rejected in early timing
 
 `bb63bf5` strengthens the existing minimum-progress callback fixture to verify
