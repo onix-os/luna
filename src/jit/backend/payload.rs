@@ -287,7 +287,7 @@ fn plan(
             Rewrite::Helper(..) => {
                 host_uses = add(host_uses, 1)?;
                 host_calls = true;
-                (1, 0)
+                (2, 0)
             }
         };
         plan.instructions = add(plan.instructions, instructions)?;
@@ -399,13 +399,17 @@ pub(super) fn lower(
                 let signature = candidate.dfg.ext_funcs[reference].signature;
                 let mut cursor = FuncCursor::new(&mut candidate);
                 cursor.goto_inst(inst);
-                let target = cursor.ins().load(
+                let table = cursor.ins().load(
                     types::I64,
                     MemFlagsData::new(),
                     host,
-                    (std::mem::offset_of!(Bridge, helpers)
-                        + index * std::mem::size_of::<abi::HelperEntry>())
-                        as i32,
+                    std::mem::offset_of!(Bridge, helpers) as i32,
+                );
+                let target = cursor.ins().load(
+                    types::I64,
+                    MemFlagsData::new(),
+                    table,
+                    (index * std::mem::size_of::<abi::HelperEntry>()) as i32,
                 );
                 cursor
                     .func
