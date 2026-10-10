@@ -1127,7 +1127,8 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
 
     /// Call the function at the given register with the given arguments. On return, results will be
     /// placed starting at the function register.
-    pub(super) fn call_function(
+    #[cfg(test)]
+    fn call_function_common(
         mut self,
         ctx: Context<'gc>,
         func: RegisterIndex,
@@ -1176,8 +1177,9 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
         Ok(())
     }
 
-    #[cfg(test)]
-    fn call_function_general(
+    /// Call the function at the given register with the given arguments.
+    /// Results replace the function register on return.
+    pub(super) fn call_function(
         mut self,
         ctx: Context<'gc>,
         func: RegisterIndex,

@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-09
 
-#### Callback call setup — trial (2026-10-10)
+#### Callback call setup — test-only (2026-10-10)
 
 Exact callback attribution finds 65,000 `LuaFrame::call_function` entries at
 111 self instructions each (7,215,000 total), in addition to general call
@@ -43,9 +43,33 @@ generic `push_call`. Fixed and variable arguments use the original common copy
 and fuel logic. The unchanged general body and first admission prototype remain
 test-only. Each model scenario now compares both that prototype and the real
 public method against the original body, rather than comparing the new dispatcher
-to itself. Refined validation/profiling and hardware/cost acceptance are pending;
-this is not a speedup claim. Evidence: `callback-setup*` in the ignored performance
-directory.
+to itself. The same 158 focused executions pass. Ten refined profiles preserve
+all five full non-timing records. Callback Auto falls to **129,953,180
+instructions (2.72469% below control)**; closure Off grows 0.30470%, including
+650,000 extra call-setup instructions. Numeric Off profiles remain unchanged.
+
+Two additional exact-image callback Off profiles expose the shared-work issue:
+Off falls **102,871,353 -> 99,231,353**, exactly the same **3,640,000 instructions**
+removed from Auto. Its full non-timing comparison matches. The Auto-minus-Off
+gap remains **30,721,827 instructions** in both images. This is not a measured
+elapsed regression, but it disproves removal of incremental native work by this
+mechanism. Reject both production forms before hardware/cost campaigns; the
+original call body is restored and both alternatives remain test-only.
+
+The control's native entry/marshaling adds 20,233,235 self instructions; generated
+code adds 9,468,103, helper table reads 4,862,700, helper entry 4,733,028 and lookup
+3,513,539. These are not independent net overhead totals: Auto also removes
+10,865,850 VM instructions and 5,511,060 generic index instructions, among other
+differences. Future native-regression candidates must separate shared savings
+from incremental JIT savings before broad timing campaigns. Instruction counts
+still do not replace elapsed acceptance gates.
+
+This round completes 22 profiles; no new hardware timing, feature-cost, Miri or
+full-platform acceptance is claimed. Withdrawal passes formatting/check-all and
+158 focused executions across 21 summaries, zero ignored. The original production
+call body matches `b93df24`; the ordinary GNU opt3 rebuild succeeds with `.text`
+and `.rodata` byte-identical to the frozen control. Evidence: `callback-setup*`
+in the ignored performance directory.
 
 #### Rust integer argument conversion — withdrawn (2026-10-10)
 
