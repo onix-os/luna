@@ -5,19 +5,16 @@ pub(super) fn prepare(initial: &Fuel, arguments: u8, prefix: u32) -> Option<Fuel
     if prefix > 64 {
         return None;
     }
-    let mut fuel = initial.clone();
-    fuel.consume(
-        LuaFrame::FUEL_PER_CALL
-            + crate::fuel::count_fuel(LuaFrame::FUEL_PER_ITEM, usize::from(arguments))
-            + 4
-            + prefix as i32,
-    );
-    if !fuel.should_continue() {
+    let charge = LuaFrame::FUEL_PER_CALL
+        + crate::fuel::count_fuel(LuaFrame::FUEL_PER_ITEM, usize::from(arguments))
+        + 4
+        + prefix as i32;
+    let remaining = initial.remaining();
+    if remaining <= charge || initial.is_interrupted() {
         return None;
     }
-    fuel.consume(LuaFrame::FUEL_PER_CALL);
-    fuel.consume(3);
-    fuel.consume(4);
+    let mut fuel = initial.clone();
+    fuel.set_remaining(remaining - charge - LuaFrame::FUEL_PER_CALL - 3 - 4);
     Some(fuel)
 }
 
