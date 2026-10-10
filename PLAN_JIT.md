@@ -11,6 +11,40 @@
 
 ### Progress snapshot — 2026-10-09
 
+#### Callback result transport — rejected before timing (2026-10-10)
+
+A private erased-call trial returns a bool for normal Return and writes other
+actions/errors into a caller-owned MaybeUninit result. Public callback signatures,
+GC header ownership and Rust unwinding remain unchanged. The trial passes
+formatting/check-all, 141 focused test executions and the new Miri outcome test.
+The independent regression covers nested Return, Sequence, Call, Yield, Resume,
+Lua error and panic payloads, plus exactly-once owned-sequence destruction; it
+also passes without JIT and with JIT Off/Auto/Force on the unchanged baseline.
+
+Ten exact-image profiles verify program headers, allocated metadata/bytes and
+measured-image identity; all five complete non-timing comparisons match.
+Callback instructions increase from 133,593,180 to 133,853,180 (+0.19462%).
+The erased callback remains at 5,915,000 instructions; Executor::step adds
+260,000. Off integer and float instruction totals remain identical. Upvalue Auto
+falls 0.18405%, mostly in an unrelated admission function, not the targeted
+callback path. These counts do not establish elapsed-time improvement.
+
+Reject the production transport change without hardware timing: it fails its
+intended work-reduction test. Retain the independent ownership regression and
+`make vm-callback-outcomes-miri`. Restoration passes formatting/check-all and
+the same 141 focused executions; the rebuilt ordinary release executable is
+byte-identical to the retained baseline. No full-suite, performance or release acceptance
+is claimed. Candidate source patch, binary and raw profiles remain under
+`callback-result-transport*` and `pgo-probe/callback-result-transport-profile-analysis.json`
+in `target/jit-evidence/short-slice-performance/`.
+
+An audit of the existing third PGO pilot also finds nonzero training block totals
+for all 14 ordinary Runtime::invoke specializations, Executor::step and run_vm_slice.
+The hexadecimal width suffixes include 0x10 through 0x100. Summed block counts
+are not invocation counts. Missing ordinary-entry training does not justify
+another pilot; the frozen benchmark remains excluded from training. Evidence:
+`pgo-probe/training-widths.log` and `pgo-heldout-3/profile-counts.log`.
+
 #### Batch integer imports — both runtime forms withdrawn (2026-10-10)
 
 The public `ThreadState::stack()` API exposes a retainable, mutable stack Gc.
