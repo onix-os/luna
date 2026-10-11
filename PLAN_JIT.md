@@ -11,19 +11,22 @@
 
 ### Progress snapshot — 2026-10-11
 
-#### Integer-pair binding — instruction screen, not acceptance
+#### Integer-pair binding — instruction screen rejected
 
-`4e17f8a` trials binding two adjacent actual Integer values together during full
+`4e17f8a` trialed binding two adjacent actual Integer values together during full
 payload binding. Non-integer pairs fall back to the existing typed single-cell
 binder; selected-mask binding, public raw-stack access, helper semantics and
-production native selection are unchanged. This remains experimental code.
+production native selection were unchanged. The candidate is now withdrawn;
+only the independent full-binding prefix/type-change regression is retained.
 
 Three new tests cover all 196 value-kind pairs (including distinct Closure and
 Callback handles), scalar bits, sibling pointer loans, short/overflow ranges,
 widths 0/1/2/3/7/8/256, prefix canaries and type-changing reentry. Focused GNU
 tests pass; Stacked and Tree Borrows each pass six executions across three
 summaries. Focused musl passes 29 executions across seven summaries. Full GNU
-force validation is still running; do not infer its completion from these checks.
+`jit-test-all JIT_MODE=force` passes 1,777 tests across 88 summaries with six
+existing ignores, including the retained-public-stack-alias integration test.
+These are correctness checks on the candidate, not performance acceptance.
 
 Frozen activated image
 `be777003d70b24deb7e3d68c2210024a14cafe32db23129720e04492ccb41718`
@@ -34,9 +37,31 @@ integer +388,223, float +412,527, array +94,791, allocation +509,089,
 upvalue +178,385 and metamethod +2,425,622. No hardware speedup is claimed.
 The seven-register binder was outlined: wrapper self work is 10,764,934 and
 the new separate binder contributes 8,496,227, together exceeding the previous
-16,471,646 wrapper by exactly 2,789,515. A separately frozen explicit-inlining
-diagnostic is running to distinguish code-generation effects from pair probes.
-Its outcome is not yet known; neither variant has performance acceptance.
+16,471,646 wrapper by exactly 2,789,515.
+
+A second frozen image,
+`c31e755550daefeec2643859d277753038dc405dceec90d34405a0700a74d58c`,
+adds only explicit inlining of `bind_selected`. All eleven profiles complete,
+all non-timing fields match, and all four Off totals remain unchanged. Inlining
+reduces callback overhead to **+195,519 (+0.149%)**, entirely in the entry
+wrapper, but does not turn it into an instruction reduction. Integer +40,924,
+float +65,228, allocation +365,780 and metamethod +1,369,537 remain adverse;
+upvalue -33,374 and array -51,292 are small favorable totals. Both variants retain
+exactly 13,099,872 generated callback instructions. Extra pair probes plus the
+compiler's outlining decision do not provide the desired entry-cost reduction.
+No hardware campaign was run for either candidate, and no timing regression or
+speedup is inferred from these instruction profiles. Neither is promoted.
+
+The typed single-cell binder and full-binding loop are restored exactly to the
+pre-trial implementation. `make jit-payload-full-binding` and its `-miri` target
+retain the independent mixed-prefix, canary and reentry test; tests specific to
+the removed pair method are available in `4e17f8a`. Restored GNU and musl each
+pass 27 focused tests across seven summaries; formatting/check-all pass, and
+both Miri models pass the retained regression. The full force suite above ran
+on the pre-withdrawal candidate; it is not represented as a new full-suite run
+on the restored tree. `payload.rs` is byte-identical to `b8bf5b0`; runtime differs
+from that baseline only by the new test-module registration. Original performance,
+feature-cost, resource and release acceptance remain incomplete.
 
 Evidence: `target/jit-evidence/short-slice-performance/integer-pair-*.log`,
 `integer-pairs-{build,profile,analyze}.*`, and
