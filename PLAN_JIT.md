@@ -48,8 +48,8 @@ Main-checkout validation passes GNU **41 / nine summaries**, musl **16 / three**
 and caller-shadow Stacked/Tree Borrows **seven each**. GNU includes mixed-cache,
 bound, packed-runtime, projection and call-runtime coverage; musl includes the
 mixed cache, packed-entry rejection/failure and caller-shadow checks. A fresh
-full GNU Force rerun is now running; the earlier 1,780-test result predates this
-refactor and is not substituted for that rerun.
+full GNU Force rerun now passes **1,780 tests / 88 summaries**, zero failures and
+six ignored tests, on this refactor (`transport-split-root-gnu-all.log`).
 
 The unactivated main-checkout refactor is independently frozen as
 `1a8916dbbba13e5eeed5fb84b7aa33745c2ee4210df4f85ba073f6df1ad4ec26`.
