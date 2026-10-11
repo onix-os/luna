@@ -50,6 +50,22 @@ Evidence: `copy-bypass-root-*`, `copy-bypass-read-audit.log`, the immutable
 `payload-terminal-profile/copy-bypass/` image and `copy-bypass-vs-*.json`.
 All original acceptance gates remain in force; no production activation.
 
+The equivalent fast-path-first image
+`7f0c52ebd93f2e0e1ab9575457ab9c3c9d3ab1fdde4b5dd5c0d7a9b59c3d98cb`
+also completes eleven profiles, focused GNU checks and four compiler Miri tests
+per mode. It does **not** fix allocation: generated work remains 5,978,686 versus
+direct-copy's 5,795,499. Callback generated work rises to 12,775,783 versus the
+initial bypass's 12,646,124. The smaller allocation total delta comes from other
+work, not removal of the generated-code regression. This variant is rejected;
+no hardware campaign or root integration follows from these profiles.
+
+A separate early-guard experiment moves the existing reference branch before
+the scalar reader and checks the destination only on the scalar edge. It preserves
+the original reference-helper path and same-tag stores, adds four instructions
+and two blocks, and verifies the moved original instructions and reader-resume
+edge. Initial focused native checks pass; broader tests and profiles are pending.
+Evidence remains isolated under `copy-bypass-{fast-first,early-guard}*`.
+
 #### Terminal callback copy — integrated experiment, tuning pending
 
 The test-only canonical-copy primitive now distinguishes preserving a live source
