@@ -759,6 +759,15 @@ jit-payload-packed-calls-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::packed_calls:: -- --test-threads=1
 
 .PHONY: jit-payload-packed-reads jit-payload-packed-reads-miri
+.PHONY: jit-payload-packed-tag-checks jit-payload-packed-tag-checks-miri
+jit-payload-packed-tag-checks:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::packed_tag_checks:: $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::packed_lower::tests::packed_whole_tag_checks $(ARGS)
+
+jit-payload-packed-tag-checks-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::packed_tag_checks:: -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::packed_lower::tests::packed_whole_tag_checks -- --test-threads=1
+
 jit-payload-packed-reads:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::packed_reads:: $(ARGS)
 

@@ -18,6 +18,7 @@ mod packed_entry_tests;
 pub(super) mod packed_lower;
 mod packed_progress;
 mod packed_reads;
+mod packed_tag_checks;
 mod packed_writes;
 #[cfg(all(test, not(miri)))]
 pub(super) mod read_audit;
