@@ -11,6 +11,62 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Source-owned packed type predicates — measured, not activated
+
+The test-only packed lowering now recognizes equality against the five scalar
+tags and the numeric `(tag & !1) == INTEGER` test. It tests the descriptor word
+captured by the original tag load, not a descriptor reloaded after a helper.
+The verifier binds every rewritten predicate to its original comparison,
+register index and owning read record, checks every emitted instruction and
+accounts for the exact expansion. General tag decoding remains for other
+uses. Malformed descriptor words retain their original comparison results;
+these predicates do not dereference numeric pointers or assume Rust enum layout.
+
+GNU format/check-all and three focused tests pass. The earlier GNU pass also
+covers seven whole-lowering, two progress, one checkpoint and eight owning-entry
+tests. Musl passes the three new checks. Stacked and Tree Miri each pass the
+two pure structural tests; generated-code execution is excluded from Miri.
+The native oracle covers all Value classes, low/high malformed encodings and
+every pointer bit at register indices 0, 1 and 255. A whole-lowering fixture
+checks original tag-snapshot ownership across helper effects and rejects
+well-typed counterfeit fragments. This is not full-platform acceptance.
+
+The isolated production trial preserves main's test-only gates. Image
+`aa80bd7975c7685c2af2af9f189991c025d78858c5e66416e3fd2c259afd62fb`
+completed **eleven** same-code-image profiles and 24 full paired hardware
+invocations: two CPUs, three windows, candidate/previous/control/placebo,
+eleven samples each. Earlier checkpoint/status references to ten profiles
+were a counting error. All 24 aggregate checks fail, including all six
+candidate runs. Callbacks and metamethods pass zero of six original gates;
+candidate paired speedups are 0.5962–0.6204 and 0.7484–0.8101 respectively,
+against the unchanged minimum 0.8333. All other scored candidate workloads
+pass six of six; the Oslo predicate remains unscored.
+
+Relative to the preceding packed tag-table candidate, conventional medians
+of the six previous/candidate Auto-time ratios are 1.0874 for integer loops,
+1.1011 for float loops, but **0.9545 for callbacks**. Callbacks regress in all
+six comparisons (ratios 0.9472–0.9729). Other ratios are retained in the local
+summary rather than suppressing unfavorable windows. All execution counters
+match that predecessor; the array workload's mapped code grows 16,384 to
+20,480 bytes. Contention telemetry and before/after source/binary checks are
+retained. Timing claims remain conditional on this shared host.
+
+Callback profiling records 146,111,677 total instructions, versus 152,207,341
+for the first packed experiment and 131,650,796 for the retained two-word
+payload control. Generated-code work falls to 18,872,181 instructions, but
+the packed entry still costs 15,369,057 plus 8,624,917 in Runtime invocation.
+Modeled instruction-cache misses also remain high; they are not hardware
+counters. Fewer instructions did not translate into acceptable timings.
+No new production activation, original performance acceptance, resource-gate
+waiver or full-plan completion is claimed.
+
+Evidence: `target/jit-evidence/short-slice-performance/tag-check-*` and
+`payload-terminal-profile/tag-check{,-source,-hardware-screen}/` below that
+directory. The JSON summary validates all 24 logs / 648 workload rows; an
+initial summary from truncated tool output was replaced, not used as evidence.
+Next work targets measured entry/binding costs, retaining the distinction
+between entry binding and helper destination rebinding.
+
 #### Packed scalar descriptors — isolated representation model
 
 The next structural experiment targets the retained callback wrapper's
