@@ -744,6 +744,13 @@ jit-payload-packed:
 jit-payload-packed-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::packed:: -- --test-threads=1
 
+.PHONY: jit-payload-packed-calls jit-payload-packed-calls-miri
+jit-payload-packed-calls:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::packed_calls:: $(ARGS)
+
+jit-payload-packed-calls-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::packed_calls:: -- --test-threads=1
+
 jit-payload-model:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload:: $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload:: $(ARGS)
@@ -1689,6 +1696,8 @@ help:
 	@echo "  jit-accounting Check mixed counters, dispatches and exact fuel"
 	@echo "  jit-chain    Test source-bound native caller continuations"
 	@echo "  jit-payload-model       Test scoped scalar payloads"
+	@echo "  jit-payload-packed-calls Verify packed helper lowering"
+	@echo "  jit-payload-packed-calls-miri Check packed lowering under Miri"
 	@echo "  jit-payload-relocations Check direct/indirect relocation budgets"
 	@echo "  jit-helper-transports   Test scratch and direct helpers"
 	@echo "  jit-helper-transports-miri Check helper transports under Miri"

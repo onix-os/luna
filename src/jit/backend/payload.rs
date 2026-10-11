@@ -12,6 +12,7 @@ mod bound_reads;
 mod bound_writes;
 mod host_stack;
 mod numeric_reads;
+mod packed_calls;
 #[cfg(all(test, not(miri)))]
 pub(super) mod read_audit;
 mod reads;
