@@ -38,8 +38,25 @@ combinations, non-table receivers, current-frame captures and full-fallback
 refresh, malformed indices, borrow panics and stopped reentry. Three integrated
 loops exercise constant/dynamic writes and __newindex with live sibling values,
 fuel/interrupt stepping, GC and identical counters against interpreter/ordinary
-controls. Miri and frozen performance evidence are tracked separately; this is
-not activation or performance acceptance. Logs: `payload-table-write-*` and
+controls. Both Miri borrow models pass five ABI and five terminal model tests.
+The frozen activated candidate passes all 111 payload tests and check-all;
+SHA-256 is `f9a1cd17e93aa966fd58da917c757d5cfd90b080d4a79ba0ce443d76bee5e537`.
+The initial activation check failed because an older experimental patch still
+marked the now-used scalar loader test-only; the new candidate activation patch
+is corrected and the failed log is retained in `write-initial-check-failed/`.
+
+Ten frozen profiles versus `local` preserve every non-timing statistic and all
+three Off instruction controls. Metamethod work falls **2,615,686 instructions
+(3.0714%)**: rebind −1,721,377, bind_non_numeric −622,272, the old table_write
+body −608,039 and helper5 +336,002. Array work falls 593,382 (1.6224%). Numeric
+Auto loops are identical; callback work rises 81 and allocation work rises
+1,345. Upvalue work falls 313,633, almost entirely in Admitted::new rather than
+table helpers; retain that attribution rather than claiming a table-write gain.
+All 13 events, function sums, resource counters, ELF section comparisons and
+source/image/inode checks remain intact. Evidence: `local-vs-write-analysis.json`
+and `write-*-auto-delta.json`. Full workspace tests and hardware timing remain
+separate gates; this is not activation or performance acceptance.
+Logs: `payload-table-write-*` and
 `payload-terminal-profile/write*` under `target/jit-evidence/short-slice-performance/`.
 
 #### Branch-local scalar descriptor loads — measured and withdrawn
