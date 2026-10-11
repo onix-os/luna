@@ -76,8 +76,10 @@ plan corruption before compilation, and a zero-budget native call with null
 tables proving no table access on that path.
 
 GNU passes **12 typed tests** and fmt/check-all; both Miri models and real i686
-pass **nine model tests each**. Miri does not execute the generated machine
-code. This emitter still lacks independent post-lowering semantic IR
+pass **nine model tests each**. The completed musl lane passes **12 typed,
+34 payload ABI, 28 backend and two runtime tests**. Every lane reports zero
+failures and ignores. Miri does not execute the generated machine code.
+This emitter still lacks independent post-lowering semantic IR
 certification, production executable/compiler resource accounting, runtime
 PC/fuel/counter integration, branch/helper coverage, and whole-workload
 performance evidence. Generic Cranelift verification and the executable
