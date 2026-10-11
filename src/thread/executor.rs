@@ -290,7 +290,7 @@ impl<'gc> Executor<'gc> {
     pub fn step(self, ctx: Context<'gc>, fuel: &mut Fuel) -> Result<bool, BadThreadMode> {
         let mut state = self.0.borrow_mut(&ctx);
         #[cfg(all(test, feature = "jit"))]
-        let mut permit_handoff = true;
+        let mut permit_handoff = callback_handoff::enabled(ctx);
         Ok('executor: loop {
             let mut top_thread = state.thread_stack.last().copied().unwrap();
             let mut res_thread = None;
@@ -474,12 +474,12 @@ impl<'gc> Executor<'gc> {
                                     top_state.return_to(&mut top_stack, bottom);
                                     #[cfg(all(test, feature = "jit"))]
                                     if permit_handoff
-                                        && !top_state.running
-                                        && !top_state.deferred_error
                                         && matches!(
                                             top_state.frames.last(),
                                             Some(Frame::Lua { .. })
                                         )
+                                        && !top_state.running
+                                        && !top_state.deferred_error
                                     {
                                         handoff = 2;
                                     }
@@ -799,12 +799,12 @@ impl<'gc> Executor<'gc> {
                                     fuel.consume(instructions_run.try_into().unwrap());
                                     #[cfg(all(test, feature = "jit"))]
                                     if permit_handoff
-                                        && !top_state.running
-                                        && !top_state.deferred_error
                                         && matches!(
                                             top_state.frames.last(),
                                             Some(Frame::Callback { .. })
                                         )
+                                        && !top_state.running
+                                        && !top_state.deferred_error
                                     {
                                         handoff = 1;
                                     }
