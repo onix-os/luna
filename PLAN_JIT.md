@@ -11,7 +11,39 @@
 
 ### Progress snapshot — 2026-10-11
 
-#### Static payload gateways — direct linking trial
+#### Static payload gateways — rejected direct linking trial
+
+**Decision:** withdraw this trial and restore source/Makefile to `9b59197`.
+The frozen images and all evidence remain available. Correctness passes do not
+offset the repeated metamethod regression, larger resources and unresolved
+callback gate. This decision does not withdraw the preceding scoped GetUpvalue
+optimization or change any original acceptance threshold.
+
+Two complete hardware campaigns ran nine original workloads, eleven paired
+samples, CPUs 0/16 and three rotated windows with ordinary, previous, candidate
+and same-inode placebo images. All **48 aggregate benchmark invocations failed**;
+the driver exits of zero only establish completed campaigns. The static
+candidate fails callbacks **12/12** and passes metamethods **9/12**. On CPU0,
+previous/candidate metamethod time ratios are 0.9815/0.9778/0.9772 in the first
+campaign and 0.9766/0.9816/0.9724 in the repeat: repeatedly slower. Callback
+ratios improve on CPU0, but CPU16 repeat ratios are 0.9998/0.9900/0.9989.
+Repeat metamethod placebo ratios range 0.9633–1.0204 on CPU0 and
+0.9953–1.0180 on CPU16, so individual timing differences remain noisy; this
+is not an uncontended causal estimate.
+
+The instruction profile saves only 129,813 callback instructions (0.0986%).
+Metamethod instructions increase 73,933 (0.0956%); upvalue instructions increase
+136,301 (0.0850%), including allocator changes. Float code allocation doubles
+from 4,096 to 8,192 bytes. Snapshot peaks increase, including callback
+13,242→20,376 and float 17,086→29,628 bytes. Both direct hardware comparators
+retain exit 3: their only non-timing differences are code allocation and snapshot
+peak bytes, not execution counters. These resource differences are not waived.
+All frozen source/image hashes and before/after checks remain intact.
+
+Evidence: `payload-terminal-profile/static-{profile,hardware-screen,hardware-repeat}*`,
+`upread-vs-static-analysis.json`, `static-*-delta.json`, and
+`static-vs-upread-hardware{,-repeat}-stats.json` beneath
+`target/jit-evidence/short-slice-performance/`.
 
 Commit `630f6a2` links the ten existing payload helpers and two scalar writers
 directly for private frame-bound entries. Checked entries retain dynamic gateway
@@ -42,7 +74,7 @@ GC/fuel/interrupt and helper checks remain intact.
 Frozen `static` passes 129 payload tests and check-all; image SHA-256 is
 `01688e32485fa266b65008955e9c4532169cd836910a1ddc247d0be6a58e2a4c`.
 One release-only unused-wrapper warning is retained. Activation is confined to
-the frozen experiment; profiling/timing acceptance has not been established.
+the frozen experiment; subsequent profiles/timings above reject the trial.
 Evidence: `payload-static-dispatch-*` and `payload-terminal-profile/static*`
 under `target/jit-evidence/short-slice-performance/`.
 
