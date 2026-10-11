@@ -29,6 +29,9 @@ focused ABI/native helper tests, 23 bound/read tests and the full sparse-runtime
 oracle pass. Musl check-all and the same focused/runtime lanes pass. Stacked and
 Tree Miri each pass 29 focused executions across seven summaries, including a
 repeated terminal suite; these are not 29 unique tests or native-code execution.
+The subsequent full GNU Force all-feature/all-target run passes **1,766 tests
+across 88 summaries**, with six existing ignores and zero failures. Formatting
+also passes. This validates the committed prototype, not release performance.
 
 Frozen full-binding candidate
 `1fe53ac443103c39661587f3f868f6bcb768b00c9c5b07f6d0da6587f126eba9`
