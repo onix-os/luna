@@ -182,7 +182,7 @@ fn bound_numeric_native_reads_preserve_scalar_bits_and_guard_reference_cells() {
                     unsafe extern "C" fn(*const crate::jit::abi::payload::Payload) -> u64,
                 >(pointer)
             };
-            crate::jit::abi::payload::runtime::check_native_bound_numeric_read(entry);
+            crate::jit::abi::payload::runtime::check_native_bound_numeric_read(entry, None);
         })
         .unwrap();
     }

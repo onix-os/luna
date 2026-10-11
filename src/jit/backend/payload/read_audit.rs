@@ -11,21 +11,26 @@ pub(in crate::jit::backend) fn run(
     helpers: &[(u32, FuncRef)],
     allocator: BudgetAllocator,
 ) -> Result<(), JitError> {
-    let mut analysis = numeric_reads::Analysis::new(function, allocator)?;
-    let (mut reads, mut candidates, mut admitted) = (0, 0, 0);
+    let mut analysis = numeric_reads::Analysis::new(function, allocator.clone())?;
+    let mut tags = same_tag::Analysis::new(function, allocator)?;
+    let (mut reads, mut candidates, mut admitted, mut exact) = (0, 0, 0, 0);
     scan(function, slots, host, registers, helpers, |rewrite| {
         if let Rewrite::Read(inst, index) = rewrite {
             let candidate = numeric_reads::candidate(function, inst, slots, index).is_some();
             let accepted = analysis.admit(function, inst, slots, index).is_some();
+            let guarded = !accepted && tags.admit_numeric(function, slots, inst, index);
             reads += 1;
             candidates += usize::from(candidate);
             admitted += usize::from(accepted);
+            exact += usize::from(guarded);
             let result = function.dfg.first_result(inst);
-            eprintln!("payload read {inst} result={result} slot={index} candidate={candidate} admitted={accepted}");
+            eprintln!("payload read {inst} result={result} slot={index} candidate={candidate} admitted={accepted} exact={guarded}");
         }
         Ok(())
     })?;
-    eprintln!("payload reads total={reads} candidates={candidates} admitted={admitted}");
+    eprintln!(
+        "payload reads total={reads} candidates={candidates} admitted={admitted} exact={exact}"
+    );
     eprintln!("{function}");
     Ok(())
 }

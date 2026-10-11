@@ -161,7 +161,10 @@ pub(crate) fn with_bridge<const CAPACITY: usize>(
 }
 
 #[cfg(all(test, not(miri)))]
-pub(crate) fn check_native_bound_numeric_read(entry: unsafe extern "C" fn(*const Payload) -> u64) {
+pub(crate) fn check_native_bound_numeric_read(
+    entry: unsafe extern "C" fn(*const Payload) -> u64,
+    exact_tag: Option<u64>,
+) {
     crate::Lua::empty().enter(|ctx| {
         let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
         for value in [
@@ -180,7 +183,9 @@ pub(crate) fn check_native_bound_numeric_read(entry: unsafe extern "C" fn(*const
             Value::UserData(crate::UserData::new_static(&ctx, 7)),
         ] {
             let scalar = Slot::from_value(value);
-            let expected = if matches!(scalar.tag, INTEGER | NUMBER) {
+            let expected = if matches!(scalar.tag, INTEGER | NUMBER)
+                && exact_tag.is_none_or(|tag| scalar.tag == tag)
+            {
                 scalar.bits
             } else {
                 0

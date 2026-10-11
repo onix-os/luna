@@ -8,10 +8,11 @@ use crate::jit::abi::payload::runtime::{Bridge, Functions};
 #[cfg(not(miri))]
 use crate::jit::abi::payload::Payload;
 
+mod bound_reads;
 mod bound_writes;
 mod host_stack;
 mod numeric_reads;
-#[cfg(not(miri))]
+#[cfg(all(test, not(miri)))]
 pub(super) mod read_audit;
 mod reads;
 mod same_tag;
@@ -75,6 +76,7 @@ enum Read {
     Scalar(reads::Read),
     Numeric(numeric_reads::Read),
     BoundNumeric(numeric_reads::BoundRead),
+    BoundGuarded(bound_reads::Read),
 }
 
 enum Rewrite {
@@ -462,6 +464,17 @@ pub(super) fn lower_contract(
                         )));
                     }
                     numeric_count += 1;
+                } else if contract == Contract::FrameBound
+                    && same_tag.admit_numeric(function, slots, inst, index)
+                {
+                    let read = bound_reads::emit(&mut candidate, inst, slots, index);
+                    bound_reads::verify_source(function, &read, slots, &mut same_tag)?;
+                    reads.push(Read::BoundGuarded(read));
+                    numeric_count += 1;
+                    bound_read_count += 1;
+                    bound_read_savings += 5 + usize::from(
+                        function.dfg.value_type(function.dfg.first_result(inst)) == types::F64,
+                    );
                 } else {
                     reads.push(Read::Scalar(reads::emit(
                         &mut candidate,
@@ -562,6 +575,11 @@ pub(super) fn lower_contract(
     let predecessors = (numeric_count != 0 || proven_writes != 0)
         .then(|| crate::jit::preds::Predecessors::new(&candidate, allocator.clone()))
         .transpose()?;
+    let (instructions, blocks) = size(&candidate);
+    let mut read_work = instructions
+        .checked_add(blocks)
+        .and_then(|n| n.checked_mul(64))
+        .ok_or(JitError::ResourceLimit("payload emitted read proof work"))?;
     for read in &reads {
         match read {
             Read::Scalar(read) => reads::verify(&candidate, read, slots)?,
@@ -576,6 +594,13 @@ pub(super) fn lower_contract(
                     predecessors.as_ref().unwrap(),
                 )?;
             }
+            Read::BoundGuarded(read) => bound_reads::verify(
+                &candidate,
+                read,
+                slots,
+                predecessors.as_ref().ok_or_else(invalid)?,
+                &mut read_work,
+            )?,
         }
     }
     let (instructions, blocks) = size(&candidate);
