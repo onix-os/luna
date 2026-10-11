@@ -9,7 +9,7 @@ mod binding_tests;
 
 #[cfg(test)]
 #[path = "payload/packed.rs"]
-mod packed;
+pub(crate) mod packed;
 
 #[cfg(all(
     not(miri),

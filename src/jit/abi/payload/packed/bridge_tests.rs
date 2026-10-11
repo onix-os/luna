@@ -1,6 +1,6 @@
 use super::*;
 
-fn counters(count: &helpers::Counts) -> [u64; 8] {
+pub(super) fn counters(count: &helpers::Counts) -> [u64; 8] {
     [
         count.calls,
         count.completed,
@@ -78,54 +78,53 @@ fn packed_c_bridge_matches_all_ten_real_helper_effects() {
                 };
                 let mut pc = 5;
                 let mut fuel = crate::Fuel::with(47);
-                let counts = crate::thread::LuaRegisters::with_test_frame_state(
-                    ctx,
-                    &mut pc,
-                    &mut values,
-                    &mut fuel,
-                    false,
-                    |mut registers| {
-                        let mut frame = helpers::Frame {
-                            ctx,
-                            closure,
-                            registers: &mut registers,
-                            count: helpers::Counts::default(),
-                            slot_count: 5,
-                            panic: None,
-                            projection: None,
-                        };
-                        let result = if packed {
-                            with_bridge::<5, _>(&mut frame, |slots, bridge| unsafe {
-                                assert!(slots.add(4).read().store_numeric(Slot {
-                                    tag: INTEGER,
-                                    bits: 731
-                                }));
-                                let result = (bridge.helpers[(kind - 1) as usize])(
-                                    bridge.control,
-                                    a,
-                                    b,
-                                    c,
-                                    7,
-                                );
-                                assert_eq!(slots.add(4).read().load().unwrap().bits, 731);
-                                assert!(slots.add(4).read().store_numeric(Slot {
-                                    tag: INTEGER,
-                                    bits: 99
-                                }));
-                                result
-                            })
-                            .unwrap()
-                        } else {
-                            frame.registers.stack_frame[4] = Value::Integer(731);
-                            let result = dispatch(&mut frame, kind, a, b, c, 7);
-                            frame.registers.stack_frame[4] = Value::Integer(99);
-                            result
-                        };
-                        assert_eq!(result, abi::HELPER_COMPLETED, "helper {kind}");
-                        assert!(frame.panic.is_none());
-                        counters(&frame.count)
-                    },
-                );
+                let counts =
+                    crate::thread::LuaRegisters::with_test_frame_state(
+                        ctx,
+                        &mut pc,
+                        &mut values,
+                        &mut fuel,
+                        false,
+                        |mut registers| {
+                            let mut frame = helpers::Frame {
+                                ctx,
+                                closure,
+                                registers: &mut registers,
+                                count: helpers::Counts::default(),
+                                slot_count: 5,
+                                panic: None,
+                                projection: None,
+                            };
+                            let result =
+                                if packed {
+                                    with_bridge::<5, _>(&mut frame, |slots, bridge| unsafe {
+                                        assert!(slots.add(4).read().store_numeric(Slot {
+                                            tag: INTEGER,
+                                            bits: 731
+                                        }));
+                                        let result = (bridge.functions.helpers
+                                            [(kind - 1) as usize])(
+                                            bridge.control, a, b, c, 7
+                                        );
+                                        assert_eq!(slots.add(4).read().load().unwrap().bits, 731);
+                                        assert!(slots.add(4).read().store_numeric(Slot {
+                                            tag: INTEGER,
+                                            bits: 99
+                                        }));
+                                        result
+                                    })
+                                    .unwrap()
+                                } else {
+                                    frame.registers.stack_frame[4] = Value::Integer(731);
+                                    let result = dispatch(&mut frame, kind, a, b, c, 7);
+                                    frame.registers.stack_frame[4] = Value::Integer(99);
+                                    result
+                                };
+                            assert_eq!(result, abi::HELPER_COMPLETED, "helper {kind}");
+                            assert!(frame.panic.is_none());
+                            counters(&frame.count)
+                        },
+                    );
                 if kind == 3 {
                     assert!(matches!(values[0], Value::Table(_)));
                 }
@@ -182,11 +181,11 @@ fn packed_c_bridge_contains_helper_panics_and_preserves_pending_payload() {
                             }));
                         }
                         assert_eq!(
-                            (bridge.helpers[0])(bridge.control, 99, 0, 0, 7),
+                            (bridge.functions.helpers[0])(bridge.control, 99, 0, 0, 7),
                             abi::HELPER_PANICKED
                         );
                         assert_eq!(
-                            (bridge.helpers[0])(bridge.control, 0, 0, 0, 8),
+                            (bridge.functions.helpers[0])(bridge.control, 0, 0, 0, 8),
                             abi::HELPER_PANICKED
                         );
                     })
@@ -224,8 +223,14 @@ fn packed_c_bridge_retains_refusal_without_fabricating_panic() {
             let result = with_bridge::<1, _>(&mut frame, |_, bridge| unsafe {
                 let bound = &mut *bridge.control.cast::<FrameScope<'_, '_, '_, '_, '_, 1>>();
                 bound.scope.stopped = true;
-                assert_eq!((bridge.helpers[0])(bridge.control, 0, 0, 0, 7), REFUSED);
-                assert_eq!((bridge.helpers[0])(bridge.control, 0, 0, 0, 8), REFUSED);
+                assert_eq!(
+                    (bridge.functions.helpers[0])(bridge.control, 0, 0, 0, 7),
+                    REFUSED
+                );
+                assert_eq!(
+                    (bridge.functions.helpers[0])(bridge.control, 0, 0, 0, 8),
+                    REFUSED
+                );
             });
             assert_eq!(result, Err(Refusal::Stopped));
             assert_eq!(frame.count.calls, 0);
@@ -255,8 +260,14 @@ fn packed_c_bridge_refuses_failed_refresh_without_replaying_effects() {
             let result = with_bridge::<2, _>(&mut frame, |_, bridge| unsafe {
                 let bound = &mut *bridge.control.cast::<FrameScope<'_, '_, '_, '_, '_, 2>>();
                 bound.scope.count = 2;
-                assert_eq!((bridge.helpers[0])(bridge.control, 0, 0, 0, 7), REFUSED);
-                assert_eq!((bridge.helpers[0])(bridge.control, 0, 0, 0, 8), REFUSED);
+                assert_eq!(
+                    (bridge.functions.helpers[0])(bridge.control, 0, 0, 0, 7),
+                    REFUSED
+                );
+                assert_eq!(
+                    (bridge.functions.helpers[0])(bridge.control, 0, 0, 0, 8),
+                    REFUSED
+                );
             });
             assert_eq!(result, Err(Refusal::Bounds));
             assert_eq!(counters(&frame.count), [1, 1, 0, 0, 0, 0, 0, 0]);
@@ -301,7 +312,7 @@ fn packed_c_boundary_preserves_original_unwind_payload_and_direct_writes() {
                     abi::HELPER_PANICKED
                 );
                 assert_eq!(
-                    (bridge.helpers[0])(bridge.control, 0, 0, 0, 8),
+                    (bridge.functions.helpers[0])(bridge.control, 0, 0, 0, 8),
                     abi::HELPER_PANICKED
                 );
             })
@@ -332,7 +343,7 @@ fn packed_c_bridge_declines_without_poisoning_fresh_descriptor_reads() {
             };
             with_bridge::<2, _>(&mut frame, |slots, bridge| unsafe {
                 assert_eq!(
-                    (bridge.helpers[3])(bridge.control, 1, 0, 0, 7),
+                    (bridge.functions.helpers[3])(bridge.control, 1, 0, 0, 7),
                     abi::HELPER_DECLINED
                 );
                 assert_eq!(slots.add(1).read().load().unwrap().bits, 0);
@@ -341,7 +352,7 @@ fn packed_c_bridge_declines_without_poisoning_fresh_descriptor_reads() {
                     bits: 42
                 }));
                 assert_eq!(
-                    (bridge.helpers[0])(bridge.control, 1, 0, 0, 8),
+                    (bridge.functions.helpers[0])(bridge.control, 1, 0, 0, 8),
                     abi::HELPER_COMPLETED
                 );
                 assert_eq!(slots.add(1).read().load().unwrap().bits, 42);

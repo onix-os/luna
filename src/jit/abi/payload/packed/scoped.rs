@@ -4,7 +4,7 @@ use super::*;
 use crate::jit::{abi, helpers};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Refusal {
+pub(crate) enum Refusal {
     Bounds,
     Alignment,
     Stopped,
@@ -153,6 +153,7 @@ struct FrameScope<'s, 'gc, 'a, 'b, 'p, const CAPACITY: usize> {
     scope: Scope<'s, 'gc, CAPACITY>,
     frame: NonNull<helpers::Frame<'gc, 'a, 'b, 'p>>,
     refusal: Option<Refusal>,
+    materializations: u64,
 }
 
 fn with_frame_scope<'gc, const CAPACITY: usize, R>(
@@ -175,6 +176,7 @@ fn with_frame_scope<'gc, const CAPACITY: usize, R>(
         scope,
         frame: pointer,
         refusal: None,
+        materializations: 0,
     };
     Ok(body(&mut bound))
 }
@@ -212,4 +214,7 @@ impl<const CAPACITY: usize> FrameScope<'_, '_, '_, '_, '_, CAPACITY> {
 mod tests;
 
 #[path = "bridge.rs"]
-mod bridge;
+pub(crate) mod bridge;
+
+#[path = "read_oracle.rs"]
+pub(super) mod read_oracle;

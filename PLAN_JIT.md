@@ -150,22 +150,146 @@ post-effect refusal, verifying canonical values and exact PC/counts. This probe
 has admitted numeric preconditions; it is not arbitrary-bytecode lowering,
 runtime activation or independent emitted-IR certification.
 
-Final focused validation passes **22 tests each on GNU/musl**, formatting and
+Bridge source `791177e`: final focused validation passes **22 tests each on GNU/musl**, formatting and
 check-all, default/all-feature GNU Clippy with existing warnings, and **20 Rust
 tests each under Stacked and Tree Miri** with complete source after-checks.
 The real i686-musl executable passes **20 model tests**, with native probes
 excluded. Initial native addition-builder deprecation warnings were corrected
 before these final runs. Evidence is `packed-storage-*` and
 `packed-c-bridge-*`; source is in `packed/bridge*.rs` and `scoped.rs`.
-Broader payload/helper regression suites are tracked separately.
+Broader payload ABI/backend/runtime and helper suites then pass **171 tests each
+on GNU and musl across four summaries** (84 ABI, 57 backend, three runtime and
+27 helpers), with no failures or ignores. Logs are
+`packed-c-bridge-broad-{gnu,musl}.log`.
 
-Remaining packed work includes scalar materialization/terminal-write gateways,
-the separate full-entry compiler contract, independent source/emitted checking,
+Scalar writer source `14be3f5` adds ordinary and terminal C gateways to the
+packed function table. They validate the admitted register prefix and scalar
+tag/Boolean bits before replacement, preserve numeric bit patterns, and retire
+only the destination. Ordinary writes refresh it; terminal writes leave it
+retired until canonical access or helper refresh. Declines preserve original
+reference identity and permit subsequent valid writes. Stopped/panicking scopes
+retain their original refusal/payload without performing another write. Writer
+attempt diagnostics remain distinct from the unchanged eight helper counters.
+
+Shared Rust/native fixtures cover all fourteen Value cases against sixteen
+tag/bit inputs, ordinary and terminal writers, zero/maximum prefixes and invalid
+indices, live sibling numeric loans, helper refresh and pending stops/panics.
+Generated code loads the actual C function table. A second probe performs a
+declined write, retries, invokes Move, then reloads the original descriptor array
+before direct numeric access. Every non-completion stops subsequent effects.
+Checks include canonical identity/bits, PC, fuel and all helper counters. These
+are admitted-entry probes, not independent certification of arbitrary bytecode.
+
+Focused writer validation passes **29 tests each on GNU/musl** plus check-all,
+and **25 Rust tests each on i686-musl, Stacked Miri and Tree Miri**. The Miri
+source manifest includes all three new writer files and passes its after-check.
+An initial reference-identity fixture lifetime compilation error is retained
+in `packed-writers-native-initial.log`; the corrected suite is in
+`packed-writers-native.log`. Remaining evidence uses `packed-writers-*` under
+`target/jit-evidence/short-slice-performance/`. No benchmark was run for this
+test-only representation, and no performance acceptance is claimed.
+
+The broader payload ABI/backend/runtime and helper suites pass **178 tests each
+on GNU and musl across four summaries** (91 ABI, 57 backend, three runtime,
+27 helpers), with no failures or ignores. GNU formatting and default/all-feature
+Clippy also pass with existing warnings and none reported in the packed files.
+Logs are `packed-writers-broad-{gnu,musl}.log`. The runtime differentials exercise
+the existing transports; they do not constitute packed runtime integration.
+
+The next entry contract has a **distinct return-valued function type**:
+`(Packed*, pc, budget, Exit*, Bridge*) -> u32`. `RETURNED = 4` means a normal
+native exit was published; gateway failure statuses are not valid normal exits.
+The Rust adapter returns an explicit error for admission failure, post-execution
+refusal, a declined writer, pending panic, an unexpected status or an invalid
+exit. Admission failure is distinguishable from refusal after committed effects.
+Neither may be silently interpreted as permission to replay the operation.
+Pending panics stop admission before any native instruction, including direct
+stores. The adapter bounds the budget at 64 and validates initialized exit
+fields, instruction count and panic-payload consistency. A normal panic exit
+retains its existing Exit reason and original frame payload.
+
+An isolated compiler helper transformation now admits original six-argument
+direct helper calls and emits five-argument calls through the packed C table.
+It preserves the original result and continuation for statuses 0/1/2, but returns
+status 3 before the old continuation can mistake refusal for ordinary fallback.
+Independent source/emitted checks cover helper identity, arguments, signatures,
+field/table offsets, the refusal predicate, branch targets and returned status.
+All ten helper kinds have source/IR fixtures; eight well-formed IR mutations
+are rejected. Generated full-signature entry fixtures check completion, decline,
+panic, zero budget and post-effect refusal without replay or a fabricated panic.
+The transformation adds seven instructions and two blocks per call; complete
+compiler expansion admission still needs to account for these additions.
+
+These are **entry/transport components**, not a fully lowered Lua function or
+runtime activation. Scalar tag/bits loads and scalar stores still need packed
+lowering, whole-function verification, distinct owning-code entry selection and
+runtime publication of effects/counters on every outcome. Existing two-word
+entries must not be cast to this return-valued ABI. Evidence and tests are in
+`packed-entry*`, `packed/entry*.rs` and `backend/payload/packed_call*.rs`; focused
+compiler targets are `jit-payload-packed-calls` and its `-miri` counterpart.
+
+Entry contract `40bb393` and helper lowering `3c25c22`: GNU and musl each pass
+**33 packed ABI tests plus three compiler tests**, with check-all. Real i686-musl
+passes **29 ABI tests**; it does not compile the native backend. Stacked and Tree
+Miri each pass **29 ABI tests plus two compiler-verifier tests**, with all four
+new source files included in successful manifest after-checks. Broader GNU/musl
+suites each pass **185 tests across four summaries** (95 ABI, 60 backend, three
+runtime, 27 helpers), with no failures or ignores. GNU format/default/all-feature
+Clippy pass with existing warnings and none in the new files. Logs use
+`packed-entry-calls-*` and `packed-entry-i686.log`. There are no performance
+measurements or newly integrated Lua workloads in this stage.
+
+Packed scalar-read lowering now handles canonical tag loads and I64/F64 bit
+loads. Source admission checks the original load's register prefix, byte offset,
+type, flags and result identity. The emitted verifier independently checks exact
+descriptor offsets, tag constants/masks, pointer guards, branch targets, bitcasts
+and results. Numeric reads require an address above the reserved immediates and
+an admitted numeric low-bit encoding before dereferencing the cleared pointer.
+This requires a **live typed descriptor**, not an arbitrary untrusted pointer.
+Reference descriptors expose only the opaque tag and zero scalar bits.
+
+A shared Rust/native oracle covers all fourteen Value cases at registers
+0/1/255, six subsequent numeric overwrite patterns, untouched sibling prefixes
+and invalid nonpointer encodings. Generated probes cover tag, I64 and F64 reads;
+the Rust oracle also runs on i686 and under Miri. Another fixture composes six
+reads across successive block splits. Independent checker tests reject **56
+well-formed emitted-IR mutations** plus malformed source offsets/types/flags.
+The wrong-type source fixture must actually construct the intended SSA type:
+replacing an existing Cranelift load does not retype its existing result.
+
+This generic checked lowering adds **20 instructions per tag read**, **16 per
+I64-bit read**, or **17 per F64-bit read**; bit reads also add three blocks.
+Those costs are verified, not waived. Whole-function admission must account for
+them, and integrated profiles must determine whether specialization is required
+to make the packed representation profitable. No speedup is inferred from
+smaller descriptors. Retired Empty descriptors may represent non-Nil canonical
+values: terminal-write liveness or canonical refresh must prevent native reads
+from treating such a destination as Nil. This component does not establish that
+whole-function invariant on its own.
+
+Read sources are `backend/payload/packed_read*.rs` and
+`abi/payload/packed/read_oracle.rs`; targets are `jit-payload-packed-reads` and
+`jit-payload-packed-reads-miri`. Evidence uses `packed-reads-*`. Initial fixture
+API/borrow compilation failures and the incorrect-type fixture failure are
+retained in the first three logs; corrected focused/generated tests pass.
+
+Read source `2df1090`: GNU/musl pass **34 packed ABI tests and five compiler
+tests**, plus check-all. Real i686-musl passes **30 ABI tests**. Stacked and Tree
+Miri each pass **30 ABI tests and four compiler-verifier tests**; complete source
+after-checks include all three new files. Broader GNU/musl suites each pass
+**191 tests across four summaries** (96 ABI, 65 backend, three runtime,
+27 helpers), without failures or ignores. GNU formatting/default/all-feature
+Clippy pass with existing warnings and none in the new files. The broader
+runtime tests still exercise existing transports, not packed runtime activation.
+
+Remaining packed work includes scalar stores, complete whole-entry lowering and accounting,
+independent whole-function source/emitted checking,
 precise runtime exit/fuel/counter integration and resource accounting. Fresh
 frozen workload profiles and original hardware/compiled-Off gates still decide
 acceptance; no speedup or production activation is claimed by these fixtures.
 
-Broader payload ABI/backend/runtime and helper suites subsequently pass on both
+For the preceding scope source `85103de`, broader payload ABI/backend/runtime
+and helper suites also passed on both
 GNU and musl: **162 tests each across four summaries**, with no failures or
 ignores. Logs are `packed-scope-broad-{gnu,musl}.log`. This includes unchanged
 callback/upvalue/GC/array-kernel runtime differentials, not a packed runtime

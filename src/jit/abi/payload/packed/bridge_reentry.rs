@@ -61,7 +61,7 @@ fn check(mut entry: impl FnMut(*mut Packed, *mut (), Helper, [u32; 4]) -> u32) {
                                     .count = 4
                             };
                         }
-                        let callee = bridge.helpers[if case == 1 { 3 } else { 0 }];
+                        let callee = bridge.functions.helpers[if case == 1 { 3 } else { 0 }];
                         let result = entry(
                             slots,
                             bridge.control,
