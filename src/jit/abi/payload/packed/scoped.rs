@@ -215,3 +215,6 @@ mod tests;
 
 #[path = "bridge.rs"]
 pub(crate) mod bridge;
+
+#[path = "read_oracle.rs"]
+pub(super) mod read_oracle;

@@ -11,13 +11,13 @@ pub(crate) mod scoped;
 #[path = "packed/native.rs"]
 mod native;
 
-const MASK: usize = 3;
-const INT: usize = 0;
-const FLOAT: usize = 1;
-const FALSE: usize = 2;
-const TRUE: usize = 3;
-const EMPTY: usize = 4;
-const OPAQUE: usize = 5;
+pub(crate) const MASK: usize = 3;
+pub(crate) const INT: usize = 0;
+pub(crate) const FLOAT: usize = 1;
+pub(crate) const FALSE: usize = 2;
+pub(crate) const TRUE: usize = 3;
+pub(crate) const EMPTY: usize = 4;
+pub(crate) const OPAQUE: usize = 5;
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]
@@ -104,6 +104,9 @@ fn kinds<'gc>(ctx: crate::Context<'gc>) -> [Value<'gc>; 14] {
         Value::UserData(crate::UserData::new_static(&ctx, 42)),
     ]
 }
+
+#[cfg(not(miri))]
+pub(crate) use scoped::read_oracle::check_native_read;
 
 #[test]
 fn packed_descriptors_preserve_all_kinds_and_numeric_provenance() {
