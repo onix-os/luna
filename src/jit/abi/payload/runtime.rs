@@ -21,6 +21,7 @@ pub(crate) struct Bridge {
     pub base: abi::Host,
     pub read: unsafe extern "C" fn(*mut Payload, u32) -> u64,
     pub write: unsafe extern "C" fn(*mut Bridge, *mut Payload, u32, u64, u64),
+    pub terminal: unsafe extern "C" fn(*mut Bridge, *mut Payload, u32, u64, u64),
     pub helpers: &'static [abi::HelperEntry; 10],
     materializations: u64,
 }
@@ -54,6 +55,18 @@ unsafe extern "C" fn write_scalar(
     assert_eq!(result, abi::HELPER_COMPLETED);
 }
 
+unsafe extern "C" fn write_terminal(
+    host: *mut Bridge,
+    slots: *mut Payload,
+    index: u32,
+    tag: u64,
+    bits: u64,
+) {
+    unsafe { (*host).materializations += 1 };
+    let result = unsafe { materialize_terminal((*host).base.data.cast(), slots, index, tag, bits) };
+    assert_eq!(result, abi::HELPER_COMPLETED);
+}
+
 unsafe extern "C" fn helper<const KIND: u32>(
     host: *mut abi::Host,
     slots: *mut Slot,
@@ -78,6 +91,7 @@ pub(crate) fn with_bridge<const CAPACITY: usize>(
             },
             read: read_bits,
             write: write_scalar,
+            terminal: write_terminal,
             helpers: &HELPERS,
             materializations: 0,
         };
@@ -99,6 +113,7 @@ pub(crate) fn check_native_write_guards(
         },
         read: read_bits,
         write: declined,
+        terminal: declined,
         helpers: &[helper::<1>; 10],
         materializations: 0,
     };
@@ -451,6 +466,40 @@ unsafe extern "C" fn materialize(
         }
     }
 }
+
+unsafe extern "C" fn materialize_terminal(
+    host: *mut (),
+    slots: *mut Payload,
+    index: u32,
+    tag: u64,
+    bits: u64,
+) -> u32 {
+    let session = unsafe { &mut *host.cast::<Session<'_, '_, '_, '_, '_>>() };
+    if session.stopped {
+        return abi::HELPER_PANICKED;
+    }
+    if index as usize >= session.count {
+        return abi::HELPER_DECLINED;
+    }
+    let value = match tag {
+        NIL => Value::Nil,
+        BOOLEAN if bits <= 1 => Value::Boolean(bits != 0),
+        INTEGER => Value::Integer(bits as i64),
+        NUMBER => Value::Number(f64::from_bits(bits)),
+        _ => return abi::HELPER_DECLINED,
+    };
+    unsafe {
+        slots.add(index as usize).write(Payload {
+            tag: NIL,
+            pointer: std::ptr::null_mut(),
+        });
+        session.values.as_ptr().add(index as usize).write(value);
+    }
+    abi::HELPER_COMPLETED
+}
+
+#[path = "terminal_tests.rs"]
+mod terminal_tests;
 
 #[inline(always)]
 unsafe fn materialize_scalar<const TAG: u64>(

@@ -13,6 +13,34 @@
 
 #### Typed canonical regions — test-only groundwork
 
+The current integration step changes the existing payload lowering, not
+runtime dispatch: a bounded CFG liveness pass identifies scalar writes whose
+descriptor is never read or rewritten again before a full helper refresh or
+native exit. Only their slow materialization gateway retires the destination
+descriptor and writes the canonical value without rebuilding that descriptor.
+The same-tag inline fast paths, materialization count, helper counters, source
+operations, budget checks and exits remain unchanged. This is still test-only.
+
+All ten helper kinds are classified against the current session contract.
+GetUpTable is deliberately **not** a full-refresh barrier: its closed-table
+fast path preserves sibling descriptors. Loops and both sides of branches
+are traversed, subsequent destination writes count as descriptor uses, and
+unknown calls/invalid grammar or exhausted analysis work refuse the shortcut.
+The visited set and work queue use the existing budget allocator; quota and
+allocation-failure tests account for both additional allocations. The emitted
+write checker requires the exact retiring gateway when liveness selects it.
+
+Initial GNU ABI/backend/runtime passes 38/30/two tests; the added focused
+retirement/CFG/gateway tests pass one/three/one plus fmt/check-all. Tests cover
+both branches, loops, all helper kinds, wrong kinds/indices/stopped sessions,
+scalar bits, GC identities, retained sibling raw pointers, and refresh after
+a canonical helper. The first build's compiler-API errors and the test's
+incorrect assumption that reference descriptors have scalar bits remain in
+`payload-terminal-initial.log` and `payload-terminal-corrected.log`; corrected
+evidence is `payload-terminal-model.log` and `payload-terminal-gates.log`.
+Both Miri models and final platform validation are pending. No benchmark or
+whole-register-copy elimination is established by this local optimization.
+
 Target the ordinary wrapper's **12,321,657 import/writeback instructions**,
 not another tiny scalar-guard or rejected callback-setup/cache variation.
 Generic direct-payload transport already exists as an unaccepted model, but

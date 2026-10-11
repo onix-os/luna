@@ -11,6 +11,7 @@ pub(super) struct Input {
     pub tag: IrValue,
     pub bits: IrValue,
     pub signature: cranelift_codegen::ir::SigRef,
+    pub terminal: bool,
 }
 
 pub(super) struct Write {
@@ -38,6 +39,7 @@ pub(super) fn emit(f: &mut Function, tag_store: Inst, bits_store: Inst, input: I
         tag,
         bits,
         signature,
+        terminal,
     } = input;
     let mut c = FuncCursor::new(f);
     c.goto_bottom(before);
@@ -90,7 +92,11 @@ pub(super) fn emit(f: &mut Function, tag_store: Inst, bits_store: Inst, input: I
         types::I64,
         MemFlagsData::new(),
         host,
-        std::mem::offset_of!(Bridge, write) as i32,
+        if terminal {
+            std::mem::offset_of!(Bridge, terminal)
+        } else {
+            std::mem::offset_of!(Bridge, write)
+        } as i32,
     );
     let index = c.ins().iconst(types::I32, i64::from(index));
     c.ins()
@@ -143,6 +149,7 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
         tag,
         bits,
         signature,
+        terminal,
     } = write.input;
     for block in [after, kind, wide, other, boolean, nil, slow] {
         if !f.dfg.block_params(block).is_empty() {
@@ -218,7 +225,11 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
         f,
         target,
         host,
-        std::mem::offset_of!(Bridge, write) as i32,
+        if terminal {
+            std::mem::offset_of!(Bridge, terminal)
+        } else {
+            std::mem::offset_of!(Bridge, write)
+        } as i32,
         types::I64,
     )?;
     let register_value = value(f, register, Opcode::Iconst, &[], types::I32)?;
@@ -251,6 +262,24 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
 
 fn fixture() -> (Function, Write) {
     typed_fixture(false)
+}
+
+#[test]
+fn terminal_write_checker_binds_the_retiring_gateway() {
+    let (mut function, mut write) = fixture();
+    let slow = write.blocks[7];
+    let target = function.layout.first_inst(slow).unwrap();
+    write.input.terminal = true;
+    assert!(verify(&function, &write).is_err());
+    let InstructionData::Load { offset, .. } = &mut function.dfg.insts[target] else {
+        unreachable!()
+    };
+    *offset = (std::mem::offset_of!(Bridge, terminal) as i32).into();
+    cranelift_codegen::verify_function(&function, &settings::Flags::new(settings::builder()))
+        .unwrap();
+    verify(&function, &write).unwrap();
+    write.input.terminal = false;
+    assert!(verify(&function, &write).is_err());
 }
 
 fn typed_fixture(floating: bool) -> (Function, Write) {
@@ -291,6 +320,7 @@ fn typed_fixture(floating: bool) -> (Function, Write) {
             tag,
             bits,
             signature,
+            terminal: false,
         },
     );
     verify(&function, &write).unwrap();

@@ -639,6 +639,17 @@ jit-in-place-return:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::activation::return_tests $(ARGS)
 
 .PHONY: jit-payload-model jit-payload-model-miri
+.PHONY: jit-payload-terminal jit-payload-terminal-miri
+jit-payload-terminal:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::terminal_tests:: $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::terminal:: $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::writes::terminal_ $(ARGS)
+
+jit-payload-terminal-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::runtime::terminal_tests:: -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::terminal:: -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::writes::terminal_ -- --test-threads=1
+
 .PHONY: jit-typed-payload jit-typed-payload-miri
 jit-typed-payload:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::typed:: $(ARGS)
