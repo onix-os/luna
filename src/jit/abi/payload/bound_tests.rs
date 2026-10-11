@@ -1,6 +1,73 @@
 use super::*;
 
 #[test]
+fn bound_entry_retains_control_after_a_caught_helper_panic() {
+    unsafe extern "C" fn run(
+        slots: *mut Payload,
+        _: u64,
+        _: u32,
+        _: *mut abi::Exit,
+        host: *mut Bridge,
+    ) {
+        unsafe {
+            let functions = (*host).functions;
+            let move_value = functions.helpers[(abi::HELPER_MOVE - 1) as usize];
+            assert_eq!(
+                move_value(host.cast(), slots.cast(), 0, 1, 0, 7),
+                abi::HELPER_COMPLETED
+            );
+            assert_eq!(slots.read().tag, REFERENCE);
+            assert_eq!(
+                move_value(host.cast(), slots.cast(), 0, u32::MAX, 0, 31),
+                abi::HELPER_PANICKED
+            );
+            assert_eq!(
+                move_value(host.cast(), slots.cast(), 1, 0, 0, 99),
+                abi::HELPER_PANICKED
+            );
+            assert!(std::ptr::eq((*host).functions, functions));
+            assert_eq!((*host).materializations, 0);
+        }
+    }
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+        let marker = Value::String(ctx.intern(b"retained control"));
+        for count in [2, 7, 256] {
+            let mut values = vec![Value::Integer(17); count];
+            values[1] = marker;
+            let mut pc = 5;
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                let mut frame = helpers::Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: count,
+                    panic: None,
+                    projection: None,
+                };
+                with_binding::<256>(&mut frame, |binding| unsafe {
+                    binding.invoke(run, count, 5, 64, &mut abi::Exit::default());
+                });
+                assert_eq!(
+                    (
+                        frame.count.calls,
+                        frame.count.completed,
+                        frame.count.declined
+                    ),
+                    (2, 1, 0)
+                );
+                assert!(frame.panic.is_some());
+            });
+            assert_eq!(pc, 32);
+            closed_table_tests::identical(values[0], marker);
+            closed_table_tests::identical(values[1], marker);
+            assert!(values[2..].iter().all(|v| matches!(v, Value::Integer(17))));
+        }
+    });
+}
+
+#[test]
 fn bound_scalar_reads_survive_all_value_moves_retirement_and_refresh() {
     unsafe extern "C" fn read(slots: *const Payload) -> u64 {
         let slot = unsafe { slots.read() };
