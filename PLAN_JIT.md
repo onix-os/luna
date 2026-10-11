@@ -72,6 +72,37 @@ not hardware speedup or acceptance. Evidence is `field-vs-exact-analysis.json`,
 `exact-*-auto-delta.json`, and `exact-*-native-vgdb*` under
 `target/jit-evidence/short-slice-performance/payload-terminal-profile/`.
 
+The full hardware screen is complete: **24/24 aggregate gates still fail**.
+It rotates ordinary, previous `field`, new `exact`, and same-inode ordinary
+placebo images across three windows on CPUs 0 and 16, with 11 paired samples
+per original workload. Integer previous/exact median-time ratios are
+1.0119–1.0146 on CPU 0 and 1.0135–1.0265 on CPU 16: a modest measured improvement
+over the preceding experiment in all six windows. Float ratios are
+0.9935–1.0259 / 1.0014–1.0169, so not every window improves. Both loops pass
+their 2× interpreter threshold in all six candidate windows, but remain slower
+than the ordinary JIT control: integer ordinary/exact ratios are
+0.9190–0.9223 / 0.8258–0.8352; float 0.9179–0.9316 / 0.8296–0.8386.
+
+Callbacks and metamethods still fail in six of six candidate windows,
+allocation/GC in two, and array/table in one. Callback timings versus the
+previous image improve despite essentially unchanged instruction counts and
+zero newly admitted exact reads in that workload; do not attribute that change
+to the new loop proof without further evidence. The 324 complete non-timing
+comparisons contain 84 differences solely in code/snapshot allocation metrics
+against the ordinary control; execution counters match. Exact-versus-field
+profile statistics remain strictly equal. All frozen image/source hashes and
+same-path/inode checks pass, contention telemetry is retained, aliases are
+removed, and no owned builds/tests/profiles/edits overlapped hardware timing.
+Evidence: `exact-hardware-screen/` and `exact-hardware-analysis.json`. This is
+progress, not production activation or full acceptance.
+
+Next source-grounded candidate: the remaining scalar payload reads still test
+pointer nullness even for frame-bound entries whose private binding factory
+guarantees live Boolean/Integer/Number field pointers. Investigate a bound-only
+scalar reader while preserving all tag/width checks, descriptor refresh and
+retirement, and the checked ABI's malformed/null fallback. No such lowering is
+implemented or measured in this snapshot.
+
 #### Typed entry classification and bound reads — still experimental
 
 Commit `442eaa1` replaces optional payload metadata with a separate, explicit
