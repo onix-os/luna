@@ -759,6 +759,28 @@ jit-payload-packed-calls-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::packed_calls:: -- --test-threads=1
 
 .PHONY: jit-payload-packed-reads jit-payload-packed-reads-miri
+.PHONY: jit-payload-packed-tag-checks jit-payload-packed-tag-checks-miri
+.PHONY: jit-payload-binding-requirements jit-payload-binding-requirements-miri
+.PHONY: jit-payload-sparse-runtime
+jit-payload-sparse-runtime:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::payload_runtime_tests::sparse_runtime_ $(ARGS)
+
+jit-payload-binding-requirements:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::binding_requirements:: $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::sparse_binding_tests:: $(ARGS)
+
+jit-payload-binding-requirements-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::binding_requirements:: -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::runtime::sparse_binding_tests:: -- --test-threads=1
+
+jit-payload-packed-tag-checks:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::packed_tag_checks:: $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::packed_lower::tests::packed_whole_tag_checks $(ARGS)
+
+jit-payload-packed-tag-checks-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::packed_tag_checks:: -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::packed_lower::tests::packed_whole_tag_checks -- --test-threads=1
+
 jit-payload-packed-reads:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::packed_reads:: $(ARGS)
 

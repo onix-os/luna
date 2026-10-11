@@ -9,8 +9,24 @@ pub(in crate::jit::backend) fn run(
     host: IrValue,
     registers: usize,
     helpers: &[(u32, FuncRef)],
+    headers: &[Block],
     allocator: BudgetAllocator,
 ) -> Result<(), JitError> {
+    let requirements = binding_requirements::Requirements::new(
+        function,
+        slots,
+        host,
+        registers,
+        helpers,
+        headers,
+        allocator.clone(),
+    )?;
+    for pc in 0..headers.len() {
+        let mask = requirements.get(pc).ok_or_else(invalid)?;
+        let needed = (0..registers).filter(|&index| mask.contains(index)).count();
+        eprintln!("payload binding pc={pc} needed={needed} registers={registers} mask={mask:?}");
+    }
+    drop(requirements);
     let mut analysis = numeric_reads::Analysis::new(function, allocator.clone())?;
     let mut tags = same_tag::Analysis::new(function, allocator)?;
     let (mut reads, mut candidates, mut admitted, mut exact) = (0, 0, 0, 0);

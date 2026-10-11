@@ -43,6 +43,15 @@ pub(super) enum Read {
     },
 }
 
+pub(super) fn tag_snapshot(f: &Function, read: &Read) -> Result<(Inst, IrValue), JitError> {
+    let Read::Tag(input) = read else {
+        return Err(invalid());
+    };
+    let first = fragment(f, read)?.first;
+    let packed = reads::load(f, first, input.slots, input.index as i32 * 8, types::I64)?;
+    Ok((input.inst, packed))
+}
+
 pub(super) fn admit(
     f: &Function,
     inst: Inst,

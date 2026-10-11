@@ -13,6 +13,7 @@ pub(super) struct Fragment<'a> {
 
 enum Record {
     Read(packed_reads::Read),
+    TagCheck(packed_tag_checks::Check),
     Write(packed_writes::Write),
     Call(packed_calls::Call),
     Return(Inst),
@@ -214,6 +215,9 @@ fn plan(
     })?;
     for block in source.layout.blocks() {
         for inst in source.layout.block_insts(block) {
+            if let Some(test) = packed_tag_checks::source(source, inst, slots, registers) {
+                result.instructions = add(result.instructions, test.added())?;
+            }
             let data = source.dfg.insts[inst];
             if data.opcode() == Opcode::Return {
                 if !source.dfg.inst_args(inst).is_empty() {
@@ -374,6 +378,17 @@ pub(in crate::jit::backend) fn lower(
     })?;
     for block in source.layout.blocks() {
         for inst in source.layout.block_insts(block) {
+            if let Some(test) = packed_tag_checks::source(source, inst, slots, registers) {
+                let Some(Record::Read(read)) = records[test.tag.index()].as_ref() else {
+                    return Err(invalid());
+                };
+                let (_, packed) = packed_reads::tag_snapshot(&function, read)?;
+                records[inst.index()] = Some(Record::TagCheck(packed_tag_checks::emit(
+                    &mut function,
+                    test,
+                    packed,
+                )));
+            }
             if source.dfg.insts[inst].opcode() == Opcode::Return {
                 let mut c = FuncCursor::new(&mut function);
                 c.goto_inst(inst);
@@ -543,6 +558,19 @@ fn verify(
                     packed_reads::verify_source(source, read, slots, registers)?;
                     packed_reads::verify(f, read)?;
                     packed_reads::fragment(f, read)?
+                }
+                Some(Record::TagCheck(check)) => {
+                    let Some(Record::Read(read)) = candidate.records[check.tag().index()].as_ref()
+                    else {
+                        return Err(invalid());
+                    };
+                    check.verify_source(
+                        source,
+                        slots,
+                        registers,
+                        packed_reads::tag_snapshot(f, read)?,
+                    )?;
+                    check.fragment(f)?
                 }
                 Some(Record::Write(write)) => {
                     packed_writes::verify_source(

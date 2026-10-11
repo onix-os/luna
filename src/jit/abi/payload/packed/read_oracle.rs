@@ -72,6 +72,26 @@ pub(crate) fn check_native_read(
     check(|slots, _, _| unsafe { entry(slots) }, index, tag);
 }
 
+#[cfg(not(miri))]
+pub(crate) fn check_native_tag_test(
+    entry: unsafe extern "C" fn(*const Packed) -> u64,
+    index: usize,
+    expected: Option<u64>,
+) {
+    check(
+        |slots, index, tag| {
+            assert!(tag);
+            let original = unsafe { slots.add(index).read() }.tag().unwrap_or(u64::MAX);
+            let expected =
+                expected.map_or(original & !1 == INTEGER, |expected| original == expected);
+            assert_eq!(unsafe { entry(slots) }, u64::from(expected));
+            original
+        },
+        index,
+        true,
+    );
+}
+
 #[test]
 fn packed_read_oracle_checks_initialized_prefixes_mutations_and_invalid_immediates() {
     for index in [0, 1, 255] {

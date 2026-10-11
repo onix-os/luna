@@ -11,6 +11,89 @@ fn expansion() -> Expansion {
     }
 }
 
+#[test]
+fn packed_whole_tag_checks_retain_snapshot_ownership_across_helper_effects() {
+    let (mut source, slots, host, helpers) = fixture(false, false, 1, 1);
+    let call = source
+        .layout
+        .blocks()
+        .flat_map(|b| source.layout.block_insts(b))
+        .find(|&i| source.dfg.insts[i].opcode() == Opcode::Call)
+        .unwrap();
+    let next = source.layout.next_inst(call).unwrap();
+    let tag;
+    {
+        let mut c = FuncCursor::new(&mut source);
+        c.goto_inst(call);
+        tag = c.ins().load(types::I64, MemFlagsData::new(), slots, 0);
+        for expected in abi::NIL..=abi::REFERENCE {
+            let expected = c.ins().iconst(types::I64, expected as i64);
+            c.ins().icmp(IntCC::Equal, tag, expected);
+        }
+        c.goto_inst(next);
+        let mask = c.ins().iconst(types::I64, -2);
+        let numeric = c.ins().band(tag, mask);
+        let expected = c.ins().iconst(types::I64, abi::INTEGER as i64);
+        c.ins().icmp(IntCC::Equal, numeric, expected);
+    }
+    let allocator = allocator();
+    let baseline = allocator.0.current();
+    let mut candidate = lower(
+        &source,
+        slots,
+        host,
+        2,
+        &helpers,
+        allocator.clone(),
+        expansion(),
+    )
+    .unwrap();
+    let checks: Vec<_> = candidate
+        .records
+        .iter()
+        .enumerate()
+        .filter_map(|(i, r)| matches!(r, Some(Record::TagCheck(_))).then_some(i))
+        .collect();
+    assert_eq!(checks.len(), 6);
+    let tag_inst = source.dfg.value_def(tag).inst().unwrap();
+    for &i in &checks {
+        let Some(Record::TagCheck(check)) = &candidate.records[i] else {
+            unreachable!()
+        };
+        assert_eq!(check.tag(), tag_inst);
+    }
+    let pristine = candidate.function.clone();
+    for i in checks {
+        let Some(Record::TagCheck(check)) = &candidate.records[i] else {
+            unreachable!()
+        };
+        let first = check.fragment(&candidate.function).unwrap().first;
+        let InstructionData::UnaryImm { imm, .. } = &mut candidate.function.dfg.insts[first] else {
+            unreachable!()
+        };
+        *imm = (i64::from(*imm) ^ 1).into();
+        cranelift_codegen::verify_function(
+            &candidate.function,
+            &settings::Flags::new(settings::builder()),
+        )
+        .unwrap();
+        assert!(verify(
+            &source,
+            &candidate,
+            slots,
+            host,
+            2,
+            &helpers,
+            allocator.clone(),
+            expansion()
+        )
+        .is_err());
+        candidate.function = pristine.clone();
+    }
+    drop(candidate);
+    assert_eq!(allocator.0.current(), baseline);
+}
+
 fn fixture(
     scalars: bool,
     float: bool,

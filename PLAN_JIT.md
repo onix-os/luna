@@ -11,6 +11,216 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Sparse dispatch-prefix regression fixed; callback gate still failing
+
+`6760215` fixes a gap found by the first real selective-binding benchmark.
+Source-PC masks did not include reads in the optimized dispatch prefix.
+The floating loop's root guard also needs register 4; omitting it forced the
+generic native path even though the source-header mask was valid. The compiler
+now unions dispatch-prefix live-ins into each source-entry mask, stopping that
+analysis at source headers. The independent forward checker verifies omitted
+reads from both the source header and the dispatch prefix. Storage and work
+remain budgeted, and native coverage is unchanged.
+
+A new prefix-read regression failed before the fix. Seven analysis tests now
+cover prefix reads, missing-mask mutations, branch definitions, cycles and
+cleanup, alongside the existing four scoped ABI tests. GNU checks, the twenty
+bound/read tests, the eleven-prototype audit and the sparse runtime oracle pass.
+Musl passes the same analysis/ABI/bound/runtime lanes. Stacked and Tree Miri each
+pass seven analysis and four ABI tests; neither executes generated native code.
+These are focused checks, not a new full-suite or release acceptance claim.
+
+Two release campaigns are complete:
+
+- First candidate `edb85658`, matched full-binding control `5bfabe67`:
+  22 identical-load-image profiles and 24 full paired benchmark runs.
+- Fixed candidate `6a0bd14d`: 11 identical-load-image profiles and another
+  24 full paired runs against the same full-binding control, retained
+  `becde851` control and a repeat of the full-binding control.
+- Each hardware campaign uses CPUs 0 and 16, three rotated windows, eleven
+  samples per mode and the original thresholds. All 648 result rows per
+  campaign were parsed. Source/image hashes, execution counters and native
+  code-byte counts were checked; metadata and workspace costs were retained.
+
+The float regression is measured as fixed: native collected instructions
+returned from **29,978,634 to 8,920,002**, exactly the full-binding control's
+native count. Total collected float instructions fell from 37,470,504 to
+16,219,620 (full control: 16,041,902). Float passes its original gate in all six
+fixed-candidate windows, versus zero before the fix.
+
+This does **not** justify activating selective binding. In the fixed campaign,
+the median normalized paired factors versus current full binding are:
+
+| Workload | Candidate / full-binding paired factor | Original gate passes |
+| --- | ---: | ---: |
+| Integer loop | 0.9865 | 6/6 |
+| Float loop | 0.9918 | 6/6 |
+| Array table | 1.0018 | 6/6 |
+| Closure/upvalue | 0.9895 | 6/6 |
+| Polymorphic metamethod | 1.0222 | 4/6 |
+| Rust callbacks | 0.9809 | 0/6 |
+| Allocation/GC | 0.9966 | 6/6 |
+| Cold configuration | 0.9974 | 6/6 |
+
+Each factor divides the candidate's median paired speedup by the corresponding
+control's, then takes the median across six windows. The Oslo predicate remains
+unscored. All 24 aggregate benchmark gates fail in each campaign; successful
+campaign-driver exits mean collection completed, not performance acceptance.
+Shared-host telemetry and placebo controls are retained, so small differences
+are not treated as reliable wins.
+
+Callback collected instructions remain 134,048,030 versus the full control's
+132,428,903. The profile shows increased scalar materialization despite fewer
+incoming bindings. The next investigation is cost-aware binding of scalar
+write destinations, with the dispatch-prefix proof preserved; no such
+optimization is implemented or accepted here. Fixed-candidate callback metadata
+is 1,329 versus 913 bytes, and snapshot peak is 13,850 versus 13,242 bytes.
+These costs are not exempted from the original resource/cost gates.
+
+Production defaults remain unchanged. Frozen sources, images, profiles,
+telemetry and full per-window summaries are under
+`target/jit-evidence/short-slice-performance/`:
+`sparse-first-measurement.md`, `sparse-prefix-measurement.md`,
+`sparse-prefix-*.log`, and `payload-terminal-profile/sparse*`.
+Original performance, compiled-Off cost, platform/resource promotion and
+release gates remain open.
+
+#### Selective two-word entry binding — correctness checked, timing pending
+
+`186455d` adds a test-only `RequireSparsePayload` path on the retained two-word
+payload ABI. A bounded backward dataflow computes incoming register reads for
+each source entry, including both tag and payload loads. Only complete paired
+scalar definitions kill requirements; helpers conservatively kill none.
+An independent forward traversal rejects any omitted source read reachable
+before definition. Both analyses use charged storage and bounded work.
+Verified masks transfer from compiler workspace into the owning code's metadata
+allocator, charging 32 bytes per source entry and releasing that storage with
+the code. Unknown PCs keep full binding. Neither bytecode coverage nor helper,
+fuel, PC, callback, projection or array-kernel contracts are reduced.
+
+The original callback fixture's PC 8 requires registers 0, 1, 2, 3 and 5,
+rather than all seven. This is a static requirement result, **not a speedup**.
+All eleven original workload prototypes pass the source audit. Ordinary
+production selection remains unchanged; this path needs an isolated production
+build and the original full paired benchmark controls before any promotion.
+
+A native differential caught a bug in the first omitted-descriptor encoding:
+Nil/null lets a same-tag Nil writer skip updating a non-Nil canonical cell.
+Omitted descriptors now use **REFERENCE/null**. Scalar writers must materialize
+that destination, while helpers read the actual canonical value. Source-level
+reads still require a bound input or preceding definition; a transport writer's
+guard may inspect the opaque marker. A dedicated generated Nil-store regression
+and the exhaustive entry/budget/type-guard comparisons pass after the fix.
+No old pointer is cached, fabricated or retained across a callback.
+
+GNU and musl focused checks pass five analysis tests, four scoped ABI tests
+and twenty bound-entry/read tests. Coverage includes branch joins/backedges,
+register 255, counterfeit masks/source changes, all ten helper kinds,
+metadata transfer refusal/cleanup, all Value identities/bits, omitted upvalue
+aliases, sibling loans, destination/full refresh, panic payloads and capacity
+refusal. Stacked and Tree Miri each pass the five analysis and four ABI tests;
+native code is not executed by Miri. The existing resource lane passes its
+28 unit, three registry and fourteen public tests unchanged.
+
+The GNU Force broad run passes **1,757 tests / 88 summaries**, with six existing
+ignores. That binary predates the additional sparse runtime fixture, which
+passes separately on GNU: it reuses the full step-by-step interpreter/ordinary
+JIT comparison, checking 25 counters, interruption/fuel, callbacks, upvalues,
+collection and array kernels. The same sparse runtime fixture also passes on
+musl. Both runs are terminal; they are correctness checks, not timing evidence.
+Logs: `target/jit-evidence/short-slice-performance/{binding-requirements-*,sparse-binding-*}`.
+Performance, compiled-Off costs, full platform/resource promotion and release
+acceptance remain open. No performance regression is declared fixed here.
+
+#### Source-owned packed type predicates — measured, not activated
+
+**Follow-up rejected:** separating numeric full-prefix binding from an outlined
+non-numeric match, while leaving destination rebinding unchanged, improves
+callbacks but worsens metamethods. Image
+`58439482fcef4a3bd238d5c351d58ae9dd34fe11b9c93828c066613c8b39a9b1`
+completes another eleven same-code-image profiles and 24 full paired runs
+under the same controls. All 24 aggregate checks fail. The six direct
+predecessor/candidate callback ratios improve to 1.0169–1.0594 (median 1.0332),
+but metamethod ratios regress to 0.9281–0.9776 (median 0.9643), and integer
+loops regress in all six windows (median 0.9886). All execution/resource
+counters match the predecessor. The original callback/metamethod thresholds
+still fail in all six candidate runs; no general speedup is accepted.
+
+The split increases callback instructions 146,111,677 to 147,280,424 despite
+reducing modeled instruction-cache misses 1,038,787 to 4,546 and indirect
+branch mispredictions 260,727 to 130,919. These simulation changes are
+diagnostic, not hardware-counter evidence. GNU and musl check-all each pass
+48 packed ABI tests and eight owning-entry tests; the isolated production
+image adds its selection test. Stacked and Tree Miri each pass 44 pure ABI
+tests, including both entry/general binding paths over all Value kinds.
+
+The two-file entry-binding split is **withdrawn from main**, restoring source
+exactly to the committed type-predicate prototype. Its complete activation
+patch, isolated source, frozen executable/symbol image, hashes, telemetry and
+all results remain under `payload-terminal-profile/entry-split*` and
+`entry-split-*` in the evidence directory. No unrelated process was stopped;
+all owned tests/builds/profiles finished before hardware timing. This rejects
+another blanket packed-runtime activation rather than treating a callback
+improvement against an already regressing experiment as original acceptance.
+Further callback work must target the retained faster two-word payload path;
+repeating general packed promotion or the rejected Nil-inline trial is not
+justified. Per-entry source-proven binding requirements remain an unimplemented
+direction, not an accepted optimization or permission to reduce native coverage.
+
+The test-only packed lowering now recognizes equality against the five scalar
+tags and the numeric `(tag & !1) == INTEGER` test. It tests the descriptor word
+captured by the original tag load, not a descriptor reloaded after a helper.
+The verifier binds every rewritten predicate to its original comparison,
+register index and owning read record, checks every emitted instruction and
+accounts for the exact expansion. General tag decoding remains for other
+uses. Malformed descriptor words retain their original comparison results;
+these predicates do not dereference numeric pointers or assume Rust enum layout.
+
+GNU format/check-all and three focused tests pass. The earlier GNU pass also
+covers seven whole-lowering, two progress, one checkpoint and eight owning-entry
+tests. Musl passes the three new checks. Stacked and Tree Miri each pass the
+two pure structural tests; generated-code execution is excluded from Miri.
+The native oracle covers all Value classes, low/high malformed encodings and
+every pointer bit at register indices 0, 1 and 255. A whole-lowering fixture
+checks original tag-snapshot ownership across helper effects and rejects
+well-typed counterfeit fragments. This is not full-platform acceptance.
+
+The isolated production trial preserves main's test-only gates. Image
+`aa80bd7975c7685c2af2af9f189991c025d78858c5e66416e3fd2c259afd62fb`
+completed **eleven** same-code-image profiles and 24 full paired hardware
+invocations: two CPUs, three windows, candidate/previous/control/placebo,
+eleven samples each. Earlier checkpoint/status references to ten profiles
+were a counting error. All 24 aggregate checks fail, including all six
+candidate runs. Callbacks and metamethods pass zero of six original gates;
+candidate paired speedups are 0.5962–0.6204 and 0.7484–0.8101 respectively,
+against the unchanged minimum 0.8333. All other scored candidate workloads
+pass six of six; the Oslo predicate remains unscored.
+
+Relative to the preceding packed tag-table candidate, conventional medians
+of the six previous/candidate Auto-time ratios are 1.0874 for integer loops,
+1.1011 for float loops, but **0.9545 for callbacks**. Callbacks regress in all
+six comparisons (ratios 0.9472–0.9729). Other ratios are retained in the local
+summary rather than suppressing unfavorable windows. All execution counters
+match that predecessor; the array workload's mapped code grows 16,384 to
+20,480 bytes. Contention telemetry and before/after source/binary checks are
+retained. Timing claims remain conditional on this shared host.
+
+Callback profiling records 146,111,677 total instructions, versus 152,207,341
+for the first packed experiment and 131,650,796 for the retained two-word
+payload control. Generated-code work falls to 18,872,181 instructions, but
+the packed entry still costs 15,369,057 plus 8,624,917 in Runtime invocation.
+Modeled instruction-cache misses also remain high; they are not hardware
+counters. Fewer instructions did not translate into acceptable timings.
+No new production activation, original performance acceptance, resource-gate
+waiver or full-plan completion is claimed.
+
+Evidence: `target/jit-evidence/short-slice-performance/tag-check-*` and
+`payload-terminal-profile/tag-check{,-source,-hardware-screen}/` below that
+directory. The JSON summary validates all 24 logs / 648 workload rows; an
+initial summary from truncated tool output was replaced, not used as evidence.
+Next work targets measured entry/binding costs, retaining the distinction
+between entry binding and helper destination rebinding.
+
 #### Packed scalar descriptors — isolated representation model
 
 The next structural experiment targets the retained callback wrapper's

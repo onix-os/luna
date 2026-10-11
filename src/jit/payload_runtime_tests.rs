@@ -109,6 +109,11 @@ fn bound_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
 }
 
 #[test]
+fn sparse_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
+    payload_runtime_contract(backend::Failure::RequireSparsePayload);
+}
+
+#[test]
 fn packed_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
     payload_runtime_contract(backend::Failure::RequirePackedPayload);
 }
@@ -170,7 +175,7 @@ fn payload_runtime_contract(failure: backend::Failure) {
                 candidate.enter(|ctx| assert!(ctx.jit().0.borrow().code.values().all(|cached| {
                     cached.code.entry_kind == match failure {
                         backend::Failure::RequirePackedPayload => backend::EntryKind::Packed,
-                        backend::Failure::RequireBoundPayload => backend::EntryKind::FrameBound,
+                        backend::Failure::RequireBoundPayload | backend::Failure::RequireSparsePayload => backend::EntryKind::FrameBound,
                         _ => backend::EntryKind::Checked,
                     }
                 })));
