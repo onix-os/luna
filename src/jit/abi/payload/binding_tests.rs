@@ -100,6 +100,9 @@ fn numeric_binding_matches_reference_for_every_value_kind_and_rebind() {
             Value::String(ctx.intern(b"binding")),
             Value::Table(crate::Table::new(&ctx)),
             Value::Function(closure.into()),
+            Value::Function(
+                crate::Callback::from_fn(&ctx, |_, _, _| Ok(crate::CallbackReturn::Return)).into(),
+            ),
             Value::Thread(crate::Thread::new(ctx)),
             Value::UserData(crate::UserData::new_static(&ctx, 42)),
         ];
