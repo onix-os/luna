@@ -11,9 +11,9 @@
 
 ### Progress snapshot — 2026-10-11
 
-#### Inline payload control — profile reduction, timing pending
+#### Inline payload control — measured and withdrawn
 
-`4ab9f67` makes the test-only FrameBound runtime embed its unchanged `Bridge` header at
+`4ab9f67` tested embedding the unchanged FrameBound `Bridge` header at
 offset zero in a `repr(C)` Session. Private helper/materialization shims use the
 complete owner's pointer directly instead of loading a separate Session pointer
 through `Host.data`. The descriptor array remains separately owned. `Binding`
@@ -51,15 +51,38 @@ Executor differences; helper 8 also grows 2,292. Metamethod allocator difference
 dominate its increase, while helper 8 grows 12,901. Do not attribute every total
 to this change or remove unfavorable differences from the result.
 
-Hardware timing has not started. Paired screen/repeat drivers are prepared with
-unchanged gates, nine workloads, eleven samples, CPU 0/16 and three rotating
-windows, using historical/control/placebo/candidate images at the same launch
-path. They must wait for owned validation work to finish. Fewer instructions
-do not establish a speedup or justify production promotion.
+Two complete four-way timing campaigns retain **48 failed aggregate gates** and
+**1,296 complete parsed rows**. Workloads, thresholds, eleven samples, CPU 0/16,
+three rotated windows and historical/control/placebo comparisons at the same
+launch path are unchanged. The repeat uses alternate launch orders. No owned
+build, test, profile or source edit overlaps timing; all source/image identity
+checks pass afterward. External Astrocraft activity and host pressure remain
+recorded, not stopped or used to excuse unfavorable measurements.
+
+Callback candidate gates pass **0/12**. Normalized median-paired factors are
+**1.0005 / 0.9984** against current control (first/repeat); direct Auto timing
+ratios are **1.0038 / 1.0089**. These small apparent gains do not establish paired
+acceptance. Allocation on CPU 16 is adverse in both campaigns: direct Auto
+control/candidate ratios **0.96893 / 0.97281**; CPU 0 is **0.99341 / 1.00483**.
+Metamethod gates pass 5/12, array 11/12 and upvalue 12/12; Oslo stays unscored.
+Ratios above one favor the candidate. All windows, Off timings and placebo
+variation remain in the evidence. Original gates use ratio of medians, not the
+normalized median-paired diagnostic. Current candidate/control and same-image
+placebo execution/resource fields all match. Each campaign retains 48 historical
+comparison differences in metadata bytes/peak, inherited from that older image.
+
+Withdraw the control-layout trial: the small instruction saving does not justify
+its added ownership contract without convincing hardware benefit and with
+adverse allocation measurements. The independent retained-host panic regression
+remains. `f6e724e` restores runtime and sparse-binding fixture source exactly to
+`6d0d7ca`. Restoration passes formatting/check-all, full GNU Force **1,774 tests
+across 88 summaries** (six existing ignores), focused musl **28 across eight**,
+and the retained-host regression under both Miri models. Production selection
+was never changed.
+Full original performance, feature-cost, resource and release gates remain open.
 
 Evidence: `target/jit-evidence/short-slice-performance/inline-session-*` and
-`payload-terminal-profile/inline-session*`. The raw-stack API remains unchanged;
-the optional question about a future API change does not block this candidate.
+`payload-terminal-profile/inline-session*`. The raw-stack API remains unchanged.
 
 #### Canonical cells — native model passes; migration not approved
 
