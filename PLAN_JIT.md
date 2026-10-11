@@ -11,6 +11,56 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Canonical cells — native model passes; migration not approved
+
+`1f75586` adds a test-only fixed-layout cell model targeting descriptor creation
+cost at native entry. Separate typed Closure/Callback union arms avoid enlarging
+the nested public `Value::Function` payload. The model preserves the existing
+`(usize, i64)` size bound, including `Option<Cell>`, without inspecting `Value`
+layout or converting GC references to integers. Public values, production stack
+storage, native selection and resource policies are unchanged.
+
+GNU and musl each pass seven model tests and check-all; the actual i686 fallback
+toolchain passes four model tests and check-all. Five Rust-only tests pass both
+Miri borrow models. The initial i686 attempt used the ordinary shell, which lacks
+that target; `nix develop .#fallback` resolves it without a configuration change.
+Generated code is exercised separately on the native host, not under Miri.
+
+The generated scalar-store probe checks bounds, scalar tags and Boolean payloads
+before mutation. It compares all initial value kinds, valid/refused writes,
+numeric bit patterns, siblings and canonical addresses against Rust stores.
+Both Rust and generated stores overwrite cells that are the only roots for
+reference payloads; full collections check retention and subsequent release.
+The executable module remains owned through each invocation and is then freed.
+This is not integrated runtime, resource-policy or performance acceptance.
+The native and Rust raw entries subsequently share the same 4,620-case matrix;
+the length is read before minting the writable pointer. Both Miri models pass
+that shared caller with the Rust entry, and GNU/musl rerun the actual generated
+entry. The final focused lane counts remain seven/seven/four/five/five for
+GNU/musl/i686/Stacked/Tree respectively, with check-all on all three targets.
+
+**Compatibility correction:** copy-based `Stack` methods are not the entire
+embedding API. `Thread::into_inner().borrow().stack()` exposes a retainable,
+mutable `Gc<RefLock<Vec<Value, MetricsAlloc>>>`, even though the implementation
+module is private. The existing retained-public-alias regression mutates parent
+locals through that handle across callbacks and requires continued native
+execution. This is also documented below under Batch integer imports.
+The unchanged retained-alias regression passes again on GNU and musl.
+At `1f75586`, `make jit-test JIT_MODE=force` passes 1,752 tests across 87
+summaries, with six existing ignores. This is the JIT-feature workspace suite,
+not the separate all-features suite or a benchmark campaign.
+Replacing the canonical vector with cells would break that contract; caching
+cells between entries with internal-write versioning would miss external writes.
+Do not proceed with either migration on the assumption that the stack is private.
+The model does not establish a compatible integration design or a speedup.
+
+Evidence: `target/jit-evidence/short-slice-performance/canonical-cells-native-*`,
+`canonical-cells-shared-*`, `canonical-cells-public-alias-*` and
+`canonical-cells-force.log`.
+Run `make jit-canonical-cells` and `make jit-canonical-cells-miri` for the model.
+Performance work must preserve the raw-stack contract and the original workload,
+native-coverage, compiled-Off and resource gates; none are waived by these tests.
+
 #### Immutable helper dispatch fields — no callback code benefit
 
 A FrameBound-only trial marked loads of `Bridge.functions` and its static
