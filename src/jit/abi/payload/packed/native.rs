@@ -56,7 +56,9 @@ fn with_entry(body: impl FnOnce(Entry)) {
         let numeric = b
             .ins()
             .icmp_imm_u(IntCC::UnsignedLessThanOrEqual, kind, FLOAT as i64);
-        let nonnull = b.ins().icmp_imm_u(IntCC::NotEqual, pointer, 0);
+        let nonnull = b
+            .ins()
+            .icmp_imm_u(IntCC::UnsignedGreaterThan, pointer, OPAQUE as i64);
         let integer = b.ins().icmp_imm_u(IntCC::Equal, kind, INT as i64);
         let int = b.ins().iconst(types::I64, INTEGER as i64);
         let float = b.ins().iconst(types::I64, NUMBER as i64);

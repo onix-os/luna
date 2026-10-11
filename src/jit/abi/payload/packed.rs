@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "packed/scoped.rs"]
+mod scoped;
+
 #[cfg(all(
     not(miri),
     target_os = "linux",
@@ -8,7 +11,7 @@ use super::*;
 #[path = "packed/native.rs"]
 mod native;
 
-const MASK: usize = 7;
+const MASK: usize = 3;
 const INT: usize = 0;
 const FLOAT: usize = 1;
 const FALSE: usize = 2;
@@ -31,7 +34,7 @@ impl Packed {
             Value::Nil => return Some(immediate(EMPTY)),
             _ => return Some(immediate(OPAQUE)),
         };
-        if pointer.addr() & MASK != 0 {
+        if pointer.addr() & MASK != 0 || pointer.addr() <= OPAQUE {
             return None;
         }
         Some(Self(pointer.map_addr(|address| address | tag)))
