@@ -829,25 +829,17 @@ impl Code {
         pc: usize,
         budget: u32,
     ) -> Exit {
-        let contract = self.payload.expect("ordinary entry requires scalar slots");
+        assert!(
+            self.payload.is_some(),
+            "ordinary entry requires scalar slots"
+        );
         assert_eq!(frame.slot_count, self.registers);
         type Entry = unsafe extern "C" fn(*mut Payload, u64, u32, *mut Exit, *mut Bridge);
         let entry: Entry = unsafe { std::mem::transmute(self.entry) };
         let mut exit = Exit::default();
-        match contract {
-            Contract::Checked => crate::jit::abi::payload::runtime::with_bridge::<CAPACITY>(
-                frame,
-                |slots, host| unsafe {
-                    entry(slots, pc as u64, budget.min(64), &mut exit, host);
-                },
-            ),
-            Contract::FrameBound => crate::jit::abi::payload::runtime::with_binding::<CAPACITY>(
-                frame,
-                |binding| unsafe {
-                    binding.invoke(entry, self.registers, pc, budget, &mut exit);
-                },
-            ),
-        }
+        crate::jit::abi::payload::runtime::with_binding::<CAPACITY>(frame, |binding| unsafe {
+            binding.invoke(entry, self.registers, pc, budget, &mut exit);
+        });
         exit
     }
 }
