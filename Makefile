@@ -737,6 +737,13 @@ jit-helper-transports:
 jit-helper-transports-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::helpers:: -- --test-threads=1
 
+.PHONY: jit-payload-packed jit-payload-packed-miri
+jit-payload-packed:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::packed:: $(ARGS)
+
+jit-payload-packed-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::packed:: -- --test-threads=1
+
 jit-payload-model:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload:: $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload:: $(ARGS)
