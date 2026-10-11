@@ -52,6 +52,45 @@ callback/GC/fuel corpus still passes. Logs are `payload-kind-*` and
 separately from the frozen kind control. Neither experiment is activated in
 production; all original acceptance gates remain in force.
 
+Both new experiments have now completed their matched measurement campaigns.
+The kind variant's 24 full hardware commands all fail the aggregate gate;
+callbacks and metamethods fail in all six candidate windows. Its ordinary/kind
+callback ratios are 0.8989–0.9076 on CPU 0 and 0.9866–0.9941 on CPU 16. Removing
+the two wrapper instructions did not establish a wall-time improvement.
+
+The field-read image is
+`b43ecad881d365171dbae2655f9fc46415cbe673ee842012473311686305842d`.
+Its isolated build passes all 90 tests and fmt/check-all; seven focused models
+pass under each of Miri Stacked and Tree Borrows. Ten profiles reduce callback
+native self-work by **648,503** instructions to **13,294,406**, with the wrapper
+unchanged at 15,693,458. Exact captured-page attribution accounts for the entire
+callback reduction, with no change in weighted spill groups. Whole callback
+work is **131,845,330**, 0.2921% below the historical ordinary control. This is an
+instruction-count comparison, not a timing speedup. Allocation/GC work falls
+by 454,864 instructions versus kind; metamethod work instead rises by 324,549.
+The latter is retained as an unresolved regression, not attributed without
+instruction-level evidence. Integer and allocation/GC code mappings shrink
+from 8,192 to 4,096 bytes; integer snapshot peak falls from 12,915 to 12,661.
+The strict profile comparison deliberately exits 3 for these resource changes.
+
+All 24 field-read hardware commands still fail aggregate acceptance. Candidate
+callbacks/metamethods fail in six of six windows and allocation/GC in three.
+Ordinary/field callback ratios are 0.8989–0.9071 on CPU 0 and 0.9736–1.0104 on
+CPU 16. Integer ratios are 0.9100–0.9145 / 0.8077–0.8182; float ratios are
+0.9034–0.9105 / 0.8271–0.8286. Both screens retain 324 complete non-timing
+comparisons, each with 84 resource-only differences and matching execution
+counters. Source/image hashes, symbol-versus-stripped allocated sections,
+same-path/inode invocations and contention telemetry are preserved. No owned
+build, test, profile or edit overlapped hardware timing. There is no production
+activation and no full performance/resource/platform/release acceptance.
+
+Next: attribute the field variant's metamethod instruction regression before
+changing another hot path. The numeric-read recognizer currently accepts the
+masked Integer-or-Number guard, not all equivalent exact-integer/exact-number
+guards; extending that grammar is a separate potential optimization requiring
+source/emitted proof tests and original-workload measurements, not a current
+capability or promised gain.
+
 #### Frame-bound numeric stores — implementation, not acceptance
 
 Commit `7abaa73` adds a separate test-only `FrameBound` entry contract alongside
