@@ -29,6 +29,94 @@ fn check_counts(counts: &helpers::Counts) {
     );
 }
 
+#[cfg(not(miri))]
+pub(super) fn check_native(entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u32)) {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+        let kinds = [
+            Value::Nil,
+            Value::Boolean(false),
+            Value::Boolean(true),
+            Value::Integer(i64::MIN),
+            Value::Integer(i64::MAX),
+            Value::Number(-0.0),
+            Value::Number(f64::from_bits(0x7ff8000000000042)),
+            Value::String(ctx.intern(b"native copy")),
+            Value::Table(crate::Table::new(&ctx)),
+            Value::Function(closure.into()),
+            Value::Thread(crate::Thread::new(ctx)),
+            Value::UserData(crate::UserData::new_static(&ctx, 7)),
+        ];
+        for condition in [0, 1] {
+            for source in kinds {
+                for dest in kinds {
+                    let mut values = [source, dest, Value::Integer(19)];
+                    let mut expected = source;
+                    let mut pc = 23;
+                    LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                        let mut frame = helpers::Frame {
+                            ctx,
+                            closure,
+                            registers: &mut registers,
+                            count: counts(),
+                            slot_count: 3,
+                            panic: None,
+                            projection: None,
+                        };
+                        with_bridge::<256>(&mut frame, |slots, host| unsafe {
+                            let saved = slots.read();
+                            let sibling = slots.add(2).read();
+                            if matches!(source, Value::Integer(_)) {
+                                assert!(store(
+                                    saved,
+                                    Slot {
+                                        tag: INTEGER,
+                                        bits: 41
+                                    }
+                                ));
+                                expected = Value::Integer(41);
+                            }
+                            entry(slots, host, condition);
+                            let slow = (*host).materializations != 0;
+                            let same_scalar = Slot::from_value(source).tag
+                                == Slot::from_value(dest).tag
+                                && matches!(
+                                    source,
+                                    Value::Nil
+                                        | Value::Boolean(_)
+                                        | Value::Integer(_)
+                                        | Value::Number(_)
+                                );
+                            assert_eq!(slow, !same_scalar);
+                            assert_eq!((*host).materializations, u64::from(slow));
+                            if slow {
+                                check_retired_descriptor(slots.read());
+                                check_retired_descriptor(slots.add(1).read());
+                            } else if let Some(value) = load(saved) {
+                                assert!(store(saved, value));
+                            }
+                            assert!(store(
+                                sibling,
+                                Slot {
+                                    tag: INTEGER,
+                                    bits: 29
+                                }
+                            ));
+                            assert_eq!(load(slots.add(2).read()).unwrap().bits, 29);
+                        });
+                        check_counts(&frame.count);
+                        assert!(frame.panic.is_none());
+                    });
+                    assert_eq!(pc, 23);
+                    closed_table_tests::identical(values[0], expected);
+                    closed_table_tests::identical(values[1], expected);
+                    assert!(matches!(values[2], Value::Integer(29)));
+                }
+            }
+        }
+    });
+}
+
 #[test]
 fn copies_all_values_without_invalidating_source_or_sibling_descriptors() {
     copy_cases::<false>();

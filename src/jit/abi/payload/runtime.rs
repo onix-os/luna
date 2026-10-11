@@ -165,6 +165,7 @@ pub(crate) struct Functions {
     pub helpers: [abi::HelperEntry; 10],
     pub write: unsafe extern "C" fn(*mut Bridge, *mut Payload, u32, u64, u64),
     pub terminal: unsafe extern "C" fn(*mut Bridge, *mut Payload, u32, u64, u64),
+    pub copy: unsafe extern "C" fn(*mut Bridge, *mut Payload, u32, u64, u64),
 }
 
 static FUNCTIONS: Functions = Functions {
@@ -182,10 +183,25 @@ static FUNCTIONS: Functions = Functions {
     ],
     write: write_scalar,
     terminal: write_terminal,
+    copy: copy_retired,
 };
 
 unsafe extern "C" fn read_bits(slots: *mut Payload, index: u32) -> u64 {
     unsafe { load(slots.add(index as usize).read()) }.map_or(0, |slot| slot.bits)
+}
+
+unsafe extern "C" fn copy_retired(
+    host: *mut Bridge,
+    slots: *mut Payload,
+    dest: u32,
+    source: u64,
+    zero: u64,
+) {
+    assert!(source < 256 && zero == 0);
+    unsafe { (*host).materializations += 1 };
+    let result =
+        unsafe { copy_terminal::<true>((*host).base.data.cast(), slots, dest, source as u32) };
+    assert_eq!(result, abi::HELPER_COMPLETED);
 }
 
 unsafe extern "C" fn write_scalar(
@@ -404,6 +420,7 @@ pub(crate) fn check_native_proven_tag_write(
             helpers: [helper::<1>; 10],
             write: declined,
             terminal: declined,
+            copy: declined,
         },
         materializations: 0,
     };
@@ -459,6 +476,7 @@ pub(crate) fn check_native_write_guards(
             helpers: [helper::<1>; 10],
             write: declined,
             terminal: declined,
+            copy: declined,
         },
         materializations: 0,
     };
@@ -1177,7 +1195,13 @@ mod terminal_tests;
 #[path = "terminal_copy_tests.rs"]
 mod terminal_copy_tests;
 
-#[cfg(test)]
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_terminal_copy(
+    entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u32),
+) {
+    terminal_copy_tests::check_native(entry);
+}
+
 /// Copies a canonical value and retires its destination and optional source.
 ///
 /// # Safety

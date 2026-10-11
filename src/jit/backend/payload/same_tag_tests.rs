@@ -294,6 +294,7 @@ fn emitted_tag_proofs_reject_guard_and_substitution_corruption() {
             signature,
             terminal: false,
             known_tag: Some(proof),
+            copy: None,
         },
     );
     writes::verify_source(

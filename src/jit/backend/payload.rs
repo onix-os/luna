@@ -11,6 +11,7 @@ use crate::jit::abi::payload::Payload;
 pub(super) mod binding_requirements;
 mod bound_reads;
 mod bound_writes;
+mod copy;
 mod host_stack;
 mod numeric_reads;
 mod packed_calls;
@@ -313,6 +314,7 @@ fn size(function: &Function) -> (usize, usize) {
 struct Plan {
     reads: usize,
     writes: usize,
+    copies: usize,
     host_instructions: usize,
     instructions: usize,
     blocks: usize,
@@ -330,6 +332,7 @@ fn plan(
     let mut plan = Plan {
         reads: 0,
         writes: 0,
+        copies: 0,
         host_instructions: 0,
         instructions: original_instructions,
         blocks: original_blocks,
@@ -362,12 +365,14 @@ fn plan(
                     5,
                 )
             }
-            Rewrite::Write { bits, .. } => {
+            Rewrite::Write { tag, bits, .. } => {
                 plan.writes = add(plan.writes, 1)?;
+                let copy = usize::from(copy::source(function, slots, tag, bits).is_some());
+                plan.copies = add(plan.copies, copy)?;
                 host_uses = add(host_uses, 2)?;
                 host_calls = true;
                 (
-                    30 + usize::from(function.dfg.value_type(bits) == types::F64),
+                    30 + 2 * copy + usize::from(function.dfg.value_type(bits) == types::F64),
                     7,
                 )
             }
@@ -452,6 +457,7 @@ pub(super) fn lower_contract(
     let mut bound_read_count = 0;
     let mut bound_read_savings = 0;
     let mut bound_scalar_count = 0;
+    let mut copy_count = 0;
     let mut candidate = function.clone();
     let mut write = Signature::new(function.signature.call_conv);
     write
@@ -538,6 +544,19 @@ pub(super) fn lower_contract(
                         proof,
                     )));
                 } else {
+                    let copy = copy::admit(
+                        function,
+                        slots,
+                        tag_store,
+                        bits_store,
+                        index,
+                        tag,
+                        bits,
+                        &mut same_tag,
+                        &mut terminal,
+                    );
+                    copy_count += usize::from(copy.is_some());
+                    let terminal_write = copy.is_some() || terminal.admits(bits_store, index);
                     writes.push(Write::Checked(writes::emit(
                         &mut candidate,
                         tag_store,
@@ -549,8 +568,9 @@ pub(super) fn lower_contract(
                             tag,
                             bits,
                             signature: write,
-                            terminal: terminal.admits(bits_store, index),
+                            terminal: terminal_write,
                             known_tag,
+                            copy,
                         },
                     )));
                 }
@@ -586,11 +606,12 @@ pub(super) fn lower_contract(
         }
         Ok(())
     })?;
-    drop((numeric, terminal));
+    drop(numeric);
     if size(&candidate)
         != (
             plan.instructions
                 - plan.host_instructions
+                - 2 * (plan.copies - copy_count)
                 - 13 * numeric_count
                 - 29 * bound_count
                 - bound_read_savings
@@ -644,6 +665,7 @@ pub(super) fn lower_contract(
         match write {
             Write::Checked(write) => {
                 writes::verify_source(function, write, &mut same_tag)?;
+                writes::verify_copy_source(function, write, &mut same_tag, &mut terminal)?;
                 writes::verify(&candidate, write)?;
                 writes::verify_guard(&candidate, write, predecessors.as_ref(), &mut tag_work)?;
             }
@@ -658,7 +680,7 @@ pub(super) fn lower_contract(
             }
         }
     }
-    drop((reads, writes, predecessors, same_tag));
+    drop((reads, writes, predecessors, same_tag, terminal));
     if let Some(copy) = host_stack::lower(&mut candidate, host, allocator, expansion)? {
         host_stack::verify(&candidate, &copy)?;
     }
@@ -676,6 +698,7 @@ pub(super) fn lower_contract(
     if size(&candidate)
         != (
             plan.instructions - plan.host_instructions + expected_host
+                - 2 * (plan.copies - copy_count)
                 - 13 * numeric_count
                 - 29 * bound_count
                 - bound_read_savings

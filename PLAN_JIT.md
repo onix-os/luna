@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-11
 
-#### Terminal callback copy — verified model, integration pending
+#### Terminal callback copy — integrated experiment, tuning pending
 
 The test-only canonical-copy primitive now distinguishes preserving a live source
 descriptor from retiring both source and destination. Reading the entire source
@@ -29,11 +29,44 @@ tests each** with default and Tree Borrows flags; the runner directory matches
 this checkout. Formatting, check-all and diff checks pass. Logs are under
 `target/jit-evidence/short-slice-performance/terminal-copy-root-fixed-*`.
 
-This is a test-only transport model, not generated-code integration or measured
-speedup. Compiler integration still needs source-value freshness, liveness for
-both retired descriptors, independent gateway verification, resource accounting,
-native differential coverage, frozen profiles and repeated hardware measurements.
-All original acceptance gates remain open.
+The experimental payload compiler now recognizes exact source tag/bits loads,
+proves both fresh on every predecessor path, and requires both descriptors dead
+until return or a full rebind. Its independent checker repeats the source and
+liveness checks and validates the dedicated gateway, source constant, reserved
+zero, signature and arguments. Existing same-tag fast stores are unchanged.
+The two extra slow-path constants are included in pre-admission and exact emitted
+IR accounting; proof records use the existing charged allocator and bounded work.
+
+GNU focused checks pass **33 executions/seven summaries**, followed by the broad
+payload model's **241/four**. Musl check-all and focused/model checks pass
+**257/nine**. Root Miri passes **three ABI plus four compiler tests per mode**,
+default and Tree Borrows, with the checkout directory verified. Native probes
+exercise both payload contracts, twelve source/destination kinds and both branch
+directions, including activated source and surviving sibling pointers. Tests also
+reject stale loads, live cells, wrong gateways/arguments and expansion overruns.
+Evidence: `terminal-copy-integration-{gnu-fixed,model,musl,stacked,tree}.log`
+under the same evidence directory. A preceding fixture compilation failure is
+retained separately and is not counted as passing evidence.
+
+An isolated activated image, SHA-256
+`12e824cd3e679a0e8e754946c51d5bb72c65583f66ade3b8cef55243def4789b`,
+completed eleven exact-image instruction profiles. The first implementation is
+**not a performance fix**: callback work increases **324,155 instructions
+(0.252823%)**, including a Value stack temporary and redundant argument checks.
+Snapshot peak grows by 336/420/392 bytes for callback/allocation/metamethod cases;
+the strict non-timing comparison exits 3 for those changes. Native coverage and
+other execution counters are preserved, not traded away for speed. No hardware
+timing acceptance is claimed. The initial image's source manifest omitted two
+inherited test-only files; supplemental byte/hash comparisons prove both match
+the immutable array-transport control. Its original manifest is not rewritten or
+represented as complete.
+
+A second isolated trial uses overlap-safe `ptr::copy<Value>` and checks the full
+source index before narrowing, with the reserved argument still enforced by the
+compiler checker. It is undergoing validation/profiling; it is not yet accepted
+or merged into this implementation. Main-checkout payload integration remains
+experimental, not production activation. Original performance, resource and
+release acceptance remain open.
 
 #### Descriptor/pointee alias classes — no callback benefit
 

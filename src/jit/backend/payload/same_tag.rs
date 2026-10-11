@@ -19,6 +19,32 @@ pub(super) struct Analysis {
 }
 
 impl Analysis {
+    pub(super) fn fresh_before(
+        &mut self,
+        f: &Function,
+        load: Inst,
+        at: Inst,
+        verification: bool,
+    ) -> bool {
+        let remaining = if verification {
+            &mut self.verification_remaining
+        } else {
+            &mut self.remaining
+        };
+        if let Some(previous) = f.layout.prev_inst(at) {
+            return fresh(f, &self.predecessors, load, previous, 32, remaining);
+        }
+        let Some(block) = f.layout.inst_block(at) else {
+            return false;
+        };
+        if f.layout.entry_block() == Some(block) {
+            return false;
+        }
+        let mut parents = self.predecessors.pred_iter(block).peekable();
+        parents.peek().is_some()
+            && parents.all(|parent| fresh(f, &self.predecessors, load, parent.inst, 31, remaining))
+    }
+
     pub(super) fn new(f: &Function, allocator: BudgetAllocator) -> Result<Self, JitError> {
         let (instructions, blocks) = size(f);
         let remaining = instructions
