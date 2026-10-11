@@ -88,6 +88,36 @@ fn edges(f: &Function, block: Block) -> Result<&[cranelift_codegen::ir::BlockCal
     Ok(edges)
 }
 
+fn propagate(
+    f: &Function,
+    facts: &mut [Facts],
+    boundaries: Option<&[bool]>,
+    remaining: &mut usize,
+) -> Result<(), JitError> {
+    loop {
+        let mut changed = false;
+        for block in std::iter::successors(f.layout.last_block(), |&b| f.layout.prev_block(b)) {
+            charge(remaining)?;
+            let at = block.as_u32() as usize;
+            if boundaries.is_some_and(|stops| stops[at]) {
+                continue;
+            }
+            let mut after = Mask::default();
+            for edge in edges(f, block)? {
+                charge(remaining)?;
+                after.union(facts[edge.block(&f.dfg.value_lists).as_u32() as usize].live);
+            }
+            let facts = &mut facts[at];
+            let live = after.before(facts.definitions, facts.uses);
+            changed |= live != facts.live;
+            facts.live = live;
+        }
+        if !changed {
+            return Ok(());
+        }
+    }
+}
+
 impl Requirements {
     pub(in crate::jit::backend) fn into_metadata(
         self,
@@ -133,24 +163,7 @@ impl Requirements {
             Ok(())
         })?;
         let mut remaining = work(f, headers.len())?;
-        loop {
-            let mut changed = false;
-            for block in std::iter::successors(f.layout.last_block(), |&b| f.layout.prev_block(b)) {
-                charge(&mut remaining)?;
-                let mut after = Mask::default();
-                for edge in edges(f, block)? {
-                    charge(&mut remaining)?;
-                    after.union(facts[edge.block(&f.dfg.value_lists).as_u32() as usize].live);
-                }
-                let facts = &mut facts[block.as_u32() as usize];
-                let live = after.before(facts.definitions, facts.uses);
-                changed |= live != facts.live;
-                facts.live = live;
-            }
-            if !changed {
-                break;
-            }
-        }
+        propagate(f, &mut facts, None, &mut remaining)?;
         let mut entries = BudgetVec::new_in(allocator.clone());
         entries
             .try_reserve_exact(headers.len())
@@ -159,7 +172,20 @@ impl Requirements {
             edges(f, header)?;
             entries.push(facts[header.as_u32() as usize].live);
         }
-        drop(facts);
+        let mut boundaries = workspace(facts.len(), false, allocator.clone())?;
+        for &header in headers {
+            boundaries[header.as_u32() as usize] = true;
+        }
+        for facts in &mut facts {
+            facts.live = Mask::default();
+        }
+        propagate(f, &mut facts, Some(&boundaries), &mut remaining)?;
+        let root = f.layout.entry_block().ok_or_else(invalid)?;
+        let prefix = facts[root.as_u32() as usize].live;
+        for mask in &mut entries {
+            mask.union(prefix);
+        }
+        drop((facts, boundaries));
         let requirements = Self { entries };
         requirements.verify(f, slots, host, registers, helpers, headers, allocator)?;
         Ok(requirements)
@@ -189,6 +215,12 @@ impl Requirements {
         if self.entries.len() != headers.len() {
             return Err(invalid());
         }
+        let root = f.layout.entry_block().ok_or_else(invalid)?;
+        let mut boundaries = workspace(f.dfg.num_blocks(), false, allocator.clone())?;
+        for &header in headers {
+            edges(f, header)?;
+            boundaries[header.as_u32() as usize] = true;
+        }
         let mut visited = workspace(f.dfg.num_blocks(), false, allocator.clone())?;
         let mut pending = BudgetVec::new_in(allocator);
         pending
@@ -201,41 +233,46 @@ impl Requirements {
                 return Err(invalid());
             }
             for index in (0..registers).filter(|&i| reads.contains(i) && !mask.contains(i)) {
-                remaining = remaining.checked_sub(visited.len()).ok_or_else(refused)?;
-                visited.fill(false);
-                pending.push(header);
-                visited[header.as_u32() as usize] = true;
-                while let Some(block) = pending.pop() {
-                    charge(&mut remaining)?;
-                    let mut defined = false;
-                    for inst in f.layout.block_insts(block) {
+                for (start, prefix) in [(header, false), (root, true)] {
+                    remaining = remaining.checked_sub(visited.len()).ok_or_else(refused)?;
+                    visited.fill(false);
+                    pending.push(start);
+                    visited[start.as_u32() as usize] = true;
+                    while let Some(block) = pending.pop() {
                         charge(&mut remaining)?;
-                        match f.dfg.insts[inst] {
-                            InstructionData::Load { arg, offset, .. }
-                                if arg == slots && i32::from(offset) as usize / 16 == index =>
-                            {
-                                return Err(invalid());
-                            }
-                            InstructionData::Store { args, offset, .. }
-                                if args[1] == slots
-                                    && i32::from(offset) as usize == index * 16 + 8 =>
-                            {
-                                defined = true;
-                                break;
-                            }
-                            _ => {}
+                        if prefix && boundaries[block.as_u32() as usize] {
+                            continue;
                         }
-                    }
-                    if defined {
-                        continue;
-                    }
-                    for edge in edges(f, block)? {
-                        charge(&mut remaining)?;
-                        let target = edge.block(&f.dfg.value_lists);
-                        let at = target.as_u32() as usize;
-                        if !visited[at] {
-                            visited[at] = true;
-                            pending.push(target);
+                        let mut defined = false;
+                        for inst in f.layout.block_insts(block) {
+                            charge(&mut remaining)?;
+                            match f.dfg.insts[inst] {
+                                InstructionData::Load { arg, offset, .. }
+                                    if arg == slots && i32::from(offset) as usize / 16 == index =>
+                                {
+                                    return Err(invalid());
+                                }
+                                InstructionData::Store { args, offset, .. }
+                                    if args[1] == slots
+                                        && i32::from(offset) as usize == index * 16 + 8 =>
+                                {
+                                    defined = true;
+                                    break;
+                                }
+                                _ => {}
+                            }
+                        }
+                        if defined {
+                            continue;
+                        }
+                        for edge in edges(f, block)? {
+                            charge(&mut remaining)?;
+                            let target = edge.block(&f.dfg.value_lists);
+                            let at = target.as_u32() as usize;
+                            if !visited[at] {
+                                visited[at] = true;
+                                pending.push(target);
+                            }
                         }
                     }
                 }

@@ -111,6 +111,58 @@ fn entry_binding_masks_preserve_branch_loop_and_definition_paths() {
 }
 
 #[test]
+fn entry_binding_masks_cover_dispatch_prefix_reads_and_reject_missing_bits() {
+    let (mut f, slots, host, headers) = fixture(true, true, true, 0);
+    let first = f.layout.first_inst(headers[0]).unwrap();
+    FuncCursor::new(&mut f)
+        .at_inst(first)
+        .ins()
+        .load(types::I64, MemFlagsData::new(), slots, 16);
+    cranelift_codegen::verify_function(&f, &settings::Flags::new(settings::builder())).unwrap();
+    let allocator = BudgetAllocator(crate::jit::resources::Ledger::new(1024 * 1024));
+    let source_headers = &headers[1..];
+    let mut plan =
+        Requirements::new(&f, slots, host, 2, &[], source_headers, allocator.clone()).unwrap();
+    for pc in 0..source_headers.len() {
+        let mask = plan.entries[pc];
+        assert!(mask.contains(1));
+        assert_eq!(mask.contains(0), pc == 2);
+        plan.entries[pc].0[0] &= !(1 << 1);
+        assert!(plan
+            .verify(&f, slots, host, 2, &[], source_headers, allocator.clone(),)
+            .is_err());
+        plan.entries[pc] = mask;
+    }
+    drop(plan);
+    assert_eq!(allocator.0.current(), 0);
+}
+
+#[test]
+fn entry_binding_prefix_dataflow_preserves_branch_definitions_and_cycles() {
+    for left in [false, true] {
+        for right in [false, true] {
+            for cycle in [false, true] {
+                let (f, slots, host, _) = fixture(left, right, cycle, 0);
+                let headers = [f.layout.last_block().unwrap()];
+                let allocator = BudgetAllocator(crate::jit::resources::Ledger::new(1024 * 1024));
+                let mut plan =
+                    Requirements::new(&f, slots, host, 1, &[], &headers, allocator.clone())
+                        .unwrap();
+                assert_eq!(plan.get(0).unwrap().contains(0), !(left && right));
+                if !(left && right) {
+                    plan.entries[0] = Mask::default();
+                    assert!(plan
+                        .verify(&f, slots, host, 1, &[], &headers, allocator.clone(),)
+                        .is_err());
+                }
+                drop(plan);
+                assert_eq!(allocator.0.current(), 0);
+            }
+        }
+    }
+}
+
+#[test]
 fn entry_binding_verifier_rejects_missing_uses_source_changes_and_excess_bits() {
     let (f, slots, host, headers) = fixture(true, false, true, 1);
     let allocator = BudgetAllocator(crate::jit::resources::Ledger::new(1024 * 1024));
