@@ -136,3 +136,6 @@ mod writer_tests;
 
 #[path = "entry.rs"]
 pub(crate) mod entry;
+
+#[path = "store_oracle.rs"]
+pub(crate) mod store_oracle;

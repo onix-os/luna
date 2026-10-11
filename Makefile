@@ -758,6 +758,13 @@ jit-payload-packed-reads:
 jit-payload-packed-reads-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::packed_reads:: -- --test-threads=1
 
+.PHONY: jit-payload-packed-writes jit-payload-packed-writes-miri
+jit-payload-packed-writes:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::packed_writes:: $(ARGS)
+
+jit-payload-packed-writes-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::packed_writes:: -- --test-threads=1
+
 jit-payload-model:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload:: $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload:: $(ARGS)
@@ -1707,6 +1714,8 @@ help:
 	@echo "  jit-payload-packed-calls-miri Check packed lowering under Miri"
 	@echo "  jit-payload-packed-reads Verify packed scalar reads"
 	@echo "  jit-payload-packed-reads-miri Check packed reads under Miri"
+	@echo "  jit-payload-packed-writes Verify packed scalar stores"
+	@echo "  jit-payload-packed-writes-miri Check packed stores under Miri"
 	@echo "  jit-payload-relocations Check direct/indirect relocation budgets"
 	@echo "  jit-helper-transports   Test scratch and direct helpers"
 	@echo "  jit-helper-transports-miri Check helper transports under Miri"
