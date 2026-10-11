@@ -33,6 +33,37 @@ pub(super) struct Read {
     cast: Option<(Inst, IrValue)>,
 }
 
+pub(super) fn matches_copy(read: &Read, bits: IrValue, index: u32) -> bool {
+    read.cast.is_none() && read.result == bits && read.index == index
+}
+
+pub(super) fn copy_entry(read: &Read) -> Block {
+    read.blocks[0]
+}
+
+pub(super) fn copy_exit(read: &Read) -> Block {
+    read.blocks[1]
+}
+
+pub(super) fn split_copy_entry(f: &mut Function, read: &mut Read) -> Result<Block, JitError> {
+    let prefix = read.blocks[0];
+    let count = if read.contract == Contract::Checked {
+        10
+    } else {
+        8
+    };
+    let head = f
+        .layout
+        .block_insts(prefix)
+        .rev()
+        .nth(count - 1)
+        .ok_or_else(invalid)?;
+    let before = f.dfg.make_block();
+    f.layout.split_block(before, head);
+    read.blocks[0] = before;
+    Ok(prefix)
+}
+
 pub(super) fn block(function: &mut Function) -> Block {
     let block = function.dfg.make_block();
     function.layout.append_block(block);

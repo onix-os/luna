@@ -165,6 +165,7 @@ pub(crate) struct Functions {
     pub helpers: [abi::HelperEntry; 10],
     pub write: unsafe extern "C" fn(*mut Bridge, *mut Payload, u32, u64, u64),
     pub terminal: unsafe extern "C" fn(*mut Bridge, *mut Payload, u32, u64, u64),
+    pub copy: unsafe extern "C" fn(*mut Bridge, *mut Payload, u32, u64, u64),
 }
 
 static FUNCTIONS: Functions = Functions {
@@ -182,10 +183,23 @@ static FUNCTIONS: Functions = Functions {
     ],
     write: write_scalar,
     terminal: write_terminal,
+    copy: copy_retired,
 };
 
 unsafe extern "C" fn read_bits(slots: *mut Payload, index: u32) -> u64 {
     unsafe { load(slots.add(index as usize).read()) }.map_or(0, |slot| slot.bits)
+}
+
+unsafe extern "C" fn copy_retired(
+    host: *mut Bridge,
+    slots: *mut Payload,
+    dest: u32,
+    source: u64,
+    _zero: u64,
+) {
+    unsafe { (*host).materializations += 1 };
+    let result = unsafe { copy_terminal::<true>((*host).base.data.cast(), slots, dest, source) };
+    assert_eq!(result, abi::HELPER_COMPLETED);
 }
 
 unsafe extern "C" fn write_scalar(
@@ -404,6 +418,7 @@ pub(crate) fn check_native_proven_tag_write(
             helpers: [helper::<1>; 10],
             write: declined,
             terminal: declined,
+            copy: declined,
         },
         materializations: 0,
     };
@@ -459,6 +474,7 @@ pub(crate) fn check_native_write_guards(
             helpers: [helper::<1>; 10],
             write: declined,
             terminal: declined,
+            copy: declined,
         },
         materializations: 0,
     };
@@ -1172,6 +1188,65 @@ unsafe extern "C" fn materialize_terminal(
 #[cfg(test)]
 #[path = "terminal_tests.rs"]
 mod terminal_tests;
+
+#[cfg(test)]
+#[path = "terminal_copy_tests.rs"]
+mod terminal_copy_tests;
+
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_terminal_copy(
+    entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u32),
+) {
+    terminal_copy_tests::check_native(entry, false);
+}
+
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_guarded_terminal_copy(
+    entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u32),
+) {
+    terminal_copy_tests::check_native(entry, true);
+}
+
+/// Copies a canonical value and retires its destination and optional source.
+///
+/// # Safety
+/// The pointers belong to one live session. Retired descriptors are not used
+/// again until rebound.
+unsafe fn copy_terminal<const RETIRE_SOURCE: bool>(
+    host: *mut (),
+    slots: *mut Payload,
+    dest: u32,
+    source: u64,
+) -> u32 {
+    let session = unsafe { &mut *host.cast::<Session<'_, '_, '_, '_, '_>>() };
+    if session.stopped {
+        return abi::HELPER_PANICKED;
+    }
+    if dest as usize >= session.count || source >= session.count as u64 {
+        return abi::HELPER_DECLINED;
+    }
+    if RETIRE_SOURCE {
+        unsafe {
+            let values = session.values.as_ptr();
+            std::ptr::copy(values.add(source as usize), values.add(dest as usize), 1);
+            slots.add(source as usize).write(Payload {
+                tag: NIL,
+                pointer: std::ptr::null_mut(),
+            });
+        }
+    } else if let Some(value) = table_operand(session, slots, source as u32) {
+        unsafe { session.values.as_ptr().add(dest as usize).write(value) };
+    } else {
+        return abi::HELPER_DECLINED;
+    }
+    unsafe {
+        slots.add(dest as usize).write(Payload {
+            tag: NIL,
+            pointer: std::ptr::null_mut(),
+        });
+    }
+    abi::HELPER_COMPLETED
+}
 
 #[cfg(all(test, not(miri)))]
 pub(crate) fn check_retired_descriptor(descriptor: Payload) {

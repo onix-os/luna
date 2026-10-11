@@ -7,6 +7,8 @@ pub(super) struct Analysis<'f> {
     visited: BudgetVec<bool, BudgetAllocator>,
     pending: BudgetVec<Block, BudgetAllocator>,
     remaining: usize,
+    verification_remaining: usize,
+    registers: usize,
 }
 
 impl<'f> Analysis<'f> {
@@ -42,6 +44,8 @@ impl<'f> Analysis<'f> {
             visited,
             pending,
             remaining,
+            verification_remaining: remaining,
+            registers,
         })
     }
 
@@ -52,6 +56,31 @@ impl<'f> Analysis<'f> {
         {
             return false;
         }
+        self.dead_after(bits_store, index)
+    }
+
+    pub(super) fn admits_copy(
+        &mut self,
+        function: &Function,
+        bits_store: Inst,
+        dest: u32,
+        source: u32,
+        verification: bool,
+    ) -> bool {
+        if !std::ptr::eq(self.function, function) || source as usize >= self.registers {
+            return false;
+        }
+        if verification {
+            std::mem::swap(&mut self.remaining, &mut self.verification_remaining);
+        }
+        let valid = self.admits(bits_store, dest) && self.dead_after(bits_store, source);
+        if verification {
+            std::mem::swap(&mut self.remaining, &mut self.verification_remaining);
+        }
+        valid
+    }
+
+    fn dead_after(&mut self, bits_store: Inst, index: u32) -> bool {
         let Some(remaining) = self.remaining.checked_sub(self.visited.len()) else {
             return false;
         };

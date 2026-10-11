@@ -11,6 +11,278 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Scoped array-window construction — array gate restored, callbacks open
+
+Static inspection of the retained array-transport, direct-copy and early-guard
+images finds identical relocation-normalized instruction forms for window
+construction, scoped admission and kernel invocation, at different addresses.
+Transport/VM differences are RIP-relative data-target annotations after
+normalization. This does not prove data/generated-code equivalence or establish
+the cause of the earlier array timing regression.
+
+The constructor separately initializes and copies a 1 KiB slot array. Merely
+constructing the aggregate first does not remove the copy: that rejected trial
+returns a larger 0x438-byte window temporary and adds 15,030 array instructions.
+The revised private `Window::with` constructs, fills, invokes and drops the window
+in one scope, returning only the body result. Both admission paths retain their
+original borrow, weak/readonly/observer, bounds and capacity checks. No unsafe or
+uninitialized storage is introduced; dirty writeback and unwinding stay scoped.
+
+GNU and musl focused checks each pass **39 executions/three summaries**. Default
+and Tree Borrows Miri each pass **19 tests**; actual Tree flags/checkout/filter and
+deferred-runner directory were checked. A new 64-prefix/two-access-mode fixture
+checks scalar/reference/NaN bits, zero tail, seeded counters, returned result,
+canonical identity and lease release. Revised-root `fmt-check check-all test-all`
+completes with **1,801 passes/88 summaries/six ignored**.
+
+Image `a107418423319704ae0439c326b59d2714a9bb53e08908f8b27f4aea543ad1a8`
+completes eleven profiles with **738,438 fewer array instructions (2.107314%)**
+versus early-guard and identical non-timing statistics for every case. Disassembly
+confirms no memcpy in the scoped constructor. Array memcpy work falls from
+2,211,727 to 1,585,477 instructions; generated kernels are unchanged. Callback,
+allocation, metamethod and scalar Auto totals are unchanged. Upvalue admission
+and allocator differences remain diagnostics rather than claimed gains.
+Sixteen repeated instruction profiles preserve all same-image non-timing fields.
+Array reductions repeat at 703,368 instructions; the initial additional 35,070
+instruction saving is variable glibc memset work, not a stable constructor gain.
+Constructor, generated-kernel and memcpy work repeat exactly. Upvalue/allocator
+variance is retained rather than counted as an optimization.
+
+Six hardware campaigns complete **144 commands/3,888 aggregate rows**, after all
+owned checks/profiles finish. Four compare retained array-transport and two compare
+early-guard directly, each with ordinary production and same-image placebo,
+unchanged nine workloads, eleven samples, CPUs 0/16 and three rotated windows.
+The independent checker enforces exact image identities, original thresholds,
+counts and gate exit status. External host activity remains recorded, not stopped.
+
+The candidate passes **36/36 array gates**. In the direct early-guard comparison,
+the previous image passes only **9/12**, versus the candidate's **12/12**; every
+non-timing statistic is identical between those two images. Array previous/candidate
+Auto ratios are **1.066720 and 1.003679**, with placebo ratios **1.017203 and
+1.005534**. Against retained array-transport, the four ratios are **1.025350,
+0.997469, 1.026690, 1.066143**. The fourth campaign has a large placebo swing
+(array **1.181558**), so it is retained but does not establish a precise speedup.
+
+Callbacks pass only **1/36**, and aggregate gates pass only **1/36**: original
+performance acceptance still fails. Allocation/upvalue pass36/36, metamethod35/36.
+Execution statistics versus retained array-transport differ only by the previously
+documented snapshot peaks; placebo counters match exactly. This resolves the
+observed repeated array gate regression in these runs, not the full JIT objective.
+Next work remains callback cost and ordinary-production/shipping/disabled-cost
+verification, without relaxed thresholds or reduced native coverage.
+Evidence: `array-hot-assembly*`, `array-window-{direct,scoped}-init*` under
+`target/jit-evidence/short-slice-performance/`.
+
+#### Conditional source-read bypass — verified experiment, layout under test
+
+The experimental payload compiler can bypass the eager source-bits reader for
+an exact guarded Move when the source is scalar and destination tag differs.
+Same-tag stores and reference helpers retain their original paths. Admission
+requires the original bits value's sole use, both cells' terminal-liveness proof,
+and the exact adjacent-load/REFERENCE-guard/store shape; arbitrary intervening
+instructions are not skipped. Independent checks bind the predicates, read/write
+records, source tag, normal-reader predecessor and copy-gateway predecessors.
+Six instructions and one block are reserved before mutation, with charged records,
+bounded analysis work and exact post-lowering accounting. Work exhaustion keeps
+the original reader rather than bypassing a check.
+
+GNU focused checks pass **13 executions/three summaries**, then the broad payload
+model **246/four**. Musl check-all/focused/model checks pass **259/seven**. Root
+Miri passes **four compiler tests per mode**; the Tree process's actual flags,
+module filter and checkout directory were observed independently. Native probes
+cover both payload contracts, twelve source/destination Value kinds, same-tag
+stores, reference-helper counters/PC and sibling-pointer reuse after rebind.
+The initial fixture's Rust2024-only syntax failure is retained separately; the
+repository remains Rust2021. No full new-root-suite or hardware acceptance is
+claimed for this revision.
+
+Isolated image
+`2b83cbe7e2017b9b3734a74fab0dc8748681a9aac727cba0abee6ceb433fec72`
+completes eleven profiles. Compared with direct-copy, callback generated work
+falls **518,559 instructions**, while VM, executor, entry wrapper and table helper
+work are unchanged; total falls **518,478 (0.404794%)**. This confirms selection
+in the actual callback workload, not just a synthetic fixture. Snapshot peak
+increases 48 bytes in callback/allocation/metamethod cases. The same image also
+adds **183,187 generated instructions** to the allocation workload, so the initial
+layout is **not accepted as a performance fix**. A fast-path-first equivalent
+predicate/layout is being tested separately, with the same source/lifetime and
+verifier requirements. No benchmark names or reduced native coverage select it.
+
+Evidence: `copy-bypass-root-*`, `copy-bypass-read-audit.log`, the immutable
+`payload-terminal-profile/copy-bypass/` image and `copy-bypass-vs-*.json`.
+All original acceptance gates remain in force; no production activation.
+
+The equivalent fast-path-first image
+`7f0c52ebd93f2e0e1ab9575457ab9c3c9d3ab1fdde4b5dd5c0d7a9b59c3d98cb`
+also completes eleven profiles, focused GNU checks and four compiler Miri tests
+per mode. It does **not** fix allocation: generated work remains 5,978,686 versus
+direct-copy's 5,795,499. Callback generated work rises to 12,775,783 versus the
+initial bypass's 12,646,124. The smaller allocation total delta comes from other
+work, not removal of the generated-code regression. This variant is rejected;
+no hardware campaign or root integration follows from these profiles.
+
+The revised early-guard experiment moves the existing reference branch before
+the scalar reader and checks the destination only on the scalar edge. It preserves
+the original reference-helper path and same-tag stores, adds four instructions
+and two blocks, and verifies the moved original instructions and reader-resume
+edge. The isolated activated checkout passes **256 executions/seven summaries**
+across focused and broad payload tests, plus four compiler tests per Miri mode.
+The actual Tree process and deferred-runner checkout were verified. Root GNU
+and musl checks each pass **259/seven**. Revised-root `fmt-check check-all test-all`
+completes with **1,800 passes across 88 summaries, six ignored**. These correctness
+results do not establish speedup or full-plan completion.
+
+Image `ec7479908eb0b699e8f40289d9c62662773da6c38eb433c6ffcaaf5d74717eed`
+completes eleven profiles. Compared with direct-copy, callback total falls
+**648,176 instructions (0.506054%)**, including **648,257 fewer generated
+instructions**. VM, executor, entry wrapper and table-helper work are unchanged.
+The allocation generated-code delta falls from **+183,187 to +52**; its total
+delta is +6,081 in this profile. All four Off controls and integer/float/array
+Auto totals are identical. Snapshot peaks still increase 48 bytes for the
+callback/allocation/metamethod cases; strict resource equality is not claimed.
+
+Sixteen additional profiles repeat callback, allocation, upvalue and metamethod
+twice per exact direct-copy/early-guard image. All non-timing statistics match
+their same-image initial profiles. Callback and allocation generated counts
+repeat exactly, while upvalue admission and allocator work vary. Metamethod
+generated work increases **12,610**, despite its lower total; that cost is retained
+as a regression to check in timing, not hidden by allocator variance. These are
+instruction diagnostics, not speedup or original performance acceptance.
+Evidence: `copy-bypass-early-guard-vs-*.json`, `copy-bypass-early-guard-repeat/`,
+and `copy-bypass-early-guard-{gnu-final,root-*,stacked,tree}*`.
+
+Four subsequent hardware campaigns complete **96 commands/2,592 aggregate rows**:
+unchanged nine workloads, eleven paired samples, CPUs 0/16, three rotated windows,
+ordinary production, retained array-transport, early-guard and same-image placebo.
+All owned validation/profiling jobs finished first; external Astrocraft activity
+and host pressure remain recorded, not stopped. Exact image hashes, original
+thresholds, sample/row counts and gate exit statuses are checked independently.
+
+The candidate passes **0/24 aggregate gates** and **0/24 callback gates**. Allocation,
+upvalue and metamethod pass 24/24 each, but array passes only **17/24**, versus
+24/24 for retained array-transport. Callback Auto previous/candidate ratios are
+**1.010855, 1.000363, 1.015296, 1.005234**; corresponding same-image placebo ratios
+are **1.005524, 0.995559, 1.000073, 0.998372**. These modest gains do not reach the
+original callback threshold. Array Auto previous/candidate ratios are
+**0.963727, 0.965661, 0.941734, 0.933303**: a repeated timing regression despite
+identical array instruction/load/store/branch counts. Its cause is not established;
+do not infer hardware equivalence from instruction totals or promote this image.
+
+All execution statistics match the retained candidate; only snapshot peaks differ
+by +384 callback, +468 allocation, +440 metamethod and +56 unscored Oslo bytes.
+Placebo non-timing statistics match production exactly. The full plan remains
+incomplete. Next performance work must address the array timing regression and
+remaining callback cost, not lower thresholds or reduce native coverage.
+Evidence: `copy-bypass-early-guard-hardware-{summary,controls}.json`,
+`copy-bypass-early-guard-round2-hardware-summary.json`, and the four immutable
+campaign directories under `payload-terminal-profile/`.
+
+#### Terminal callback copy — integrated experiment, tuning pending
+
+The test-only canonical-copy primitive now distinguishes preserving a live source
+descriptor from retiring both source and destination. Reading the entire source
+Value through its parent pointer while retaining an activated scalar descriptor
+failed Tree Borrows. The preserving path instead reads through existing scalar
+descriptors; whole-Value copying requires both descriptors to be retired. The
+failing draft and log remain as evidence, not an accepted implementation.
+
+The corrected model tests twelve Value kinds, widths 1/7/255/256, self and
+distinct copies, activated source pointers, surviving sibling pointers, stopped
+sessions, invalid indices, canonical identity, PC, panic identity and all eight
+seeded counters. GNU and musl each pass **11 executions across four summaries**,
+including existing terminal checks. Independent-root Miri runs pass **three
+tests each** with default and Tree Borrows flags; the runner directory matches
+this checkout. Formatting, check-all and diff checks pass. Logs are under
+`target/jit-evidence/short-slice-performance/terminal-copy-root-fixed-*`.
+
+The experimental payload compiler now recognizes exact source tag/bits loads,
+proves both fresh on every predecessor path, and requires both descriptors dead
+until return or a full rebind. Its independent checker repeats the source and
+liveness checks and validates the dedicated gateway, source constant, reserved
+zero, signature and arguments. Existing same-tag fast stores are unchanged.
+The two extra slow-path constants are included in pre-admission and exact emitted
+IR accounting; proof records use the existing charged allocator and bounded work.
+
+GNU focused checks pass **33 executions/seven summaries**, followed by the broad
+payload model's **241/four**. Musl check-all and focused/model checks pass
+**257/nine**. Root Miri passes **three ABI plus four compiler tests per mode**,
+default and Tree Borrows, with the checkout directory verified. Native probes
+exercise both payload contracts, twelve source/destination kinds and both branch
+directions, including activated source and surviving sibling pointers. Tests also
+reject stale loads, live cells, wrong gateways/arguments and expansion overruns.
+Evidence: `terminal-copy-integration-{gnu-fixed,model,musl,stacked,tree}.log`
+under the same evidence directory. A preceding fixture compilation failure is
+retained separately and is not counted as passing evidence.
+
+An isolated activated image, SHA-256
+`12e824cd3e679a0e8e754946c51d5bb72c65583f66ade3b8cef55243def4789b`,
+completed eleven exact-image instruction profiles. The first implementation is
+**not a performance fix**: callback work increases **324,155 instructions
+(0.252823%)**, including a Value stack temporary and redundant argument checks.
+Snapshot peak grows by 336/420/392 bytes for callback/allocation/metamethod cases;
+the strict non-timing comparison exits 3 for those changes. Native coverage and
+other execution counters are preserved, not traded away for speed. No hardware
+timing acceptance is claimed. The initial image's source manifest omitted two
+inherited test-only files; supplemental byte/hash comparisons prove both match
+the immutable array-transport control. Its original manifest is not rewritten or
+represented as complete.
+
+The revised helper uses overlap-safe `ptr::copy<Value>` and checks the full
+source index before narrowing, with the reserved argument still enforced by the
+compiler checker. It removes the temporary without weakening either descriptor's
+retirement. GNU and musl root checks each pass **16 executions/five summaries**;
+isolated activated checks pass eight tests and independent-clone Miri passes
+three ABI tests per mode. The runner directory and exact counts were checked.
+
+Revised image
+`134ea9b86807efd96c8ed323eb79d0a3f0ad6e554fad6f6005d5188d19d2533c`
+completes eleven profiles: callback work is **129,778 instructions lower
+(0.101220%)** than array-transport, or 453,933 lower than the initial copy.
+Snapshot peak increases remain; this is not full resource/performance acceptance.
+Eight further profiles repeat closure/metamethod twice per initial/revised image
+with all non-timing fields identical. The apparent initial regressions are not
+stable: the same revised image's admission work varies by 104,568 instructions,
+and its metamethod total varies by 90,866 allocator instructions. Do not attribute
+those one-run differences to the helper or claim a hardware speedup.
+
+Evidence: `terminal-copy-direct-*`, including the root logs, exact-image profile
+comparisons, repeat stats, and independent Miri logs. The direct helper is retained
+in the experimental main-checkout implementation; payload transport is not newly
+activated in production. The full revised-root GNU command (`fmt-check check-all
+test-all`) subsequently passes **1,795 executions across 88 summaries, six
+ignored**, including retained public stack-alias mutation across native reentry.
+
+Four sequential hardware campaigns complete **96 commands / 2,592 aggregate
+rows**, using the original nine workloads and eleven paired samples, CPUs 0/16,
+three rotated windows, production/array-transport/direct-copy/placebo images,
+immutable hashes and host contention telemetry. No owned build/test/profile ran
+during timing, and unrelated applications were not stopped. Every invocation's
+image, complete record set, unchanged threshold and gate exit is checked.
+
+The direct-copy candidate passes callback **1/24**, array **23/24**, upvalue
+**21/24**, and metamethod **22/24**. It passes the complete gate **0/24**; across
+all variants 95/96 complete gates fail, with one previous-image pass. Direct
+Auto-time ratios below are previous-image time divided by candidate time; above
+one favors the candidate. They are not the normalized paired gate statistic.
+
+| Campaign | Callback vs previous | Callback vs production | Same-image placebo |
+| --- | ---: | ---: | ---: |
+| Screen | 0.982475 | 0.968377 | 0.991500 |
+| Repeat | 1.002692 | 1.021587 | 0.996591 |
+| Round 2 screen | 1.000787 | 1.034315 | 1.002837 |
+| Round 2 repeat | 1.007198 | 1.043950 | 1.004507 |
+
+There is no consistent callback improvement over the retained previous image,
+and the original callback threshold remains unmet. Do not promote this trial as
+a performance fix. Versus the previous image, all execution/coverage counters
+remain identical; snapshot peak increases are retained explicitly, including
+56 bytes for the unscored Oslo predicate in addition to the three profiled cases.
+Same-image placebo non-timing records match. Evidence is in
+`terminal-copy-direct*-hardware-{screen,repeat}/`, corresponding JSON/verification
+reports, `terminal-copy-direct-hardware-controls.json` and
+`terminal-copy-direct-root-full.log`. Full performance, resource and release
+acceptance remain open.
+
 #### Descriptor/pointee alias classes — no callback benefit
 
 Two isolated compiler trials distinguish frame-bound descriptor storage from its

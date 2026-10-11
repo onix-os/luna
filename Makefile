@@ -738,6 +738,22 @@ jit-payload-terminal:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::terminal:: $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::writes::terminal_ $(ARGS)
 
+.PHONY: jit-payload-terminal-copy jit-payload-terminal-copy-miri
+.PHONY: jit-payload-copy-bypass jit-payload-copy-bypass-miri
+jit-payload-copy-bypass:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::copy_bypass:: $(ARGS)
+
+jit-payload-copy-bypass-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::copy_bypass:: -- --test-threads=1
+
+jit-payload-terminal-copy:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::terminal_copy_tests:: $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::copy:: $(ARGS)
+
+jit-payload-terminal-copy-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::runtime::terminal_copy_tests:: -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::copy:: -- --test-threads=1
+
 jit-payload-terminal-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::runtime::terminal_tests:: -- --test-threads=1
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::terminal:: -- --test-threads=1

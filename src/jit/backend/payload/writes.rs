@@ -13,12 +13,24 @@ pub(super) struct Input {
     pub signature: cranelift_codegen::ir::SigRef,
     pub terminal: bool,
     pub known_tag: Option<same_tag::Proof>,
+    pub copy: Option<copy::Proof>,
 }
 
 pub(super) struct Write {
     blocks: [Block; 8],
     input: Input,
     cast: Option<Inst>,
+}
+
+pub(super) fn copy_site(write: &Write) -> Option<(copy::Proof, Block)> {
+    write.input.copy.map(|proof| (proof, write.blocks[7]))
+}
+
+pub(super) fn copy_predecessors(f: &Function, write: &Write) -> Option<[Inst; 2]> {
+    Some([
+        f.layout.last_inst(write.blocks[0])?,
+        f.layout.last_inst(write.blocks[6])?,
+    ])
 }
 
 pub(super) fn emit(f: &mut Function, tag_store: Inst, bits_store: Inst, input: Input) -> Write {
@@ -45,6 +57,7 @@ pub(super) fn emit(f: &mut Function, tag_store: Inst, bits_store: Inst, input: I
         signature,
         terminal,
         known_tag,
+        copy,
     } = input;
     let mut c = FuncCursor::new(f);
     c.goto_bottom(before);
@@ -106,13 +119,23 @@ pub(super) fn emit(f: &mut Function, tag_store: Inst, bits_store: Inst, input: I
         types::I64,
         MemFlagsData::new(),
         functions,
-        if terminal {
+        if copy.is_some() {
+            std::mem::offset_of!(Functions, copy)
+        } else if terminal {
             std::mem::offset_of!(Functions, terminal)
         } else {
             std::mem::offset_of!(Functions, write)
         } as i32,
     );
     let index = c.ins().iconst(types::I32, i64::from(index));
+    let (tag, bits) = if let Some(copy) = copy {
+        (
+            c.ins().iconst(types::I64, i64::from(copy.source())),
+            c.ins().iconst(types::I64, 0),
+        )
+    } else {
+        (tag, bits)
+    };
     c.ins()
         .call_indirect(signature, target, &[host, slots, index, tag, bits]);
     c.ins().jump(after, &[]);
@@ -202,6 +225,23 @@ pub(super) fn verify_guard(
     Ok(())
 }
 
+pub(super) fn verify_copy_source(
+    f: &Function,
+    write: &Write,
+    analysis: &mut same_tag::Analysis,
+    terminal: &mut terminal::Analysis<'_>,
+) -> Result<(), JitError> {
+    if let Some(proof) = write.input.copy {
+        if !write.input.terminal
+            || !proof.matches(write.input.index, write.input.tag, write.input.bits)
+            || !copy::verify(f, write.input.slots, proof, analysis, terminal, true)
+        {
+            return Err(invalid());
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
     let [before, after, kind, wide, other, boolean, nil, slow] = write.blocks;
     let Input {
@@ -213,7 +253,11 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
         signature,
         terminal,
         known_tag,
+        copy,
     } = write.input;
+    if copy.is_some_and(|proof| !terminal || !proof.matches(index, tag, bits)) {
+        return Err(invalid());
+    }
     if f.layout.is_cold(slow) != known_tag.is_some() {
         return Err(invalid());
     }
@@ -293,7 +337,22 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
     let is_null = compare(f, is_null, IntCC::Equal, [pointer, null])?;
     let valid = value(f, valid, Opcode::Band, &[is_nil, is_null], types::I8)?;
     branch(f, split, valid, after, slow)?;
-    let [functions, target, register, call, end] = shape(f.layout.block_insts(slow))?;
+    let (functions, target, register, call, end, tag, bits) = if let Some(proof) = copy {
+        let [functions, target, register, source, zero, call, end] =
+            shape(f.layout.block_insts(slow))?;
+        (
+            functions,
+            target,
+            register,
+            call,
+            end,
+            constant(f, source, i64::from(proof.source()))?,
+            constant(f, zero, 0)?,
+        )
+    } else {
+        let [functions, target, register, call, end] = shape(f.layout.block_insts(slow))?;
+        (functions, target, register, call, end, tag, bits)
+    };
     let functions = load(
         f,
         functions,
@@ -305,7 +364,9 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
         f,
         target,
         functions,
-        if terminal {
+        if copy.is_some() {
+            std::mem::offset_of!(Functions, copy)
+        } else if terminal {
             std::mem::offset_of!(Functions, terminal)
         } else {
             std::mem::offset_of!(Functions, write)
@@ -403,6 +464,7 @@ fn typed_fixture(floating: bool) -> (Function, Write) {
             signature,
             terminal: false,
             known_tag: None,
+            copy: None,
         },
     );
     verify(&function, &write).unwrap();
