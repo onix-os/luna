@@ -150,14 +150,17 @@ post-effect refusal, verifying canonical values and exact PC/counts. This probe
 has admitted numeric preconditions; it is not arbitrary-bytecode lowering,
 runtime activation or independent emitted-IR certification.
 
-Final focused validation passes **22 tests each on GNU/musl**, formatting and
+Bridge source `791177e`: final focused validation passes **22 tests each on GNU/musl**, formatting and
 check-all, default/all-feature GNU Clippy with existing warnings, and **20 Rust
 tests each under Stacked and Tree Miri** with complete source after-checks.
 The real i686-musl executable passes **20 model tests**, with native probes
 excluded. Initial native addition-builder deprecation warnings were corrected
 before these final runs. Evidence is `packed-storage-*` and
 `packed-c-bridge-*`; source is in `packed/bridge*.rs` and `scoped.rs`.
-Broader payload/helper regression suites are tracked separately.
+Broader payload ABI/backend/runtime and helper suites then pass **171 tests each
+on GNU and musl across four summaries** (84 ABI, 57 backend, three runtime and
+27 helpers), with no failures or ignores. Logs are
+`packed-c-bridge-broad-{gnu,musl}.log`.
 
 Remaining packed work includes scalar materialization/terminal-write gateways,
 the separate full-entry compiler contract, independent source/emitted checking,
@@ -165,7 +168,8 @@ precise runtime exit/fuel/counter integration and resource accounting. Fresh
 frozen workload profiles and original hardware/compiled-Off gates still decide
 acceptance; no speedup or production activation is claimed by these fixtures.
 
-Broader payload ABI/backend/runtime and helper suites subsequently pass on both
+For the preceding scope source `85103de`, broader payload ABI/backend/runtime
+and helper suites also passed on both
 GNU and musl: **162 tests each across four summaries**, with no failures or
 ignores. Logs are `packed-scope-broad-{gnu,musl}.log`. This includes unchanged
 callback/upvalue/GC/array-kernel runtime differentials, not a packed runtime
