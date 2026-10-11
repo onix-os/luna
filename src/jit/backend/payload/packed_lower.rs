@@ -182,7 +182,7 @@ fn plan(
                     return Err(invalid());
                 };
                 if i32::from(offset) % 16 == 0 {
-                    (20, 0)
+                    (12, 0)
                 } else {
                     (
                         16 + usize::from(
@@ -617,5 +617,6 @@ fn verify(
     Ok(())
 }
 
+#[cfg(test)]
 #[path = "packed_lower_tests.rs"]
 mod tests;

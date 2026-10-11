@@ -104,7 +104,7 @@ fn packed_reads_preserve_result_identity_and_exact_expansion_at_prefix_edges() {
             cranelift_codegen::verify_function(&f, &flags).unwrap();
             let (instructions, blocks) = size(&source);
             let (added_i, added_b) = match kind {
-                Kind::Tag => (20, 0),
+                Kind::Tag => (12, 0),
                 Kind::Bits(types::I64) => (16, 3),
                 _ => (17, 3),
             };
@@ -165,7 +165,7 @@ fn instructions(f: &Function, read: &Read) -> Vec<Inst> {
     match read {
         Read::Tag(input) => {
             std::iter::successors(Some(input.inst), |&inst| f.layout.prev_inst(inst))
-                .take(21)
+                .take(13)
                 .collect()
         }
         Read::Bits {
@@ -226,7 +226,19 @@ fn packed_read_checker_rejects_well_formed_offset_mask_tag_branch_and_value_muta
                     let block = destination.block(&f.dfg.value_lists);
                     changed.replace(inst).jump(block, &[slots.into()]);
                 }
-                InstructionData::Unary { opcode, .. } => *opcode = Opcode::Sextend,
+                InstructionData::Unary {
+                    opcode: Opcode::Ireduce,
+                    ..
+                } => {
+                    changed.dfg.inst_args_mut(inst)[0] = slots;
+                }
+                InstructionData::Unary { opcode, .. } => {
+                    *opcode = if *opcode == Opcode::Sextend {
+                        Opcode::Uextend
+                    } else {
+                        Opcode::Sextend
+                    };
+                }
                 InstructionData::LoadNoOffset {
                     opcode: Opcode::Bitcast,
                     ..
@@ -246,7 +258,7 @@ fn packed_read_checker_rejects_well_formed_offset_mask_tag_branch_and_value_muta
         assert_eq!(
             rejected,
             match kind {
-                Kind::Tag => 21,
+                Kind::Tag => 13,
                 Kind::Bits(types::I64) => 17,
                 _ => 18,
             }
