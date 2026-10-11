@@ -11,6 +11,49 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Statically owned ordinary frames — rejected at instruction profiling
+
+An isolated trial makes `LuaFrame` generic over stack storage: ordinary
+execution owns its `RefMut`, while scoped activation still borrows the host's
+stack. Both use the same interpreter source with static dispatch; there is no
+ownership enum, cached mode/value, new unsafe code or changed fuel constant.
+The existing production frame representation remains unchanged.
+
+Formatting/all-feature checking and **60 focused test executions** pass.
+Additional ownership/mode/baseline activation checks pass **39 executions**,
+including normal-drop and panic-unwind probes for both storage forms in both
+feature configurations. Shipping/speed release builds and native proofs pass;
+all nine workload proof results and native instruction counts match controls
+in both profiles. This is not a full-suite or Miri claim.
+
+All **56 exact-image instruction profiles** verify. Allocated sections and
+program headers match each symbol companion, and invocation identities and
+source hashes verify. Compiled-Off instruction work increases in every case:
+
+| Workload | Shipping change | Speed change |
+| --- | ---: | ---: |
+| Integer loop | +18.904% | +19.097% |
+| Float loop | +19.162% | +18.762% |
+| Array/table | +4.671% | +5.025% |
+| Closure/upvalue | +2.579% | +3.419% |
+| Metamethods | +1.402% | +2.014% |
+| Rust callbacks | +1.778% | +2.912% |
+| Allocation/GC | +5.155% | +6.027% |
+
+Numeric profiles newly execute canonical `meta_ops::add` out of line:
+shipping integer adds 3,900,000 instructions there, speed integer 3,600,000.
+After grouping renamed generic frame symbols, speed `call_function` itself
+also adds 750,000 instructions for upvalues and 375,000 for callbacks.
+The no-feature binaries change too: shipping work is unchanged except GC
+allocator variation, but speed upvalue/callback work rises 450,015/150,015
+instructions. A changed no-feature baseline must not count as JIT improvement.
+
+**Reject this form; do not promote or run an acceptance timing campaign.**
+Instruction counts are not hardware timings, but show no work reduction to
+justify this candidate. Full JIT/performance acceptance remains open. Evidence
+is retained under `target/jit-evidence/short-slice-performance/owned-frame-*`,
+including the frozen patch, builds, tests and independently checked profiles.
+
 #### Interpreter-statistics finalization — rejected after repeated cost gates
 
 The shipping compiled-Off callback profile attributes **600,120 instructions**
