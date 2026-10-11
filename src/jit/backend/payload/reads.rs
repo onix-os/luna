@@ -41,6 +41,10 @@ pub(super) fn copy_entry(read: &Read) -> Block {
     read.blocks[0]
 }
 
+pub(super) fn copy_exit(read: &Read) -> Block {
+    read.blocks[1]
+}
+
 pub(super) fn split_copy_entry(f: &mut Function, read: &mut Read) -> Result<Block, JitError> {
     let prefix = read.blocks[0];
     let count = if read.contract == Contract::Checked {

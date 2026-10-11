@@ -386,9 +386,9 @@ fn plan(
                 host_calls = true;
                 (
                     30 + 2 * copy
-                        + 6 * bypass
+                        + 4 * bypass
                         + usize::from(function.dfg.value_type(bits) == types::F64),
-                    7 + bypass,
+                    7 + 2 * bypass,
                 )
             }
             Rewrite::Helper(..) => {
@@ -645,7 +645,7 @@ pub(super) fn lower_contract(
             plan.instructions
                 - plan.host_instructions
                 - 2 * (plan.copies - copy_count)
-                - 6 * (plan.bypasses - bypasses.len())
+                - 4 * (plan.bypasses - bypasses.len())
                 - 13 * numeric_count
                 - 29 * bound_count
                 - bound_read_savings
@@ -654,7 +654,7 @@ pub(super) fn lower_contract(
                 - 2 * numeric_count
                 - 6 * bound_count
                 - 3 * bound_read_count
-                - (plan.bypasses - bypasses.len()),
+                - 2 * (plan.bypasses - bypasses.len()),
         )
     {
         return Err(JitError::Compilation(
@@ -754,7 +754,7 @@ pub(super) fn lower_contract(
         != (
             plan.instructions - plan.host_instructions + expected_host
                 - 2 * (plan.copies - copy_count)
-                - 6 * (plan.bypasses - bypass_count)
+                - 4 * (plan.bypasses - bypass_count)
                 - 13 * numeric_count
                 - 29 * bound_count
                 - bound_read_savings
@@ -763,7 +763,7 @@ pub(super) fn lower_contract(
                 - 2 * numeric_count
                 - 6 * bound_count
                 - 3 * bound_read_count
-                - (plan.bypasses - bypass_count),
+                - 2 * (plan.bypasses - bypass_count),
         )
     {
         return Err(JitError::Compilation(

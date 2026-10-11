@@ -195,7 +195,7 @@ fn staged(
     .unwrap();
     assert_eq!(
         size(&output),
-        (before.0 + 6 * records.len(), before.1 + records.len())
+        (before.0 + 4 * records.len(), before.1 + 2 * records.len())
     );
     (output, reads, writes, records)
 }
@@ -277,7 +277,13 @@ fn bypass_checker_rejects_condition_edges_and_record_substitution() {
             )
         };
         check(&output, record).unwrap();
-        for inst in output.layout.block_insts(record.prefix).rev().take(6) {
+        for inst in output
+            .layout
+            .block_insts(record.prefix)
+            .rev()
+            .take(4)
+            .chain(output.layout.block_insts(record.check))
+        {
             let mut changed = output.clone();
             match &mut changed.dfg.insts[inst] {
                 InstructionData::Load { offset, .. } => *offset = (i32::from(*offset) + 16).into(),
@@ -299,6 +305,10 @@ fn bypass_checker_rejects_condition_edges_and_record_substitution() {
                 prefix: f.reference,
                 ..*record
             },
+            Bypass {
+                check: f.reference,
+                ..*record
+            },
         ] {
             assert!(check(&output, &changed).is_err());
         }
@@ -308,7 +318,15 @@ fn bypass_checker_rejects_condition_edges_and_record_substitution() {
         let Write::Checked(write) = &writes[0] else {
             unreachable!()
         };
-        for target in [reads::copy_entry(read), writes::copy_site(write).unwrap().1] {
+        let mut changed = output.clone();
+        let resume = changed.layout.first_inst(reads::copy_exit(read)).unwrap();
+        changed.replace(resume).jump(f.reference, &[]);
+        assert!(check(&changed, record).is_err());
+        for target in [
+            reads::copy_entry(read),
+            record.check,
+            writes::copy_site(write).unwrap().1,
+        ] {
             let mut changed = output.clone();
             let end = changed.layout.last_inst(f.reference).unwrap();
             changed.replace(end).jump(target, &[]);
@@ -328,7 +346,7 @@ fn bypass_expansion_and_workspace_refusals_leave_source_unchanged() {
     assert_eq!(p.bypasses, 1);
     let (instructions, blocks) = size(&f.f);
     for (removed_i, removed_b, accepted) in
-        [(0, 0, true), (1, 0, false), (0, 1, false), (6, 1, false)]
+        [(0, 0, true), (1, 0, false), (0, 1, false), (4, 2, false)]
     {
         let memory = allocator();
         let mut output = f.f.clone();

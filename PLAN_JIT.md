@@ -59,12 +59,33 @@ initial bypass's 12,646,124. The smaller allocation total delta comes from other
 work, not removal of the generated-code regression. This variant is rejected;
 no hardware campaign or root integration follows from these profiles.
 
-A separate early-guard experiment moves the existing reference branch before
+The revised early-guard experiment moves the existing reference branch before
 the scalar reader and checks the destination only on the scalar edge. It preserves
 the original reference-helper path and same-tag stores, adds four instructions
 and two blocks, and verifies the moved original instructions and reader-resume
-edge. Initial focused native checks pass; broader tests and profiles are pending.
-Evidence remains isolated under `copy-bypass-{fast-first,early-guard}*`.
+edge. The isolated activated checkout passes **256 executions/seven summaries**
+across focused and broad payload tests, plus four compiler tests per Miri mode.
+The actual Tree process and deferred-runner checkout were verified. Root GNU
+checks pass **259/seven**; musl and the full root suite are still running.
+
+Image `ec7479908eb0b699e8f40289d9c62662773da6c38eb433c6ffcaaf5d74717eed`
+completes eleven profiles. Compared with direct-copy, callback total falls
+**648,176 instructions (0.506054%)**, including **648,257 fewer generated
+instructions**. VM, executor, entry wrapper and table-helper work are unchanged.
+The allocation generated-code delta falls from **+183,187 to +52**; its total
+delta is +6,081 in this profile. All four Off controls and integer/float/array
+Auto totals are identical. Snapshot peaks still increase 48 bytes for the
+callback/allocation/metamethod cases; strict resource equality is not claimed.
+
+Sixteen additional profiles repeat callback, allocation, upvalue and metamethod
+twice per exact direct-copy/early-guard image. All non-timing statistics match
+their same-image initial profiles. Callback and allocation generated counts
+repeat exactly, while upvalue admission and allocator work vary. Metamethod
+generated work increases **12,610**, despite its lower total; that cost is retained
+as a regression to check in timing, not hidden by allocator variance. These are
+instruction diagnostics, not speedup or original performance acceptance.
+Evidence: `copy-bypass-early-guard-vs-*.json`, `copy-bypass-early-guard-repeat/`,
+and `copy-bypass-early-guard-{gnu-final,root-*,stacked,tree}*`.
 
 #### Terminal callback copy — integrated experiment, tuning pending
 

@@ -8,6 +8,7 @@ pub(super) struct Bypass {
     read: usize,
     write: usize,
     prefix: Block,
+    check: Block,
 }
 
 pub(super) fn candidate(
@@ -135,16 +136,28 @@ pub(super) fn apply(
             }
             let prefix = reads::split_copy_entry(f, read)?;
             let before = reads::copy_entry(read);
+            let after = reads::copy_exit(read);
+            let check = reads::block(f);
+            let [reference, compare, branch] = shape(f.layout.block_insts(after))?;
+            let InstructionData::Brif { arg, blocks, .. } = f.dfg.insts[branch] else {
+                return Err(invalid());
+            };
+            let direct = blocks[0].block(&f.dfg.value_lists);
+            let rejected = blocks[1].block(&f.dfg.value_lists);
+            for inst in [reference, compare, branch] {
+                f.layout.remove_inst(inst);
+                f.layout.append_inst(inst, prefix);
+            }
+            f.replace(branch).brif(arg, check, &[], rejected, &[]);
             let mut c = FuncCursor::new(f);
-            c.goto_bottom(prefix);
+            c.goto_bottom(after);
+            c.ins().jump(direct, &[]);
+            c.goto_bottom(check);
             let actual = c
                 .ins()
                 .load(types::I64, MemFlagsData::new(), slots, dest as i32 * 16);
             let different = c.ins().icmp(IntCC::NotEqual, actual, tag);
-            let reference = c.ins().iconst(types::I64, abi::REFERENCE as i64);
-            let scalar = c.ins().icmp(IntCC::NotEqual, tag, reference);
-            let ready = c.ins().band(scalar, different);
-            c.ins().brif(ready, slow, &[], before, &[]);
+            c.ins().brif(different, slow, &[], before, &[]);
             if records.len() == records.capacity() {
                 return Err(invalid());
             }
@@ -152,6 +165,7 @@ pub(super) fn apply(
                 read: read_index,
                 write: write_index,
                 prefix,
+                check,
             });
             break;
         }
@@ -183,25 +197,55 @@ pub(super) fn verify(
     {
         return Err(invalid());
     }
-    let mut tail: [Inst; 7] = shape(f.layout.block_insts(record.prefix).rev().take(7))?;
+    let mut tail: [Inst; 4] = shape(f.layout.block_insts(record.prefix).rev().take(4))?;
     tail.reverse();
-    let [source_tag, actual, different, reference, scalar, ready, branch] = tail;
+    let [source_tag, reference, scalar, guard] = tail;
     if reads::load(f, source_tag, slots, proof.source() as i32 * 16, types::I64)? != tag {
         return Err(invalid());
     }
-    let actual = reads::load(f, actual, slots, dest as i32 * 16, types::I64)?;
-    let different = reads::compare(f, different, IntCC::NotEqual, [actual, tag])?;
     let reference = reads::constant(f, reference, abi::REFERENCE as i64)?;
     let scalar = reads::compare(f, scalar, IntCC::NotEqual, [tag, reference])?;
-    let ready = reads::value(f, ready, Opcode::Band, &[scalar, different], types::I8)?;
-    let before = reads::copy_entry(read);
-    reads::branch(f, branch, ready, slow, before)?;
-    if f.layout.entry_block() == Some(before) || !f.dfg.block_params(before).is_empty() {
+    let source_bits = source.dfg.value_def(bits).inst().ok_or_else(invalid)?;
+    let original_constant = source.layout.next_inst(source_bits).ok_or_else(invalid)?;
+    let original_compare = source
+        .layout
+        .next_inst(original_constant)
+        .ok_or_else(invalid)?;
+    let original_branch = source
+        .layout
+        .next_inst(original_compare)
+        .ok_or_else(invalid)?;
+    let InstructionData::Brif { blocks, .. } = source.dfg.insts[original_branch] else {
+        return Err(invalid());
+    };
+    let direct = blocks[0].block(&source.dfg.value_lists);
+    let rejected = blocks[1].block(&source.dfg.value_lists);
+    if tail[1..] != [original_constant, original_compare, original_branch] {
         return Err(invalid());
     }
-    let mut incoming = predecessors.pred_iter(before);
-    if incoming.next().map(|p| p.inst) != Some(branch) || incoming.next().is_some() {
+    reads::branch(f, guard, scalar, record.check, rejected)?;
+    let [actual, different, branch] = shape(f.layout.block_insts(record.check))?;
+    let actual = reads::load(f, actual, slots, dest as i32 * 16, types::I64)?;
+    let different = reads::compare(f, different, IntCC::NotEqual, [actual, tag])?;
+    let before = reads::copy_entry(read);
+    reads::branch(f, branch, different, slow, before)?;
+    let [resume] = shape(f.layout.block_insts(reads::copy_exit(read)))?;
+    let InstructionData::Jump { destination, .. } = f.dfg.insts[resume] else {
         return Err(invalid());
+    };
+    if destination.block(&f.dfg.value_lists) != direct
+        || destination.args(&f.dfg.value_lists).next().is_some()
+    {
+        return Err(invalid());
+    }
+    for (block, parent) in [(before, branch), (record.check, guard)] {
+        if f.layout.entry_block() == Some(block) || !f.dfg.block_params(block).is_empty() {
+            return Err(invalid());
+        }
+        let mut incoming = predecessors.pred_iter(block);
+        if incoming.next().map(|p| p.inst) != Some(parent) || incoming.next().is_some() {
+            return Err(invalid());
+        }
     }
     let [head, nil] = writes::copy_predecessors(f, write).ok_or_else(invalid)?;
     let mut count = 0;
