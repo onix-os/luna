@@ -59,10 +59,37 @@ The first frozen activated build (`handoff`) completes before that loop-shape
 fix. A fresh `handoff2` source at `fcc9f01` includes the fix and the unchanged
 preceding payload activation, plus release-only handoff selection. It runs
 payload and callback/fuel/hook/suspension integration gates before capturing the
-release image. Profiling and original paired native/compiled-Off acceptance are
-still pending. In particular, inspect added Auto-mode checks on disabled-JIT
-callback traffic instead of assuming a shared executor rewrite is free.
-No performance improvement or production activation is accepted yet.
+release image. That build passes 235 tests across nineteen summaries; image
+SHA-256 is `f7c558e76cee6bb76d03e56fa0f5283f33b78b996348ae332f72bb4e33cab7dd`.
+Final musl passes four handoff plus fourteen activation tests. Source-hashed
+Stacked and Tree Miri runs each pass all three selected tests; source after-check
+passes. Exact profiles verify allocated ELF bytes/metadata/program headers,
+source/image manifests and twelve new runs: eleven candidate cases plus a
+previous-image callback Off control. All eleven full non-timing comparisons
+match, including resources, and all instruction self totals reconcile.
+
+Callback Auto instructions fall **131,650,796→126,597,901 (3.8381%)**. Combined
+executor/adapter work falls 5,052,814; allocator variation contributes another
+81 fewer instructions. VM, native invocation, generated callback code and helper
+work are unchanged. Metamethod instructions fall 863,946 (1.1172%). Adverse
+results remain: closure Auto +110,571 (0.0690%), closure Off +3,111,048 (1.4578%),
+integer/float Off +95,966 (0.1943%/0.1809%), integer/float Auto about +0.60%,
+array +55,967 and allocation +36,745. Most importantly, callback Off grows
+**102,871,353→105,983,969 (3.0257%)**. Executor gains 5,128,019 there while its
+outlined adapter loses 2,015,403: this is real additional disabled-path work,
+not a claimed callback speedup. No hardware campaign is run for this form.
+
+The refinement stops considering handoffs for the rest of the current step
+after the first disabled/refused policy check. Successor probes are skipped
+once that flag is false. It does not cache a positive mode, source, code or
+frame: every taken handoff still requires a fresh Auto query, and VM/native
+selection remains fresh even when this optional dispatch shortcut is suppressed.
+An Off→Auto change can enable the shortcut at the next step; the new differential
+explicitly checks both the same-step refusal and activation after an interrupt.
+All five focused tests and fifteen activation tests pass GNU/check-all.
+This refinement still requires final musl/Miri checks and a new frozen profile;
+the preceding profile does not establish its performance. Original paired
+native/compiled-Off acceptance and production activation remain pending.
 
 Evidence: `callback-handoff-*` and `payload-terminal-profile/handoff*` beneath
 `target/jit-evidence/short-slice-performance/`. Original full performance,
