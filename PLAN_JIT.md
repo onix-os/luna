@@ -11,6 +11,151 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Descriptor/pointee alias classes — no callback benefit
+
+Two isolated compiler trials distinguish frame-bound descriptor storage from its
+canonical scalar pointees after the existing lowering proofs. Checked transport
+is unchanged. They add at most two Cranelift alias regions, no readonly/notrap
+claims and no persistent runtime state. Unknown stores and helpers remain
+fences. Unknown loads instead skip annotation unchanged: the pinned optimizer
+does not treat an unclassified load as observing every named store region.
+Only separately verified private host reloads and bounded function-table reads
+may remain outside the two classes. The second trial also covers the existing
+verified F64 pointee-load shape; excluding it conservatively skipped functions
+containing even an untaken float path.
+
+The initial model passes **232 executions across four summaries**. Subsequent
+guarded models pass four and five tests, respectively. These are separate source
+revisions, not a full-suite result for the final trial. Both immutable builds
+pass fmt/check-all and eleven exact-image profiles with every non-timing field
+equal to array-transport. Images are
+`9545a951ce517698d46305c05cd3d22e1e00b48ca17e1bda5bf62536768fc2a6`
+and `d0aee1195334a33b879598ea625e7ee51f84499ad1511e162397d5ad656703e5`.
+Neither changes callback total work or its **13,099,872 generated instructions**.
+Two further callback profiles per final/control image retain identical complete
+non-timing records and the same generated/bridge/helper work; totals differ only
+by the observed 81-instruction allocator variation. Each trial adds **8,184 bytes**
+to host text/data/BSS combined. No hardware speedup is claimed or timing campaign
+run for this absent instruction benefit. **Do not promote either trial.**
+
+Validation caught a shared-target `cargo miri` pitfall: the deferred runner still
+named the earlier `table-pc-source` directory and reported **zero matching tests**
+for the new region model. Those command exits are not passes. A fresh
+variant-specific target directory, checked runner directory and exact five-test
+count give five passes with default flags and five with Tree Borrows requested.
+The stale logs remain. Avoid sharing deferred Miri artifacts across clone paths;
+do not use reserved `MIRI_LOG` as a harness output filename variable. This does
+not retroactively certify other cross-clone runs.
+
+Evidence: `target/jit-evidence/short-slice-performance/payload-regions-*`, including
+`wide`, `callback-repeat`, `final-miri` and decoded runner-directory records, plus
+frozen `payload-terminal-profile/payload-regions*/`. Main-checkout runtime source
+is unchanged; full performance, resource and release acceptance remain open.
+
+#### Constant-table PC write — isolated trial not promoted
+
+The measured payload activation already excludes `Bridge.materializations` and
+its increments with `cfg(test)`. The unconditional counter in the main checkout
+is inside a test-only module; it is not callback overhead in the frozen image.
+
+A separate trial removes only the second successful next-PC store in
+`constant_table`. The first store, decline rollback, panic/stopped handling and
+all observable counters remain. The raw table-read/store body invokes no guest
+or host callback. GNU and musl each pass eight focused tests; Stacked and Tree
+Borrows each pass the same eight. The broad write-binding runtime parity test
+also passes. Its command subsequently fails because the older isolated Makefile
+lacks `jit-array-transport-runtime`; those newer array tests were not run for this
+trial, and the failed orchestration log remains available.
+
+Image `a8cefa63309678f4eff15897364c545f66379bed900cf91d53e074fb36d649ac`
+completes eleven profiles against array-transport `60ab5a5b`. Every non-timing
+execution/resource field matches; all four Off instruction totals match.
+Callback work falls **259,344 instructions (0.2023%)**, entirely in helper6:
+four instructions per 64,836 calls. Wrapper, VM and generated callback work are
+unchanged. Text falls 32 bytes while BSS grows 32; their total is unchanged.
+The first float profile instead adds 97,656 VM instructions. Two fresh profiles
+per exact image do **not** reproduce that difference: both images' VM self work
+is 2,998,292 each time, versus 3,095,948 in the first trial profile. Keep the
+adverse original, but do not attribute this process-varying count to the edit.
+
+Four eleven-sample, four-way campaigns complete **96 commands / 2,592 report
+rows**, with current production, previous array-transport, same-image placebos,
+CPU0/16 windows, rotated order, unchanged thresholds and host telemetry. All
+24 candidate callback and aggregate checks fail. Direct callback Auto ratios
+against the previous candidate are **0.98356, 1.00256, 0.99907 and 1.00685**;
+there is no consistent timing gain. Float ratios are **0.99570, 1.00489, 0.99740
+and 0.99662**. The last two callback production ratios, 1.02336/1.02547, mostly
+retain the earlier payload improvement and do not establish a gain from this
+PC-store edit. The first campaign's large direct shifts and all failures remain
+in the evidence; no owned validation or profiling overlaps hardware timing.
+
+**Decision:** do not promote this isolated source change. It removes real helper
+instructions, but does not demonstrate a repeatable callback timing improvement
+or resolve the frozen gate. Main-checkout runtime source remains unchanged.
+Evidence: `target/jit-evidence/short-slice-performance/table-pc-*`, the separate
+`round2` and `float-repeat` outputs, and frozen
+`payload-terminal-profile/table-pc*/`. Full performance/resource acceptance is
+still open; this is not a production speedup claim.
+
+#### Array-aware entry selection — measured development change
+
+`933e2c6` extends the test-only transport preference to source regions recognized
+by the existing array-window planner. Such functions retain ordinary scalar-slot
+transport; compatible functions without numeric/array plans still use FrameBound.
+Recognition verifies the snapshot and allocates no charged storage. This is a
+source opportunity, not a promise that work/mapping budgets admit a kernel.
+No benchmark names, native coverage changes or runtime type assumptions are used.
+
+Tests cover twelve positive/negative sources, unchanged snapshots/ledger usage,
+six malformed snapshots, both native entry families, and retained executable
+ordinary code when the optional array mapping cannot fit. Runtime comparisons
+cover float-control guards, metatable writes and host readonly mutation between
+GC-stepped slices, in addition to the existing broad mixed-cache oracle. GNU and
+musl each pass **nine tests / four summaries**; both main-checkout Miri models
+pass **four / two**, and isolated query checks pass two per model. The full GNU
+Force run also completes successfully: **1,787 passed across 88 summaries**, six
+ignored and no failures, with fmt/check-all passing in the same command.
+
+Activated image
+`60ab5a5bddccb73c391e7a89446b15238c7d3302c94f4aa3f035d8f8e0d81cdf`
+completes eleven exact-image profiles. Against the SetList candidate, array work
+falls **723,024 instructions (-2.0216%)** and retained array code falls from
+**16,384 to 12,288 bytes**, matching current ordinary production. Array kernels,
+main generated code, window setup and helper5 work now match production; wrapper
+and VM-entry work leave **90,383 extra instructions (+0.2586%)**. Every array
+non-timing execution/resource field matches production. Other workloads retain
+prior snapshot/code costs; allocation and callback improvements are unchanged.
+Against SetList, integer Auto adds 109 instructions, upvalue removes 106,532, and
+all four Off totals match. These incidental changes are not attributed to array
+kernels. Host GNU size text shrinks 228 bytes; total text/data/bss shrinks four.
+
+Four unchanged eleven-sample, four-way campaigns complete **96 commands / 2,592
+report rows**, retaining current production `1a8916db`, previous SetList
+`3e40e67f`, same-image placebos, CPU0/16 windows, rotated order, frozen thresholds
+and external telemetry. No owned validation/profile overlaps timing. The first
+two campaigns show large non-repeatable direct timing shifts, including integer
+1.35323/1.00015 and array 0.99794/1.19240 against production. Unchanged workload
+instruction counts, paired ratios and the next two campaigns do not substantiate
+those large direct ratios as optimization gains. All raw data is retained.
+
+The second pair gives direct Auto production ratios (screen/repeat): integer
+**0.99210 / 0.99105**, float **0.99420 / 0.99214**, array
+**0.99402 / 0.98984**, upvalue **0.99970 / 1.00222**, metamethod
+**1.03970 / 1.03828**, callback **1.02799 / 1.02539**, allocation
+**1.01525 / 1.02359**, unscored Oslo **0.98937 / 0.99603**, cold
+**0.98268 / 0.99683**. Array is **1.00791 / 1.00403** versus the previous
+candidate on direct Auto timings, a modest improvement rather than a claimed
+19% gain. Its normalized paired candidate/previous ratios across all four
+campaigns are 1.00619, 1.02158, 1.01688 and 1.00460; these are not direct timings
+or original gate ratios. All 96 aggregate gates fail. Candidate array gates pass
+20/24, callback 1/24, upvalue 23/24 and metamethod 21/24; numeric/allocation/cold
+pass 24/24. Remaining regressions and callback/resource gates are still open.
+
+Evidence: `target/jit-evidence/short-slice-performance/array-transport-*`, including
+the separate `round2` campaigns and `control-stability.json`, plus frozen
+`payload-terminal-profile/array-transport*/`. Production activation and full-plan
+acceptance remain incomplete.
+
 #### Scoped SetList transport — allocation overhead reduced
 
 `26faadb` adds a bounded fixed-list payload helper. It reads values through live
@@ -30,8 +175,8 @@ pass all three in both isolated and main-checkout sources. Main GNU and musl eac
 also pass the enlarged hybrid runtime oracle, including fixed and variable-list
 table constructors with interpreter/ordinary controls, per-slice fuel/counters
 and periodic GC. These are **four tests/two summaries per native platform**.
-A fresh full GNU Force run is active; the completed 1,780-test wrapper run below
-predates this SetList change.
+A fresh full GNU Force run on this SetList change passes **1,783 tests / 88
+summaries**, zero failures and six ignored (`payload-set-list-root-gnu-all.log`).
 
 Activated image
 `3e40e67fea4deda32a37902d991c0c6e9436382212381096abdda017ec1ee2e1`

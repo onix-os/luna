@@ -697,6 +697,16 @@ jit-payload-set-list:
 jit-payload-set-list-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::runtime::set_list_tests:: -- --test-threads=1
 
+.PHONY: jit-array-transport jit-array-transport-miri jit-array-transport-runtime
+jit-array-transport:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::array_window::transport_tests:: $(ARGS)
+
+jit-array-transport-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::array_window::transport_tests:: -- --test-threads=1
+
+jit-array-transport-runtime:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::array_window::runtime_tests::hybrid_array_ $(ARGS)
+
 jit-payload-bound:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::bound_tests:: $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::bound_ $(ARGS)

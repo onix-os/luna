@@ -754,7 +754,10 @@ fn compile_selected_rooted(
             || selection.integer_activation;
         #[cfg(not(miri))]
         let ordinary = ordinary || selection.scoped_helpers;
-        if ordinary || integer_loop::has_source_plan(snapshot)? {
+        if ordinary
+            || integer_loop::has_source_plan(snapshot)?
+            || super::array_window::has_source_plan(snapshot)?
+        {
             Failure::None
         } else {
             Failure::RequireBoundPayload
