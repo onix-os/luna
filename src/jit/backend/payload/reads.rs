@@ -75,20 +75,24 @@ pub(super) fn emit_contract(
     c.goto_bottom(before);
     let offset = index as i32 * 16;
     let tag = c.ins().load(types::I64, MemFlagsData::new(), slots, offset);
-    let pointer = c.ins().load(
-        types::I64,
-        MemFlagsData::new(),
-        slots,
-        offset + crate::jit::abi::payload::POINTER_OFFSET as i32,
-    );
+    let pointer_offset = offset + crate::jit::abi::payload::POINTER_OFFSET as i32;
+    let pointer = (contract == Contract::Checked).then(|| {
+        c.ins()
+            .load(types::I64, MemFlagsData::new(), slots, pointer_offset)
+    });
     let is_wide = emit_wide(&mut c, tag);
-    let null = c.ins().iconst(types::I64, 0);
-    let nonnull =
-        (contract == Contract::Checked).then(|| c.ins().icmp(IntCC::NotEqual, pointer, null));
+    let null = pointer.map(|_| c.ins().iconst(types::I64, 0));
+    let nonnull = pointer.map(|pointer| c.ins().icmp(IntCC::NotEqual, pointer, null.unwrap()));
     let valid_wide = nonnull.map_or(is_wide, |nonnull| c.ins().band(is_wide, nonnull));
     c.ins().brif(valid_wide, wide, &[], other, &[]);
     c.goto_bottom(wide);
-    let bits = c.ins().load(types::I64, MemFlagsData::new(), pointer, 0);
+    let wide_pointer = pointer.unwrap_or_else(|| {
+        c.ins()
+            .load(types::I64, MemFlagsData::new(), slots, pointer_offset)
+    });
+    let bits = c
+        .ins()
+        .load(types::I64, MemFlagsData::new(), wide_pointer, 0);
     c.ins().jump(after, &[bits.into()]);
     c.goto_bottom(other);
     let boolean_tag = c.ins().iconst(types::I64, abi::BOOLEAN as i64);
@@ -96,10 +100,17 @@ pub(super) fn emit_contract(
     let valid_boolean = nonnull.map_or(is_boolean, |nonnull| c.ins().band(is_boolean, nonnull));
     c.ins().brif(valid_boolean, boolean, &[], zero, &[]);
     c.goto_bottom(boolean);
-    let byte = c.ins().load(types::I8, MemFlagsData::new(), pointer, 0);
+    let boolean_pointer = pointer.unwrap_or_else(|| {
+        c.ins()
+            .load(types::I64, MemFlagsData::new(), slots, pointer_offset)
+    });
+    let byte = c
+        .ins()
+        .load(types::I8, MemFlagsData::new(), boolean_pointer, 0);
     let bits = c.ins().uextend(types::I64, byte);
     c.ins().jump(after, &[bits.into()]);
     c.goto_bottom(zero);
+    let null = null.unwrap_or_else(|| c.ins().iconst(types::I64, 0));
     c.ins().jump(after, &[null.into()]);
     Read {
         contract,
@@ -262,23 +273,13 @@ pub(super) fn verify_contract(
             return Err(invalid());
         }
     }
-    let (head, checked) = match contract {
-        Contract::Checked => {
-            let mut head: [Inst; 10] = shape(f.layout.block_insts(before).rev().take(10))?;
-            head.reverse();
-            let [tag, pointer, mask, masked, integer, is_wide, null, nonnull, valid, split] = head;
-            (
-                [tag, pointer, mask, masked, integer, is_wide, null, split],
-                Some((nonnull, valid)),
-            )
-        }
-        Contract::FrameBound => {
-            let mut head: [Inst; 8] = shape(f.layout.block_insts(before).rev().take(8))?;
-            head.reverse();
-            (head, None)
-        }
-    };
-    let [tag, pointer, mask, masked, integer, is_wide, null, split] = head;
+    if contract == Contract::FrameBound {
+        verify_bound_body(f, read, slots)?;
+        return verify_bound_edges(f, read, predecessors.ok_or_else(invalid)?);
+    }
+    let mut head: [Inst; 10] = shape(f.layout.block_insts(before).rev().take(10))?;
+    head.reverse();
+    let [tag, pointer, mask, masked, integer, is_wide, null, nonnull, valid, split] = head;
     let tag = load(f, tag, slots, read.index as i32 * 16, types::I64)?;
     let pointer = load(
         f,
@@ -289,35 +290,16 @@ pub(super) fn verify_contract(
     )?;
     let is_wide = verify_wide(f, [mask, masked, integer, is_wide], tag)?;
     let null = constant(f, null, 0)?;
-    let (valid, nonnull) = if let Some((nonnull, valid)) = checked {
-        let nonnull = compare(f, nonnull, IntCC::NotEqual, [pointer, null])?;
-        (
-            value(f, valid, Opcode::Band, &[is_wide, nonnull], types::I8)?,
-            Some(nonnull),
-        )
-    } else {
-        (is_wide, None)
-    };
+    let nonnull = compare(f, nonnull, IntCC::NotEqual, [pointer, null])?;
+    let valid = value(f, valid, Opcode::Band, &[is_wide, nonnull], types::I8)?;
     branch(f, split, valid, wide, other)?;
     let [load_inst, end] = shape(f.layout.block_insts(wide))?;
     let bits = load(f, load_inst, pointer, 0, types::I64)?;
     jump(f, end, after, bits)?;
-    let (tag_inst, cmp, valid, split) = if nonnull.is_some() {
-        let [tag, cmp, valid, split] = shape(f.layout.block_insts(other))?;
-        (tag, cmp, Some(valid), split)
-    } else {
-        let [tag, cmp, split] = shape(f.layout.block_insts(other))?;
-        (tag, cmp, None, split)
-    };
+    let [tag_inst, cmp, valid, split] = shape(f.layout.block_insts(other))?;
     let boolean_tag = constant(f, tag_inst, abi::BOOLEAN as i64)?;
     let is_boolean = compare(f, cmp, IntCC::Equal, [tag, boolean_tag])?;
-    let valid = match (valid, nonnull) {
-        (Some(valid), Some(nonnull)) => {
-            value(f, valid, Opcode::Band, &[is_boolean, nonnull], types::I8)?
-        }
-        (None, None) => is_boolean,
-        _ => return Err(invalid()),
-    };
+    let valid = value(f, valid, Opcode::Band, &[is_boolean, nonnull], types::I8)?;
     branch(f, split, valid, boolean, zero)?;
     let [load_inst, extend, end] = shape(f.layout.block_insts(boolean))?;
     let byte = load(f, load_inst, pointer, 0, types::I8)?;
@@ -325,10 +307,34 @@ pub(super) fn verify_contract(
     jump(f, end, after, bits)?;
     let [end] = shape(f.layout.block_insts(zero))?;
     jump(f, end, after, null)?;
-    if contract == Contract::FrameBound {
-        verify_bound_edges(f, read, predecessors.ok_or_else(invalid)?)?;
-    }
     Ok(())
+}
+
+fn verify_bound_body(f: &Function, read: &Read, slots: IrValue) -> Result<(), JitError> {
+    let [before, after, wide, other, boolean, zero] = read.blocks;
+    let mut head: [Inst; 6] = shape(f.layout.block_insts(before).rev().take(6))?;
+    head.reverse();
+    let [tag, mask, masked, integer, is_wide, split] = head;
+    let tag = load(f, tag, slots, read.index as i32 * 16, types::I64)?;
+    let is_wide = verify_wide(f, [mask, masked, integer, is_wide], tag)?;
+    branch(f, split, is_wide, wide, other)?;
+    let pointer_offset = read.index as i32 * 16 + crate::jit::abi::payload::POINTER_OFFSET as i32;
+    let [pointer, bits, end] = shape(f.layout.block_insts(wide))?;
+    let pointer = load(f, pointer, slots, pointer_offset, types::I64)?;
+    let bits = load(f, bits, pointer, 0, types::I64)?;
+    jump(f, end, after, bits)?;
+    let [boolean_tag, is_boolean, split] = shape(f.layout.block_insts(other))?;
+    let boolean_tag = constant(f, boolean_tag, abi::BOOLEAN as i64)?;
+    let is_boolean = compare(f, is_boolean, IntCC::Equal, [tag, boolean_tag])?;
+    branch(f, split, is_boolean, boolean, zero)?;
+    let [pointer, byte, bits, end] = shape(f.layout.block_insts(boolean))?;
+    let pointer = load(f, pointer, slots, pointer_offset, types::I64)?;
+    let byte = load(f, byte, pointer, 0, types::I8)?;
+    let bits = value(f, bits, Opcode::Uextend, &[byte], types::I64)?;
+    jump(f, end, after, bits)?;
+    let [null, end] = shape(f.layout.block_insts(zero))?;
+    let null = constant(f, null, 0)?;
+    jump(f, end, after, null)
 }
 
 fn verify_bound_edges(
