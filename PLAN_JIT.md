@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-11
 
-#### Integer-only inline payload binding — timing pending
+#### Integer-only inline payload binding — measured development WIP
 
 The typed binder now keeps only Integer inline and outlines Number together
 with Nil, Boolean and references. This changes no layout, pointer lifetime,
@@ -35,10 +35,33 @@ GNU format/check-all and payload ABI/backend/runtime pass **229 / four summaries
 Stacked and Tree Borrows each pass **six / five summaries**, covering binding
 transitions, mixed-prefix reentry, function-table pointers, capacity/unwind and
 caught-helper-panic reuse. Focused musl passes **29 / eight summaries**. These
-checks are complete; no full-workspace rerun is claimed here. Two unchanged
-four-way timing campaigns are prepared, with historical/control/placebo images,
-eleven paired samples, all nine workloads, CPU 0/16 and three rotated windows.
-No timing result or performance acceptance is available yet.
+checks are complete; a full-workspace Force rerun is in progress, not yet accepted.
+
+Four complete four-way timing campaigns retain **96 failed aggregate gates**
+and **2,592 parsed rows**, with historical/control/placebo images, eleven paired
+samples, all nine workloads, CPU 0/16 and three rotated windows. Additional
+campaigns reverse CPU order and rotate window order. No owned build/test/profile
+or source edit overlaps timing; source/image checks pass. External contention
+remains recorded. All current-candidate and same-image non-timing comparisons
+match. Each campaign retains 48 historical differences, only the inherited
+metadata-byte/peak fields; these are not silently treated as equality.
+
+Across all 24 windows, median direct Auto ratios (control time / candidate time,
+above one is faster) are callback **1.02126**, metamethod **1.03231**, allocation
+**1.02500**, integer **1.00985**, float 1.00144, array **0.99791** and upvalue
+**0.99831**. Callback improves in 22/24 windows; its normalized median-paired
+ratio is 1.02375 versus same-image placebo 0.99983. However, CPU16 allocation
+is **0.98728** (9/12 slower), upvalue **0.98591** (10/12 slower) and array
+**0.98800** (7/12 slower). These adverse CPU-specific results remain open;
+the favorable pooled medians do not erase them. No blanket speedup is claimed.
+
+Original callback gates still pass **0/24**; array/upvalue pass 23/24,
+metamethod 22/24, integer/float/allocation/cold 24/24; Oslo remains unscored.
+The small, semantically unchanged binder is retained as experimental development
+WIP, **not promoted to production or accepted as the regression fix**. Next,
+compare the complete experimental ABI against a freshly frozen current-production
+image, not merely against the preceding experimental binder. Original full
+performance, feature-cost, resource and release gates remain open.
 
 Evidence: `target/jit-evidence/short-slice-performance/integer-binding-*` and
 `payload-terminal-profile/integer-binding*/`. The root runtime remains on its
