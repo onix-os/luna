@@ -72,6 +72,7 @@ enum Write {
 enum Read {
     Scalar(reads::Read),
     Numeric(numeric_reads::Read),
+    BoundNumeric(numeric_reads::BoundRead),
 }
 
 enum Rewrite {
@@ -418,6 +419,8 @@ pub(super) fn lower_contract(
         .then(|| numeric_reads::Analysis::new(function, allocator.clone()))
         .transpose()?;
     let mut numeric_count = 0;
+    let mut bound_read_count = 0;
+    let mut bound_read_savings = 0;
     let mut candidate = function.clone();
     let mut write = Signature::new(function.signature.call_conv);
     write
@@ -435,13 +438,27 @@ pub(super) fn lower_contract(
                     .as_mut()
                     .and_then(|a| a.admit(function, inst, slots, index))
                 {
-                    reads.push(Read::Numeric(numeric_reads::emit(
-                        &mut candidate,
-                        inst,
-                        slots,
-                        index,
-                        guard,
-                    )));
+                    if contract == Contract::FrameBound {
+                        bound_read_count += 1;
+                        bound_read_savings += 5 + usize::from(
+                            function.dfg.value_type(function.dfg.first_result(inst)) == types::F64,
+                        );
+                        let read =
+                            numeric_reads::emit_bound(&mut candidate, inst, slots, index, guard);
+                        numeric
+                            .as_mut()
+                            .ok_or_else(invalid)?
+                            .verify_bound_source(function, &read, slots)?;
+                        reads.push(Read::BoundNumeric(read));
+                    } else {
+                        reads.push(Read::Numeric(numeric_reads::emit(
+                            &mut candidate,
+                            inst,
+                            slots,
+                            index,
+                            guard,
+                        )));
+                    }
                     numeric_count += 1;
                 } else {
                     reads.push(Read::Scalar(reads::emit(
@@ -528,8 +545,12 @@ pub(super) fn lower_contract(
     drop((numeric, terminal));
     if size(&candidate)
         != (
-            plan.instructions - plan.host_instructions - 13 * numeric_count - 29 * bound_count,
-            plan.blocks - 2 * numeric_count - 6 * bound_count,
+            plan.instructions
+                - plan.host_instructions
+                - 13 * numeric_count
+                - 29 * bound_count
+                - bound_read_savings,
+            plan.blocks - 2 * numeric_count - 6 * bound_count - 3 * bound_read_count,
         )
     {
         return Err(JitError::Compilation(
@@ -544,6 +565,14 @@ pub(super) fn lower_contract(
             Read::Scalar(read) => reads::verify(&candidate, read, slots)?,
             Read::Numeric(read) => {
                 numeric_reads::verify(&candidate, read, slots, predecessors.as_ref().unwrap())?
+            }
+            Read::BoundNumeric(read) => {
+                numeric_reads::verify_bound(
+                    &candidate,
+                    read,
+                    slots,
+                    predecessors.as_ref().unwrap(),
+                )?;
             }
         }
     }
@@ -589,8 +618,9 @@ pub(super) fn lower_contract(
         != (
             plan.instructions - plan.host_instructions + expected_host
                 - 13 * numeric_count
-                - 29 * bound_count,
-            plan.blocks - 2 * numeric_count - 6 * bound_count,
+                - 29 * bound_count
+                - bound_read_savings,
+            plan.blocks - 2 * numeric_count - 6 * bound_count - 3 * bound_read_count,
         )
     {
         return Err(JitError::Compilation(
