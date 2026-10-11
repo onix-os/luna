@@ -154,6 +154,31 @@ pub(super) fn with_table_value<'gc>(
     }
 }
 
+#[inline(always)]
+pub(super) fn write_table_value<'gc>(
+    ctx: Context<'gc>,
+    table: Value<'gc>,
+    key: Value<'gc>,
+    value: Value<'gc>,
+) -> bool {
+    let Value::Table(table) = table else {
+        return false;
+    };
+    if table.is_readonly()
+        || matches!(key, Value::Nil)
+        || matches!(key, Value::Number(value) if value.is_nan())
+    {
+        return false;
+    }
+    if table.metatable().is_some_and(|mt| {
+        (table.get_raw(&ctx, key).is_nil() || table.intercepts_all_writes())
+            && !mt.get_value(ctx, MetaMethod::NewIndex).is_nil()
+    }) {
+        return false;
+    }
+    table.set_raw(&ctx, key, value).is_ok()
+}
+
 impl<'gc> Frame<'gc, '_, '_, '_> {
     fn register(&self, slots: &(impl Transport<'gc> + ?Sized), index: u32) -> Value<'gc> {
         slots.read(index as usize, self.registers.stack_frame[index as usize])
@@ -194,22 +219,7 @@ impl<'gc> Frame<'gc, '_, '_, '_> {
     }
 
     fn table_write(&mut self, table: Value<'gc>, key: Value<'gc>, value: Value<'gc>) -> bool {
-        let Value::Table(table) = table else {
-            return false;
-        };
-        if table.is_readonly()
-            || matches!(key, Value::Nil)
-            || matches!(key, Value::Number(value) if value.is_nan())
-        {
-            return false;
-        }
-        if table.metatable().is_some_and(|mt| {
-            (table.get_raw(&self.ctx, key).is_nil() || table.intercepts_all_writes())
-                && !mt.get_value(self.ctx, MetaMethod::NewIndex).is_nil()
-        }) {
-            return false;
-        }
-        if table.set_raw(&self.ctx, key, value).is_err() {
+        if !write_table_value(self.ctx, table, key, value) {
             return false;
         }
         self.count.table_writes += 1;

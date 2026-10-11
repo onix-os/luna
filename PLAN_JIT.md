@@ -11,6 +11,112 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Scoped table writes — register bindings preserved
+
+Commit `bc742cd` adds a payload SetTable path that does not borrow or refresh
+the whole register frame. Constants come from the existing prototype;
+Boolean/integer/number registers are read through their live typed descriptors.
+Reference and Nil/null descriptors use canonical values; a retired Nil
+descriptor can represent a non-Nil canonical scalar and must not decode as Nil.
+Table mutation uses the same inline operation as ordinary helpers, preserving
+readonly, nil/NaN key, metatable, interception and raw-write error guards. No Lua
+metamethod executes inside this path: a declined write returns to the existing
+interpreter. Bounds/invalid descriptors retain generic fallback, caught panics
+stop reentry, and PC/helper/table-write counters retain their contracts.
+
+Terminal liveness now treats SetTable as a possible no-refresh helper rather
+than a full-refresh boundary. Independent graph tests cover every helper kind,
+reads/writes/loops and bounded workspace; checked and frame-bound lowering both
+retain live post-helper descriptors. No callback-spanning pointers or private
+Value layout assumptions are introduced.
+
+GNU/musl each pass **51 ABI + 57 backend + three runtime + 27 helper tests**;
+GNU formatting/check-all also pass. New model tests preserve all value kinds,
+7/256-register sibling pointers, singleton and operand aliases, constants,
+directly modified and retired scalar values, 96 readonly/metatable/key guard
+combinations, non-table receivers, current-frame captures and full-fallback
+refresh, malformed indices, borrow panics and stopped reentry. Three integrated
+loops exercise constant/dynamic writes and __newindex with live sibling values,
+fuel/interrupt stepping, GC and identical counters against interpreter/ordinary
+controls. Both Miri borrow models pass five ABI and five terminal model tests.
+The frozen activated candidate passes all 111 payload tests and check-all;
+SHA-256 is `f9a1cd17e93aa966fd58da917c757d5cfd90b080d4a79ba0ce443d76bee5e537`.
+The initial activation check failed because an older experimental patch still
+marked the now-used scalar loader test-only; the new candidate activation patch
+is corrected and the failed log is retained in `write-initial-check-failed/`.
+
+Ten frozen profiles versus `local` preserve every non-timing statistic and all
+three Off instruction controls. Metamethod work falls **2,615,686 instructions
+(3.0714%)**: rebind −1,721,377, bind_non_numeric −622,272, the old table_write
+body −608,039 and helper5 +336,002. Array work falls 593,382 (1.6224%). Numeric
+Auto loops are identical; callback work rises 81 and allocation work rises
+1,345. Upvalue work falls 313,633, almost entirely in Admitted::new rather than
+table helpers; retain that attribution rather than claiming a table-write gain.
+All 13 events, function sums, resource counters, ELF section comparisons and
+source/image/inode checks remain intact. Evidence: `local-vs-write-analysis.json`
+and `write-*-auto-delta.json`. Full workspace tests and hardware timing remain
+separate gates; this is not activation or performance acceptance.
+Logs: `payload-table-write-*` and
+`payload-terminal-profile/write*` under `target/jit-evidence/short-slice-performance/`.
+
+#### Branch-local scalar descriptor loads — measured and withdrawn
+
+Commit `3c97f73` moves frame-bound scalar pointer loads into their numeric and
+Boolean branches, and constructs zero only on the Nil/reference branch. The
+pointer and zero no longer span the tag split in emitted IR. The checked
+nullable-descriptor path is unchanged. Independent emitted verification checks
+each branch-local pointer load, tag, width, result and exclusive incoming edges;
+73 well-formed mutations across integer/floating forms are rejected. Exact
+expansion accounting includes the additional static instruction versus the
+previous bound shape: two instructions saved versus checked, rather than three.
+Peak workspace refusal/cleanup and contract mismatch checks remain in place.
+
+GNU/musl each pass 46 ABI + 56 backend + three runtime tests; GNU check-all and
+formatting pass. Final focused bound tests also pass on both targets, including
+native canonical readers and 169 value-transition pairs. Both Miri models pass
+12 focused tests each. The frozen activated build passes all 105 payload tests
+and check-all; its SHA-256 is
+`cd16c61005a01350c9b121e1d9b87329896edbbe0cf132b2cc3f09961feff0dd`.
+
+Ten profiles preserve every non-timing statistic, with identical Off controls,
+but do not support the spill-reduction hypothesis. Callback instructions rise
+64,823, entirely in its captured native mapping (13,099,872 → 13,164,695).
+Weighted stack-offset 8/16 work rises by the same 64,823 to 972,620. Allocation
+instructions rise by 237,552 (234,546 anonymous native work); metamethods rise
+109,244, including libc allocation variation even though anonymous work falls
+12,871. Upvalue instructions fall 160,772; float falls 8,026, integer rises 13,
+and array falls 1,074. All 13 events and complete function sums remain recorded.
+No measured cost is excluded from totals. Evidence:
+`local-vs-branch-analysis.json`, `branch-*-auto-delta.json`, and
+`branch-native-vgdb/`.
+
+The full hardware matrix completes with 24/24 aggregate failures. Callbacks and
+metamethods still fail all six candidate windows. Previous/branch Auto
+median-time ratios for allocation are **0.9321–0.9741 on CPU 0** (all three
+slower) and 0.9229–1.0284 on CPU 16. CPU 0's same-inode ordinary allocation
+placebos span 0.9950–1.0059; the CPU 16 placebo reaches 1.0923 and is noisy.
+Passing the allocation threshold does not cancel its regression versus the
+previous candidate. Callback ratios are 1.0135–1.0275 on CPU 0 and
+0.9874–0.9979 on CPU 16; metamethod ratios are 1.0084–1.0237 and
+1.0076–1.0248. Float CPU 0 includes a 0.9338 outlier, retained alongside its
+0.9996–1.0056 placebo range. These mixed timing results do not justify the
+increased callback spills and repeatable CPU 0 allocation cost.
+
+All 108 previous/candidate non-timing comparisons match; 84 of 324
+ordinary-relative comparisons differ only in code_bytes/snapshot_peak_bytes.
+All original nine workloads, 11 paired samples, rotated orders, CPUs 0/16,
+source/image identities, cleanup and contention telemetry remain intact.
+No owned build/test/profile/edit overlaps hardware timing. Evidence:
+`branch-hardware-screen/`, `branch-hardware-analysis.json`, and
+`branch-vs-local-hardware-stats.json`. The lowering and coupled verifier/accounting
+changes are withdrawn; source returns exactly to the local-table candidate
+`b003d7b`. Restored formatting, check-all and all 105 payload tests pass in
+`payload-branch-read-restored.log`. Full acceptance remains open, and the failed
+candidate's frozen source/image/captures remain untouched.
+Logs:
+`payload-branch-read-*` and `payload-terminal-profile/branch*` under
+`target/jit-evidence/short-slice-performance/`.
+
 #### Local constant-table reads — partial refresh and liveness
 
 Commit `ac6267d` adds a scoped constant-key GetTable path alongside the existing
@@ -44,9 +150,52 @@ The five local-table model tests and terminal liveness test pass under both
 Stacked and Tree Borrows; the terminal model suites also pass under both.
 The frozen candidate build completed successfully, with image SHA-256
 `8e83f4eff586055c08577e24cdbea22f9f00bb79c8e2c35b18efc2934eb2b0ba`.
-Its profiling and hardware comparison remain pending; this is not a performance
-or production acceptance claim. Logs: `payload-local-table-*` under
-`target/jit-evidence/short-slice-performance/`.
+Ten frozen instruction profiles versus `scalar` preserve every non-timing
+statistic (strict comparator exit 0), including resource counts. Metamethod
+instructions fall by 5,343,627 (5.9041%); Session::rebind accounts for −3,459,366,
+bind_non_numeric for −1,393,776, and helper4 for −490,485. Allocation/GC falls by
+5,168,313 (11.4955%), including −4,422,636 in rebind. Callback instructions fall
+by 9,888; integer/float Auto and all three Off controls are identical. Array
+instructions rise by 1,250, and upvalue instructions rise by 261,266 (0.1629%);
+the latter includes +261,420 in Admitted::new, not a helper6 reduction. All
+13 profile events and complete function sums are retained in
+`scalar-vs-local-analysis.json` and `local-*-auto-delta.json` under
+`payload-terminal-profile/`. Allocated ELF sections match the symbol image;
+source/image checksums and invocation inode checks pass before/after profiling.
+The full hardware comparison completes with **24/24 aggregate failures**. Across
+three rotated windows on CPUs 0 and 16, previous/local Auto median-time ratios
+for metamethods are 1.0501–1.0519 and 1.0125–1.0429 respectively; allocation/GC
+ratios are 1.0520–1.0599 and 1.0926–1.1140. Allocation now passes its original
+gate in all six candidate windows. Metamethods and callbacks still fail in all
+six, so the candidate is not accepted. Callback ratios are 0.9600–0.9753 on
+CPU 0 and 0.9849–1.0079 on CPU 16: the repeatable CPU 0 regression must not be
+hidden by the table-read gains. Callback instruction attribution changes only
+Manager::enqueue (−9,888), not helper6 or anonymous native instructions; this
+does not establish the hardware regression's cause.
+
+A separate paired vgdb capture confirms the callback native mapping is
+byte-identical (4,096 bytes; SHA-256
+`e45756012e94b79cd64f0cff93df1ed8f7aac952d19a3b5b0dd7cf5ebebd05c1`).
+Both attributed mappings execute 13,099,872 instructions,
+including 907,797 at stack offsets 8/16. Complete function attribution and all
+non-timing statistics also match in this capture repeat (the earlier enqueue
+difference does not repeat). Evidence: `local-native-vgdb/`. The CPU 0 callback
+regression is therefore not explained by changed generated callback code or
+repeatable additional helper instructions; host layout or hardware effects
+remain hypotheses requiring further measurement, not accepted explanations.
+
+All 108 direct previous/candidate non-timing comparisons match. The 324
+ordinary-relative comparisons retain 84 differences, exclusively code_bytes
+and snapshot_peak_bytes. Same-inode ordinary placebo ratios span
+0.9978–0.9997 for CPU 0 callbacks and 0.9906–1.0083 for CPU 16 callbacks;
+CPU 16 metamethod placebo ratios reach 0.9591–0.9830, so small timing differences
+there are not strong standalone evidence. Thresholds, all nine workloads,
+11 paired samples, contention telemetry, image/source checksums and alias
+cleanup remain intact. No owned builds, profiles or edits ran during timing.
+Evidence: `local-hardware-screen/`, `local-hardware-analysis.json`, and
+`local-vs-scalar-hardware-stats.json`. Logs: `payload-local-table-*` under
+`target/jit-evidence/short-slice-performance/`. Full original performance,
+resource, platform and release acceptance remains open.
 
 #### Bound scalar reads — contract-specific null-check removal
 
