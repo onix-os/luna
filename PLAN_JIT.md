@@ -11,6 +11,51 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Inline payload control — profile reduction, timing pending
+
+`4ab9f67` makes the test-only FrameBound runtime embed its unchanged `Bridge` header at
+offset zero in a `repr(C)` Session. Private helper/materialization shims use the
+complete owner's pointer directly instead of loading a separate Session pointer
+through `Host.data`. The descriptor array remains separately owned. `Binding`
+retains a scoped raw whole-owner pointer, not an `&mut Bridge` loan narrowed to
+the header. Public values, raw-stack access, production native selection and
+resource policies are unchanged. This does not activate the experimental ABI.
+
+`6d0d7ca` independently checks reuse of the same host through a successful
+reference move, caught helper panic and stopped reentry at widths 2/7/256.
+Canonical siblings, retained function table, exact PC and helper counts are
+checked. GNU/check-all, musl and both Miri borrow models pass this test. The
+existing GNU payload/backend/runtime suite passes 227 tests across four
+summaries before that fixture was added. Broader Stacked/Tree and musl validation
+is still running; no full-workspace acceptance is claimed for this revision.
+Initial test pointer-access and Value-equality compilation errors were corrected
+and retained in the evidence logs; neither is reported as a runtime UB finding.
+
+Frozen activated image `c0c5937adcb506b240d91faf50dd4909f80fc600ec145e9b793972f6ea385735`
+completes eleven exact-load-image profiles against reference-store `1fe53ac4`.
+All non-timing execution/resource fields match, and all four Off instruction
+totals are unchanged. Callback instructions fall **259,430**, from 131,521,280
+to 131,261,850 (0.197%). Wrapper self work falls 129,698, helper 6 and terminal
+materialization each fall 64,836, and scalar materialization falls 60. Independent
+self-cost sums equal raw totals; generated callback work remains 13,099,872.
+
+Other instruction deltas are integer -16,323, float -16,240, array -8,936 and
+allocation -7,895. **Upvalue +353,301 and metamethod +78,699 are retained adverse
+totals.** Upvalue admission contributes +261,420, with additional registry/VM/
+Executor differences; helper 8 also grows 2,292. Metamethod allocator differences
+dominate its increase, while helper 8 grows 12,901. Do not attribute every total
+to this change or remove unfavorable differences from the result.
+
+Hardware timing has not started. Paired screen/repeat drivers are prepared with
+unchanged gates, nine workloads, eleven samples, CPU 0/16 and three rotating
+windows, using historical/control/placebo/candidate images at the same launch
+path. They must wait for owned validation work to finish. Fewer instructions
+do not establish a speedup or justify production promotion.
+
+Evidence: `target/jit-evidence/short-slice-performance/inline-session-*` and
+`payload-terminal-profile/inline-session*`. The raw-stack API remains unchanged;
+the optional question about a future API change does not block this candidate.
+
 #### Canonical cells — native model passes; migration not approved
 
 `1f75586` adds a test-only fixed-layout cell model targeting descriptor creation
