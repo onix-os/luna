@@ -195,12 +195,10 @@ unsafe extern "C" fn copy_retired(
     slots: *mut Payload,
     dest: u32,
     source: u64,
-    zero: u64,
+    _zero: u64,
 ) {
-    assert!(source < 256 && zero == 0);
     unsafe { (*host).materializations += 1 };
-    let result =
-        unsafe { copy_terminal::<true>((*host).base.data.cast(), slots, dest, source as u32) };
+    let result = unsafe { copy_terminal::<true>((*host).base.data.cast(), slots, dest, source) };
     assert_eq!(result, abi::HELPER_COMPLETED);
 }
 
@@ -1211,34 +1209,34 @@ unsafe fn copy_terminal<const RETIRE_SOURCE: bool>(
     host: *mut (),
     slots: *mut Payload,
     dest: u32,
-    source: u32,
+    source: u64,
 ) -> u32 {
     let session = unsafe { &mut *host.cast::<Session<'_, '_, '_, '_, '_>>() };
     if session.stopped {
         return abi::HELPER_PANICKED;
     }
-    if dest as usize >= session.count || source as usize >= session.count {
+    if dest as usize >= session.count || source >= session.count as u64 {
         return abi::HELPER_DECLINED;
     }
-    let value = if RETIRE_SOURCE {
-        unsafe { session.values.as_ptr().add(source as usize).read() }
-    } else if let Some(value) = table_operand(session, slots, source) {
-        value
-    } else {
-        return abi::HELPER_DECLINED;
-    };
-    unsafe {
-        if RETIRE_SOURCE {
+    if RETIRE_SOURCE {
+        unsafe {
+            let values = session.values.as_ptr();
+            std::ptr::copy(values.add(source as usize), values.add(dest as usize), 1);
             slots.add(source as usize).write(Payload {
                 tag: NIL,
                 pointer: std::ptr::null_mut(),
             });
         }
+    } else if let Some(value) = table_operand(session, slots, source as u32) {
+        unsafe { session.values.as_ptr().add(dest as usize).write(value) };
+    } else {
+        return abi::HELPER_DECLINED;
+    }
+    unsafe {
         slots.add(dest as usize).write(Payload {
             tag: NIL,
             pointer: std::ptr::null_mut(),
         });
-        session.values.as_ptr().add(dest as usize).write(value);
     }
     abi::HELPER_COMPLETED
 }

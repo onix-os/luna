@@ -187,7 +187,7 @@ fn copy_cases<const RETIRE_SOURCE: bool>() {
                                             host,
                                             slots,
                                             dest as u32,
-                                            source as u32
+                                            source as u64
                                         ),
                                         abi::HELPER_COMPLETED
                                     );
@@ -258,11 +258,11 @@ fn stopped_and_invalid_copies_leave_canonical_values_and_descriptors_unchanged()
                                 abi::HELPER_DECLINED
                             };
                             assert_eq!(
-                                copy_terminal::<false>(host, slots, dest as u32, source as u32),
+                                copy_terminal::<false>(host, slots, dest as u32, source as u64),
                                 expected
                             );
                             assert_eq!(
-                                copy_terminal::<true>(host, slots, dest as u32, source as u32),
+                                copy_terminal::<true>(host, slots, dest as u32, source as u64),
                                 expected
                             );
                             closed_table_tests::siblings(slots, &saved, None);

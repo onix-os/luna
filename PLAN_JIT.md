@@ -61,12 +61,29 @@ inherited test-only files; supplemental byte/hash comparisons prove both match
 the immutable array-transport control. Its original manifest is not rewritten or
 represented as complete.
 
-A second isolated trial uses overlap-safe `ptr::copy<Value>` and checks the full
+The revised helper uses overlap-safe `ptr::copy<Value>` and checks the full
 source index before narrowing, with the reserved argument still enforced by the
-compiler checker. It is undergoing validation/profiling; it is not yet accepted
-or merged into this implementation. Main-checkout payload integration remains
-experimental, not production activation. Original performance, resource and
-release acceptance remain open.
+compiler checker. It removes the temporary without weakening either descriptor's
+retirement. GNU and musl root checks each pass **16 executions/five summaries**;
+isolated activated checks pass eight tests and independent-clone Miri passes
+three ABI tests per mode. The runner directory and exact counts were checked.
+
+Revised image
+`134ea9b86807efd96c8ed323eb79d0a3f0ad6e554fad6f6005d5188d19d2533c`
+completes eleven profiles: callback work is **129,778 instructions lower
+(0.101220%)** than array-transport, or 453,933 lower than the initial copy.
+Snapshot peak increases remain; this is not full resource/performance acceptance.
+Eight further profiles repeat closure/metamethod twice per initial/revised image
+with all non-timing fields identical. The apparent initial regressions are not
+stable: the same revised image's admission work varies by 104,568 instructions,
+and its metamethod total varies by 90,866 allocator instructions. Do not attribute
+those one-run differences to the helper or claim a hardware speedup.
+
+Evidence: `terminal-copy-direct-*`, including the root logs, exact-image profile
+comparisons, repeat stats, and independent Miri logs. The direct helper is retained
+in the experimental main-checkout implementation; payload transport is not newly
+activated in production. Original performance, resource and release acceptance
+remain open; a full revised-root suite and hardware campaigns are still required.
 
 #### Descriptor/pointee alias classes — no callback benefit
 
