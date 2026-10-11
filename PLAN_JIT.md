@@ -17,7 +17,7 @@ The next structural experiment targets the retained callback wrapper's
 6,030,957 descriptor-binding instructions. It does not repeat executor handoffs,
 cross-callback caching, integer-prefix imports or SSA residency changes. A
 test-only descriptor occupies one pointer word instead of a tag/pointer pair.
-Typed Rust matches produce scalar field pointers; low three address bits
+Typed Rust matches produce scalar field pointers; low two address bits
 distinguish aligned Integer/Number fields. Exact immediate encodings represent
 Nil, Boolean values and opaque references; no GC pointer or Rust enum layout
 is exposed. Numeric fields with insufficient alignment refuse admission.
@@ -53,7 +53,7 @@ is excluded from Miri; the Rust pointer protocol is what those runs exercise.
 The real i686-musl binary also passes all four model tests, without native
 execution or a change to unsupported-target fallback.
 
-Next, add a scoped packed-array factory with bounded prefixes and full versus
+The next planned step was a scoped packed-array factory with bounded prefixes and full versus
 destination-only helper refresh tests, preserving canonical state on refusal
 and panic. Only then add a separate packed entry contract and independently
 check emitted decoding, stores, helpers and exits. Do not reinterpret the
@@ -69,6 +69,45 @@ before activation. No production ABI or Value representation changes here.
 Files: `src/jit/abi/payload/packed.rs`, `packed/native.rs`; Make targets
 `jit-payload-packed` and `jit-payload-packed-miri`. Logs are `packed-payload-*`
 in `target/jit-evidence/short-slice-performance/`.
+
+The follow-up implements a private bounded scope with a higher-ranked factory,
+an initialized descriptor prefix (maximum 256), fresh canonical reads for retired
+or opaque slots, direct same-type numeric stores, and destination-only or full
+refresh. A helper marks the scope stopped and retires affected descriptors before
+borrowing canonical values. A panic preserves completed canonical writes and its
+original Rust payload; caught callers cannot resume that scope. Successful full
+helpers bind again only after their whole-slice borrow ends.
+
+A separate frame adapter now exercises actual `helpers::call_direct`, not just
+a slice simulation. It retires every descriptor before borrowing the helper
+frame and reacquires the canonical base from that frame before refreshing.
+Tests check Move over all Value kinds, prior direct scalar writes, retired
+destinations, prefix tails, table-read declines, invalid-register helper panics,
+PC/count publication and initially pending panic payloads. A stopped scope
+without a pending frame panic returns a refusal rather than fabricating a
+`HELPER_PANICKED` result with no payload. This is not yet a native C bridge or
+complete coverage of all ten helpers.
+
+The initial i686 scope run reports four failed fixtures because their numeric
+fields do not all satisfy the original eight-byte admission requirement. Merely
+aligning the enclosing array does not fix individual fields. The protocol now
+uses **two** low bits (mask 3), sufficient for Integer/Number addresses, and
+reserves exact immediate addresses 2/3/4/5 for False/True/Empty/Opaque. Numeric
+admission and native decoding both reject a cleared address at or below 5,
+preventing Empty/Opaque from being dereferenced as numeric pointers. No Rust
+Value layout is assumed, and no failing i686 test is removed or conditionally
+disabled. The corrected i686 run passes all eleven then-current model tests;
+the final suite adds the distinct stopped-without-frame-panic regression.
+
+Scope source `85103de`: final GNU and musl each pass **13 tests** and check-all; GNU also passes
+formatting and default/all-feature Clippy with existing warnings. Stacked and
+Tree Miri each pass **12 model tests**, including real-frame reborrowing, with
+unchanged source hashes. The real i686-musl executable passes all **12 model
+tests**, without native execution. Initial equality/lifetime fixture compilation
+failures and both failed i686 attempts remain in `packed-scope-*` logs. This
+advances the helper-lifetime protocol only; whole-runtime integration,
+independent emitted verification, resources and original performance gates
+remain incomplete. Scope code is in `packed/scoped.rs` and `scoped_tests.rs`.
 
 #### Same-thread callback handoff — measured and withdrawn
 
