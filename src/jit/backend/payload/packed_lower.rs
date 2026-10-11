@@ -33,6 +33,19 @@ pub(in crate::jit::backend) struct Candidate {
     _signatures: Reservation,
 }
 
+impl Candidate {
+    pub(in crate::jit::backend) fn install(self, target: &mut Function) -> Reservation {
+        let Self {
+            function,
+            records,
+            _signatures,
+        } = self;
+        drop(records);
+        *target = function;
+        _signatures
+    }
+}
+
 fn add(left: usize, right: usize) -> Result<usize, JitError> {
     left.checked_add(right)
         .ok_or(JitError::ResourceLimit("packed expansion overflow"))

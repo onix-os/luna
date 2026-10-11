@@ -237,7 +237,7 @@ impl Code {
     pub(super) fn linked_entry(&self) -> Entry {
         #[cfg(test)]
         assert!(
-            !self.entry_kind.is_payload(),
+            !self.entry_kind.needs_canonical_frame(),
             "payload code requires a canonical frame"
         );
         self.entry
@@ -313,7 +313,7 @@ impl Code {
         assert!(!self.cell_kernel, "scalar kernel requires a cell view");
         #[cfg(test)]
         assert!(
-            !self.entry_kind.is_payload(),
+            !self.entry_kind.needs_canonical_frame(),
             "payload code requires a canonical frame"
         );
         unsafe { abi::invoke(self.entry, slots, pc, budget, host) }
@@ -347,9 +347,9 @@ pub(super) enum Failure {
     RequirePayloadLoop,
     RequirePayloadTags,
     RequireBoundPayload,
+    RequirePackedPayload,
     #[cfg(not(miri))]
     AuditPayloadReads,
-    #[cfg(not(miri))]
     AuditPackedLowering,
     RequireReadCache,
     RequireWriteback,
@@ -745,6 +745,8 @@ fn compile_selected_rooted(
             | Failure::RequirePayloadLoop
             | Failure::RequirePayloadTags
             | Failure::RequireBoundPayload
+            | Failure::RequirePackedPayload
+            | Failure::AuditPackedLowering
     ) {
         let incompatible = rooted_moves
             || selection.projected
@@ -776,6 +778,8 @@ fn compile_selected_rooted(
             | Failure::RequirePayloadLoop
             | Failure::RequirePayloadTags
             | Failure::RequireBoundPayload
+            | Failure::RequirePackedPayload
+            | Failure::AuditPackedLowering
     ) {
         payload::expansion(snapshot, work)?
     } else {
@@ -869,6 +873,8 @@ fn compile_selected_rooted(
     #[cfg(test)]
     let mut projection_copy_bytes = 0;
     let signature_charge;
+    #[cfg(test)]
+    let mut packed_signature_charge = None;
     let mut module = JITModule::new(jit);
     let ptr = module.target_config().pointer_type();
     let entry_types = [ptr, types::I64, types::I32, ptr, ptr];
@@ -926,6 +932,16 @@ fn compile_selected_rooted(
         })
         .ok_or(JitError::ResourceLimit("native signature size"))?;
     #[cfg(test)]
+    let signature_bytes = signature_bytes
+        .checked_add(if failure == Failure::RequirePackedPayload {
+            Layout::array::<AbiParam>(2)
+                .map_err(|_| JitError::ResourceLimit("packed declaration size"))?
+                .size()
+        } else {
+            0
+        })
+        .ok_or(JitError::ResourceLimit("native signature size"))?;
+    #[cfg(test)]
     if failure == Failure::RefuseSignatures {
         let ledger = &snapshot.operations.allocator().0;
         ledger.set_limit(ledger.current());
@@ -934,9 +950,17 @@ fn compile_selected_rooted(
         .map_err(|_| JitError::ResourceLimit("native signatures"))?;
     let mut signature = module.make_signature();
     fill_signature(&mut signature.params, entry_types)?;
+    #[cfg(test)]
+    if failure == Failure::RequirePackedPayload {
+        fill_signature(&mut signature.returns, [types::I32])?;
+    }
     let function = module
         .declare_anonymous_function(&signature)
         .map_err(fail)?;
+    #[cfg(test)]
+    if failure == Failure::RequirePackedPayload {
+        signature.returns.clear();
+    }
     #[cfg(test)]
     if matches!(failure, Failure::RequireSignatures(_)) {
         let declaration = module.declarations().get_function_decl(function);
@@ -1406,6 +1430,37 @@ fn compile_selected_rooted(
     } else {
         (instructions, block_count)
     };
+    #[cfg(test)]
+    let (instructions, block_count) = if failure == Failure::RequirePackedPayload {
+        let candidate = payload::packed_lower::lower(
+            &context.func,
+            parameters[0],
+            parameters[4],
+            snapshot.registers,
+            &helper_refs,
+            snapshot.operations.allocator().clone(),
+            expansion,
+        )?;
+        packed_signature_charge = Some(candidate.install(&mut context.func));
+        cranelift_codegen::verify_function(&context.func, module.isa())
+            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        if context.func.signature != module.declarations().get_function_decl(function).signature {
+            return Err(JitError::Compilation(
+                "packed declaration signature mismatch".into(),
+            ));
+        }
+        let actual = context
+            .func
+            .layout
+            .blocks()
+            .map(|b| context.func.layout.block_insts(b).count())
+            .sum();
+        let blocks = context.func.layout.blocks().count();
+        expansion.verify_actual(actual, blocks)?;
+        (actual, blocks)
+    } else {
+        (instructions, block_count)
+    };
     drop((stores, paths, graph, blocks));
     let mut projection_contexts = [None, None];
     let mut projection_instructions = 0;
@@ -1765,6 +1820,8 @@ fn compile_selected_rooted(
         .take()
         .ok_or_else(|| JitError::Compilation("missing finalized native memory".into()))?;
     drop(module);
+    #[cfg(test)]
+    drop(packed_signature_charge);
     drop(signature_charge);
     drop(symbol_charge);
     drop(relocation_copy_charge);
@@ -1792,13 +1849,17 @@ fn compile_selected_rooted(
         #[cfg(test)]
         cell_kernel: selection.cell_kernel,
         #[cfg(test)]
-        entry_kind: payload::EntryKind::from_contract(match failure {
-            Failure::RequireBoundPayload => Some(payload::Contract::FrameBound),
-            Failure::RequirePayload | Failure::RequirePayloadLoop | Failure::RequirePayloadTags => {
-                Some(payload::Contract::Checked)
-            }
-            _ => None,
-        }),
+        entry_kind: if failure == Failure::RequirePackedPayload {
+            payload::EntryKind::Packed
+        } else {
+            payload::EntryKind::from_contract(match failure {
+                Failure::RequireBoundPayload => Some(payload::Contract::FrameBound),
+                Failure::RequirePayload
+                | Failure::RequirePayloadLoop
+                | Failure::RequirePayloadTags => Some(payload::Contract::Checked),
+                _ => None,
+            })
+        },
         #[cfg(test)]
         integer_activation: selection.integer_activation,
         #[cfg(all(test, not(miri)))]
