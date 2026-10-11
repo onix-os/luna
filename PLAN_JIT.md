@@ -11,6 +11,58 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Write-retaining masks — materialization reduced, no callback gain
+
+`7d6381a` adds a separate, test-only `RequireWriteBoundPayload` path.
+`Requirements::with_writes` retains scalar destinations before their first
+definition, using the same budgeted dataflow, dispatch-prefix union and
+independent semantic verifier as read-minimal binding. The original sparse
+path and its omitted-Nil regression remain unchanged. New tests cover mask
+supersets through register 255, exact storage, admission refusal, source
+immutability, every native exit, loop guards and the full runtime oracle.
+A generated-store fixture uses the same entry with two masks and observes
+one materialization for read-minimal binding versus zero for write-retaining
+binding, with identical canonical results.
+
+GNU formatting/check-all and eight analysis, four ABI, twenty-three bound/read,
+one audit and one runtime checks pass. Musl passes the same focused lanes plus
+28 resource-unit, three registry and fourteen public tests. Stacked and Tree
+Miri each pass eight analysis and four ABI tests. Native execution is not
+covered by Miri; these are not full release-acceptance claims.
+
+The frozen release image `1fdbd13e` completed eleven same-load-image profiles
+and 24 paired hardware runs against full-binding `5bfabe67`, retained
+`becde851` and the full-binding placebo. CPUs 0/16, three rotated windows,
+eleven samples and all original thresholds are unchanged. All 648 result rows,
+execution counters, native code bytes, metadata costs and source/image
+identities were checked. No owned validation overlapped hardware timing.
+
+**Do not activate this policy.** Callback PC 8 needs all seven descriptors
+under write-retaining binding. The extra scalar materialization disappears,
+but binding overhead offsets the saving:
+
+- Callback `write_scalar` self instructions: 2,141,172 → 1,980.
+- Callback `Runtime::invoke<7,true>`: 16,860,200 → 18,157,624.
+- Total callback collected instructions: 134,048,030 → 134,114,737;
+  matched full binding is 132,428,903.
+- Median normalized callback paired factor: **0.9997 versus full binding**,
+  **0.9712 versus retained control**. Callback gate: **0/6**.
+- Corrected float fast-path instructions remain 8,920,002; float passes 6/6.
+  Metamethod passes 5/6. All 24 aggregate benchmark gates still fail.
+
+Metadata and snapshot costs remain above full binding (callbacks: 1,329 versus
+913 retained bytes, 13,850 versus 13,242 peak snapshot bytes). These are not
+waived. A successful materialization micro-test is not an end-to-end speedup.
+The next investigation moves beyond sparse-mask policy to measured entry/session
+setup and publication costs, preserving exact counters, panic/PC behavior and
+borrow lifetimes. Prior rejected callback handoff, gateway and packed trials
+must not be repeated without new evidence. No such next optimization or
+production activation is claimed here.
+
+Evidence: `target/jit-evidence/short-slice-performance/write-binding-*` and
+`payload-terminal-profile/write-binding*`. Original performance, compiled-Off
+cost, platform/resource promotion and release gates remain open.
+
 #### Sparse dispatch-prefix regression fixed; callback gate still failing
 
 `6760215` fixes a gap found by the first real selective-binding benchmark.
