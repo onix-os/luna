@@ -27,6 +27,23 @@ pub(in crate::jit::backend) fn run(
         eprintln!("payload binding pc={pc} needed={needed} registers={registers} mask={mask:?}");
     }
     drop(requirements);
+    let writes = binding_requirements::Requirements::with_writes(
+        function,
+        slots,
+        host,
+        registers,
+        helpers,
+        headers,
+        allocator.clone(),
+    )?;
+    for pc in 0..headers.len() {
+        let mask = writes.get(pc).ok_or_else(invalid)?;
+        let needed = (0..registers).filter(|&index| mask.contains(index)).count();
+        eprintln!(
+            "payload write binding pc={pc} needed={needed} registers={registers} mask={mask:?}"
+        );
+    }
+    drop(writes);
     let mut analysis = numeric_reads::Analysis::new(function, allocator.clone())?;
     let mut tags = same_tag::Analysis::new(function, allocator)?;
     let (mut reads, mut candidates, mut admitted, mut exact) = (0, 0, 0, 0);

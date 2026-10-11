@@ -762,6 +762,10 @@ jit-payload-packed-calls-miri:
 .PHONY: jit-payload-packed-tag-checks jit-payload-packed-tag-checks-miri
 .PHONY: jit-payload-binding-requirements jit-payload-binding-requirements-miri
 .PHONY: jit-payload-sparse-runtime
+.PHONY: jit-payload-write-binding-runtime
+jit-payload-write-binding-runtime:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::payload_runtime_tests::write_binding_runtime_ $(ARGS)
+
 jit-payload-sparse-runtime:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::payload_runtime_tests::sparse_runtime_ $(ARGS)
 

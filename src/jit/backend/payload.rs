@@ -919,6 +919,7 @@ fn incompatible_payload_selections_refuse_before_allocating_native_memory() {
             Failure::RequirePayloadLoop,
             Failure::RequireBoundPayload,
             Failure::RequireSparsePayload,
+            Failure::RequireWriteBoundPayload,
         ] {
             for mode in 0..6 {
                 #[cfg(miri)]
@@ -1172,6 +1173,66 @@ fn bound_sparse_lowering_preserves_each_exit_and_canonical_register() {
 
 #[cfg(not(miri))]
 #[test]
+fn bound_write_binding_preserves_each_exit_and_canonical_register() {
+    ordinary_payload_contract(Failure::RequireWriteBoundPayload);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn bound_write_binding_avoids_scalar_materialization() {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"local x=17 return x").unwrap();
+        let snapshot = Snapshot::new(&closure.prototype(), 4096, 2 * 1024 * 1024).unwrap();
+        let total = MappingCounter::new(super::super::resources::Ledger::new(8 * 1024 * 1024));
+        let metadata = BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024));
+        let work = super::super::work::Limits::from(&super::super::JitConfig::default());
+        let reads = Compiled(
+            compile_in(
+                &snapshot,
+                total.clone(),
+                1024 * 1024,
+                metadata.clone(),
+                work,
+                Failure::RequireSparsePayload,
+            )
+            .unwrap(),
+        );
+        let writes = Compiled(
+            compile_in(
+                &snapshot,
+                total.clone(),
+                1024 * 1024,
+                metadata.clone(),
+                work,
+                Failure::RequireWriteBoundPayload,
+            )
+            .unwrap(),
+        );
+        let masks = [&reads, &writes].map(|code| {
+            code.0
+                .binding_requirements
+                .as_ref()
+                .unwrap()
+                .get(0)
+                .unwrap()
+                .words()
+        });
+        assert_eq!(masks[0][0] & 1, 0);
+        assert_eq!(masks[1][0] & 1, 1);
+        let entry = unsafe { std::mem::transmute(writes.0.entry) };
+        crate::jit::abi::payload::runtime::check_native_write_binding(
+            entry,
+            snapshot.registers,
+            masks,
+        );
+        drop((reads, writes));
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+        assert_eq!(metadata.0.current(), 0);
+    });
+}
+
+#[cfg(not(miri))]
+#[test]
 fn bound_sparse_nil_store_materializes_omitted_non_nil_cells() {
     crate::Lua::empty().enter(|ctx| {
         let closure = crate::Closure::load(ctx, None, b"local a return a").unwrap();
@@ -1344,6 +1405,12 @@ fn bound_payload_loops_match_every_entry_budget_and_scalar_guard() {
 #[test]
 fn bound_sparse_loops_match_every_entry_budget_and_scalar_guard() {
     optimized_payload_contract(Failure::RequireSparsePayload);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn bound_write_binding_loops_match_every_entry_budget_and_scalar_guard() {
+    optimized_payload_contract(Failure::RequireWriteBoundPayload);
 }
 
 #[cfg(not(miri))]

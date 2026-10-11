@@ -163,6 +163,71 @@ fn entry_binding_prefix_dataflow_preserves_branch_definitions_and_cycles() {
 }
 
 #[test]
+fn entry_write_binding_is_a_charged_superset_of_read_requirements() {
+    for left in [false, true] {
+        for right in [false, true] {
+            for cycle in [false, true] {
+                for index in [0, 63, 64, 127, 128, 255] {
+                    let (f, slots, host, headers) = fixture(left, right, cycle, index);
+                    let original = f.display().to_string();
+                    let allocator =
+                        BudgetAllocator(crate::jit::resources::Ledger::new(1024 * 1024));
+                    let reads = Requirements::new(
+                        &f,
+                        slots,
+                        host,
+                        index + 1,
+                        &[],
+                        &headers,
+                        allocator.clone(),
+                    )
+                    .unwrap();
+                    let writes = Requirements::with_writes(
+                        &f,
+                        slots,
+                        host,
+                        index + 1,
+                        &[],
+                        &headers,
+                        allocator.clone(),
+                    )
+                    .unwrap();
+                    for pc in 0..headers.len() {
+                        let mask = writes.get(pc).unwrap();
+                        assert!(mask.contains(index));
+                        for bit in 0..256 {
+                            assert!(!reads.get(pc).unwrap().contains(bit) || mask.contains(bit));
+                            assert_eq!(mask.contains(bit), bit == index);
+                        }
+                    }
+                    assert_eq!(
+                        allocator.0.current(),
+                        2 * headers.len() * std::mem::size_of::<Mask>()
+                    );
+                    assert_eq!(f.display().to_string(), original);
+                    drop((reads, writes));
+                    assert_eq!(allocator.0.current(), 0);
+                    allocator.0.set_limit(0);
+                    assert!(matches!(
+                        Requirements::with_writes(
+                            &f,
+                            slots,
+                            host,
+                            index + 1,
+                            &[],
+                            &headers,
+                            allocator.clone()
+                        ),
+                        Err(JitError::ResourceLimit(_))
+                    ));
+                    assert_eq!(allocator.0.current(), 0);
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn entry_binding_verifier_rejects_missing_uses_source_changes_and_excess_bits() {
     let (f, slots, host, headers) = fixture(true, false, true, 1);
     let allocator = BudgetAllocator(crate::jit::resources::Ledger::new(1024 * 1024));

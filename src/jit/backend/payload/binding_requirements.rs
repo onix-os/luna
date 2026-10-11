@@ -140,6 +140,33 @@ impl Requirements {
         headers: &[Block],
         allocator: BudgetAllocator,
     ) -> Result<Self, JitError> {
+        Self::build(
+            f, slots, host, registers, helpers, headers, allocator, false,
+        )
+    }
+
+    pub(in crate::jit::backend) fn with_writes(
+        f: &Function,
+        slots: IrValue,
+        host: IrValue,
+        registers: usize,
+        helpers: &[(u32, FuncRef)],
+        headers: &[Block],
+        allocator: BudgetAllocator,
+    ) -> Result<Self, JitError> {
+        Self::build(f, slots, host, registers, helpers, headers, allocator, true)
+    }
+
+    fn build(
+        f: &Function,
+        slots: IrValue,
+        host: IrValue,
+        registers: usize,
+        helpers: &[(u32, FuncRef)],
+        headers: &[Block],
+        allocator: BudgetAllocator,
+        retain_writes: bool,
+    ) -> Result<Self, JitError> {
         let mut facts = workspace(f.dfg.num_blocks(), Facts::default(), allocator.clone())?;
         scan_with_tags(f, slots, host, registers, helpers, true, |rewrite| {
             match rewrite {
@@ -154,9 +181,11 @@ impl Requirements {
                     bits_store, index, ..
                 } => {
                     let block = f.layout.inst_block(bits_store).ok_or_else(invalid)?;
-                    facts[block.as_u32() as usize]
-                        .definitions
-                        .insert(index as usize);
+                    let facts = &mut facts[block.as_u32() as usize];
+                    if retain_writes && !facts.definitions.contains(index as usize) {
+                        facts.uses.insert(index as usize);
+                    }
+                    facts.definitions.insert(index as usize);
                 }
                 Rewrite::Helper(..) => {}
             }
