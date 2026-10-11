@@ -71,6 +71,29 @@ fn bound_rewrite_has_exact_expansion_and_no_host_copy_without_helpers() {
             .unwrap();
             assert_eq!(allocator.0.current(), 0);
             assert!(allocator.0.peak() > 0);
+            let peak = allocator.0.peak();
+            for limit in [peak - 1, peak] {
+                let ledger = BudgetAllocator(crate::jit::resources::Ledger::new(limit));
+                let mut candidate = source.clone();
+                let result = lower_contract(
+                    &mut candidate,
+                    slots,
+                    host,
+                    1,
+                    &[],
+                    ledger.clone(),
+                    crate::jit::work::Expansion {
+                        instructions: 4096,
+                        blocks: 4096,
+                    },
+                    Contract::FrameBound,
+                );
+                assert_eq!(result.is_ok(), limit == peak);
+                assert_eq!(ledger.0.current(), 0);
+                if result.is_err() {
+                    assert_eq!(candidate, source);
+                }
+            }
             cranelift_codegen::verify_function(&f, &settings::Flags::new(settings::builder()))
                 .unwrap();
             let bound = matches!(tag, abi::INTEGER | abi::NUMBER);

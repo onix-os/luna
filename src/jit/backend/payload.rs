@@ -1142,7 +1142,7 @@ fn optimized_payload_contract(failure: Failure) {
                 _ => None,
             }).unwrap();
             for pc in (0..=snapshot.operations.len()).chain([usize::MAX]) {
-                for budget in [0, 1, 2, 3, 63, 64, 65, u32::MAX] {
+                for budget in (0..=65).chain([u32::MAX]) {
                     for invalid in [None, Some(base), Some(base + 1), Some(base + 2), Some(base + 3), Some(accumulator)] {
                         for value in [
                             crate::Value::Nil, crate::Value::Boolean(false), crate::Value::Boolean(true),
