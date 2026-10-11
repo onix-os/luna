@@ -550,3 +550,7 @@ fn helper_type_changes_rebind_each_scalar_kind() {
     assert!(frame.read(&mut [], 0).is_none());
     assert!(!frame.store(&mut [], 0, Value::Nil));
 }
+
+#[cfg(test)]
+#[path = "payload/typed.rs"]
+mod typed;

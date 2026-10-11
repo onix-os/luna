@@ -11,6 +11,43 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Typed canonical regions — test-only groundwork
+
+Target the ordinary wrapper's **12,321,657 import/writeback instructions**,
+not another tiny scalar-guard or rejected callback-setup/cache variation.
+Generic direct-payload transport already exists as an unaccepted model, but
+still pays dynamic tag/pointer checks and descriptor materialization/rebinding.
+The new direction is source-certified typed regions with Rust-side admission,
+direct access to admitted scalar fields, and canonical terminal stores that
+retire descriptors rather than rebuilding a value that will not be read again.
+
+The initial model selects distinct integer cells through ordinary Rust matches;
+it never reads the private representation of `Value`. Replacements, including
+Integer-to-Integer replacement, invalidate only the selected destination.
+Refresh rechecks its current type before making that binding live again.
+Unselected GC values and retained sibling scalar pointers remain untouched.
+Bindings are scoped to the canonical borrow and may not survive callbacks,
+collection or whole-frame helper access. No production transport is changed.
+
+Six GNU tests and fmt/check-all pass. Tests cover invalid/duplicate selections,
+all Value kinds, NaN bits, widths 0/1/7/255/256, sparse/reverse selection,
+unwind visibility and fresh admission. An executable Cranelift probe performs
+a typed integer add and a terminal canonical scalar store via a Rust leaf;
+native code treats the `Value` destination as opaque. Its independent oracle
+checks **500 schedules** (25 integer pairs, four destinations including both
+selected aliases, five budgets), exact completed work and descriptor retirement.
+The same ABI protocol has a Rust simulation for Miri; native execution is not
+Miri coverage. Initial comparison/GC-lifetime compile errors remain in the logs.
+
+Before activation, require: both Miri alias models; source-certified region and
+binding maps; independent IR/liveness/retirement verification and corruption
+tests; exact budgets/exits/helper/counter behavior; bounded compiler/runtime
+accounting and refusal; integration with current fallback/callback/GC contracts;
+whole-profile savings and unchanged repeated native/feature-cost gates.
+The two-operation probe is **not** a complete compiler pass, release integration
+or performance result. Ordinary production remains the byte-restored baseline.
+Evidence: `target/jit-evidence/short-slice-performance/typed-payload-region-*`.
+
 #### Combined numeric-loop guard — withdrawn
 
 Four native screens and two feature-cost screens complete **168 checked
