@@ -34,6 +34,19 @@ the test frame's own 56-byte GC stack allocation; measurement now starts inside
 the frame immediately around the helper, without subtracting a guessed cost.
 The failed fixture log is retained. Miri and frozen performance results are
 separate gates; no performance acceptance or activation is claimed.
+The frozen `new` image passes all 116 payload tests and check-all; SHA-256 is
+`eb16222206adf3fa307a78df2d186da2e0557e9e2a849863b2ac38f7bfe9375d`.
+Ten profiles versus `write` preserve every non-timing statistic. Callback,
+float Auto and all three Off controls are instruction-identical. Allocation
+work falls **4,758,461 instructions (11.9582%)**, including −4,422,536 in rebind
+and −334,256 in helper3. Metamethod work falls **2,717,814 (3.2924%)**, including
+−1,772,981 in rebind, −776,652 in bind_non_numeric and −168,181 in helper3.
+Upvalue work rises 313,434, including +313,704 in Admitted::new; integer rises
+109 and array falls 224. These increases and all 13 events are retained, not
+discarded as unrelated to the intended optimization. Symbol/stripped allocated
+ELF sections, invocation inodes, source/image manifests and exact function sums
+verify. Evidence: `write-vs-new-analysis.json` and `new-*-auto-delta.json`.
+Hardware timing remains a separate, outstanding gate.
 Evidence: `payload-new-table-*` and `payload-terminal-profile/new*` under
 `target/jit-evidence/short-slice-performance/`.
 
