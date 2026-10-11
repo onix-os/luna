@@ -11,6 +11,7 @@ use crate::jit::abi::payload::Payload;
 mod host_stack;
 mod numeric_reads;
 mod reads;
+mod same_tag;
 mod terminal;
 mod writes;
 
@@ -316,7 +317,7 @@ pub(super) fn lower(
     helpers: &[(u32, FuncRef)],
     allocator: BudgetAllocator,
     expansion: super::super::work::Expansion,
-) -> Result<(), JitError> {
+) -> Result<usize, JitError> {
     let plan = plan(function, slots, host, registers, helpers, expansion)?;
     let refused = || JitError::ResourceLimit("payload rewrite records");
     let mut reads = BudgetVec::new_in(allocator.clone());
@@ -327,6 +328,8 @@ pub(super) fn lower(
         .map_err(|_| refused())?;
     let mut terminal =
         terminal::Analysis::new(function, slots, host, registers, helpers, allocator.clone())?;
+    let mut same_tag = same_tag::Analysis::new(function, allocator.clone())?;
+    let mut proven_writes = 0;
     let mut has_numeric = false;
     scan(function, slots, host, registers, helpers, |rewrite| {
         if let Rewrite::Read(inst, index) = rewrite {
@@ -379,6 +382,8 @@ pub(super) fn lower(
                 tag,
                 bits,
             } => {
+                let known_tag = same_tag.admit(function, slots, tag_store, index, tag);
+                proven_writes += usize::from(known_tag.is_some());
                 writes.push(writes::emit(
                     &mut candidate,
                     tag_store,
@@ -391,6 +396,7 @@ pub(super) fn lower(
                         bits,
                         signature: write,
                         terminal: terminal.admits(bits_store, index),
+                        known_tag,
                     },
                 ));
             }
@@ -436,7 +442,7 @@ pub(super) fn lower(
             "payload expansion differs from plan".into(),
         ));
     }
-    let predecessors = (numeric_count != 0)
+    let predecessors = (numeric_count != 0 || proven_writes != 0)
         .then(|| crate::jit::preds::Predecessors::new(&candidate, allocator.clone()))
         .transpose()?;
     for read in &reads {
@@ -447,10 +453,17 @@ pub(super) fn lower(
             }
         }
     }
+    let (instructions, blocks) = size(&candidate);
+    let mut tag_work = instructions
+        .checked_add(blocks)
+        .and_then(|n| n.checked_mul(64))
+        .ok_or(JitError::ResourceLimit("payload emitted tag proof work"))?;
     for write in &writes {
+        writes::verify_source(function, write, &mut same_tag)?;
         writes::verify(&candidate, write)?;
+        writes::verify_guard(&candidate, write, predecessors.as_ref(), &mut tag_work)?;
     }
-    drop((reads, writes, predecessors));
+    drop((reads, writes, predecessors, same_tag));
     if let Some(copy) = host_stack::lower(&mut candidate, host, allocator, expansion)? {
         host_stack::verify(&candidate, &copy)?;
     }
@@ -465,7 +478,7 @@ pub(super) fn lower(
         ));
     }
     *function = candidate;
-    Ok(())
+    Ok(proven_writes)
 }
 
 fn grammar_fixture(fault: u8) -> (Function, IrValue, IrValue) {

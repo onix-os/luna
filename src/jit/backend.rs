@@ -337,6 +337,7 @@ impl Code {
 pub(super) enum Failure {
     RequirePayload,
     RequirePayloadLoop,
+    RequirePayloadTags,
     RequireReadCache,
     RequireWriteback,
     RequireIntegerLoop,
@@ -727,7 +728,7 @@ fn compile_selected_rooted(
     #[cfg(test)]
     if matches!(
         failure,
-        Failure::RequirePayload | Failure::RequirePayloadLoop
+        Failure::RequirePayload | Failure::RequirePayloadLoop | Failure::RequirePayloadTags
     ) {
         let incompatible = rooted_moves
             || selection.projected
@@ -755,7 +756,7 @@ fn compile_selected_rooted(
     #[cfg(test)]
     let expansion = if matches!(
         failure,
-        Failure::RequirePayload | Failure::RequirePayloadLoop
+        Failure::RequirePayload | Failure::RequirePayloadLoop | Failure::RequirePayloadTags
     ) {
         payload::expansion(snapshot, work)?
     } else {
@@ -880,7 +881,7 @@ fn compile_selected_rooted(
         .checked_add(
             if matches!(
                 failure,
-                Failure::RequirePayload | Failure::RequirePayloadLoop
+                Failure::RequirePayload | Failure::RequirePayloadLoop | Failure::RequirePayloadTags
             ) {
                 Layout::array::<AbiParam>(5)
                     .map_err(|_| JitError::ResourceLimit("payload signature size"))?
@@ -1232,6 +1233,7 @@ fn compile_selected_rooted(
             | Failure::ProbeIntegerLoop
             | Failure::RequirePayload
             | Failure::RequirePayloadLoop
+            | Failure::RequirePayloadTags
     );
     #[cfg(not(test))]
     let optimize_integer_loop = true;
@@ -1314,9 +1316,9 @@ fn compile_selected_rooted(
     #[cfg(test)]
     let (instructions, block_count) = if matches!(
         failure,
-        Failure::RequirePayload | Failure::RequirePayloadLoop
+        Failure::RequirePayload | Failure::RequirePayloadLoop | Failure::RequirePayloadTags
     ) {
-        payload::lower(
+        let proven_writes = payload::lower(
             &mut context.func,
             parameters[0],
             parameters[4],
@@ -1325,6 +1327,9 @@ fn compile_selected_rooted(
             snapshot.operations.allocator().clone(),
             expansion,
         )?;
+        if failure == Failure::RequirePayloadTags && proven_writes == 0 {
+            return Err(JitError::Compilation("no proven payload tag writes".into()));
+        }
         cranelift_codegen::verify_function(&context.func, module.isa())
             .map_err(|error| JitError::Compilation(error.to_string()))?;
         let actual = context
@@ -1727,7 +1732,7 @@ fn compile_selected_rooted(
         #[cfg(test)]
         payload: matches!(
             failure,
-            Failure::RequirePayload | Failure::RequirePayloadLoop
+            Failure::RequirePayload | Failure::RequirePayloadLoop | Failure::RequirePayloadTags
         ),
         #[cfg(test)]
         integer_activation: selection.integer_activation,

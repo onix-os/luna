@@ -107,6 +107,61 @@ pub(crate) fn with_bridge<const CAPACITY: usize>(
 }
 
 #[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_proven_tag_write(
+    entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u64) -> u64,
+) {
+    unsafe extern "C" fn declined(host: *mut Bridge, _: *mut Payload, _: u32, _: u64, _: u64) {
+        unsafe { (*host).materializations += 1 };
+    }
+    let mut bridge = Bridge {
+        base: abi::Host {
+            data: std::ptr::null_mut(),
+            projection: std::ptr::null_mut(),
+        },
+        read: read_bits,
+        functions: &Functions {
+            helpers: [helper::<1>; 10],
+            write: declined,
+            terminal: declined,
+        },
+        materializations: 0,
+    };
+    for bits in [0, 1, i64::MIN as u64, i64::MAX as u64, u64::MAX] {
+        for initial in [
+            Value::Nil,
+            Value::Boolean(true),
+            Value::Integer(0),
+            Value::Integer(i64::MIN),
+            Value::Number(-0.0),
+        ] {
+            let mut values = [initial];
+            let mut frame = Frame::new(&mut values);
+            let mut slot = frame.bind(0).unwrap();
+            let entered = unsafe { entry(&mut slot, &mut bridge, bits) };
+            assert_eq!(entered, u64::from(matches!(initial, Value::Integer(_))));
+            assert_eq!(bridge.materializations, 0);
+            let actual = Slot::from_value(values[0]);
+            let expected = Slot::from_value(if entered == 1 {
+                Value::Integer(bits as i64)
+            } else {
+                initial
+            });
+            assert_eq!((actual.tag, actual.bits), (expected.tag, expected.bits));
+        }
+        let mut malformed = Payload {
+            tag: INTEGER,
+            pointer: std::ptr::null_mut(),
+        };
+        bridge.materializations = 0;
+        assert_eq!(unsafe { entry(&mut malformed, &mut bridge, bits) }, 1);
+        assert_eq!(bridge.materializations, 1);
+        assert_eq!(malformed.tag, INTEGER);
+        assert!(malformed.pointer.is_null());
+        bridge.materializations = 0;
+    }
+}
+
+#[cfg(all(test, not(miri)))]
 pub(crate) fn check_native_write_guards(
     entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u64, u64),
 ) {

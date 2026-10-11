@@ -12,6 +12,7 @@ pub(super) struct Input {
     pub bits: IrValue,
     pub signature: cranelift_codegen::ir::SigRef,
     pub terminal: bool,
+    pub known_tag: Option<same_tag::Proof>,
 }
 
 pub(super) struct Write {
@@ -40,6 +41,7 @@ pub(super) fn emit(f: &mut Function, tag_store: Inst, bits_store: Inst, input: I
         bits,
         signature,
         terminal,
+        known_tag,
     } = input;
     let mut c = FuncCursor::new(f);
     c.goto_bottom(before);
@@ -49,9 +51,12 @@ pub(super) fn emit(f: &mut Function, tag_store: Inst, bits_store: Inst, input: I
     } else {
         (bits, None)
     };
-    let actual = c
-        .ins()
-        .load(types::I64, MemFlagsData::new(), slots, index as i32 * 16);
+    let actual = if known_tag.is_some() {
+        c.ins().bor(tag, tag)
+    } else {
+        c.ins()
+            .load(types::I64, MemFlagsData::new(), slots, index as i32 * 16)
+    };
     let pointer = c.ins().load(
         types::I64,
         MemFlagsData::new(),
@@ -146,6 +151,49 @@ fn store(f: &Function, inst: Inst, bits: IrValue, pointer: IrValue) -> Result<()
     Ok(())
 }
 
+pub(super) fn verify_source(
+    f: &Function,
+    write: &Write,
+    analysis: &mut same_tag::Analysis,
+) -> Result<(), JitError> {
+    if let Some(proof) = write.input.known_tag {
+        if !proof.matches(write.input.index, write.input.tag)
+            || !analysis.verify(f, write.input.slots, proof)
+        {
+            return Err(invalid());
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn verify_guard(
+    f: &Function,
+    write: &Write,
+    predecessors: Option<&crate::jit::preds::Predecessors>,
+    remaining: &mut usize,
+) -> Result<(), JitError> {
+    if write.input.known_tag.is_some() {
+        let at = f
+            .layout
+            .block_insts(write.blocks[0])
+            .rev()
+            .nth(3)
+            .ok_or_else(invalid)?;
+        if !same_tag::verify_at(
+            f,
+            predecessors.ok_or_else(invalid)?,
+            write.input.slots,
+            at,
+            write.input.index,
+            write.input.tag,
+            remaining,
+        ) {
+            return Err(invalid());
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
     let [before, after, kind, wide, other, boolean, nil, slow] = write.blocks;
     let Input {
@@ -156,6 +204,7 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
         bits,
         signature,
         terminal,
+        known_tag,
     } = write.input;
     for block in [after, kind, wide, other, boolean, nil, slow] {
         if !f.dfg.block_params(block).is_empty() {
@@ -172,7 +221,14 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
         }
         _ => return Err(invalid()),
     };
-    let actual = load(f, actual, slots, index as i32 * 16, types::I64)?;
+    let actual = if let Some(proof) = known_tag {
+        if !proof.matches(index, tag) {
+            return Err(invalid());
+        }
+        value(f, actual, Opcode::Bor, &[tag, tag], types::I64)?
+    } else {
+        load(f, actual, slots, index as i32 * 16, types::I64)?
+    };
     let pointer = load(
         f,
         pointer,
@@ -335,6 +391,7 @@ fn typed_fixture(floating: bool) -> (Function, Write) {
             bits,
             signature,
             terminal: false,
+            known_tag: None,
         },
     );
     verify(&function, &write).unwrap();
