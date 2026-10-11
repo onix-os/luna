@@ -239,7 +239,50 @@ Clippy pass with existing warnings and none in the new files. Logs use
 `packed-entry-calls-*` and `packed-entry-i686.log`. There are no performance
 measurements or newly integrated Lua workloads in this stage.
 
-Remaining packed work includes complete whole-entry lowering and accounting,
+Packed scalar-read lowering now handles canonical tag loads and I64/F64 bit
+loads. Source admission checks the original load's register prefix, byte offset,
+type, flags and result identity. The emitted verifier independently checks exact
+descriptor offsets, tag constants/masks, pointer guards, branch targets, bitcasts
+and results. Numeric reads require an address above the reserved immediates and
+an admitted numeric low-bit encoding before dereferencing the cleared pointer.
+This requires a **live typed descriptor**, not an arbitrary untrusted pointer.
+Reference descriptors expose only the opaque tag and zero scalar bits.
+
+A shared Rust/native oracle covers all fourteen Value cases at registers
+0/1/255, six subsequent numeric overwrite patterns, untouched sibling prefixes
+and invalid nonpointer encodings. Generated probes cover tag, I64 and F64 reads;
+the Rust oracle also runs on i686 and under Miri. Another fixture composes six
+reads across successive block splits. Independent checker tests reject **56
+well-formed emitted-IR mutations** plus malformed source offsets/types/flags.
+The wrong-type source fixture must actually construct the intended SSA type:
+replacing an existing Cranelift load does not retype its existing result.
+
+This generic checked lowering adds **20 instructions per tag read**, **16 per
+I64-bit read**, or **17 per F64-bit read**; bit reads also add three blocks.
+Those costs are verified, not waived. Whole-function admission must account for
+them, and integrated profiles must determine whether specialization is required
+to make the packed representation profitable. No speedup is inferred from
+smaller descriptors. Retired Empty descriptors may represent non-Nil canonical
+values: terminal-write liveness or canonical refresh must prevent native reads
+from treating such a destination as Nil. This component does not establish that
+whole-function invariant on its own.
+
+Read sources are `backend/payload/packed_read*.rs` and
+`abi/payload/packed/read_oracle.rs`; targets are `jit-payload-packed-reads` and
+`jit-payload-packed-reads-miri`. Evidence uses `packed-reads-*`. Initial fixture
+API/borrow compilation failures and the incorrect-type fixture failure are
+retained in the first three logs; corrected focused/generated tests pass.
+
+Read source `2df1090`: GNU/musl pass **34 packed ABI tests and five compiler
+tests**, plus check-all. Real i686-musl passes **30 ABI tests**. Stacked and Tree
+Miri each pass **30 ABI tests and four compiler-verifier tests**; complete source
+after-checks include all three new files. Broader GNU/musl suites each pass
+**191 tests across four summaries** (96 ABI, 65 backend, three runtime,
+27 helpers), without failures or ignores. GNU formatting/default/all-feature
+Clippy pass with existing warnings and none in the new files. The broader
+runtime tests still exercise existing transports, not packed runtime activation.
+
+Remaining packed work includes scalar stores, complete whole-entry lowering and accounting,
 independent whole-function source/emitted checking,
 precise runtime exit/fuel/counter integration and resource accounting. Fresh
 frozen workload profiles and original hardware/compiled-Off gates still decide
