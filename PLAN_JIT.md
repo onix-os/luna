@@ -13,6 +13,39 @@
 
 #### Source-owned packed type predicates — measured, not activated
 
+**Follow-up rejected:** separating numeric full-prefix binding from an outlined
+non-numeric match, while leaving destination rebinding unchanged, improves
+callbacks but worsens metamethods. Image
+`58439482fcef4a3bd238d5c351d58ae9dd34fe11b9c93828c066613c8b39a9b1`
+completes another eleven same-code-image profiles and 24 full paired runs
+under the same controls. All 24 aggregate checks fail. The six direct
+predecessor/candidate callback ratios improve to 1.0169–1.0594 (median 1.0332),
+but metamethod ratios regress to 0.9281–0.9776 (median 0.9643), and integer
+loops regress in all six windows (median 0.9886). All execution/resource
+counters match the predecessor. The original callback/metamethod thresholds
+still fail in all six candidate runs; no general speedup is accepted.
+
+The split increases callback instructions 146,111,677 to 147,280,424 despite
+reducing modeled instruction-cache misses 1,038,787 to 4,546 and indirect
+branch mispredictions 260,727 to 130,919. These simulation changes are
+diagnostic, not hardware-counter evidence. GNU and musl check-all each pass
+48 packed ABI tests and eight owning-entry tests; the isolated production
+image adds its selection test. Stacked and Tree Miri each pass 44 pure ABI
+tests, including both entry/general binding paths over all Value kinds.
+
+The two-file entry-binding split is **withdrawn from main**, restoring source
+exactly to the committed type-predicate prototype. Its complete activation
+patch, isolated source, frozen executable/symbol image, hashes, telemetry and
+all results remain under `payload-terminal-profile/entry-split*` and
+`entry-split-*` in the evidence directory. No unrelated process was stopped;
+all owned tests/builds/profiles finished before hardware timing. This rejects
+another blanket packed-runtime activation rather than treating a callback
+improvement against an already regressing experiment as original acceptance.
+Further callback work must target the retained faster two-word payload path;
+repeating general packed promotion or the rejected Nil-inline trial is not
+justified. Per-entry source-proven binding requirements remain an unimplemented
+direction, not an accepted optimization or permission to reduce native coverage.
+
 The test-only packed lowering now recognizes equality against the five scalar
 tags and the numeric `(tag & !1) == INTEGER` test. It tests the descriptor word
 captured by the original tag load, not a descriptor reloaded after a helper.
