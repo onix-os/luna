@@ -109,6 +109,21 @@ advances the helper-lifetime protocol only; whole-runtime integration,
 independent emitted verification, resources and original performance gates
 remain incomplete. Scope code is in `packed/scoped.rs` and `scoped_tests.rs`.
 
+Before a C bridge can expose descriptor-array pointers, its storage must be
+separate from the mutable scope control object. The current Rust-only scope owns
+the array inline; retaining a pointer into that array while reborrowing the
+whole owner for a helper is not covered by these passing tests. The existing
+two-word runtime keeps its descriptor array separate from Session control.
+Follow that lifetime separation and add Miri tests reusing the exact same array
+pointer across helper calls before native integration. Current retained sibling
+tests exercise scalar-field pointers, not this future descriptor-array loan.
+
+Broader payload ABI/backend/runtime and helper suites subsequently pass on both
+GNU and musl: **162 tests each across four summaries**, with no failures or
+ignores. Logs are `packed-scope-broad-{gnu,musl}.log`. This includes unchanged
+callback/upvalue/GC/array-kernel runtime differentials, not a packed runtime
+activation or benchmark result.
+
 #### Same-thread callback handoff — measured and withdrawn
 
 `e51470f` introduces a scoped executor handoff for Lua-to-callback and a direct
