@@ -11,6 +11,61 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Reference result storage — test-only instruction reduction
+
+The payload prototype now stores incoming reference Values directly in canonical
+storage and publishes a REFERENCE/null descriptor. It does not create or rebind
+a scalar loan for those values. Integer, Number, Boolean and Nil destinations
+retain the previous binding path. Bounds, canonical roots, helper counts,
+retirement and panic behavior are unchanged; no Value layout is assumed.
+Ordinary production selection is unchanged. **This is not release activation
+or a claim that the callback performance regression is fixed.**
+
+`a3f21ab` separately adds an identity/borrow regression covering all reference
+kinds, both closure and callback functions, refused indices and descriptor
+lengths, scalar/reference transitions and live sibling integer/float pointers.
+The independent all-kind binding oracle remains. GNU formatting/check-all,
+focused ABI/native helper tests, 23 bound/read tests and the full sparse-runtime
+oracle pass. Musl check-all and the same focused/runtime lanes pass. Stacked and
+Tree Miri each pass 29 focused executions across seven summaries, including a
+repeated terminal suite; these are not 29 unique tests or native-code execution.
+
+Frozen full-binding candidate
+`1fe53ac443103c39661587f3f868f6bcb768b00c9c5b07f6d0da6587f126eba9`
+completed eleven matched-load-image profiles against `de1aed82`. Callback
+collected instructions fall **132,428,984 → 131,521,280**: helper 6 saves
+129,672 and non-numeric binding saves 778,032. Native callback instructions and
+wrapper self work are unchanged. Allocation falls 359,968 instructions and
+metamethods 750,397; integer/array totals rise 109/348. Float Auto and all four
+profiled Off totals are unchanged. Every non-timing profile-output field,
+including resource costs, matches the current full-binding control.
+
+Two reordered hardware campaigns complete **48 paired runs / 1,296 parsed
+rows**, using the original workloads, eleven samples, CPUs 0/16, three windows,
+retained control and same-image placebo. All 48 aggregate gates fail. Candidate
+callbacks pass **0/12**, metamethods **6/12**, upvalues **11/12**, and floats
+**12/12**. The median normalized callback paired factor is **1.0237 / 0.9948**
+in the first/repeat campaign; placebo is **1.0013 / 0.9927**. Corresponding
+callback Auto-time ratios are **1.0042 / 0.8796**, and Off-time ratios
+**0.9939 / 0.8311**. The second campaign retains severe shared-host variation,
+including concurrently running external Astrocraft workloads; none was stopped.
+These results do not establish a reliable callback hardware improvement.
+
+Normalized metamethod factors are 1.0075/1.0189, allocation 1.0107/1.0168,
+integer 0.9951/1.0078 and float 0.9969/1.0016. Oslo remains unscored and its
+repeat factor falls to 0.9730. All current-control execution/resource comparisons
+match exactly; historical metadata differences predate this trial. Ratios here
+use median paired speedups, while the unchanged benchmark gates use ratios of
+medians. No threshold or metric was substituted for acceptance.
+
+Keep the implementation test-only while investigating cumulative improvement.
+The instruction reduction is real; hardware, compiled-Off feature costs, full
+platform/resource promotion and release acceptance remain open. All owned
+validation/build/profile jobs completed before hardware timing. Frozen source,
+load-image and before/after hashes pass. Evidence:
+`target/jit-evidence/short-slice-performance/reference-store-*` and
+`payload-terminal-profile/reference-store*`.
+
 #### Frame context copies — measured and withdrawn
 
 A trial removed duplicated context and closure fields from the scoped payload
