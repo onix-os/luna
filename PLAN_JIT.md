@@ -164,9 +164,47 @@ GNU validation passes 38 ABI, 38 backend and two runtime tests; the subsequent
 six-test focused lane includes the additional emitted-mutation test and passes
 with format/all-feature checks. Musl passes 38 ABI, 39 backend and two runtime
 tests. Both Miri aliasing models pass the four non-native proof tests. Initial
-test-only borrow/API errors remain in the diagnostic logs. The isolated matched
-release build is in progress; this is not an activated runtime optimization or
-an accepted speedup.
+test-only borrow/API errors remain in the diagnostic logs.
+
+The stable-tag candidate is also **rejected for activation**. Its frozen SHA-256
+is `d19a2ce17b309f154e4909571ba1e9419da2219ff6542a0799f5ccaa59a35434`.
+Ten complete original workload/mode profiles retain exact source/image and
+stripped/symbol allocated-section checks. Compared with the shared-table image,
+integer-loop instructions fall only 1,201 and float-loop instructions only 48.
+Callbacks instead grow 64,743, to 132,623,499 (+0.2964% over ordinary).
+All three Off controls match. `tag-analysis.json` retains all statistics and the
+strict resource-field comparison failure; it is not a performance pass.
+
+An additional **24 complete unchanged hardware commands** compare ordinary,
+shared-table, stable-tag and same-inode placebo images over three rotated windows
+on CPUs 0/16. All aggregate gates fail. Stable-tag callbacks and metamethods
+fail all six windows; allocation/GC fails three. Ordinary/stable-tag callback
+time ratios are 0.8774–0.8883 on CPU0 and 0.9797–0.9922 on CPU16. Integer
+ratios remain 0.9037–0.9052 / 0.7966–0.8178; float ratios remain
+0.9077–0.9204 / 0.8347–0.8410. The CPU16 third-window upvalue rise also
+appears in the same-inode placebo (1.1436); do not credit that drift to the
+candidate. All 324 full non-timing comparisons are retained: 84 differ only in
+code/snapshot resource fields, while execution counters match. No owned
+validation overlaps timing. Artifacts, sources, invocation aliases and
+per-command contention telemetry are checked as in the preceding campaign.
+
+Exact-image debugger captures of each original callback kernel localize the
+instruction regression. Both immutable images produce one 4,096-byte executable
+page. Generated-code work rises 14,007,832 → 14,072,656 (+64,824), while the
+ordinary wrapper stays 15,693,458 in both payload variants. Weighted spill
+instructions at stack offsets 8/16 rise 129,685 → 194,558 (+64,873); other
+generated work falls by 49. The new hot spill at offset `0x286` executes 64,837
+times, storing the helper host before the null-pointer/materializer branch.
+The proof removed a redundant check but changed allocation of registers; it did
+not remove enough dynamic work. This attributes the instruction increase, not
+the entire CPU0 timing loss. Keep null-pointer guards and the original safety
+contract intact when addressing the cold helper path's register lifetime.
+
+Evidence: `payload-terminal-profile/tag-hardware-screen`,
+`tag-hardware-analysis.json`, `tag-analysis.json` and `tag-native-vgdb`, including
+captured native bytes, disassembly, per-instruction weighted costs and image
+hashes. The safe proof/emission/mutation tests remain test-only; production still
+uses the ordinary transport and original acceptance remains incomplete.
 
 Target the ordinary wrapper's **12,321,657 import/writeback instructions**,
 not another tiny scalar-guard or rejected callback-setup/cache variation.
