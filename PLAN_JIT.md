@@ -11,6 +11,47 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Typed entry classification and bound reads — still experimental
+
+Commit `442eaa1` replaces optional payload metadata with a separate, explicit
+entry-kind enum: ordinary/checked/frame-bound. Its low discriminant bit selects
+the payload family without collapsing the distinct contracts or weakening the
+canonical binding factory. Payload lowering still accepts only its separate
+checked/frame-bound contract type. Scratch-slot and linked payload invocation
+remain rejected. GNU/musl each pass **40 ABI + 44 backend + three runtime tests**;
+both Miri models pass five focused tests. The exhaustive classification test
+covers all three identities and their one-byte representation.
+
+The frozen `kind` experiment
+(`da0464a85d4a644f62099907c10d7eece82ba5c1b85501e389a498b46d606cc6`)
+completes ten profiles with strict non-timing equality against `common`. Exact
+wrapper attribution verifies removal of **129,698** instructions: callback
+wrapper self-work returns to 15,693,458. The native callback page is byte-identical
+to `common`, at 13,942,909 self-instructions. Whole callback work falls by 129,617
+to 132,493,833; other workload changes are retained rather than attributed to
+this representation alone. This is measured instruction work, not hardware or
+original aggregate acceptance.
+
+Commit `e85e2aa` additionally lowers proven numeric reads through live field
+pointers **only for frame-bound entries**. Loads move into the accepted numeric
+guard block. The original CFG independently rechecks all uses/dominance with a
+separate bounded verification budget; the emitted CFG independently checks the
+guard, incoming edge, load position, pointer root/offset, result and type. Source
+verification occurs before releasing source-analysis workspace, which is still
+dropped before allocating emitted predecessors. Checked nullable reads remain
+unchanged. Each bound read removes five instructions (six for F64) and three
+blocks beyond checked numeric-read lowering, with exact expansion accounting.
+
+GNU/musl each pass **40 ABI + 47 backend + three runtime tests**; GNU fmt/check-all
+passes. New tests cover exact workspace-peak refusal/cleanup, 16 well-formed
+emitted mutations, six source mutations, proof-work exhaustion, paired operands,
+and actual native reads through scoped bindings for extrema, floating-point bit
+patterns and reference-valued guards. The integrated all-PC/budget/type and
+callback/GC/fuel corpus still passes. Logs are `payload-kind-*` and
+`payload-bound-read-*`; the isolated `field-source` experiment is being built
+separately from the frozen kind control. Neither experiment is activated in
+production; all original acceptance gates remain in force.
+
 #### Frame-bound numeric stores — implementation, not acceptance
 
 Commit `7abaa73` adds a separate test-only `FrameBound` entry contract alongside
