@@ -834,6 +834,8 @@ fn compile_selected_rooted(
             "injected provider setup probe".into(),
         ));
     }
+    #[cfg(test)]
+    let direct_payload = failure == Failure::RequireBoundPayload;
     let helper_symbols = helpers::SYMBOLS;
     #[cfg(not(miri))]
     let helper_symbols = if selection.scoped_helpers {
@@ -841,7 +843,24 @@ fn compile_selected_rooted(
     } else {
         helper_symbols
     };
+    #[cfg(test)]
+    let helper_symbols = if direct_payload {
+        abi::payload::runtime::SYMBOLS
+    } else {
+        helper_symbols
+    };
     let symbol_bytes = symbol_storage_bytes(helper_symbols.map(|(_, name, _)| name.len()))?;
+    #[cfg(test)]
+    let symbol_bytes = if direct_payload {
+        symbol_storage_bytes(
+            helper_symbols
+                .map(|(_, name, _)| name.len())
+                .into_iter()
+                .chain(abi::payload::runtime::WRITERS.map(|(name, _)| name.len())),
+        )?
+    } else {
+        symbol_bytes
+    };
     #[cfg(test)]
     if failure == Failure::RefuseSymbols {
         let ledger = &snapshot.operations.allocator().0;
@@ -860,6 +879,12 @@ fn compile_selected_rooted(
     let mut jit = native_builder(native_isa)?;
     for (_, name, entry) in helper_symbols {
         jit.symbol(owned_symbol(name)?, entry as *const u8);
+    }
+    #[cfg(test)]
+    if direct_payload {
+        for (name, entry) in abi::payload::runtime::WRITERS {
+            jit.symbol(owned_symbol(name)?, entry as *const u8);
+        }
     }
     jit.memory_provider(provider);
     let relocation_copy_charge;
@@ -913,6 +938,14 @@ fn compile_selected_rooted(
         .ok_or(JitError::ResourceLimit("native signature size"))?;
     #[cfg(test)]
     let signature_bytes = signature_bytes
+        .checked_add(if direct_payload {
+            signature_storage_bytes(0, 5, 0, 2)?
+        } else {
+            0
+        })
+        .ok_or(JitError::ResourceLimit("native signature size"))?;
+    #[cfg(test)]
+    let signature_bytes = signature_bytes
         .checked_add(if leaf_pattern.is_some() {
             Layout::array::<AbiParam>(
                 (helper_types.len() + helper_returns.len()) * projection_count,
@@ -952,6 +985,26 @@ fn compile_selected_rooted(
             .map(|id| (kind, id))
     })
     .map_err(fail)?;
+    #[cfg(test)]
+    let writer_ids = if direct_payload {
+        let mut writer_signature = module.make_signature();
+        fill_signature(
+            &mut writer_signature.params,
+            [ptr, ptr, types::I32, types::I64, types::I64],
+        )?;
+        Some(
+            super::arrays::try_array::<_, _, 2>(|index| {
+                module.declare_function(
+                    abi::payload::runtime::WRITERS[index].0,
+                    Linkage::Import,
+                    &writer_signature,
+                )
+            })
+            .map_err(fail)?,
+        )
+    } else {
+        None
+    };
     let projection_ids = super::arrays::try_array::<_, _, 2>(|index| {
         if projected_kinds[index] {
             module
@@ -1356,7 +1409,17 @@ fn compile_selected_rooted(
             | Failure::RequirePayloadTags
             | Failure::RequireBoundPayload
     ) {
-        let proven_writes = payload::lower_contract(
+        let direct_targets = writer_ids.map(|writers| {
+            let writers = writers.map(|id| module.declare_func_in_func(id, &mut context.func));
+            std::array::from_fn(|index| {
+                if index < 10 {
+                    helper_refs[index].1
+                } else {
+                    writers[index - 10]
+                }
+            })
+        });
+        let proven_writes = payload::lower_linked(
             &mut context.func,
             parameters[0],
             parameters[4],
@@ -1369,6 +1432,7 @@ fn compile_selected_rooted(
             } else {
                 payload::Contract::Checked
             },
+            direct_targets.as_ref(),
         )?;
         if failure == Failure::RequirePayloadTags && proven_writes == 0 {
             return Err(JitError::Compilation("no proven payload tag writes".into()));
