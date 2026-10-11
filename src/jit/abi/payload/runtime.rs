@@ -17,6 +17,10 @@ mod closed_table_tests;
 mod local_table_tests;
 
 #[cfg(test)]
+#[path = "table_write_tests.rs"]
+mod table_write_tests;
+
+#[cfg(test)]
 #[path = "capacity_tests.rs"]
 mod capacity_tests;
 
@@ -621,6 +625,11 @@ unsafe extern "C" fn call<const KIND: u32>(
             return result;
         }
     }
+    if KIND == abi::HELPER_SET_TABLE {
+        if let Some(result) = table_write(session, slots, a, b, c, pc) {
+            return result;
+        }
+    }
     let count = session.count;
     let result = helpers::call_direct::<KIND>(unsafe { session.frame.as_mut() }, a, b, c, pc);
     if result != abi::HELPER_PANICKED {
@@ -629,6 +638,79 @@ unsafe extern "C" fn call<const KIND: u32>(
         session.stopped = true;
     }
     result
+}
+
+fn table_operand<'gc>(
+    session: &Session<'_, 'gc, '_, '_, '_>,
+    slots: *mut Payload,
+    operand: u32,
+) -> Option<Value<'gc>> {
+    if operand & abi::CONSTANT_OPERAND != 0 {
+        return session
+            .closure
+            .prototype()
+            .constants
+            .get((operand & !abi::CONSTANT_OPERAND) as usize)
+            .copied()
+            .map(Into::into);
+    }
+    if operand as usize >= session.count {
+        return None;
+    }
+    let slot = unsafe { slots.add(operand as usize).read() };
+    match slot.tag {
+        NIL | REFERENCE if slot.pointer.is_null() => {
+            Some(unsafe { session.values.as_ptr().add(operand as usize).read() })
+        }
+        INTEGER | NUMBER | BOOLEAN => unsafe { load(slot) }.map(|value| value.value(Value::Nil)),
+        _ => None,
+    }
+}
+
+fn table_write(
+    session: &mut Session<'_, '_, '_, '_, '_>,
+    slots: *mut Payload,
+    receiver: u32,
+    key: u32,
+    value: u32,
+    pc: u32,
+) -> Option<u32> {
+    if receiver as usize >= session.count {
+        return None;
+    }
+    let table = table_operand(session, slots, receiver)?;
+    let key = table_operand(session, slots, key)?;
+    let value = table_operand(session, slots, value)?;
+    unsafe {
+        session.counts.as_mut().calls += 1;
+        *session.pc.as_ptr() = pc as usize + 1;
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        helpers::write_table_value(session.ctx, table, key, value)
+    }));
+    Some(match result {
+        Ok(completed) => {
+            let counts = unsafe { session.counts.as_mut() };
+            if completed {
+                counts.completed += 1;
+                counts.table_writes += 1;
+                abi::HELPER_COMPLETED
+            } else {
+                counts.declined += 1;
+                unsafe {
+                    *session.pc.as_ptr() = pc as usize;
+                }
+                abi::HELPER_DECLINED
+            }
+        }
+        Err(payload) => {
+            unsafe {
+                session.frame.as_mut().panic = Some(payload);
+            }
+            session.stopped = true;
+            abi::HELPER_PANICKED
+        }
+    })
 }
 
 fn constant_table<const KIND: u32>(
