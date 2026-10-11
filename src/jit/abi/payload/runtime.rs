@@ -42,9 +42,8 @@ mod sparse_binding_tests;
 
 pub(crate) struct Binding<'scope> {
     slots: NonNull<Payload>,
-    host: NonNull<Bridge>,
+    host: &'scope mut Bridge,
     count: usize,
-    borrow: PhantomData<&'scope mut Bridge>,
 }
 
 pub(crate) type BoundEntry =
@@ -71,7 +70,7 @@ impl Binding<'_> {
                 pc as u64,
                 budget.min(64),
                 exit,
-                self.host.as_ptr(),
+                self.host,
             )
         };
     }
@@ -85,9 +84,8 @@ pub(crate) fn with_binding<const CAPACITY: usize>(
     with_bridge::<CAPACITY>(frame, |slots, host| {
         body(Binding {
             slots: NonNull::new(slots).unwrap(),
-            host: NonNull::new(host).unwrap(),
+            host: unsafe { &mut *host },
             count,
-            borrow: PhantomData,
         });
     });
 }
@@ -108,9 +106,8 @@ pub(crate) unsafe fn with_binding_mask<const CAPACITY: usize>(
     with_bridge_selected::<CAPACITY, true>(frame, mask, |slots, host| {
         body(Binding {
             slots: NonNull::new(slots).unwrap(),
-            host: NonNull::new(host).unwrap(),
+            host: unsafe { &mut *host },
             count,
-            borrow: PhantomData,
         });
     });
 }
@@ -191,7 +188,7 @@ unsafe extern "C" fn write_scalar(
     bits: u64,
 ) {
     unsafe { (*host).materializations += 1 };
-    let result = unsafe { materialize(host.cast(), slots, index, tag, bits) };
+    let result = unsafe { materialize((*host).base.data.cast(), slots, index, tag, bits) };
     assert_eq!(result, abi::HELPER_COMPLETED);
 }
 
@@ -203,7 +200,7 @@ unsafe extern "C" fn write_terminal(
     bits: u64,
 ) {
     unsafe { (*host).materializations += 1 };
-    let result = unsafe { materialize_terminal(host.cast(), slots, index, tag, bits) };
+    let result = unsafe { materialize_terminal((*host).base.data.cast(), slots, index, tag, bits) };
     assert_eq!(result, abi::HELPER_COMPLETED);
 }
 
@@ -215,7 +212,7 @@ unsafe extern "C" fn helper<const KIND: u32>(
     c: u32,
     pc: u32,
 ) -> u32 {
-    unsafe { call::<KIND>(host.cast(), slots.cast(), a, b, c, pc) }
+    unsafe { call::<KIND>((*host).data.cast(), slots.cast(), a, b, c, pc) }
 }
 
 #[inline(always)]
@@ -233,7 +230,16 @@ fn with_bridge_selected<const CAPACITY: usize, const SELECTED: bool>(
     body: impl FnOnce(*mut Payload, *mut Bridge),
 ) {
     with_session_selected::<CAPACITY, SELECTED>(frame, mask, |session, slots| {
-        body(slots, session.cast());
+        let mut bridge = Bridge {
+            base: abi::Host {
+                data: session.cast(),
+                projection: std::ptr::null_mut(),
+            },
+            read: read_bits,
+            functions: &FUNCTIONS,
+            materializations: 0,
+        };
+        body(slots, &mut bridge);
     });
 }
 
@@ -289,24 +295,24 @@ pub(crate) fn check_bound_scalar_transitions(entry: unsafe extern "C" fn(*const 
                     };
                     with_binding::<2>(&mut frame, |binding| unsafe {
                         let slots = binding.slots.as_ptr();
-                        let host = binding.host.as_ptr();
+                        let host = binding.host;
                         assert_eq!(entry(slots), Slot::from_value(initial).bits);
-                        let move_value = (*host).functions.helpers[(abi::HELPER_MOVE - 1) as usize];
+                        let move_value = host.functions.helpers[(abi::HELPER_MOVE - 1) as usize];
                         assert_eq!(
-                            move_value(host.cast(), slots.cast(), 0, 1, 0, 7),
+                            move_value(std::ptr::from_mut(host).cast(), slots.cast(), 0, 1, 0, 7),
                             abi::HELPER_COMPLETED
                         );
                         assert_eq!(entry(slots), Slot::from_value(next).bits);
-                        ((*host).functions.terminal)(host, slots, 0, NUMBER, replacement);
+                        (host.functions.terminal)(host, slots, 0, NUMBER, replacement);
                         assert_eq!(slots.read().tag, NIL);
                         assert!(slots.read().pointer.is_null());
                         assert_eq!(entry(slots), 0);
                         assert_eq!(
-                            move_value(host.cast(), slots.cast(), 0, 0, 0, 9),
+                            move_value(std::ptr::from_mut(host).cast(), slots.cast(), 0, 0, 0, 9),
                             abi::HELPER_COMPLETED
                         );
                         assert_eq!(entry(slots), replacement);
-                        assert_eq!((*host).materializations, 1);
+                        assert_eq!(host.materializations, 1);
                     });
                     assert_eq!(frame.count.calls, 2);
                     assert_eq!(frame.count.completed, 2);
@@ -607,9 +613,7 @@ fn bridge_function_table_preserves_original_payload_and_host_pointers() {
     });
 }
 
-#[repr(C)]
 struct Session<'s, 'gc, 'a, 'b, 'p> {
-    bridge: Bridge,
     frame: NonNull<helpers::Frame<'gc, 'a, 'b, 'p>>,
     values: NonNull<Value<'gc>>,
     counts: NonNull<helpers::Counts>,
@@ -677,15 +681,6 @@ fn with_session_selected<const CAPACITY: usize, const SELECTED: bool>(
     let ctx = frame.ctx;
     let closure = frame.closure;
     let mut session = Session {
-        bridge: Bridge {
-            base: abi::Host {
-                data: std::ptr::null_mut(),
-                projection: std::ptr::null_mut(),
-            },
-            read: read_bits,
-            functions: &FUNCTIONS,
-            materializations: 0,
-        },
         frame: NonNull::from(frame),
         values: NonNull::dangling(),
         counts: NonNull::dangling(),
