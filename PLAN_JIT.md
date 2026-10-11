@@ -56,9 +56,40 @@ the latter includes +261,420 in Admitted::new, not a helper6 reduction. All
 `scalar-vs-local-analysis.json` and `local-*-auto-delta.json` under
 `payload-terminal-profile/`. Allocated ELF sections match the symbol image;
 source/image checksums and invocation inode checks pass before/after profiling.
-Hardware comparison remains pending; these instruction counts are not a timing
-or production acceptance claim. Logs: `payload-local-table-*` under
-`target/jit-evidence/short-slice-performance/`.
+The full hardware comparison completes with **24/24 aggregate failures**. Across
+three rotated windows on CPUs 0 and 16, previous/local Auto median-time ratios
+for metamethods are 1.0501–1.0519 and 1.0125–1.0429 respectively; allocation/GC
+ratios are 1.0520–1.0599 and 1.0926–1.1140. Allocation now passes its original
+gate in all six candidate windows. Metamethods and callbacks still fail in all
+six, so the candidate is not accepted. Callback ratios are 0.9600–0.9753 on
+CPU 0 and 0.9849–1.0079 on CPU 16: the repeatable CPU 0 regression must not be
+hidden by the table-read gains. Callback instruction attribution changes only
+Manager::enqueue (−9,888), not helper6 or anonymous native instructions; this
+does not establish the hardware regression's cause.
+
+A separate paired vgdb capture confirms the callback native mapping is
+byte-identical (4,096 bytes; SHA-256
+`e45756012e94b79cd64f0cff93df1ed8f7aac952d19a3b5b0dd7cf5ebebd05c1`).
+Both attributed mappings execute 13,099,872 instructions,
+including 907,797 at stack offsets 8/16. Complete function attribution and all
+non-timing statistics also match in this capture repeat (the earlier enqueue
+difference does not repeat). Evidence: `local-native-vgdb/`. The CPU 0 callback
+regression is therefore not explained by changed generated callback code or
+repeatable additional helper instructions; host layout or hardware effects
+remain hypotheses requiring further measurement, not accepted explanations.
+
+All 108 direct previous/candidate non-timing comparisons match. The 324
+ordinary-relative comparisons retain 84 differences, exclusively code_bytes
+and snapshot_peak_bytes. Same-inode ordinary placebo ratios span
+0.9978–0.9997 for CPU 0 callbacks and 0.9906–1.0083 for CPU 16 callbacks;
+CPU 16 metamethod placebo ratios reach 0.9591–0.9830, so small timing differences
+there are not strong standalone evidence. Thresholds, all nine workloads,
+11 paired samples, contention telemetry, image/source checksums and alias
+cleanup remain intact. No owned builds, profiles or edits ran during timing.
+Evidence: `local-hardware-screen/`, `local-hardware-analysis.json`, and
+`local-vs-scalar-hardware-stats.json`. Logs: `payload-local-table-*` under
+`target/jit-evidence/short-slice-performance/`. Full original performance,
+resource, platform and release acceptance remains open.
 
 #### Bound scalar reads — contract-specific null-check removal
 
