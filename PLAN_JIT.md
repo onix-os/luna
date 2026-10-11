@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-11
 
-#### Branch-local scalar descriptor loads — measured instruction costs
+#### Branch-local scalar descriptor loads — measured and withdrawn
 
 Commit `3c97f73` moves frame-bound scalar pointer loads into their numeric and
 Boolean branches, and constructs zero only on the Nil/reference branch. The
@@ -40,8 +40,32 @@ instructions rise by 237,552 (234,546 anonymous native work); metamethods rise
 and array falls 1,074. All 13 events and complete function sums remain recorded.
 No measured cost is excluded from totals. Evidence:
 `local-vs-branch-analysis.json`, `branch-*-auto-delta.json`, and
-`branch-native-vgdb/`. Full original hardware gates remain pending; no timing
-improvement or acceptance is claimed. Logs:
+`branch-native-vgdb/`.
+
+The full hardware matrix completes with 24/24 aggregate failures. Callbacks and
+metamethods still fail all six candidate windows. Previous/branch Auto
+median-time ratios for allocation are **0.9321–0.9741 on CPU 0** (all three
+slower) and 0.9229–1.0284 on CPU 16. CPU 0's same-inode ordinary allocation
+placebos span 0.9950–1.0059; the CPU 16 placebo reaches 1.0923 and is noisy.
+Passing the allocation threshold does not cancel its regression versus the
+previous candidate. Callback ratios are 1.0135–1.0275 on CPU 0 and
+0.9874–0.9979 on CPU 16; metamethod ratios are 1.0084–1.0237 and
+1.0076–1.0248. Float CPU 0 includes a 0.9338 outlier, retained alongside its
+0.9996–1.0056 placebo range. These mixed timing results do not justify the
+increased callback spills and repeatable CPU 0 allocation cost.
+
+All 108 previous/candidate non-timing comparisons match; 84 of 324
+ordinary-relative comparisons differ only in code_bytes/snapshot_peak_bytes.
+All original nine workloads, 11 paired samples, rotated orders, CPUs 0/16,
+source/image identities, cleanup and contention telemetry remain intact.
+No owned build/test/profile/edit overlaps hardware timing. Evidence:
+`branch-hardware-screen/`, `branch-hardware-analysis.json`, and
+`branch-vs-local-hardware-stats.json`. The lowering and coupled verifier/accounting
+changes are withdrawn; source returns exactly to the local-table candidate
+`b003d7b`. Restored formatting, check-all and all 105 payload tests pass in
+`payload-branch-read-restored.log`. Full acceptance remains open, and the failed
+candidate's frozen source/image/captures remain untouched.
+Logs:
 `payload-branch-read-*` and `payload-terminal-profile/branch*` under
 `target/jit-evidence/short-slice-performance/`.
 

@@ -568,7 +568,7 @@ pub(super) fn lower_contract(
                 - 13 * numeric_count
                 - 29 * bound_count
                 - bound_read_savings
-                - 2 * bound_scalar_count,
+                - 3 * bound_scalar_count,
             plan.blocks - 2 * numeric_count - 6 * bound_count - 3 * bound_read_count,
         )
     {
@@ -653,7 +653,7 @@ pub(super) fn lower_contract(
                 - 13 * numeric_count
                 - 29 * bound_count
                 - bound_read_savings
-                - 2 * bound_scalar_count,
+                - 3 * bound_scalar_count,
             plan.blocks - 2 * numeric_count - 6 * bound_count - 3 * bound_read_count,
         )
     {

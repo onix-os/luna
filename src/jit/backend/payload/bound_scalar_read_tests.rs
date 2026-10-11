@@ -26,7 +26,7 @@ fn bound_scalar_reads_keep_contracts_expansion_and_quota_cleanup() {
         assert!(verify_contract(&f, &read, slots, Contract::FrameBound, None).is_err());
         let (checked, checked_read, checked_slots) = typed_fixture(ty);
         assert!(check(&checked, &checked_read, checked_slots).is_err());
-        assert_eq!(size(&f), (size(&checked).0 - 2, size(&checked).1));
+        assert_eq!(size(&f), (size(&checked).0 - 3, size(&checked).1));
         let (source, _, slots) = typed_source_fixture(ty);
         for contract in [Contract::Checked, Contract::FrameBound] {
             let lower = |f: &mut Function, memory| {
@@ -48,7 +48,7 @@ fn bound_scalar_reads_keep_contracts_expansion_and_quota_cleanup() {
             let memory = allocator(1 << 20);
             lower(&mut f, memory.clone()).unwrap();
             let extra = if contract == Contract::FrameBound {
-                17
+                16
             } else {
                 19
             };
@@ -80,14 +80,8 @@ fn bound_scalar_checker_rejects_guard_width_pointer_and_incoming_edge_mutations(
         let (f, read, slots) = fixture(ty);
         let [before, after, wide, other, boolean, zero] = read.blocks;
         let head: Vec<_> = f.layout.block_insts(before).collect();
-        let integer = f.dfg.first_result(head[3]);
-        assert_eq!(head.len(), 6);
-        assert_eq!(
-            head.iter()
-                .filter(|&&inst| f.dfg.insts[inst].opcode() == Opcode::Load)
-                .count(),
-            1
-        );
+        let null = f.dfg.first_result(head[6]);
+        let integer = f.dfg.first_result(head[4]);
         let mut rejected = 0;
         let mut reject = |changed: Function| {
             assert!(check(&changed, &read, slots).is_err());
@@ -107,7 +101,9 @@ fn bound_scalar_checker_rejects_guard_width_pointer_and_incoming_edge_mutations(
                     InstructionData::Brif { blocks, .. } => blocks.swap(0, 1),
                     InstructionData::Unary { opcode, .. } => *opcode = Opcode::Sextend,
                     InstructionData::Jump { destination, .. } => {
-                        destination.update_args(&mut dfg.value_lists, |_| BlockArg::Value(integer));
+                        destination.update_args(&mut dfg.value_lists, |_| {
+                            BlockArg::Value(if block == zero { integer } else { null })
+                        });
                     }
                     _ => panic!("unhandled bound read instruction"),
                 }
@@ -126,31 +122,23 @@ fn bound_scalar_checker_rejects_guard_width_pointer_and_incoming_edge_mutations(
                 }
             }
         }
-        for block in [wide, boolean] {
-            let body: Vec<_> = f.layout.block_insts(block).collect();
-            for inst in &body[..2] {
-                let mut changed = f.clone();
-                changed.dfg.inst_args_mut(*inst)[0] = integer;
-                reject(changed);
-            }
-        }
         let body: Vec<_> = f.layout.block_insts(boolean).collect();
         let mut changed = f.clone();
-        let byte = changed.dfg.first_result(body[1]);
+        let byte = changed.dfg.first_result(body[0]);
         let wide_value = changed.dfg.replace_result(byte, types::I64);
-        changed.replace(body[2]).iadd(wide_value, integer);
+        changed.replace(body[1]).iadd(wide_value, null);
         reject(changed);
         let mut changed = f.clone();
         let end = changed.layout.last_inst(wide).unwrap();
         let mut c = FuncCursor::new(&mut changed);
         c.goto_inst(end);
-        c.ins().store(MemFlagsData::new(), integer, slots, 0);
+        c.ins().store(MemFlagsData::new(), null, slots, 0);
         reject(changed);
         let mut changed = f.clone();
-        changed.replace(head[1]).iconst(types::I64, -6);
+        changed.replace(head[2]).iconst(types::I64, -6);
         reject(changed);
         let mut changed = f.clone();
-        changed.dfg.inst_args_mut(head[2])[0] = slots;
+        changed.dfg.inst_args_mut(head[3])[0] = slots;
         reject(changed);
         for target in [wide, other, boolean, zero, after] {
             let mut changed = f.clone();
@@ -169,7 +157,7 @@ fn bound_scalar_checker_rejects_guard_width_pointer_and_incoming_edge_mutations(
                 .fcvt_from_sint(types::F64, read.result);
             reject(changed);
         }
-        assert_eq!(rejected, 36 + usize::from(ty == types::F64));
+        assert_eq!(rejected, 30 + usize::from(ty == types::F64));
     }
 }
 
