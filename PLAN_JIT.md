@@ -11,6 +11,26 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Branch-local scalar descriptor loads — validation in progress
+
+Commit `3c97f73` moves frame-bound scalar pointer loads into their numeric and
+Boolean branches, and constructs zero only on the Nil/reference branch. The
+pointer and zero no longer span the tag split in emitted IR. The checked
+nullable-descriptor path is unchanged. Independent emitted verification checks
+each branch-local pointer load, tag, width, result and exclusive incoming edges;
+73 well-formed mutations across integer/floating forms are rejected. Exact
+expansion accounting includes the additional static instruction versus the
+previous bound shape: two instructions saved versus checked, rather than three.
+Peak workspace refusal/cleanup and contract mismatch checks remain in place.
+
+GNU/musl each pass 46 ABI + 56 backend + three runtime tests; GNU check-all and
+formatting pass. Final focused bound tests also pass on both targets, including
+native canonical readers and 169 value-transition pairs. Miri, frozen activated
+build, instruction attribution and full original hardware gates are tracked
+separately; no register-spill or timing improvement is claimed yet. Logs:
+`payload-branch-read-*` and `payload-terminal-profile/branch*` under
+`target/jit-evidence/short-slice-performance/`.
+
 #### Local constant-table reads — partial refresh and liveness
 
 Commit `ac6267d` adds a scoped constant-key GetTable path alongside the existing
