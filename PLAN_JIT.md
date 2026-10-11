@@ -11,6 +11,70 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Split transport wrappers — measured development change
+
+`cb7ccd5` selects the canonical/ordinary wrapper specialization from the actual
+entry kind before entering its outlined body. Frame construction, bounds, array
+prefix commits, scalar write-back, projection, panic propagation and counters
+remain shared. Canonical selection is still test-only in the main checkout;
+the caller-shadow test adapter preserves its existing mode selection. No public
+stack contract, cached-value assumption or native coverage is changed.
+
+The isolated activated image
+`599b47567b433ba36f15eab0beb8d99078cc6c04c7784c8034b9f6686f4ba422`
+passes 61 focused tests/six summaries and eleven exact-image profiles. Against
+the preceding cleanup all non-timing execution/resource fields match; four Off
+instruction totals are exact. Auto instruction changes are callback -194,479,
+integer -135,817, float -88,860, array -65,239, allocation -7,812 and metamethod
+-64,365; upvalue adds 146,791. The five-register ordinary stack reservation
+returns from `0x848` to `0x808`, but some work moves into VM dispatch. Against
+production, numeric overhead remains about 1% in modeled instructions. The
+activated executable's GNU `size` text category grows **104,192 bytes** versus
+the cleanup; equality of JIT-owned resource fields does not hide that host cost.
+
+Two four-way campaigns complete 48 commands/1,296 rows with unchanged thresholds,
+production controls/placebos, preceding-cleanup controls, rotated orders and
+contention telemetry; no owned validation/profile overlaps hardware timing.
+Direct Auto production ratios (first/repeat) are integer **0.99424 / 0.99397**,
+float **0.98792 / 0.98768**, array **1.00479 / 0.97003**, upvalue
+**1.00212 / 0.99688**, metamethod **1.03385 / 1.03982**, callback
+**1.02331 / 1.02074**, allocation **0.99118 / 1.01467**, unscored Oslo
+**0.99321 / 0.99026**, and cold **1.00218 / 0.99852**. Numeric regression is
+smaller, not eliminated. Candidate aggregate/callback gates pass only **1/12**
+(repeat CPU0 window1); 47 of all 48 commands fail. Array variability, remaining
+resource growth and the original acceptance failures remain open.
+
+Main-checkout validation passes GNU **41 / nine summaries**, musl **16 / three**,
+and caller-shadow Stacked/Tree Borrows **seven each**. GNU includes mixed-cache,
+bound, packed-runtime, projection and call-runtime coverage; musl includes the
+mixed cache, packed-entry rejection/failure and caller-shadow checks. A fresh
+full GNU Force rerun is now running; the earlier 1,780-test result predates this
+refactor and is not substituted for that rerun.
+
+The unactivated main-checkout refactor is independently frozen as
+`1a8916dbbba13e5eeed5fb84b7aa33745c2ee4210df4f85ba073f6df1ad4ec26`.
+Its eleven profiles match every production non-timing field. Integer/float/array
+Auto and all four Off instruction totals are unchanged; callback -81, upvalue
++52,996, allocation +6,299 and metamethod -133,864 remain recorded. GNU size
+categories and `.rodata` match, but `.text` and the complete image are not
+byte-identical. Separate two-campaign production timing completes 48 commands:
+integer **1.00214 / 1.00275**, float **0.99976 / 1.00035**, array
+**1.00359 / 1.03181**, upvalue **0.99709 / 0.99650**, metamethod
+**1.00251 / 0.99540**, callback **0.99981 / 1.00441**, allocation
+**0.99723 / 0.99732**, Oslo **1.00166 / 1.00025**, cold **1.00373 / 0.99108**.
+These busy-host observations are not a blanket no-regression or release claim.
+
+Artifact inspection initially used `objcopy --dump-section` without a separate
+output, which rewrote the two unactivated ELF inputs after profiling. The timing
+identity guard rejected them before any samples. Mutated files and the failed
+attempt are retained; exact original images were restored from independently
+hash-verified link captures, without changing expected checksums. All accepted
+timing above uses those restored original images with final identity checks.
+
+Evidence: `target/jit-evidence/short-slice-performance/transport-split-*` and
+`payload-terminal-profile/transport-split*/`. Production payload selection and
+full-plan performance acceptance remain incomplete.
+
 #### Source-based native transport — numeric regression reduced, not accepted
 
 `e043810` adds a test-only `PreferBoundPayload` selector. It preserves ordinary
