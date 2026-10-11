@@ -76,6 +76,36 @@ tests. GNU again passes 86 tests and fmt/check-all. Its isolated `common-source`
 variant is being validated and measured separately; the first bound experiment
 and all older controls remain frozen.
 
+The common-entry variant has now completed its validation and measurement:
+GNU/musl and the isolated GNU build each pass 86 tests; fmt/check-all passes.
+The frozen image is
+`b4a55077d4e5d08a489e59d7808e21f2fe60f0dc97ca070d9f6e28fe81fdf877`.
+Ten profiles preserve every non-timing statistic versus `bound` (strict analyzer
+exit 0). Its captured native callback page is byte-identical to `bound`, with
+13,942,909 self-instructions. The Rust wrapper falls by **194,559** instructions
+to 15,823,156; whole callback work falls by 194,640 to **132,623,450**. This verifies
+removal of the duplicate dispatch, not original performance acceptance.
+
+All 24 additional full hardware commands still fail the aggregate gate. The
+candidate fails callbacks and metamethods in all six windows and allocation/GC
+in three. Ordinary/candidate callback ratios are 0.9628–0.9703 on CPU 0 and
+0.8969–0.9886 on CPU 16. Integer ratios remain 0.9031–0.9055 / 0.8063–0.8116;
+float ratios remain 0.8968–0.9004 / 0.8298–0.8511. Again, all 324 non-timing
+comparisons are retained, with 84 resource-only differences and matching
+execution counters. Sources, image hashes, exact symbol/stripped allocated
+sections, invocation aliases and contention telemetry remain in the evidence.
+
+The remaining wrapper delta versus `rare` is exactly **129,698 instructions**:
+`cmp bpl,0x2` and `setne r8b`, each executed 64,849 times, classify the new
+`Option<Contract>` before payload dispatch. The next narrow experiment should
+retain an explicit ordinary/checked/frame-bound entry kind while making its
+payload-family test a direct discriminant-bit test; it must not replace the
+binding capability or re-enable raw/linked payload invocation. Measure that
+representation change before crediting a saving. Native numeric-read lowering
+is a separate possible follow-up, not implemented by this change. The full
+original performance/resource/platform/release scope remains unfinished;
+production transport is still unchanged.
+
 #### Typed canonical regions — test-only groundwork
 
 The current integration step changes the existing payload lowering, not
