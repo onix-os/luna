@@ -142,7 +142,7 @@ fn payload_runtime_contract(failure: backend::Failure) {
                 assert_eq!(actual_step, expected_step);
                 assert_eq!(counters(candidate.jit_stats()), counters(control.jit_stats()), "{script}: initial={initial} turn={turn}");
                 assert_eq!(candidate.jit_stats().total_dispatches, reference.jit_stats().total_dispatches);
-                candidate.enter(|ctx| assert!(ctx.jit().0.borrow().code.values().all(|cached| cached.code.payload.is_some())));
+candidate.enter(|ctx| assert!(ctx.jit().0.borrow().code.values().all(|cached| cached.code.entry_kind.is_payload())));
                 if actual_step.0 { finished = true; break; }
                 if turn % 11 == 0 {
                     reference.gc_collect();

@@ -646,10 +646,12 @@ jit-in-place-return:
 jit-payload-bound:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::bound_tests:: $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::bound_ $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::numeric_reads::tests::bound_ $(ARGS)
 
 jit-payload-bound-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::runtime::bound_tests:: -- --test-threads=1
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::bound_ -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::numeric_reads::tests::bound_ -- --test-threads=1
 
 jit-payload-tags:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::same_tag:: $(ARGS)

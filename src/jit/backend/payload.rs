@@ -22,6 +22,48 @@ pub(in crate::jit) enum Contract {
     FrameBound,
 }
 
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::jit) enum EntryKind {
+    Ordinary = 0,
+    Checked = 1,
+    FrameBound = 3,
+}
+
+impl EntryKind {
+    pub(super) const fn from_contract(contract: Option<Contract>) -> Self {
+        match contract {
+            None => Self::Ordinary,
+            Some(Contract::Checked) => Self::Checked,
+            Some(Contract::FrameBound) => Self::FrameBound,
+        }
+    }
+
+    pub(in crate::jit) const fn is_payload(self) -> bool {
+        self as u8 & 1 != 0
+    }
+}
+
+#[test]
+fn bound_entry_kinds_preserve_contract_identity_and_payload_family() {
+    assert_eq!(std::mem::size_of::<EntryKind>(), 1);
+    for (contract, kind, payload) in [
+        (None, EntryKind::Ordinary, false),
+        (Some(Contract::Checked), EntryKind::Checked, true),
+        (Some(Contract::FrameBound), EntryKind::FrameBound, true),
+    ] {
+        assert_eq!(EntryKind::from_contract(contract), kind);
+        assert_eq!(kind.is_payload(), payload);
+        for other in [
+            EntryKind::Ordinary,
+            EntryKind::Checked,
+            EntryKind::FrameBound,
+        ] {
+            assert_eq!(kind == other, kind as u8 == other as u8);
+        }
+    }
+}
+
 enum Write {
     Checked(writes::Write),
     Bound(bound_writes::Write),
@@ -30,6 +72,7 @@ enum Write {
 enum Read {
     Scalar(reads::Read),
     Numeric(numeric_reads::Read),
+    BoundNumeric(numeric_reads::BoundRead),
 }
 
 enum Rewrite {
@@ -376,6 +419,8 @@ pub(super) fn lower_contract(
         .then(|| numeric_reads::Analysis::new(function, allocator.clone()))
         .transpose()?;
     let mut numeric_count = 0;
+    let mut bound_read_count = 0;
+    let mut bound_read_savings = 0;
     let mut candidate = function.clone();
     let mut write = Signature::new(function.signature.call_conv);
     write
@@ -393,13 +438,27 @@ pub(super) fn lower_contract(
                     .as_mut()
                     .and_then(|a| a.admit(function, inst, slots, index))
                 {
-                    reads.push(Read::Numeric(numeric_reads::emit(
-                        &mut candidate,
-                        inst,
-                        slots,
-                        index,
-                        guard,
-                    )));
+                    if contract == Contract::FrameBound {
+                        bound_read_count += 1;
+                        bound_read_savings += 5 + usize::from(
+                            function.dfg.value_type(function.dfg.first_result(inst)) == types::F64,
+                        );
+                        let read =
+                            numeric_reads::emit_bound(&mut candidate, inst, slots, index, guard);
+                        numeric
+                            .as_mut()
+                            .ok_or_else(invalid)?
+                            .verify_bound_source(function, &read, slots)?;
+                        reads.push(Read::BoundNumeric(read));
+                    } else {
+                        reads.push(Read::Numeric(numeric_reads::emit(
+                            &mut candidate,
+                            inst,
+                            slots,
+                            index,
+                            guard,
+                        )));
+                    }
                     numeric_count += 1;
                 } else {
                     reads.push(Read::Scalar(reads::emit(
@@ -486,8 +545,12 @@ pub(super) fn lower_contract(
     drop((numeric, terminal));
     if size(&candidate)
         != (
-            plan.instructions - plan.host_instructions - 13 * numeric_count - 29 * bound_count,
-            plan.blocks - 2 * numeric_count - 6 * bound_count,
+            plan.instructions
+                - plan.host_instructions
+                - 13 * numeric_count
+                - 29 * bound_count
+                - bound_read_savings,
+            plan.blocks - 2 * numeric_count - 6 * bound_count - 3 * bound_read_count,
         )
     {
         return Err(JitError::Compilation(
@@ -502,6 +565,14 @@ pub(super) fn lower_contract(
             Read::Scalar(read) => reads::verify(&candidate, read, slots)?,
             Read::Numeric(read) => {
                 numeric_reads::verify(&candidate, read, slots, predecessors.as_ref().unwrap())?
+            }
+            Read::BoundNumeric(read) => {
+                numeric_reads::verify_bound(
+                    &candidate,
+                    read,
+                    slots,
+                    predecessors.as_ref().unwrap(),
+                )?;
             }
         }
     }
@@ -547,8 +618,9 @@ pub(super) fn lower_contract(
         != (
             plan.instructions - plan.host_instructions + expected_host
                 - 13 * numeric_count
-                - 29 * bound_count,
-            plan.blocks - 2 * numeric_count - 6 * bound_count,
+                - 29 * bound_count
+                - bound_read_savings,
+            plan.blocks - 2 * numeric_count - 6 * bound_count - 3 * bound_read_count,
         )
     {
         return Err(JitError::Compilation(
@@ -829,25 +901,17 @@ impl Code {
         pc: usize,
         budget: u32,
     ) -> Exit {
-        let contract = self.payload.expect("ordinary entry requires scalar slots");
+        assert!(
+            self.entry_kind.is_payload(),
+            "ordinary entry requires scalar slots"
+        );
         assert_eq!(frame.slot_count, self.registers);
         type Entry = unsafe extern "C" fn(*mut Payload, u64, u32, *mut Exit, *mut Bridge);
         let entry: Entry = unsafe { std::mem::transmute(self.entry) };
         let mut exit = Exit::default();
-        match contract {
-            Contract::Checked => crate::jit::abi::payload::runtime::with_bridge::<CAPACITY>(
-                frame,
-                |slots, host| unsafe {
-                    entry(slots, pc as u64, budget.min(64), &mut exit, host);
-                },
-            ),
-            Contract::FrameBound => crate::jit::abi::payload::runtime::with_binding::<CAPACITY>(
-                frame,
-                |binding| unsafe {
-                    binding.invoke(entry, self.registers, pc, budget, &mut exit);
-                },
-            ),
-        }
+        crate::jit::abi::payload::runtime::with_binding::<CAPACITY>(frame, |binding| unsafe {
+            binding.invoke(entry, self.registers, pc, budget, &mut exit);
+        });
         exit
     }
 }
@@ -875,7 +939,7 @@ fn relocation_budget_counts_emitted_direct_and_indirect_helper_calls() {
             .unwrap();
             let count = code.relocations;
             let payload = matches!(failure, Failure::RequirePayload);
-            assert_eq!(code.payload.is_some(), payload);
+            assert_eq!(code.entry_kind.is_payload(), payload);
             if payload {
                 assert_eq!(count, 0);
             } else {
@@ -901,7 +965,7 @@ fn relocation_budget_counts_emitted_direct_and_indirect_helper_calls() {
                     Ok(code) => {
                         assert!(count <= limit);
                         assert_eq!(code.relocations, count);
-                        assert_eq!(code.payload.is_some(), payload);
+                        assert_eq!(code.entry_kind.is_payload(), payload);
                     }
                     Err(error) => {
                         assert!(count > limit);
@@ -1142,7 +1206,7 @@ fn optimized_payload_contract(failure: Failure) {
                 _ => None,
             }).unwrap();
             for pc in (0..=snapshot.operations.len()).chain([usize::MAX]) {
-                for budget in [0, 1, 2, 3, 63, 64, 65, u32::MAX] {
+                for budget in (0..=65).chain([u32::MAX]) {
                     for invalid in [None, Some(base), Some(base + 1), Some(base + 2), Some(base + 3), Some(accumulator)] {
                         for value in [
                             crate::Value::Nil, crate::Value::Boolean(false), crate::Value::Boolean(true),

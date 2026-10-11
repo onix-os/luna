@@ -161,6 +161,56 @@ pub(crate) fn with_bridge<const CAPACITY: usize>(
 }
 
 #[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_bound_numeric_read(entry: unsafe extern "C" fn(*const Payload) -> u64) {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+        for value in [
+            Value::Nil,
+            Value::Boolean(false),
+            Value::Boolean(true),
+            Value::Integer(i64::MIN),
+            Value::Integer(i64::MAX),
+            Value::Integer(0),
+            Value::Number(-0.0),
+            Value::Number(f64::INFINITY),
+            Value::Number(f64::from_bits(0x7ff8000000000042)),
+            Value::String(ctx.intern(b"bound read")),
+            Value::Table(crate::Table::new(&ctx)),
+            Value::Function(closure.into()),
+            Value::UserData(crate::UserData::new_static(&ctx, 7)),
+        ] {
+            let scalar = Slot::from_value(value);
+            let expected = if matches!(scalar.tag, INTEGER | NUMBER) {
+                scalar.bits
+            } else {
+                0
+            };
+            let mut values = [value];
+            let mut pc = 5;
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                let mut frame = helpers::Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: 1,
+                    panic: None,
+                    projection: None,
+                };
+                with_binding::<1>(&mut frame, |binding| {
+                    assert_eq!(unsafe { entry(binding.slots.as_ptr()) }, expected);
+                });
+                assert_eq!(frame.count.calls, 0);
+                assert!(frame.panic.is_none());
+            });
+            assert_eq!(pc, 5);
+            let after = Slot::from_value(values[0]);
+            assert_eq!((after.tag, after.bits), (scalar.tag, scalar.bits));
+        }
+    });
+}
+
+#[cfg(all(test, not(miri)))]
 pub(crate) fn check_native_proven_tag_write(
     entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u64) -> u64,
 ) {

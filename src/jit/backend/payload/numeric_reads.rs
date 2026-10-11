@@ -6,7 +6,7 @@ use crate::jit::{dominance::Dominators, preds::Predecessors};
 #[path = "numeric_read_tests.rs"]
 mod tests;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) struct Guard {
     tag: Inst,
     branch: Inst,
@@ -161,6 +161,7 @@ pub(super) struct Analysis {
     predecessors: Predecessors,
     dominators: Dominators,
     remaining: usize,
+    verification_remaining: usize,
 }
 
 impl Analysis {
@@ -176,6 +177,7 @@ impl Analysis {
             predecessors,
             dominators,
             remaining,
+            verification_remaining: remaining,
         })
     }
 
@@ -186,28 +188,140 @@ impl Analysis {
         slots: IrValue,
         index: u32,
     ) -> Option<Guard> {
-        let g = candidate(f, inst, slots, index)?;
-        if !guard(f, g, slots, index, &self.predecessors) {
-            return None;
+        analyze(
+            f,
+            inst,
+            slots,
+            index,
+            &self.predecessors,
+            &self.dominators,
+            &mut self.remaining,
+        )
+    }
+
+    pub(super) fn verify_bound_source(
+        &mut self,
+        f: &Function,
+        read: &BoundRead,
+        slots: IrValue,
+    ) -> Result<(), JitError> {
+        if f.dfg.first_result(read.inst) != read.result
+            || f.dfg.value_type(read.result) != read.ty
+            || analyze(
+                f,
+                read.inst,
+                slots,
+                read.index,
+                &self.predecessors,
+                &self.dominators,
+                &mut self.verification_remaining,
+            ) != Some(read.guard)
+        {
+            return Err(invalid());
         }
-        let result = f.dfg.first_result(inst);
-        for block in f.layout.blocks() {
-            for user in f.layout.block_insts(block) {
-                self.remaining = self.remaining.checked_sub(1)?;
-                let used = f.dfg.inst_args(user).iter().any(|&v| f.dfg.resolve_aliases(v) == result)
+        Ok(())
+    }
+}
+
+fn analyze(
+    f: &Function,
+    inst: Inst,
+    slots: IrValue,
+    index: u32,
+    predecessors: &Predecessors,
+    dominators: &Dominators,
+    remaining: &mut usize,
+) -> Option<Guard> {
+    let g = candidate(f, inst, slots, index)?;
+    if !guard(f, g, slots, index, predecessors) {
+        return None;
+    }
+    let result = f.dfg.first_result(inst);
+    for block in f.layout.blocks() {
+        for user in f.layout.block_insts(block) {
+            *remaining = remaining.checked_sub(1)?;
+            let used = f.dfg.inst_args(user).iter().any(|&v| f.dfg.resolve_aliases(v) == result)
                     || f.dfg.insts[user].branch_destination(&f.dfg.jump_tables, &f.dfg.exception_tables)
                         .iter().any(|b| b.args(&f.dfg.value_lists).any(|v| matches!(v, BlockArg::Value(v) if f.dfg.resolve_aliases(v) == result)));
-                if used {
-                    let mut at = block;
-                    while at != g.accepted {
-                        self.remaining = self.remaining.checked_sub(1)?;
-                        at = self.dominators.idom(at)?;
-                    }
+            if used {
+                let mut at = block;
+                while at != g.accepted {
+                    *remaining = remaining.checked_sub(1)?;
+                    at = dominators.idom(at)?;
                 }
             }
         }
-        Some(g)
     }
+    Some(g)
+}
+
+pub(super) struct BoundRead {
+    guard: Guard,
+    inst: Inst,
+    pointer: Inst,
+    result: IrValue,
+    ty: cranelift_codegen::ir::Type,
+    index: u32,
+}
+
+pub(super) fn emit_bound(
+    f: &mut Function,
+    inst: Inst,
+    slots: IrValue,
+    index: u32,
+    guard: Guard,
+) -> BoundRead {
+    let first = f.layout.first_inst(guard.accepted).unwrap();
+    f.layout.remove_inst(inst);
+    f.layout.insert_inst(inst, first);
+    let result = f.dfg.first_result(inst);
+    let ty = f.dfg.value_type(result);
+    let mut c = FuncCursor::new(f);
+    c.goto_inst(inst);
+    let pointer = c.ins().load(
+        types::I64,
+        MemFlagsData::new(),
+        slots,
+        index as i32 * 16 + crate::jit::abi::payload::POINTER_OFFSET as i32,
+    );
+    let pointer_inst = c.func.dfg.value_def(pointer).inst().unwrap();
+    c.func
+        .replace(inst)
+        .load(ty, MemFlagsData::new(), pointer, 0);
+    BoundRead {
+        guard,
+        inst,
+        pointer: pointer_inst,
+        result,
+        ty,
+        index,
+    }
+}
+
+pub(super) fn verify_bound(
+    f: &Function,
+    read: &BoundRead,
+    slots: IrValue,
+    predecessors: &Predecessors,
+) -> Result<(), JitError> {
+    if !matches!(read.ty, types::I64 | types::F64)
+        || !guard(f, read.guard, slots, read.index, predecessors)
+        || f.layout.first_inst(read.guard.accepted) != Some(read.pointer)
+        || f.layout.next_inst(read.pointer) != Some(read.inst)
+    {
+        return Err(invalid());
+    }
+    let pointer = load(
+        f,
+        read.pointer,
+        slots,
+        read.index as i32 * 16 + crate::jit::abi::payload::POINTER_OFFSET as i32,
+        types::I64,
+    )?;
+    if load(f, read.inst, pointer, 0, read.ty)? != read.result {
+        return Err(invalid());
+    }
+    Ok(())
 }
 
 pub(super) fn emit(f: &mut Function, inst: Inst, slots: IrValue, index: u32, guard: Guard) -> Read {

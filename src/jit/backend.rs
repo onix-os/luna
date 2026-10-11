@@ -223,7 +223,7 @@ pub(super) struct Code {
     #[cfg(test)]
     cell_kernel: bool,
     #[cfg(test)]
-    pub(super) payload: Option<payload::Contract>,
+    pub(super) entry_kind: payload::EntryKind,
     #[cfg(test)]
     pub integer_activation: bool,
     #[cfg(all(test, not(miri)))]
@@ -237,7 +237,7 @@ impl Code {
     pub(super) fn linked_entry(&self) -> Entry {
         #[cfg(test)]
         assert!(
-            self.payload.is_none(),
+            !self.entry_kind.is_payload(),
             "payload code requires a canonical frame"
         );
         self.entry
@@ -313,7 +313,7 @@ impl Code {
         assert!(!self.cell_kernel, "scalar kernel requires a cell view");
         #[cfg(test)]
         assert!(
-            self.payload.is_none(),
+            !self.entry_kind.is_payload(),
             "payload code requires a canonical frame"
         );
         unsafe { abi::invoke(self.entry, slots, pc, budget, host) }
@@ -1757,13 +1757,13 @@ fn compile_selected_rooted(
         #[cfg(test)]
         cell_kernel: selection.cell_kernel,
         #[cfg(test)]
-        payload: match failure {
+        entry_kind: payload::EntryKind::from_contract(match failure {
             Failure::RequireBoundPayload => Some(payload::Contract::FrameBound),
             Failure::RequirePayload | Failure::RequirePayloadLoop | Failure::RequirePayloadTags => {
                 Some(payload::Contract::Checked)
             }
             _ => None,
-        },
+        }),
         #[cfg(test)]
         integer_activation: selection.integer_activation,
         #[cfg(all(test, not(miri)))]

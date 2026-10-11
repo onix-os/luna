@@ -4,6 +4,190 @@ fn allocator(limit: usize) -> BudgetAllocator {
     BudgetAllocator(crate::jit::resources::Ledger::new(limit))
 }
 
+#[test]
+fn bound_numeric_reads_have_exact_expansion_and_workspace_limits() {
+    for floating in [false, true] {
+        for paired in [false, true] {
+            let (source, slots) = if paired {
+                paired_fixture(floating)
+            } else {
+                let (f, _, slots) = fixture(floating, false);
+                (f, slots)
+            };
+            let original = size(&source);
+            let mut f = source.clone();
+            let memory = allocator(1 << 20);
+            let lower = |f: &mut Function, memory| {
+                lower_contract(
+                    f,
+                    slots,
+                    slots,
+                    2,
+                    &[],
+                    memory,
+                    crate::jit::work::Expansion {
+                        instructions: 4096,
+                        blocks: 4096,
+                    },
+                    Contract::FrameBound,
+                )
+            };
+            lower(&mut f, memory.clone()).unwrap();
+            valid(&f);
+            assert_eq!(size(&f), (original.0 + 1 + usize::from(paired), original.1));
+            assert_eq!(memory.0.current(), 0);
+            let peak = memory.0.peak();
+            for limit in [0, peak - 1, peak] {
+                let ledger = allocator(limit);
+                let mut candidate = source.clone();
+                let result = lower(&mut candidate, ledger.clone());
+                assert_eq!(result.is_ok(), limit == peak);
+                assert_eq!(ledger.0.current(), 0);
+                if result.is_err() {
+                    assert_eq!(candidate, source);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn bound_numeric_reads_recheck_source_and_emitted_guards_independently() {
+    for floating in [false, true] {
+        let (source, inst, slots) = fixture(floating, false);
+        let mut analysis = Analysis::new(&source, allocator(1 << 20)).unwrap();
+        let proof = analysis.admit(&source, inst, slots, 0).unwrap();
+        let mut f = source.clone();
+        let read = emit_bound(&mut f, inst, slots, 0, proof);
+        analysis.verify_bound_source(&source, &read, slots).unwrap();
+        let check = |f: &Function| {
+            valid(f);
+            verify_bound(
+                f,
+                &read,
+                slots,
+                &Predecessors::new(f, allocator(1 << 20)).unwrap(),
+            )
+        };
+        check(&f).unwrap();
+        for mutation in 0..8 {
+            let mut changed = f.clone();
+            match mutation {
+                0 => {
+                    let InstructionData::Load { offset, .. } = &mut changed.dfg.insts[read.pointer]
+                    else {
+                        unreachable!()
+                    };
+                    *offset = 0.into();
+                }
+                1 => {
+                    changed.dfg.inst_args_mut(read.inst)[0] = slots;
+                }
+                2 => {
+                    let InstructionData::Load { offset, .. } = &mut changed.dfg.insts[read.inst]
+                    else {
+                        unreachable!()
+                    };
+                    *offset = 8.into();
+                }
+                3 => {
+                    let InstructionData::Brif { blocks, .. } = &mut changed.dfg.insts[proof.branch]
+                    else {
+                        unreachable!()
+                    };
+                    blocks.swap(0, 1);
+                }
+                4 => {
+                    let end = changed.layout.last_inst(proof.rejected).unwrap();
+                    changed.replace(end).jump(proof.accepted, &[]);
+                }
+                5 | 6 => {
+                    let tag = changed.dfg.first_result(proof.tag);
+                    let mut c = FuncCursor::new(&mut changed);
+                    c.goto_inst(if mutation == 5 {
+                        read.pointer
+                    } else {
+                        proof.branch
+                    });
+                    c.ins().store(MemFlagsData::new(), tag, slots, 0);
+                }
+                _ => {
+                    changed.replace(read.pointer).iconst(types::I64, 1);
+                }
+            }
+            assert!(
+                check(&changed).is_err(),
+                "floating={floating} mutation={mutation}"
+            );
+        }
+        for mutation in 0..3 {
+            let mut changed = source.clone();
+            match mutation {
+                0 => {
+                    let InstructionData::Load { offset, .. } = &mut changed.dfg.insts[inst] else {
+                        unreachable!()
+                    };
+                    *offset = 24.into();
+                }
+                1 => {
+                    let tag = changed.dfg.first_result(proof.tag);
+                    let mut c = FuncCursor::new(&mut changed);
+                    c.goto_inst(proof.branch);
+                    c.ins().store(MemFlagsData::new(), tag, slots, 0);
+                }
+                _ => {
+                    let mut c = FuncCursor::new(&mut changed);
+                    c.goto_inst(proof.branch);
+                    if floating {
+                        c.ins().fneg(read.result);
+                    } else {
+                        c.ins().bnot(read.result);
+                    }
+                }
+            }
+            valid(&changed);
+            assert!(Analysis::new(&changed, allocator(1 << 20))
+                .unwrap()
+                .verify_bound_source(&changed, &read, slots)
+                .is_err());
+        }
+        analysis.verification_remaining = 0;
+        assert!(analysis.verify_bound_source(&source, &read, slots).is_err());
+    }
+}
+
+#[cfg(not(miri))]
+#[test]
+fn bound_numeric_native_reads_preserve_scalar_bits_and_guard_reference_cells() {
+    for floating in [false, true] {
+        let (mut f, _, slots) = fixture(floating, false);
+        lower_contract(
+            &mut f,
+            slots,
+            slots,
+            1,
+            &[],
+            allocator(1 << 20),
+            crate::jit::work::Expansion {
+                instructions: 4096,
+                blocks: 4096,
+            },
+            Contract::FrameBound,
+        )
+        .unwrap();
+        crate::jit::backend::projection_probe::with_projection_probe(f, |pointer| {
+            let entry = unsafe {
+                std::mem::transmute::<
+                    *const u8,
+                    unsafe extern "C" fn(*const crate::jit::abi::payload::Payload) -> u64,
+                >(pointer)
+            };
+            crate::jit::abi::payload::runtime::check_native_bound_numeric_read(entry);
+        })
+        .unwrap();
+    }
+}
+
 fn fixture(floating: bool, extra_read: bool) -> (Function, Inst, IrValue) {
     guarded_fixture(floating, extra_read, 0)
 }

@@ -11,6 +11,86 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Typed entry classification and bound reads — still experimental
+
+Commit `442eaa1` replaces optional payload metadata with a separate, explicit
+entry-kind enum: ordinary/checked/frame-bound. Its low discriminant bit selects
+the payload family without collapsing the distinct contracts or weakening the
+canonical binding factory. Payload lowering still accepts only its separate
+checked/frame-bound contract type. Scratch-slot and linked payload invocation
+remain rejected. GNU/musl each pass **40 ABI + 44 backend + three runtime tests**;
+both Miri models pass five focused tests. The exhaustive classification test
+covers all three identities and their one-byte representation.
+
+The frozen `kind` experiment
+(`da0464a85d4a644f62099907c10d7eece82ba5c1b85501e389a498b46d606cc6`)
+completes ten profiles with strict non-timing equality against `common`. Exact
+wrapper attribution verifies removal of **129,698** instructions: callback
+wrapper self-work returns to 15,693,458. The native callback page is byte-identical
+to `common`, at 13,942,909 self-instructions. Whole callback work falls by 129,617
+to 132,493,833; other workload changes are retained rather than attributed to
+this representation alone. This is measured instruction work, not hardware or
+original aggregate acceptance.
+
+Commit `e85e2aa` additionally lowers proven numeric reads through live field
+pointers **only for frame-bound entries**. Loads move into the accepted numeric
+guard block. The original CFG independently rechecks all uses/dominance with a
+separate bounded verification budget; the emitted CFG independently checks the
+guard, incoming edge, load position, pointer root/offset, result and type. Source
+verification occurs before releasing source-analysis workspace, which is still
+dropped before allocating emitted predecessors. Checked nullable reads remain
+unchanged. Each bound read removes five instructions (six for F64) and three
+blocks beyond checked numeric-read lowering, with exact expansion accounting.
+
+GNU/musl each pass **40 ABI + 47 backend + three runtime tests**; GNU fmt/check-all
+passes. New tests cover exact workspace-peak refusal/cleanup, 16 well-formed
+emitted mutations, six source mutations, proof-work exhaustion, paired operands,
+and actual native reads through scoped bindings for extrema, floating-point bit
+patterns and reference-valued guards. The integrated all-PC/budget/type and
+callback/GC/fuel corpus still passes. Logs are `payload-kind-*` and
+`payload-bound-read-*`; the isolated `field-source` experiment is being built
+separately from the frozen kind control. Neither experiment is activated in
+production; all original acceptance gates remain in force.
+
+Both new experiments have now completed their matched measurement campaigns.
+The kind variant's 24 full hardware commands all fail the aggregate gate;
+callbacks and metamethods fail in all six candidate windows. Its ordinary/kind
+callback ratios are 0.8989–0.9076 on CPU 0 and 0.9866–0.9941 on CPU 16. Removing
+the two wrapper instructions did not establish a wall-time improvement.
+
+The field-read image is
+`b43ecad881d365171dbae2655f9fc46415cbe673ee842012473311686305842d`.
+Its isolated build passes all 90 tests and fmt/check-all; seven focused models
+pass under each of Miri Stacked and Tree Borrows. Ten profiles reduce callback
+native self-work by **648,503** instructions to **13,294,406**, with the wrapper
+unchanged at 15,693,458. Exact captured-page attribution accounts for the entire
+callback reduction, with no change in weighted spill groups. Whole callback
+work is **131,845,330**, 0.2921% below the historical ordinary control. This is an
+instruction-count comparison, not a timing speedup. Allocation/GC work falls
+by 454,864 instructions versus kind; metamethod work instead rises by 324,549.
+The latter is retained as an unresolved regression, not attributed without
+instruction-level evidence. Integer and allocation/GC code mappings shrink
+from 8,192 to 4,096 bytes; integer snapshot peak falls from 12,915 to 12,661.
+The strict profile comparison deliberately exits 3 for these resource changes.
+
+All 24 field-read hardware commands still fail aggregate acceptance. Candidate
+callbacks/metamethods fail in six of six windows and allocation/GC in three.
+Ordinary/field callback ratios are 0.8989–0.9071 on CPU 0 and 0.9736–1.0104 on
+CPU 16. Integer ratios are 0.9100–0.9145 / 0.8077–0.8182; float ratios are
+0.9034–0.9105 / 0.8271–0.8286. Both screens retain 324 complete non-timing
+comparisons, each with 84 resource-only differences and matching execution
+counters. Source/image hashes, symbol-versus-stripped allocated sections,
+same-path/inode invocations and contention telemetry are preserved. No owned
+build, test, profile or edit overlapped hardware timing. There is no production
+activation and no full performance/resource/platform/release acceptance.
+
+Next: attribute the field variant's metamethod instruction regression before
+changing another hot path. The numeric-read recognizer currently accepts the
+masked Integer-or-Number guard, not all equivalent exact-integer/exact-number
+guards; extending that grammar is a separate potential optimization requiring
+source/emitted proof tests and original-workload measurements, not a current
+capability or promised gain.
+
 #### Frame-bound numeric stores — implementation, not acceptance
 
 Commit `7abaa73` adds a separate test-only `FrameBound` entry contract alongside
@@ -44,6 +124,67 @@ Production dispatch remains unchanged. An isolated experimental activation at
 `payload-terminal-profile/bound-source` is being built for the original workload
 matrix, against immutable ordinary and prior payload controls. Full performance,
 resource, platform and release acceptance remains open.
+
+The first isolated bound image (`95ec8ffd20b68b2fccc95491e69684fa2ac046609983753a1e65cae599afebd0`)
+completed ten original-workload Callgrind profiles, an exact native-page capture,
+and 24 full nine-case hardware commands (CPU 0/16, three rotated windows, ordinary,
+prior payload, candidate and same-inode ordinary placebo). All 24 commands still
+fail aggregate performance acceptance. No owned tests/builds/profiles overlapped
+hardware timing; image/source hashes and all invocation aliases were verified.
+The 324 full non-timing hardware comparisons have 84 differences, exclusively
+`code_bytes`/`snapshot_peak_bytes`; execution counters match. Profile comparison
+against `rare` deliberately exits 3: integer-loop snapshot peak falls from 13,155
+to 12,915 bytes. This resource change is retained, not silently excluded.
+
+Native callback self-instructions fall from 14,072,656 to **13,942,909**; weighted
+stack-offset-8/16 spills fall from 194,558 to **129,685**. However, the Rust wrapper
+grows from 15,693,458 to **16,017,715**, outweighing the native saving. Total callback
+instructions grow by 194,510 to 132,818,090, 0.4435% above ordinary transport.
+Exact ELF/disassembly attribution (`wrapper-costs.pl`) identifies extra optional-
+contract classification and checked-versus-bound setup dispatch, not a failure
+of the native-store proof. Hardware ordinary/candidate callback time ratios are
+0.9647–0.9780 on CPU 0 and 0.9701–0.9890 on CPU 16 (above one means faster).
+Neither reduced native spills nor a local IR saving is whole-path acceptance.
+
+Commit `ed108cf` expands native loop differential budgets to every value 0–65 plus
+`u32::MAX`, and checks exact workspace-peak admission/refusal. GNU/musl pass six
+focused tests; both Miri models pass four. Commit `8a53e48` uses the same stronger
+scoped binding factory for **both safe canonical invocations**, removing the
+unnecessary per-call contract switch. The compiler still distinguishes checked
+and frame-bound lowering, and raw checked probes retain malformed-descriptor
+tests. GNU again passes 86 tests and fmt/check-all. Its isolated `common-source`
+variant is being validated and measured separately; the first bound experiment
+and all older controls remain frozen.
+
+The common-entry variant has now completed its validation and measurement:
+GNU/musl and the isolated GNU build each pass 86 tests; fmt/check-all passes.
+The frozen image is
+`b4a55077d4e5d08a489e59d7808e21f2fe60f0dc97ca070d9f6e28fe81fdf877`.
+Ten profiles preserve every non-timing statistic versus `bound` (strict analyzer
+exit 0). Its captured native callback page is byte-identical to `bound`, with
+13,942,909 self-instructions. The Rust wrapper falls by **194,559** instructions
+to 15,823,156; whole callback work falls by 194,640 to **132,623,450**. This verifies
+removal of the duplicate dispatch, not original performance acceptance.
+
+All 24 additional full hardware commands still fail the aggregate gate. The
+candidate fails callbacks and metamethods in all six windows and allocation/GC
+in three. Ordinary/candidate callback ratios are 0.9628–0.9703 on CPU 0 and
+0.8969–0.9886 on CPU 16. Integer ratios remain 0.9031–0.9055 / 0.8063–0.8116;
+float ratios remain 0.8968–0.9004 / 0.8298–0.8511. Again, all 324 non-timing
+comparisons are retained, with 84 resource-only differences and matching
+execution counters. Sources, image hashes, exact symbol/stripped allocated
+sections, invocation aliases and contention telemetry remain in the evidence.
+
+The remaining wrapper delta versus `rare` is exactly **129,698 instructions**:
+`cmp bpl,0x2` and `setne r8b`, each executed 64,849 times, classify the new
+`Option<Contract>` before payload dispatch. The next narrow experiment should
+retain an explicit ordinary/checked/frame-bound entry kind while making its
+payload-family test a direct discriminant-bit test; it must not replace the
+binding capability or re-enable raw/linked payload invocation. Measure that
+representation change before crediting a saving. Native numeric-read lowering
+is a separate possible follow-up, not implemented by this change. The full
+original performance/resource/platform/release scope remains unfinished;
+production transport is still unchanged.
 
 #### Typed canonical regions — test-only groundwork
 
