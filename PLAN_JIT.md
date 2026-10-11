@@ -11,6 +11,32 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### NewTable destination-only refresh — scoped construction
+
+Commit `ddf2582` creates a table with the existing RawTable/Table constructors
+inside the helper's unwind boundary, then replaces and refreshes only its
+destination. It preserves PC/call/completion/allocation counters and stops
+reentry after a panic. Invalid destinations retain generic fallback, including
+the original allocation-before-bounds-panic behavior. Constructor unwind tests
+inject panics before and after allocation; they do not claim real OOM recovery.
+Terminal liveness now treats NewTable as a possible partial-refresh helper.
+Checked and frame-bound lowering independently preserve live post-helper reads.
+
+GNU/musl each pass **56 ABI + 57 backend + three runtime + 27 helper tests**;
+GNU formatting/check-all pass. The five new ABI tests cover 330 value/capacity/
+destination cases at 1/7/256 registers, exact constructor and subsequent growth
+allocation deltas, readonly old values, live sibling descriptors, retired
+destinations/siblings, full-helper refresh, open-upvalue aliases, invalid
+destinations and stopped reentry. Two integrated loops add per-iteration table
+construction and captured table replacement with live siblings, GC and exact
+fuel/interrupt/native counters. The first metric fixture incorrectly included
+the test frame's own 56-byte GC stack allocation; measurement now starts inside
+the frame immediately around the helper, without subtracting a guessed cost.
+The failed fixture log is retained. Miri and frozen performance results are
+separate gates; no performance acceptance or activation is claimed.
+Evidence: `payload-new-table-*` and `payload-terminal-profile/new*` under
+`target/jit-evidence/short-slice-performance/`.
+
 #### Scoped table writes — register bindings preserved
 
 Commit `bc742cd` adds a payload SetTable path that does not borrow or refresh
