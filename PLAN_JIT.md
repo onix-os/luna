@@ -91,6 +91,27 @@ This refinement still requires final musl/Miri checks and a new frozen profile;
 the preceding profile does not establish its performance. Original paired
 native/compiled-Off acceptance and production activation remain pending.
 
+The refusal refinement (`185c5f0`, frozen `handoff3`) subsequently passes five
+focused plus fifteen activation tests on both GNU and musl, default/all-feature
+Clippy with the existing warnings, and four selected tests under each Miri alias
+model. The Miri source manifest verifies unchanged after both runs. Its activated
+frozen build passes **236 tests / nineteen summaries** and check-all; image is
+`5bfa24093ee3252d9281852734c9afc7eba1cf2b49073880f2538a8ee5a9b443`.
+Eleven exact-image profiles and both previous-candidate/baseline comparisons
+pass all non-timing/resource checks. This is not a timing acceptance result.
+
+Against `upread`, callback Auto instructions fall **4,597,359 (3.4921%)** and
+callback Off grows **654,485 (0.6362%)**, down from the first candidate's 3.0257%
+Off growth. The refinement does not fix callback-free paths: closure Off grows
+**4,151,841 (1.9455%)**, integer/float Off each grow 128,661 (0.2604%/0.2426%),
+integer/float Auto each grow 128,661 (about 0.81%), closure Auto grows 390,469
+(0.2435%), array grows 76,183 and allocation grows 51,233. Metamethods fall
+720,537 (0.9318%). All adverse cases remain in `handoff3-*-delta.json` and
+`upread-vs-handoff3-analysis.json`. The per-step refusal only starts after a
+possible handoff; workloads without callback transitions still pay its probes.
+Proceed to the original paired hardware controls rather than claiming either
+an elapsed improvement or an elapsed regression from these instruction counts.
+
 Evidence: `callback-handoff-*` and `payload-terminal-profile/handoff*` beneath
 `target/jit-evidence/short-slice-performance/`. Original full performance,
 resource, platform and release requirements remain open.
