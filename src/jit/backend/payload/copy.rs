@@ -4,7 +4,7 @@ use super::*;
 #[path = "copy_tests.rs"]
 mod tests;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) struct Proof {
     tag_store: Inst,
     bits_store: Inst,
@@ -89,6 +89,16 @@ pub(super) fn verify(
 }
 
 impl Proof {
+    pub(super) fn site(self) -> (Inst, Inst, u32, IrValue, IrValue) {
+        (
+            self.tag_store,
+            self.bits_store,
+            self.dest,
+            self.tag,
+            self.bits,
+        )
+    }
+
     pub(super) fn source(self) -> u32 {
         self.source
     }

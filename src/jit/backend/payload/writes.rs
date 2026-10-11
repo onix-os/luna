@@ -22,6 +22,17 @@ pub(super) struct Write {
     cast: Option<Inst>,
 }
 
+pub(super) fn copy_site(write: &Write) -> Option<(copy::Proof, Block)> {
+    write.input.copy.map(|proof| (proof, write.blocks[7]))
+}
+
+pub(super) fn copy_predecessors(f: &Function, write: &Write) -> Option<[Inst; 2]> {
+    Some([
+        f.layout.last_inst(write.blocks[0])?,
+        f.layout.last_inst(write.blocks[6])?,
+    ])
+}
+
 pub(super) fn emit(f: &mut Function, tag_store: Inst, bits_store: Inst, input: Input) -> Write {
     let before = f.layout.inst_block(bits_store).unwrap();
     let after = f.dfg.make_block();

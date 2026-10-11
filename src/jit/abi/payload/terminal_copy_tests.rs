@@ -30,7 +30,10 @@ fn check_counts(counts: &helpers::Counts) {
 }
 
 #[cfg(not(miri))]
-pub(super) fn check_native(entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u32)) {
+pub(super) fn check_native(
+    entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u32),
+    reference_fallback: bool,
+) {
     crate::Lua::empty().enter(|ctx| {
         let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
         let kinds = [
@@ -50,6 +53,7 @@ pub(super) fn check_native(entry: unsafe extern "C" fn(*mut Payload, *mut Bridge
         for condition in [0, 1] {
             for source in kinds {
                 for dest in kinds {
+                    let reference = reference_fallback && Slot::from_value(source).tag == REFERENCE;
                     let mut values = [source, dest, Value::Integer(19)];
                     let mut expected = source;
                     let mut pc = 23;
@@ -87,14 +91,21 @@ pub(super) fn check_native(entry: unsafe extern "C" fn(*mut Payload, *mut Bridge
                                         | Value::Integer(_)
                                         | Value::Number(_)
                                 );
-                            assert_eq!(slow, !same_scalar);
+                            assert_eq!(slow, !same_scalar && !reference);
                             assert_eq!((*host).materializations, u64::from(slow));
                             if slow {
                                 check_retired_descriptor(slots.read());
                                 check_retired_descriptor(slots.add(1).read());
-                            } else if let Some(value) = load(saved) {
-                                assert!(store(saved, value));
+                            } else if !reference {
+                                if let Some(value) = load(saved) {
+                                    assert!(store(saved, value));
+                                }
                             }
+                            let sibling = if reference {
+                                slots.add(2).read()
+                            } else {
+                                sibling
+                            };
                             assert!(store(
                                 sibling,
                                 Slot {
@@ -104,10 +115,16 @@ pub(super) fn check_native(entry: unsafe extern "C" fn(*mut Payload, *mut Bridge
                             ));
                             assert_eq!(load(slots.add(2).read()).unwrap().bits, 29);
                         });
+                        if reference {
+                            assert_eq!(frame.count.calls, 12);
+                            assert_eq!(frame.count.completed, 13);
+                            frame.count.calls -= 1;
+                            frame.count.completed -= 1;
+                        }
                         check_counts(&frame.count);
                         assert!(frame.panic.is_none());
                     });
-                    assert_eq!(pc, 23);
+                    assert_eq!(pc, if reference { 24 } else { 23 });
                     closed_table_tests::identical(values[0], expected);
                     closed_table_tests::identical(values[1], expected);
                     assert!(matches!(values[2], Value::Integer(29)));

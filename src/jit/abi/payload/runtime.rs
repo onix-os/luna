@@ -1197,7 +1197,14 @@ mod terminal_copy_tests;
 pub(crate) fn check_native_terminal_copy(
     entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u32),
 ) {
-    terminal_copy_tests::check_native(entry);
+    terminal_copy_tests::check_native(entry, false);
+}
+
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_guarded_terminal_copy(
+    entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u32),
+) {
+    terminal_copy_tests::check_native(entry, true);
 }
 
 /// Copies a canonical value and retires its destination and optional source.

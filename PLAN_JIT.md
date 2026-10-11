@@ -11,6 +11,45 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Conditional source-read bypass — verified experiment, layout under test
+
+The experimental payload compiler can bypass the eager source-bits reader for
+an exact guarded Move when the source is scalar and destination tag differs.
+Same-tag stores and reference helpers retain their original paths. Admission
+requires the original bits value's sole use, both cells' terminal-liveness proof,
+and the exact adjacent-load/REFERENCE-guard/store shape; arbitrary intervening
+instructions are not skipped. Independent checks bind the predicates, read/write
+records, source tag, normal-reader predecessor and copy-gateway predecessors.
+Six instructions and one block are reserved before mutation, with charged records,
+bounded analysis work and exact post-lowering accounting. Work exhaustion keeps
+the original reader rather than bypassing a check.
+
+GNU focused checks pass **13 executions/three summaries**, then the broad payload
+model **246/four**. Musl check-all/focused/model checks pass **259/seven**. Root
+Miri passes **four compiler tests per mode**; the Tree process's actual flags,
+module filter and checkout directory were observed independently. Native probes
+cover both payload contracts, twelve source/destination Value kinds, same-tag
+stores, reference-helper counters/PC and sibling-pointer reuse after rebind.
+The initial fixture's Rust2024-only syntax failure is retained separately; the
+repository remains Rust2021. No full new-root-suite or hardware acceptance is
+claimed for this revision.
+
+Isolated image
+`2b83cbe7e2017b9b3734a74fab0dc8748681a9aac727cba0abee6ceb433fec72`
+completes eleven profiles. Compared with direct-copy, callback generated work
+falls **518,559 instructions**, while VM, executor, entry wrapper and table helper
+work are unchanged; total falls **518,478 (0.404794%)**. This confirms selection
+in the actual callback workload, not just a synthetic fixture. Snapshot peak
+increases 48 bytes in callback/allocation/metamethod cases. The same image also
+adds **183,187 generated instructions** to the allocation workload, so the initial
+layout is **not accepted as a performance fix**. A fast-path-first equivalent
+predicate/layout is being tested separately, with the same source/lifetime and
+verifier requirements. No benchmark names or reduced native coverage select it.
+
+Evidence: `copy-bypass-root-*`, `copy-bypass-read-audit.log`, the immutable
+`payload-terminal-profile/copy-bypass/` image and `copy-bypass-vs-*.json`.
+All original acceptance gates remain in force; no production activation.
+
 #### Terminal callback copy — integrated experiment, tuning pending
 
 The test-only canonical-copy primitive now distinguishes preserving a live source

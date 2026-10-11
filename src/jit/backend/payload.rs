@@ -12,6 +12,7 @@ pub(super) mod binding_requirements;
 mod bound_reads;
 mod bound_writes;
 mod copy;
+mod copy_bypass;
 mod host_stack;
 mod numeric_reads;
 mod packed_calls;
@@ -315,6 +316,7 @@ struct Plan {
     reads: usize,
     writes: usize,
     copies: usize,
+    bypasses: usize,
     host_instructions: usize,
     instructions: usize,
     blocks: usize,
@@ -333,6 +335,7 @@ fn plan(
         reads: 0,
         writes: 0,
         copies: 0,
+        bypasses: 0,
         host_instructions: 0,
         instructions: original_instructions,
         blocks: original_blocks,
@@ -365,15 +368,27 @@ fn plan(
                     5,
                 )
             }
-            Rewrite::Write { tag, bits, .. } => {
+            Rewrite::Write {
+                tag_store,
+                bits_store,
+                index,
+                tag,
+                bits,
+            } => {
                 plan.writes = add(plan.writes, 1)?;
                 let copy = usize::from(copy::source(function, slots, tag, bits).is_some());
                 plan.copies = add(plan.copies, copy)?;
+                let bypass = usize::from(copy_bypass::candidate(
+                    function, slots, tag_store, bits_store, index, tag, bits,
+                ));
+                plan.bypasses = add(plan.bypasses, bypass)?;
                 host_uses = add(host_uses, 2)?;
                 host_calls = true;
                 (
-                    30 + 2 * copy + usize::from(function.dfg.value_type(bits) == types::F64),
-                    7,
+                    30 + 2 * copy
+                        + 6 * bypass
+                        + usize::from(function.dfg.value_type(bits) == types::F64),
+                    7 + bypass,
                 )
             }
             Rewrite::Helper(..) => {
@@ -438,6 +453,10 @@ pub(super) fn lower_contract(
     writes
         .try_reserve_exact(plan.writes)
         .map_err(|_| refused())?;
+    let mut bypasses = BudgetVec::new_in(allocator.clone());
+    bypasses
+        .try_reserve_exact(plan.bypasses)
+        .map_err(|_| JitError::ResourceLimit("payload copy bypass records"))?;
     let mut terminal =
         terminal::Analysis::new(function, slots, host, registers, helpers, allocator.clone())?;
     let mut same_tag = same_tag::Analysis::new(function, allocator.clone())?;
@@ -607,25 +626,47 @@ pub(super) fn lower_contract(
         Ok(())
     })?;
     drop(numeric);
+    let (source_instructions, source_blocks) = size(function);
+    let bypass_work = source_instructions
+        .checked_add(source_blocks)
+        .and_then(|n| n.checked_mul(64))
+        .ok_or(JitError::ResourceLimit("payload copy bypass work"))?;
+    copy_bypass::apply(
+        function,
+        &mut candidate,
+        slots,
+        &mut reads,
+        &writes,
+        &mut bypasses,
+        &mut { bypass_work },
+    )?;
     if size(&candidate)
         != (
             plan.instructions
                 - plan.host_instructions
                 - 2 * (plan.copies - copy_count)
+                - 6 * (plan.bypasses - bypasses.len())
                 - 13 * numeric_count
                 - 29 * bound_count
                 - bound_read_savings
                 - 3 * bound_scalar_count,
-            plan.blocks - 2 * numeric_count - 6 * bound_count - 3 * bound_read_count,
+            plan.blocks
+                - 2 * numeric_count
+                - 6 * bound_count
+                - 3 * bound_read_count
+                - (plan.bypasses - bypasses.len()),
         )
     {
         return Err(JitError::Compilation(
             "payload expansion differs from plan".into(),
         ));
     }
-    let predecessors = (numeric_count != 0 || proven_writes != 0 || bound_scalar_count != 0)
-        .then(|| crate::jit::preds::Predecessors::new(&candidate, allocator.clone()))
-        .transpose()?;
+    let predecessors = (numeric_count != 0
+        || proven_writes != 0
+        || bound_scalar_count != 0
+        || !bypasses.is_empty())
+    .then(|| crate::jit::preds::Predecessors::new(&candidate, allocator.clone()))
+    .transpose()?;
     let (instructions, blocks) = size(&candidate);
     let mut read_work = instructions
         .checked_add(blocks)
@@ -680,7 +721,21 @@ pub(super) fn lower_contract(
             }
         }
     }
-    drop((reads, writes, predecessors, same_tag, terminal));
+    let mut bypass_verification_work = bypass_work;
+    for bypass in &bypasses {
+        copy_bypass::verify(
+            function,
+            &candidate,
+            slots,
+            &reads,
+            &writes,
+            bypass,
+            predecessors.as_ref().ok_or_else(invalid)?,
+            &mut bypass_verification_work,
+        )?;
+    }
+    let bypass_count = bypasses.len();
+    drop((reads, writes, predecessors, same_tag, terminal, bypasses));
     if let Some(copy) = host_stack::lower(&mut candidate, host, allocator, expansion)? {
         host_stack::verify(&candidate, &copy)?;
     }
@@ -699,11 +754,16 @@ pub(super) fn lower_contract(
         != (
             plan.instructions - plan.host_instructions + expected_host
                 - 2 * (plan.copies - copy_count)
+                - 6 * (plan.bypasses - bypass_count)
                 - 13 * numeric_count
                 - 29 * bound_count
                 - bound_read_savings
                 - 3 * bound_scalar_count,
-            plan.blocks - 2 * numeric_count - 6 * bound_count - 3 * bound_read_count,
+            plan.blocks
+                - 2 * numeric_count
+                - 6 * bound_count
+                - 3 * bound_read_count
+                - (plan.bypasses - bypass_count),
         )
     {
         return Err(JitError::Compilation(
