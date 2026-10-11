@@ -105,7 +105,9 @@ impl<'f> Analysis<'f> {
                     else {
                         return false;
                     };
-                    if kind != abi::HELPER_GET_UP_TABLE {
+                    if kind != abi::HELPER_GET_UP_TABLE
+                        && (kind != abi::HELPER_GET_TABLE || register_key(f, inst))
+                    {
                         return true;
                     }
                 }
@@ -141,6 +143,18 @@ impl<'f> Analysis<'f> {
             return true;
         }
     }
+}
+
+fn register_key(f: &Function, call: Inst) -> bool {
+    let Some(&key) = f.dfg.inst_args(call).get(4) else {
+        return false;
+    };
+    let Some(inst) = f.dfg.value_def(key).inst() else {
+        return false;
+    };
+    f.dfg.value_type(key) == types::I32
+        && matches!(f.dfg.insts[inst], InstructionData::UnaryImm { opcode: Opcode::Iconst, imm }
+            if i64::from(imm) & i64::from(abi::CONSTANT_OPERAND) == 0)
 }
 
 #[cfg(test)]

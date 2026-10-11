@@ -13,6 +13,10 @@ mod local_tests;
 mod closed_table_tests;
 
 #[cfg(test)]
+#[path = "local_table_tests.rs"]
+mod local_table_tests;
+
+#[cfg(test)]
 #[path = "capacity_tests.rs"]
 mod capacity_tests;
 
@@ -161,7 +165,96 @@ pub(crate) fn with_bridge<const CAPACITY: usize>(
 }
 
 #[cfg(all(test, not(miri)))]
-pub(crate) fn check_native_bound_numeric_read(entry: unsafe extern "C" fn(*const Payload) -> u64) {
+pub(crate) fn check_native_bound_numeric_read(
+    entry: unsafe extern "C" fn(*const Payload) -> u64,
+    exact_tag: Option<u64>,
+) {
+    check_native_bound_read(entry, |tag| {
+        matches!(tag, INTEGER | NUMBER) && exact_tag.is_none_or(|exact| tag == exact)
+    });
+}
+
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_bound_scalar_read(entry: unsafe extern "C" fn(*const Payload) -> u64) {
+    check_native_bound_read(entry, |_| true);
+    check_bound_scalar_transitions(entry);
+}
+
+#[cfg(test)]
+pub(crate) fn check_bound_scalar_transitions(entry: unsafe extern "C" fn(*const Payload) -> u64) {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+        let kinds = [
+            Value::Nil,
+            Value::Boolean(false),
+            Value::Boolean(true),
+            Value::Integer(i64::MIN),
+            Value::Integer(i64::MAX),
+            Value::Number(-0.0),
+            Value::Number(f64::INFINITY),
+            Value::Number(f64::from_bits(0x7ff8000000000042)),
+            Value::String(ctx.intern(b"bound transition")),
+            Value::Table(crate::Table::new(&ctx)),
+            Value::Function(closure.into()),
+            Value::Thread(crate::Thread::new(ctx)),
+            Value::UserData(crate::UserData::new_static(&ctx, 7)),
+        ];
+        let replacement = 0x7ff8000000000063;
+        for initial in kinds {
+            for next in kinds {
+                let mut values = [initial, next];
+                let mut pc = 5;
+                LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                    let mut frame = helpers::Frame {
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: helpers::Counts::default(),
+                        slot_count: 2,
+                        panic: None,
+                        projection: None,
+                    };
+                    with_binding::<2>(&mut frame, |binding| unsafe {
+                        let slots = binding.slots.as_ptr();
+                        let host = binding.host;
+                        assert_eq!(entry(slots), Slot::from_value(initial).bits);
+                        let move_value = host.functions.helpers[(abi::HELPER_MOVE - 1) as usize];
+                        assert_eq!(
+                            move_value(std::ptr::from_mut(host).cast(), slots.cast(), 0, 1, 0, 7),
+                            abi::HELPER_COMPLETED
+                        );
+                        assert_eq!(entry(slots), Slot::from_value(next).bits);
+                        (host.functions.terminal)(host, slots, 0, NUMBER, replacement);
+                        assert_eq!(slots.read().tag, NIL);
+                        assert!(slots.read().pointer.is_null());
+                        assert_eq!(entry(slots), 0);
+                        assert_eq!(
+                            move_value(std::ptr::from_mut(host).cast(), slots.cast(), 0, 0, 0, 9),
+                            abi::HELPER_COMPLETED
+                        );
+                        assert_eq!(entry(slots), replacement);
+                        assert_eq!(host.materializations, 1);
+                    });
+                    assert_eq!(frame.count.calls, 2);
+                    assert_eq!(frame.count.completed, 2);
+                    assert!(frame.panic.is_none());
+                });
+                assert_eq!(pc, 10);
+                let after = Slot::from_value(values[0]);
+                assert_eq!((after.tag, after.bits), (NUMBER, replacement));
+                let sibling = Slot::from_value(values[1]);
+                let expected = Slot::from_value(next);
+                assert_eq!((sibling.tag, sibling.bits), (expected.tag, expected.bits));
+            }
+        }
+    });
+}
+
+#[cfg(all(test, not(miri)))]
+fn check_native_bound_read(
+    entry: unsafe extern "C" fn(*const Payload) -> u64,
+    accepts: impl Fn(u64) -> bool,
+) {
     crate::Lua::empty().enter(|ctx| {
         let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
         for value in [
@@ -177,14 +270,11 @@ pub(crate) fn check_native_bound_numeric_read(entry: unsafe extern "C" fn(*const
             Value::String(ctx.intern(b"bound read")),
             Value::Table(crate::Table::new(&ctx)),
             Value::Function(closure.into()),
+            Value::Thread(crate::Thread::new(ctx)),
             Value::UserData(crate::UserData::new_static(&ctx, 7)),
         ] {
             let scalar = Slot::from_value(value);
-            let expected = if matches!(scalar.tag, INTEGER | NUMBER) {
-                scalar.bits
-            } else {
-                0
-            };
+            let expected = if accepts(scalar.tag) { scalar.bits } else { 0 };
             let mut values = [value];
             let mut pc = 5;
             LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
@@ -526,8 +616,8 @@ unsafe extern "C" fn call<const KIND: u32>(
     if session.stopped {
         return abi::HELPER_PANICKED;
     }
-    if KIND == abi::HELPER_GET_UP_TABLE {
-        if let Some(result) = closed_table(session, slots, a, b, c, pc) {
+    if matches!(KIND, abi::HELPER_GET_TABLE | abi::HELPER_GET_UP_TABLE) {
+        if let Some(result) = constant_table::<KIND>(session, slots, a, b, c, pc) {
             return result;
         }
     }
@@ -541,25 +631,39 @@ unsafe extern "C" fn call<const KIND: u32>(
     result
 }
 
-fn closed_table(
+fn constant_table<const KIND: u32>(
     session: &mut Session<'_, '_, '_, '_, '_>,
     slots: *mut Payload,
     dest: u32,
-    upvalue: u32,
+    receiver: u32,
     operand: u32,
     pc: u32,
 ) -> Option<u32> {
     if dest as usize >= session.count || operand & abi::CONSTANT_OPERAND == 0 {
         return None;
     }
-    let crate::closure::UpValueState::Closed(table) = session
-        .closure
-        .upvalues()
-        .get(upvalue as usize)?
-        .get()
-        .get()
-    else {
-        return None;
+    let table = if KIND == abi::HELPER_GET_UP_TABLE {
+        let crate::closure::UpValueState::Closed(table) = session
+            .closure
+            .upvalues()
+            .get(receiver as usize)?
+            .get()
+            .get()
+        else {
+            return None;
+        };
+        table
+    } else {
+        if receiver as usize >= session.count
+            || unsafe { slots.add(receiver as usize).read().tag } != REFERENCE
+        {
+            return None;
+        }
+        let table = unsafe { session.values.as_ptr().add(receiver as usize).read() };
+        if !matches!(table, Value::Table(_)) {
+            return None;
+        }
+        table
     };
     let key = session
         .closure
@@ -592,7 +696,7 @@ fn closed_table(
             if completed {
                 counts.completed += 1;
                 counts.table_reads += 1;
-                counts.upvalue_reads += 1;
+                counts.upvalue_reads += u64::from(KIND == abi::HELPER_GET_UP_TABLE);
                 unsafe {
                     *session.pc.as_ptr() = pc as usize + 1;
                 }

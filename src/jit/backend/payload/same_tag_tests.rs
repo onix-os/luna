@@ -1,5 +1,21 @@
 use super::*;
 
+#[test]
+fn numeric_read_proofs_refuse_exhausted_admission_and_verification_work() {
+    for tag in [abi::INTEGER, abi::NUMBER] {
+        let fixture = fixture(tag, true);
+        let f = &fixture.function;
+        let mut analysis = Analysis::new(f, allocator()).unwrap();
+        assert!(analysis.admit_numeric(f, fixture.slots, fixture.store, 0));
+        assert!(analysis.verify_numeric(f, fixture.slots, fixture.store, 0));
+        analysis.remaining = 0;
+        assert!(!analysis.admit_numeric(f, fixture.slots, fixture.store, 0));
+        assert!(analysis.verify_numeric(f, fixture.slots, fixture.store, 0));
+        analysis.verification_remaining = 0;
+        assert!(!analysis.verify_numeric(f, fixture.slots, fixture.store, 0));
+    }
+}
+
 struct Fixture {
     function: Function,
     slots: IrValue,

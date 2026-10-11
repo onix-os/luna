@@ -132,6 +132,77 @@ fn terminal_liveness_workspace_refusal_does_not_mutate_ir() {
 }
 
 #[test]
+fn local_table_terminal_barriers_require_a_proven_register_key() {
+    for read in [false, true] {
+        for overwrite in [false, true] {
+            for cycle in [false, true] {
+                for operand in [Some(0), Some(abi::CONSTANT_OPERAND), None] {
+                    let (mut f, slots, host, store, helpers) =
+                        fixture(read, overwrite, abi::HELPER_GET_TABLE, cycle);
+                    let call = f
+                        .layout
+                        .blocks()
+                        .flat_map(|b| f.layout.block_insts(b))
+                        .find(|&i| f.dfg.insts[i].opcode() == Opcode::Call)
+                        .unwrap();
+                    let key = if let Some(operand) = operand {
+                        let mut c = FuncCursor::new(&mut f);
+                        c.goto_inst(call);
+                        c.ins().iconst(types::I32, i64::from(operand))
+                    } else {
+                        f.dfg.block_params(f.layout.entry_block().unwrap())[2]
+                    };
+                    f.dfg.inst_args_mut(call)[4] = key;
+                    cranelift_codegen::verify_function(
+                        &f,
+                        &settings::Flags::new(settings::builder()),
+                    )
+                    .unwrap();
+                    let memory = BudgetAllocator(crate::jit::resources::Ledger::new(1 << 20));
+                    let mut analysis =
+                        Analysis::new(&f, slots, host, 2, &helpers, memory.clone()).unwrap();
+                    assert_eq!(
+                        analysis.admits(store, 0),
+                        operand == Some(0) || !(read || overwrite)
+                    );
+                    drop(analysis);
+                    assert_eq!(memory.0.current(), 0);
+                    if !overwrite && !cycle {
+                        for contract in [Contract::Checked, Contract::FrameBound] {
+                            let mut candidate = f.clone();
+                            lower_contract(
+                                &mut candidate,
+                                slots,
+                                host,
+                                2,
+                                &helpers,
+                                memory.clone(),
+                                crate::jit::work::Expansion {
+                                    instructions: 4096,
+                                    blocks: 4096,
+                                },
+                                contract,
+                            )
+                            .unwrap();
+                            cranelift_codegen::verify_function(
+                                &candidate,
+                                &settings::Flags::new(settings::builder()),
+                            )
+                            .unwrap();
+                            let gateways = candidate.layout.blocks().flat_map(|b| candidate.layout.block_insts(b))
+                                .filter(|&i| matches!(candidate.dfg.insts[i], InstructionData::Load { offset, .. }
+                                    if i32::from(offset) == std::mem::offset_of!(Functions, terminal) as i32)).count();
+                            assert_eq!(gateways, usize::from(operand == Some(0) || !read));
+                            assert_eq!(memory.0.current(), 0);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn terminal_gateway_selection_follows_original_graph_liveness() {
     for (read, helper, expected) in [(false, 0, 1), (true, 0, 0), (true, 6, 0), (true, 1, 1)] {
         let (mut f, slots, host, _, helpers) = fixture(read, false, helper, false);

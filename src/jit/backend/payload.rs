@@ -8,9 +8,12 @@ use crate::jit::abi::payload::runtime::{Bridge, Functions};
 #[cfg(not(miri))]
 use crate::jit::abi::payload::Payload;
 
+mod bound_reads;
 mod bound_writes;
 mod host_stack;
 mod numeric_reads;
+#[cfg(all(test, not(miri)))]
+pub(super) mod read_audit;
 mod reads;
 mod same_tag;
 mod terminal;
@@ -73,6 +76,7 @@ enum Read {
     Scalar(reads::Read),
     Numeric(numeric_reads::Read),
     BoundNumeric(numeric_reads::BoundRead),
+    BoundGuarded(bound_reads::Read),
 }
 
 enum Rewrite {
@@ -421,6 +425,7 @@ pub(super) fn lower_contract(
     let mut numeric_count = 0;
     let mut bound_read_count = 0;
     let mut bound_read_savings = 0;
+    let mut bound_scalar_count = 0;
     let mut candidate = function.clone();
     let mut write = Signature::new(function.signature.call_conv);
     write
@@ -460,12 +465,25 @@ pub(super) fn lower_contract(
                         )));
                     }
                     numeric_count += 1;
+                } else if contract == Contract::FrameBound
+                    && same_tag.admit_numeric(function, slots, inst, index)
+                {
+                    let read = bound_reads::emit(&mut candidate, inst, slots, index);
+                    bound_reads::verify_source(function, &read, slots, &mut same_tag)?;
+                    reads.push(Read::BoundGuarded(read));
+                    numeric_count += 1;
+                    bound_read_count += 1;
+                    bound_read_savings += 5 + usize::from(
+                        function.dfg.value_type(function.dfg.first_result(inst)) == types::F64,
+                    );
                 } else {
-                    reads.push(Read::Scalar(reads::emit(
+                    bound_scalar_count += usize::from(contract == Contract::FrameBound);
+                    reads.push(Read::Scalar(reads::emit_contract(
                         &mut candidate,
                         inst,
                         slots,
                         index,
+                        contract,
                     )));
                 }
             }
@@ -549,7 +567,8 @@ pub(super) fn lower_contract(
                 - plan.host_instructions
                 - 13 * numeric_count
                 - 29 * bound_count
-                - bound_read_savings,
+                - bound_read_savings
+                - 3 * bound_scalar_count,
             plan.blocks - 2 * numeric_count - 6 * bound_count - 3 * bound_read_count,
         )
     {
@@ -557,12 +576,19 @@ pub(super) fn lower_contract(
             "payload expansion differs from plan".into(),
         ));
     }
-    let predecessors = (numeric_count != 0 || proven_writes != 0)
+    let predecessors = (numeric_count != 0 || proven_writes != 0 || bound_scalar_count != 0)
         .then(|| crate::jit::preds::Predecessors::new(&candidate, allocator.clone()))
         .transpose()?;
+    let (instructions, blocks) = size(&candidate);
+    let mut read_work = instructions
+        .checked_add(blocks)
+        .and_then(|n| n.checked_mul(64))
+        .ok_or(JitError::ResourceLimit("payload emitted read proof work"))?;
     for read in &reads {
         match read {
-            Read::Scalar(read) => reads::verify(&candidate, read, slots)?,
+            Read::Scalar(read) => {
+                reads::verify_contract(&candidate, read, slots, contract, predecessors.as_ref())?
+            }
             Read::Numeric(read) => {
                 numeric_reads::verify(&candidate, read, slots, predecessors.as_ref().unwrap())?
             }
@@ -574,6 +600,13 @@ pub(super) fn lower_contract(
                     predecessors.as_ref().unwrap(),
                 )?;
             }
+            Read::BoundGuarded(read) => bound_reads::verify(
+                &candidate,
+                read,
+                slots,
+                predecessors.as_ref().ok_or_else(invalid)?,
+                &mut read_work,
+            )?,
         }
     }
     let (instructions, blocks) = size(&candidate);
@@ -619,7 +652,8 @@ pub(super) fn lower_contract(
             plan.instructions - plan.host_instructions + expected_host
                 - 13 * numeric_count
                 - 29 * bound_count
-                - bound_read_savings,
+                - bound_read_savings
+                - 3 * bound_scalar_count,
             plan.blocks - 2 * numeric_count - 6 * bound_count - 3 * bound_read_count,
         )
     {

@@ -1,5 +1,9 @@
 use super::*;
 
+#[cfg(test)]
+#[path = "bound_scalar_read_tests.rs"]
+mod bound_tests;
+
 const _: () = assert!(abi::INTEGER == 2 && abi::NUMBER == 3);
 
 pub(super) fn emit_wide(c: &mut FuncCursor<'_>, tag: IrValue) -> IrValue {
@@ -22,6 +26,7 @@ pub(super) fn verify_wide(
 }
 
 pub(super) struct Read {
+    contract: Contract,
     blocks: [Block; 6],
     result: IrValue,
     index: u32,
@@ -34,7 +39,18 @@ pub(super) fn block(function: &mut Function) -> Block {
     block
 }
 
+#[cfg(test)]
 pub(super) fn emit(function: &mut Function, inst: Inst, slots: IrValue, index: u32) -> Read {
+    emit_contract(function, inst, slots, index, Contract::Checked)
+}
+
+pub(super) fn emit_contract(
+    function: &mut Function,
+    inst: Inst,
+    slots: IrValue,
+    index: u32,
+    contract: Contract,
+) -> Read {
     let before = function.layout.inst_block(inst).unwrap();
     let after = function.dfg.make_block();
     function.layout.split_block(after, inst);
@@ -67,8 +83,9 @@ pub(super) fn emit(function: &mut Function, inst: Inst, slots: IrValue, index: u
     );
     let is_wide = emit_wide(&mut c, tag);
     let null = c.ins().iconst(types::I64, 0);
-    let nonnull = c.ins().icmp(IntCC::NotEqual, pointer, null);
-    let valid_wide = c.ins().band(is_wide, nonnull);
+    let nonnull =
+        (contract == Contract::Checked).then(|| c.ins().icmp(IntCC::NotEqual, pointer, null));
+    let valid_wide = nonnull.map_or(is_wide, |nonnull| c.ins().band(is_wide, nonnull));
     c.ins().brif(valid_wide, wide, &[], other, &[]);
     c.goto_bottom(wide);
     let bits = c.ins().load(types::I64, MemFlagsData::new(), pointer, 0);
@@ -76,7 +93,7 @@ pub(super) fn emit(function: &mut Function, inst: Inst, slots: IrValue, index: u
     c.goto_bottom(other);
     let boolean_tag = c.ins().iconst(types::I64, abi::BOOLEAN as i64);
     let is_boolean = c.ins().icmp(IntCC::Equal, tag, boolean_tag);
-    let valid_boolean = c.ins().band(is_boolean, nonnull);
+    let valid_boolean = nonnull.map_or(is_boolean, |nonnull| c.ins().band(is_boolean, nonnull));
     c.ins().brif(valid_boolean, boolean, &[], zero, &[]);
     c.goto_bottom(boolean);
     let byte = c.ins().load(types::I8, MemFlagsData::new(), pointer, 0);
@@ -85,6 +102,7 @@ pub(super) fn emit(function: &mut Function, inst: Inst, slots: IrValue, index: u
     c.goto_bottom(zero);
     c.ins().jump(after, &[null.into()]);
     Read {
+        contract,
         blocks: [before, after, wide, other, boolean, zero],
         result,
         index,
@@ -213,9 +231,23 @@ pub(super) fn jump(f: &Function, inst: Inst, target: Block, arg: IrValue) -> Res
     Ok(())
 }
 
+#[cfg(test)]
 pub(super) fn verify(f: &Function, read: &Read, slots: IrValue) -> Result<(), JitError> {
+    verify_contract(f, read, slots, Contract::Checked, None)
+}
+
+pub(super) fn verify_contract(
+    f: &Function,
+    read: &Read,
+    slots: IrValue,
+    contract: Contract,
+    predecessors: Option<&crate::jit::preds::Predecessors>,
+) -> Result<(), JitError> {
     let [before, after, wide, other, boolean, zero] = read.blocks;
-    if f.dfg.block_params(after) != [read.result] || f.dfg.value_type(read.result) != types::I64 {
+    if read.contract != contract
+        || f.dfg.block_params(after) != [read.result]
+        || f.dfg.value_type(read.result) != types::I64
+    {
         return Err(invalid());
     }
     if let Some((inst, result)) = read.cast {
@@ -230,9 +262,23 @@ pub(super) fn verify(f: &Function, read: &Read, slots: IrValue) -> Result<(), Ji
             return Err(invalid());
         }
     }
-    let mut head: [Inst; 10] = shape(f.layout.block_insts(before).rev().take(10))?;
-    head.reverse();
-    let [tag, pointer, mask, masked, integer, is_wide, null, nonnull, valid, split] = head;
+    let (head, checked) = match contract {
+        Contract::Checked => {
+            let mut head: [Inst; 10] = shape(f.layout.block_insts(before).rev().take(10))?;
+            head.reverse();
+            let [tag, pointer, mask, masked, integer, is_wide, null, nonnull, valid, split] = head;
+            (
+                [tag, pointer, mask, masked, integer, is_wide, null, split],
+                Some((nonnull, valid)),
+            )
+        }
+        Contract::FrameBound => {
+            let mut head: [Inst; 8] = shape(f.layout.block_insts(before).rev().take(8))?;
+            head.reverse();
+            (head, None)
+        }
+    };
+    let [tag, pointer, mask, masked, integer, is_wide, null, split] = head;
     let tag = load(f, tag, slots, read.index as i32 * 16, types::I64)?;
     let pointer = load(
         f,
@@ -243,23 +289,85 @@ pub(super) fn verify(f: &Function, read: &Read, slots: IrValue) -> Result<(), Ji
     )?;
     let is_wide = verify_wide(f, [mask, masked, integer, is_wide], tag)?;
     let null = constant(f, null, 0)?;
-    let nonnull = compare(f, nonnull, IntCC::NotEqual, [pointer, null])?;
-    let valid = value(f, valid, Opcode::Band, &[is_wide, nonnull], types::I8)?;
+    let (valid, nonnull) = if let Some((nonnull, valid)) = checked {
+        let nonnull = compare(f, nonnull, IntCC::NotEqual, [pointer, null])?;
+        (
+            value(f, valid, Opcode::Band, &[is_wide, nonnull], types::I8)?,
+            Some(nonnull),
+        )
+    } else {
+        (is_wide, None)
+    };
     branch(f, split, valid, wide, other)?;
     let [load_inst, end] = shape(f.layout.block_insts(wide))?;
     let bits = load(f, load_inst, pointer, 0, types::I64)?;
     jump(f, end, after, bits)?;
-    let [tag_inst, cmp, valid, split] = shape(f.layout.block_insts(other))?;
+    let (tag_inst, cmp, valid, split) = if nonnull.is_some() {
+        let [tag, cmp, valid, split] = shape(f.layout.block_insts(other))?;
+        (tag, cmp, Some(valid), split)
+    } else {
+        let [tag, cmp, split] = shape(f.layout.block_insts(other))?;
+        (tag, cmp, None, split)
+    };
     let boolean_tag = constant(f, tag_inst, abi::BOOLEAN as i64)?;
     let is_boolean = compare(f, cmp, IntCC::Equal, [tag, boolean_tag])?;
-    let valid = value(f, valid, Opcode::Band, &[is_boolean, nonnull], types::I8)?;
+    let valid = match (valid, nonnull) {
+        (Some(valid), Some(nonnull)) => {
+            value(f, valid, Opcode::Band, &[is_boolean, nonnull], types::I8)?
+        }
+        (None, None) => is_boolean,
+        _ => return Err(invalid()),
+    };
     branch(f, split, valid, boolean, zero)?;
     let [load_inst, extend, end] = shape(f.layout.block_insts(boolean))?;
     let byte = load(f, load_inst, pointer, 0, types::I8)?;
     let bits = value(f, extend, Opcode::Uextend, &[byte], types::I64)?;
     jump(f, end, after, bits)?;
     let [end] = shape(f.layout.block_insts(zero))?;
-    jump(f, end, after, null)
+    jump(f, end, after, null)?;
+    if contract == Contract::FrameBound {
+        verify_bound_edges(f, read, predecessors.ok_or_else(invalid)?)?;
+    }
+    Ok(())
+}
+
+fn verify_bound_edges(
+    f: &Function,
+    read: &Read,
+    predecessors: &crate::jit::preds::Predecessors,
+) -> Result<(), JitError> {
+    let [before, after, wide, other, boolean, zero] = read.blocks;
+    for (index, block) in read.blocks.iter().enumerate() {
+        if read.blocks[..index].contains(block) {
+            return Err(invalid());
+        }
+    }
+    for (block, parent) in [
+        (wide, before),
+        (other, before),
+        (boolean, other),
+        (zero, other),
+    ] {
+        let mut incoming = predecessors.pred_iter(block);
+        if incoming.next().map(|p| p.inst) != f.layout.last_inst(parent)
+            || incoming.next().is_some()
+            || f.layout.entry_block() == Some(block)
+        {
+            return Err(invalid());
+        }
+    }
+    let parents = [wide, boolean, zero].map(|block| f.layout.last_inst(block).unwrap());
+    let mut count = 0;
+    for incoming in predecessors.pred_iter(after) {
+        if !parents.contains(&incoming.inst) {
+            return Err(invalid());
+        }
+        count += 1;
+    }
+    if count != 3 || f.layout.entry_block() == Some(after) {
+        return Err(invalid());
+    }
+    Ok(())
 }
 
 fn fixture() -> (Function, Read, IrValue) {
@@ -267,6 +375,14 @@ fn fixture() -> (Function, Read, IrValue) {
 }
 
 fn typed_fixture(ty: cranelift_codegen::ir::Type) -> (Function, Read, IrValue) {
+    let (mut function, inst, slots) = typed_source_fixture(ty);
+    let read = emit(&mut function, inst, slots, 0);
+    verify(&function, &read, slots).unwrap();
+    (function, read, slots)
+}
+
+#[cfg(test)]
+fn typed_source_fixture(ty: cranelift_codegen::ir::Type) -> (Function, Inst, IrValue) {
     let mut function = Function::new();
     function.signature.call_conv = cranelift_codegen::isa::CallConv::SystemV;
     function.signature.params.push(AbiParam::new(types::I64));
@@ -294,9 +410,7 @@ fn typed_fixture(ty: cranelift_codegen::ir::Type) -> (Function, Read, IrValue) {
             .unwrap();
         b.finalize(isa.frontend_config());
     }
-    let read = emit(&mut function, inst, slots, 0);
-    verify(&function, &read, slots).unwrap();
-    (function, read, slots)
+    (function, inst, slots)
 }
 
 #[test]

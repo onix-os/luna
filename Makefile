@@ -641,17 +641,32 @@ jit-in-place-return:
 .PHONY: jit-payload-model jit-payload-model-miri
 .PHONY: jit-payload-terminal jit-payload-terminal-miri
 .PHONY: jit-payload-functions jit-payload-functions-miri
+.PHONY: jit-payload-local-table jit-payload-local-table-miri
+jit-payload-local-table:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::local_table_tests:: $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::terminal::tests::local_table_ $(ARGS)
+
+jit-payload-local-table-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::runtime::local_table_tests:: -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::terminal::tests::local_table_ -- --test-threads=1
+
 .PHONY: jit-payload-tags jit-payload-tags-miri
 .PHONY: jit-payload-bound jit-payload-bound-miri
+.PHONY: jit-payload-read-audit
+jit-payload-read-audit:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::read_audit::original_workload_reads -- --exact --nocapture
+
 jit-payload-bound:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::bound_tests:: $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::bound_ $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::numeric_reads::tests::bound_ $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::reads::bound_tests:: $(ARGS)
 
 jit-payload-bound-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::runtime::bound_tests:: -- --test-threads=1
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::bound_ -- --test-threads=1
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::numeric_reads::tests::bound_ -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::reads::bound_tests:: -- --test-threads=1
 
 jit-payload-tags:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::same_tag:: $(ARGS)

@@ -53,6 +53,62 @@ impl Analysis {
             &mut self.verification_remaining,
         )
     }
+
+    pub(super) fn admit_numeric(
+        &mut self,
+        f: &Function,
+        slots: IrValue,
+        at: Inst,
+        index: u32,
+    ) -> bool {
+        numeric_at(f, &self.predecessors, slots, at, index, &mut self.remaining)
+    }
+
+    pub(super) fn verify_numeric(
+        &mut self,
+        f: &Function,
+        slots: IrValue,
+        at: Inst,
+        index: u32,
+    ) -> bool {
+        numeric_at(
+            f,
+            &self.predecessors,
+            slots,
+            at,
+            index,
+            &mut self.verification_remaining,
+        )
+    }
+}
+
+pub(super) fn numeric_at(
+    f: &Function,
+    predecessors: &Predecessors,
+    slots: IrValue,
+    at: Inst,
+    index: u32,
+    remaining: &mut usize,
+) -> bool {
+    if index >= 256 {
+        return false;
+    }
+    [abi::INTEGER, abi::NUMBER].into_iter().any(|tag| {
+        if let Some(previous) = f.layout.prev_inst(at) {
+            search(
+                f,
+                predecessors,
+                slots,
+                index,
+                tag as i64,
+                previous,
+                32,
+                remaining,
+            )
+        } else {
+            search_parents(f, predecessors, slots, index, tag as i64, at, 32, remaining)
+        }
+    })
 }
 
 fn verify(
@@ -141,36 +197,52 @@ fn search(
             inst = previous;
             continue;
         }
-        let Some(block) = f.layout.inst_block(inst) else {
-            return false;
-        };
-        if f.layout.entry_block() == Some(block) {
-            return false;
-        }
-        let mut parents = predecessors.pred_iter(block).peekable();
-        return parents.peek().is_some()
-            && parents.all(|parent| {
-                if let InstructionData::Brif { arg, blocks, .. } = f.dfg.insts[parent.inst] {
-                    if blocks[0].block(&f.dfg.value_lists) == block
-                        && blocks[1].block(&f.dfg.value_lists) != block
-                    {
-                        if let Some(load) = predicate(f, arg, slots, index, tag, 8, remaining) {
-                            return fresh(f, predecessors, load, parent.inst, depth - 1, remaining);
-                        }
+        return search_parents(f, predecessors, slots, index, tag, inst, depth, remaining);
+    }
+}
+
+fn search_parents(
+    f: &Function,
+    predecessors: &Predecessors,
+    slots: IrValue,
+    index: u32,
+    tag: i64,
+    inst: Inst,
+    depth: usize,
+    remaining: &mut usize,
+) -> bool {
+    if depth == 0 {
+        return false;
+    }
+    let Some(block) = f.layout.inst_block(inst) else {
+        return false;
+    };
+    if f.layout.entry_block() == Some(block) {
+        return false;
+    }
+    let mut parents = predecessors.pred_iter(block).peekable();
+    parents.peek().is_some()
+        && parents.all(|parent| {
+            if let InstructionData::Brif { arg, blocks, .. } = f.dfg.insts[parent.inst] {
+                if blocks[0].block(&f.dfg.value_lists) == block
+                    && blocks[1].block(&f.dfg.value_lists) != block
+                {
+                    if let Some(load) = predicate(f, arg, slots, index, tag, 8, remaining) {
+                        return fresh(f, predecessors, load, parent.inst, depth - 1, remaining);
                     }
                 }
-                search(
-                    f,
-                    predecessors,
-                    slots,
-                    index,
-                    tag,
-                    parent.inst,
-                    depth - 1,
-                    remaining,
-                )
-            });
-    }
+            }
+            search(
+                f,
+                predecessors,
+                slots,
+                index,
+                tag,
+                parent.inst,
+                depth - 1,
+                remaining,
+            )
+        })
 }
 
 fn fresh(

@@ -11,6 +11,210 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Local constant-table reads — partial refresh and liveness
+
+Commit `ac6267d` adds a scoped constant-key GetTable path alongside the existing
+closed-upvalue GetUpTable path. Local receivers must be in range, have a
+reference descriptor, and contain a canonical `Value::Table`; no `Value` layout
+is inspected. A completed read refreshes only the destination. Register-key,
+non-table, retired/scalar receiver, and invalid-operand cases retain ordinary
+helper fallback. Missing-key metamethod declines, caught panics, PC updates and
+all helper counters retain their contracts; only GetUpTable increments upvalue
+read counts. Existing closed-upvalue behavior shares the constant-specialized
+implementation without a runtime kind switch.
+
+Terminal-write liveness changes together with the helper: a GetTable call is
+now a possible partial-refresh barrier unless its key operand is independently
+proven to be an I32 constant with the constant-operand bit clear. Proven
+register-key calls still refresh fully. Unknown and constant-key calls cannot
+justify retiring a descriptor that is used after the call. Tests cover all
+24 read/write/loop/key-mode combinations and verify actual terminal gateway
+selection under both checked and frame-bound lowering.
+
+GNU/musl each pass **46 ABI + 56 backend + three runtime tests**; GNU
+fmt/check-all passes. New coverage includes 144 value-kind/size/receiver/dest
+cases through 256 registers, live sibling field pointers, readonly tables,
+current-frame upvalue aliases, missing keys and metamethod declines, retired
+receiver/sibling descriptors, full-fallback control-pointer refresh, invalid
+operands, borrow panics and stopped reentry. Two integrated Lua loops keep a
+dynamic sibling value live across the table read (including receiver/destination
+reuse), checking fuel/interrupt stepping, GC and native counters against the
+ordinary/interpreter controls. Initial and expanded focused checks also pass.
+The five local-table model tests and terminal liveness test pass under both
+Stacked and Tree Borrows; the terminal model suites also pass under both.
+The frozen candidate build completed successfully, with image SHA-256
+`8e83f4eff586055c08577e24cdbea22f9f00bb79c8e2c35b18efc2934eb2b0ba`.
+Its profiling and hardware comparison remain pending; this is not a performance
+or production acceptance claim. Logs: `payload-local-table-*` under
+`target/jit-evidence/short-slice-performance/`.
+
+#### Bound scalar reads — contract-specific null-check removal
+
+Commit `ad8d71a` removes one null comparison and two conjunctions from each
+remaining scalar read only under the frame-bound entry contract. The private
+binding factory supplies non-null Boolean/Integer/Number field pointers;
+Nil/reference descriptors still produce zero without dereferencing. Numeric
+tag checks, the one-byte Boolean load, eight-byte numeric load, zero extension,
+and floating-point bitcasts remain verified. Checked entries keep their original
+null-pointer fallback. Read records carry their contract, and verification
+requires it to match the enclosing compilation contract.
+
+Bound scalar verification also checks exclusive incoming edges to the generated
+guard/load blocks and the exact three-way result join. Its predecessor workspace
+is charged, and both pre/post-host expansion checks account for exactly three
+saved instructions per bound scalar read. GNU and musl each pass **41 ABI + 55
+backend + three runtime tests**; GNU fmt/check-all passes. New tests reject 61
+well-formed emitted mutations across integer/floating load forms, check exact
+workspace-peak refusal/cleanup, reject contract mismatches, and execute native
+readers through real scoped bindings. A 169-pair canonical transition corpus
+checks all value kinds before/after Move, terminal descriptor retirement, and
+helper refresh; it is also exercised by a direct-load model under Miri. These
+are correctness results, not a performance acceptance claim. Logs are
+`payload-scalar-read-*` under `target/jit-evidence/short-slice-performance/`.
+
+Both Miri models pass **12 focused tests each**, including the transition model.
+The frozen `scalar` image
+(`7a76af2980ec4d3a0c33ed35dd7e5ff1b564b1ffefb5a8992f0e254b2a78692a`)
+separately passes the 99-test activated build and check-all. Ten matched profiles
+against `exact` preserve execution counters. Float code mapping shrinks from
+8,192 to 4,096 bytes; the strict comparison retains this difference with exit 3.
+Off controls are instruction-identical.
+
+The result is mixed, not acceptance: callback total instructions fall by 184,646
+to 131,660,603; native-page attribution shows −194,534 to 13,099,872, offset by
++9,888 in Manager::enqueue. But float work **rises by 248,699**, entirely in its
+captured native mapping (8,671,303 → 8,920,002). Weighted operations addressing
+stack offsets 8/16 rise by 206,532; remaining native work rises by 42,167.
+Callback stack-offset 8/16 work also increases by 778,112 despite its net native
+instruction reduction. These costs must not be discarded because the IR is
+smaller. Allocation work falls by 174,596 (154,365 in anonymous code); metamethod
+work rises by 10,151 (12,775 anonymous, −2,624 elsewhere).
+Evidence: `exact-vs-scalar-analysis.json`, `scalar-*-auto-delta.json`,
+`scalar-native-vgdb/`, and `scalar-float-native-vgdb/`. The pointer currently
+stays live across both tag branches; investigate branch-local pointer loads
+and a branch-local zero constant if hardware confirms this layout is costly.
+Neither that layout change nor a performance acceptance claim is implemented.
+
+The full `scalar` hardware screen completes with **24/24 aggregate failures**.
+Candidate callbacks and metamethods fail in all six windows; allocation/GC fails
+in one. Callback previous/scalar median-time ratios are 1.0269–1.0331 on CPU 0
+but 0.9897–1.0068 on CPU 16: the CPU 0 gain is not a consistent cross-core win.
+Ordinary/scalar callback ratios are 1.0169–1.0213 / 0.9757–1.0029.
+Float previous/scalar ratios improve in all six windows, 1.0024–1.0067 /
+1.0016–1.0118, despite higher native instruction counts. Do not present the
+instruction regression as a demonstrated timing loss. Its mapping remains
+halved, and the original numeric gates pass. There is still no full acceptance.
+All 324 non-timing comparisons are complete, with 84 differences solely in
+code/snapshot allocation metrics versus ordinary; execution counters match.
+Image/source hashes, aliases, and contention telemetry pass the same checks;
+no owned validation/profile/build/edit overlaps timing. Evidence:
+`scalar-hardware-screen/` and `scalar-hardware-analysis.json`.
+
+Next prioritize the failing metamethod workload's larger measured cost:
+`Session::rebind` accounts for 8,699,055 instructions and `bind_non_numeric` for
+5,272,896 in its current profile. Local-table GetTable still goes through a full
+canonical helper call and descriptor refresh, whereas closed-upvalue GetUpTable
+can refresh only its destination. Audit whether a constant-key, reference-tagged
+table receiver can use a similarly scoped path without invalidating sibling
+field pointers. **Its terminal-write analysis must change too:** GetTable is
+currently a full-refresh barrier, so silently making it partial would leave
+retired sibling descriptors stale. Preserve fallback, receiver/destination
+aliases, scalar/reference transitions, panic/PC/counters and Miri provenance.
+This is not the earlier rejected ordinary receiver-reconstruction experiment,
+and no local-table selective-refresh implementation is present yet.
+
+#### Original-workload read audit
+
+`make jit-payload-read-audit` now inspects generated IR after the ordinary
+integer-loop augmentation and stops before native code emission. It traverses
+all nine original workload sources, including both child prototypes (11 total),
+and verifies mapping, compiler metadata, and snapshot workspace cleanup.
+The first audit finds 94 scalar payload reads: 69 are already admitted by the
+masked-numeric proof. No candidate fails its dominance/use admission.
+
+Ten further reads are concrete optimization witnesses: the integer and float
+loop entries each load five fields after a conjunction of exact numeric tag
+checks. Their tag loads are not adjacent to their field loads, and the guards
+precede those loads, so merely adding exact equality to the current forward
+recognizer would not admit them. The other 15 reads remain unclassified by this
+audit; Move/truthiness payloads must not be assumed numeric. Next is a separately
+verified in-place bound-read path using fresh exact-tag guards. No new read
+lowering or performance gain is claimed by this audit. Full IR and counts are
+in `target/jit-evidence/short-slice-performance/payload-read-audit-validation.log`.
+
+Commit `7fc1231` implements that separate path for frame-bound entries. A read
+stays at its original instruction, with only a descriptor-pointer load inserted
+before its typed field load. Admission and independent source revalidation use
+separate work budgets in the existing exact-tag proof analysis; emitted-code
+validation rechecks fresh guards on every incoming path, pointer/root/offset,
+type/result, and adjacency. Guard conjunctions are bounded; stores, calls,
+unguarded predecessors, and exhausted proof work refuse the optimization.
+Checked entries and the existing masked-numeric path remain unchanged.
+
+The updated source audit admits exactly the ten witnessed reads and no others.
+GNU and musl each pass **40 ABI + 52 backend + three runtime tests**, including
+all-PC/budget/type loop integration. GNU fmt/check-all passes. New coverage
+includes one/five-field exact workspace limits, 36 well-formed source mutations,
+52 emitted mutations, independent proof-work exhaustion, and native probes for
+both load types under both exact numeric tags. Native probes reject other tags
+and preserve canonical scalar bits. Stacked/Tree Miri and frozen matched
+measurements are tracked separately; these correctness results do not prove a
+timing improvement. Logs are `payload-exact-read-*` under the evidence directory.
+
+Both Miri models now pass **14 focused tests each** (two ABI, five bound models,
+two masked-read models, five same-tag models). The frozen `exact` image is
+`1b1f7d99b97bddb5068c00c45181805a95070e5eef48fa6480ee8330d05a1a68`.
+Its activated experimental build separately passes all 95 tests and check-all;
+ten instruction profiles retain complete non-timing equality versus `field`.
+Integer-loop total instructions fall by 362,804 to 15,941,370; float-loop total
+falls by 387,456 to 15,696,279. Off controls for both loops are unchanged.
+Captured native-code attribution independently measures integer native work
+9,307,317 → 8,944,404 (−362,913), and float 9,058,759 → 8,671,303 (−387,456).
+Both capture comparisons preserve complete non-timing statistics. Integer
+mappings remain 4,096 bytes and float mappings 8,192 bytes. The initial float
+capture driver expected a 4,096-byte page and stopped after a successful native
+run; the retained corrected capture verifies its actual 8,192-byte mapping.
+
+Other profile deltas are not automatically attributed to this optimization:
+array work rises by 58,278 (58,412 in libc memcpy, −148 across allocation
+functions, +14 anonymous instructions); upvalue work falls by 52,528, mostly
+52,284 in canonical admission. Callback work differs by only −81. All function
+costs reconcile to whole-profile totals. These are instruction measurements,
+not hardware speedup or acceptance. Evidence is `field-vs-exact-analysis.json`,
+`exact-*-auto-delta.json`, and `exact-*-native-vgdb*` under
+`target/jit-evidence/short-slice-performance/payload-terminal-profile/`.
+
+The full hardware screen is complete: **24/24 aggregate gates still fail**.
+It rotates ordinary, previous `field`, new `exact`, and same-inode ordinary
+placebo images across three windows on CPUs 0 and 16, with 11 paired samples
+per original workload. Integer previous/exact median-time ratios are
+1.0119–1.0146 on CPU 0 and 1.0135–1.0265 on CPU 16: a modest measured improvement
+over the preceding experiment in all six windows. Float ratios are
+0.9935–1.0259 / 1.0014–1.0169, so not every window improves. Both loops pass
+their 2× interpreter threshold in all six candidate windows, but remain slower
+than the ordinary JIT control: integer ordinary/exact ratios are
+0.9190–0.9223 / 0.8258–0.8352; float 0.9179–0.9316 / 0.8296–0.8386.
+
+Callbacks and metamethods still fail in six of six candidate windows,
+allocation/GC in two, and array/table in one. Callback timings versus the
+previous image improve despite essentially unchanged instruction counts and
+zero newly admitted exact reads in that workload; do not attribute that change
+to the new loop proof without further evidence. The 324 complete non-timing
+comparisons contain 84 differences solely in code/snapshot allocation metrics
+against the ordinary control; execution counters match. Exact-versus-field
+profile statistics remain strictly equal. All frozen image/source hashes and
+same-path/inode checks pass, contention telemetry is retained, aliases are
+removed, and no owned builds/tests/profiles/edits overlapped hardware timing.
+Evidence: `exact-hardware-screen/` and `exact-hardware-analysis.json`. This is
+progress, not production activation or full acceptance.
+
+Next source-grounded candidate: the remaining scalar payload reads still test
+pointer nullness even for frame-bound entries whose private binding factory
+guarantees live Boolean/Integer/Number field pointers. Investigate a bound-only
+scalar reader while preserving all tag/width checks, descriptor refresh and
+retirement, and the checked ABI's malformed/null fallback. No such lowering is
+implemented or measured in this snapshot.
+
 #### Typed entry classification and bound reads — still experimental
 
 Commit `442eaa1` replaces optional payload metadata with a separate, explicit
@@ -84,8 +288,23 @@ same-path/inode invocations and contention telemetry are preserved. No owned
 build, test, profile or edit overlapped hardware timing. There is no production
 activation and no full performance/resource/platform/release acceptance.
 
-Next: attribute the field variant's metamethod instruction regression before
-changing another hot path. The numeric-read recognizer currently accepts the
+The metamethod instruction difference has now been attributed by function,
+with every function's self-cost summed back to the full profile total.
+The initial +324,549 comprises **+427,367 in named libc allocation functions**,
++4 in string interning, and **−102,822 in anonymous code**. Six additional
+profiles (three rotated kind/field pairs, frozen images and common invocation
+alias) retain identical non-timing statistics. Their total field-minus-kind
+deltas are +324,545, −70,583 and +608,495; the anonymous-code saving is unchanged
+in every pair. The same kind image varies by +395,128 versus its initial profile
+entirely in allocation functions, and the same field image varies by +283,950
+in allocation functions, with a separate four-instruction interning difference.
+This demonstrates allocator-path variation, not its underlying cause. Do not
+discard that work, subtract it from acceptance, or blame numeric-read generated
+spills for the aggregate difference. The full hardware gates still fail.
+Evidence: `metamethod-first-delta.json`, `metamethod-repeat/`, `profile-delta.pl`.
+
+Next: audit real-source witnesses before broadening the read proof grammar.
+The numeric-read recognizer currently accepts the
 masked Integer-or-Number guard, not all equivalent exact-integer/exact-number
 guards; extending that grammar is a separate potential optimization requiring
 source/emitted proof tests and original-workload measurements, not a current
