@@ -87,7 +87,7 @@ fn with_frame_slots(count: usize, mut body: impl FnMut(&mut helpers::Frame<'_, '
     });
 }
 
-unsafe extern "C" fn failed_progress(
+pub(crate) unsafe extern "C" fn failed_progress(
     _: *mut Packed,
     mode: u64,
     _: u32,

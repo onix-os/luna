@@ -154,3 +154,5 @@ mod tests;
 pub(crate) use tests::check_native_failure_progress;
 #[cfg(not(miri))]
 pub(crate) use tests::check_native_helper;
+#[cfg(not(miri))]
+pub(crate) use tests::failed_progress as failure_probe;

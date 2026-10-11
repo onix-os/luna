@@ -2012,10 +2012,18 @@ impl Runtime {
             leaf::Binding::from_origin(origin, scratch)
         });
         #[cfg(all(test, not(miri)))]
-        let payload_exit = code
-            .entry_kind
-            .is_payload()
-            .then(|| code.invoke_payload::<CAPACITY>(&mut frame, pc, budget));
+        let payload_exit = if code.entry_kind == backend::EntryKind::Packed {
+            Some(
+                match code.invoke_packed_report::<CAPACITY>(&mut frame, pc, budget) {
+                    Ok(exit) => exit,
+                    Err(fault) => self.packed_failure(&mut frame, fault, array_prefix.as_ref()),
+                },
+            )
+        } else {
+            code.entry_kind
+                .is_payload()
+                .then(|| code.invoke_payload::<CAPACITY>(&mut frame, pc, budget))
+        };
         #[cfg(all(test, miri))]
         let payload_exit: Option<abi::Exit> = None;
         #[cfg(test)]
@@ -3413,3 +3421,11 @@ mod helper_counts;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod payload_runtime_tests;
+
+#[cfg(all(
+    test,
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod packed_runtime;

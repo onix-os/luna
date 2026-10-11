@@ -7013,3 +7013,5 @@ mod return_words;
 
 #[cfg(test)]
 mod payload;
+#[cfg(test)]
+pub(super) use payload::EntryKind;

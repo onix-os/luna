@@ -39,6 +39,96 @@ fn packed_compiled_failure_preserves_real_source_prefix_and_helper_effect() {
 }
 
 #[test]
+fn packed_runtime_failure_dispatch_preserves_effects_counts_and_panic_payloads() {
+    use crate::jit::abi::payload::packed::scoped::bridge::entry;
+    crate::Lua::empty().enter(|ctx| {
+        let source = crate::Closure::load(ctx, None, b"local x=true return 'anchored'").unwrap();
+        let snapshot = Snapshot::new(&source.prototype(), 4096, 2 * 1024 * 1024).unwrap();
+        assert_eq!(snapshot.registers, 2);
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(8 * 1024 * 1024));
+        let metadata = BudgetAllocator(crate::jit::resources::Ledger::new(2 * 1024 * 1024));
+        let mut code = compile_packed(&snapshot, total.clone(), metadata.clone());
+        code.entry = unsafe { std::mem::transmute::<entry::Entry, abi::Entry>(entry::failure_probe) };
+        let closure = crate::Closure::load(ctx, None, b"return 17").unwrap();
+        for mode in 0..5 {
+            let runtime = crate::jit::Runtime::new();
+            let mut values = [crate::Value::Integer(17), crate::Value::Nil];
+            let mut pc = mode;
+            crate::thread::LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    runtime.invoke::<3, false>(&code, ctx, closure, &mut registers, 64)
+                })).unwrap_err();
+                if matches!(mode, 1 | 4) {
+                    assert_eq!(*result.downcast::<u64>().unwrap(), 731);
+                } else {
+                    let fault = *result.downcast::<entry::Fault>().unwrap();
+                    assert_eq!(fault.progress, Some(entry::Progress {
+                        pc: if mode == 2 { 8 } else { 7 },
+                        instructions: if mode == 2 { 4 } else { 3 },
+                    }));
+                    assert_eq!(fault.cause, if mode == 2 {
+                        entry::Failure::Refused(crate::jit::abi::payload::packed::scoped::Refusal::Bounds)
+                    } else { entry::Failure::WriterDeclined });
+                }
+                assert_eq!(*registers.pc, match mode { 1 => 1, 2 | 4 => 8, _ => 7 });
+                assert!(matches!(registers.stack_frame[0], crate::Value::Integer(value) if value == if mode == 1 { 731 } else { 17 }));
+                assert!(if mode >= 2 { matches!(registers.stack_frame[1], crate::Value::Integer(17)) } else { matches!(registers.stack_frame[1], crate::Value::Nil) });
+                let stats = runtime.0.borrow().stats;
+                let count = if matches!(mode, 2 | 4) { 4 } else { 3 };
+                assert_eq!(stats.total_dispatches, count);
+                assert_eq!(stats.native_instructions, count);
+                assert_eq!(stats.native_entries, 1);
+                assert_eq!(stats.native_panic_exits, u64::from(matches!(mode, 1 | 4)));
+                assert_eq!(stats.helper_calls, u64::from(mode >= 2));
+                assert_eq!(stats.helper_instructions, u64::from(mode >= 2));
+                assert_eq!((stats.helper_declines, stats.guard_exits, stats.native_interpreter_exits, stats.native_budget_exits), (0, 0, 0, 0));
+            });
+        }
+        drop(code);
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+        assert_eq!(metadata.0.current(), 0);
+    });
+}
+
+#[test]
+fn packed_zero_register_entry_preserves_empty_frame_and_unknown_pc() {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return").unwrap();
+        let snapshot = Snapshot::new(&closure.prototype(), 4096, 2 * 1024 * 1024).unwrap();
+        assert_eq!(snapshot.registers, 0);
+        let total = MappingCounter::new(crate::jit::resources::Ledger::new(8 * 1024 * 1024));
+        let metadata = BudgetAllocator(crate::jit::resources::Ledger::new(2 * 1024 * 1024));
+        let code = compile_packed(&snapshot, total.clone(), metadata.clone());
+        for pc in [0, 1, usize::MAX] {
+            for budget in [0, 1, 64, u32::MAX] {
+                let mut canonical_pc = pc;
+                crate::thread::LuaRegisters::with_test_frame(
+                    ctx,
+                    &mut canonical_pc,
+                    &mut [],
+                    |mut registers| {
+                        let runtime = crate::jit::Runtime::new();
+                        assert_eq!(
+                            runtime.invoke::<8, false>(&code, ctx, closure, &mut registers, budget),
+                            0
+                        );
+                        assert_eq!(*registers.pc, pc);
+                        assert!(registers.stack_frame.is_empty());
+                        let stats = runtime.0.borrow().stats;
+                        assert_eq!(stats.native_entries, 1);
+                        assert_eq!(stats.total_dispatches, 0);
+                        assert_eq!(stats.helper_calls, 0);
+                    },
+                );
+            }
+        }
+        drop(code);
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+        assert_eq!(metadata.0.current(), 0);
+    });
+}
+
+#[test]
 fn packed_owned_entries_preserve_scalar_table_boolean_exits_and_release_mappings() {
     ordinary_payload_contract(Failure::RequirePackedPayload);
 }
