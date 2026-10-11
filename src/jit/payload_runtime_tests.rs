@@ -91,6 +91,15 @@ fn payload_nil_fanout_preserves_every_register_prefix() {
 
 #[test]
 fn payload_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
+    payload_runtime_contract(backend::Failure::RequirePayload);
+}
+
+#[test]
+fn bound_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
+    payload_runtime_contract(backend::Failure::RequireBoundPayload);
+}
+
+fn payload_runtime_contract(failure: backend::Failure) {
     for (script, expected, arrays) in [
         ("local s=0 for i=1,120 do s=s+i end return s", 7260, false),
         ("local s=0.0 for i=1,120 do s=s+0.5 end return s", 60, false),
@@ -107,6 +116,7 @@ fn payload_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
             let mut reference = state(JitMode::Off, false);
             let mut control = state(JitMode::Auto, false);
             let mut candidate = state(JitMode::Auto, true);
+            candidate.enter(|ctx| ctx.jit().0.borrow_mut().memory_failure = failure);
             let reference_executor = source(&mut reference, script);
             let control_executor = source(&mut control, script);
             let candidate_executor = source(&mut candidate, script);
@@ -132,7 +142,7 @@ fn payload_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
                 assert_eq!(actual_step, expected_step);
                 assert_eq!(counters(candidate.jit_stats()), counters(control.jit_stats()), "{script}: initial={initial} turn={turn}");
                 assert_eq!(candidate.jit_stats().total_dispatches, reference.jit_stats().total_dispatches);
-                candidate.enter(|ctx| assert!(ctx.jit().0.borrow().code.values().all(|cached| cached.code.payload)));
+                candidate.enter(|ctx| assert!(ctx.jit().0.borrow().code.values().all(|cached| cached.code.payload.is_some())));
                 if actual_step.0 { finished = true; break; }
                 if turn % 11 == 0 {
                     reference.gc_collect();

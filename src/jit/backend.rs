@@ -223,7 +223,7 @@ pub(super) struct Code {
     #[cfg(test)]
     cell_kernel: bool,
     #[cfg(test)]
-    pub(super) payload: bool,
+    pub(super) payload: Option<payload::Contract>,
     #[cfg(test)]
     pub integer_activation: bool,
     #[cfg(all(test, not(miri)))]
@@ -235,6 +235,11 @@ pub(super) struct Code {
 impl Code {
     #[cfg(not(miri))]
     pub(super) fn linked_entry(&self) -> Entry {
+        #[cfg(test)]
+        assert!(
+            self.payload.is_none(),
+            "payload code requires a canonical frame"
+        );
         self.entry
     }
     #[cfg(all(test, not(miri)))]
@@ -307,7 +312,10 @@ impl Code {
         #[cfg(test)]
         assert!(!self.cell_kernel, "scalar kernel requires a cell view");
         #[cfg(test)]
-        assert!(!self.payload, "payload code requires a canonical frame");
+        assert!(
+            self.payload.is_none(),
+            "payload code requires a canonical frame"
+        );
         unsafe { abi::invoke(self.entry, slots, pc, budget, host) }
     }
 
@@ -338,6 +346,7 @@ pub(super) enum Failure {
     RequirePayload,
     RequirePayloadLoop,
     RequirePayloadTags,
+    RequireBoundPayload,
     RequireReadCache,
     RequireWriteback,
     RequireIntegerLoop,
@@ -728,7 +737,10 @@ fn compile_selected_rooted(
     #[cfg(test)]
     if matches!(
         failure,
-        Failure::RequirePayload | Failure::RequirePayloadLoop | Failure::RequirePayloadTags
+        Failure::RequirePayload
+            | Failure::RequirePayloadLoop
+            | Failure::RequirePayloadTags
+            | Failure::RequireBoundPayload
     ) {
         let incompatible = rooted_moves
             || selection.projected
@@ -756,7 +768,10 @@ fn compile_selected_rooted(
     #[cfg(test)]
     let expansion = if matches!(
         failure,
-        Failure::RequirePayload | Failure::RequirePayloadLoop | Failure::RequirePayloadTags
+        Failure::RequirePayload
+            | Failure::RequirePayloadLoop
+            | Failure::RequirePayloadTags
+            | Failure::RequireBoundPayload
     ) {
         payload::expansion(snapshot, work)?
     } else {
@@ -881,7 +896,10 @@ fn compile_selected_rooted(
         .checked_add(
             if matches!(
                 failure,
-                Failure::RequirePayload | Failure::RequirePayloadLoop | Failure::RequirePayloadTags
+                Failure::RequirePayload
+                    | Failure::RequirePayloadLoop
+                    | Failure::RequirePayloadTags
+                    | Failure::RequireBoundPayload
             ) {
                 Layout::array::<AbiParam>(5)
                     .map_err(|_| JitError::ResourceLimit("payload signature size"))?
@@ -1234,6 +1252,7 @@ fn compile_selected_rooted(
             | Failure::RequirePayload
             | Failure::RequirePayloadLoop
             | Failure::RequirePayloadTags
+            | Failure::RequireBoundPayload
     );
     #[cfg(not(test))]
     let optimize_integer_loop = true;
@@ -1316,9 +1335,12 @@ fn compile_selected_rooted(
     #[cfg(test)]
     let (instructions, block_count) = if matches!(
         failure,
-        Failure::RequirePayload | Failure::RequirePayloadLoop | Failure::RequirePayloadTags
+        Failure::RequirePayload
+            | Failure::RequirePayloadLoop
+            | Failure::RequirePayloadTags
+            | Failure::RequireBoundPayload
     ) {
-        let proven_writes = payload::lower(
+        let proven_writes = payload::lower_contract(
             &mut context.func,
             parameters[0],
             parameters[4],
@@ -1326,6 +1348,11 @@ fn compile_selected_rooted(
             &helper_refs,
             snapshot.operations.allocator().clone(),
             expansion,
+            if failure == Failure::RequireBoundPayload {
+                payload::Contract::FrameBound
+            } else {
+                payload::Contract::Checked
+            },
         )?;
         if failure == Failure::RequirePayloadTags && proven_writes == 0 {
             return Err(JitError::Compilation("no proven payload tag writes".into()));
@@ -1730,10 +1757,13 @@ fn compile_selected_rooted(
         #[cfg(test)]
         cell_kernel: selection.cell_kernel,
         #[cfg(test)]
-        payload: matches!(
-            failure,
-            Failure::RequirePayload | Failure::RequirePayloadLoop | Failure::RequirePayloadTags
-        ),
+        payload: match failure {
+            Failure::RequireBoundPayload => Some(payload::Contract::FrameBound),
+            Failure::RequirePayload | Failure::RequirePayloadLoop | Failure::RequirePayloadTags => {
+                Some(payload::Contract::Checked)
+            }
+            _ => None,
+        },
         #[cfg(test)]
         integer_activation: selection.integer_activation,
         #[cfg(all(test, not(miri)))]

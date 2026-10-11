@@ -243,7 +243,7 @@ fn original_integer_loop_contains_proven_tag_writes() {
             Failure::RequirePayloadTags,
         )
         .unwrap();
-        assert!(code.payload);
+        assert!(code.payload.is_some());
         drop(code);
         assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 0);
     });

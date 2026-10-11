@@ -123,7 +123,7 @@ pub(super) fn emit(f: &mut Function, tag_store: Inst, bits_store: Inst, input: I
     }
 }
 
-fn jump(f: &Function, inst: Inst, after: Block) -> Result<(), JitError> {
+pub(super) fn jump(f: &Function, inst: Inst, after: Block) -> Result<(), JitError> {
     let InstructionData::Jump { destination, .. } = f.dfg.insts[inst] else {
         return Err(invalid());
     };
@@ -135,7 +135,12 @@ fn jump(f: &Function, inst: Inst, after: Block) -> Result<(), JitError> {
     Ok(())
 }
 
-fn store(f: &Function, inst: Inst, bits: IrValue, pointer: IrValue) -> Result<(), JitError> {
+pub(super) fn store(
+    f: &Function,
+    inst: Inst,
+    bits: IrValue,
+    pointer: IrValue,
+) -> Result<(), JitError> {
     let InstructionData::Store {
         opcode: Opcode::Store,
         args,

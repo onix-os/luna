@@ -16,6 +16,60 @@ mod closed_table_tests;
 #[path = "capacity_tests.rs"]
 mod capacity_tests;
 
+#[cfg(test)]
+#[path = "bound_tests.rs"]
+mod bound_tests;
+
+pub(crate) struct Binding<'scope> {
+    slots: NonNull<Payload>,
+    host: &'scope mut Bridge,
+    count: usize,
+}
+
+pub(crate) type BoundEntry =
+    unsafe extern "C" fn(*mut Payload, u64, u32, *mut abi::Exit, *mut Bridge);
+
+impl Binding<'_> {
+    /// Invokes an owning code object's verified frame-bound entry once.
+    ///
+    /// # Safety
+    /// The entry implements the bound payload grammar for exactly `registers` cells,
+    /// preserves descriptor validity across helpers, and retains no frame pointers.
+    pub(crate) unsafe fn invoke(
+        self,
+        entry: BoundEntry,
+        registers: usize,
+        pc: usize,
+        budget: u32,
+        exit: &mut abi::Exit,
+    ) {
+        assert_eq!(registers, self.count);
+        unsafe {
+            entry(
+                self.slots.as_ptr(),
+                pc as u64,
+                budget.min(64),
+                exit,
+                self.host,
+            )
+        };
+    }
+}
+
+pub(crate) fn with_binding<const CAPACITY: usize>(
+    frame: &mut helpers::Frame<'_, '_, '_, '_>,
+    body: impl for<'scope> FnOnce(Binding<'scope>),
+) {
+    let count = frame.slot_count;
+    with_bridge::<CAPACITY>(frame, |slots, host| {
+        body(Binding {
+            slots: NonNull::new(slots).unwrap(),
+            host: unsafe { &mut *host },
+            count,
+        });
+    });
+}
+
 #[repr(C)]
 pub(crate) struct Bridge {
     pub base: abi::Host,
