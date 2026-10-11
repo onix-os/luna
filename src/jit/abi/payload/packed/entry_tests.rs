@@ -84,7 +84,7 @@ fn with_frame(mut body: impl FnMut(&mut helpers::Frame<'_, '_, '_, '_>)) {
 
 #[test]
 fn packed_entry_contract_clamps_budgets_and_retains_exact_exit_fields() {
-    for pc in [0, 7, u32::MAX as usize] {
+    for pc in [0, 7, u32::MAX as usize, usize::MAX - 1, usize::MAX] {
         for budget in [0, 1, 63, 64, 65, u32::MAX] {
             with_frame(|frame| {
                 let exit = unsafe { invoke::<2>(frame, echo, 2, pc, budget) }.unwrap();
@@ -227,6 +227,27 @@ fn packed_entry_rejects_unwritten_exits_overbudget_counts_and_mismatched_panics(
             if mode == 7 {
                 assert_eq!(*frame.panic.take().unwrap().downcast::<u64>().unwrap(), 731);
             }
+        });
+    }
+    unsafe extern "C" fn partial(
+        _: *mut Packed,
+        _: u64,
+        _: u32,
+        exit: *mut abi::Exit,
+        _: *const Bridge,
+    ) -> u32 {
+        unsafe {
+            (*exit).instructions = 0;
+            (*exit).reason = 0;
+        }
+        RETURNED
+    }
+    for pc in [usize::MAX - 1, usize::MAX] {
+        with_frame(|frame| {
+            assert_eq!(
+                unsafe { invoke::<2>(frame, partial, 2, pc, 64) }.err(),
+                Some(Failure::Exit)
+            );
         });
     }
 }

@@ -34,10 +34,11 @@ pub(crate) unsafe fn invoke<const CAPACITY: usize>(
     }
     let mut entered = false;
     let budget = budget.min(64);
+    let unwritten_pc = u64::MAX - u64::from(pc as u64 == u64::MAX);
     let result = with_bridge::<CAPACITY, _>(frame, |slots, bridge| {
         entered = true;
         let mut exit = abi::Exit {
-            pc: u64::MAX,
+            pc: unwritten_pc,
             instructions: u32::MAX,
             reason: u32::MAX,
         };
@@ -58,7 +59,7 @@ pub(crate) unsafe fn invoke<const CAPACITY: usize>(
     })?;
     match result {
         Ok(exit)
-            if exit.pc != u64::MAX
+            if exit.pc != unwritten_pc
                 && exit.instructions <= budget
                 && exit.reason <= crate::jit::exits::Kind::Panic as u32
                 && (exit.reason == crate::jit::exits::Kind::Panic as u32)
