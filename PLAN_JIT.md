@@ -11,6 +11,43 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Local constant-table reads — partial refresh and liveness
+
+Commit `ac6267d` adds a scoped constant-key GetTable path alongside the existing
+closed-upvalue GetUpTable path. Local receivers must be in range, have a
+reference descriptor, and contain a canonical `Value::Table`; no `Value` layout
+is inspected. A completed read refreshes only the destination. Register-key,
+non-table, retired/scalar receiver, and invalid-operand cases retain ordinary
+helper fallback. Missing-key metamethod declines, caught panics, PC updates and
+all helper counters retain their contracts; only GetUpTable increments upvalue
+read counts. Existing closed-upvalue behavior shares the constant-specialized
+implementation without a runtime kind switch.
+
+Terminal-write liveness changes together with the helper: a GetTable call is
+now a possible partial-refresh barrier unless its key operand is independently
+proven to be an I32 constant with the constant-operand bit clear. Proven
+register-key calls still refresh fully. Unknown and constant-key calls cannot
+justify retiring a descriptor that is used after the call. Tests cover all
+24 read/write/loop/key-mode combinations and verify actual terminal gateway
+selection under both checked and frame-bound lowering.
+
+GNU/musl each pass **46 ABI + 56 backend + three runtime tests**; GNU
+fmt/check-all passes. New coverage includes 144 value-kind/size/receiver/dest
+cases through 256 registers, live sibling field pointers, readonly tables,
+current-frame upvalue aliases, missing keys and metamethod declines, retired
+receiver/sibling descriptors, full-fallback control-pointer refresh, invalid
+operands, borrow panics and stopped reentry. Two integrated Lua loops keep a
+dynamic sibling value live across the table read (including receiver/destination
+reuse), checking fuel/interrupt stepping, GC and native counters against the
+ordinary/interpreter controls. Initial and expanded focused checks also pass.
+The five local-table model tests and terminal liveness test pass under both
+Stacked and Tree Borrows; the terminal model suites also pass under both.
+The frozen candidate build completed successfully, with image SHA-256
+`8e83f4eff586055c08577e24cdbea22f9f00bb79c8e2c35b18efc2934eb2b0ba`.
+Its profiling and hardware comparison remain pending; this is not a performance
+or production acceptance claim. Logs: `payload-local-table-*` under
+`target/jit-evidence/short-slice-performance/`.
+
 #### Bound scalar reads — contract-specific null-check removal
 
 Commit `ad8d71a` removes one null comparison and two conjunctions from each
