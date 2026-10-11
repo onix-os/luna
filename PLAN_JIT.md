@@ -54,8 +54,12 @@ Auto loops are identical; callback work rises 81 and allocation work rises
 table helpers; retain that attribution rather than claiming a table-write gain.
 All 13 events, function sums, resource counters, ELF section comparisons and
 source/image/inode checks remain intact. Evidence: `local-vs-write-analysis.json`
-and `write-*-auto-delta.json`. Full workspace tests and hardware timing remain
+and `write-*-auto-delta.json`. Full workspace tests and hardware timing are
 separate gates; this is not activation or performance acceptance.
+The main checkout's `jit-test-all JIT_MODE=auto jit-test-doc` completes with
+**1,652 passing executions / 91 summaries**, zero failures and eight existing
+ignores, recorded in `payload-table-write-workspace.log`. The activated frozen
+image's 111-test gate is distinct from this ordinary-runtime workspace run.
 Logs: `payload-table-write-*` and
 `payload-terminal-profile/write*` under `target/jit-evidence/short-slice-performance/`.
 
