@@ -162,8 +162,42 @@ on GNU and musl across four summaries** (84 ABI, 57 backend, three runtime and
 27 helpers), with no failures or ignores. Logs are
 `packed-c-bridge-broad-{gnu,musl}.log`.
 
-Remaining packed work includes scalar materialization/terminal-write gateways,
-the separate full-entry compiler contract, independent source/emitted checking,
+Scalar writer source `14be3f5` adds ordinary and terminal C gateways to the
+packed function table. They validate the admitted register prefix and scalar
+tag/Boolean bits before replacement, preserve numeric bit patterns, and retire
+only the destination. Ordinary writes refresh it; terminal writes leave it
+retired until canonical access or helper refresh. Declines preserve original
+reference identity and permit subsequent valid writes. Stopped/panicking scopes
+retain their original refusal/payload without performing another write. Writer
+attempt diagnostics remain distinct from the unchanged eight helper counters.
+
+Shared Rust/native fixtures cover all fourteen Value cases against sixteen
+tag/bit inputs, ordinary and terminal writers, zero/maximum prefixes and invalid
+indices, live sibling numeric loans, helper refresh and pending stops/panics.
+Generated code loads the actual C function table. A second probe performs a
+declined write, retries, invokes Move, then reloads the original descriptor array
+before direct numeric access. Every non-completion stops subsequent effects.
+Checks include canonical identity/bits, PC, fuel and all helper counters. These
+are admitted-entry probes, not independent certification of arbitrary bytecode.
+
+Focused writer validation passes **29 tests each on GNU/musl** plus check-all,
+and **25 Rust tests each on i686-musl, Stacked Miri and Tree Miri**. The Miri
+source manifest includes all three new writer files and passes its after-check.
+An initial reference-identity fixture lifetime compilation error is retained
+in `packed-writers-native-initial.log`; the corrected suite is in
+`packed-writers-native.log`. Remaining evidence uses `packed-writers-*` under
+`target/jit-evidence/short-slice-performance/`. No benchmark was run for this
+test-only representation, and no performance acceptance is claimed.
+
+The broader payload ABI/backend/runtime and helper suites pass **178 tests each
+on GNU and musl across four summaries** (91 ABI, 57 backend, three runtime,
+27 helpers), with no failures or ignores. GNU formatting and default/all-feature
+Clippy also pass with existing warnings and none reported in the packed files.
+Logs are `packed-writers-broad-{gnu,musl}.log`. The runtime differentials exercise
+the existing transports; they do not constitute packed runtime integration.
+
+Remaining packed work includes the separate full-entry compiler contract,
+independent source/emitted checking,
 precise runtime exit/fuel/counter integration and resource accounting. Fresh
 frozen workload profiles and original hardware/compiled-Off gates still decide
 acceptance; no speedup or production activation is claimed by these fixtures.
