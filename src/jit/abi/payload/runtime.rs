@@ -120,6 +120,38 @@ pub(crate) struct Bridge {
     materializations: u64,
 }
 
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_write_binding(entry: BoundEntry, count: usize, masks: [[u64; 4]; 2]) {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"local x=17 return x").unwrap();
+        for (mask, expected) in masks.into_iter().zip([1, 0]) {
+            let mut values = vec![Value::Integer(41); count];
+            let mut pc = 0;
+            LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                let mut frame = helpers::Frame {
+                    ctx,
+                    closure,
+                    registers: &mut registers,
+                    count: helpers::Counts::default(),
+                    slot_count: count,
+                    panic: None,
+                    projection: None,
+                };
+                let mut exit = abi::Exit::default();
+                with_bridge_selected::<256, true>(&mut frame, mask, |slots, host| {
+                    unsafe { entry(slots, 0, 1, &mut exit, host) };
+                    assert_eq!(unsafe { (*host).materializations }, expected);
+                });
+                assert_eq!(exit.instructions, 1);
+                assert_eq!(frame.count.calls, 0);
+                assert!(frame.panic.is_none());
+            });
+            assert!(matches!(values[0], Value::Integer(17)));
+            assert!(values[1..].iter().all(|v| matches!(v, Value::Integer(41))));
+        }
+    });
+}
+
 #[repr(C)]
 pub(crate) struct Functions {
     pub helpers: [abi::HelperEntry; 10],

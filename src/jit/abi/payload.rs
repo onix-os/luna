@@ -227,7 +227,17 @@ impl<'a, 'gc> Frame<'a, 'gc> {
             return false;
         }
         unsafe { self.values.as_ptr().add(index).write(value) };
-        slots[index] = self.bind(index).unwrap();
+        slots[index] = match value {
+            Value::String(_)
+            | Value::Table(_)
+            | Value::Function(_)
+            | Value::Thread(_)
+            | Value::UserData(_) => Payload {
+                tag: REFERENCE,
+                pointer: std::ptr::null_mut(),
+            },
+            _ => self.bind(index).unwrap(),
+        };
         true
     }
 }

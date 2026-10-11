@@ -352,6 +352,7 @@ pub(super) enum Failure {
     RequirePayloadTags,
     RequireBoundPayload,
     RequireSparsePayload,
+    RequireWriteBoundPayload,
     RequirePackedPayload,
     #[cfg(not(miri))]
     AuditPayloadReads,
@@ -751,6 +752,7 @@ fn compile_selected_rooted(
             | Failure::RequirePayloadTags
             | Failure::RequireBoundPayload
             | Failure::RequireSparsePayload
+            | Failure::RequireWriteBoundPayload
             | Failure::RequirePackedPayload
             | Failure::AuditPackedLowering
     ) {
@@ -785,6 +787,7 @@ fn compile_selected_rooted(
             | Failure::RequirePayloadTags
             | Failure::RequireBoundPayload
             | Failure::RequireSparsePayload
+            | Failure::RequireWriteBoundPayload
             | Failure::RequirePackedPayload
             | Failure::AuditPackedLowering
     ) {
@@ -920,6 +923,7 @@ fn compile_selected_rooted(
                     | Failure::RequirePayloadTags
                     | Failure::RequireBoundPayload
                     | Failure::RequireSparsePayload
+                    | Failure::RequireWriteBoundPayload
             ) {
                 Layout::array::<AbiParam>(5)
                     .map_err(|_| JitError::ResourceLimit("payload signature size"))?
@@ -1294,6 +1298,7 @@ fn compile_selected_rooted(
             | Failure::RequirePayloadTags
             | Failure::RequireBoundPayload
             | Failure::RequireSparsePayload
+            | Failure::RequireWriteBoundPayload
             | Failure::RequirePackedPayload
     );
     #[cfg(all(test, not(miri)))]
@@ -1428,9 +1433,17 @@ fn compile_selected_rooted(
         return Err(JitError::Compilation("payload read audit complete".into()));
     }
     #[cfg(test)]
-    let binding_requirements = if failure == Failure::RequireSparsePayload {
+    let binding_requirements = if matches!(
+        failure,
+        Failure::RequireSparsePayload | Failure::RequireWriteBoundPayload
+    ) {
+        let build = if failure == Failure::RequireWriteBoundPayload {
+            payload::binding_requirements::Requirements::with_writes
+        } else {
+            payload::binding_requirements::Requirements::new
+        };
         Some(
-            payload::binding_requirements::Requirements::new(
+            build(
                 &context.func,
                 parameters[0],
                 parameters[4],
@@ -1452,6 +1465,7 @@ fn compile_selected_rooted(
             | Failure::RequirePayloadTags
             | Failure::RequireBoundPayload
             | Failure::RequireSparsePayload
+            | Failure::RequireWriteBoundPayload
     ) {
         let proven_writes = payload::lower_contract(
             &mut context.func,
@@ -1463,7 +1477,9 @@ fn compile_selected_rooted(
             expansion,
             if matches!(
                 failure,
-                Failure::RequireBoundPayload | Failure::RequireSparsePayload
+                Failure::RequireBoundPayload
+                    | Failure::RequireSparsePayload
+                    | Failure::RequireWriteBoundPayload
             ) {
                 payload::Contract::FrameBound
             } else {
@@ -1919,9 +1935,9 @@ fn compile_selected_rooted(
             payload::EntryKind::Packed
         } else {
             payload::EntryKind::from_contract(match failure {
-                Failure::RequireBoundPayload | Failure::RequireSparsePayload => {
-                    Some(payload::Contract::FrameBound)
-                }
+                Failure::RequireBoundPayload
+                | Failure::RequireSparsePayload
+                | Failure::RequireWriteBoundPayload => Some(payload::Contract::FrameBound),
                 Failure::RequirePayload
                 | Failure::RequirePayloadLoop
                 | Failure::RequirePayloadTags => Some(payload::Contract::Checked),

@@ -12,6 +12,79 @@ fn reference(value: &mut Value<'_>) -> Payload {
 }
 
 #[test]
+fn reference_stores_preserve_identity_sibling_loans_and_refused_destinations() {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+        let callback = crate::Callback::from_fn(&ctx, |_, _, _| Ok(crate::CallbackReturn::Return));
+        let references = [
+            Value::String(ctx.intern(b"stored reference")),
+            Value::Table(crate::Table::new(&ctx)),
+            Value::Function(closure.into()),
+            Value::Function(callback.into()),
+            Value::Thread(crate::Thread::new(ctx)),
+            Value::UserData(crate::UserData::new_static(&ctx, 19)),
+        ];
+        let mut values = [Value::Integer(7), Value::Integer(13), Value::Number(-0.0)];
+        let mut frame = Frame::new(&mut values);
+        let mut slots = [
+            frame.bind(0).unwrap(),
+            frame.bind(1).unwrap(),
+            frame.bind(2).unwrap(),
+        ];
+        let siblings = [slots[1], slots[2]];
+        for value in references {
+            assert!(frame.store(&mut slots, 0, value));
+            assert_eq!(slots[0].tag, REFERENCE);
+            assert!(slots[0].pointer.is_null());
+            assert!(unsafe { load(slots[0]) }.is_none());
+            assert!(!frame.store(&mut slots, 3, Value::Nil));
+            assert!(!frame.store(&mut slots, usize::MAX, Value::Nil));
+            assert!(!frame.store(&mut slots[..2], 0, Value::Nil));
+            let actual = frame.read(&mut slots, 0).unwrap();
+            match (actual, value) {
+                (Value::String(a), Value::String(b)) => assert_eq!(a.as_ptr(), b.as_ptr()),
+                (Value::Table(a), Value::Table(b)) => assert_eq!(a, b),
+                (Value::Function(a), Value::Function(b)) => assert_eq!(a, b),
+                (Value::Thread(a), Value::Thread(b)) => assert_eq!(a, b),
+                (Value::UserData(a), Value::UserData(b)) => assert_eq!(a, b),
+                _ => panic!("reference kind changed"),
+            }
+            assert!(unsafe {
+                store(
+                    siblings[0],
+                    Slot {
+                        tag: INTEGER,
+                        bits: 29,
+                    },
+                )
+            });
+            assert!(unsafe {
+                store(
+                    siblings[1],
+                    Slot {
+                        tag: NUMBER,
+                        bits: 0x7ff8000000000042,
+                    },
+                )
+            });
+            assert_eq!(unsafe { load(slots[1]) }.unwrap().bits, 29);
+            assert_eq!(unsafe { load(slots[2]) }.unwrap().bits, 0x7ff8000000000042);
+            assert!(frame.store(&mut slots, 0, Value::Integer(41)));
+            assert!(unsafe {
+                store(
+                    slots[0],
+                    Slot {
+                        tag: INTEGER,
+                        bits: 43,
+                    },
+                )
+            });
+            assert_eq!(unsafe { load(slots[0]) }.unwrap().bits, 43);
+        }
+    });
+}
+
+#[test]
 fn numeric_binding_matches_reference_for_every_value_kind_and_rebind() {
     crate::Lua::empty().enter(|ctx| {
         let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();

@@ -11,6 +11,251 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Canonical cells — native model passes; migration not approved
+
+`1f75586` adds a test-only fixed-layout cell model targeting descriptor creation
+cost at native entry. Separate typed Closure/Callback union arms avoid enlarging
+the nested public `Value::Function` payload. The model preserves the existing
+`(usize, i64)` size bound, including `Option<Cell>`, without inspecting `Value`
+layout or converting GC references to integers. Public values, production stack
+storage, native selection and resource policies are unchanged.
+
+GNU and musl each pass seven model tests and check-all; the actual i686 fallback
+toolchain passes four model tests and check-all. Five Rust-only tests pass both
+Miri borrow models. The initial i686 attempt used the ordinary shell, which lacks
+that target; `nix develop .#fallback` resolves it without a configuration change.
+Generated code is exercised separately on the native host, not under Miri.
+
+The generated scalar-store probe checks bounds, scalar tags and Boolean payloads
+before mutation. It compares all initial value kinds, valid/refused writes,
+numeric bit patterns, siblings and canonical addresses against Rust stores.
+Both Rust and generated stores overwrite cells that are the only roots for
+reference payloads; full collections check retention and subsequent release.
+The executable module remains owned through each invocation and is then freed.
+This is not integrated runtime, resource-policy or performance acceptance.
+The native and Rust raw entries subsequently share the same 4,620-case matrix;
+the length is read before minting the writable pointer. Both Miri models pass
+that shared caller with the Rust entry, and GNU/musl rerun the actual generated
+entry. The final focused lane counts remain seven/seven/four/five/five for
+GNU/musl/i686/Stacked/Tree respectively, with check-all on all three targets.
+
+**Compatibility correction:** copy-based `Stack` methods are not the entire
+embedding API. `Thread::into_inner().borrow().stack()` exposes a retainable,
+mutable `Gc<RefLock<Vec<Value, MetricsAlloc>>>`, even though the implementation
+module is private. The existing retained-public-alias regression mutates parent
+locals through that handle across callbacks and requires continued native
+execution. This is also documented below under Batch integer imports.
+The unchanged retained-alias regression passes again on GNU and musl.
+At `1f75586`, `make jit-test JIT_MODE=force` passes 1,752 tests across 87
+summaries, with six existing ignores. This is the JIT-feature workspace suite,
+not the separate all-features suite or a benchmark campaign.
+Replacing the canonical vector with cells would break that contract; caching
+cells between entries with internal-write versioning would miss external writes.
+Do not proceed with either migration on the assumption that the stack is private.
+The model does not establish a compatible integration design or a speedup.
+
+Evidence: `target/jit-evidence/short-slice-performance/canonical-cells-native-*`,
+`canonical-cells-shared-*`, `canonical-cells-public-alias-*` and
+`canonical-cells-force.log`.
+Run `make jit-canonical-cells` and `make jit-canonical-cells-miri` for the model.
+Performance work must preserve the raw-stack contract and the original workload,
+native-coverage, compiled-Off and resource gates; none are waived by these tests.
+
+#### Immutable helper dispatch fields — no callback code benefit
+
+A FrameBound-only trial marked loads of `Bridge.functions` and its static
+function-pointer fields read-only. The bridge is initialized before native entry
+and those fields stay immutable throughout it. Mutable payloads, counters and
+the native stack were excluded. In particular, a native stack word initialized
+inside the call cannot satisfy Cranelift's whole-invocation `readonly` contract;
+the installed 0.136.1 implementation and its
+[API documentation](https://docs.rs/cranelift-codegen/0.136.1/cranelift_codegen/ir/struct.MemFlagsData.html#method.readonly)
+were checked before choosing the narrower trial.
+
+The pass checked field types/offsets and exact flags, refused unsupported
+pre-existing annotations before mutation, allocated no proof vector and changed
+no instruction/block expansion limits. GNU and musl each pass five new IR tests,
+23 bound/read tests, two function-table tests, two reference-store tests and the
+sparse-runtime oracle. Both Miri borrow models pass the five pure IR tests;
+native execution is covered separately, not by Miri. Initial compile errors and
+one incorrectly constructed type-mutation fixture were corrected; their failed
+logs remain, and are not counted as successful validation.
+
+Frozen candidate `f00bbca4dd015ae85844092f27717016248c982af9d563c256ea879a8562e8cc`
+completed eleven same-load-image profiles against reference-store `1fe53ac4`.
+Callback total instructions remain **131,521,280**, including **13,099,872**
+generated instructions. Float, integer, allocation and all four Off totals are
+also unchanged. Upvalue total rises 260,429, almost entirely in admission;
+metamethod total rises 134,009, mainly allocator work. These incidental changes
+are retained, not attributed to the annotations without further evidence.
+All non-timing output fields, including resource costs, match the control.
+
+Two additional debugger-assisted profiles capture each complete callback code
+page. Both 4,096-byte pages are byte-identical, SHA-256
+`e45756012e94b79cd64f0cff93df1ed8f7aac952d19a3b5b0dd7cf5ebebd05c1`.
+This rules out a callback machine-code improvement from this trial rather than
+merely observing equal instruction counts. No new hardware-timing acceptance
+campaign was run for unchanged callback code.
+
+**The entire trial is withdrawn from main.** Source and Makefile match `ec9aa12`
+exactly; the prior reference-store implementation remains. Restored GNU and
+musl check-all, 23 bound/read and two reference-store tests pass; GNU formatting
+also passes. No fresh full-suite or hardware acceptance is claimed. Frozen trial source,
+images, flags/contract tests and failed/valid logs remain under
+`target/jit-evidence/short-slice-performance/dispatch-flags-*` and
+`payload-terminal-profile/dispatch-flags*`. This rejection does not resolve any
+original performance, feature-cost, platform/resource or release gate.
+
+#### Reference result storage — test-only instruction reduction
+
+The payload prototype now stores incoming reference Values directly in canonical
+storage and publishes a REFERENCE/null descriptor. It does not create or rebind
+a scalar loan for those values. Integer, Number, Boolean and Nil destinations
+retain the previous binding path. Bounds, canonical roots, helper counts,
+retirement and panic behavior are unchanged; no Value layout is assumed.
+Ordinary production selection is unchanged. **This is not release activation
+or a claim that the callback performance regression is fixed.**
+
+`a3f21ab` separately adds an identity/borrow regression covering all reference
+kinds, both closure and callback functions, refused indices and descriptor
+lengths, scalar/reference transitions and live sibling integer/float pointers.
+The independent all-kind binding oracle remains. GNU formatting/check-all,
+focused ABI/native helper tests, 23 bound/read tests and the full sparse-runtime
+oracle pass. Musl check-all and the same focused/runtime lanes pass. Stacked and
+Tree Miri each pass 29 focused executions across seven summaries, including a
+repeated terminal suite; these are not 29 unique tests or native-code execution.
+The subsequent full GNU Force all-feature/all-target run passes **1,766 tests
+across 88 summaries**, with six existing ignores and zero failures. Formatting
+also passes. This validates the committed prototype, not release performance.
+
+Frozen full-binding candidate
+`1fe53ac443103c39661587f3f868f6bcb768b00c9c5b07f6d0da6587f126eba9`
+completed eleven matched-load-image profiles against `de1aed82`. Callback
+collected instructions fall **132,428,984 → 131,521,280**: helper 6 saves
+129,672 and non-numeric binding saves 778,032. Native callback instructions and
+wrapper self work are unchanged. Allocation falls 359,968 instructions and
+metamethods 750,397; integer/array totals rise 109/348. Float Auto and all four
+profiled Off totals are unchanged. Every non-timing profile-output field,
+including resource costs, matches the current full-binding control.
+
+Two reordered hardware campaigns complete **48 paired runs / 1,296 parsed
+rows**, using the original workloads, eleven samples, CPUs 0/16, three windows,
+retained control and same-image placebo. All 48 aggregate gates fail. Candidate
+callbacks pass **0/12**, metamethods **6/12**, upvalues **11/12**, and floats
+**12/12**. The median normalized callback paired factor is **1.0237 / 0.9948**
+in the first/repeat campaign; placebo is **1.0013 / 0.9927**. Corresponding
+callback Auto-time ratios are **1.0042 / 0.8796**, and Off-time ratios
+**0.9939 / 0.8311**. The second campaign retains severe shared-host variation,
+including concurrently running external Astrocraft workloads; none was stopped.
+These results do not establish a reliable callback hardware improvement.
+
+Normalized metamethod factors are 1.0075/1.0189, allocation 1.0107/1.0168,
+integer 0.9951/1.0078 and float 0.9969/1.0016. Oslo remains unscored and its
+repeat factor falls to 0.9730. All current-control execution/resource comparisons
+match exactly; historical metadata differences predate this trial. Ratios here
+use median paired speedups, while the unchanged benchmark gates use ratios of
+medians. No threshold or metric was substituted for acceptance.
+
+Keep the implementation test-only while investigating cumulative improvement.
+The instruction reduction is real; hardware, compiled-Off feature costs, full
+platform/resource promotion and release acceptance remain open. All owned
+validation/build/profile jobs completed before hardware timing. Frozen source,
+load-image and before/after hashes pass. Evidence:
+`target/jit-evidence/short-slice-performance/reference-store-*` and
+`payload-terminal-profile/reference-store*`.
+
+#### Frame context copies — measured and withdrawn
+
+A trial removed duplicated context and closure fields from the scoped payload
+session, copying individual fields from its owning frame on demand. It passed
+focused GNU checks, 43 legacy runtime ABI tests under each of Stacked and Tree
+Miri, and musl checks including 44 ABI tests, 23 bound/read tests and the runtime
+oracle. Miri validates the Rust ABI, not generated native execution.
+
+**The trial is withdrawn, not promoted.** Twenty-two matched-load-image profiles
+and 24 paired hardware runs found no reliable callback improvement. Callback
+entry self instructions fell by 129,698, but helper self instructions rose by
+194,508. Total collected callback instructions increased from 132,428,984 to
+132,493,713. Native callback instructions were unchanged.
+
+Across six candidate windows, the median normalized callback factor was 1.0093
+against the fresh full-binding control and 0.9995 against the retained control;
+the fresh-control placebo factor was 1.0066. Callbacks passed 0/6 original gates,
+metamethods 3/6 and floats 6/6. All 24 aggregate gates failed. Completion of the
+measurement driver does not mean benchmark acceptance.
+
+All 648 result rows were parsed, and timing-independent execution counters,
+native code bytes, metadata and snapshot costs matched the fresh control.
+Both images used full binding, not either sparse policy. Source/image identity
+and allocated load-image checks passed; no owned validation overlapped timing.
+Frozen candidate SHA-256:
+`d1b7c1fa19afbb0175373c4ac406ca7754ac324b06047a8917c03abb4035ddfb`;
+fresh control:
+`de1aed826a3d909955e5a742912e4f8e2eb57e63a99994531fb52e9342aaf701`.
+
+After withdrawal, `src/` and `Makefile` are byte-identical to `fad0d81`.
+GNU formatting/check-all and focused upvalue/bound tests, followed by musl
+check-all and the same focused tests, passed on the restored source. The prior
+float-path correction remains; callback performance and overall release
+acceptance remain open. Smaller session storage alone is not a speedup.
+
+Evidence: `target/jit-evidence/short-slice-performance/frame-context-*`,
+`frame-control-*` and `payload-terminal-profile/frame-context*` /
+`frame-control*`. Next work must target a distinct measured cost, without
+weakening counters, safety contracts or the original acceptance thresholds.
+
+#### Write-retaining masks — materialization reduced, no callback gain
+
+`7d6381a` adds a separate, test-only `RequireWriteBoundPayload` path.
+`Requirements::with_writes` retains scalar destinations before their first
+definition, using the same budgeted dataflow, dispatch-prefix union and
+independent semantic verifier as read-minimal binding. The original sparse
+path and its omitted-Nil regression remain unchanged. New tests cover mask
+supersets through register 255, exact storage, admission refusal, source
+immutability, every native exit, loop guards and the full runtime oracle.
+A generated-store fixture uses the same entry with two masks and observes
+one materialization for read-minimal binding versus zero for write-retaining
+binding, with identical canonical results.
+
+GNU formatting/check-all and eight analysis, four ABI, twenty-three bound/read,
+one audit and one runtime checks pass. Musl passes the same focused lanes plus
+28 resource-unit, three registry and fourteen public tests. Stacked and Tree
+Miri each pass eight analysis and four ABI tests. Native execution is not
+covered by Miri; these are not full release-acceptance claims.
+
+The frozen release image `1fdbd13e` completed eleven same-load-image profiles
+and 24 paired hardware runs against full-binding `5bfabe67`, retained
+`becde851` and the full-binding placebo. CPUs 0/16, three rotated windows,
+eleven samples and all original thresholds are unchanged. All 648 result rows,
+execution counters, native code bytes, metadata costs and source/image
+identities were checked. No owned validation overlapped hardware timing.
+
+**Do not activate this policy.** Callback PC 8 needs all seven descriptors
+under write-retaining binding. The extra scalar materialization disappears,
+but binding overhead offsets the saving:
+
+- Callback `write_scalar` self instructions: 2,141,172 → 1,980.
+- Callback `Runtime::invoke<7,true>`: 16,860,200 → 18,157,624.
+- Total callback collected instructions: 134,048,030 → 134,114,737;
+  matched full binding is 132,428,903.
+- Median normalized callback paired factor: **0.9997 versus full binding**,
+  **0.9712 versus retained control**. Callback gate: **0/6**.
+- Corrected float fast-path instructions remain 8,920,002; float passes 6/6.
+  Metamethod passes 5/6. All 24 aggregate benchmark gates still fail.
+
+Metadata and snapshot costs remain above full binding (callbacks: 1,329 versus
+913 retained bytes, 13,850 versus 13,242 peak snapshot bytes). These are not
+waived. A successful materialization micro-test is not an end-to-end speedup.
+The next investigation moves beyond sparse-mask policy to measured entry/session
+setup and publication costs, preserving exact counters, panic/PC behavior and
+borrow lifetimes. Prior rejected callback handoff, gateway and packed trials
+must not be repeated without new evidence. No such next optimization or
+production activation is claimed here.
+
+Evidence: `target/jit-evidence/short-slice-performance/write-binding-*` and
+`payload-terminal-profile/write-binding*`. Original performance, compiled-Off
+cost, platform/resource promotion and release gates remain open.
+
 #### Sparse dispatch-prefix regression fixed; callback gate still failing
 
 `6760215` fixes a gap found by the first real selective-binding benchmark.

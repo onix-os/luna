@@ -762,6 +762,10 @@ jit-payload-packed-calls-miri:
 .PHONY: jit-payload-packed-tag-checks jit-payload-packed-tag-checks-miri
 .PHONY: jit-payload-binding-requirements jit-payload-binding-requirements-miri
 .PHONY: jit-payload-sparse-runtime
+.PHONY: jit-payload-write-binding-runtime
+jit-payload-write-binding-runtime:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::payload_runtime_tests::write_binding_runtime_ $(ARGS)
+
 jit-payload-sparse-runtime:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::payload_runtime_tests::sparse_runtime_ $(ARGS)
 
@@ -819,6 +823,20 @@ jit-payload-model:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload:: $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::payload_runtime_tests:: $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::packed_runtime:: $(ARGS)
+
+.PHONY: jit-payload-reference-store jit-payload-reference-store-miri
+.PHONY: jit-canonical-cells jit-canonical-cells-miri
+jit-canonical-cells:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical_cells:: $(ARGS)
+
+jit-canonical-cells-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::canonical_cells:: -- --test-threads=1
+
+jit-payload-reference-store:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::binding_tests:: $(ARGS)
+
+jit-payload-reference-store-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::binding_tests:: -- --test-threads=1
 
 jit-payload-model-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload:: -- --test-threads=1
