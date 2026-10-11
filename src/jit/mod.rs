@@ -44,6 +44,8 @@ mod calls;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod canonical;
+#[cfg(test)]
+mod canonical_cells;
 #[cfg(all(
     test,
     not(miri),

@@ -825,6 +825,13 @@ jit-payload-model:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::packed_runtime:: $(ARGS)
 
 .PHONY: jit-payload-reference-store jit-payload-reference-store-miri
+.PHONY: jit-canonical-cells jit-canonical-cells-miri
+jit-canonical-cells:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::canonical_cells:: $(ARGS)
+
+jit-canonical-cells-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::canonical_cells:: -- --test-threads=1
+
 jit-payload-reference-store:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::binding_tests:: $(ARGS)
 
