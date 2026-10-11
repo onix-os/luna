@@ -8,6 +8,9 @@ use cranelift_module::{default_libcall_names, Module};
 use super::*;
 use crate::Value;
 
+#[path = "plan_ir.rs"]
+mod ir;
+
 type Entry = for<'gc> unsafe extern "C" fn(
     *const *mut i64,
     *const *mut Value<'gc>,
@@ -42,6 +45,14 @@ fn pointer(
 
 impl<'p> Code<'p> {
     fn new(source: &Snapshot, plan: &'p Plan) -> Result<Self, JitError> {
+        Self::inspect(source, plan, |_, _| {})
+    }
+
+    fn inspect(
+        source: &Snapshot,
+        plan: &'p Plan,
+        inspect: impl FnOnce(&cranelift_codegen::ir::Function, &dyn cranelift_codegen::isa::TargetIsa),
+    ) -> Result<Self, JitError> {
         plan.verify(source)?;
         let mut code = Self {
             module: Some(JITModule::new(
@@ -85,10 +96,9 @@ impl<'p> Code<'p> {
             for (index, step) in plan.steps.iter().enumerate() {
                 let body = builder.create_block();
                 let count = builder.ins().iconst(types::I32, index as i64);
-                let exhausted =
-                    builder
-                        .ins()
-                        .icmp_imm_u(IntCC::UnsignedLessThanOrEqual, budget, index as i64);
+                let exhausted = builder
+                    .ins()
+                    .icmp(IntCC::UnsignedLessThanOrEqual, budget, count);
                 builder
                     .ins()
                     .brif(exhausted, done, &[count.into()], body, &[]);
@@ -150,7 +160,8 @@ impl<'p> Code<'p> {
             builder.seal_all_blocks();
             builder.finalize(module.isa().frontend_config());
         }
-        cranelift_codegen::verify_function(&context.func, module.isa()).unwrap();
+        ir::verify(source, plan, &context.func, module.isa())?;
+        inspect(&context.func, module.isa());
         module.define_function(id, &mut context).unwrap();
         module.finalize_definitions().unwrap();
         code.entry = Some(unsafe { std::mem::transmute(module.get_finalized_function(id)) });

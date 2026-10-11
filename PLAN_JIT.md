@@ -79,13 +79,35 @@ GNU passes **12 typed tests** and fmt/check-all; both Miri models and real i686
 pass **nine model tests each**. The completed musl lane passes **12 typed,
 34 payload ABI, 28 backend and two runtime tests**. Every lane reports zero
 failures and ignores. Miri does not execute the generated machine code.
-This emitter still lacks independent post-lowering semantic IR
+At this stage the emitter still lacked independent post-lowering semantic IR
 certification, production executable/compiler resource accounting, runtime
 PC/fuel/counter integration, branch/helper coverage, and whole-workload
 performance evidence. Generic Cranelift verification and the executable
 oracle do not replace those gates. Do not activate or call this a speedup.
 Native immediate-type compilation failure and corrected results are retained
 under `typed-source-native-*.log`.
+
+The next change adds an independent, bounded post-lowering checker before
+native definition. It revalidates the source plan, validates the C ABI,
+restricts the control-flow graph to one guarded body per source operation,
+and checks exact unsigned budgets and completed counts. Every body must have
+one final canonical or typed write matching its source expression. Pointer
+loads must come from admitted binding entries or initialized canonical
+destination entries; scalar reads may only dereference admitted fields.
+The checker does not regenerate and compare the emitter's output. Its fixed
+workspace and graph-size caps reject extra blocks, detached instructions and
+oversized IR before structural verification.
+
+Fourteen GNU typed tests plus fmt/check-all pass. A corruption corpus rejects
+at least 70 variants that still pass Cranelift's generic verifier, including
+wrong offsets/roots/values, signed budgets, reversed edges, loops, writer
+redirection, wrong helper arguments/ABI, pre-budget reads and extra writes.
+Changed source constants, function ABI and capacity overflow are also refused.
+The existing executable prefix/suffix and boundary corpora now pass through
+this checker. The emitter reuses each budget-count constant in its comparison.
+Compiler API and mutable-borrow errors from the initial checker drafts remain
+in `typed-ir-initial.log` and `typed-ir-corrected.log`; the passing run is
+`typed-ir-mutations.log`. No production activation or speedup is claimed.
 
 Before activation, require: both Miri alias models; source-certified region and
 binding maps; independent IR/liveness/retirement verification and corruption
