@@ -10,7 +10,6 @@ use crate::jit::abi::payload::Payload;
 
 mod bound_reads;
 mod bound_writes;
-mod direct;
 mod host_stack;
 mod numeric_reads;
 #[cfg(all(test, not(miri)))]
@@ -400,25 +399,6 @@ pub(super) fn lower_contract(
     expansion: super::super::work::Expansion,
     contract: Contract,
 ) -> Result<usize, JitError> {
-    lower_linked(
-        function, slots, host, registers, helpers, allocator, expansion, contract, None,
-    )
-}
-
-pub(super) fn lower_linked(
-    function: &mut Function,
-    slots: IrValue,
-    host: IrValue,
-    registers: usize,
-    helpers: &[(u32, FuncRef)],
-    allocator: BudgetAllocator,
-    expansion: super::super::work::Expansion,
-    contract: Contract,
-    targets: Option<&[FuncRef; 12]>,
-) -> Result<usize, JitError> {
-    if targets.is_some() && contract != Contract::FrameBound {
-        return Err(invalid());
-    }
     let plan = plan(function, slots, host, registers, helpers, expansion)?;
     let refused = || JitError::ResourceLimit("payload rewrite records");
     let mut reads = BudgetVec::new_in(allocator.clone());
@@ -653,26 +633,16 @@ pub(super) fn lower_linked(
         }
     }
     drop((reads, writes, predecessors, same_tag));
-    let direct_calls = if let Some(targets) = targets {
-        direct::lower(&mut candidate, host, targets, allocator.clone())?
-    } else {
-        0
-    };
     if let Some(copy) = host_stack::lower(&mut candidate, host, allocator, expansion)? {
         host_stack::verify(&candidate, &copy)?;
     }
-    let remaining_host_uses =
-        plan.host_instructions.saturating_sub(2) / 2 - 2 * bound_count - direct_calls;
+    let remaining_host_uses = plan.host_instructions.saturating_sub(2) / 2 - 2 * bound_count;
     let expected_host = if candidate
         .layout
         .blocks()
         .flat_map(|b| candidate.layout.block_insts(b))
-        .any(|i| {
-            matches!(
-                candidate.dfg.insts[i].opcode(),
-                Opcode::CallIndirect | Opcode::Call
-            )
-        }) {
+        .any(|i| candidate.dfg.insts[i].opcode() == Opcode::CallIndirect)
+    {
         2 * (remaining_host_uses + 1)
     } else {
         0
@@ -680,7 +650,6 @@ pub(super) fn lower_linked(
     if size(&candidate)
         != (
             plan.instructions - plan.host_instructions + expected_host
-                - 2 * direct_calls
                 - 13 * numeric_count
                 - 29 * bound_count
                 - bound_read_savings
@@ -992,11 +961,7 @@ fn relocation_budget_counts_emitted_direct_and_indirect_helper_calls() {
         let total = MappingCounter::new(super::super::resources::Ledger::new(8 * 1024 * 1024));
         let metadata = BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024));
         let limits = super::super::work::Limits::from(&super::super::JitConfig::default());
-        for failure in [
-            Failure::None,
-            Failure::RequirePayload,
-            Failure::RequireBoundPayload,
-        ] {
+        for failure in [Failure::None, Failure::RequirePayload] {
             let code = compile_in(
                 &snapshot,
                 total.clone(),
@@ -1007,12 +972,9 @@ fn relocation_budget_counts_emitted_direct_and_indirect_helper_calls() {
             )
             .unwrap();
             let count = code.relocations;
-            let payload = matches!(
-                failure,
-                Failure::RequirePayload | Failure::RequireBoundPayload
-            );
+            let payload = matches!(failure, Failure::RequirePayload);
             assert_eq!(code.entry_kind.is_payload(), payload);
-            if failure == Failure::RequirePayload {
+            if payload {
                 assert_eq!(count, 0);
             } else {
                 assert!(count > 1);

@@ -118,42 +118,6 @@ static FUNCTIONS: Functions = Functions {
     terminal: write_terminal,
 };
 
-pub(crate) const SYMBOLS: [(u32, &str, abi::HelperEntry); 10] = [
-    (1, "luna_payload_move_v1", helper::<1>),
-    (2, "luna_payload_constant_v1", helper::<2>),
-    (3, "luna_payload_new_table_v1", helper::<3>),
-    (4, "luna_payload_get_table_v1", helper::<4>),
-    (5, "luna_payload_set_table_v1", helper::<5>),
-    (6, "luna_payload_get_up_table_v1", helper::<6>),
-    (7, "luna_payload_set_up_table_v1", helper::<7>),
-    (8, "luna_payload_get_upvalue_v1", helper::<8>),
-    (9, "luna_payload_set_upvalue_v1", helper::<9>),
-    (10, "luna_payload_set_list_v1", helper::<10>),
-];
-
-pub(crate) type Writer = unsafe extern "C" fn(*mut Bridge, *mut Payload, u32, u64, u64);
-pub(crate) const WRITERS: [(&str, Writer); 2] = [
-    ("luna_payload_write_v1", write_scalar),
-    ("luna_payload_terminal_v1", write_terminal),
-];
-
-#[test]
-fn static_symbols_match_scoped_gateway_table() {
-    let mut names = std::collections::HashSet::new();
-    for (index, (kind, name, entry)) in SYMBOLS.into_iter().enumerate() {
-        assert_eq!(kind as usize, index + 1);
-        assert!(std::ptr::fn_addr_eq(entry, FUNCTIONS.helpers[index]));
-        assert!(names.insert(name));
-    }
-    for ((name, entry), expected) in WRITERS
-        .into_iter()
-        .zip([FUNCTIONS.write, FUNCTIONS.terminal])
-    {
-        assert!(std::ptr::fn_addr_eq(entry, expected));
-        assert!(names.insert(name));
-    }
-}
-
 unsafe extern "C" fn read_bits(slots: *mut Payload, index: u32) -> u64 {
     unsafe { load(slots.add(index as usize).read()) }.map_or(0, |slot| slot.bits)
 }

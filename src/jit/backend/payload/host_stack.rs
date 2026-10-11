@@ -50,10 +50,7 @@ pub(super) fn lower(
             if !references(f, inst, host) {
                 continue;
             }
-            calls |= matches!(
-                f.dfg.insts[inst].opcode(),
-                Opcode::CallIndirect | Opcode::Call
-            );
+            calls |= f.dfg.insts[inst].opcode() == Opcode::CallIndirect;
             uses += 1;
         }
     }
@@ -82,7 +79,7 @@ pub(super) fn lower(
             if references(f, inst, host)
                 && !matches!(
                     f.dfg.insts[inst].opcode(),
-                    Opcode::Load | Opcode::CallIndirect | Opcode::Call | Opcode::Icmp
+                    Opcode::Load | Opcode::CallIndirect | Opcode::Icmp
                 )
             {
                 return Err(invalid());
