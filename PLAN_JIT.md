@@ -11,6 +11,53 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Selective two-word entry binding — correctness checked, timing pending
+
+`186455d` adds a test-only `RequireSparsePayload` path on the retained two-word
+payload ABI. A bounded backward dataflow computes incoming register reads for
+each source entry, including both tag and payload loads. Only complete paired
+scalar definitions kill requirements; helpers conservatively kill none.
+An independent forward traversal rejects any omitted source read reachable
+before definition. Both analyses use charged storage and bounded work.
+Verified masks transfer from compiler workspace into the owning code's metadata
+allocator, charging 32 bytes per source entry and releasing that storage with
+the code. Unknown PCs keep full binding. Neither bytecode coverage nor helper,
+fuel, PC, callback, projection or array-kernel contracts are reduced.
+
+The original callback fixture's PC 8 requires registers 0, 1, 2, 3 and 5,
+rather than all seven. This is a static requirement result, **not a speedup**.
+All eleven original workload prototypes pass the source audit. Ordinary
+production selection remains unchanged; this path needs an isolated production
+build and the original full paired benchmark controls before any promotion.
+
+A native differential caught a bug in the first omitted-descriptor encoding:
+Nil/null lets a same-tag Nil writer skip updating a non-Nil canonical cell.
+Omitted descriptors now use **REFERENCE/null**. Scalar writers must materialize
+that destination, while helpers read the actual canonical value. Source-level
+reads still require a bound input or preceding definition; a transport writer's
+guard may inspect the opaque marker. A dedicated generated Nil-store regression
+and the exhaustive entry/budget/type-guard comparisons pass after the fix.
+No old pointer is cached, fabricated or retained across a callback.
+
+GNU and musl focused checks pass five analysis tests, four scoped ABI tests
+and twenty bound-entry/read tests. Coverage includes branch joins/backedges,
+register 255, counterfeit masks/source changes, all ten helper kinds,
+metadata transfer refusal/cleanup, all Value identities/bits, omitted upvalue
+aliases, sibling loans, destination/full refresh, panic payloads and capacity
+refusal. Stacked and Tree Miri each pass the five analysis and four ABI tests;
+native code is not executed by Miri. The existing resource lane passes its
+28 unit, three registry and fourteen public tests unchanged.
+
+The GNU Force broad run passes **1,757 tests / 88 summaries**, with six existing
+ignores. That binary predates the additional sparse runtime fixture, which
+passes separately on GNU: it reuses the full step-by-step interpreter/ordinary
+JIT comparison, checking 25 counters, interruption/fuel, callbacks, upvalues,
+collection and array kernels. The same sparse runtime fixture also passes on
+musl. Both runs are terminal; they are correctness checks, not timing evidence.
+Logs: `target/jit-evidence/short-slice-performance/{binding-requirements-*,sparse-binding-*}`.
+Performance, compiled-Off costs, full platform/resource promotion and release
+acceptance remain open. No performance regression is declared fixed here.
+
 #### Source-owned packed type predicates — measured, not activated
 
 **Follow-up rejected:** separating numeric full-prefix binding from an outlined
