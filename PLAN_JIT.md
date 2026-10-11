@@ -44,7 +44,19 @@ The five local-table model tests and terminal liveness test pass under both
 Stacked and Tree Borrows; the terminal model suites also pass under both.
 The frozen candidate build completed successfully, with image SHA-256
 `8e83f4eff586055c08577e24cdbea22f9f00bb79c8e2c35b18efc2934eb2b0ba`.
-Its profiling and hardware comparison remain pending; this is not a performance
+Ten frozen instruction profiles versus `scalar` preserve every non-timing
+statistic (strict comparator exit 0), including resource counts. Metamethod
+instructions fall by 5,343,627 (5.9041%); Session::rebind accounts for −3,459,366,
+bind_non_numeric for −1,393,776, and helper4 for −490,485. Allocation/GC falls by
+5,168,313 (11.4955%), including −4,422,636 in rebind. Callback instructions fall
+by 9,888; integer/float Auto and all three Off controls are identical. Array
+instructions rise by 1,250, and upvalue instructions rise by 261,266 (0.1629%);
+the latter includes +261,420 in Admitted::new, not a helper6 reduction. All
+13 profile events and complete function sums are retained in
+`scalar-vs-local-analysis.json` and `local-*-auto-delta.json` under
+`payload-terminal-profile/`. Allocated ELF sections match the symbol image;
+source/image checksums and invocation inode checks pass before/after profiling.
+Hardware comparison remains pending; these instruction counts are not a timing
 or production acceptance claim. Logs: `payload-local-table-*` under
 `target/jit-evidence/short-slice-performance/`.
 
