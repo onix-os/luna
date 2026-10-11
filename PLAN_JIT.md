@@ -11,6 +11,51 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Immutable helper dispatch fields — no callback code benefit
+
+A FrameBound-only trial marked loads of `Bridge.functions` and its static
+function-pointer fields read-only. The bridge is initialized before native entry
+and those fields stay immutable throughout it. Mutable payloads, counters and
+the native stack were excluded. In particular, a native stack word initialized
+inside the call cannot satisfy Cranelift's whole-invocation `readonly` contract;
+the installed 0.136.1 implementation and its
+[API documentation](https://docs.rs/cranelift-codegen/0.136.1/cranelift_codegen/ir/struct.MemFlagsData.html#method.readonly)
+were checked before choosing the narrower trial.
+
+The pass checked field types/offsets and exact flags, refused unsupported
+pre-existing annotations before mutation, allocated no proof vector and changed
+no instruction/block expansion limits. GNU and musl each pass five new IR tests,
+23 bound/read tests, two function-table tests, two reference-store tests and the
+sparse-runtime oracle. Both Miri borrow models pass the five pure IR tests;
+native execution is covered separately, not by Miri. Initial compile errors and
+one incorrectly constructed type-mutation fixture were corrected; their failed
+logs remain, and are not counted as successful validation.
+
+Frozen candidate `f00bbca4dd015ae85844092f27717016248c982af9d563c256ea879a8562e8cc`
+completed eleven same-load-image profiles against reference-store `1fe53ac4`.
+Callback total instructions remain **131,521,280**, including **13,099,872**
+generated instructions. Float, integer, allocation and all four Off totals are
+also unchanged. Upvalue total rises 260,429, almost entirely in admission;
+metamethod total rises 134,009, mainly allocator work. These incidental changes
+are retained, not attributed to the annotations without further evidence.
+All non-timing output fields, including resource costs, match the control.
+
+Two additional debugger-assisted profiles capture each complete callback code
+page. Both 4,096-byte pages are byte-identical, SHA-256
+`e45756012e94b79cd64f0cff93df1ed8f7aac952d19a3b5b0dd7cf5ebebd05c1`.
+This rules out a callback machine-code improvement from this trial rather than
+merely observing equal instruction counts. No new hardware-timing acceptance
+campaign was run for unchanged callback code.
+
+**The entire trial is withdrawn from main.** Source and Makefile match `ec9aa12`
+exactly; the prior reference-store implementation remains. Restored GNU and
+musl check-all, 23 bound/read and two reference-store tests pass; GNU formatting
+also passes. No fresh full-suite or hardware acceptance is claimed. Frozen trial source,
+images, flags/contract tests and failed/valid logs remain under
+`target/jit-evidence/short-slice-performance/dispatch-flags-*` and
+`payload-terminal-profile/dispatch-flags*`. This rejection does not resolve any
+original performance, feature-cost, platform/resource or release gate.
+
 #### Reference result storage — test-only instruction reduction
 
 The payload prototype now stores incoming reference Values directly in canonical
