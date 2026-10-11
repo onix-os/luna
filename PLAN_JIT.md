@@ -11,6 +11,65 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Packed scalar descriptors — isolated representation model
+
+The next structural experiment targets the retained callback wrapper's
+6,030,957 descriptor-binding instructions. It does not repeat executor handoffs,
+cross-callback caching, integer-prefix imports or SSA residency changes. A
+test-only descriptor occupies one pointer word instead of a tag/pointer pair.
+Typed Rust matches produce scalar field pointers; low three address bits
+distinguish aligned Integer/Number fields. Exact immediate encodings represent
+Nil, Boolean values and opaque references; no GC pointer or Rust enum layout
+is exposed. Numeric fields with insufficient alignment refuse admission.
+
+Address tagging and recovery use Rust's strict-provenance `map_addr`, not an
+integer-to-pointer round trip. See the [official pointer API](https://doc.rust-lang.org/stable/std/primitive.pointer.html#method.map_addr).
+Only live, correctly typed numeric descriptors may be dereferenced. Clearing a
+tag does not validate an arbitrary pointer. Boolean descriptors are immediate
+snapshots, so Boolean writes must replace canonical state and refresh the
+destination, never silently mutate a cached Boolean. A retired Empty descriptor
+may accompany a non-Nil canonical value: generic helpers must read canonical
+storage in that case, not decode it as Lua nil. Replacement retires the old
+destination; sibling scalar loans remain live. No descriptor may survive
+callback/GC or a whole-frame borrow.
+
+Four initial model tests pass: all fourteen Value cases, malformed immediate
+encodings, 196 replacement pairs with live sibling scalar writes, and typed
+panic-payload/canonical-write preservation. A separate generated-code probe
+checks numeric read/write against the typed model over 2,520 value/tag/bits/
+budget combinations, plus malformed encodings and a zero-budget null-pointer
+entry. The initial module-path error is fixed; its log is retained. GNU passes
+five tests, formatting and check-all. Musl also passes five tests/check-all;
+Stacked and Tree Miri each pass all four model tests, with source after-check.
+The probe's deprecated mask builders are replaced with explicit unsigned and
+signed-immediate APIs. The first replacement used an unsupported `u64` builder
+argument; the corrected argument retains the same three-bit mask value. Initial
+failed logs remain separate from final-source verification.
+
+Model source `5345ff5` passes final GNU and musl five-test lanes/check-all,
+GNU formatting, default/all-feature Clippy with existing warnings, and all four
+tests under each Miri model with unchanged source hashes. The native decoder
+is excluded from Miri; the Rust pointer protocol is what those runs exercise.
+The real i686-musl binary also passes all four model tests, without native
+execution or a change to unsupported-target fallback.
+
+Next, add a scoped packed-array factory with bounded prefixes and full versus
+destination-only helper refresh tests, preserving canonical state on refusal
+and panic. Only then add a separate packed entry contract and independently
+check emitted decoding, stores, helpers and exits. Do not reinterpret the
+existing two-word entry or activate this probe as a shortcut. Original source
+coverage, exact counters and resource costs must survive frozen integration
+before the original benchmark matrix can evaluate its binding/decode tradeoff.
+
+This is **not runtime integration or a measured speedup**. The generated probe
+is not independent semantic IR certification. Full helper retirement/refresh,
+PC/fuel/counter integration, source/emitted verification, resource accounting,
+platform validation and the original frozen workload matrix remain mandatory
+before activation. No production ABI or Value representation changes here.
+Files: `src/jit/abi/payload/packed.rs`, `packed/native.rs`; Make targets
+`jit-payload-packed` and `jit-payload-packed-miri`. Logs are `packed-payload-*`
+in `target/jit-evidence/short-slice-performance/`.
+
 #### Same-thread callback handoff — measured and withdrawn
 
 `e51470f` introduces a scoped executor handoff for Lua-to-callback and a direct
