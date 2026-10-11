@@ -7,6 +7,10 @@ use crate::Value;
 #[path = "payload/binding_tests.rs"]
 mod binding_tests;
 
+#[cfg(test)]
+#[path = "payload/packed.rs"]
+mod packed;
+
 #[cfg(all(
     not(miri),
     target_os = "linux",

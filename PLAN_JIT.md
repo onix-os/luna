@@ -11,7 +11,167 @@
 
 ### Progress snapshot — 2026-10-11
 
-#### Same-thread callback handoff — test-only candidate
+#### Packed scalar descriptors — isolated representation model
+
+The next structural experiment targets the retained callback wrapper's
+6,030,957 descriptor-binding instructions. It does not repeat executor handoffs,
+cross-callback caching, integer-prefix imports or SSA residency changes. A
+test-only descriptor occupies one pointer word instead of a tag/pointer pair.
+Typed Rust matches produce scalar field pointers; low two address bits
+distinguish aligned Integer/Number fields. Exact immediate encodings represent
+Nil, Boolean values and opaque references; no GC pointer or Rust enum layout
+is exposed. Numeric fields with insufficient alignment refuse admission.
+
+Address tagging and recovery use Rust's strict-provenance `map_addr`, not an
+integer-to-pointer round trip. See the [official pointer API](https://doc.rust-lang.org/stable/std/primitive.pointer.html#method.map_addr).
+Only live, correctly typed numeric descriptors may be dereferenced. Clearing a
+tag does not validate an arbitrary pointer. Boolean descriptors are immediate
+snapshots, so Boolean writes must replace canonical state and refresh the
+destination, never silently mutate a cached Boolean. A retired Empty descriptor
+may accompany a non-Nil canonical value: generic helpers must read canonical
+storage in that case, not decode it as Lua nil. Replacement retires the old
+destination; sibling scalar loans remain live. No descriptor may survive
+callback/GC or a whole-frame borrow.
+
+Four initial model tests pass: all fourteen Value cases, malformed immediate
+encodings, 196 replacement pairs with live sibling scalar writes, and typed
+panic-payload/canonical-write preservation. A separate generated-code probe
+checks numeric read/write against the typed model over 2,520 value/tag/bits/
+budget combinations, plus malformed encodings and a zero-budget null-pointer
+entry. The initial module-path error is fixed; its log is retained. GNU passes
+five tests, formatting and check-all. Musl also passes five tests/check-all;
+Stacked and Tree Miri each pass all four model tests, with source after-check.
+The probe's deprecated mask builders are replaced with explicit unsigned and
+signed-immediate APIs. The first replacement used an unsupported `u64` builder
+argument; the corrected argument retains the same three-bit mask value. Initial
+failed logs remain separate from final-source verification.
+
+Model source `5345ff5` passes final GNU and musl five-test lanes/check-all,
+GNU formatting, default/all-feature Clippy with existing warnings, and all four
+tests under each Miri model with unchanged source hashes. The native decoder
+is excluded from Miri; the Rust pointer protocol is what those runs exercise.
+The real i686-musl binary also passes all four model tests, without native
+execution or a change to unsupported-target fallback.
+
+The next planned step was a scoped packed-array factory with bounded prefixes and full versus
+destination-only helper refresh tests, preserving canonical state on refusal
+and panic. Only then add a separate packed entry contract and independently
+check emitted decoding, stores, helpers and exits. Do not reinterpret the
+existing two-word entry or activate this probe as a shortcut. Original source
+coverage, exact counters and resource costs must survive frozen integration
+before the original benchmark matrix can evaluate its binding/decode tradeoff.
+
+This is **not runtime integration or a measured speedup**. The generated probe
+is not independent semantic IR certification. Full helper retirement/refresh,
+PC/fuel/counter integration, source/emitted verification, resource accounting,
+platform validation and the original frozen workload matrix remain mandatory
+before activation. No production ABI or Value representation changes here.
+Files: `src/jit/abi/payload/packed.rs`, `packed/native.rs`; Make targets
+`jit-payload-packed` and `jit-payload-packed-miri`. Logs are `packed-payload-*`
+in `target/jit-evidence/short-slice-performance/`.
+
+The follow-up implements a private bounded scope with a higher-ranked factory,
+an initialized descriptor prefix (maximum 256), fresh canonical reads for retired
+or opaque slots, direct same-type numeric stores, and destination-only or full
+refresh. A helper marks the scope stopped and retires affected descriptors before
+borrowing canonical values. A panic preserves completed canonical writes and its
+original Rust payload; caught callers cannot resume that scope. Successful full
+helpers bind again only after their whole-slice borrow ends.
+
+A separate frame adapter now exercises actual `helpers::call_direct`, not just
+a slice simulation. It retires every descriptor before borrowing the helper
+frame and reacquires the canonical base from that frame before refreshing.
+Tests check Move over all Value kinds, prior direct scalar writes, retired
+destinations, prefix tails, table-read declines, invalid-register helper panics,
+PC/count publication and initially pending panic payloads. A stopped scope
+without a pending frame panic returns a refusal rather than fabricating a
+`HELPER_PANICKED` result with no payload. This is not yet a native C bridge or
+complete coverage of all ten helpers.
+
+The initial i686 scope run reports four failed fixtures because their numeric
+fields do not all satisfy the original eight-byte admission requirement. Merely
+aligning the enclosing array does not fix individual fields. The protocol now
+uses **two** low bits (mask 3), sufficient for Integer/Number addresses, and
+reserves exact immediate addresses 2/3/4/5 for False/True/Empty/Opaque. Numeric
+admission and native decoding both reject a cleared address at or below 5,
+preventing Empty/Opaque from being dereferenced as numeric pointers. No Rust
+Value layout is assumed, and no failing i686 test is removed or conditionally
+disabled. The corrected i686 run passes all eleven then-current model tests;
+the final suite adds the distinct stopped-without-frame-panic regression.
+
+Scope source `85103de`: final GNU and musl each pass **13 tests** and check-all; GNU also passes
+formatting and default/all-feature Clippy with existing warnings. Stacked and
+Tree Miri each pass **12 model tests**, including real-frame reborrowing, with
+unchanged source hashes. The real i686-musl executable passes all **12 model
+tests**, without native execution. Initial equality/lifetime fixture compilation
+failures and both failed i686 attempts remain in `packed-scope-*` logs. This
+advances the helper-lifetime protocol only; whole-runtime integration,
+independent emitted verification, resources and original performance gates
+remain incomplete. Scope code is in `packed/scoped.rs` and `scoped_tests.rs`.
+
+Before a C bridge can expose descriptor-array pointers, its storage must be
+separate from the mutable scope control object. The current Rust-only scope owns
+the array inline; retaining a pointer into that array while reborrowing the
+whole owner for a helper is not covered by these passing tests. The existing
+two-word runtime keeps its descriptor array separate from Session control.
+Follow that lifetime separation and add Miri tests reusing the exact same array
+pointer across helper calls before native integration. Current retained sibling
+tests exercise scalar-field pointers, not this future descriptor-array loan.
+
+Storage separation is implemented in `f840c21`: each factory owns its descriptor
+buffer outside the mutably borrowed control object, initializes only the admitted
+prefix, and retains its lifetime through a private raw pointer/capability.
+An additional regression reuses the exact same array pointer across partial
+replacement, retirement and full real-helper reborrows, reloading descriptors
+after full refresh. GNU passes fourteen tests/check-all; both Miri alias models
+pass thirteen Rust tests with source manifests unchanged.
+
+The next packed-only C bridge provides all ten canonical helper entries behind
+one unwind boundary. Its differential checks each helper's success path against
+direct invocation: canonical results, table/upvalue effects, all eight helper
+counters, PC and SetList fuel. Additional tests exercise ordinary decline with
+fresh subsequent reads, real helper panics, an injected typed Rust panic,
+already-pending panic and stopped state. A second attempted panic must not
+replace the original payload. The descriptor array remains separate throughout.
+
+This private bridge adds **refusal status 3**, distinct from decline 0,
+completion 1 and panic 2. It records the exact refusal and stops subsequent
+calls. A mutation fixture completes one real helper, then refuses refresh:
+its committed PC/effects/counters remain, the next call does nothing, and the
+outer Rust factory returns the refusal. It must never masquerade as ordinary
+decline and replay an effect, or invent a panic result without a panic payload.
+Any future packed compiler/runtime integration must handle this hard-stop
+contract explicitly; the existing two-word ABI is unchanged.
+
+A generated numeric probe writes canonical state, calls the real C gateway,
+then reloads the same descriptor-array pointer and writes again **only** on
+completion. Matched Rust/native fixtures cover completion, decline, panic and
+post-effect refusal, verifying canonical values and exact PC/counts. This probe
+has admitted numeric preconditions; it is not arbitrary-bytecode lowering,
+runtime activation or independent emitted-IR certification.
+
+Final focused validation passes **22 tests each on GNU/musl**, formatting and
+check-all, default/all-feature GNU Clippy with existing warnings, and **20 Rust
+tests each under Stacked and Tree Miri** with complete source after-checks.
+The real i686-musl executable passes **20 model tests**, with native probes
+excluded. Initial native addition-builder deprecation warnings were corrected
+before these final runs. Evidence is `packed-storage-*` and
+`packed-c-bridge-*`; source is in `packed/bridge*.rs` and `scoped.rs`.
+Broader payload/helper regression suites are tracked separately.
+
+Remaining packed work includes scalar materialization/terminal-write gateways,
+the separate full-entry compiler contract, independent source/emitted checking,
+precise runtime exit/fuel/counter integration and resource accounting. Fresh
+frozen workload profiles and original hardware/compiled-Off gates still decide
+acceptance; no speedup or production activation is claimed by these fixtures.
+
+Broader payload ABI/backend/runtime and helper suites subsequently pass on both
+GNU and musl: **162 tests each across four summaries**, with no failures or
+ignores. Logs are `packed-scope-broad-{gnu,musl}.log`. This includes unchanged
+callback/upvalue/GC/array-kernel runtime differentials, not a packed runtime
+activation or benchmark result.
+
+#### Same-thread callback handoff — measured and withdrawn
 
 `e51470f` introduces a scoped executor handoff for Lua-to-callback and a direct
 callback Return-to-Lua on the same thread. A matching successor frame, cleared
@@ -160,6 +320,51 @@ to **516,846 (0.2422%)**, and integer/float Off growth drops from 128,661 to
 (1.0315%). These are diagnostic instruction counts, not elapsed-time acceptance.
 The guarded refinement reduces rather than eliminates callback-free overhead;
 original paired hardware gates and compiled-Off cost acceptance remain open.
+
+Both `handoff4` hardware campaigns subsequently finish, again with **48/48
+aggregate invocations failing**. All **216** full direct non-timing/resource
+comparisons match. Source/image manifests, aliases and cleanup verify, with no
+owned build/test/profile or source edit overlapping the timing runs. Each round
+retains all nine workloads, eleven pairs, CPUs 0/16, three rotated windows and
+ordinary/previous/candidate/placebo controls with contention telemetry.
+
+Callbacks still fail **12/12**, with paired medians **0.7684–0.7963**, below
+0.8333. Previous/candidate Auto ratios improve in all windows: CPU0
+**1.0100–1.0313**, CPU16 **1.0385–1.1522**. These gains do not meet the target
+or outweigh regressions: metamethods pass **7/12 versus previous 12/12**, and
+arrays **9/12 versus previous 12/12**. Metamethod Auto is slower in every
+window, with ratios **0.9696–0.9917** on CPU0 and **0.9508–0.9772** on CPU16.
+Array Auto is slower in nine of twelve windows. All other scored cases pass
+12/12; Oslo stays unscored. Full adverse and placebo data remain in
+`handoff4-vs-upread-hardware-combined.json` and the two hardware analyses.
+
+**Decision: withdraw the scoped callback handoff trial**, including its
+test-only executor driver and dedicated test support. Reducing guard overhead
+does not remove its measured cross-workload regressions. Retain its frozen
+sources, activation patches, executables, validation logs and failed profiles
+and timing campaigns; do not run another loop-layout variant on this evidence.
+Restore `src` and `Makefile` exactly to `c361f26` before continuing with a
+different measured bottleneck. This restores the retained experimental payload
+baseline, not performance/release acceptance.
+
+Withdrawal `250e96a` restores `src/` and Makefile byte-for-byte to `c361f26`;
+the rejected driver's dedicated module and Make targets are removed. GNU and
+musl restoration checks each pass **149 tests** (62 ABI, 57 backend, three
+runtime and 27 helpers) plus check-all; GNU formatting also passes. The separate
+activation/accounting/sequence/error/upvalue/suspension/debug lane completes
+successfully, including async lanes and native resumption. Evidence is in
+`payload-handoff-withdraw-{gnu,musl,boundaries}.log`. No fresh Miri run or full
+release acceptance is claimed for this byte-exact restoration.
+
+A call-edge check of the SHA-verified retained `upread` profile rules out a
+duplicate global-table lookup hypothesis: helper 6 calls `RawTable::get_map`
+**64,836 times**, and interpreter `meta_ops::index` calls it **164 times**.
+Their total is exactly **65,000**, matching 5,000 callback iterations across
+eleven measured runs plus two warmups. The helper reports no declines. There is
+no repeated failed native lookup to remove; the two call sites cover disjoint
+native and interpreter executions. Evidence:
+`payload-terminal-profile/upread/callback-table-lookup-counts.tsv` and the
+unchanged complete callgrind profile. This is attribution, not an optimization.
 
 Evidence: `callback-handoff-*` and `payload-terminal-profile/handoff*` beneath
 `target/jit-evidence/short-slice-performance/`. Original full performance,
