@@ -361,11 +361,49 @@ the native compiler is not built there. Formatting, all-feature checking and
 default/all-feature Clippy pass with warnings, including two new Clippy warnings
 in the whole-function checker. Initial audit failures (test assertion formatting,
 then overly strict null-host admission) are retained alongside corrected runs.
-Maximum Nil fanout still needs dedicated packed source-expansion admission tests;
-the eleven workload functions do not establish every register-prefix boundary.
+The eleven workload functions alone do not establish every register-prefix boundary.
 
-Remaining packed work includes full compiler publication and owning entry identity,
-precise runtime exit/fuel/counter integration and resource accounting. Fresh
+Packed entries now also pass through the owning native compiler pipeline under
+test-only `RequirePackedPayload`. The module declaration carries the final I32
+return type while the original ordinary source is built and checked with its
+void signature; installation then verifies that the lowered signature matches
+the declaration. Candidate signature charges survive context/module destruction,
+including errors. The distinct `EntryKind::Packed` does not satisfy the legacy
+two-word `is_payload` predicate. Raw/linked invocation and canonical-frame/scratch
+policies instead use `needs_canonical_frame`; `Code::invoke_packed` is the separate
+typed entry and preserves the entry adapter's errors without replay.
+
+Owning-entry tests compare scalar/table/Boolean execution and the existing full
+loop entry/budget/scalar-guard matrix with ordinary code. Nil initialization is
+compiled and executed for every initialized prefix from one through 256 registers,
+with an extra untouched canonical tail. The packed compiler and audit now use
+the existing bounded payload Nil-fanout allowance, not relaxed host limits.
+Exact/one-less IR bounds, zero code quota and 128 injected allocation positions
+exercise prepublication refusal, ledger/mapping reclamation and survival of an
+already live packed entry.
+
+This integration found a concrete boundary bug: a fixed unwritten-PC marker
+rejected legitimate `usize::MAX` unknown-PC exits. Fix `3c2e7a1` selects a marker
+distinct from the input PC and adds both highest-PC cases, including rejection of
+partially unwritten exits. The original failed loop run remains in evidence.
+These are owning native-entry tests, **not Lua runtime activation**. The runtime
+still does not dispatch packed entries; failure PC/fuel/count publication must be
+completed before enabling that path. Evidence uses `packed-entry-*`; the focused
+native target is `jit-payload-packed-entry`.
+
+Owning-entry source `c73b26e` passes five focused native tests. Broad GNU/musl
+suites each pass 211 tests (99 ABI, 82 backend, three existing-transport runtime,
+27 helper). Both Stacked/Tree Borrows Miri pass 33 packed ABI and four compiler
+tests, with the complete source manifest unchanged afterward. Real i686 retains
+33 ABI passes; native compiler execution is excluded there. Formatting,
+all-feature checking and default/all-feature Clippy pass with existing warnings.
+The packed selection currently skips integer-loop augmentation: its native loop
+matrix proves semantic equivalence to optimized ordinary entries, not retention
+of that optimization. Integer-loop optimization and optimized scoped helpers
+still need integration before performance acceptance.
+
+Remaining packed work includes precise runtime exit/fuel/counter integration,
+runtime activation, and resource accounting. Fresh
 frozen workload profiles and original hardware/compiled-Off gates still decide
 acceptance; no speedup or production activation is claimed by these fixtures.
 
