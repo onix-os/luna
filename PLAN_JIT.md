@@ -11,6 +11,45 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### GetUpvalue destination-only refresh — scoped captures
+
+Commit `fb4a461` resolves closed, parent-frame, current-frame and foreign-stack
+captures without refreshing every register. A narrow raw metadata accessor
+reads stack identity, base and upper-stack values without borrowing the current
+frame's canonical values. Current-frame scalars use their live descriptors;
+retired descriptors use canonical storage. No per-entry Session fields or
+cross-callback pointers are added. Foreign reads remain inside the unwind
+boundary; invalid operands preserve generic fallback, PC/counters, prior writes
+and stopped reentry. Terminal liveness independently treats helper8 as partial.
+
+GNU and musl each pass **62 ABI + 57 backend + three runtime + 27 helper tests**;
+format/check-all pass. Six new ABI tests include 312 value/alias/frame-size
+cases, exact foreign bounds/borrow/expired-stack panic payload comparisons,
+closing/joining, retirement and prefix fallback. The first prefix fixture
+incorrectly expected an out-of-prefix destination to succeed: the original
+helper writes canonical storage before its transport bounds panic. The corrected
+test preserves that ordering; failed focused/Stacked logs remain. Both Stacked
+and Tree Borrows pass six ABI and five terminal tests each. Integrated scripts
+cover the original metamethod construction pattern and open/closed captures
+with live siblings, GC, fuel/interrupt steps and exact native counters.
+
+Frozen `upread` passes all 122 payload tests and check-all; image SHA-256 is
+`becde8510092d77cabe7c608739b121c3f2983ac6e6b72c9576c12a6920328fa`.
+All ten diagnostic profiles preserve every non-timing statistic versus `new`.
+Metamethod work falls **2,499,807 instructions (3.1314%)**: rebind falls
+1,741,635 to 3,696, bind_non_numeric falls 619,248, and the ordinary upvalue
+helper's 348,327 disappears; scoped helper8 itself increases 245,119.
+Upvalue work falls 320,559 (0.1995%), but 156,852 is in Admitted::new rather than
+the scoped read, so the entire decrease is not attributed to this optimization.
+Callback and float Auto, integer Off and float Off are instruction-identical.
+Upvalue Off increases 242 allocator instructions; allocation Auto increases
+1,345, array increases 39 and integer Auto decreases 109. All 13 events, exact
+function sums, resource counters and ELF/source/inode checks are retained.
+Evidence is `payload-upvalue-read-*`, `payload-terminal-profile/upread*` and
+`new-vs-upread-analysis.json` under the short-slice-performance evidence root.
+Hardware measurements for this candidate have not run yet. It remains
+experimental; the original performance/resource/platform/release gates stay open.
+
 #### NewTable destination-only refresh — scoped construction
 
 Commit `ddf2582` creates a table with the existing RawTable/Table constructors
