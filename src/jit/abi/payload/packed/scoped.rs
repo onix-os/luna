@@ -13,11 +13,14 @@ enum Refusal {
 
 struct Scope<'s, 'gc, const CAPACITY: usize> {
     values: NonNull<Value<'gc>>,
-    descriptors: [MaybeUninit<Packed>; CAPACITY],
+    descriptors: NonNull<Packed>,
     count: usize,
     len: usize,
     stopped: bool,
-    borrow: PhantomData<&'s mut [Value<'gc>]>,
+    borrow: PhantomData<(
+        &'s mut [Value<'gc>],
+        &'s mut [MaybeUninit<Packed>; CAPACITY],
+    )>,
 }
 
 fn with_scope<'gc, const CAPACITY: usize, R>(
@@ -25,18 +28,23 @@ fn with_scope<'gc, const CAPACITY: usize, R>(
     count: usize,
     body: impl for<'s> FnOnce(&mut Scope<'s, 'gc, CAPACITY>) -> R,
 ) -> Result<R, Refusal> {
-    let mut scope = Scope::<CAPACITY>::new(values, count)?;
+    let mut descriptors = [MaybeUninit::uninit(); CAPACITY];
+    let mut scope = Scope::<CAPACITY>::new(values, count, &mut descriptors)?;
     Ok(body(&mut scope))
 }
 
 impl<'s, 'gc, const CAPACITY: usize> Scope<'s, 'gc, CAPACITY> {
-    fn new(values: &'s mut [Value<'gc>], count: usize) -> Result<Self, Refusal> {
+    fn new(
+        values: &'s mut [Value<'gc>],
+        count: usize,
+        descriptors: &'s mut [MaybeUninit<Packed>; CAPACITY],
+    ) -> Result<Self, Refusal> {
         if CAPACITY > 256 || count > CAPACITY || count > values.len() {
             return Err(Refusal::Bounds);
         }
         let mut scope = Self {
             values: NonNull::new(values.as_mut_ptr()).unwrap(),
-            descriptors: [MaybeUninit::uninit(); CAPACITY],
+            descriptors: NonNull::new(descriptors.as_mut_ptr().cast()).unwrap(),
             count,
             len: values.len(),
             stopped: true,
@@ -50,7 +58,7 @@ impl<'s, 'gc, const CAPACITY: usize> Scope<'s, 'gc, CAPACITY> {
     fn bind_one(&mut self, index: usize) -> Result<(), Refusal> {
         let value = unsafe { &mut *self.values.as_ptr().add(index) };
         let descriptor = Packed::bind(value).ok_or(Refusal::Alignment)?;
-        self.descriptors[index].write(descriptor);
+        unsafe { self.descriptors.as_ptr().add(index).write(descriptor) };
         Ok(())
     }
 
@@ -72,12 +80,17 @@ impl<'s, 'gc, const CAPACITY: usize> Scope<'s, 'gc, CAPACITY> {
     }
 
     fn retire(&mut self, index: usize) {
-        self.descriptors[index].write(Packed(std::ptr::without_provenance_mut(EMPTY)));
+        unsafe {
+            self.descriptors
+                .as_ptr()
+                .add(index)
+                .write(Packed(std::ptr::without_provenance_mut(EMPTY)));
+        }
     }
 
     fn read(&self, index: usize) -> Result<Value<'gc>, Refusal> {
         self.check(index)?;
-        let descriptor = unsafe { self.descriptors[index].assume_init() };
+        let descriptor = unsafe { self.descriptors.as_ptr().add(index).read() };
         if matches!(descriptor.0.addr(), EMPTY | OPAQUE) {
             return Ok(unsafe { self.values.as_ptr().add(index).read() });
         }
@@ -87,7 +100,7 @@ impl<'s, 'gc, const CAPACITY: usize> Scope<'s, 'gc, CAPACITY> {
 
     fn store_numeric(&mut self, index: usize, value: Slot) -> Result<bool, Refusal> {
         self.check(index)?;
-        let descriptor = unsafe { self.descriptors[index].assume_init() };
+        let descriptor = unsafe { self.descriptors.as_ptr().add(index).read() };
         Ok(unsafe { descriptor.store_numeric(value) })
     }
 
@@ -150,7 +163,12 @@ fn with_frame_scope<'gc, const CAPACITY: usize, R>(
     }
     let pointer = NonNull::from(&mut *frame);
     let stopped = frame.panic.is_some();
-    let mut scope = Scope::new(frame.registers.stack_frame, frame.slot_count)?;
+    let mut descriptors = [MaybeUninit::uninit(); CAPACITY];
+    let mut scope = Scope::new(
+        frame.registers.stack_frame,
+        frame.slot_count,
+        &mut descriptors,
+    )?;
     scope.stopped = stopped;
     let mut bound = FrameScope {
         scope,

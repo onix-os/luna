@@ -148,9 +148,10 @@ fn packed_destination_refresh_keeps_siblings_live_for_every_kind() {
                     AlignedValues::new([initial, Value::Integer(123), Value::Number(-0.0)]);
                 values.check_alignment();
                 let result = with_scope::<3, _>(&mut values, 3, |scope| {
-                    let siblings = [unsafe { scope.descriptors[1].assume_init() }, unsafe {
-                        scope.descriptors[2].assume_init()
-                    }];
+                    let siblings = [
+                        unsafe { scope.descriptors.as_ptr().add(1).read() },
+                        unsafe { scope.descriptors.as_ptr().add(2).read() },
+                    ];
                     let copied = scope.read(0).unwrap();
                     equivalent(copied, initial);
                     scope
@@ -548,5 +549,78 @@ fn packed_stopped_scope_does_not_invent_a_frame_panic() {
         assert_eq!(pc, 5);
         equivalent(values[0], Value::Boolean(true));
         equivalent(values[1], Value::Integer(42));
+    });
+}
+
+#[test]
+fn packed_descriptor_array_pointer_survives_control_reborrows() {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return 17").unwrap();
+        for next in kinds(ctx) {
+            let mut values =
+                AlignedValues::new([Value::Integer(17), Value::Number(-0.0), Value::Nil]);
+            let mut pc = 5;
+            crate::thread::LuaRegisters::with_test_frame(
+                ctx,
+                &mut pc,
+                &mut values,
+                |mut registers| {
+                    let mut frame = helpers::Frame {
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: helpers::Counts::default(),
+                        slot_count: 3,
+                        panic: None,
+                        projection: None,
+                    };
+                    with_frame_scope::<3, _>(&mut frame, |bound| {
+                        let slots = bound.scope.descriptors.as_ptr();
+                        let control = std::ptr::from_mut(bound);
+                        unsafe {
+                            assert!(slots.read().store_numeric(Slot {
+                                tag: INTEGER,
+                                bits: 731
+                            }));
+                            (&mut *control)
+                                .scope
+                                .with_destination(1, |value| *value = next)
+                                .unwrap();
+                            assert_eq!(slots.read().load().unwrap().bits, 731);
+                            let sibling = slots.read();
+                            (&mut *control).scope.replace(1, next, true).unwrap();
+                            assert!(sibling.store_numeric(Slot {
+                                tag: INTEGER,
+                                bits: 42
+                            }));
+                            assert_eq!(
+                                (&mut *control).helper::<{ abi::HELPER_MOVE }>(2, 1, 0, 7),
+                                Ok(abi::HELPER_COMPLETED)
+                            );
+                            assert_eq!(slots.read().load().unwrap().bits, 42);
+                            assert_eq!(slots.add(1).read().tag(), Some(Slot::from_value(next).tag));
+                            assert_eq!(slots.add(2).read().tag(), Some(Slot::from_value(next).tag));
+                            assert!(slots.read().store_numeric(Slot {
+                                tag: INTEGER,
+                                bits: 99
+                            }));
+                            assert_eq!(
+                                (&mut *control).helper::<{ abi::HELPER_MOVE }>(1, 0, 0, 8),
+                                Ok(abi::HELPER_COMPLETED)
+                            );
+                            assert_eq!(slots.add(1).read().load().unwrap().bits, 99);
+                            assert_eq!(slots, (*control).scope.descriptors.as_ptr());
+                        }
+                    })
+                    .unwrap();
+                    assert_eq!((frame.count.calls, frame.count.completed), (2, 2));
+                    assert!(frame.panic.is_none());
+                },
+            );
+            assert_eq!(pc, 9);
+            equivalent(values[0], Value::Integer(99));
+            equivalent(values[1], Value::Integer(99));
+            equivalent(values[2], next);
+        }
     });
 }
