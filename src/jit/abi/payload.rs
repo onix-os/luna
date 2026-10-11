@@ -213,6 +213,27 @@ impl<'a, 'gc> Frame<'a, 'gc> {
         Some(Payload { tag, pointer })
     }
 
+    #[inline(always)]
+    fn bind_integer_pair(&mut self, index: usize) -> Option<[Payload; 2]> {
+        if index.checked_add(1)? >= self.len {
+            return None;
+        }
+        let pair = unsafe { &mut *self.values.as_ptr().add(index).cast::<[Value<'gc>; 2]>() };
+        let [Value::Integer(first), Value::Integer(second)] = pair else {
+            return None;
+        };
+        Some([
+            Payload {
+                tag: INTEGER,
+                pointer: std::ptr::from_mut(first).cast(),
+            },
+            Payload {
+                tag: INTEGER,
+                pointer: std::ptr::from_mut(second).cast(),
+            },
+        ])
+    }
+
     fn read(&mut self, slots: &mut [Payload], index: usize) -> Option<Value<'gc>> {
         if slots.len() != self.len || index >= self.len {
             return None;
