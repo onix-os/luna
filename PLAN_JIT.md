@@ -30,8 +30,8 @@ pass all three in both isolated and main-checkout sources. Main GNU and musl eac
 also pass the enlarged hybrid runtime oracle, including fixed and variable-list
 table constructors with interpreter/ordinary controls, per-slice fuel/counters
 and periodic GC. These are **four tests/two summaries per native platform**.
-A fresh full GNU Force run is active; the completed 1,780-test wrapper run below
-predates this SetList change.
+A fresh full GNU Force run on this SetList change passes **1,783 tests / 88
+summaries**, zero failures and six ignored (`payload-set-list-root-gnu-all.log`).
 
 Activated image
 `3e40e67fea4deda32a37902d991c0c6e9436382212381096abdda017ec1ee2e1`
