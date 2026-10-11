@@ -397,10 +397,10 @@ suites each pass 211 tests (99 ABI, 82 backend, three existing-transport runtime
 tests, with the complete source manifest unchanged afterward. Real i686 retains
 33 ABI passes; native compiler execution is excluded there. Formatting,
 all-feature checking and default/all-feature Clippy pass with existing warnings.
-The packed selection currently skips integer-loop augmentation: its native loop
-matrix proves semantic equivalence to optimized ordinary entries, not retention
-of that optimization. Integer-loop optimization and optimized scoped helpers
-still need integration before performance acceptance.
+At this stage the packed selection skipped integer-loop augmentation: its native
+loop matrix proved semantic equivalence, not optimization retention. The later
+checkpoint integration below restores that optimization; scoped helper
+optimization remains incomplete.
 
 #### Packed failure progress and test-only runtime integration
 
@@ -453,7 +453,45 @@ ABI, four pure whole-lowering and one progress-checker test; the complete source
 manifest matches afterward. Native runtime execution is not run under Miri.
 Logs use `packed-runtime-*`, and targets include `jit-payload-packed-runtime`.
 
-Remaining packed work includes production activation, optimization retention,
+#### Packed integer-loop optimization retention
+
+ABI commit `56e168b` distinguishes a completed optimized checkpoint from an
+ordinary pre-instruction failure. Only checkpoint failure admits a completed
+count equal to the budget; store/helper pre-instruction failures keep their
+strict bound. A checkpoint cannot borrow a helper completion record.
+
+Compiler commit `f970d90` restores the original integer-loop augmentation for
+packed entries. The existing independent integer-loop verifier produces a
+private region certificate. Checkpoint admission rechecks each complete flush,
+typed parameters, stores, memory flags and outgoing arguments before supplying
+its source PC/count. The completed-loop flush has a constant next PC; the budget
+flush carries a dynamic PC and completed count. Neither is assigned an arbitrary
+ordinary instruction owner. Original source ownership still governs all ordinary
+operations, and helpers cannot claim a loop checkpoint certificate.
+
+Failure emission uses four instructions for a dynamic PC and five for a constant
+PC. Prepublication admission and the whole-function checker account for the exact
+additional size before mutation. The test-only code object records whether the
+optimization was installed, and the exhaustive four-loop integer/float,
+ascending/descending matrix now requires that fact before comparing every entry,
+budget and invalid scalar guard against optimized ordinary code.
+
+Focused GNU checks pass 40 packed ABI, six whole-lowering, two progress-checker,
+one integer-checkpoint and eight owning native-entry tests. Mutation tests reject
+changed flush constants/stores/branch arguments and emitted PC/count/kind fields.
+The initial pure fixture needed the default memory-flag table already present in
+real ordinary IR; the preservation verifier was not relaxed. Failed API/borrow
+and fixture attempts are retained in `packed-loop-*` logs. GNU and musl each pass
+the 207-test core payload/runtime/helper suite, the seven original integer-loop
+tests, the new checkpoint test and repeated focused lowering/progress checks.
+Real i686 passes 36 packed ABI tests. Formatting, all-feature checking and both
+Clippy modes pass with warnings (191 library-test warnings, including the new
+progress-method argument-count warning). Both Stacked and Tree Borrows Miri pass
+36 packed ABI, four whole-lowering, two progress and one integer-checkpoint test.
+All 368 source-manifest entries match after validation. Native code execution is
+covered by GNU/musl, not Miri; these checks do not establish a speedup.
+
+Remaining packed work includes production activation, scoped helper optimization,
 and resource accounting. Fresh
 frozen workload profiles and original hardware/compiled-Off gates still decide
 acceptance; no speedup or production activation is claimed by these fixtures.
