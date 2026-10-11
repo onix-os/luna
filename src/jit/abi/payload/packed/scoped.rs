@@ -154,6 +154,7 @@ struct FrameScope<'s, 'gc, 'a, 'b, 'p, const CAPACITY: usize> {
     frame: NonNull<helpers::Frame<'gc, 'a, 'b, 'p>>,
     refusal: Option<Refusal>,
     materializations: u64,
+    helper_result: Option<(u32, u32)>,
 }
 
 fn with_frame_scope<'gc, const CAPACITY: usize, R>(
@@ -177,6 +178,7 @@ fn with_frame_scope<'gc, const CAPACITY: usize, R>(
         frame: pointer,
         refusal: None,
         materializations: 0,
+        helper_result: None,
     };
     Ok(body(&mut bound))
 }
@@ -196,6 +198,7 @@ impl<const CAPACITY: usize> FrameScope<'_, '_, '_, '_, '_, CAPACITY> {
         }
         let frame = unsafe { self.frame.as_mut() };
         let result = helpers::call_direct::<KIND>(frame, a, b, c, pc);
+        self.helper_result = Some((pc, result));
         if result != abi::HELPER_PANICKED {
             self.scope.len = frame.registers.stack_frame.len();
             self.scope.values = NonNull::new(frame.registers.stack_frame.as_mut_ptr()).unwrap();

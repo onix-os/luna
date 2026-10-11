@@ -20,7 +20,7 @@ fn model(_: *mut Packed, bridge: &Bridge, terminal: bool, index: u32, tag: u64, 
     unsafe { writer(bridge.control, index, tag, bits) }
 }
 
-fn same_value<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
+pub(super) fn same_value<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
     match (actual, expected) {
         (Value::String(a), Value::String(b)) => {
             assert!(ottavino_gc_arena::Gc::ptr_eq(
@@ -39,12 +39,12 @@ fn same_value<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
     }
 }
 
-fn scalar(value: Value<'_>) -> (u64, u64) {
+pub(super) fn scalar(value: Value<'_>) -> (u64, u64) {
     let slot = Slot::from_value(value);
     (slot.tag, slot.bits)
 }
 
-fn inputs() -> [(u64, u64); 16] {
+pub(super) fn inputs() -> [(u64, u64); 16] {
     [
         (NIL, 0),
         (NIL, u64::MAX),
@@ -65,7 +65,7 @@ fn inputs() -> [(u64, u64); 16] {
     ]
 }
 
-fn expected(tag: u64, bits: u64) -> Option<(u64, u64)> {
+pub(super) fn expected(tag: u64, bits: u64) -> Option<(u64, u64)> {
     match tag {
         NIL => Some((NIL, 0)),
         BOOLEAN if bits <= 1 => Some((BOOLEAN, bits)),

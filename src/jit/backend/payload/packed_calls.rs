@@ -17,6 +17,7 @@ pub(super) struct Call {
     input: Input,
     signature: SigRef,
     blocks: [Block; 3],
+    pub(super) progress: Option<packed_progress::Site>,
 }
 
 pub(super) fn admit(
@@ -79,6 +80,10 @@ pub(super) fn emit(f: &mut Function, input: Input) -> Call {
         .extend([types::I64, types::I32, types::I32, types::I32, types::I32].map(AbiParam::new));
     signature.returns.push(AbiParam::new(types::I32));
     let signature = f.import_signature(signature);
+    emit_with_signature(f, input, signature)
+}
+
+pub(super) fn emit_with_signature(f: &mut Function, input: Input, signature: SigRef) -> Call {
     let before = f.layout.inst_block(input.call).unwrap();
     let next = f.layout.next_inst(input.call).unwrap();
     let after = f.dfg.make_block();
@@ -126,7 +131,29 @@ pub(super) fn emit(f: &mut Function, input: Input) -> Call {
         input,
         signature,
         blocks: [before, after, refused],
+        progress: None,
     }
+}
+
+pub(super) fn failure_block(call: &Call) -> Block {
+    call.blocks[2]
+}
+
+pub(super) fn fragment<'a>(
+    f: &Function,
+    call: &'a Call,
+) -> Result<packed_lower::Fragment<'a>, JitError> {
+    Ok(packed_lower::Fragment {
+        source: call.input.call,
+        first: f
+            .layout
+            .block_insts(call.blocks[0])
+            .rev()
+            .nth(6)
+            .ok_or_else(invalid)?,
+        next: f.layout.first_inst(call.blocks[1]),
+        blocks: &call.blocks[1..],
+    })
 }
 
 pub(super) fn verify_source(
@@ -223,7 +250,12 @@ pub(super) fn verify(f: &Function, call: &Call) -> Result<(), JitError> {
     }
     let predicate = reads::compare(f, predicate, IntCC::Equal, [result, status_value])?;
     reads::branch(f, branch, predicate, refused, after)?;
-    let [returned] = shape(f.layout.block_insts(refused))?;
+    let returned = packed_progress::verify(
+        f,
+        refused,
+        call.progress.as_ref(),
+        crate::jit::abi::payload::packed::scoped::bridge::entry::HELPER_FAILURE,
+    )?;
     if f.dfg.insts[returned].opcode() != Opcode::Return
         || f.dfg.inst_args(returned) != [status_value]
     {
@@ -233,4 +265,4 @@ pub(super) fn verify(f: &Function, call: &Call) -> Result<(), JitError> {
 }
 
 #[path = "packed_call_tests.rs"]
-mod tests;
+pub(super) mod tests;

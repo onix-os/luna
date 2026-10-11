@@ -282,9 +282,179 @@ after-checks include all three new files. Broader GNU/musl suites each pass
 Clippy pass with existing warnings and none in the new files. The broader
 runtime tests still exercise existing transports, not packed runtime activation.
 
-Remaining packed work includes scalar stores, complete whole-entry lowering and accounting,
-independent whole-function source/emitted checking,
-precise runtime exit/fuel/counter integration and resource accounting. Fresh
+Packed scalar-store lowering now admits adjacent canonical tag/bits stores and
+emits a direct write only for a live numeric descriptor whose type matches the
+requested scalar tag. Type changes, retired descriptors, Boolean and Nil writes
+use the checked C writer. In particular, an Empty descriptor never permits
+skipping a Nil write: its canonical destination could still contain a non-Nil
+value. Numeric stores preserve integer and floating-point bit patterns without
+materializing a new Value or incrementing the writer-attempt diagnostic.
+
+Only gateway completion reaches the original continuation. Decline, panic and
+refusal return their exact status before subsequent effects. Shared Rust/native
+oracles check original reference identity on decline, live sibling numeric
+loans, prefix tails, retirement, canonical values, PC/fuel and all helper
+counters. Injected panic/refusal after a canonical write retain that effect and
+the original panic payload; a continuation marker remains untouched. These
+gateway probes do not bypass the full-entry rule that pending panics refuse
+admission before executing any native instructions.
+
+Independent source/emitted checks cover the store pair, guards, cleared pointer,
+writer table/signature, status branch and return. Terminal stores additionally
+require bounded liveness evidence tied to the **same immutable source Function**;
+an unrelated function with matching instruction IDs cannot supply that proof.
+Tests reject 106 well-formed emitted mutations and wrong-source/live-read terminal
+proofs. A composed fixture lowers an ordinary store, reads its refreshed tag/bits,
+then terminally copies the scalar to another register; all component checks and
+the generated-code canonical oracle pass together.
+
+Store expansion is **24 added instructions for I64 or 25 for F64, plus four
+blocks**. These are component expansion measurements, not completed compiler
+resource admission or evidence of speedup. Sources are
+`backend/payload/packed_write*.rs`, `backend/payload/terminal.rs` and
+`abi/payload/packed/store_oracle.rs`; targets are `jit-payload-packed-writes` and
+its `-miri` counterpart. Evidence uses `packed-writes-*`.
+
+Store source `53933f4` passes 37 packed ABI and six compiler tests on GNU/musl,
+33 ABI tests on real i686, and 33 ABI plus five compiler tests under each of
+Stacked and Tree Borrows Miri. Source checksums include the three new files and
+match after validation. Broader GNU and musl runs each pass 200 tests
+(99 ABI, 71 backend, three runtime and 27 helper). Formatting, all-feature
+checking and default/all-feature Clippy pass. Miri emits two new native-only
+unused-item warnings alongside existing warnings. These gates validate the
+test-only components, not production activation or performance acceptance.
+
+The packed whole-function pass now composes tag/bits reads, scalar stores and
+helper calls from the immutable ordinary source. It converts normal returns to
+the packed `RETURNED` status, shares one writer and one helper signature when
+needed, and checks exact source-plus-candidate IR expansion before cloning.
+Rewrite records, terminal analysis and block coverage use the budget allocator;
+signature parameter/return buffers are fallibly reserved, capacity-checked and
+charged for the candidate lifetime. Cranelift-owned transient allocation remains
+an existing resource-policy caveat, not a newly completed gate.
+
+An independent whole-function walk binds every checked fragment to its source
+instruction, follows its continuation through block splits, claims every added
+block exactly once and preserves unrelated instruction order, SSA results,
+branch destinations/arguments, memory flags and block parameters. Normal-return
+constants and dense DFG growth are checked separately. Source null-host guards
+remain valid: the real frontend emits equality/inequality against literal zero
+before helpers. Nonzero/ordered pointer comparisons and host-pointer escape are
+not admitted. Mutation tests cover unrelated constants, return status, original
+branch targets and instruction order; allocation failures and one-less IR limits
+leave the source and ledger unchanged.
+
+`Failure::AuditPackedLowering` runs this pass on the real frontend IR for all
+nine workloads plus predicate/cold scripts, then deliberately stops before native
+publication. Generated full-entry fixtures exercise combined scalar operations
+and helper completion/decline/panic/refusal through the existing canonical oracle.
+This is test-only compiler composition and source coverage, not activation in
+the Lua runtime or performance evidence. Sources are `packed_lower*.rs` and the
+backend audit hook; targets are `jit-payload-packed-lower` and its `-miri`
+counterpart. Evidence uses `packed-lower-*`.
+
+Source `81a5fdc` passes six focused GNU/musl tests and four pure compiler tests
+under each of Stacked/Tree Borrows Miri; the source manifest matches after both
+runs. Broader GNU/musl suites each pass 206 tests (99 ABI, 77 backend, three
+existing-transport runtime and 27 helper). Real i686 retains 33 packed ABI passes;
+the native compiler is not built there. Formatting, all-feature checking and
+default/all-feature Clippy pass with warnings, including two new Clippy warnings
+in the whole-function checker. Initial audit failures (test assertion formatting,
+then overly strict null-host admission) are retained alongside corrected runs.
+The eleven workload functions alone do not establish every register-prefix boundary.
+
+Packed entries now also pass through the owning native compiler pipeline under
+test-only `RequirePackedPayload`. The module declaration carries the final I32
+return type while the original ordinary source is built and checked with its
+void signature; installation then verifies that the lowered signature matches
+the declaration. Candidate signature charges survive context/module destruction,
+including errors. The distinct `EntryKind::Packed` does not satisfy the legacy
+two-word `is_payload` predicate. Raw/linked invocation and canonical-frame/scratch
+policies instead use `needs_canonical_frame`; `Code::invoke_packed` is the separate
+typed entry and preserves the entry adapter's errors without replay.
+
+Owning-entry tests compare scalar/table/Boolean execution and the existing full
+loop entry/budget/scalar-guard matrix with ordinary code. Nil initialization is
+compiled and executed for every initialized prefix from one through 256 registers,
+with an extra untouched canonical tail. The packed compiler and audit now use
+the existing bounded payload Nil-fanout allowance, not relaxed host limits.
+Exact/one-less IR bounds, zero code quota and 128 injected allocation positions
+exercise prepublication refusal, ledger/mapping reclamation and survival of an
+already live packed entry.
+
+This integration found a concrete boundary bug: a fixed unwritten-PC marker
+rejected legitimate `usize::MAX` unknown-PC exits. Fix `3c2e7a1` selects a marker
+distinct from the input PC and adds both highest-PC cases, including rejection of
+partially unwritten exits. The original failed loop run remains in evidence.
+These were owning native-entry tests, **not Lua runtime activation**. At that
+stage the runtime did not dispatch packed entries; the subsequent integration
+is described below. Evidence uses `packed-entry-*`; the focused
+native target is `jit-payload-packed-entry`.
+
+Owning-entry source `c73b26e` passes five focused native tests. Broad GNU/musl
+suites each pass 211 tests (99 ABI, 82 backend, three existing-transport runtime,
+27 helper). Both Stacked/Tree Borrows Miri pass 33 packed ABI and four compiler
+tests, with the complete source manifest unchanged afterward. Real i686 retains
+33 ABI passes; native compiler execution is excluded there. Formatting,
+all-feature checking and default/all-feature Clippy pass with existing warnings.
+The packed selection currently skips integer-loop augmentation: its native loop
+matrix proves semantic equivalence to optimized ordinary entries, not retention
+of that optimization. Integer-loop optimization and optimized scoped helpers
+still need integration before performance acceptance.
+
+#### Packed failure progress and test-only runtime integration
+
+ABI commit `1f8b23f` preserves the original helper outcome separately from
+descriptor refresh. A helper that completes before refresh fails reports its
+completed instruction once; a declined store or failed operation reports only
+its preceding source prefix. Uninitialized, mismatched or overbudget failure
+metadata is rejected rather than turned into a fabricated interpreter exit.
+The original Rust panic payload remains separate from transport refusal.
+
+Compiler commit `49cffbe` emits source-owned failure PC, prefix count and kind
+on cold writer/helper failure blocks. The independent checker verifies source
+ownership and each emitted field; combined source/candidate expansion includes
+five additional instructions per failure site. Real generated failure probes
+cover canonical writes, completed helpers followed by failed refresh and exact
+counts. GNU formatting/all-feature checking and 200 broader tests passed before
+runtime integration (101 ABI, 84 backend, three existing runtime, 12 helper).
+The focused composition run also passed 39 packed ABI, six lowering, one progress
+checker and six owning-entry tests. Logs use `packed-progress-*`.
+
+Runtime commit `151b65c` selects the distinct packed ABI **under test-only
+`RequirePackedPayload`**. Successful exits share existing PC, helper/native count,
+array-prefix and panic publication. Canonical descriptors never enter the old
+scalar-slot ABI or overwrite canonical state from stale scratch on return.
+Transport faults stop execution: they publish only checked instruction progress
+plus an already executed array prefix, preserve helper counts and canonical
+effects, then resume the original panic or raise the typed internal fault.
+They do not create an interpreter/guard/budget exit or replay a Lua operation.
+Admission alone does not count a native entry, and unknown progress is not
+invented. This follows the existing Rust-unwind fuel policy: no instruction
+count returns to the executor, so this path does not introduce a new fuel charge.
+It does not claim recoverable execution after an internal transport failure.
+
+The first integrated differential passed 20 script families at eight initial
+fuel values, comparing the packed candidate against ordinary JIT and interpreter
+through repeated steps, interrupts, callback/upvalue activity, collection, array
+kernels and exact counters. The expanded suite additionally covers debug hooks,
+all 256 initialized register prefixes, zero-register/unknown-PC entry and
+five injected failure outcomes through the actual runtime dispatch. Injected
+ABI failure probes and compiler-generated failure probes are separate evidence.
+Publisher tests cover saturation, original payloads, PC and array-prefix counts.
+Expanded GNU and musl suites each pass **205 tests** (101 ABI, 86 backend,
+five consuming-runtime, one failure-publisher, 12 helper). The focused native
+entry target passes eight tests, including zero-register and injected runtime
+failure dispatch. Real i686 passes 35 packed ABI tests without a native compiler.
+Formatting, all-feature checking and default/all-feature Clippy pass, with
+warnings; Clippy reports 190 library-test warnings including the new bridge
+report tuple-complexity warning. Both Stacked and Tree Borrows Miri pass 35 packed
+ABI, four pure whole-lowering and one progress-checker test; the complete source
+manifest matches afterward. Native runtime execution is not run under Miri.
+Logs use `packed-runtime-*`, and targets include `jit-payload-packed-runtime`.
+
+Remaining packed work includes production activation, optimization retention,
+and resource accounting. Fresh
 frozen workload profiles and original hardware/compiled-Off gates still decide
 acceptance; no speedup or production activation is claimed by these fixtures.
 

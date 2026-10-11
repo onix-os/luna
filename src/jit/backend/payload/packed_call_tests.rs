@@ -2,7 +2,10 @@ use super::*;
 use crate::jit::abi::payload::packed::scoped::bridge::entry;
 use cranelift_codegen::ir::{ExtFuncData, ExternalName};
 
-fn fixture(kind: u32, destination: u32) -> (Function, IrValue, IrValue, Inst, [(u32, FuncRef); 1]) {
+pub(in crate::jit::backend::payload) fn fixture(
+    kind: u32,
+    destination: u32,
+) -> (Function, IrValue, IrValue, Inst, [(u32, FuncRef); 1]) {
     let mut f = Function::new();
     f.signature.call_conv = cranelift_codegen::isa::CallConv::SystemV;
     f.signature

@@ -758,10 +758,36 @@ jit-payload-packed-reads:
 jit-payload-packed-reads-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::packed_reads:: -- --test-threads=1
 
+.PHONY: jit-payload-packed-writes jit-payload-packed-writes-miri
+jit-payload-packed-writes:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::packed_writes:: $(ARGS)
+
+jit-payload-packed-writes-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::packed_writes:: -- --test-threads=1
+
+.PHONY: jit-payload-packed-lower jit-payload-packed-lower-miri
+.PHONY: jit-payload-packed-entry
+.PHONY: jit-payload-packed-runtime
+jit-payload-packed-runtime:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::packed_runtime:: $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::payload_runtime_tests::packed_ $(ARGS)
+
+jit-payload-packed-entry:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::packed_entry_tests:: $(ARGS)
+
+jit-payload-packed-lower:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::packed_lower:: $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::packed_progress:: $(ARGS)
+
+jit-payload-packed-lower-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::packed_lower:: -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::packed_progress:: -- --test-threads=1
+
 jit-payload-model:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload:: $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload:: $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::payload_runtime_tests:: $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::packed_runtime:: $(ARGS)
 
 jit-payload-model-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload:: -- --test-threads=1
@@ -1707,6 +1733,12 @@ help:
 	@echo "  jit-payload-packed-calls-miri Check packed lowering under Miri"
 	@echo "  jit-payload-packed-reads Verify packed scalar reads"
 	@echo "  jit-payload-packed-reads-miri Check packed reads under Miri"
+	@echo "  jit-payload-packed-writes Verify packed scalar stores"
+	@echo "  jit-payload-packed-writes-miri Check packed stores under Miri"
+	@echo "  jit-payload-packed-lower Verify whole packed lowering"
+	@echo "  jit-payload-packed-entry Verify owned packed native entries"
+	@echo "  jit-payload-packed-runtime Check packed runtime parity"
+	@echo "  jit-payload-packed-lower-miri Check whole lowering under Miri"
 	@echo "  jit-payload-relocations Check direct/indirect relocation budgets"
 	@echo "  jit-helper-transports   Test scratch and direct helpers"
 	@echo "  jit-helper-transports-miri Check helper transports under Miri"

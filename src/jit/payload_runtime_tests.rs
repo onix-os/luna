@@ -62,6 +62,15 @@ fn counters(s: JitStats) -> [u64; 25] {
 
 #[test]
 fn payload_nil_fanout_preserves_every_register_prefix() {
+    nil_fanout_contract(backend::Failure::RequirePayload);
+}
+
+#[test]
+fn packed_nil_fanout_preserves_every_register_prefix() {
+    nil_fanout_contract(backend::Failure::RequirePackedPayload);
+}
+
+fn nil_fanout_contract(failure: backend::Failure) {
     for registers in 1u16..=256 {
         let names = (0..registers - 1)
             .map(|index| format!("r{index}"))
@@ -78,7 +87,7 @@ fn payload_nil_fanout_preserves_every_register_prefix() {
             ..Default::default()
         })
         .unwrap();
-        lua.enter(|ctx| ctx.jit().0.borrow_mut().memory_failure = backend::Failure::RequirePayload);
+        lua.enter(|ctx| ctx.jit().0.borrow_mut().memory_failure = failure);
         let executor = source(&mut lua, &script);
         assert_eq!(lua.prepare_jit().unwrap(), 1);
         assert_eq!(lua.execute::<String>(&executor).unwrap(), "anchored");
@@ -97,6 +106,11 @@ fn payload_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
 #[test]
 fn bound_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
     payload_runtime_contract(backend::Failure::RequireBoundPayload);
+}
+
+#[test]
+fn packed_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
+    payload_runtime_contract(backend::Failure::RequirePackedPayload);
 }
 
 fn payload_runtime_contract(failure: backend::Failure) {
@@ -121,6 +135,7 @@ fn payload_runtime_contract(failure: backend::Failure) {
         ("local co=coroutine.create(function() local n=0 local function f(x) n=n+x return n end coroutine.yield(f) return n end) local ok,f=coroutine.resume(co) assert(ok) local result for i=1,100 do result=f(i) end local ok,n=coroutine.resume(co) assert(ok) return result+n", 10100, false),
         ("local n=0 local function f(x) n=n+x return n end for i=1,120 do if i%2==0 then debug.setupvalue(f,1,i) end f(1) end return n", 121, false),
         ("local t={} t.self=t local v=0 for i=1,120 do if i%2==0 then v=t else v=i end end assert(v.self==t) return 120", 120, false),
+        ("local ticks=0 debug.sethook(function() ticks=ticks+1 end,'',7) local n=0 local function f(v) n=n+v end for i=1,120 do f(i) end debug.sethook() assert(ticks>0) return n", 7260, false),
     ] {
         for initial in [-1, 0, 1, 63, 64, 65, 65536, i32::MAX] {
             let mut reference = state(JitMode::Off, false);
@@ -152,7 +167,13 @@ fn payload_runtime_contract(failure: backend::Failure) {
                 assert_eq!(actual_step, expected_step);
                 assert_eq!(counters(candidate.jit_stats()), counters(control.jit_stats()), "{script}: initial={initial} turn={turn}");
                 assert_eq!(candidate.jit_stats().total_dispatches, reference.jit_stats().total_dispatches);
-candidate.enter(|ctx| assert!(ctx.jit().0.borrow().code.values().all(|cached| cached.code.entry_kind.is_payload())));
+                candidate.enter(|ctx| assert!(ctx.jit().0.borrow().code.values().all(|cached| {
+                    cached.code.entry_kind == match failure {
+                        backend::Failure::RequirePackedPayload => backend::EntryKind::Packed,
+                        backend::Failure::RequireBoundPayload => backend::EntryKind::FrameBound,
+                        _ => backend::EntryKind::Checked,
+                    }
+                })));
                 if actual_step.0 { finished = true; break; }
                 if turn % 11 == 0 {
                     reference.gc_collect();

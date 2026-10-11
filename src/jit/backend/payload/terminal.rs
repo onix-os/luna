@@ -75,6 +75,15 @@ impl<'f> Analysis<'f> {
         true
     }
 
+    pub(super) fn admits_source(
+        &mut self,
+        function: &Function,
+        bits_store: Inst,
+        index: u32,
+    ) -> bool {
+        std::ptr::eq(self.function, function) && self.admits(bits_store, index)
+    }
+
     fn path(&mut self, mut inst: Inst, index: u32) -> bool {
         let f = self.function;
         loop {

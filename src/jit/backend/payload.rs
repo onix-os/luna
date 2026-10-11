@@ -13,7 +13,12 @@ mod bound_writes;
 mod host_stack;
 mod numeric_reads;
 mod packed_calls;
+#[cfg(not(miri))]
+mod packed_entry_tests;
+pub(super) mod packed_lower;
+mod packed_progress;
 mod packed_reads;
+mod packed_writes;
 #[cfg(all(test, not(miri)))]
 pub(super) mod read_audit;
 mod reads;
@@ -32,6 +37,7 @@ pub(in crate::jit) enum Contract {
 pub(in crate::jit) enum EntryKind {
     Ordinary = 0,
     Checked = 1,
+    Packed = 2,
     FrameBound = 3,
 }
 
@@ -46,6 +52,10 @@ impl EntryKind {
 
     pub(in crate::jit) const fn is_payload(self) -> bool {
         self as u8 & 1 != 0
+    }
+
+    pub(in crate::jit) const fn needs_canonical_frame(self) -> bool {
+        self.is_payload() || matches!(self, Self::Packed)
     }
 }
 
@@ -164,6 +174,18 @@ fn scan(
     helpers: &[(u32, FuncRef)],
     mut visit: impl FnMut(Rewrite) -> Result<(), JitError>,
 ) -> Result<(), JitError> {
+    scan_with_tags(function, slots, host, registers, helpers, false, &mut visit)
+}
+
+fn scan_with_tags(
+    function: &Function,
+    slots: IrValue,
+    host: IrValue,
+    registers: usize,
+    helpers: &[(u32, FuncRef)],
+    tags: bool,
+    mut visit: impl FnMut(Rewrite) -> Result<(), JitError>,
+) -> Result<(), JitError> {
     if registers > 256 {
         return Err(invalid());
     }
@@ -216,7 +238,7 @@ fn scan(
                     {
                         return Err(invalid());
                     }
-                    if offset % 16 == 8 {
+                    if tags || offset % 16 == 8 {
                         visit(Rewrite::Read(inst, offset as u32 / 16))?;
                     }
                 }
@@ -930,6 +952,32 @@ fn incompatible_payload_selections_refuse_before_allocating_native_memory() {
 
 #[cfg(not(miri))]
 impl Code {
+    pub(in crate::jit) fn invoke_packed<const CAPACITY: usize>(
+        &self,
+        frame: &mut helpers::Frame<'_, '_, '_, '_>,
+        pc: usize,
+        budget: u32,
+    ) -> Result<Exit, crate::jit::abi::payload::packed::scoped::bridge::entry::Failure> {
+        self.invoke_packed_report::<CAPACITY>(frame, pc, budget)
+            .map_err(|fault| fault.cause)
+    }
+
+    pub(in crate::jit) fn invoke_packed_report<const CAPACITY: usize>(
+        &self,
+        frame: &mut helpers::Frame<'_, '_, '_, '_>,
+        pc: usize,
+        budget: u32,
+    ) -> Result<Exit, crate::jit::abi::payload::packed::scoped::bridge::entry::Fault> {
+        use crate::jit::abi::payload::packed::scoped::bridge::entry;
+        assert_eq!(
+            self.entry_kind,
+            EntryKind::Packed,
+            "entry requires packed code"
+        );
+        let entry: entry::Entry = unsafe { std::mem::transmute(self.entry) };
+        unsafe { entry::invoke_report::<CAPACITY>(frame, entry, self.registers, pc, budget) }
+    }
+
     #[inline(always)]
     pub(in crate::jit) fn invoke_payload<const CAPACITY: usize>(
         &self,
@@ -1046,7 +1094,14 @@ fn run<'gc>(
             projection: None,
         };
         let exit = if let Some(payload) = payload {
-            payload.0.invoke_payload::<256>(&mut frame, pc, budget)
+            if payload.0.entry_kind == EntryKind::Packed {
+                payload
+                    .0
+                    .invoke_packed::<256>(&mut frame, pc, budget)
+                    .unwrap()
+            } else {
+                payload.0.invoke_payload::<256>(&mut frame, pc, budget)
+            }
         } else {
             let mut host = abi::Host {
                 data: std::ptr::from_mut(&mut frame).cast(),
@@ -1081,17 +1136,17 @@ fn run<'gc>(
 #[cfg(not(miri))]
 #[test]
 fn ordinary_lua_lowering_preserves_each_exit_and_canonical_register() {
-    ordinary_payload_contract(false);
+    ordinary_payload_contract(Failure::RequirePayload);
 }
 
 #[cfg(not(miri))]
 #[test]
 fn bound_lua_lowering_preserves_each_exit_and_canonical_register() {
-    ordinary_payload_contract(true);
+    ordinary_payload_contract(Failure::RequireBoundPayload);
 }
 
 #[cfg(not(miri))]
-fn ordinary_payload_contract(bound: bool) {
+fn ordinary_payload_contract(failure: Failure) {
     for (source, result) in [
         (
             "local x = 1; for i = 1, 20 do x = x + i end; return x",
@@ -1119,12 +1174,10 @@ fn ordinary_payload_contract(bound: bool) {
                     1024 * 1024,
                     BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
                     super::super::work::Limits::from(&super::super::JitConfig::default()),
-                    if bound {
-                        Failure::RequireBoundPayload
-                    } else if source.contains("for i") {
+                    if failure == Failure::RequirePayload && source.contains("for i") {
                         Failure::RequirePayloadLoop
                     } else {
-                        Failure::RequirePayload
+                        failure
                     },
                 )
                 .unwrap(),

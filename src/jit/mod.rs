@@ -1803,7 +1803,7 @@ impl Runtime {
     ) -> u32 {
         let register_count = if EXACT { CAPACITY } else { code.registers };
         #[cfg(all(test, not(miri)))]
-        if code.entry_kind.is_payload() && code.array_kernels.is_none() {
+        if code.entry_kind.needs_canonical_frame() && code.array_kernels.is_none() {
             return self.invoke_frame::<CAPACITY, false, false>(
                 code,
                 ctx,
@@ -1982,7 +1982,7 @@ impl Runtime {
         };
         let pc = *frame.registers.pc;
         #[cfg(all(test, not(miri)))]
-        if code.entry_kind.is_payload() && array_prefix.is_some() {
+        if code.entry_kind.needs_canonical_frame() && array_prefix.is_some() {
             let slots = unsafe { std::slice::from_raw_parts(slots, register_count) };
             for (slot, dest) in slots
                 .iter()
@@ -2012,10 +2012,18 @@ impl Runtime {
             leaf::Binding::from_origin(origin, scratch)
         });
         #[cfg(all(test, not(miri)))]
-        let payload_exit = code
-            .entry_kind
-            .is_payload()
-            .then(|| code.invoke_payload::<CAPACITY>(&mut frame, pc, budget));
+        let payload_exit = if code.entry_kind == backend::EntryKind::Packed {
+            Some(
+                match code.invoke_packed_report::<CAPACITY>(&mut frame, pc, budget) {
+                    Ok(exit) => exit,
+                    Err(fault) => self.packed_failure(&mut frame, fault, array_prefix.as_ref()),
+                },
+            )
+        } else {
+            code.entry_kind
+                .is_payload()
+                .then(|| code.invoke_payload::<CAPACITY>(&mut frame, pc, budget))
+        };
         #[cfg(all(test, miri))]
         let payload_exit: Option<abi::Exit> = None;
         #[cfg(test)]
@@ -2052,7 +2060,7 @@ impl Runtime {
         };
         let write_back = !DEFER || frame.panic.is_some();
         #[cfg(test)]
-        let write_back = write_back && !code.entry_kind.is_payload();
+        let write_back = write_back && !code.entry_kind.needs_canonical_frame();
         if write_back {
             let slots = unsafe { std::slice::from_raw_parts(slots, register_count) };
             for (slot, dest) in slots
@@ -3413,3 +3421,11 @@ mod helper_counts;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod payload_runtime_tests;
+
+#[cfg(all(
+    test,
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod packed_runtime;
