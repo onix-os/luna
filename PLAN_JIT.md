@@ -11,6 +11,41 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Static payload gateways — direct linking trial
+
+Commit `630f6a2` links the ten existing payload helpers and two scalar writers
+directly for private frame-bound entries. Checked entries retain dynamic gateway
+dispatch. The compiler verifies each table/target load, signature and host,
+rejects shared or escaping targets, then removes exactly two loads per call.
+Independent verification preserves call arguments/results, other instructions,
+branch-pool contents, memory flags and aliases. Private host-stack copies stay;
+their exact expansion accounts for one fewer host use per linked site. Helper
+semantics, callback boundaries and canonical frame handling are unchanged.
+
+Symbol names, writer signatures and bounded linear rewrite/use maps are charged.
+The existing relocation fixture now also checks actual emitted frame-bound
+relocations, exact limits, refusal and complete charge cleanup; checked payload
+still has zero relocations in that fixture. An initial extra admission check
+incorrectly counted simultaneous IR copies as emitted IR and rejected existing
+loop tests. That draft is retained, along with fixture compilation failures;
+final emitted-IR limits and original resource assertions are unchanged. Opaque
+Cranelift internal allocation accounting remains an existing full-plan caveat.
+
+GNU and musl each pass **63 ABI + 63 backend + three runtime + 27 helper tests**;
+format/check-all pass. Six new direct-link tests cover all twelve targets,
+exact/one-less workspace limits, 96 well-formed source mutations, 60 rewritten
+mutations, host-copy accounting and a branch-pool change hidden behind an
+unchanged instruction handle. Both Miri models pass these six tests and the
+symbol-to-gateway identity test. Existing actual-native differential, runtime,
+GC/fuel/interrupt and helper checks remain intact.
+
+Frozen `static` passes 129 payload tests and check-all; image SHA-256 is
+`01688e32485fa266b65008955e9c4532169cd836910a1ddc247d0be6a58e2a4c`.
+One release-only unused-wrapper warning is retained. Activation is confined to
+the frozen experiment; profiling/timing acceptance has not been established.
+Evidence: `payload-static-dispatch-*` and `payload-terminal-profile/static*`
+under `target/jit-evidence/short-slice-performance/`.
+
 #### GetUpvalue destination-only refresh — scoped captures
 
 Commit `fb4a461` resolves closed, parent-frame, current-frame and foreign-stack
