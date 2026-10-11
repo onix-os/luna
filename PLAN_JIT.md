@@ -74,7 +74,11 @@ but remains **716,071 (+0.5415%) above the restored ordinary JIT**. Generated
 callback work stays 14,137,456 instructions. Its wrapper grows by 129,698
 instructions (two per entry) while the retiring materializer costs less.
 Upvalue Auto grows 162,936 (+0.1015%); most of that delta is in unchanged
-`Admitted::new`, not the new materializer, and is not yet causally explained.
+`Admitted::new`, not the new materializer. Subsequent instruction attribution
+finds all 156,852 extra instructions in the inlined `Registry::resolve` scan:
+12 instructions execute 13,071 extra times, or three extra entries per 4,357
+admissions. Normalized admission disassembly is identical. Preserve the measured
+total rather than subtracting this lookup cost from the candidate.
 Integer/float Off totals are identical; upvalue Off differs by 242 instructions.
 Integer/float Auto each grow about 0.1%; allocation/GC improves 0.0495%.
 This is not a sufficient performance result and no hardware timing gate passes
@@ -94,11 +98,55 @@ refreshing helper through that shared table. GNU validation passes 38 ABI,
 33 backend, two runtime and two focused table/capacity tests, plus format and
 all-feature checks. Focused terminal and table/capacity tests pass under both
 Miri aliasing models. The same 75-test native lane passes on x86_64 musl.
-Matched-profile validation remains pending; no further saving is assumed.
-Initial stale-field
-test compile errors and a hard-coded mutation-test instruction index are
+Initial stale-field test compile errors and a hard-coded mutation-test index are
 retained in `payload-terminal-table-initial.log` and
 `payload-terminal-table-corrected.log`.
+
+The shared-table experiment is now measured and **not accepted for activation**.
+Its frozen stripped SHA-256 is
+`967ba3feb1dd27153ebc3343e4057c14385205929974b25afa293c15369d280e`.
+Ten original workload/mode profiles pass source/image checks and exact allocated
+section equivalence between stripped and symbol images. Callback instructions
+fall again, 132,947,695 → 132,558,756, but remain 327,132 (+0.2474%) above
+the ordinary JIT. Integer/float/upvalue Off totals match the original payload
+control. Five Auto snapshot peaks differ, so strict non-timing equality still
+fails; `table-analysis.json` retains every statistic and all 13 profiler events.
+
+Eight further profiles run ordinary and shared-table images through the same
+invocation alias, twice each for callbacks and upvalues. Callback counts repeat
+exactly. Ordinary upvalue counts are 160,469,718 / 160,188,556; shared-table
+counts are 160,708,056 / 160,711,310. Same-image variation is observable, so the
+earlier single upvalue delta is not a stable estimate. Both paired repeats still
+use more instructions than ordinary. Do not treat instruction counts as timing.
+
+The unchanged nine-case hardware gate then runs **18 complete commands**:
+CPUs 0/16, three rotated windows, ordinary/candidate/same-inode placebo.
+All 18 aggregate gates fail; the six candidate commands all fail callbacks and
+metamethods, with allocation/GC also failing three. For Auto workloads, the
+ordinary-time/candidate-time ranges are:
+
+| Workload | CPU0 | CPU16 |
+| --- | --- | --- |
+| Integer loop | 0.8945–0.9049 | 0.8090–0.8136 |
+| Float loop | 0.9114–0.9292 | 0.8333–0.8392 |
+| Metamethods | 0.9122–0.9193 | 0.8947–0.9168 |
+| Rust callbacks | 0.9959–1.0002 | 0.9926–1.0084 |
+| Closure/upvalue | 0.9974–1.0092 | 0.9559–1.0136 |
+
+Ratios below one mean the candidate is slower. Integer same-inode placebo
+ratios stay 0.9942–1.0052, unlike the substantial candidate regression. All 216
+full non-timing comparisons are retained: 42 differ, only in `code_bytes` and/or
+`snapshot_peak_bytes`; execution counters match. Source/image hashes verify
+after collection, invocation links are removed, and per-command CPU/IO pressure,
+frequency and process telemetry is retained. No owned builds, tests or profiles
+overlap hardware timing. The screen driver completing successfully is not a
+performance pass. Evidence is in `payload-terminal-profile/hardware-screen`,
+`hardware-analysis.json`, `repeat-analysis.json` and `admission-cost.tsv`.
+
+Keep the validated shared-table/terminal models test-only. The production JIT
+remains the ordinary transport; do not ship this payload activation or relax any
+original threshold. Further work must remove the payload path's generated-code
+overhead across loops/helpers, not merely its per-entry pointer setup.
 
 Target the ordinary wrapper's **12,321,657 import/writeback instructions**,
 not another tiny scalar-guard or rejected callback-setup/cache variation.
