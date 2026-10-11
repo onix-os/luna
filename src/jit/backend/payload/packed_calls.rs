@@ -79,6 +79,10 @@ pub(super) fn emit(f: &mut Function, input: Input) -> Call {
         .extend([types::I64, types::I32, types::I32, types::I32, types::I32].map(AbiParam::new));
     signature.returns.push(AbiParam::new(types::I32));
     let signature = f.import_signature(signature);
+    emit_with_signature(f, input, signature)
+}
+
+pub(super) fn emit_with_signature(f: &mut Function, input: Input, signature: SigRef) -> Call {
     let before = f.layout.inst_block(input.call).unwrap();
     let next = f.layout.next_inst(input.call).unwrap();
     let after = f.dfg.make_block();
@@ -127,6 +131,23 @@ pub(super) fn emit(f: &mut Function, input: Input) -> Call {
         signature,
         blocks: [before, after, refused],
     }
+}
+
+pub(super) fn fragment<'a>(
+    f: &Function,
+    call: &'a Call,
+) -> Result<packed_lower::Fragment<'a>, JitError> {
+    Ok(packed_lower::Fragment {
+        source: call.input.call,
+        first: f
+            .layout
+            .block_insts(call.blocks[0])
+            .rev()
+            .nth(6)
+            .ok_or_else(invalid)?,
+        next: f.layout.first_inst(call.blocks[1]),
+        blocks: &call.blocks[1..],
+    })
 }
 
 pub(super) fn verify_source(
@@ -233,4 +254,4 @@ pub(super) fn verify(f: &Function, call: &Call) -> Result<(), JitError> {
 }
 
 #[path = "packed_call_tests.rs"]
-mod tests;
+pub(super) mod tests;

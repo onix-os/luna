@@ -189,6 +189,37 @@ pub(super) fn verify_source(
     Ok(())
 }
 
+pub(super) fn fragment<'a>(
+    f: &Function,
+    read: &'a Read,
+) -> Result<packed_lower::Fragment<'a>, JitError> {
+    match read {
+        Read::Tag(input) => Ok(packed_lower::Fragment {
+            source: input.inst,
+            first: std::iter::successors(Some(input.inst), |&i| f.layout.prev_inst(i))
+                .nth(20)
+                .ok_or_else(invalid)?,
+            next: f.layout.next_inst(input.inst),
+            blocks: &[],
+        }),
+        Read::Bits { input, blocks, .. } => Ok(packed_lower::Fragment {
+            source: input.inst,
+            first: f
+                .layout
+                .block_insts(blocks[0])
+                .rev()
+                .nth(8)
+                .ok_or_else(invalid)?,
+            next: if input.kind == Kind::Bits(types::F64) {
+                f.layout.next_inst(input.inst)
+            } else {
+                f.layout.first_inst(blocks[1])
+            },
+            blocks: &blocks[1..],
+        }),
+    }
+}
+
 fn operation(
     f: &Function,
     inst: Inst,

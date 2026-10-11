@@ -13,6 +13,7 @@ mod bound_writes;
 mod host_stack;
 mod numeric_reads;
 mod packed_calls;
+pub(super) mod packed_lower;
 mod packed_reads;
 mod packed_writes;
 #[cfg(all(test, not(miri)))]
@@ -165,6 +166,18 @@ fn scan(
     helpers: &[(u32, FuncRef)],
     mut visit: impl FnMut(Rewrite) -> Result<(), JitError>,
 ) -> Result<(), JitError> {
+    scan_with_tags(function, slots, host, registers, helpers, false, &mut visit)
+}
+
+fn scan_with_tags(
+    function: &Function,
+    slots: IrValue,
+    host: IrValue,
+    registers: usize,
+    helpers: &[(u32, FuncRef)],
+    tags: bool,
+    mut visit: impl FnMut(Rewrite) -> Result<(), JitError>,
+) -> Result<(), JitError> {
     if registers > 256 {
         return Err(invalid());
     }
@@ -217,7 +230,7 @@ fn scan(
                     {
                         return Err(invalid());
                     }
-                    if offset % 16 == 8 {
+                    if tags || offset % 16 == 8 {
                         visit(Rewrite::Read(inst, offset as u32 / 16))?;
                     }
                 }

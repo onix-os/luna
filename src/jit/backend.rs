@@ -349,6 +349,8 @@ pub(super) enum Failure {
     RequireBoundPayload,
     #[cfg(not(miri))]
     AuditPayloadReads,
+    #[cfg(not(miri))]
+    AuditPackedLowering,
     RequireReadCache,
     RequireWriteback,
     RequireIntegerLoop,
@@ -1336,6 +1338,23 @@ fn compile_selected_rooted(
     } else {
         instructions
     };
+    #[cfg(all(test, not(miri)))]
+    if failure == Failure::AuditPackedLowering {
+        let candidate = payload::packed_lower::lower(
+            &context.func,
+            parameters[0],
+            parameters[4],
+            snapshot.registers,
+            &helper_refs,
+            snapshot.operations.allocator().clone(),
+            expansion,
+        )?;
+        cranelift_codegen::verify_function(&candidate.function, module.isa())
+            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        return Err(JitError::Compilation(
+            "packed lowering audit complete".into(),
+        ));
+    }
     #[cfg(all(test, not(miri)))]
     if failure == Failure::AuditPayloadReads {
         payload::read_audit::run(

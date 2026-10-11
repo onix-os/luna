@@ -96,6 +96,10 @@ pub(super) fn emit(f: &mut Function, input: Input) -> Write {
         .extend([types::I64, types::I32, types::I64, types::I64].map(AbiParam::new));
     signature.returns.push(AbiParam::new(types::I32));
     let signature = f.import_signature(signature);
+    emit_with_signature(f, input, signature)
+}
+
+pub(super) fn emit_with_signature(f: &mut Function, input: Input, signature: SigRef) -> Write {
     let before = f.layout.inst_block(input.bits_store).unwrap();
     let after = f.dfg.make_block();
     f.layout.remove_inst(input.tag_store);
@@ -174,6 +178,23 @@ pub(super) fn emit(f: &mut Function, input: Input) -> Write {
         signature,
         cast,
     }
+}
+
+pub(super) fn fragment<'a>(
+    f: &Function,
+    write: &'a Write,
+) -> Result<packed_lower::Fragment<'a>, JitError> {
+    Ok(packed_lower::Fragment {
+        source: write.input.tag_store,
+        first: f
+            .layout
+            .block_insts(write.blocks[0])
+            .rev()
+            .nth(12 + usize::from(write.cast.is_some()))
+            .ok_or_else(invalid)?,
+        next: f.layout.first_inst(write.blocks[1]),
+        blocks: &write.blocks[1..],
+    })
 }
 
 pub(super) fn verify_source(
