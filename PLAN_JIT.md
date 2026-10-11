@@ -148,6 +148,26 @@ remains the ordinary transport; do not ship this payload activation or relax any
 original threshold. Further work must remove the payload path's generated-code
 overhead across loops/helpers, not merely its per-entry pointer setup.
 
+The next test-only lowering proves a destination tag from existing equality
+guards before removing its redundant reload. Every incoming path must prove the
+same constant scalar tag; intervening stores/calls, bypasses, unsupported guards
+or exhausted work refuse the optimization. The predecessor graph is charged,
+search depth and total work are bounded, and source admission has a separate
+verification budget. After rewriting, an independent walk over the emitted CFG
+rechecks the guard/freshness proof, in addition to exact write-shape validation.
+Null-pointer checks, Boolean bit validation, canonical materialization and
+terminal descriptor retirement remain unchanged. No trusted-pointer ABI is
+introduced. A forced compile witness proves the optimization is actually used
+by an original integer-loop source; native tests retain the null fallback.
+64 source mutations and five emitted mutations exercise the refusal boundary.
+GNU validation passes 38 ABI, 38 backend and two runtime tests; the subsequent
+six-test focused lane includes the additional emitted-mutation test and passes
+with format/all-feature checks. Musl passes 38 ABI, 39 backend and two runtime
+tests. Both Miri aliasing models pass the four non-native proof tests. Initial
+test-only borrow/API errors remain in the diagnostic logs. The isolated matched
+release build is in progress; this is not an activated runtime optimization or
+an accepted speedup.
+
 Target the ordinary wrapper's **12,321,657 import/writeback instructions**,
 not another tiny scalar-guard or rejected callback-setup/cache variation.
 Generic direct-payload transport already exists as an unaccepted model, but
