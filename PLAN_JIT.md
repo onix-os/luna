@@ -11,6 +11,63 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Same-thread callback handoff — test-only candidate
+
+`e51470f` introduces a scoped executor handoff for Lua-to-callback and a direct
+callback Return-to-Lua on the same thread. A matching successor frame, cleared
+running flag and absence of deferred error prove the next normal frame. The
+original frame match finishes before continuation, dropping its stack/state
+borrows and all native descriptors. Exact step/callback/VM fuel charges and the
+interruption test remain before continuation. Auto mode is queried again after
+callbacks; each VM entry still checks hooks, source identity, code ownership and
+policy. No code lease, manager borrow, stack pointer or value descriptor is
+retained across user code. Auto-mode interpreted frames can also use this driver;
+this is not a change to native coverage or an assertion that each handoff follows
+machine-code execution. Other callback outcomes retain general executor dispatch.
+
+Four new tests cover 90 paired schedules (nine scripts, five fuel budgets,
+Off/Auto), a four-schedule interpreter-only model, typed Rust callback panic
+unwinding, and nested/panicking test-scope restoration. Comparisons include
+physical frames, scalar stacks, exact fuel/interruptions, results, all execution
+counters, callback PC/base/fuel observations and collection between steps.
+Scripts include direct/tail callbacks, nested executors/open captures, protected
+errors, coroutines, close handlers, hooks and callback mode/cache mutation.
+Callback observations acquire the manager borrow; the panic fixture reacquires
+executor, thread, stack and manager borrows after unwinding and preserves the
+original `u64` panic payload. It preserves rather than changes the baseline
+post-panic running flag.
+
+The initial whole-statistics comparison fails at budget zero before a handoff:
+only `accounted_jit_peak_bytes` differs across 42 observations. Separate states
+compile their registered core prototypes in different orders. The corrected
+fixture records preparation statistics, asserts all three historical resource
+peaks stay unchanged throughout each run, then compares every remaining field
+and observation. This is an execution differential with separately checked
+historical peaks, not cross-image resource acceptance or a waiver of benchmark
+resource comparisons. The initial failure remains in `callback-handoff-model.log`.
+
+Initial GNU and musl pass the four new tests, with musl also passing all fourteen
+activation tests. GNU boundary/accounting/sequence/error/suspension/debug targets
+pass 116 executions across fifteen summaries. Both Miri models pass the three
+selected non-native tests. Clippy subsequently identifies an unconditional
+single-iteration loop when the test-only continuation is compiled out.
+`fcc9f01` replaces it with an explicitly consumed next-frame flag rather than
+suppressing the lint. Its GNU default/all-feature Clippy, four focused tests and
+check-all pass; final musl and source-hashed Miri checks are tracked separately.
+
+The first frozen activated build (`handoff`) completes before that loop-shape
+fix. A fresh `handoff2` source at `fcc9f01` includes the fix and the unchanged
+preceding payload activation, plus release-only handoff selection. It runs
+payload and callback/fuel/hook/suspension integration gates before capturing the
+release image. Profiling and original paired native/compiled-Off acceptance are
+still pending. In particular, inspect added Auto-mode checks on disabled-JIT
+callback traffic instead of assuming a shared executor rewrite is free.
+No performance improvement or production activation is accepted yet.
+
+Evidence: `callback-handoff-*` and `payload-terminal-profile/handoff*` beneath
+`target/jit-evidence/short-slice-performance/`. Original full performance,
+resource, platform and release requirements remain open.
+
 #### Static payload gateways — rejected direct linking trial
 
 **Decision:** withdraw this trial and restore source/Makefile to `9b59197`.
