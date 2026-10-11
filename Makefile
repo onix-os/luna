@@ -690,6 +690,13 @@ jit-payload-control-miri:
 jit-payload-read-audit:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::read_audit::original_workload_reads -- --exact --nocapture
 
+.PHONY: jit-payload-set-list jit-payload-set-list-miri
+jit-payload-set-list:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::set_list_tests:: $(ARGS)
+
+jit-payload-set-list-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::runtime::set_list_tests:: -- --test-threads=1
+
 jit-payload-bound:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::bound_tests:: $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::bound_ $(ARGS)

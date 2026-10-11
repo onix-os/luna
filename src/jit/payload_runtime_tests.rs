@@ -133,6 +133,8 @@ fn payload_runtime_contract(failure: backend::Failure) {
     for (script, expected, arrays) in [
         ("local s=0 for i=1,120 do s=s+i end return s", 7260, false),
         ("local s=0.0 for i=1,120 do s=s+0.5 end return s", 60, false),
+        ("local s=0 for i=1,120 do local t={i,i+1,false,nil,'x'} s=s+t[1]+t[2] assert(t[3]==false and t[4]==nil and t[5]=='x') end return s", 14640, false),
+        ("local function values(i) return i,i+1 end local s=0 for i=1,120 do local t={values(i)} s=s+t[1]+t[2] end return s", 14640, false),
         ("local function sum() local s=0 for i=1,8 do s=s+i end return s end local function read(t) return t.key end local t={key=3} local n=0 for i=1,80 do n=n+sum()+read(t) end return n", 3120, false),
         ("local n=0 local function f(x) n=n+x return n end for i=1,120 do f(i) end return n", 7260, false),
         ("local n=0 for i=1,120 do n=n+tonumber('1') end return n", 120, false),

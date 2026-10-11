@@ -44,6 +44,10 @@ mod bound_tests;
 #[path = "sparse_binding_tests.rs"]
 mod sparse_binding_tests;
 
+#[cfg(test)]
+#[path = "set_list_tests.rs"]
+mod set_list_tests;
+
 pub(crate) struct Binding<'scope> {
     slots: NonNull<Payload>,
     host: &'scope mut Bridge,
@@ -752,6 +756,11 @@ unsafe extern "C" fn call<const KIND: u32>(
             return result;
         }
     }
+    if KIND == abi::HELPER_SET_LIST {
+        if let Some(result) = set_list(session, slots, a, b, pc) {
+            return result;
+        }
+    }
     let count = session.count;
     let result = helpers::call_direct::<KIND>(unsafe { session.frame.as_mut() }, a, b, c, pc);
     if result != abi::HELPER_PANICKED {
@@ -894,6 +903,80 @@ fn table_operand<'gc>(
         INTEGER | NUMBER | BOOLEAN => unsafe { load(slot) }.map(|value| value.value(Value::Nil)),
         _ => None,
     }
+}
+
+fn set_list(
+    session: &mut Session<'_, '_, '_, '_, '_>,
+    slots: *mut Payload,
+    base: u32,
+    count: u32,
+    pc: u32,
+) -> Option<u32> {
+    let end = base.checked_add(2)?.checked_add(count)?;
+    if end as usize > session.count {
+        return None;
+    }
+    let (Value::Table(table), Value::Integer(mut index)) = (
+        table_operand(session, slots, base)?,
+        table_operand(session, slots, base + 1)?,
+    ) else {
+        return None;
+    };
+    unsafe {
+        session.counts.as_mut().calls += 1;
+        *session.pc.as_ptr() = pc as usize + 1;
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let registers = unsafe { std::ptr::addr_of_mut!(*(*session.frame.as_ptr()).registers) };
+        if !unsafe { LuaRegisters::charge_scoped_fixed_list(registers, count as usize) } {
+            return false;
+        }
+        for offset in 0..count {
+            let Some(next) = index.checked_add(1) else {
+                break;
+            };
+            index = next;
+            let value = table_operand(session, slots, base + 2 + offset)
+                .expect("invalid fixed-list descriptor");
+            table.set_raw(&session.ctx, index.into(), value).unwrap();
+            unsafe {
+                session.counts.as_mut().table_writes += 1;
+            }
+        }
+        let mut canonical = Frame {
+            values: session.values,
+            len: session.count,
+            borrow: PhantomData,
+        };
+        assert!(canonical.store(
+            unsafe { std::slice::from_raw_parts_mut(slots, session.count) },
+            base as usize + 1,
+            Value::Integer(index),
+        ));
+        true
+    }));
+    Some(match result {
+        Ok(true) => {
+            unsafe {
+                session.counts.as_mut().completed += 1;
+            }
+            abi::HELPER_COMPLETED
+        }
+        Ok(false) => {
+            unsafe {
+                session.counts.as_mut().declined += 1;
+                *session.pc.as_ptr() = pc as usize;
+            }
+            abi::HELPER_DECLINED
+        }
+        Err(payload) => {
+            unsafe {
+                session.frame.as_mut().panic = Some(payload);
+            }
+            session.stopped = true;
+            abi::HELPER_PANICKED
+        }
+    })
 }
 
 fn table_write(
