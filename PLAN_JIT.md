@@ -11,6 +11,60 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Scoped SetList transport — allocation overhead reduced
+
+`26faadb` adds a bounded fixed-list payload helper. It reads values through live
+descriptors, charges the same fixed-list fuel through an exclusive fuel-field
+loan, writes table elements and refreshes only the index descriptor. It does not
+borrow the whole frame while sibling descriptor loans are live. Malformed bounds
+and receiver/index types use the existing fallback before any fast-path effects.
+Variable frames decline with the original PC/counters; overflow, partial writes,
+readonly panics and stopped-helper behavior retain the original contract. The
+main-checkout helper and scoped fuel API remain test-only.
+
+Three focused differential/provenance tests cover widths 3/7/256, thirteen value
+kinds, negative/overflow indices, malformed prefixes, zero/large counts, exact
+fuel/PC/counters, readonly/variable frames, terminal scalar values, decline/reentry
+and writes through preserved sibling pointers. Both Stacked and Tree Borrows
+pass all three in both isolated and main-checkout sources. Main GNU and musl each
+also pass the enlarged hybrid runtime oracle, including fixed and variable-list
+table constructors with interpreter/ordinary controls, per-slice fuel/counters
+and periodic GC. These are **four tests/two summaries per native platform**.
+A fresh full GNU Force run is active; the completed 1,780-test wrapper run below
+predates this SetList change.
+
+Activated image
+`3e40e67fea4deda32a37902d991c0c6e9436382212381096abdda017ec1ee2e1`
+completes eleven exact-image profiles. Against the previous split candidate all
+non-timing fields match. Allocation work falls **2,102,357 instructions
+(-6.326%)**, bringing total modeled allocation work to 6,109 instructions below
+the current unactivated production control, rather than its former roughly
+6.75% excess. Callback/integer/float Auto totals are unchanged. Array adds 211
+instructions; upvalue removes 102,022 and metamethod removes 35,716. Integer,
+float and callback Off totals are exact; upvalue Off adds 242 instructions.
+GNU size text grows 1,704 bytes versus the split candidate. Snapshot/code-size
+differences against ordinary production remain, so strict resource equality
+against production still fails.
+
+Two four-way timing campaigns complete **48 commands / 1,296 rows**, using the
+current unactivated root-refactor image `1a8916db` as control/placebo and split
+image `599b4756` as previous candidate. Original thresholds, eleven samples,
+CPU0/16 windows, rotated order, exact-image/source checks and contention telemetry
+remain unchanged, with no owned validation/profile overlap. Direct Auto ratios
+versus current production (first/repeat) are integer **0.99433 / 0.99812**, float
+**0.99493 / 0.99159**, array **0.96406 / 1.00629**, upvalue
+**0.99703 / 0.99137**, metamethod **1.04719 / 1.04400**, callback
+**1.02265 / 1.02321**, allocation **1.01593 / 1.01300**, unscored Oslo
+**0.98795 / 1.00555**, cold **0.99274 / 0.99218**. Allocation's improvement
+is measurable here, but array variance and remaining numeric/upvalue losses
+prevent a general acceptance claim. Candidate callback and aggregate gates pass
+**0/12**. Of all commands, 47 fail and one placebo passes (repeat CPU16 window3);
+that placebo result is not candidate acceptance.
+
+Evidence: `target/jit-evidence/short-slice-performance/payload-set-list-*` and
+`payload-terminal-profile/payload-set-list*/`. Production payload activation,
+the remaining resource costs and full-plan acceptance are still incomplete.
+
 #### Split transport wrappers — measured development change
 
 `cb7ccd5` selects the canonical/ordinary wrapper specialization from the actual
