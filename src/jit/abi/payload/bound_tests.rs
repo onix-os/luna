@@ -1,5 +1,18 @@
 use super::*;
 
+#[test]
+fn bound_scalar_reads_survive_all_value_moves_retirement_and_refresh() {
+    unsafe extern "C" fn read(slots: *const Payload) -> u64 {
+        let slot = unsafe { slots.read() };
+        match slot.tag {
+            BOOLEAN => u64::from(unsafe { slot.pointer.cast::<u8>().read() }),
+            INTEGER | NUMBER => unsafe { slot.pointer.cast::<u64>().read() },
+            _ => 0,
+        }
+    }
+    check_bound_scalar_transitions(read);
+}
+
 unsafe extern "C" fn entry(
     slots: *mut Payload,
     pc: u64,

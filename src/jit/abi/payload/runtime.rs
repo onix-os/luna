@@ -165,6 +165,92 @@ pub(crate) fn check_native_bound_numeric_read(
     entry: unsafe extern "C" fn(*const Payload) -> u64,
     exact_tag: Option<u64>,
 ) {
+    check_native_bound_read(entry, |tag| {
+        matches!(tag, INTEGER | NUMBER) && exact_tag.is_none_or(|exact| tag == exact)
+    });
+}
+
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_bound_scalar_read(entry: unsafe extern "C" fn(*const Payload) -> u64) {
+    check_native_bound_read(entry, |_| true);
+    check_bound_scalar_transitions(entry);
+}
+
+#[cfg(test)]
+pub(crate) fn check_bound_scalar_transitions(entry: unsafe extern "C" fn(*const Payload) -> u64) {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
+        let kinds = [
+            Value::Nil,
+            Value::Boolean(false),
+            Value::Boolean(true),
+            Value::Integer(i64::MIN),
+            Value::Integer(i64::MAX),
+            Value::Number(-0.0),
+            Value::Number(f64::INFINITY),
+            Value::Number(f64::from_bits(0x7ff8000000000042)),
+            Value::String(ctx.intern(b"bound transition")),
+            Value::Table(crate::Table::new(&ctx)),
+            Value::Function(closure.into()),
+            Value::Thread(crate::Thread::new(ctx)),
+            Value::UserData(crate::UserData::new_static(&ctx, 7)),
+        ];
+        let replacement = 0x7ff8000000000063;
+        for initial in kinds {
+            for next in kinds {
+                let mut values = [initial, next];
+                let mut pc = 5;
+                LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                    let mut frame = helpers::Frame {
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: helpers::Counts::default(),
+                        slot_count: 2,
+                        panic: None,
+                        projection: None,
+                    };
+                    with_binding::<2>(&mut frame, |binding| unsafe {
+                        let slots = binding.slots.as_ptr();
+                        let host = binding.host;
+                        assert_eq!(entry(slots), Slot::from_value(initial).bits);
+                        let move_value = host.functions.helpers[(abi::HELPER_MOVE - 1) as usize];
+                        assert_eq!(
+                            move_value(std::ptr::from_mut(host).cast(), slots.cast(), 0, 1, 0, 7),
+                            abi::HELPER_COMPLETED
+                        );
+                        assert_eq!(entry(slots), Slot::from_value(next).bits);
+                        (host.functions.terminal)(host, slots, 0, NUMBER, replacement);
+                        assert_eq!(slots.read().tag, NIL);
+                        assert!(slots.read().pointer.is_null());
+                        assert_eq!(entry(slots), 0);
+                        assert_eq!(
+                            move_value(std::ptr::from_mut(host).cast(), slots.cast(), 0, 0, 0, 9),
+                            abi::HELPER_COMPLETED
+                        );
+                        assert_eq!(entry(slots), replacement);
+                        assert_eq!(host.materializations, 1);
+                    });
+                    assert_eq!(frame.count.calls, 2);
+                    assert_eq!(frame.count.completed, 2);
+                    assert!(frame.panic.is_none());
+                });
+                assert_eq!(pc, 10);
+                let after = Slot::from_value(values[0]);
+                assert_eq!((after.tag, after.bits), (NUMBER, replacement));
+                let sibling = Slot::from_value(values[1]);
+                let expected = Slot::from_value(next);
+                assert_eq!((sibling.tag, sibling.bits), (expected.tag, expected.bits));
+            }
+        }
+    });
+}
+
+#[cfg(all(test, not(miri)))]
+fn check_native_bound_read(
+    entry: unsafe extern "C" fn(*const Payload) -> u64,
+    accepts: impl Fn(u64) -> bool,
+) {
     crate::Lua::empty().enter(|ctx| {
         let closure = crate::Closure::load(ctx, None, b"return 42").unwrap();
         for value in [
@@ -180,16 +266,11 @@ pub(crate) fn check_native_bound_numeric_read(
             Value::String(ctx.intern(b"bound read")),
             Value::Table(crate::Table::new(&ctx)),
             Value::Function(closure.into()),
+            Value::Thread(crate::Thread::new(ctx)),
             Value::UserData(crate::UserData::new_static(&ctx, 7)),
         ] {
             let scalar = Slot::from_value(value);
-            let expected = if matches!(scalar.tag, INTEGER | NUMBER)
-                && exact_tag.is_none_or(|tag| scalar.tag == tag)
-            {
-                scalar.bits
-            } else {
-                0
-            };
+            let expected = if accepts(scalar.tag) { scalar.bits } else { 0 };
             let mut values = [value];
             let mut pc = 5;
             LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
