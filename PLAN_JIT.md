@@ -524,9 +524,74 @@ the same 44 tests. Formatting, check-all and GNU Clippy pass (Clippy still repor
 Logs are retained in `packed-fast-*`. These are test-only implementation results,
 not a speedup claim.
 
-Remaining packed work includes production activation and resource accounting;
-fresh frozen workload profiles and original hardware/compiled-Off gates still decide
-acceptance; no speedup or production activation is claimed by these fixtures.
+#### Production packed experiment — measured and withdrawn
+
+The withdrawn production experiment selected `compile_runtime_pair`, pairing a
+packed canonical-frame entry with the existing optional array kernels. Ordinary
+scratch compilation remains an explicit control, and native-region compilation
+kept its distinct scoped-helper/ActivationHost ABI. Entry identity and rejection
+of raw scratch/linked invocation for packed code were checked outside test builds.
+Array-prefix writes are published before packed entry; packed exits do not copy
+stale scratch values over canonical writes. Original panic and completed-prefix
+publication retain the previously tested contracts.
+
+Packed ABI/lowering/checkpoint certificates and their signature/workspace charges
+were compiled in the experimental production library. Native owned-entry, every-prefix and
+allocation-refusal tests also exercised the production compiler selection
+without an injected packed failure mode. Nine focused owned-entry tests pass,
+including an explicit packed-plus-array/ordinary-scoped identity check. The
+GNU/musl helper-stage results above remain separate from production validation.
+The experimental production GNU full suite stopped at two resource-fixture failures: the table
+helper fixture no longer emits the expected direct-call relocations, and the
+full compiler's peak-minus-one memory limit no longer fails in the scalar tag
+verifier. These checks have not been relaxed. i686 all-target/all-feature checking
+passes. The first opt-level-3 candidate image is
+`0b53cd972d7d2cc8215708ce11af6e32de88a116a78037cdb4109bed7a3a8975`.
+
+The first hardware screen retained 24 full paired runs (two CPUs, three rotated
+windows, original control/previous candidate/new candidate/placebo, 11 samples).
+All aggregate gates failed. The new candidate passes callback and metamethod
+thresholds in **0/6** runs and allocation in **2/6**; the previous candidate passes
+metamethod and allocation in **6/6**. Callback paired speed is **0.5725–0.6503**
+against the unchanged **0.8333** minimum. Execution counters match the previous
+candidate, but code and snapshot peaks increase. Callback code grows 4096→8192
+bytes and snapshot peak 13242→43441 bytes. No resource difference is waived.
+
+The identical-image symbol capture and all ten retained workload profiles finish.
+Callback instruction count rises 131650796→152207341; generated code accounts for
+13099872→24967926 instructions, and runtime plus packed-entry processing also
+increases. This is diagnostic instruction evidence, not another elapsed-time
+claim. Logs, frozen source archive, image and full activation patch are retained
+under `payload-terminal-profile/packed-production*`.
+
+A test-only follow-up replaces the 21-instruction packed tag decoder with a
+13-instruction byte lookup that preserves invalid encodings, rather than removing
+validation. Native read/whole-lowering/owned-entry checks pass; expanded tag
+oracles cover low and high encodings plus every pointer bit. Stacked Miri passes
+four read, four whole-lowering, two progress and one checkpoint test. The mutation
+fixture now changes sign extension to zero extension rather than performing a
+no-op mutation; reduction mutations replace the operand while retaining its type.
+
+The second frozen image is
+`01767b051f6e117a15afe17000f80bfd6aef47901c33a17824f8dceeacf5d653`.
+Another 24 full paired runs compare it with the first packed image, the previous
+candidate and placebo. Callbacks improve in all six direct comparisons (1.3–7.8%,
+median speed factor 1.048), but still pass **0/6** original callback gates.
+Metamethod gates remain **0/6**, allocation improves to **5/6**. Floating-point
+performance falls roughly 10–11% on CPU16 relative to the first packed image;
+fewer decoding instructions do not imply a universally faster implementation.
+Execution counters match, with array code mapping size falling 20480→16384 bytes.
+The second source archive, patch, hashes, telemetry and analysis are retained in
+`payload-terminal-profile/packed-tag-table*`.
+
+Production activation is withdrawn; the existing production path and resource
+tests remain unchanged. Only the decoder experiment and expanded oracle remain
+in test-only code. Original performance/resource/platform acceptance remains
+open, including compiled-Off costs; no original regression fix is claimed.
+The restored source passes formatting/check-all, 22 focused compiler/entry tests,
+31 resource/registry unit tests and all 14 public resource tests unchanged.
+The default production benchmark binary was rebuilt after withdrawal. These
+checks do not replace the unfinished full performance/platform acceptance.
 
 For the preceding scope source `85103de`, broader payload ABI/backend/runtime
 and helper suites also passed on both
