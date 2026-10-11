@@ -171,6 +171,15 @@ mod invoke;
 mod native;
 mod plan;
 
+#[cfg(test)]
+mod transport_tests;
+
+#[cfg(test)]
+pub(super) fn has_source_plan(source: &super::ir::Snapshot) -> Result<bool, super::JitError> {
+    source.verify()?;
+    Ok((0..source.operations.len()).any(|end| plan::Plan::new(source, end).is_some()))
+}
+
 #[cfg(all(
     not(miri),
     target_os = "linux",

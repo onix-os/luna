@@ -97,6 +97,7 @@ fn transport_recognition_refuses_invalid_snapshots_before_planning() {
 fn native_transport_selection_keeps_both_verified_entry_families() {
     for (program, ordinary) in cases() {
         let source = snapshot(program);
+        let ordinary = ordinary || super::super::array_window::has_source_plan(&source).unwrap();
         let memory = MappingCounter::new(super::super::resources::Ledger::new(usize::MAX));
         let metadata = BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024));
         let code = compile_in(
@@ -121,6 +122,48 @@ fn native_transport_selection_keeps_both_verified_entry_families() {
         assert_eq!(memory.load(Ordering::Relaxed), 0);
         assert_eq!(metadata.0.current(), 0);
     }
+}
+
+#[cfg(not(miri))]
+#[test]
+fn array_transport_keeps_native_fallback_when_kernel_mapping_is_refused() {
+    let source = snapshot(b"local seed=40 local t={} for i=1,100 do t[i]=i end return seed");
+    assert!(super::super::array_window::has_source_plan(&source).unwrap());
+    let memory = MappingCounter::new(super::super::resources::Ledger::new(usize::MAX));
+    let metadata = BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024));
+    let limits = super::super::work::Limits::from(&super::super::JitConfig::default());
+    let ordinary = compile_in(
+        &source,
+        memory.clone(),
+        1024 * 1024,
+        metadata.clone(),
+        limits,
+        Failure::None,
+    )
+    .unwrap();
+    let bytes = memory.load(Ordering::Relaxed);
+    drop(ordinary);
+    assert_eq!(memory.load(Ordering::Relaxed), 0);
+    let candidate = array::compile_pair(
+        &source,
+        memory.clone(),
+        bytes,
+        metadata.clone(),
+        limits,
+        Failure::PreferBoundPayload,
+    )
+    .unwrap();
+    assert_eq!(candidate.entry_kind, EntryKind::Ordinary);
+    assert!(candidate.array_kernels.is_none());
+    assert_eq!(memory.load(Ordering::Relaxed), bytes);
+    let mut slots = vec![Slot::from_value(crate::Value::Nil); source.registers];
+    assert_eq!(candidate.invoke(&mut slots, 0, 1).instructions, 1);
+    assert!(slots
+        .iter()
+        .any(|slot| slot.tag == abi::INTEGER && slot.bits == 40));
+    drop(candidate);
+    assert_eq!(memory.load(Ordering::Relaxed), 0);
+    assert_eq!(metadata.0.current(), 0);
 }
 
 #[cfg(not(miri))]

@@ -18,6 +18,17 @@ fn run_with_readonly(
     budget: i32,
     readonly: bool,
 ) -> Run {
+    run_with_policy(source, mode, arrays, budget, readonly, false)
+}
+
+fn run_with_policy(
+    source: &str,
+    mode: JitMode,
+    arrays: bool,
+    budget: i32,
+    readonly: bool,
+    hybrid: bool,
+) -> Run {
     let mut lua = Lua::core();
     lua.set_jit_config(JitConfig {
         mode,
@@ -27,6 +38,10 @@ fn run_with_readonly(
     .unwrap();
     let executor = lua.enter(|ctx| {
         ctx.jit().test_array_kernels(arrays);
+        if hybrid {
+            ctx.jit().0.borrow_mut().memory_failure =
+                crate::jit::backend::Failure::PreferBoundPayload;
+        }
         let closure = Closure::load(ctx, None, source.as_bytes()).unwrap();
         ctx.stash(Executor::start(ctx, closure.into(), ()))
     });
@@ -66,6 +81,28 @@ fn run_with_readonly(
         }
     }
     panic!("array execution did not finish");
+}
+
+#[test]
+fn hybrid_array_policy_preserves_dynamic_guards_and_readonly_mutation() {
+    for (source, readonly, expected) in [
+        ("local t={} exported=t local ok=pcall(function() local alias=t for i=1,5000 do alias[i]=i end end) return ok and 1 or 0", true, 0),
+        ("local t={} for i=1.0,100.0 do t[i]=i end local s=0 for i=1,100 do s=s+t[i] end return s", false, 5050),
+        ("local n=0 local t=setmetatable({}, {__newindex=function(t,k,v) n=n+1 rawset(t,k,v) end}) for i=1,100 do t[i]=i end return n", false, 100),
+    ] {
+        let reference = run_with_policy(source, JitMode::Off, false, 1, readonly, false);
+        let ordinary = run_with_policy(source, JitMode::Auto, true, 1, readonly, false);
+        let hybrid = run_with_policy(source, JitMode::Auto, true, 1, readonly, true);
+        assert_eq!(hybrid.result, expected);
+        assert_eq!(hybrid.result, reference.result);
+        assert_eq!(hybrid.slices, reference.slices);
+        assert_eq!(hybrid.slices, ordinary.slices);
+        assert_eq!(hybrid.direct, ordinary.direct);
+        assert_eq!(hybrid.stats.native_instructions, ordinary.stats.native_instructions);
+        assert!(hybrid.stats.native_instructions > 0);
+        assert_eq!(hybrid.stats.native_table_reads, ordinary.stats.native_table_reads);
+        assert_eq!(hybrid.stats.native_table_writes, ordinary.stats.native_table_writes);
+    }
 }
 
 #[test]
