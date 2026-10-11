@@ -196,8 +196,51 @@ Clippy also pass with existing warnings and none reported in the packed files.
 Logs are `packed-writers-broad-{gnu,musl}.log`. The runtime differentials exercise
 the existing transports; they do not constitute packed runtime integration.
 
-Remaining packed work includes the separate full-entry compiler contract,
-independent source/emitted checking,
+The next entry contract has a **distinct return-valued function type**:
+`(Packed*, pc, budget, Exit*, Bridge*) -> u32`. `RETURNED = 4` means a normal
+native exit was published; gateway failure statuses are not valid normal exits.
+The Rust adapter returns an explicit error for admission failure, post-execution
+refusal, a declined writer, pending panic, an unexpected status or an invalid
+exit. Admission failure is distinguishable from refusal after committed effects.
+Neither may be silently interpreted as permission to replay the operation.
+Pending panics stop admission before any native instruction, including direct
+stores. The adapter bounds the budget at 64 and validates initialized exit
+fields, instruction count and panic-payload consistency. A normal panic exit
+retains its existing Exit reason and original frame payload.
+
+An isolated compiler helper transformation now admits original six-argument
+direct helper calls and emits five-argument calls through the packed C table.
+It preserves the original result and continuation for statuses 0/1/2, but returns
+status 3 before the old continuation can mistake refusal for ordinary fallback.
+Independent source/emitted checks cover helper identity, arguments, signatures,
+field/table offsets, the refusal predicate, branch targets and returned status.
+All ten helper kinds have source/IR fixtures; eight well-formed IR mutations
+are rejected. Generated full-signature entry fixtures check completion, decline,
+panic, zero budget and post-effect refusal without replay or a fabricated panic.
+The transformation adds seven instructions and two blocks per call; complete
+compiler expansion admission still needs to account for these additions.
+
+These are **entry/transport components**, not a fully lowered Lua function or
+runtime activation. Scalar tag/bits loads and scalar stores still need packed
+lowering, whole-function verification, distinct owning-code entry selection and
+runtime publication of effects/counters on every outcome. Existing two-word
+entries must not be cast to this return-valued ABI. Evidence and tests are in
+`packed-entry*`, `packed/entry*.rs` and `backend/payload/packed_call*.rs`; focused
+compiler targets are `jit-payload-packed-calls` and its `-miri` counterpart.
+
+Entry contract `40bb393` and helper lowering `3c25c22`: GNU and musl each pass
+**33 packed ABI tests plus three compiler tests**, with check-all. Real i686-musl
+passes **29 ABI tests**; it does not compile the native backend. Stacked and Tree
+Miri each pass **29 ABI tests plus two compiler-verifier tests**, with all four
+new source files included in successful manifest after-checks. Broader GNU/musl
+suites each pass **185 tests across four summaries** (95 ABI, 60 backend, three
+runtime, 27 helpers), with no failures or ignores. GNU format/default/all-feature
+Clippy pass with existing warnings and none in the new files. Logs use
+`packed-entry-calls-*` and `packed-entry-i686.log`. There are no performance
+measurements or newly integrated Lua workloads in this stage.
+
+Remaining packed work includes complete whole-entry lowering and accounting,
+independent whole-function source/emitted checking,
 precise runtime exit/fuel/counter integration and resource accounting. Fresh
 frozen workload profiles and original hardware/compiled-Off gates still decide
 acceptance; no speedup or production activation is claimed by these fixtures.
