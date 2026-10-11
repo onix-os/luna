@@ -63,9 +63,14 @@ unsafe extern "C" fn aborting(
 }
 
 fn with_frame(mut body: impl FnMut(&mut helpers::Frame<'_, '_, '_, '_>)) {
+    with_frame_slots(2, &mut body);
+}
+
+fn with_frame_slots(count: usize, mut body: impl FnMut(&mut helpers::Frame<'_, '_, '_, '_>)) {
     crate::Lua::empty().enter(|ctx| {
         let closure = crate::Closure::load(ctx, None, b"return 17").unwrap();
-        let mut values = [Value::Integer(17), Value::Nil];
+        let mut values = vec![Value::Nil; count];
+        values[0] = Value::Integer(17);
         let mut pc = 5;
         crate::thread::LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
             let mut frame = helpers::Frame {
@@ -73,12 +78,227 @@ fn with_frame(mut body: impl FnMut(&mut helpers::Frame<'_, '_, '_, '_>)) {
                 closure,
                 registers: &mut registers,
                 count: helpers::Counts::default(),
-                slot_count: 2,
+                slot_count: count,
                 panic: None,
                 projection: None,
             };
             body(&mut frame);
         });
+    });
+}
+
+unsafe extern "C" fn failed_progress(
+    _: *mut Packed,
+    mode: u64,
+    _: u32,
+    exit: *mut abi::Exit,
+    bridge: *const Bridge,
+) -> u32 {
+    unsafe {
+        let bridge = &*bridge;
+        let status = match mode {
+            0 => (bridge.functions.write)(bridge.control, 0, BOOLEAN, 2),
+            1 => boundary::<3>(bridge.control, |bound| {
+                bound.scope.replace(0, Value::Integer(731), false)?;
+                std::panic::panic_any(731u64)
+            }),
+            2 => {
+                (*bridge.control.cast::<FrameScope<'_, '_, '_, '_, '_, 3>>())
+                    .scope
+                    .count = 3;
+                (bridge.functions.helpers[0])(bridge.control, 1, 0, 0, 7)
+            }
+            3 => {
+                assert_eq!(
+                    (bridge.functions.helpers[0])(bridge.control, 1, 0, 0, 7),
+                    abi::HELPER_COMPLETED
+                );
+                (bridge.functions.write)(bridge.control, 0, BOOLEAN, 2)
+            }
+            _ => boundary::<3>(bridge.control, |bound| {
+                assert_eq!(bound.helper::<1>(1, 0, 0, 7)?, abi::HELPER_COMPLETED);
+                std::panic::panic_any(731u64)
+            }),
+        };
+        exit.write(abi::Exit {
+            pc: 7,
+            instructions: 3,
+            reason: match mode {
+                2 => HELPER_FAILURE,
+                4 => crate::jit::exits::Kind::Panic as u32,
+                _ => STORE_FAILURE,
+            },
+        });
+        if mode == 4 {
+            RETURNED
+        } else {
+            status
+        }
+    }
+}
+
+#[test]
+fn packed_failure_reports_preserve_prefixes_and_post_helper_completion() {
+    for mode in 0..5 {
+        for baseline in [0, 1_000_000] {
+            with_frame(|frame| {
+                frame.count.calls = baseline;
+                frame.count.completed = baseline / 2;
+                let result = unsafe { invoke_report::<3>(frame, failed_progress, 2, mode, 64) };
+                if mode == 4 {
+                    let exit = result.unwrap();
+                    assert_eq!(
+                        (exit.pc, exit.instructions, exit.reason),
+                        (8, 4, crate::jit::exits::Kind::Panic as u32)
+                    );
+                } else {
+                    let fault = result.unwrap_err();
+                    assert_eq!(
+                        fault.cause,
+                        match mode {
+                            0 | 3 => Failure::WriterDeclined,
+                            1 => Failure::Panicked,
+                            _ => Failure::Refused(Refusal::Bounds),
+                        }
+                    );
+                    assert_eq!(
+                        fault.progress,
+                        Some(Progress {
+                            pc: if mode == 2 { 8 } else { 7 },
+                            instructions: if mode == 2 { 4 } else { 3 }
+                        })
+                    );
+                }
+                let called = mode >= 2;
+                assert_eq!(frame.count.calls, baseline + u64::from(called));
+                assert_eq!(frame.count.completed, baseline / 2 + u64::from(called));
+                assert_eq!(*frame.registers.pc, if called { 8 } else { 5 });
+                assert_eq!(frame.panic.is_some(), matches!(mode, 1 | 4));
+                if let Some(payload) = frame.panic.take() {
+                    assert_eq!(*payload.downcast::<u64>().unwrap(), 731);
+                }
+                assert!(
+                    matches!(frame.registers.stack_frame[0], Value::Integer(v) if v == if mode == 1 { 731 } else { 17 })
+                );
+                if called {
+                    assert!(matches!(frame.registers.stack_frame[1], Value::Integer(17)));
+                }
+            });
+        }
+    }
+}
+
+#[test]
+fn packed_failure_progress_refuses_missing_wrong_or_overbudget_metadata() {
+    let valid = abi::Exit {
+        pc: 7,
+        instructions: 3,
+        reason: HELPER_FAILURE,
+    };
+    assert_eq!(
+        progress(
+            &valid,
+            REFUSED,
+            Some((7, abi::HELPER_COMPLETED)),
+            4,
+            u64::MAX
+        ),
+        Some(Progress {
+            pc: 8,
+            instructions: 4
+        })
+    );
+    assert!(progress(
+        &valid,
+        REFUSED,
+        Some((8, abi::HELPER_COMPLETED)),
+        4,
+        u64::MAX
+    )
+    .is_none());
+    assert!(progress(&valid, REFUSED, Some((7, REFUSED)), 4, u64::MAX).is_none());
+    assert!(progress(
+        &valid,
+        REFUSED,
+        Some((7, abi::HELPER_COMPLETED)),
+        3,
+        u64::MAX
+    )
+    .is_none());
+    assert!(progress(&valid, REFUSED, Some((7, abi::HELPER_COMPLETED)), 4, 7).is_none());
+    for status in [RETURNED, abi::HELPER_COMPLETED, 999] {
+        assert!(progress(&valid, status, None, 4, u64::MAX).is_none());
+    }
+}
+
+#[cfg(not(miri))]
+pub(crate) fn check_native_failure_progress(entry: Entry, helper_failure: bool, registers: usize) {
+    with_frame_slots(registers, |frame| {
+        let mut exit = abi::Exit {
+            pc: u64::MAX,
+            instructions: u32::MAX,
+            reason: u32::MAX,
+        };
+        let (status, refusal, helper) = with_bridge_report::<4, _>(frame, |slots, bridge| unsafe {
+            (*bridge.control.cast::<FrameScope<'_, '_, '_, '_, '_, 4>>())
+                .scope
+                .count = if helper_failure { registers + 1 } else { 1 };
+            entry(slots, 0, 64, &mut exit, bridge)
+        })
+        .unwrap();
+        if !helper_failure {
+            assert_eq!(
+                (status, refusal, helper),
+                (abi::HELPER_DECLINED, None, None)
+            );
+            assert_eq!(
+                (exit.pc, exit.instructions, exit.reason),
+                (1, 1, STORE_FAILURE)
+            );
+            assert_eq!(
+                progress(&exit, status, helper, 64, u64::MAX),
+                Some(Progress {
+                    pc: 1,
+                    instructions: 1
+                })
+            );
+            assert!(matches!(frame.registers.stack_frame[0], Value::Integer(42)));
+            assert!(matches!(frame.registers.stack_frame[1], Value::Nil));
+            assert_eq!(*frame.registers.pc, 5);
+            assert_eq!(super::super::tests::counters(&frame.count), [0; 8]);
+            assert!(frame.panic.is_none());
+            return;
+        }
+        assert_eq!(
+            (status, refusal, helper),
+            (
+                REFUSED,
+                Some(Refusal::Bounds),
+                Some((1, abi::HELPER_COMPLETED))
+            )
+        );
+        assert_eq!(
+            (exit.pc, exit.instructions, exit.reason),
+            (1, 1, HELPER_FAILURE)
+        );
+        assert_eq!(
+            progress(&exit, status, helper, 64, u64::MAX),
+            Some(Progress {
+                pc: 2,
+                instructions: 2
+            })
+        );
+        assert!(matches!(
+            frame.registers.stack_frame[0],
+            Value::Boolean(true)
+        ));
+        assert!(matches!(frame.registers.stack_frame[1], Value::Integer(17)));
+        assert_eq!(*frame.registers.pc, 2);
+        assert_eq!(
+            super::super::tests::counters(&frame.count),
+            [1, 1, 0, 0, 0, 0, 0, 0]
+        );
+        assert!(frame.panic.is_none());
     });
 }
 

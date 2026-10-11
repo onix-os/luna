@@ -95,6 +95,7 @@ unsafe fn boundary<const CAPACITY: usize>(
         bound.refusal = Some(Refusal::Stopped);
         return REFUSED;
     }
+    bound.helper_result = None;
     match catch_unwind(AssertUnwindSafe(|| body(bound))) {
         Ok(Ok(result)) => result,
         Ok(Err(refusal)) => {
@@ -114,6 +115,14 @@ fn with_bridge<const CAPACITY: usize, R>(
     frame: &mut helpers::Frame<'_, '_, '_, '_>,
     body: impl FnOnce(*mut Packed, &Bridge) -> R,
 ) -> Result<R, Refusal> {
+    let (result, refusal, _) = with_bridge_report::<CAPACITY, _>(frame, body)?;
+    refusal.map_or(Ok(result), Err)
+}
+
+fn with_bridge_report<const CAPACITY: usize, R>(
+    frame: &mut helpers::Frame<'_, '_, '_, '_>,
+    body: impl FnOnce(*mut Packed, &Bridge) -> R,
+) -> Result<(R, Option<Refusal>, Option<(u32, u32)>), Refusal> {
     with_frame_scope::<CAPACITY, _>(frame, |bound| {
         let slots = bound.scope.descriptors.as_ptr();
         let bridge = Bridge {
@@ -121,8 +130,8 @@ fn with_bridge<const CAPACITY: usize, R>(
             functions: &Gateways::<CAPACITY>::TABLE,
         };
         let result = body(slots, &bridge);
-        bound.refusal.map_or(Ok(result), Err)
-    })?
+        (result, bound.refusal, bound.helper_result)
+    })
 }
 
 #[path = "bridge_tests.rs"]
