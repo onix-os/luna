@@ -155,7 +155,7 @@ fn terminal_gateway_selection_follows_original_graph_liveness() {
             .flat_map(|block| f.layout.block_insts(block))
             .filter(|&inst| {
                 matches!(f.dfg.insts[inst], InstructionData::Load { offset, .. }
-                if i32::from(offset) == std::mem::offset_of!(Bridge, terminal) as i32)
+                if i32::from(offset) == std::mem::offset_of!(Functions, terminal) as i32)
             })
             .count();
         assert_eq!(gateways, expected, "read={read} helper={helper}");

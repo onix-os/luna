@@ -4,7 +4,7 @@ use cranelift_codegen::{
 };
 
 use super::*;
-use crate::jit::abi::payload::runtime::Bridge;
+use crate::jit::abi::payload::runtime::{Bridge, Functions};
 #[cfg(not(miri))]
 use crate::jit::abi::payload::Payload;
 
@@ -281,7 +281,7 @@ fn plan(
                 host_uses = add(host_uses, 2)?;
                 host_calls = true;
                 (
-                    29 + usize::from(function.dfg.value_type(bits) == types::F64),
+                    30 + usize::from(function.dfg.value_type(bits) == types::F64),
                     7,
                 )
             }
@@ -407,13 +407,15 @@ pub(super) fn lower(
                     types::I64,
                     MemFlagsData::new(),
                     host,
-                    std::mem::offset_of!(Bridge, helpers) as i32,
+                    std::mem::offset_of!(Bridge, functions) as i32,
                 );
                 let target = cursor.ins().load(
                     types::I64,
                     MemFlagsData::new(),
                     table,
-                    (index * std::mem::size_of::<abi::HelperEntry>()) as i32,
+                    (std::mem::offset_of!(Functions, helpers)
+                        + index * std::mem::size_of::<abi::HelperEntry>())
+                        as i32,
                 );
                 cursor
                     .func

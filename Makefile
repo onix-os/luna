@@ -640,6 +640,15 @@ jit-in-place-return:
 
 .PHONY: jit-payload-model jit-payload-model-miri
 .PHONY: jit-payload-terminal jit-payload-terminal-miri
+.PHONY: jit-payload-functions jit-payload-functions-miri
+jit-payload-functions:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::bridge_function_table $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::capacity_tests:: $(ARGS)
+
+jit-payload-functions-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::runtime::bridge_function_table -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::runtime::capacity_tests:: -- --test-threads=1
+
 jit-payload-terminal:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::terminal_tests:: $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::terminal:: $(ARGS)

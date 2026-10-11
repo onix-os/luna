@@ -88,14 +88,20 @@ pub(super) fn emit(f: &mut Function, tag_store: Inst, bits_store: Inst, input: I
     let valid = c.ins().band(is_nil, is_null);
     c.ins().brif(valid, after, &[], slow, &[]);
     c.goto_bottom(slow);
-    let target = c.ins().load(
+    let functions = c.ins().load(
         types::I64,
         MemFlagsData::new(),
         host,
+        std::mem::offset_of!(Bridge, functions) as i32,
+    );
+    let target = c.ins().load(
+        types::I64,
+        MemFlagsData::new(),
+        functions,
         if terminal {
-            std::mem::offset_of!(Bridge, terminal)
+            std::mem::offset_of!(Functions, terminal)
         } else {
-            std::mem::offset_of!(Bridge, write)
+            std::mem::offset_of!(Functions, write)
         } as i32,
     );
     let index = c.ins().iconst(types::I32, i64::from(index));
@@ -220,15 +226,22 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
     let is_null = compare(f, is_null, IntCC::Equal, [pointer, null])?;
     let valid = value(f, valid, Opcode::Band, &[is_nil, is_null], types::I8)?;
     branch(f, split, valid, after, slow)?;
-    let [target, register, call, end] = shape(f.layout.block_insts(slow))?;
+    let [functions, target, register, call, end] = shape(f.layout.block_insts(slow))?;
+    let functions = load(
+        f,
+        functions,
+        host,
+        std::mem::offset_of!(Bridge, functions) as i32,
+        types::I64,
+    )?;
     let target = load(
         f,
         target,
-        host,
+        functions,
         if terminal {
-            std::mem::offset_of!(Bridge, terminal)
+            std::mem::offset_of!(Functions, terminal)
         } else {
-            std::mem::offset_of!(Bridge, write)
+            std::mem::offset_of!(Functions, write)
         } as i32,
         types::I64,
     )?;
@@ -268,13 +281,14 @@ fn fixture() -> (Function, Write) {
 fn terminal_write_checker_binds_the_retiring_gateway() {
     let (mut function, mut write) = fixture();
     let slow = write.blocks[7];
-    let target = function.layout.first_inst(slow).unwrap();
+    let table = function.layout.first_inst(slow).unwrap();
+    let target = function.layout.next_inst(table).unwrap();
     write.input.terminal = true;
     assert!(verify(&function, &write).is_err());
     let InstructionData::Load { offset, .. } = &mut function.dfg.insts[target] else {
         unreachable!()
     };
-    *offset = (std::mem::offset_of!(Bridge, terminal) as i32).into();
+    *offset = (std::mem::offset_of!(Functions, terminal) as i32).into();
     cranelift_codegen::verify_function(&function, &settings::Flags::new(settings::builder()))
         .unwrap();
     verify(&function, &write).unwrap();
@@ -422,7 +436,11 @@ fn inline_write_checker_rejects_well_formed_guard_store_and_gateway_mutations() 
     reject(changed);
     let slow: Vec<_> = function.layout.block_insts(write.blocks[7]).collect();
     let mut changed = function.clone();
-    changed.dfg.inst_args_mut(slow[2]).swap(4, 5);
+    let call = slow
+        .into_iter()
+        .find(|&inst| function.dfg.insts[inst].opcode() == Opcode::CallIndirect)
+        .unwrap();
+    changed.dfg.inst_args_mut(call).swap(4, 5);
     reject(changed);
     let kind: Vec<_> = function.layout.block_insts(write.blocks[2]).collect();
     let mut changed = function.clone();
@@ -431,7 +449,7 @@ fn inline_write_checker_rejects_well_formed_guard_store_and_gateway_mutations() 
     let mut changed = function.clone();
     changed.dfg.inst_args_mut(kind[1])[0] = write.input.bits;
     reject(changed);
-    assert_eq!(rejected, 37);
+    assert_eq!(rejected, 38);
 }
 
 #[cfg(not(miri))]
