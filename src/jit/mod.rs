@@ -1803,7 +1803,7 @@ impl Runtime {
     ) -> u32 {
         let register_count = if EXACT { CAPACITY } else { code.registers };
         #[cfg(all(test, not(miri)))]
-        if code.payload && code.array_kernels.is_none() {
+        if code.payload.is_some() && code.array_kernels.is_none() {
             return self.invoke_frame::<CAPACITY, false, false>(
                 code,
                 ctx,
@@ -1982,7 +1982,7 @@ impl Runtime {
         };
         let pc = *frame.registers.pc;
         #[cfg(all(test, not(miri)))]
-        if code.payload && array_prefix.is_some() {
+        if code.payload.is_some() && array_prefix.is_some() {
             let slots = unsafe { std::slice::from_raw_parts(slots, register_count) };
             for (slot, dest) in slots
                 .iter()
@@ -2014,6 +2014,7 @@ impl Runtime {
         #[cfg(all(test, not(miri)))]
         let payload_exit = code
             .payload
+            .is_some()
             .then(|| code.invoke_payload::<CAPACITY>(&mut frame, pc, budget));
         #[cfg(all(test, miri))]
         let payload_exit: Option<abi::Exit> = None;
@@ -2051,7 +2052,7 @@ impl Runtime {
         };
         let write_back = !DEFER || frame.panic.is_some();
         #[cfg(test)]
-        let write_back = write_back && !code.payload;
+        let write_back = write_back && code.payload.is_none();
         if write_back {
             let slots = unsafe { std::slice::from_raw_parts(slots, register_count) };
             for (slot, dest) in slots

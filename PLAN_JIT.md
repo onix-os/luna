@@ -11,6 +11,40 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Frame-bound numeric stores — implementation, not acceptance
+
+Commit `7abaa73` adds a separate test-only `FrameBound` entry contract alongside
+the existing checked payload entry. A private, non-copyable binding is minted
+inside the canonical frame/session scope and consumed by one native call. The
+higher-ranked closure cannot return that binding; the code owner checks the
+exact register prefix. Both payload kinds reject scratch-slot and linked-entry
+invocation. The existing checked malformed/null-descriptor behavior is intact.
+
+Only Integer/Number writes with independent source and final-CFG same-tag proofs
+can use a direct field store. Generic and type-changing writes keep their checked
+materializer; helper rebinding and terminal descriptor retirement are unchanged.
+The new expansion removes 29 IR instructions and six blocks per direct write
+relative to checked expansion. Exact host-copy accounting removes two host uses
+per such write and the stack copy entirely when no helper call remains. These
+are IR counts, not measured runtime gains. Conservative preflight limits remain.
+
+GNU and musl each pass **40 ABI, 43 backend and three integrated runtime tests**,
+with no failures or ignores. GNU fmt/check-all also passes. The bound differential
+corpus covers every PC in four loop scripts, invalid scalar guards, bounded and
+oversized budgets, canonical values, exits and helper counts. Integrated tests
+compare interpreter, ordinary JIT and bound JIT through callbacks, upvalues,
+coroutines, GC, fuel interruption and array kernels. The bound checker rejects
+40 well-formed pointer/store/tag/guard mutations. Four focused models pass under
+each of Miri Stacked and Tree Borrows; actual native execution is not Miri-tested.
+Logs: `payload-bound-{model,musl,miri-stacked,miri-tree}.log`. Initial compile
+errors (entry-checker visibility and `Exit.pc` width) remain in
+`payload-bound-initial.log`; the passing runs use the corrected source.
+
+Production dispatch remains unchanged. An isolated experimental activation at
+`payload-terminal-profile/bound-source` is being built for the original workload
+matrix, against immutable ordinary and prior payload controls. Full performance,
+resource, platform and release acceptance remains open.
+
 #### Typed canonical regions — test-only groundwork
 
 The current integration step changes the existing payload lowering, not
@@ -74,7 +108,11 @@ but remains **716,071 (+0.5415%) above the restored ordinary JIT**. Generated
 callback work stays 14,137,456 instructions. Its wrapper grows by 129,698
 instructions (two per entry) while the retiring materializer costs less.
 Upvalue Auto grows 162,936 (+0.1015%); most of that delta is in unchanged
-`Admitted::new`, not the new materializer, and is not yet causally explained.
+`Admitted::new`, not the new materializer. Subsequent instruction attribution
+finds all 156,852 extra instructions in the inlined `Registry::resolve` scan:
+12 instructions execute 13,071 extra times, or three extra entries per 4,357
+admissions. Normalized admission disassembly is identical. Preserve the measured
+total rather than subtracting this lookup cost from the candidate.
 Integer/float Off totals are identical; upvalue Off differs by 242 instructions.
 Integer/float Auto each grow about 0.1%; allocation/GC improves 0.0495%.
 This is not a sufficient performance result and no hardware timing gate passes
@@ -94,11 +132,161 @@ refreshing helper through that shared table. GNU validation passes 38 ABI,
 33 backend, two runtime and two focused table/capacity tests, plus format and
 all-feature checks. Focused terminal and table/capacity tests pass under both
 Miri aliasing models. The same 75-test native lane passes on x86_64 musl.
-Matched-profile validation remains pending; no further saving is assumed.
-Initial stale-field
-test compile errors and a hard-coded mutation-test instruction index are
+Initial stale-field test compile errors and a hard-coded mutation-test index are
 retained in `payload-terminal-table-initial.log` and
 `payload-terminal-table-corrected.log`.
+
+The shared-table experiment is now measured and **not accepted for activation**.
+Its frozen stripped SHA-256 is
+`967ba3feb1dd27153ebc3343e4057c14385205929974b25afa293c15369d280e`.
+Ten original workload/mode profiles pass source/image checks and exact allocated
+section equivalence between stripped and symbol images. Callback instructions
+fall again, 132,947,695 → 132,558,756, but remain 327,132 (+0.2474%) above
+the ordinary JIT. Integer/float/upvalue Off totals match the original payload
+control. Five Auto snapshot peaks differ, so strict non-timing equality still
+fails; `table-analysis.json` retains every statistic and all 13 profiler events.
+
+Eight further profiles run ordinary and shared-table images through the same
+invocation alias, twice each for callbacks and upvalues. Callback counts repeat
+exactly. Ordinary upvalue counts are 160,469,718 / 160,188,556; shared-table
+counts are 160,708,056 / 160,711,310. Same-image variation is observable, so the
+earlier single upvalue delta is not a stable estimate. Both paired repeats still
+use more instructions than ordinary. Do not treat instruction counts as timing.
+
+The unchanged nine-case hardware gate then runs **18 complete commands**:
+CPUs 0/16, three rotated windows, ordinary/candidate/same-inode placebo.
+All 18 aggregate gates fail; the six candidate commands all fail callbacks and
+metamethods, with allocation/GC also failing three. For Auto workloads, the
+ordinary-time/candidate-time ranges are:
+
+| Workload | CPU0 | CPU16 |
+| --- | --- | --- |
+| Integer loop | 0.8945–0.9049 | 0.8090–0.8136 |
+| Float loop | 0.9114–0.9292 | 0.8333–0.8392 |
+| Metamethods | 0.9122–0.9193 | 0.8947–0.9168 |
+| Rust callbacks | 0.9959–1.0002 | 0.9926–1.0084 |
+| Closure/upvalue | 0.9974–1.0092 | 0.9559–1.0136 |
+
+Ratios below one mean the candidate is slower. Integer same-inode placebo
+ratios stay 0.9942–1.0052, unlike the substantial candidate regression. All 216
+full non-timing comparisons are retained: 42 differ, only in `code_bytes` and/or
+`snapshot_peak_bytes`; execution counters match. Source/image hashes verify
+after collection, invocation links are removed, and per-command CPU/IO pressure,
+frequency and process telemetry is retained. No owned builds, tests or profiles
+overlap hardware timing. The screen driver completing successfully is not a
+performance pass. Evidence is in `payload-terminal-profile/hardware-screen`,
+`hardware-analysis.json`, `repeat-analysis.json` and `admission-cost.tsv`.
+
+Keep the validated shared-table/terminal models test-only. The production JIT
+remains the ordinary transport; do not ship this payload activation or relax any
+original threshold. Further work must remove the payload path's generated-code
+overhead across loops/helpers, not merely its per-entry pointer setup.
+
+The next test-only lowering proves a destination tag from existing equality
+guards before removing its redundant reload. Every incoming path must prove the
+same constant scalar tag; intervening stores/calls, bypasses, unsupported guards
+or exhausted work refuse the optimization. The predecessor graph is charged,
+search depth and total work are bounded, and source admission has a separate
+verification budget. After rewriting, an independent walk over the emitted CFG
+rechecks the guard/freshness proof, in addition to exact write-shape validation.
+Null-pointer checks, Boolean bit validation, canonical materialization and
+terminal descriptor retirement remain unchanged. No trusted-pointer ABI is
+introduced. A forced compile witness proves the optimization is actually used
+by an original integer-loop source; native tests retain the null fallback.
+64 source mutations and five emitted mutations exercise the refusal boundary.
+GNU validation passes 38 ABI, 38 backend and two runtime tests; the subsequent
+six-test focused lane includes the additional emitted-mutation test and passes
+with format/all-feature checks. Musl passes 38 ABI, 39 backend and two runtime
+tests. Both Miri aliasing models pass the four non-native proof tests. Initial
+test-only borrow/API errors remain in the diagnostic logs.
+
+The stable-tag candidate is also **rejected for activation**. Its frozen SHA-256
+is `d19a2ce17b309f154e4909571ba1e9419da2219ff6542a0799f5ccaa59a35434`.
+Ten complete original workload/mode profiles retain exact source/image and
+stripped/symbol allocated-section checks. Compared with the shared-table image,
+integer-loop instructions fall only 1,201 and float-loop instructions only 48.
+Callbacks instead grow 64,743, to 132,623,499 (+0.2964% over ordinary).
+All three Off controls match. `tag-analysis.json` retains all statistics and the
+strict resource-field comparison failure; it is not a performance pass.
+The extra charged proof graphs also raise snapshot peaks: callbacks
+11,574 → 13,242 bytes, integer loops 11,551 → 13,155 and float loops
+14,870 → 17,086, compared with the shared-table image.
+
+An additional **24 complete unchanged hardware commands** compare ordinary,
+shared-table, stable-tag and same-inode placebo images over three rotated windows
+on CPUs 0/16. All aggregate gates fail. Stable-tag callbacks and metamethods
+fail all six windows; allocation/GC fails three. Ordinary/stable-tag callback
+time ratios are 0.8774–0.8883 on CPU0 and 0.9797–0.9922 on CPU16. Integer
+ratios remain 0.9037–0.9052 / 0.7966–0.8178; float ratios remain
+0.9077–0.9204 / 0.8347–0.8410. The CPU16 third-window upvalue rise also
+appears in the same-inode placebo (1.1436); do not credit that drift to the
+candidate. All 324 full non-timing comparisons are retained: 84 differ only in
+code/snapshot resource fields, while execution counters match. No owned
+validation overlaps timing. Artifacts, sources, invocation aliases and
+per-command contention telemetry are checked as in the preceding campaign.
+
+Exact-image debugger captures of each original callback kernel localize the
+instruction regression. Both immutable images produce one 4,096-byte executable
+page. Generated-code work rises 14,007,832 → 14,072,656 (+64,824), while the
+Rust entry wrapper stays 15,693,458 in both payload variants. Weighted spill
+instructions at stack offsets 8/16 rise 129,685 → 194,558 (+64,873); other
+generated work falls by 49. The new hot spill at offset `0x286` executes 64,837
+times, storing the helper host before the null-pointer/materializer branch.
+The proof removed a redundant check but changed allocation of registers; it did
+not remove enough dynamic work. This attributes the instruction increase, not
+the entire CPU0 timing loss. Keep null-pointer guards and the original safety
+contract intact when addressing the cold helper path's register lifetime.
+
+Evidence: `payload-terminal-profile/tag-hardware-screen`,
+`tag-hardware-analysis.json`, `tag-analysis.json` and `tag-native-vgdb`, including
+captured native bytes, disassembly, per-instruction weighted costs and image
+hashes. The safe proof/emission/mutation tests remain test-only; production still
+uses the ordinary transport and original acceptance remains incomplete.
+
+Two isolated follow-ups distinguish a host-reload hint from fallback placement.
+Removing `notrap` from private host-stack operations passes the 79-test GNU
+payload lane but produces a byte-identical 4,096-byte callback kernel, including
+the same spill. Reject that change. Marking only source-proven-tag materializer
+blocks cold also passes 79 tests and changes placement, but retains exactly
+14,072,656 generated instructions and 194,558 weighted spill instructions.
+Twenty full workload/mode profiles retain all fields; both strict comparisons
+against the stable-tag image pass. Differences in other instruction totals are
+preserved, not assumed to be optimization gains.
+
+The cold-layout image (`8539387af91b734f419368e6e204ff6039ef79cf07f602087fbb4fbd79c22ad2`)
+completes another 24 unchanged hardware commands with ordinary, stable-tag and
+same-inode controls. All aggregate gates still fail. CPU0 ordinary/candidate
+callback ratios recover to 1.0010–1.0295, versus 0.8868–0.8960 for the stable-tag
+image in the same windows; CPU16 remains 0.9751–0.9965. The candidate still fails
+callbacks in four windows, metamethods in six and allocation/GC in three, and
+retains scalar-loop regressions. All 324 non-timing comparisons are retained,
+with only code/snapshot resource differences in 84 comparisons. No owned tests,
+builds or profiles overlap timing. This is a local layout recovery, not original
+JIT performance acceptance or a spill fix.
+
+Retain the cold annotation only in the test model, with exact emitted-policy
+validation and a mutation test rejecting cold annotations on generic writes.
+Generic type-changing materializers remain unmarked. The no-trap hint stays
+unchanged. Evidence is under `payload-terminal-profile/{cold,rare}`,
+`host-hints-native-vgdb`, `tag-vs-{cold,rare}-analysis.json` and
+`rare-hardware-screen` / `rare-hardware-analysis.json`. Main-checkout validation
+passes 79 native tests on each of GNU/musl (38 ABI, 39 backend, two runtime),
+format/all-feature checks and four focused proof tests under each Miri model.
+
+The next structural step must use an explicitly frame-bound entry contract,
+not remove null checks from the existing raw-descriptor ABI. Introduce a private,
+non-escaping binding capability minted only inside the canonical frame/session
+scope, and a distinct compiler/entry kind that cannot use scratch-slot or linked
+entry invocation. Keep all checked-descriptor entry tests, including malformed
+numeric/null inputs, unchanged. For that separate entry kind, a fresh proven
+numeric destination can use its Rust-bound scalar field directly without a
+redundant malformed-pointer materializer path. Source and emitted CFG proofs,
+exact expansion accounting, helper refresh, terminal retirement, native exit
+state and both Miri models remain mandatory. No binding or native frame may
+survive callback/GC or a whole-frame helper borrow. Start with existing full-entry
+lowering, not a new per-span dispatcher, and measure the original workload matrix
+before activation. This separate capability/entry contract is not implemented
+or accepted yet; the checked ABI cannot be weakened in its place.
 
 Target the ordinary wrapper's **12,321,657 import/writeback instructions**,
 not another tiny scalar-guard or rejected callback-setup/cache variation.

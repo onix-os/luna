@@ -16,6 +16,60 @@ mod closed_table_tests;
 #[path = "capacity_tests.rs"]
 mod capacity_tests;
 
+#[cfg(test)]
+#[path = "bound_tests.rs"]
+mod bound_tests;
+
+pub(crate) struct Binding<'scope> {
+    slots: NonNull<Payload>,
+    host: &'scope mut Bridge,
+    count: usize,
+}
+
+pub(crate) type BoundEntry =
+    unsafe extern "C" fn(*mut Payload, u64, u32, *mut abi::Exit, *mut Bridge);
+
+impl Binding<'_> {
+    /// Invokes an owning code object's verified frame-bound entry once.
+    ///
+    /// # Safety
+    /// The entry implements the bound payload grammar for exactly `registers` cells,
+    /// preserves descriptor validity across helpers, and retains no frame pointers.
+    pub(crate) unsafe fn invoke(
+        self,
+        entry: BoundEntry,
+        registers: usize,
+        pc: usize,
+        budget: u32,
+        exit: &mut abi::Exit,
+    ) {
+        assert_eq!(registers, self.count);
+        unsafe {
+            entry(
+                self.slots.as_ptr(),
+                pc as u64,
+                budget.min(64),
+                exit,
+                self.host,
+            )
+        };
+    }
+}
+
+pub(crate) fn with_binding<const CAPACITY: usize>(
+    frame: &mut helpers::Frame<'_, '_, '_, '_>,
+    body: impl for<'scope> FnOnce(Binding<'scope>),
+) {
+    let count = frame.slot_count;
+    with_bridge::<CAPACITY>(frame, |slots, host| {
+        body(Binding {
+            slots: NonNull::new(slots).unwrap(),
+            host: unsafe { &mut *host },
+            count,
+        });
+    });
+}
+
 #[repr(C)]
 pub(crate) struct Bridge {
     pub base: abi::Host,
@@ -104,6 +158,61 @@ pub(crate) fn with_bridge<const CAPACITY: usize>(
         };
         body(slots, &mut bridge);
     });
+}
+
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_proven_tag_write(
+    entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u64) -> u64,
+) {
+    unsafe extern "C" fn declined(host: *mut Bridge, _: *mut Payload, _: u32, _: u64, _: u64) {
+        unsafe { (*host).materializations += 1 };
+    }
+    let mut bridge = Bridge {
+        base: abi::Host {
+            data: std::ptr::null_mut(),
+            projection: std::ptr::null_mut(),
+        },
+        read: read_bits,
+        functions: &Functions {
+            helpers: [helper::<1>; 10],
+            write: declined,
+            terminal: declined,
+        },
+        materializations: 0,
+    };
+    for bits in [0, 1, i64::MIN as u64, i64::MAX as u64, u64::MAX] {
+        for initial in [
+            Value::Nil,
+            Value::Boolean(true),
+            Value::Integer(0),
+            Value::Integer(i64::MIN),
+            Value::Number(-0.0),
+        ] {
+            let mut values = [initial];
+            let mut frame = Frame::new(&mut values);
+            let mut slot = frame.bind(0).unwrap();
+            let entered = unsafe { entry(&mut slot, &mut bridge, bits) };
+            assert_eq!(entered, u64::from(matches!(initial, Value::Integer(_))));
+            assert_eq!(bridge.materializations, 0);
+            let actual = Slot::from_value(values[0]);
+            let expected = Slot::from_value(if entered == 1 {
+                Value::Integer(bits as i64)
+            } else {
+                initial
+            });
+            assert_eq!((actual.tag, actual.bits), (expected.tag, expected.bits));
+        }
+        let mut malformed = Payload {
+            tag: INTEGER,
+            pointer: std::ptr::null_mut(),
+        };
+        bridge.materializations = 0;
+        assert_eq!(unsafe { entry(&mut malformed, &mut bridge, bits) }, 1);
+        assert_eq!(bridge.materializations, 1);
+        assert_eq!(malformed.tag, INTEGER);
+        assert!(malformed.pointer.is_null());
+        bridge.materializations = 0;
+    }
 }
 
 #[cfg(all(test, not(miri)))]

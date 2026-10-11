@@ -8,11 +8,24 @@ use crate::jit::abi::payload::runtime::{Bridge, Functions};
 #[cfg(not(miri))]
 use crate::jit::abi::payload::Payload;
 
+mod bound_writes;
 mod host_stack;
 mod numeric_reads;
 mod reads;
+mod same_tag;
 mod terminal;
 mod writes;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::jit) enum Contract {
+    Checked,
+    FrameBound,
+}
+
+enum Write {
+    Checked(writes::Write),
+    Bound(bound_writes::Write),
+}
 
 enum Read {
     Scalar(reads::Read),
@@ -316,7 +329,29 @@ pub(super) fn lower(
     helpers: &[(u32, FuncRef)],
     allocator: BudgetAllocator,
     expansion: super::super::work::Expansion,
-) -> Result<(), JitError> {
+) -> Result<usize, JitError> {
+    lower_contract(
+        function,
+        slots,
+        host,
+        registers,
+        helpers,
+        allocator,
+        expansion,
+        Contract::Checked,
+    )
+}
+
+pub(super) fn lower_contract(
+    function: &mut Function,
+    slots: IrValue,
+    host: IrValue,
+    registers: usize,
+    helpers: &[(u32, FuncRef)],
+    allocator: BudgetAllocator,
+    expansion: super::super::work::Expansion,
+    contract: Contract,
+) -> Result<usize, JitError> {
     let plan = plan(function, slots, host, registers, helpers, expansion)?;
     let refused = || JitError::ResourceLimit("payload rewrite records");
     let mut reads = BudgetVec::new_in(allocator.clone());
@@ -327,6 +362,9 @@ pub(super) fn lower(
         .map_err(|_| refused())?;
     let mut terminal =
         terminal::Analysis::new(function, slots, host, registers, helpers, allocator.clone())?;
+    let mut same_tag = same_tag::Analysis::new(function, allocator.clone())?;
+    let mut proven_writes = 0;
+    let mut bound_count = 0;
     let mut has_numeric = false;
     scan(function, slots, host, registers, helpers, |rewrite| {
         if let Rewrite::Read(inst, index) = rewrite {
@@ -379,20 +417,40 @@ pub(super) fn lower(
                 tag,
                 bits,
             } => {
-                writes.push(writes::emit(
-                    &mut candidate,
-                    tag_store,
-                    bits_store,
-                    writes::Input {
+                let known_tag = same_tag.admit(function, slots, tag_store, index, tag);
+                proven_writes += usize::from(known_tag.is_some());
+                let bound = known_tag.filter(|_| {
+                    contract == Contract::FrameBound && bound_writes::numeric(function, tag)
+                });
+                if let Some(proof) = bound {
+                    bound_count += 1;
+                    writes.push(Write::Bound(bound_writes::emit(
+                        &mut candidate,
+                        tag_store,
+                        bits_store,
                         slots,
-                        host,
                         index,
                         tag,
                         bits,
-                        signature: write,
-                        terminal: terminal.admits(bits_store, index),
-                    },
-                ));
+                        proof,
+                    )));
+                } else {
+                    writes.push(Write::Checked(writes::emit(
+                        &mut candidate,
+                        tag_store,
+                        bits_store,
+                        writes::Input {
+                            slots,
+                            host,
+                            index,
+                            tag,
+                            bits,
+                            signature: write,
+                            terminal: terminal.admits(bits_store, index),
+                            known_tag,
+                        },
+                    )));
+                }
             }
             Rewrite::Helper(inst, index, reference) => {
                 let args: [IrValue; 6] = candidate
@@ -428,15 +486,15 @@ pub(super) fn lower(
     drop((numeric, terminal));
     if size(&candidate)
         != (
-            plan.instructions - plan.host_instructions - 13 * numeric_count,
-            plan.blocks - 2 * numeric_count,
+            plan.instructions - plan.host_instructions - 13 * numeric_count - 29 * bound_count,
+            plan.blocks - 2 * numeric_count - 6 * bound_count,
         )
     {
         return Err(JitError::Compilation(
             "payload expansion differs from plan".into(),
         ));
     }
-    let predecessors = (numeric_count != 0)
+    let predecessors = (numeric_count != 0 || proven_writes != 0)
         .then(|| crate::jit::preds::Predecessors::new(&candidate, allocator.clone()))
         .transpose()?;
     for read in &reads {
@@ -447,17 +505,50 @@ pub(super) fn lower(
             }
         }
     }
+    let (instructions, blocks) = size(&candidate);
+    let mut tag_work = instructions
+        .checked_add(blocks)
+        .and_then(|n| n.checked_mul(64))
+        .ok_or(JitError::ResourceLimit("payload emitted tag proof work"))?;
     for write in &writes {
-        writes::verify(&candidate, write)?;
+        match write {
+            Write::Checked(write) => {
+                writes::verify_source(function, write, &mut same_tag)?;
+                writes::verify(&candidate, write)?;
+                writes::verify_guard(&candidate, write, predecessors.as_ref(), &mut tag_work)?;
+            }
+            Write::Bound(write) => {
+                bound_writes::verify_source(function, write, &mut same_tag)?;
+                bound_writes::verify(
+                    &candidate,
+                    write,
+                    predecessors.as_ref().ok_or_else(invalid)?,
+                    &mut tag_work,
+                )?;
+            }
+        }
     }
-    drop((reads, writes, predecessors));
+    drop((reads, writes, predecessors, same_tag));
     if let Some(copy) = host_stack::lower(&mut candidate, host, allocator, expansion)? {
         host_stack::verify(&candidate, &copy)?;
     }
+    let remaining_host_uses = plan.host_instructions.saturating_sub(2) / 2 - 2 * bound_count;
+    let expected_host = if candidate
+        .layout
+        .blocks()
+        .flat_map(|b| candidate.layout.block_insts(b))
+        .any(|i| candidate.dfg.insts[i].opcode() == Opcode::CallIndirect)
+    {
+        2 * (remaining_host_uses + 1)
+    } else {
+        0
+    };
     if size(&candidate)
         != (
-            plan.instructions - 13 * numeric_count,
-            plan.blocks - 2 * numeric_count,
+            plan.instructions - plan.host_instructions + expected_host
+                - 13 * numeric_count
+                - 29 * bound_count,
+            plan.blocks - 2 * numeric_count - 6 * bound_count,
         )
     {
         return Err(JitError::Compilation(
@@ -465,7 +556,11 @@ pub(super) fn lower(
         ));
     }
     *function = candidate;
-    Ok(())
+    Ok(if contract == Contract::FrameBound {
+        bound_count
+    } else {
+        proven_writes
+    })
 }
 
 fn grammar_fixture(fault: u8) -> (Function, IrValue, IrValue) {
@@ -687,7 +782,11 @@ fn incompatible_payload_selections_refuse_before_allocating_native_memory() {
         let baseline = snapshot.operations.allocator().0.current();
         let total = MappingCounter::new(super::super::resources::Ledger::new(8 * 1024 * 1024));
         let metadata = BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024));
-        for failure in [Failure::RequirePayload, Failure::RequirePayloadLoop] {
+        for failure in [
+            Failure::RequirePayload,
+            Failure::RequirePayloadLoop,
+            Failure::RequireBoundPayload,
+        ] {
             for mode in 0..6 {
                 #[cfg(miri)]
                 if mode == 5 {
@@ -730,14 +829,25 @@ impl Code {
         pc: usize,
         budget: u32,
     ) -> Exit {
-        assert!(self.payload);
+        let contract = self.payload.expect("ordinary entry requires scalar slots");
         assert_eq!(frame.slot_count, self.registers);
         type Entry = unsafe extern "C" fn(*mut Payload, u64, u32, *mut Exit, *mut Bridge);
         let entry: Entry = unsafe { std::mem::transmute(self.entry) };
         let mut exit = Exit::default();
-        crate::jit::abi::payload::runtime::with_bridge::<CAPACITY>(frame, |slots, host| unsafe {
-            entry(slots, pc as u64, budget.min(64), &mut exit, host);
-        });
+        match contract {
+            Contract::Checked => crate::jit::abi::payload::runtime::with_bridge::<CAPACITY>(
+                frame,
+                |slots, host| unsafe {
+                    entry(slots, pc as u64, budget.min(64), &mut exit, host);
+                },
+            ),
+            Contract::FrameBound => crate::jit::abi::payload::runtime::with_binding::<CAPACITY>(
+                frame,
+                |binding| unsafe {
+                    binding.invoke(entry, self.registers, pc, budget, &mut exit);
+                },
+            ),
+        }
         exit
     }
 }
@@ -765,7 +875,7 @@ fn relocation_budget_counts_emitted_direct_and_indirect_helper_calls() {
             .unwrap();
             let count = code.relocations;
             let payload = matches!(failure, Failure::RequirePayload);
-            assert_eq!(code.payload, payload);
+            assert_eq!(code.payload.is_some(), payload);
             if payload {
                 assert_eq!(count, 0);
             } else {
@@ -791,7 +901,7 @@ fn relocation_budget_counts_emitted_direct_and_indirect_helper_calls() {
                     Ok(code) => {
                         assert!(count <= limit);
                         assert_eq!(code.relocations, count);
-                        assert_eq!(code.payload, payload);
+                        assert_eq!(code.payload.is_some(), payload);
                     }
                     Err(error) => {
                         assert!(count > limit);
@@ -871,6 +981,17 @@ fn run<'gc>(
 #[cfg(not(miri))]
 #[test]
 fn ordinary_lua_lowering_preserves_each_exit_and_canonical_register() {
+    ordinary_payload_contract(false);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn bound_lua_lowering_preserves_each_exit_and_canonical_register() {
+    ordinary_payload_contract(true);
+}
+
+#[cfg(not(miri))]
+fn ordinary_payload_contract(bound: bool) {
     for (source, result) in [
         (
             "local x = 1; for i = 1, 20 do x = x + i end; return x",
@@ -898,7 +1019,9 @@ fn ordinary_lua_lowering_preserves_each_exit_and_canonical_register() {
                     1024 * 1024,
                     BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024)),
                     super::super::work::Limits::from(&super::super::JitConfig::default()),
-                    if source.contains("for i") {
+                    if bound {
+                        Failure::RequireBoundPayload
+                    } else if source.contains("for i") {
                         Failure::RequirePayloadLoop
                     } else {
                         Failure::RequirePayload
@@ -912,6 +1035,10 @@ fn ordinary_lua_lowering_preserves_each_exit_and_canonical_register() {
                     0,
                     64,
                 );
+            }));
+            assert!(rejected.is_err());
+            let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                candidate.0.linked_entry()
             }));
             assert!(rejected.is_err());
             for initial_budget in [0, 1, 63, 64, 65, u32::MAX] {
@@ -981,6 +1108,17 @@ fn ordinary_lua_lowering_preserves_each_exit_and_canonical_register() {
 #[cfg(not(miri))]
 #[test]
 fn optimized_payload_loops_match_every_entry_budget_and_scalar_guard() {
+    optimized_payload_contract(Failure::RequirePayloadLoop);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn bound_payload_loops_match_every_entry_budget_and_scalar_guard() {
+    optimized_payload_contract(Failure::RequireBoundPayload);
+}
+
+#[cfg(not(miri))]
+fn optimized_payload_contract(failure: Failure) {
     for (source, floating) in [
         ("local s=0 for i=1,20 do s=s+i end return s", false),
         ("local s=0 for i=20,1,-1 do s=s-i end return s", false),
@@ -994,7 +1132,7 @@ fn optimized_payload_loops_match_every_entry_budget_and_scalar_guard() {
             let metadata = BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024));
             let work = super::super::work::Limits::from(&super::super::JitConfig::default());
             let control = compile_in(&snapshot, total.clone(), 1024 * 1024, metadata.clone(), work, Failure::RequireIntegerLoop).unwrap();
-            let candidate = Compiled(compile_in(&snapshot, total.clone(), 1024 * 1024, metadata.clone(), work, Failure::RequirePayloadLoop).unwrap());
+            let candidate = Compiled(compile_in(&snapshot, total.clone(), 1024 * 1024, metadata.clone(), work, failure).unwrap());
             let base = snapshot.operations.iter().find_map(|op| match op {
                 Operation::NumericForLoop { base, .. } => Some(usize::from(base.0)),
                 _ => None,
