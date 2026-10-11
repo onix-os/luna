@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-11
 
-#### Branch-local scalar descriptor loads — validation in progress
+#### Branch-local scalar descriptor loads — measured instruction costs
 
 Commit `3c97f73` moves frame-bound scalar pointer loads into their numeric and
 Boolean branches, and constructs zero only on the Nil/reference branch. The
@@ -25,9 +25,23 @@ Peak workspace refusal/cleanup and contract mismatch checks remain in place.
 
 GNU/musl each pass 46 ABI + 56 backend + three runtime tests; GNU check-all and
 formatting pass. Final focused bound tests also pass on both targets, including
-native canonical readers and 169 value-transition pairs. Miri, frozen activated
-build, instruction attribution and full original hardware gates are tracked
-separately; no register-spill or timing improvement is claimed yet. Logs:
+native canonical readers and 169 value-transition pairs. Both Miri models pass
+12 focused tests each. The frozen activated build passes all 105 payload tests
+and check-all; its SHA-256 is
+`cd16c61005a01350c9b121e1d9b87329896edbbe0cf132b2cc3f09961feff0dd`.
+
+Ten profiles preserve every non-timing statistic, with identical Off controls,
+but do not support the spill-reduction hypothesis. Callback instructions rise
+64,823, entirely in its captured native mapping (13,099,872 → 13,164,695).
+Weighted stack-offset 8/16 work rises by the same 64,823 to 972,620. Allocation
+instructions rise by 237,552 (234,546 anonymous native work); metamethods rise
+109,244, including libc allocation variation even though anonymous work falls
+12,871. Upvalue instructions fall 160,772; float falls 8,026, integer rises 13,
+and array falls 1,074. All 13 events and complete function sums remain recorded.
+No measured cost is excluded from totals. Evidence:
+`local-vs-branch-analysis.json`, `branch-*-auto-delta.json`, and
+`branch-native-vgdb/`. Full original hardware gates remain pending; no timing
+improvement or acceptance is claimed. Logs:
 `payload-branch-read-*` and `payload-terminal-profile/branch*` under
 `target/jit-evidence/short-slice-performance/`.
 
