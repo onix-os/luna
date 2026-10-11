@@ -19,6 +19,37 @@ offset the repeated metamethod regression, larger resources and unresolved
 callback gate. This decision does not withdraw the preceding scoped GetUpvalue
 optimization or change any original acceptance threshold.
 
+Withdrawal `66078d1` restores `src/` and Makefile byte-for-byte to that revision.
+Restored GNU and musl each pass **62 ABI + 57 backend + three runtime + 27
+helper tests**, formatting and check-all. Logs are
+`payload-static-withdraw-{gnu,musl}.log` in the evidence root below.
+Additional restored accounting, sequence, error, upvalue, suspension and debug
+Make targets pass **109 executions across 15 summaries** (one contains zero
+tests), including async lanes, hooks, callback errors and native resumption.
+`payload-static-withdraw-boundaries.log` is terminal with exit zero. No fresh
+Miri run, rebuilt performance image or full release acceptance is claimed for
+this byte-exact withdrawal.
+
+Fresh instruction attribution of the retained `upread` symbol image, with its
+recorded SHA verified, accounts for every profiled self instruction in
+`Executor::step` (22,649,029), `run_vm_slice` (23,723,328) and
+`Runtime::invoke<7,true>` (15,693,458). Address-resolved invocation blocks split
+into entry/session setup 3,436,997, descriptor binding 6,030,957, bridge/call
+843,037, exit-PC handling 518,792, statistics publication 3,696,393 and
+panic/return handling 1,167,282. These self counts exclude callees and are not
+elapsed-time attribution or removable-work estimates. The three exact sums
+match the existing complete function profile. Files are
+`payload-terminal-profile/upread/callback-*-instruction-costs.tsv`, with
+`wrapper-symbols.txt` and `wrapper.asm`. An initial display command rejected
+`tail -1`; all three attribution scripts had already completed successfully.
+
+The profile directs further investigation toward native-entry/session and
+descriptor setup, not another shared executor rewrite. Source review confirms
+that Lua-frame peek/guard selection, Lua continuation drivers and callback
+setup/return inlining were already measured and rejected below. No new callback
+handoff, borrowed-state lifetime extension or statistics shortcut is implemented
+or accepted by this attribution.
+
 Two complete hardware campaigns ran nine original workloads, eleven paired
 samples, CPUs 0/16 and three rotated windows with ordinary, previous, candidate
 and same-inode placebo images. All **48 aggregate benchmark invocations failed**;
