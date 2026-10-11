@@ -11,6 +11,53 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Bound scalar reads — contract-specific null-check removal
+
+Commit `ad8d71a` removes one null comparison and two conjunctions from each
+remaining scalar read only under the frame-bound entry contract. The private
+binding factory supplies non-null Boolean/Integer/Number field pointers;
+Nil/reference descriptors still produce zero without dereferencing. Numeric
+tag checks, the one-byte Boolean load, eight-byte numeric load, zero extension,
+and floating-point bitcasts remain verified. Checked entries keep their original
+null-pointer fallback. Read records carry their contract, and verification
+requires it to match the enclosing compilation contract.
+
+Bound scalar verification also checks exclusive incoming edges to the generated
+guard/load blocks and the exact three-way result join. Its predecessor workspace
+is charged, and both pre/post-host expansion checks account for exactly three
+saved instructions per bound scalar read. GNU and musl each pass **41 ABI + 55
+backend + three runtime tests**; GNU fmt/check-all passes. New tests reject 61
+well-formed emitted mutations across integer/floating load forms, check exact
+workspace-peak refusal/cleanup, reject contract mismatches, and execute native
+readers through real scoped bindings. A 169-pair canonical transition corpus
+checks all value kinds before/after Move, terminal descriptor retirement, and
+helper refresh; it is also exercised by a direct-load model under Miri. These
+are correctness results, not a performance acceptance claim. Logs are
+`payload-scalar-read-*` under `target/jit-evidence/short-slice-performance/`.
+
+Both Miri models pass **12 focused tests each**, including the transition model.
+The frozen `scalar` image
+(`7a76af2980ec4d3a0c33ed35dd7e5ff1b564b1ffefb5a8992f0e254b2a78692a`)
+separately passes the 99-test activated build and check-all. Ten matched profiles
+against `exact` preserve execution counters. Float code mapping shrinks from
+8,192 to 4,096 bytes; the strict comparison retains this difference with exit 3.
+Off controls are instruction-identical.
+
+The result is mixed, not acceptance: callback total instructions fall by 184,646
+to 131,660,603; native-page attribution shows −194,534 to 13,099,872, offset by
++9,888 in Manager::enqueue. But float work **rises by 248,699**, entirely in its
+captured native mapping (8,671,303 → 8,920,002). Weighted operations addressing
+stack offsets 8/16 rise by 206,532; remaining native work rises by 42,167.
+Callback stack-offset 8/16 work also increases by 778,112 despite its net native
+instruction reduction. These costs must not be discarded because the IR is
+smaller. Allocation work falls by 174,596 (154,365 in anonymous code); metamethod
+work rises by 10,151 (12,775 anonymous, −2,624 elsewhere).
+Evidence: `exact-vs-scalar-analysis.json`, `scalar-*-auto-delta.json`,
+`scalar-native-vgdb/`, and `scalar-float-native-vgdb/`. The pointer currently
+stays live across both tag branches; investigate branch-local pointer loads
+and a branch-local zero constant if hardware confirms this layout is costly.
+Neither that layout change nor a performance acceptance claim is implemented.
+
 #### Original-workload read audit
 
 `make jit-payload-read-audit` now inspects generated IR after the ordinary
