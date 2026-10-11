@@ -225,6 +225,8 @@ pub(super) struct Code {
     #[cfg(test)]
     pub(super) entry_kind: payload::EntryKind,
     #[cfg(test)]
+    binding_requirements: Option<payload::binding_requirements::Requirements>,
+    #[cfg(test)]
     pub(super) packed_integer_loop: bool,
     #[cfg(test)]
     pub integer_activation: bool,
@@ -349,6 +351,7 @@ pub(super) enum Failure {
     RequirePayloadLoop,
     RequirePayloadTags,
     RequireBoundPayload,
+    RequireSparsePayload,
     RequirePackedPayload,
     #[cfg(not(miri))]
     AuditPayloadReads,
@@ -747,6 +750,7 @@ fn compile_selected_rooted(
             | Failure::RequirePayloadLoop
             | Failure::RequirePayloadTags
             | Failure::RequireBoundPayload
+            | Failure::RequireSparsePayload
             | Failure::RequirePackedPayload
             | Failure::AuditPackedLowering
     ) {
@@ -780,6 +784,7 @@ fn compile_selected_rooted(
             | Failure::RequirePayloadLoop
             | Failure::RequirePayloadTags
             | Failure::RequireBoundPayload
+            | Failure::RequireSparsePayload
             | Failure::RequirePackedPayload
             | Failure::AuditPackedLowering
     ) {
@@ -834,6 +839,8 @@ fn compile_selected_rooted(
     .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
     let provider_charge;
     let provider;
+    #[cfg(test)]
+    let binding_metadata = metadata.clone();
     (provider, provider_charge) = global_box::try_new(Provider(memory.clone()), metadata)
         .map_err(|_| JitError::ResourceLimit("JIT metadata"))?;
     #[cfg(test)]
@@ -912,6 +919,7 @@ fn compile_selected_rooted(
                     | Failure::RequirePayloadLoop
                     | Failure::RequirePayloadTags
                     | Failure::RequireBoundPayload
+                    | Failure::RequireSparsePayload
             ) {
                 Layout::array::<AbiParam>(5)
                     .map_err(|_| JitError::ResourceLimit("payload signature size"))?
@@ -1285,6 +1293,7 @@ fn compile_selected_rooted(
             | Failure::RequirePayloadLoop
             | Failure::RequirePayloadTags
             | Failure::RequireBoundPayload
+            | Failure::RequireSparsePayload
             | Failure::RequirePackedPayload
     );
     #[cfg(all(test, not(miri)))]
@@ -1413,10 +1422,28 @@ fn compile_selected_rooted(
             parameters[4],
             snapshot.registers,
             &helper_refs,
+            &blocks,
             snapshot.operations.allocator().clone(),
         )?;
         return Err(JitError::Compilation("payload read audit complete".into()));
     }
+    #[cfg(test)]
+    let binding_requirements = if failure == Failure::RequireSparsePayload {
+        Some(
+            payload::binding_requirements::Requirements::new(
+                &context.func,
+                parameters[0],
+                parameters[4],
+                snapshot.registers,
+                &helper_refs,
+                &blocks,
+                snapshot.operations.allocator().clone(),
+            )?
+            .into_metadata(binding_metadata)?,
+        )
+    } else {
+        None
+    };
     #[cfg(test)]
     let (instructions, block_count) = if matches!(
         failure,
@@ -1424,6 +1451,7 @@ fn compile_selected_rooted(
             | Failure::RequirePayloadLoop
             | Failure::RequirePayloadTags
             | Failure::RequireBoundPayload
+            | Failure::RequireSparsePayload
     ) {
         let proven_writes = payload::lower_contract(
             &mut context.func,
@@ -1433,7 +1461,10 @@ fn compile_selected_rooted(
             &helper_refs,
             snapshot.operations.allocator().clone(),
             expansion,
-            if failure == Failure::RequireBoundPayload {
+            if matches!(
+                failure,
+                Failure::RequireBoundPayload | Failure::RequireSparsePayload
+            ) {
                 payload::Contract::FrameBound
             } else {
                 payload::Contract::Checked
@@ -1888,13 +1919,17 @@ fn compile_selected_rooted(
             payload::EntryKind::Packed
         } else {
             payload::EntryKind::from_contract(match failure {
-                Failure::RequireBoundPayload => Some(payload::Contract::FrameBound),
+                Failure::RequireBoundPayload | Failure::RequireSparsePayload => {
+                    Some(payload::Contract::FrameBound)
+                }
                 Failure::RequirePayload
                 | Failure::RequirePayloadLoop
                 | Failure::RequirePayloadTags => Some(payload::Contract::Checked),
                 _ => None,
             })
         },
+        #[cfg(test)]
+        binding_requirements,
         #[cfg(test)]
         packed_integer_loop: packed_checkpoints.is_some(),
         #[cfg(test)]

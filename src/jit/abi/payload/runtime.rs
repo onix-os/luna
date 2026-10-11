@@ -36,6 +36,10 @@ mod capacity_tests;
 #[path = "bound_tests.rs"]
 mod bound_tests;
 
+#[cfg(test)]
+#[path = "sparse_binding_tests.rs"]
+mod sparse_binding_tests;
+
 pub(crate) struct Binding<'scope> {
     slots: NonNull<Payload>,
     host: &'scope mut Bridge,
@@ -78,6 +82,28 @@ pub(crate) fn with_binding<const CAPACITY: usize>(
 ) {
     let count = frame.slot_count;
     with_bridge::<CAPACITY>(frame, |slots, host| {
+        body(Binding {
+            slots: NonNull::new(slots).unwrap(),
+            host: unsafe { &mut *host },
+            count,
+        });
+    });
+}
+
+/// Binds the selected entry's incoming descriptor reads.
+///
+/// # Safety
+/// Source-level reads must be covered by the mask or a preceding definition.
+/// Scalar writes must materialize opaque destinations. Helpers must read opaque
+/// null descriptors from canonical storage.
+#[cfg(test)]
+pub(crate) unsafe fn with_binding_mask<const CAPACITY: usize>(
+    frame: &mut helpers::Frame<'_, '_, '_, '_>,
+    mask: [u64; 4],
+    body: impl for<'scope> FnOnce(Binding<'scope>),
+) {
+    let count = frame.slot_count;
+    with_bridge_selected::<CAPACITY, true>(frame, mask, |slots, host| {
         body(Binding {
             slots: NonNull::new(slots).unwrap(),
             host: unsafe { &mut *host },
@@ -162,7 +188,16 @@ pub(crate) fn with_bridge<const CAPACITY: usize>(
     frame: &mut helpers::Frame<'_, '_, '_, '_>,
     body: impl FnOnce(*mut Payload, *mut Bridge),
 ) {
-    with_session_capacity::<CAPACITY>(frame, |session, slots| {
+    with_bridge_selected::<CAPACITY, false>(frame, [0; 4], body);
+}
+
+#[inline(always)]
+fn with_bridge_selected<const CAPACITY: usize, const SELECTED: bool>(
+    frame: &mut helpers::Frame<'_, '_, '_, '_>,
+    mask: [u64; 4],
+    body: impl FnOnce(*mut Payload, *mut Bridge),
+) {
+    with_session_selected::<CAPACITY, SELECTED>(frame, mask, |session, slots| {
         let mut bridge = Bridge {
             base: abi::Host {
                 data: session.cast(),
@@ -560,6 +595,15 @@ struct Session<'s, 'gc, 'a, 'b, 'p> {
 
 impl Session<'_, '_, '_, '_, '_> {
     fn bind_each(&mut self, count: usize, mut write: impl FnMut(usize, Payload)) {
+        self.bind_selected::<false>(count, [0; 4], &mut write);
+    }
+
+    fn bind_selected<const SELECTED: bool>(
+        &mut self,
+        count: usize,
+        mask: [u64; 4],
+        mut write: impl FnMut(usize, Payload),
+    ) {
         let frame = unsafe { self.frame.as_mut() };
         assert_eq!(count, frame.slot_count);
         self.counts = NonNull::from(&mut frame.count);
@@ -567,7 +611,15 @@ impl Session<'_, '_, '_, '_, '_> {
         let mut canonical = Frame::new(&mut frame.registers.stack_frame[..count]);
         self.values = canonical.values;
         for index in 0..count {
-            write(index, canonical.bind(index).unwrap());
+            let value = if !SELECTED || mask[index / 64] & (1 << (index % 64)) != 0 {
+                canonical.bind(index).unwrap()
+            } else {
+                Payload {
+                    tag: REFERENCE,
+                    pointer: std::ptr::null_mut(),
+                }
+            };
+            write(index, value);
         }
     }
 
@@ -579,6 +631,15 @@ impl Session<'_, '_, '_, '_, '_> {
 #[inline(always)]
 fn with_session_capacity<const CAPACITY: usize>(
     frame: &mut helpers::Frame<'_, '_, '_, '_>,
+    body: impl FnOnce(*mut (), *mut Payload),
+) {
+    with_session_selected::<CAPACITY, false>(frame, [0; 4], body);
+}
+
+#[inline(always)]
+fn with_session_selected<const CAPACITY: usize, const SELECTED: bool>(
+    frame: &mut helpers::Frame<'_, '_, '_, '_>,
+    mask: [u64; 4],
     body: impl FnOnce(*mut (), *mut Payload),
 ) {
     let count = frame.slot_count;
@@ -599,7 +660,7 @@ fn with_session_capacity<const CAPACITY: usize>(
         borrow: PhantomData,
     };
     let mut slots = [std::mem::MaybeUninit::<Payload>::uninit(); CAPACITY];
-    session.bind_each(count, |index, value| {
+    session.bind_selected::<SELECTED>(count, mask, |index, value| {
         slots[index].write(value);
     });
     body(

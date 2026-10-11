@@ -8,6 +8,7 @@ use crate::jit::abi::payload::runtime::{Bridge, Functions};
 #[cfg(not(miri))]
 use crate::jit::abi::payload::Payload;
 
+pub(super) mod binding_requirements;
 mod bound_reads;
 mod bound_writes;
 mod host_stack;
@@ -917,6 +918,7 @@ fn incompatible_payload_selections_refuse_before_allocating_native_memory() {
             Failure::RequirePayload,
             Failure::RequirePayloadLoop,
             Failure::RequireBoundPayload,
+            Failure::RequireSparsePayload,
         ] {
             for mode in 0..6 {
                 #[cfg(miri)]
@@ -994,9 +996,25 @@ impl Code {
         type Entry = unsafe extern "C" fn(*mut Payload, u64, u32, *mut Exit, *mut Bridge);
         let entry: Entry = unsafe { std::mem::transmute(self.entry) };
         let mut exit = Exit::default();
-        crate::jit::abi::payload::runtime::with_binding::<CAPACITY>(frame, |binding| unsafe {
-            binding.invoke(entry, self.registers, pc, budget, &mut exit);
-        });
+        if let Some(mask) = self
+            .binding_requirements
+            .as_ref()
+            .and_then(|plan| plan.get(pc))
+        {
+            unsafe {
+                crate::jit::abi::payload::runtime::with_binding_mask::<CAPACITY>(
+                    frame,
+                    mask.words(),
+                    |binding| {
+                        binding.invoke(entry, self.registers, pc, budget, &mut exit);
+                    },
+                );
+            }
+        } else {
+            crate::jit::abi::payload::runtime::with_binding::<CAPACITY>(frame, |binding| unsafe {
+                binding.invoke(entry, self.registers, pc, budget, &mut exit);
+            });
+        }
         exit
     }
 }
@@ -1147,6 +1165,57 @@ fn bound_lua_lowering_preserves_each_exit_and_canonical_register() {
 }
 
 #[cfg(not(miri))]
+#[test]
+fn bound_sparse_lowering_preserves_each_exit_and_canonical_register() {
+    ordinary_payload_contract(Failure::RequireSparsePayload);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn bound_sparse_nil_store_materializes_omitted_non_nil_cells() {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"local a return a").unwrap();
+        let snapshot = Snapshot::new(&closure.prototype(), 4096, 2 * 1024 * 1024).unwrap();
+        let total = MappingCounter::new(super::super::resources::Ledger::new(8 * 1024 * 1024));
+        let metadata = BudgetAllocator(super::super::resources::Ledger::new(2 * 1024 * 1024));
+        let candidate = Compiled(
+            compile_in(
+                &snapshot,
+                total.clone(),
+                1024 * 1024,
+                metadata.clone(),
+                super::super::work::Limits::from(&super::super::JitConfig::default()),
+                Failure::RequireSparsePayload,
+            )
+            .unwrap(),
+        );
+        let mask = candidate
+            .0
+            .binding_requirements
+            .as_ref()
+            .unwrap()
+            .get(0)
+            .unwrap();
+        assert!(!mask.contains(0));
+        let mut values = vec![crate::Value::Integer(7); snapshot.registers];
+        let (exit, counts) = run(
+            &candidate.0,
+            Some(&candidate),
+            (ctx, closure),
+            &mut values,
+            0,
+            1,
+        );
+        assert_eq!(exit.instructions, 1);
+        assert_eq!(counts, [0; 8]);
+        assert!(matches!(values[0], crate::Value::Nil));
+        drop(candidate);
+        assert_eq!(total.load(Ordering::Relaxed), 0);
+        assert_eq!(metadata.0.current(), 0);
+    });
+}
+
+#[cfg(not(miri))]
 fn ordinary_payload_contract(failure: Failure) {
     for (source, result) in [
         (
@@ -1269,6 +1338,12 @@ fn optimized_payload_loops_match_every_entry_budget_and_scalar_guard() {
 #[test]
 fn bound_payload_loops_match_every_entry_budget_and_scalar_guard() {
     optimized_payload_contract(Failure::RequireBoundPayload);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn bound_sparse_loops_match_every_entry_budget_and_scalar_guard() {
+    optimized_payload_contract(Failure::RequireSparsePayload);
 }
 
 #[cfg(not(miri))]
