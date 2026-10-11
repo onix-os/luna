@@ -60,6 +60,33 @@ The main checkout's `jit-test-all JIT_MODE=auto jit-test-doc` completes with
 **1,652 passing executions / 91 summaries**, zero failures and eight existing
 ignores, recorded in `payload-table-write-workspace.log`. The activated frozen
 image's 111-test gate is distinct from this ordinary-runtime workspace run.
+
+Two full hardware campaigns complete: **48/48 aggregate gates fail**. Candidate
+callbacks and metamethods fail in all 12 windows, allocation passes all 12, and
+array fails once. That array failure is retained: repeat CPU 16 window 1 has
+ratio-of-medians 1.2445 below 1.25 despite median paired speedup 1.3362.
+Previous/write Auto median-time ratios for metamethods are 1.0076–1.0230 on
+CPU 0 and 1.0125–1.0493 on CPU 16 in the first campaign; repeat ranges are
+1.0020–1.0180 and 0.9895–1.0359. Array timings remain noisy: first CPU 16
+0.9294–1.0802, repeat 0.9582–1.0333, notwithstanding reduced instruction work.
+
+Do not hide unrelated negative samples: CPU 0 callback ratios are
+0.9904–0.9965 initially and 0.9837–1.0010 in the repeat. CPU 16 callbacks include
+a 0.9413 repeat outlier (other repeat windows 0.9896/1.0187). Allocation CPU 0
+is 0.9831–0.9955 initially but 0.9957–1.0034 in the repeat; no stable timing
+improvement is claimed for that unchanged workload. Same-inode placebo ranges
+and all raw windows remain available rather than subtracting contention or
+discarding outliers. The candidate remains experimental, not accepted.
+
+Across both campaigns all **216 direct previous/candidate non-timing comparisons
+match**. The 648 ordinary-relative comparisons retain 168 differences, solely
+code_bytes and snapshot_peak_bytes. All original nine workloads, eleven paired
+samples, three rotated orders on CPUs 0/16, source/image/inode verification and
+contention telemetry are preserved. Both drivers exit 0 while their individual
+benchmark gates exit 2; no owned tests/builds/profiles/edits overlap timing.
+Evidence: `write-hardware-screen/`, `write-hardware-repeat/`, their analysis JSON
+files, and `write-vs-local-hardware{,-repeat}-stats.json`. Full performance,
+resource, platform and release acceptance remains open.
 Logs: `payload-table-write-*` and
 `payload-terminal-profile/write*` under `target/jit-evidence/short-slice-performance/`.
 
