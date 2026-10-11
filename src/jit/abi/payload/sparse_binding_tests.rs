@@ -26,7 +26,7 @@ fn sparse_binding_upvalue_alias_reads_canonical_omitted_cells() {
             unsafe {
                 with_binding_mask::<3>(&mut frame, [4, 0, 0, 0], |binding| {
                     let slots = binding.slots.as_ptr();
-                    let host: *mut () = binding.host.base.data.cast();
+                    let host: *mut () = binding.host.as_ptr().cast();
                     let sibling = slots.add(2).read();
                     for (dest, pc) in [(1, 7), (0, 8)] {
                         assert_eq!(
@@ -106,7 +106,7 @@ fn sparse_binding_preserves_canonical_reads_all_kinds_and_prefixes() {
                         with_binding_mask::<256>(&mut frame, mask, |binding| {
                             let slots = binding.slots.as_ptr();
                             let session =
-                                &*binding.host.base.data.cast::<Session<'_, '_, '_, '_, '_>>();
+                                &*binding.host.as_ptr().cast::<Session<'_, '_, '_, '_, '_>>();
                             for index in 0..count {
                                 let descriptor = slots.add(index).read();
                                 if mask[index / 64] & (1 << (index % 64)) == 0 {
@@ -151,7 +151,7 @@ fn sparse_binding_refreshes_destinations_preserves_siblings_and_full_helpers() {
             unsafe {
                 with_binding_mask::<3>(&mut frame, [6, 0, 0, 0], |binding| {
                     let slots = binding.slots.as_ptr();
-                    let host: *mut () = binding.host.base.data.cast();
+                    let host: *mut () = binding.host.as_ptr().cast();
                     let sibling = slots.add(1).read();
                     assert_eq!(
                         materialize(host, slots, 0, NUMBER, (-0.0f64).to_bits()),
@@ -217,7 +217,7 @@ fn sparse_binding_preserves_unwind_payload_writes_and_admission() {
                         if count > 0 {
                             assert_eq!(
                                 materialize(
-                                    binding.host.base.data.cast(),
+                                    binding.host.as_ptr().cast(),
                                     binding.slots.as_ptr(),
                                     0,
                                     INTEGER,
