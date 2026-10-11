@@ -324,8 +324,47 @@ checking and default/all-feature Clippy pass. Miri emits two new native-only
 unused-item warnings alongside existing warnings. These gates validate the
 test-only components, not production activation or performance acceptance.
 
-Remaining packed work includes complete whole-entry lowering and accounting,
-independent whole-function source/emitted checking,
+The packed whole-function pass now composes tag/bits reads, scalar stores and
+helper calls from the immutable ordinary source. It converts normal returns to
+the packed `RETURNED` status, shares one writer and one helper signature when
+needed, and checks exact source-plus-candidate IR expansion before cloning.
+Rewrite records, terminal analysis and block coverage use the budget allocator;
+signature parameter/return buffers are fallibly reserved, capacity-checked and
+charged for the candidate lifetime. Cranelift-owned transient allocation remains
+an existing resource-policy caveat, not a newly completed gate.
+
+An independent whole-function walk binds every checked fragment to its source
+instruction, follows its continuation through block splits, claims every added
+block exactly once and preserves unrelated instruction order, SSA results,
+branch destinations/arguments, memory flags and block parameters. Normal-return
+constants and dense DFG growth are checked separately. Source null-host guards
+remain valid: the real frontend emits equality/inequality against literal zero
+before helpers. Nonzero/ordered pointer comparisons and host-pointer escape are
+not admitted. Mutation tests cover unrelated constants, return status, original
+branch targets and instruction order; allocation failures and one-less IR limits
+leave the source and ledger unchanged.
+
+`Failure::AuditPackedLowering` runs this pass on the real frontend IR for all
+nine workloads plus predicate/cold scripts, then deliberately stops before native
+publication. Generated full-entry fixtures exercise combined scalar operations
+and helper completion/decline/panic/refusal through the existing canonical oracle.
+This is test-only compiler composition and source coverage, not activation in
+the Lua runtime or performance evidence. Sources are `packed_lower*.rs` and the
+backend audit hook; targets are `jit-payload-packed-lower` and its `-miri`
+counterpart. Evidence uses `packed-lower-*`.
+
+Source `81a5fdc` passes six focused GNU/musl tests and four pure compiler tests
+under each of Stacked/Tree Borrows Miri; the source manifest matches after both
+runs. Broader GNU/musl suites each pass 206 tests (99 ABI, 77 backend, three
+existing-transport runtime and 27 helper). Real i686 retains 33 packed ABI passes;
+the native compiler is not built there. Formatting, all-feature checking and
+default/all-feature Clippy pass with warnings, including two new Clippy warnings
+in the whole-function checker. Initial audit failures (test assertion formatting,
+then overly strict null-host admission) are retained alongside corrected runs.
+Maximum Nil fanout still needs dedicated packed source-expansion admission tests;
+the eleven workload functions do not establish every register-prefix boundary.
+
+Remaining packed work includes full compiler publication and owning entry identity,
 precise runtime exit/fuel/counter integration and resource accounting. Fresh
 frozen workload profiles and original hardware/compiled-Off gates still decide
 acceptance; no speedup or production activation is claimed by these fixtures.
