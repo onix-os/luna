@@ -62,6 +62,44 @@ source and release artifacts. Capture source hashes, activation patches and
 stripped/symbol link images before instruction profiling; the build is not
 performance evidence and neither experimental source is release acceptance.
 
+The first matched build/profile campaign is complete: 20 exact-image profiles
+across ten original workload/mode pairs. Control SHA-256 is
+`ee5c53c14fc42a732332486590eac851129f26fa369ca38f5ffca71b9e64cbca`;
+candidate is `b084b574604c3f8c766cf5a47af509109cc8c773a8099a3c50414f9a217dfb32`.
+Both stripped/symbol images have identical allocated sections and program
+headers, and source/image hashes verify before and after collection.
+
+Callback Auto drops **133,401,602 → 132,947,695 instructions (-0.3403%)**,
+but remains **716,071 (+0.5415%) above the restored ordinary JIT**. Generated
+callback work stays 14,137,456 instructions. Its wrapper grows by 129,698
+instructions (two per entry) while the retiring materializer costs less.
+Upvalue Auto grows 162,936 (+0.1015%); most of that delta is in unchanged
+`Admitted::new`, not the new materializer, and is not yet causally explained.
+Integer/float Off totals are identical; upvalue Off differs by 242 instructions.
+Integer/float Auto each grow about 0.1%; allocation/GC improves 0.0495%.
+This is not a sufficient performance result and no hardware timing gate passes
+on the strength of these profiles.
+
+All execution counters match. The strict all-non-timing comparison exits 3
+because snapshot peaks differ for five Auto workloads; callback peak grows
+11,141 → 11,574 bytes. Preserve that failure and every resource field in
+`payload-terminal-profile/analysis.json`, rather than omitting them.
+
+The next test-only variant moves both scalar gateways into the existing
+shared helper-function table. Its invocation bridge stores one table pointer,
+instead of rebuilding three function/table pointers per entry. A slow scalar
+write adds one table load; expansion accounting and the independent gateway
+checker include it. The direct bridge test invokes both materializers and a
+refreshing helper through that shared table. GNU validation passes 38 ABI,
+33 backend, two runtime and two focused table/capacity tests, plus format and
+all-feature checks. Focused terminal and table/capacity tests pass under both
+Miri aliasing models. The same 75-test native lane passes on x86_64 musl.
+Matched-profile validation remains pending; no further saving is assumed.
+Initial stale-field
+test compile errors and a hard-coded mutation-test instruction index are
+retained in `payload-terminal-table-initial.log` and
+`payload-terminal-table-corrected.log`.
+
 Target the ordinary wrapper's **12,321,657 import/writeback instructions**,
 not another tiny scalar-guard or rejected callback-setup/cache variation.
 Generic direct-payload transport already exists as an unaccepted model, but
