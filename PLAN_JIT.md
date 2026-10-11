@@ -30,6 +30,48 @@ verified in-place bound-read path using fresh exact-tag guards. No new read
 lowering or performance gain is claimed by this audit. Full IR and counts are
 in `target/jit-evidence/short-slice-performance/payload-read-audit-validation.log`.
 
+Commit `7fc1231` implements that separate path for frame-bound entries. A read
+stays at its original instruction, with only a descriptor-pointer load inserted
+before its typed field load. Admission and independent source revalidation use
+separate work budgets in the existing exact-tag proof analysis; emitted-code
+validation rechecks fresh guards on every incoming path, pointer/root/offset,
+type/result, and adjacency. Guard conjunctions are bounded; stores, calls,
+unguarded predecessors, and exhausted proof work refuse the optimization.
+Checked entries and the existing masked-numeric path remain unchanged.
+
+The updated source audit admits exactly the ten witnessed reads and no others.
+GNU and musl each pass **40 ABI + 52 backend + three runtime tests**, including
+all-PC/budget/type loop integration. GNU fmt/check-all passes. New coverage
+includes one/five-field exact workspace limits, 36 well-formed source mutations,
+52 emitted mutations, independent proof-work exhaustion, and native probes for
+both load types under both exact numeric tags. Native probes reject other tags
+and preserve canonical scalar bits. Stacked/Tree Miri and frozen matched
+measurements are tracked separately; these correctness results do not prove a
+timing improvement. Logs are `payload-exact-read-*` under the evidence directory.
+
+Both Miri models now pass **14 focused tests each** (two ABI, five bound models,
+two masked-read models, five same-tag models). The frozen `exact` image is
+`1b1f7d99b97bddb5068c00c45181805a95070e5eef48fa6480ee8330d05a1a68`.
+Its activated experimental build separately passes all 95 tests and check-all;
+ten instruction profiles retain complete non-timing equality versus `field`.
+Integer-loop total instructions fall by 362,804 to 15,941,370; float-loop total
+falls by 387,456 to 15,696,279. Off controls for both loops are unchanged.
+Captured native-code attribution independently measures integer native work
+9,307,317 → 8,944,404 (−362,913), and float 9,058,759 → 8,671,303 (−387,456).
+Both capture comparisons preserve complete non-timing statistics. Integer
+mappings remain 4,096 bytes and float mappings 8,192 bytes. The initial float
+capture driver expected a 4,096-byte page and stopped after a successful native
+run; the retained corrected capture verifies its actual 8,192-byte mapping.
+
+Other profile deltas are not automatically attributed to this optimization:
+array work rises by 58,278 (58,412 in libc memcpy, −148 across allocation
+functions, +14 anonymous instructions); upvalue work falls by 52,528, mostly
+52,284 in canonical admission. Callback work differs by only −81. All function
+costs reconcile to whole-profile totals. These are instruction measurements,
+not hardware speedup or acceptance. Evidence is `field-vs-exact-analysis.json`,
+`exact-*-auto-delta.json`, and `exact-*-native-vgdb*` under
+`target/jit-evidence/short-slice-performance/payload-terminal-profile/`.
+
 #### Typed entry classification and bound reads — still experimental
 
 Commit `442eaa1` replaces optional payload metadata with a separate, explicit
