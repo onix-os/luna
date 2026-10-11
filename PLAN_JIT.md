@@ -58,6 +58,34 @@ stays live across both tag branches; investigate branch-local pointer loads
 and a branch-local zero constant if hardware confirms this layout is costly.
 Neither that layout change nor a performance acceptance claim is implemented.
 
+The full `scalar` hardware screen completes with **24/24 aggregate failures**.
+Candidate callbacks and metamethods fail in all six windows; allocation/GC fails
+in one. Callback previous/scalar median-time ratios are 1.0269–1.0331 on CPU 0
+but 0.9897–1.0068 on CPU 16: the CPU 0 gain is not a consistent cross-core win.
+Ordinary/scalar callback ratios are 1.0169–1.0213 / 0.9757–1.0029.
+Float previous/scalar ratios improve in all six windows, 1.0024–1.0067 /
+1.0016–1.0118, despite higher native instruction counts. Do not present the
+instruction regression as a demonstrated timing loss. Its mapping remains
+halved, and the original numeric gates pass. There is still no full acceptance.
+All 324 non-timing comparisons are complete, with 84 differences solely in
+code/snapshot allocation metrics versus ordinary; execution counters match.
+Image/source hashes, aliases, and contention telemetry pass the same checks;
+no owned validation/profile/build/edit overlaps timing. Evidence:
+`scalar-hardware-screen/` and `scalar-hardware-analysis.json`.
+
+Next prioritize the failing metamethod workload's larger measured cost:
+`Session::rebind` accounts for 8,699,055 instructions and `bind_non_numeric` for
+5,272,896 in its current profile. Local-table GetTable still goes through a full
+canonical helper call and descriptor refresh, whereas closed-upvalue GetUpTable
+can refresh only its destination. Audit whether a constant-key, reference-tagged
+table receiver can use a similarly scoped path without invalidating sibling
+field pointers. **Its terminal-write analysis must change too:** GetTable is
+currently a full-refresh barrier, so silently making it partial would leave
+retired sibling descriptors stale. Preserve fallback, receiver/destination
+aliases, scalar/reference transitions, panic/PC/counters and Miri provenance.
+This is not the earlier rejected ordinary receiver-reconstruction experiment,
+and no local-table selective-refresh implementation is present yet.
+
 #### Original-workload read audit
 
 `make jit-payload-read-audit` now inspects generated IR after the ordinary
