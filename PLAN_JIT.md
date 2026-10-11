@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-11
 
-#### Same-thread callback handoff — test-only candidate
+#### Same-thread callback handoff — measured and withdrawn
 
 `e51470f` introduces a scoped executor handoff for Lua-to-callback and a direct
 callback Return-to-Lua on the same thread. A matching successor frame, cleared
@@ -185,7 +185,26 @@ sources, activation patches, executables, validation logs and failed profiles
 and timing campaigns; do not run another loop-layout variant on this evidence.
 Restore `src` and `Makefile` exactly to `c361f26` before continuing with a
 different measured bottleneck. This restores the retained experimental payload
-baseline, not performance/release acceptance; restoration validation is pending.
+baseline, not performance/release acceptance.
+
+Withdrawal `250e96a` restores `src/` and Makefile byte-for-byte to `c361f26`;
+the rejected driver's dedicated module and Make targets are removed. GNU and
+musl restoration checks each pass **149 tests** (62 ABI, 57 backend, three
+runtime and 27 helpers) plus check-all; GNU formatting also passes. The separate
+activation/accounting/sequence/error/upvalue/suspension/debug lane completes
+successfully, including async lanes and native resumption. Evidence is in
+`payload-handoff-withdraw-{gnu,musl,boundaries}.log`. No fresh Miri run or full
+release acceptance is claimed for this byte-exact restoration.
+
+A call-edge check of the SHA-verified retained `upread` profile rules out a
+duplicate global-table lookup hypothesis: helper 6 calls `RawTable::get_map`
+**64,836 times**, and interpreter `meta_ops::index` calls it **164 times**.
+Their total is exactly **65,000**, matching 5,000 callback iterations across
+eleven measured runs plus two warmups. The helper reports no declines. There is
+no repeated failed native lookup to remove; the two call sites cover disjoint
+native and interpreter executions. Evidence:
+`payload-terminal-profile/upread/callback-table-lookup-counts.tsv` and the
+unchanged complete callgrind profile. This is attribution, not an optimization.
 
 Evidence: `callback-handoff-*` and `payload-terminal-profile/handoff*` beneath
 `target/jit-evidence/short-slice-performance/`. Original full performance,
