@@ -207,8 +207,7 @@ impl<'a, 'gc> Frame<'a, 'gc> {
         let value = unsafe { &mut *self.values.as_ptr().add(index) };
         let (tag, pointer) = match value {
             Value::Integer(value) => (INTEGER, std::ptr::from_mut(value).cast()),
-            Value::Number(value) => (NUMBER, std::ptr::from_mut(value).cast()),
-            _ => return Some(bind_non_numeric(value)),
+            _ => return Some(bind_non_integer(value)),
         };
         Some(Payload { tag, pointer })
     }
@@ -243,8 +242,9 @@ impl<'a, 'gc> Frame<'a, 'gc> {
 }
 
 #[inline(never)]
-fn bind_non_numeric(value: &mut Value<'_>) -> Payload {
+fn bind_non_integer(value: &mut Value<'_>) -> Payload {
     let (tag, pointer) = match value {
+        Value::Number(value) => (NUMBER, std::ptr::from_mut(value).cast()),
         Value::Boolean(value) => (BOOLEAN, std::ptr::from_mut(value).cast()),
         Value::Nil => (NIL, std::ptr::null_mut()),
         _ => (REFERENCE, std::ptr::null_mut()),
