@@ -45,6 +45,37 @@ Production dispatch remains unchanged. An isolated experimental activation at
 matrix, against immutable ordinary and prior payload controls. Full performance,
 resource, platform and release acceptance remains open.
 
+The first isolated bound image (`95ec8ffd20b68b2fccc95491e69684fa2ac046609983753a1e65cae599afebd0`)
+completed ten original-workload Callgrind profiles, an exact native-page capture,
+and 24 full nine-case hardware commands (CPU 0/16, three rotated windows, ordinary,
+prior payload, candidate and same-inode ordinary placebo). All 24 commands still
+fail aggregate performance acceptance. No owned tests/builds/profiles overlapped
+hardware timing; image/source hashes and all invocation aliases were verified.
+The 324 full non-timing hardware comparisons have 84 differences, exclusively
+`code_bytes`/`snapshot_peak_bytes`; execution counters match. Profile comparison
+against `rare` deliberately exits 3: integer-loop snapshot peak falls from 13,155
+to 12,915 bytes. This resource change is retained, not silently excluded.
+
+Native callback self-instructions fall from 14,072,656 to **13,942,909**; weighted
+stack-offset-8/16 spills fall from 194,558 to **129,685**. However, the Rust wrapper
+grows from 15,693,458 to **16,017,715**, outweighing the native saving. Total callback
+instructions grow by 194,510 to 132,818,090, 0.4435% above ordinary transport.
+Exact ELF/disassembly attribution (`wrapper-costs.pl`) identifies extra optional-
+contract classification and checked-versus-bound setup dispatch, not a failure
+of the native-store proof. Hardware ordinary/candidate callback time ratios are
+0.9647–0.9780 on CPU 0 and 0.9701–0.9890 on CPU 16 (above one means faster).
+Neither reduced native spills nor a local IR saving is whole-path acceptance.
+
+Commit `ed108cf` expands native loop differential budgets to every value 0–65 plus
+`u32::MAX`, and checks exact workspace-peak admission/refusal. GNU/musl pass six
+focused tests; both Miri models pass four. Commit `8a53e48` uses the same stronger
+scoped binding factory for **both safe canonical invocations**, removing the
+unnecessary per-call contract switch. The compiler still distinguishes checked
+and frame-bound lowering, and raw checked probes retain malformed-descriptor
+tests. GNU again passes 86 tests and fmt/check-all. Its isolated `common-source`
+variant is being validated and measured separately; the first bound experiment
+and all older controls remain frozen.
+
 #### Typed canonical regions — test-only groundwork
 
 The current integration step changes the existing payload lowering, not
