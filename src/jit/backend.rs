@@ -347,6 +347,8 @@ pub(super) enum Failure {
     RequirePayloadLoop,
     RequirePayloadTags,
     RequireBoundPayload,
+    #[cfg(not(miri))]
+    AuditPayloadReads,
     RequireReadCache,
     RequireWriteback,
     RequireIntegerLoop,
@@ -1254,6 +1256,8 @@ fn compile_selected_rooted(
             | Failure::RequirePayloadTags
             | Failure::RequireBoundPayload
     );
+    #[cfg(all(test, not(miri)))]
+    let optimize_integer_loop = optimize_integer_loop || failure == Failure::AuditPayloadReads;
     #[cfg(not(test))]
     let optimize_integer_loop = true;
     let (instructions, block_count) = if optimize_integer_loop {
@@ -1332,6 +1336,18 @@ fn compile_selected_rooted(
     } else {
         instructions
     };
+    #[cfg(all(test, not(miri)))]
+    if failure == Failure::AuditPayloadReads {
+        payload::read_audit::run(
+            &context.func,
+            parameters[0],
+            parameters[4],
+            snapshot.registers,
+            &helper_refs,
+            snapshot.operations.allocator().clone(),
+        )?;
+        return Err(JitError::Compilation("payload read audit complete".into()));
+    }
     #[cfg(test)]
     let (instructions, block_count) = if matches!(
         failure,

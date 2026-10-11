@@ -11,6 +11,25 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Original-workload read audit
+
+`make jit-payload-read-audit` now inspects generated IR after the ordinary
+integer-loop augmentation and stops before native code emission. It traverses
+all nine original workload sources, including both child prototypes (11 total),
+and verifies mapping, compiler metadata, and snapshot workspace cleanup.
+The first audit finds 94 scalar payload reads: 69 are already admitted by the
+masked-numeric proof. No candidate fails its dominance/use admission.
+
+Ten further reads are concrete optimization witnesses: the integer and float
+loop entries each load five fields after a conjunction of exact numeric tag
+checks. Their tag loads are not adjacent to their field loads, and the guards
+precede those loads, so merely adding exact equality to the current forward
+recognizer would not admit them. The other 15 reads remain unclassified by this
+audit; Move/truthiness payloads must not be assumed numeric. Next is a separately
+verified in-place bound-read path using fresh exact-tag guards. No new read
+lowering or performance gain is claimed by this audit. Full IR and counts are
+in `target/jit-evidence/short-slice-performance/payload-read-audit-validation.log`.
+
 #### Typed entry classification and bound reads — still experimental
 
 Commit `442eaa1` replaces optional payload metadata with a separate, explicit

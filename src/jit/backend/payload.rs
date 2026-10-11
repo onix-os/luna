@@ -11,6 +11,8 @@ use crate::jit::abi::payload::Payload;
 mod bound_writes;
 mod host_stack;
 mod numeric_reads;
+#[cfg(not(miri))]
+pub(super) mod read_audit;
 mod reads;
 mod same_tag;
 mod terminal;

@@ -643,6 +643,10 @@ jit-in-place-return:
 .PHONY: jit-payload-functions jit-payload-functions-miri
 .PHONY: jit-payload-tags jit-payload-tags-miri
 .PHONY: jit-payload-bound jit-payload-bound-miri
+.PHONY: jit-payload-read-audit
+jit-payload-read-audit:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::read_audit::original_workload_reads -- --exact --nocapture
+
 jit-payload-bound:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::bound_tests:: $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::bound_ $(ARGS)
