@@ -109,6 +109,11 @@ fn bound_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
 }
 
 #[test]
+fn hybrid_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
+    payload_runtime_contract(backend::Failure::PreferBoundPayload);
+}
+
+#[test]
 fn sparse_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
     payload_runtime_contract(backend::Failure::RequireSparsePayload);
 }
@@ -124,6 +129,7 @@ fn packed_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
 }
 
 fn payload_runtime_contract(failure: backend::Failure) {
+    let mut observed_transports = [false; 2];
     for (script, expected, arrays) in [
         ("local s=0 for i=1,120 do s=s+i end return s", 7260, false),
         ("local s=0.0 for i=1,120 do s=s+0.5 end return s", 60, false),
@@ -178,6 +184,13 @@ fn payload_runtime_contract(failure: backend::Failure) {
                 assert_eq!(counters(candidate.jit_stats()), counters(control.jit_stats()), "{script}: initial={initial} turn={turn}");
                 assert_eq!(candidate.jit_stats().total_dispatches, reference.jit_stats().total_dispatches);
                 candidate.enter(|ctx| assert!(ctx.jit().0.borrow().code.values().all(|cached| {
+                    if failure == backend::Failure::PreferBoundPayload {
+                        return match cached.code.entry_kind {
+                            backend::EntryKind::Ordinary => { observed_transports[0] = true; true }
+                            backend::EntryKind::FrameBound => { observed_transports[1] = true; true }
+                            _ => false,
+                        };
+                    }
                     cached.code.entry_kind == match failure {
                         backend::Failure::RequirePackedPayload => backend::EntryKind::Packed,
                         backend::Failure::RequireBoundPayload | backend::Failure::RequireSparsePayload | backend::Failure::RequireWriteBoundPayload => backend::EntryKind::FrameBound,
@@ -205,5 +218,8 @@ fn payload_runtime_contract(failure: backend::Failure) {
             candidate.clear_jit_cache();
             assert_eq!(candidate.jit_stats().code_bytes, 0);
         }
+    }
+    if failure == backend::Failure::PreferBoundPayload {
+        assert_eq!(observed_transports, [true, true]);
     }
 }

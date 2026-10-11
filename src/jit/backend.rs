@@ -38,6 +38,8 @@ mod projection_mode;
 mod read_cache;
 #[cfg(not(miri))]
 pub(super) mod region;
+#[cfg(test)]
+mod transport_tests;
 
 #[cfg(not(miri))]
 pub(super) mod array;
@@ -351,6 +353,7 @@ pub(super) enum Failure {
     RequirePayloadLoop,
     RequirePayloadTags,
     RequireBoundPayload,
+    PreferBoundPayload,
     RequireSparsePayload,
     RequireWriteBoundPayload,
     RequirePackedPayload,
@@ -743,7 +746,22 @@ fn compile_selected_rooted(
     rooted_moves: bool,
 ) -> Result<Code, JitError> {
     #[cfg(test)]
-    let failure = selection.failure;
+    let failure = if selection.failure == Failure::PreferBoundPayload {
+        let ordinary = rooted_moves
+            || selection.projected
+            || selection.leaf
+            || selection.cell_kernel
+            || selection.integer_activation;
+        #[cfg(not(miri))]
+        let ordinary = ordinary || selection.scoped_helpers;
+        if ordinary || integer_loop::has_source_plan(snapshot)? {
+            Failure::None
+        } else {
+            Failure::RequireBoundPayload
+        }
+    } else {
+        selection.failure
+    };
     #[cfg(test)]
     if matches!(
         failure,
