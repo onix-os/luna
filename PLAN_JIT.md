@@ -35,7 +35,9 @@ GNU format/check-all and payload ABI/backend/runtime pass **229 / four summaries
 Stacked and Tree Borrows each pass **six / five summaries**, covering binding
 transitions, mixed-prefix reentry, function-table pointers, capacity/unwind and
 caught-helper-panic reuse. Focused musl passes **29 / eight summaries**. These
-checks are complete; a full-workspace Force rerun is in progress, not yet accepted.
+checks are complete. Full GNU `jit-test-all JIT_MODE=force` subsequently passes
+**1,775 / 88 summaries**, with six existing ignores, including the retained
+public-stack-alias integration regression. It ran after hardware timing.
 
 Four complete four-way timing campaigns retain **96 failed aggregate gates**
 and **2,592 parsed rows**, with historical/control/placebo images, eleven paired
@@ -58,13 +60,37 @@ the favorable pooled medians do not erase them. No blanket speedup is claimed.
 Original callback gates still pass **0/24**; array/upvalue pass 23/24,
 metamethod 22/24, integer/float/allocation/cold 24/24; Oslo remains unscored.
 The small, semantically unchanged binder is retained as experimental development
-WIP, **not promoted to production or accepted as the regression fix**. Next,
-compare the complete experimental ABI against a freshly frozen current-production
-image, not merely against the preceding experimental binder. Original full
-performance, feature-cost, resource and release gates remain open.
+WIP, **not promoted to production or accepted as the regression fix**. Original
+full performance, feature-cost, resource and release gates remain open.
+
+The subsequent clean current-production build at `2f6b2ae` has **no activation
+patch** and image
+`7bd2c14f2e77e33f10fd41fae0a13034600355b94f526f89ef4357617edfd409`.
+Eleven exact-load-image profiles against this actual non-test path expose larger
+ABI tradeoffs: callback -3,628,431 instructions and metamethod -3,396,641, but
+integer **+1,810,139 (+12.988%)**, float **+1,395,470 (+9.666%)**, allocation
+**+2,118,695 (+6.806%)**, array +889,844 and upvalue +146,700. Four Off totals
+are exact. Strict non-timing equality **fails**: metadata grows 32/64/96 bytes,
+array/metamethod code mappings each grow 4,096 bytes, and several snapshot peaks
+increase. Logical execution/native-coverage counters match; resource differences
+are retained rather than removed from comparison.
+
+Two further production-controlled four-way timing campaigns complete 48 commands
+and 1,296 rows, again without owned validation overlap. Direct Auto ratios
+(first/repeat) are integer **0.87339 / 0.86627**, float **0.87656 / 0.87469**,
+array **0.96623 / 0.96904**, allocation **0.98753 / 0.98873**, upvalue
+0.99689 / 1.00820, callback **1.01984 / 1.02678** and metamethod
+**1.02277 / 1.02735**. Every aggregate gate still fails. Snapshot/code/metadata
+differences are present in both candidate and preceding experimental variant;
+same-image placebo fields match. Original workload and threshold definitions
+are unchanged. Thus the full payload ABI must **not** replace ordinary native
+transport indiscriminately. A next candidate must preserve the existing optimized
+numeric-loop transport and evaluate helper-heavy regions separately using
+verified source/IR properties, never benchmark names or skipped native work.
+That selection change is a hypothesis, not implemented or accepted here.
 
 Evidence: `target/jit-evidence/short-slice-performance/integer-binding-*` and
-`payload-terminal-profile/integer-binding*/`. The root runtime remains on its
+`payload-terminal-profile/{integer-binding*,production-current*}/`. The root runtime remains on its
 existing production selection; release activation is isolated for measurement.
 
 #### Integer-pair binding — instruction screen rejected

@@ -17,6 +17,9 @@ callback throughput against the preceding experimental binder, but every
 callback acceptance gate still fails. CPU16 allocation, table and upvalue
 timings regress around 1–1.4%. This remains experimental development work;
 production selection is unchanged. `PLAN_JIT.md` records all results and controls.
+Against freshly built production code, enabling the entire payload ABI would
+reduce numeric-loop throughput about 13% and increase some code/snapshot costs.
+Its callback/metamethod gains do not justify that broad switch.
 
 Native code lookups cache two bucket offsets without retaining entry pointers
 or extra code leases. Mutable map access invalidates them; shared inspection
