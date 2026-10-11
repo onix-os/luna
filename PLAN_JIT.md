@@ -82,8 +82,40 @@ those one-run differences to the helper or claim a hardware speedup.
 Evidence: `terminal-copy-direct-*`, including the root logs, exact-image profile
 comparisons, repeat stats, and independent Miri logs. The direct helper is retained
 in the experimental main-checkout implementation; payload transport is not newly
-activated in production. Original performance, resource and release acceptance
-remain open; a full revised-root suite and hardware campaigns are still required.
+activated in production. The full revised-root GNU command (`fmt-check check-all
+test-all`) subsequently passes **1,795 executions across 88 summaries, six
+ignored**, including retained public stack-alias mutation across native reentry.
+
+Four sequential hardware campaigns complete **96 commands / 2,592 aggregate
+rows**, using the original nine workloads and eleven paired samples, CPUs 0/16,
+three rotated windows, production/array-transport/direct-copy/placebo images,
+immutable hashes and host contention telemetry. No owned build/test/profile ran
+during timing, and unrelated applications were not stopped. Every invocation's
+image, complete record set, unchanged threshold and gate exit is checked.
+
+The direct-copy candidate passes callback **1/24**, array **23/24**, upvalue
+**21/24**, and metamethod **22/24**. It passes the complete gate **0/24**; across
+all variants 95/96 complete gates fail, with one previous-image pass. Direct
+Auto-time ratios below are previous-image time divided by candidate time; above
+one favors the candidate. They are not the normalized paired gate statistic.
+
+| Campaign | Callback vs previous | Callback vs production | Same-image placebo |
+| --- | ---: | ---: | ---: |
+| Screen | 0.982475 | 0.968377 | 0.991500 |
+| Repeat | 1.002692 | 1.021587 | 0.996591 |
+| Round 2 screen | 1.000787 | 1.034315 | 1.002837 |
+| Round 2 repeat | 1.007198 | 1.043950 | 1.004507 |
+
+There is no consistent callback improvement over the retained previous image,
+and the original callback threshold remains unmet. Do not promote this trial as
+a performance fix. Versus the previous image, all execution/coverage counters
+remain identical; snapshot peak increases are retained explicitly, including
+56 bytes for the unscored Oslo predicate in addition to the three profiled cases.
+Same-image placebo non-timing records match. Evidence is in
+`terminal-copy-direct*-hardware-{screen,repeat}/`, corresponding JSON/verification
+reports, `terminal-copy-direct-hardware-controls.json` and
+`terminal-copy-direct-root-full.log`. Full performance, resource and release
+acceptance remain open.
 
 #### Descriptor/pointee alias classes — no callback benefit
 
