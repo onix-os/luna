@@ -11,6 +11,58 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Source-based native transport — numeric regression reduced, not accepted
+
+`e043810` adds a test-only `PreferBoundPayload` selector. It preserves ordinary
+native transport when the existing numeric-loop source planner recognizes a
+region, and preserves projected/scoped/rooted/leaf/cell/activation modes. Other
+compatible code uses FrameBound. The query verifies the complete snapshot before
+planning, uses no new charged storage, and contains no benchmark names or runtime
+value assumptions. A source plan does not guarantee optimization within a given
+work budget; declining that optimization still leaves ordinary native code.
+
+Source-policy tests cover integer/float/mixed bodies, effectful prefixes/suffixes,
+unknown inputs, wide frames, invalid registers/constants/jumps and ledger stability.
+Native tests check selected entry families, cleanup and existing specialized-mode
+success/refusal parity. The broad runtime differential now checks a cache containing
+both ABIs, every existing script/budget/GC/callback/hook/counter/array-kernel case,
+and retirement. GNU and musl each pass **12 / four summaries**; both Miri models
+pass the two Rust-only policy tests. Initial fixture API mistakes and an invalid
+assumption that every specialized source/mode compiles were corrected; the latter
+now compares actual acceptance/refusal to ordinary control instead of forcing it.
+
+Activated image `788058ad8e72395ef970f6c23eb9ca66688a9c3b6d86bf862415bd6a14046450`
+completes eleven exact-image profiles against fresh production `7bd2c14f`.
+Integer/float overhead drops to **201,925 instructions each**, entirely in the
+entry wrapper; generated numeric code self work matches production. Numeric
+snapshot peaks also match. Callback reduction remains 3,628,431 instructions.
+Two four-way timing campaigns complete **48 commands / 1,296 rows**, preserving
+all original gates and controls with no owned validation overlap. Direct Auto
+ratios versus production (first/repeat) are integer **0.98119 / 0.98125**, float
+**0.97987 / 0.97771**, callback **1.04202 / 1.02152**, metamethod
+**1.02014 / 1.03432** and array **0.99221 / 0.96502**. Thus the earlier roughly
+13% numeric throughput loss shrinks to roughly 2%, not zero. Callback gates remain
+0/12 and all aggregate gates fail. Metadata/code/remaining snapshot costs are open.
+
+`25ce15b` explicitly scopes sparse-mask dispatch to tests while retaining its
+behavior. A separate activation then also keeps its unused optional sparse
+metadata field test-only, rather than charging every release Code for an
+unselected feature. Image
+`0e3c4b89ebc31eb7f07815c10a07c3f7b45a3af89c0a85ae258c21d6c7672b9a`
+completes eleven profiles: **metadata byte/peak fields now match production in
+every profiled case**. Callback work falls 3,823,059 instructions versus production;
+integer/float totals remain adverse by 281,081/234,233. The integer total includes
+46,848 additional admission instructions; do not attribute all of it to entry
+dispatch. Array/metamethod code mappings still grow 4,096 bytes and callback/
+allocation/metamethod snapshot peaks remain larger, so strict resource equality
+still fails. Cleanup timing is pending. Post-refactor musl passes **37 / seven
+summaries** including hybrid runtime; full GNU Force validation is still running.
+Production selection remains unchanged; this is development progress only.
+
+Evidence: `target/jit-evidence/short-slice-performance/numeric-transport-*` and
+`payload-terminal-profile/numeric-transport*/`. Failed fixture/build logs are
+retained alongside successful retries, not reported as passing executions.
+
 #### Integer-only inline payload binding — measured development WIP
 
 The typed binder now keeps only Integer inline and outlines Number together
