@@ -11,6 +11,39 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Integer-only inline payload binding — timing pending
+
+The typed binder now keeps only Integer inline and outlines Number together
+with Nil, Boolean and references. This changes no layout, pointer lifetime,
+bounds, canonical write/rebind behavior, public stack API or production native
+selection. It is distinct from the rejected pair-binding and scratch-prefix
+trials below. `9fa5d54` independently extends the binding oracle with Callback,
+covering 14 kinds/196 canonical transitions and all six reference kinds.
+
+Frozen activated image
+`1ee923cfaa210d8f5c453265e1822b569359cc7b4cc02ea8cdc8e19a9b078a56`
+completes eleven exact-load-image profiles against reference-store `1fe53ac4`.
+All non-timing fields match; four compiled-Off instruction totals are unchanged.
+Auto instruction deltas are callback **-2,918,087 (-2.219%)**, integer -290,640,
+float -209,856, array -190,073, allocation **-1,470,927 (-4.236%)**, upvalue
+-44,757 and metamethod -811,103. Callback reduction is exactly entry-wrapper
+-3,177,601 plus helper 6 +129,672 plus outlined binding +129,842. Generated
+callback self work remains 13,099,872 and scalar/terminal materialization totals
+are unchanged. Reduced instruction counts are not a hardware speedup claim.
+
+GNU format/check-all and payload ABI/backend/runtime pass **229 / four summaries**.
+Stacked and Tree Borrows each pass **six / five summaries**, covering binding
+transitions, mixed-prefix reentry, function-table pointers, capacity/unwind and
+caught-helper-panic reuse. Focused musl passes **29 / eight summaries**. These
+checks are complete; no full-workspace rerun is claimed here. Two unchanged
+four-way timing campaigns are prepared, with historical/control/placebo images,
+eleven paired samples, all nine workloads, CPU 0/16 and three rotated windows.
+No timing result or performance acceptance is available yet.
+
+Evidence: `target/jit-evidence/short-slice-performance/integer-binding-*` and
+`payload-terminal-profile/integer-binding*/`. The root runtime remains on its
+existing production selection; release activation is isolated for measurement.
+
 #### Integer-pair binding — instruction screen rejected
 
 `4e17f8a` trialed binding two adjacent actual Integer values together during full
