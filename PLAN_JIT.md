@@ -112,6 +112,37 @@ possible handoff; workloads without callback transitions still pay its probes.
 Proceed to the original paired hardware controls rather than claiming either
 an elapsed improvement or an elapsed regression from these instruction counts.
 
+Both `handoff3` hardware rounds finish: **48 original aggregate invocations all
+fail**, with **216 complete direct non-timing/resource comparisons equal**.
+All nine workloads, eleven paired samples, CPUs 0/16, three rotated windows,
+ordinary/previous/candidate/same-inode-placebo controls and contention telemetry
+are retained. No owned build, test, profile or source edit overlaps timing;
+source/image after-checks and alias cleanup pass.
+
+Candidate callbacks fail **12/12**, with paired medians **0.7619–0.8082** against
+the unchanged **0.8333** minimum. Previous/candidate Auto time ratios on CPU16
+are **1.0298–1.0684**, but CPU0 is mixed (**0.9942–1.0169**). Metamethod gates
+fall from the same-campaign previous image's **12/12 passes to 6/12**; all six
+CPU0 time ratios are adverse (**0.9714–0.9887**) while its same-image placebo
+range is **0.9989–1.0114**. Arrays pass 11/12 versus previous 12/12; all other
+scored candidates pass 12/12 and Oslo remains unscored. CPU16 callback placebo
+ratios span 0.9197–1.0091 and array placebos vary substantially, so these are
+contended observations, not an uncontended causal estimate. Retain CPU16
+allocation losses and CPU0 float/upvalue losses in the complete JSON rather
+than selecting only callback gains. This candidate is **not accepted**.
+
+`0c238cd` tests a targeted guard refinement: eligibility is queried once at
+step entry, and a possible successor's kind is tested before its running/error
+flags. Off entry suppresses callback-free probes for that step; a later mode
+change still follows ordinary VM selection, and every actual handoff still
+rechecks current Auto policy. An initial true flag does not authorize a handoff
+after disabling JIT. No code/source/value/frame identity is cached. GNU and
+musl each pass five handoff plus fifteen activation tests/check-all; GNU
+default/all-feature Clippy also passes with existing warnings. Fresh Miri and
+frozen `handoff4` validation/profile remain pending; no speedup is attributed to
+this source change yet. Preserve `handoff3-hardware{,-repeat}*` and
+`handoff3-vs-upread-hardware-combined.json` as failed evidence.
+
 Evidence: `callback-handoff-*` and `payload-terminal-profile/handoff*` beneath
 `target/jit-evidence/short-slice-performance/`. Original full performance,
 resource, platform and release requirements remain open.
