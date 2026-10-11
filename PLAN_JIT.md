@@ -26,9 +26,9 @@ ordinary code when the optional array mapping cannot fit. Runtime comparisons
 cover float-control guards, metatable writes and host readonly mutation between
 GC-stepped slices, in addition to the existing broad mixed-cache oracle. GNU and
 musl each pass **nine tests / four summaries**; both main-checkout Miri models
-pass **four / two**, and isolated query checks pass two per model. A fresh full
-GNU Force run is active; the preceding 1,783-test SetList result is not substituted
-for validation of this policy.
+pass **four / two**, and isolated query checks pass two per model. The full GNU
+Force run also completes successfully: **1,787 passed across 88 summaries**, six
+ignored and no failures, with fmt/check-all passing in the same command.
 
 Activated image
 `60ab5a5bddccb73c391e7a89446b15238c7d3302c94f4aa3f035d8f8e0d81cdf`
