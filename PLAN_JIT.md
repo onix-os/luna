@@ -491,9 +491,41 @@ progress-method argument-count warning). Both Stacked and Tree Borrows Miri pass
 All 368 source-manifest entries match after validation. Native code execution is
 covered by GNU/musl, not Miri; these checks do not establish a speedup.
 
-Remaining packed work includes production activation, scoped helper optimization,
-and resource accounting. Fresh
-frozen workload profiles and original hardware/compiled-Off gates still decide
+#### Packed scoped helper fast paths
+
+The packed prototype now has destination-local upvalue reads, constant-key local
+and closed-upvalue table reads, table writes and table allocation. These retain
+the legacy payload fast cases without retiring and rebuilding unrelated scalar
+descriptors. Unhandled operations still use the full-frame helper path, retiring
+all descriptors first and refreshing control/value pointers before rebinding.
+Retired Empty operands are read from canonical state rather than treated as nil.
+Current-stack aliases, foreign/closed upvalues, table guards and helper counters
+remain subject to the original helper semantics.
+
+Helper completion is recorded after the canonical destination write and before
+descriptor refresh. An allocation/foreign-stack panic before the write remains
+uncompleted; a failure after a completed write cannot cause replay. The outer
+bridge retains the original panic payload and forbids further helper/writer
+execution. Control metadata is captured before scalar binding and refreshed after
+full-frame fallback; fast operations do not borrow the whole canonical frame.
+
+Native focused checks pass 48 packed ABI tests, including eight new fast-path
+tests covering all value kinds, sibling pointer read/write permission, initialized
+prefixes, current/foreign aliases, expired/locked stacks, read/write guards,
+constants, retired values and original panic identity/single destruction.
+An initial Stacked Borrows smoke test found a real pointer-ancestry error:
+capturing control metadata through the original mutable frame invalidated its
+saved sibling pointer. Setup now derives subsequent borrows through the retained
+parent pointer. The corrected three-test smoke passes; the initial failed log is
+retained. Full GNU and musl checks each pass 215 payload/runtime/helper tests.
+Stacked and Tree Borrows each pass all 44 pure packed ABI tests, and i686 passes
+the same 44 tests. Formatting, check-all and GNU Clippy pass (Clippy still reports
+191 lib-test warnings). All 370 frozen source entries match after validation.
+Logs are retained in `packed-fast-*`. These are test-only implementation results,
+not a speedup claim.
+
+Remaining packed work includes production activation and resource accounting;
+fresh frozen workload profiles and original hardware/compiled-Off gates still decide
 acceptance; no speedup or production activation is claimed by these fixtures.
 
 For the preceding scope source `85103de`, broader payload ABI/backend/runtime
