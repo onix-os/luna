@@ -21,6 +21,10 @@ mod local_table_tests;
 mod table_write_tests;
 
 #[cfg(test)]
+#[path = "new_table_tests.rs"]
+mod new_table_tests;
+
+#[cfg(test)]
 #[path = "capacity_tests.rs"]
 mod capacity_tests;
 
@@ -630,6 +634,18 @@ unsafe extern "C" fn call<const KIND: u32>(
             return result;
         }
     }
+    if KIND == abi::HELPER_NEW_TABLE {
+        let ctx = session.ctx;
+        if let Some(result) = new_table_with(session, slots, a, pc, || {
+            crate::Table::from_parts(
+                &ctx,
+                crate::table::RawTable::with_capacity(&ctx, b as usize, c as usize),
+                None,
+            )
+        }) {
+            return result;
+        }
+    }
     let count = session.count;
     let result = helpers::call_direct::<KIND>(unsafe { session.frame.as_mut() }, a, b, c, pc);
     if result != abi::HELPER_PANICKED {
@@ -638,6 +654,50 @@ unsafe extern "C" fn call<const KIND: u32>(
         session.stopped = true;
     }
     result
+}
+
+fn new_table_with<'gc>(
+    session: &mut Session<'_, 'gc, '_, '_, '_>,
+    slots: *mut Payload,
+    dest: u32,
+    pc: u32,
+    allocate: impl FnOnce() -> crate::Table<'gc>,
+) -> Option<u32> {
+    if dest as usize >= session.count {
+        return None;
+    }
+    unsafe {
+        session.counts.as_mut().calls += 1;
+        *session.pc.as_ptr() = pc as usize + 1;
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let table = allocate();
+        let mut canonical = Frame {
+            values: session.values,
+            len: session.count,
+            borrow: PhantomData,
+        };
+        assert!(canonical.store(
+            unsafe { std::slice::from_raw_parts_mut(slots, session.count) },
+            dest as usize,
+            Value::Table(table),
+        ));
+    }));
+    Some(match result {
+        Ok(()) => {
+            let counts = unsafe { session.counts.as_mut() };
+            counts.completed += 1;
+            counts.allocations += 1;
+            abi::HELPER_COMPLETED
+        }
+        Err(payload) => {
+            unsafe {
+                session.frame.as_mut().panic = Some(payload);
+            }
+            session.stopped = true;
+            abi::HELPER_PANICKED
+        }
+    })
 }
 
 fn table_operand<'gc>(

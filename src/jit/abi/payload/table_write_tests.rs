@@ -1,7 +1,7 @@
 use super::*;
 use closed_table_tests::{identical, siblings};
 
-fn scope<'gc>(
+pub(super) fn scope<'gc>(
     ctx: crate::Context<'gc>,
     closure: crate::Closure<'gc>,
     values: &mut [Value<'gc>],
@@ -25,7 +25,7 @@ fn scope<'gc>(
     (counts, pc, panic)
 }
 
-fn counts(counts: helpers::Counts) -> [u64; 8] {
+pub(super) fn counts(counts: helpers::Counts) -> [u64; 8] {
     [
         counts.calls,
         counts.completed,

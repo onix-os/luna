@@ -109,6 +109,8 @@ fn payload_runtime_contract(failure: backend::Failure) {
         ("local t={key=40} local n=0 for i=1,120 do local sibling=i+2 local x=t.key n=n+x+sibling end return n", 12300, false),
         ("local t={key=40} local n=0 for i=1,120 do local x=t local sibling=i+2 x=x.key n=n+x+sibling end return n", 12300, false),
         ("local t={} local n=0 for i=1,120 do local sibling=i+2 t.key=i n=n+t.key+sibling end return n", 14760, false),
+        ("local n=0 for i=1,120 do local sibling=i+2 local t={} t.key=i n=n+t.key+sibling end return n", 14760, false),
+        ("local t={} local function read() return t.key end local n=0 for i=1,120 do local sibling=i+2 t={key=i} n=n+read()+sibling end return n", 14760, false),
         ("local t={} local n=0 for i=1,120 do local sibling=i+2 local k='k'..i t[k]=i n=n+t[k]+sibling end return n", 14760, false),
         ("local t=setmetatable({}, {__newindex=function(t,k,v) rawset(t,k,v and v+1) end}) local n=0 for i=1,120 do local sibling=i+2 t.key=nil t.key=i n=n+t.key+sibling end return n", 14880, false),
         ("local n=0 for i=1,120 do local ok=pcall(function() local a=1 return a.x end) if not ok then n=n+1 end end return n", 120, false),
