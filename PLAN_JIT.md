@@ -11,6 +11,39 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Integer-pair binding — instruction screen, not acceptance
+
+`4e17f8a` trials binding two adjacent actual Integer values together during full
+payload binding. Non-integer pairs fall back to the existing typed single-cell
+binder; selected-mask binding, public raw-stack access, helper semantics and
+production native selection are unchanged. This remains experimental code.
+
+Three new tests cover all 196 value-kind pairs (including distinct Closure and
+Callback handles), scalar bits, sibling pointer loans, short/overflow ranges,
+widths 0/1/2/3/7/8/256, prefix canaries and type-changing reentry. Focused GNU
+tests pass; Stacked and Tree Borrows each pass six executions across three
+summaries. Focused musl passes 29 executions across seven summaries. Full GNU
+force validation is still running; do not infer its completion from these checks.
+
+Frozen activated image
+`be777003d70b24deb7e3d68c2210024a14cafe32db23129720e04492ccb41718`
+completes eleven exact-load-image profiles against reference-store `1fe53ac4`.
+All non-timing fields match and all four Off instruction totals are unchanged.
+The first instruction screen is **adverse**: callback +2,789,515 (+2.121%),
+integer +388,223, float +412,527, array +94,791, allocation +509,089,
+upvalue +178,385 and metamethod +2,425,622. No hardware speedup is claimed.
+The seven-register binder was outlined: wrapper self work is 10,764,934 and
+the new separate binder contributes 8,496,227, together exceeding the previous
+16,471,646 wrapper by exactly 2,789,515. A separately frozen explicit-inlining
+diagnostic is running to distinguish code-generation effects from pair probes.
+Its outcome is not yet known; neither variant has performance acceptance.
+
+Evidence: `target/jit-evidence/short-slice-performance/integer-pair-*.log`,
+`integer-pairs-{build,profile,analyze}.*`, and
+`payload-terminal-profile/integer-pairs*/`. The initial frozen build's misplaced
+test-only annotation was corrected before profiling; its failed check log is
+retained in `integer-pairs-failed-cfg`. It was not a runtime safety failure.
+
 #### Inline payload control — measured and withdrawn
 
 `4ab9f67` tested embedding the unchanged FrameBound `Bridge` header at
