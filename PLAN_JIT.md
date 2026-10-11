@@ -26,8 +26,13 @@ reference move, caught helper panic and stopped reentry at widths 2/7/256.
 Canonical siblings, retained function table, exact PC and helper counts are
 checked. GNU/check-all, musl and both Miri borrow models pass this test. The
 existing GNU payload/backend/runtime suite passes 227 tests across four
-summaries before that fixture was added. Broader Stacked/Tree and musl validation
-is still running; no full-workspace acceptance is claimed for this revision.
+summaries before that fixture was added. Broader Stacked/Tree runs pass 38/39
+executions across 13 summaries each, including repeated terminal checks. The
+new fixture entered the broad Tree run; its separate Stacked pass is recorded
+above. Focused musl plus the sparse-runtime oracle pass 53 tests across 14
+summaries. Full GNU `jit-test-all JIT_MODE=force` passes 1,774 tests across 88
+summaries with six existing ignores; formatting also passes. This is correctness
+validation, not acceptance of the remaining performance/resource/release gates.
 Initial test pointer-access and Value-equality compilation errors were corrected
 and retained in the evidence logs; neither is reported as a runtime UB finding.
 
