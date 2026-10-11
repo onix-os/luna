@@ -639,6 +639,13 @@ jit-in-place-return:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::activation::return_tests $(ARGS)
 
 .PHONY: jit-payload-model jit-payload-model-miri
+.PHONY: jit-typed-payload jit-typed-payload-miri
+jit-typed-payload:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::typed:: $(ARGS)
+
+jit-typed-payload-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::typed:: -- --test-threads=1
+
 .PHONY: jit-payload-relocations
 jit-payload-relocations:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::relocation_budget_counts_emitted_direct_and_indirect_helper_calls -- --exact --nocapture

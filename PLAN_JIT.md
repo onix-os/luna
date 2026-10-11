@@ -11,7 +11,127 @@
 
 ### Progress snapshot — 2026-10-11
 
-#### Combined numeric-loop guard — unaccepted trial
+#### Typed canonical regions — test-only groundwork
+
+Target the ordinary wrapper's **12,321,657 import/writeback instructions**,
+not another tiny scalar-guard or rejected callback-setup/cache variation.
+Generic direct-payload transport already exists as an unaccepted model, but
+still pays dynamic tag/pointer checks and descriptor materialization/rebinding.
+The new direction is source-certified typed regions with Rust-side admission,
+direct access to admitted scalar fields, and canonical terminal stores that
+retire descriptors rather than rebuilding a value that will not be read again.
+
+The initial model selects distinct integer cells through ordinary Rust matches;
+it never reads the private representation of `Value`. Replacements, including
+Integer-to-Integer replacement, invalidate only the selected destination.
+Refresh rechecks its current type before making that binding live again.
+Unselected GC values and retained sibling scalar pointers remain untouched.
+Bindings are scoped to the canonical borrow and may not survive callbacks,
+collection or whole-frame helper access. No production transport is changed.
+
+The initial six GNU tests and fmt/check-all pass. Tests cover invalid/duplicate selections,
+all Value kinds, NaN bits, widths 0/1/7/255/256, sparse/reverse selection,
+unwind visibility and fresh admission. An executable Cranelift probe performs
+a typed integer add and a terminal canonical scalar store via a Rust leaf;
+native code treats the `Value` destination as opaque. Its independent oracle
+checks **500 schedules** (25 integer pairs, four destinations including both
+selected aliases, five budgets), exact completed work and descriptor retirement.
+The same ABI protocol has a Rust simulation for Miri; native execution is not
+Miri coverage. Initial comparison/GC-lifetime compile errors remain in the logs.
+
+Foundation validation also passes Stacked/Tree Miri (five tests each), musl
+(six typed, 28 payload ABI, 28 backend, two runtime tests), and i686 (five
+model tests), all without failures or ignores. Native execution remains
+excluded under Miri and unsupported architectures.
+
+A source-backed test-only plan now admits bounded straight-line integer
+Add/Sub/Mul/Minus/Move/LoadConstant spans from verified bytecode snapshots.
+Only read-before-definition inputs need typed admission. Subsequent reads
+refer to their exact reaching definition; writes to admitted cells use the
+typed field, while other destinations use canonical replacement and are
+never read through a retired field pointer. This permits reuse of computed
+results without rebuilding descriptors. Every operation still writes its
+canonical destination before an exit. No helper, branch or callback crosses
+the region, and a fuel stop requires fresh admission for a suffix.
+
+An independently traversed source-plan verifier checks operand provenance,
+binding uniqueness/use, destinations, stores, constants and the 64-operation
+cap. Plan storage uses the existing budget allocator, with exact-limit and
+failed-allocation cleanup tests. Prefix/suffix oracles cover wrapping extrema,
+aliasing, same-type and type-changing destinations, and unselected GC values;
+compiler-generated arithmetic spans are covered too. GNU now passes ten
+typed tests plus fmt/check-all. This verifies the plan/model, not emitted IR
+or integration with runtime fuel/counters. Source-plan initial module-path
+failure and corrected output are retained in `typed-source-plan-*.log`.
+
+The next test-only lowering emits native code from these verified plans,
+instead of a manually specified two-operation probe. It caches admitted field
+pointers and SSA results, writes canonical state at each instruction, and
+checks the remaining operation budget before each body. The code owner borrows
+the immutable plan used for admission and frees executable memory on drop.
+Tests compare all prefixes of every suffix of the arithmetic fixture and a
+real compiler-generated span against a separate bytecode oracle. The boundary
+corpus includes 64 operations, register 255, wrong-type no-write admission,
+plan corruption before compilation, and a zero-budget native call with null
+tables proving no table access on that path.
+
+GNU passes **12 typed tests** and fmt/check-all; both Miri models and real i686
+pass **nine model tests each**. The completed musl lane passes **12 typed,
+34 payload ABI, 28 backend and two runtime tests**. Every lane reports zero
+failures and ignores. Miri does not execute the generated machine code.
+This emitter still lacks independent post-lowering semantic IR
+certification, production executable/compiler resource accounting, runtime
+PC/fuel/counter integration, branch/helper coverage, and whole-workload
+performance evidence. Generic Cranelift verification and the executable
+oracle do not replace those gates. Do not activate or call this a speedup.
+Native immediate-type compilation failure and corrected results are retained
+under `typed-source-native-*.log`.
+
+Before activation, require: both Miri alias models; source-certified region and
+binding maps; independent IR/liveness/retirement verification and corruption
+tests; exact budgets/exits/helper/counter behavior; bounded compiler/runtime
+accounting and refusal; integration with current fallback/callback/GC contracts;
+whole-profile savings and unchanged repeated native/feature-cost gates.
+The two-operation probe is **not** a complete compiler pass, release integration
+or performance result. Ordinary production remains the byte-restored baseline.
+Evidence: `target/jit-evidence/short-slice-performance/typed-payload-region-*`.
+
+#### Combined numeric-loop guard — withdrawn
+
+Four native screens and two feature-cost screens complete **168 checked
+commands**, with original thresholds, raw pairs, complete counters, immutable
+images and same-image controls. No owned validation overlaps timing. The trial
+is rejected: its instruction savings do not deliver a reliable callback gain
+and repeated cross-workload regressions outweigh the float-native improvement.
+
+CPU0 array Off control/candidate ratios are **0.914456 / 0.903740 / 0.904519 /
+0.919034**, versus placebo **1.002205 / 0.984964 / 1.010247 / 1.009004**.
+CPU16 array Off is **0.905949 / 0.907916 / 0.919414 / 0.917449**. CPU0 float
+Off is **0.934217 / 0.902503 / 0.931456 / 0.931802**; CPU16 metamethod Auto
+is **0.948783 / 0.950186 / 0.963975 / 0.962104**. Float Auto gains roughly
+2–3%, but callbacks remain mixed and near parity. These measurements do not
+establish a layout or hardware cause for the regressions.
+
+Feature-cost speed callbacks fail **11/12**, CPU16 upvalues **6/6**, and
+shipping upvalues **12/12**. Other failures, resource-peak reductions and
+contention remain in the reports. Restore the original three guards and
+production predicate verifier; do not retain an unused production proof
+extension. Keep the native high-bit/three-operand/fuel corpus, a test-only
+known-bits algebra model and explicit refusal of combined guards without a
+matching verifier. Restoration verification follows.
+
+Restoration `de855f6` is verified: the freshly built opt3 executable is
+**byte-identical** to rooted baseline SHA-256
+`3d0dc224826a8ef4359a4708c9443197e9c3d6c83c88a857beec8fee7e07bcc0`.
+Restored focused GNU passes **230 / 32 summaries**, musl **64 / eight**,
+and Stacked/Tree Miri **three / two each**, with no ignores in those lanes.
+Full Force plus no-JIT baseline/docs passes **2,039 / 175**, eight existing
+ignores. Source hashes verify; every owned benchmark/build/validation process
+is terminal. No production guard or verifier optimization from this trial
+remains enabled. This removes its regressions, not the original unmet gates.
+
+The following paragraphs describe the withdrawn trial, not enabled production
+code. Full JIT performance/resource/platform/release acceptance remains open.
 
 Two exact-image callback captures reproduce all baseline non-timing fields,
 132,231,624 VM-step instructions and 9,468,103 generated instructions. The
