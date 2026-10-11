@@ -11,6 +11,52 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Vectorized counter publication — not promoted
+
+Exact-image callback attribution finds **2,140,017 instructions** in the eight
+scalar helper-counter merges: 33 per native return. An isolated AVX2 trial
+retains all eight unsigned saturating additions, the same publication point and
+a scalar fallback. It constructs initialized arrays from named fields rather
+than casting private struct layouts. The 20,736-case mask/boundary oracle checks
+the whole statistics object and both arithmetic paths; GNU and musl exercise
+AVX2 successfully for the borrowed-counter refinement.
+
+The first, by-value form adds **194,466 callback instructions (+0.153%)**.
+Its generated wrapper copies the 64-byte counter aggregate before dispatch;
+the outlined call and setup outweigh vector arithmetic savings. Reject that
+form without hardware timing. Borrowing the counter aggregate instead removes
+that copy and saves **389,094 callback instructions (-0.305%)**. Both variants
+complete eleven profiles with every non-timing field equal to retained
+early-guard. Generated callback work remains **12,516,426 instructions**.
+The borrowed variant's upvalue profile grows **243,630 instructions (+0.152%)**,
+dominated by changed `Admitted::new` code, not counter merging. Profiles are
+instruction diagnostics, not hardware-speed acceptance.
+
+The borrowed variant's activated GNU full suite reaches **1,482 passes, two
+failures and six ignored tests across 39 summaries**, then stops. The unchanged
+activated predecessor reproduces both failures: the relocation-refusal fixture
+gets `Ok(1)`, and the exact scalar-verifier resource-error assertion differs.
+These are not a full-suite pass or newly introduced SIMD regressions. Musl
+check-all and the counter oracle pass separately. No fixture or resource limit
+is changed to hide the failures.
+
+Two hardware campaigns complete **48 commands/432 paired case gates**, on CPUs
+0 and 16 with reordered windows, eleven samples, predecessor, ordinary control
+and same-image placebo. Artifact identities and all 216 predecessor/candidate
+non-timing comparisons verify. Callback predecessor/candidate Auto-time ratios
+are **0.99641** and **1.00877**; placebo ratios are **0.99548** and **0.99915**.
+The small instruction reduction does not establish a repeatable callback-time
+gain. Candidate callback and aggregate gates pass **0/12**, although the other
+seven scored cases each pass 12/12. **Do not promote either SIMD trial or spend
+another feature-cost campaign on it.** Production source remains unchanged;
+the original callback, feature-cost and full-plan gates remain open.
+
+Evidence: `vector-counts-*`, `current-callback-wrapper/` and
+`payload-terminal-profile/vector-counts*` under
+`target/jit-evidence/short-slice-performance/`. Frozen by-value/borrowed images:
+`b606a8eeb7b426321daee2f6463f257a52c0c6a1e419c74f830429d201e7f346` /
+`615feb1fee7018ccd5a36e45a79ff559492b97f3a23c6e1b7bb23dc13e53e811`.
+
 #### General reference-read guard — rejected for no workload gain
 
 An isolated compiler trial moves an exact Move's existing reference guard before
