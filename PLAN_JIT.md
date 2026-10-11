@@ -386,9 +386,9 @@ This integration found a concrete boundary bug: a fixed unwritten-PC marker
 rejected legitimate `usize::MAX` unknown-PC exits. Fix `3c2e7a1` selects a marker
 distinct from the input PC and adds both highest-PC cases, including rejection of
 partially unwritten exits. The original failed loop run remains in evidence.
-These are owning native-entry tests, **not Lua runtime activation**. The runtime
-still does not dispatch packed entries; failure PC/fuel/count publication must be
-completed before enabling that path. Evidence uses `packed-entry-*`; the focused
+These were owning native-entry tests, **not Lua runtime activation**. At that
+stage the runtime did not dispatch packed entries; the subsequent integration
+is described below. Evidence uses `packed-entry-*`; the focused
 native target is `jit-payload-packed-entry`.
 
 Owning-entry source `c73b26e` passes five focused native tests. Broad GNU/musl
@@ -402,8 +402,59 @@ matrix proves semantic equivalence to optimized ordinary entries, not retention
 of that optimization. Integer-loop optimization and optimized scoped helpers
 still need integration before performance acceptance.
 
-Remaining packed work includes precise runtime exit/fuel/counter integration,
-runtime activation, and resource accounting. Fresh
+#### Packed failure progress and test-only runtime integration
+
+ABI commit `1f8b23f` preserves the original helper outcome separately from
+descriptor refresh. A helper that completes before refresh fails reports its
+completed instruction once; a declined store or failed operation reports only
+its preceding source prefix. Uninitialized, mismatched or overbudget failure
+metadata is rejected rather than turned into a fabricated interpreter exit.
+The original Rust panic payload remains separate from transport refusal.
+
+Compiler commit `49cffbe` emits source-owned failure PC, prefix count and kind
+on cold writer/helper failure blocks. The independent checker verifies source
+ownership and each emitted field; combined source/candidate expansion includes
+five additional instructions per failure site. Real generated failure probes
+cover canonical writes, completed helpers followed by failed refresh and exact
+counts. GNU formatting/all-feature checking and 200 broader tests passed before
+runtime integration (101 ABI, 84 backend, three existing runtime, 12 helper).
+The focused composition run also passed 39 packed ABI, six lowering, one progress
+checker and six owning-entry tests. Logs use `packed-progress-*`.
+
+Runtime commit `151b65c` selects the distinct packed ABI **under test-only
+`RequirePackedPayload`**. Successful exits share existing PC, helper/native count,
+array-prefix and panic publication. Canonical descriptors never enter the old
+scalar-slot ABI or overwrite canonical state from stale scratch on return.
+Transport faults stop execution: they publish only checked instruction progress
+plus an already executed array prefix, preserve helper counts and canonical
+effects, then resume the original panic or raise the typed internal fault.
+They do not create an interpreter/guard/budget exit or replay a Lua operation.
+Admission alone does not count a native entry, and unknown progress is not
+invented. This follows the existing Rust-unwind fuel policy: no instruction
+count returns to the executor, so this path does not introduce a new fuel charge.
+It does not claim recoverable execution after an internal transport failure.
+
+The first integrated differential passed 20 script families at eight initial
+fuel values, comparing the packed candidate against ordinary JIT and interpreter
+through repeated steps, interrupts, callback/upvalue activity, collection, array
+kernels and exact counters. The expanded suite additionally covers debug hooks,
+all 256 initialized register prefixes, zero-register/unknown-PC entry and
+five injected failure outcomes through the actual runtime dispatch. Injected
+ABI failure probes and compiler-generated failure probes are separate evidence.
+Publisher tests cover saturation, original payloads, PC and array-prefix counts.
+Expanded GNU and musl suites each pass **205 tests** (101 ABI, 86 backend,
+five consuming-runtime, one failure-publisher, 12 helper). The focused native
+entry target passes eight tests, including zero-register and injected runtime
+failure dispatch. Real i686 passes 35 packed ABI tests without a native compiler.
+Formatting, all-feature checking and default/all-feature Clippy pass, with
+warnings; Clippy reports 190 library-test warnings including the new bridge
+report tuple-complexity warning. Both Stacked and Tree Borrows Miri pass 35 packed
+ABI, four pure whole-lowering and one progress-checker test; the complete source
+manifest matches afterward. Native runtime execution is not run under Miri.
+Logs use `packed-runtime-*`, and targets include `jit-payload-packed-runtime`.
+
+Remaining packed work includes production activation, optimization retention,
+and resource accounting. Fresh
 frozen workload profiles and original hardware/compiled-Off gates still decide
 acceptance; no speedup or production activation is claimed by these fixtures.
 
