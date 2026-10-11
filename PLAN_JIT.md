@@ -11,6 +11,51 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Constant-table PC write — isolated trial not promoted
+
+The measured payload activation already excludes `Bridge.materializations` and
+its increments with `cfg(test)`. The unconditional counter in the main checkout
+is inside a test-only module; it is not callback overhead in the frozen image.
+
+A separate trial removes only the second successful next-PC store in
+`constant_table`. The first store, decline rollback, panic/stopped handling and
+all observable counters remain. The raw table-read/store body invokes no guest
+or host callback. GNU and musl each pass eight focused tests; Stacked and Tree
+Borrows each pass the same eight. The broad write-binding runtime parity test
+also passes. Its command subsequently fails because the older isolated Makefile
+lacks `jit-array-transport-runtime`; those newer array tests were not run for this
+trial, and the failed orchestration log remains available.
+
+Image `a8cefa63309678f4eff15897364c545f66379bed900cf91d53e074fb36d649ac`
+completes eleven profiles against array-transport `60ab5a5b`. Every non-timing
+execution/resource field matches; all four Off instruction totals match.
+Callback work falls **259,344 instructions (0.2023%)**, entirely in helper6:
+four instructions per 64,836 calls. Wrapper, VM and generated callback work are
+unchanged. Text falls 32 bytes while BSS grows 32; their total is unchanged.
+The first float profile instead adds 97,656 VM instructions. Two fresh profiles
+per exact image do **not** reproduce that difference: both images' VM self work
+is 2,998,292 each time, versus 3,095,948 in the first trial profile. Keep the
+adverse original, but do not attribute this process-varying count to the edit.
+
+Four eleven-sample, four-way campaigns complete **96 commands / 2,592 report
+rows**, with current production, previous array-transport, same-image placebos,
+CPU0/16 windows, rotated order, unchanged thresholds and host telemetry. All
+24 candidate callback and aggregate checks fail. Direct callback Auto ratios
+against the previous candidate are **0.98356, 1.00256, 0.99907 and 1.00685**;
+there is no consistent timing gain. Float ratios are **0.99570, 1.00489, 0.99740
+and 0.99662**. The last two callback production ratios, 1.02336/1.02547, mostly
+retain the earlier payload improvement and do not establish a gain from this
+PC-store edit. The first campaign's large direct shifts and all failures remain
+in the evidence; no owned validation or profiling overlaps hardware timing.
+
+**Decision:** do not promote this isolated source change. It removes real helper
+instructions, but does not demonstrate a repeatable callback timing improvement
+or resolve the frozen gate. Main-checkout runtime source remains unchanged.
+Evidence: `target/jit-evidence/short-slice-performance/table-pc-*`, the separate
+`round2` and `float-repeat` outputs, and frozen
+`payload-terminal-profile/table-pc*/`. Full performance/resource acceptance is
+still open; this is not a production speedup claim.
+
 #### Array-aware entry selection — measured development change
 
 `933e2c6` extends the test-only transport preference to source regions recognized
