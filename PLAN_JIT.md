@@ -66,7 +66,9 @@ and two blocks, and verifies the moved original instructions and reader-resume
 edge. The isolated activated checkout passes **256 executions/seven summaries**
 across focused and broad payload tests, plus four compiler tests per Miri mode.
 The actual Tree process and deferred-runner checkout were verified. Root GNU
-checks pass **259/seven**; musl and the full root suite are still running.
+and musl checks each pass **259/seven**. Revised-root `fmt-check check-all test-all`
+completes with **1,800 passes across 88 summaries, six ignored**. These correctness
+results do not establish speedup or full-plan completion.
 
 Image `ec7479908eb0b699e8f40289d9c62662773da6c38eb433c6ffcaaf5d74717eed`
 completes eleven profiles. Compared with direct-copy, callback total falls
@@ -86,6 +88,32 @@ as a regression to check in timing, not hidden by allocator variance. These are
 instruction diagnostics, not speedup or original performance acceptance.
 Evidence: `copy-bypass-early-guard-vs-*.json`, `copy-bypass-early-guard-repeat/`,
 and `copy-bypass-early-guard-{gnu-final,root-*,stacked,tree}*`.
+
+Four subsequent hardware campaigns complete **96 commands/2,592 aggregate rows**:
+unchanged nine workloads, eleven paired samples, CPUs 0/16, three rotated windows,
+ordinary production, retained array-transport, early-guard and same-image placebo.
+All owned validation/profiling jobs finished first; external Astrocraft activity
+and host pressure remain recorded, not stopped. Exact image hashes, original
+thresholds, sample/row counts and gate exit statuses are checked independently.
+
+The candidate passes **0/24 aggregate gates** and **0/24 callback gates**. Allocation,
+upvalue and metamethod pass 24/24 each, but array passes only **17/24**, versus
+24/24 for retained array-transport. Callback Auto previous/candidate ratios are
+**1.010855, 1.000363, 1.015296, 1.005234**; corresponding same-image placebo ratios
+are **1.005524, 0.995559, 1.000073, 0.998372**. These modest gains do not reach the
+original callback threshold. Array Auto previous/candidate ratios are
+**0.963727, 0.965661, 0.941734, 0.933303**: a repeated timing regression despite
+identical array instruction/load/store/branch counts. Its cause is not established;
+do not infer hardware equivalence from instruction totals or promote this image.
+
+All execution statistics match the retained candidate; only snapshot peaks differ
+by +384 callback, +468 allocation, +440 metamethod and +56 unscored Oslo bytes.
+Placebo non-timing statistics match production exactly. The full plan remains
+incomplete. Next performance work must address the array timing regression and
+remaining callback cost, not lower thresholds or reduce native coverage.
+Evidence: `copy-bypass-early-guard-hardware-{summary,controls}.json`,
+`copy-bypass-early-guard-round2-hardware-summary.json`, and the four immutable
+campaign directories under `payload-terminal-profile/`.
 
 #### Terminal callback copy — integrated experiment, tuning pending
 
