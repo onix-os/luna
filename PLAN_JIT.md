@@ -11,6 +11,46 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Frame context copies — measured and withdrawn
+
+A trial removed duplicated context and closure fields from the scoped payload
+session, copying individual fields from its owning frame on demand. It passed
+focused GNU checks, 43 legacy runtime ABI tests under each of Stacked and Tree
+Miri, and musl checks including 44 ABI tests, 23 bound/read tests and the runtime
+oracle. Miri validates the Rust ABI, not generated native execution.
+
+**The trial is withdrawn, not promoted.** Twenty-two matched-load-image profiles
+and 24 paired hardware runs found no reliable callback improvement. Callback
+entry self instructions fell by 129,698, but helper self instructions rose by
+194,508. Total collected callback instructions increased from 132,428,984 to
+132,493,713. Native callback instructions were unchanged.
+
+Across six candidate windows, the median normalized callback factor was 1.0093
+against the fresh full-binding control and 0.9995 against the retained control;
+the fresh-control placebo factor was 1.0066. Callbacks passed 0/6 original gates,
+metamethods 3/6 and floats 6/6. All 24 aggregate gates failed. Completion of the
+measurement driver does not mean benchmark acceptance.
+
+All 648 result rows were parsed, and timing-independent execution counters,
+native code bytes, metadata and snapshot costs matched the fresh control.
+Both images used full binding, not either sparse policy. Source/image identity
+and allocated load-image checks passed; no owned validation overlapped timing.
+Frozen candidate SHA-256:
+`d1b7c1fa19afbb0175373c4ac406ca7754ac324b06047a8917c03abb4035ddfb`;
+fresh control:
+`de1aed826a3d909955e5a742912e4f8e2eb57e63a99994531fb52e9342aaf701`.
+
+After withdrawal, `src/` and `Makefile` are byte-identical to `fad0d81`.
+GNU formatting/check-all and focused upvalue/bound tests, followed by musl
+check-all and the same focused tests, passed on the restored source. The prior
+float-path correction remains; callback performance and overall release
+acceptance remain open. Smaller session storage alone is not a speedup.
+
+Evidence: `target/jit-evidence/short-slice-performance/frame-context-*`,
+`frame-control-*` and `payload-terminal-profile/frame-context*` /
+`frame-control*`. Next work must target a distinct measured cost, without
+weakening counters, safety contracts or the original acceptance thresholds.
+
 #### Write-retaining masks — materialization reduced, no callback gain
 
 `7d6381a` adds a separate, test-only `RequireWriteBoundPayload` path.
