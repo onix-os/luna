@@ -106,6 +106,8 @@ fn payload_runtime_contract(failure: backend::Failure) {
         ("local n=0 local function f(x) n=n+x return n end for i=1,120 do f(i) end return n", 7260, false),
         ("local n=0 for i=1,120 do n=n+tonumber('1') end return n", 120, false),
         ("local t={} for i=1,120 do t[i]=i end local s=0 for i=1,120 do s=s+t[i] end return s", 7260, true),
+        ("local t={key=40} local n=0 for i=1,120 do local sibling=i+2 local x=t.key n=n+x+sibling end return n", 12300, false),
+        ("local t={key=40} local n=0 for i=1,120 do local x=t local sibling=i+2 x=x.key n=n+x+sibling end return n", 12300, false),
         ("local n=0 for i=1,120 do local ok=pcall(function() local a=1 return a.x end) if not ok then n=n+1 end end return n", 120, false),
         ("local a,b=0,100 local function f(x) a=a+x b=b+1 return a+b end debug.upvaluejoin(f,2,f,1) local result for i=1,10 do result=f(i) end return result", 130, false),
         ("local co=coroutine.create(function() local n=0 local function f(x) n=n+x return n end coroutine.yield(f) return n end) local ok,f=coroutine.resume(co) assert(ok) local result for i=1,100 do result=f(i) end local ok,n=coroutine.resume(co) assert(ok) return result+n", 10100, false),

@@ -13,6 +13,10 @@ mod local_tests;
 mod closed_table_tests;
 
 #[cfg(test)]
+#[path = "local_table_tests.rs"]
+mod local_table_tests;
+
+#[cfg(test)]
 #[path = "capacity_tests.rs"]
 mod capacity_tests;
 
@@ -612,8 +616,8 @@ unsafe extern "C" fn call<const KIND: u32>(
     if session.stopped {
         return abi::HELPER_PANICKED;
     }
-    if KIND == abi::HELPER_GET_UP_TABLE {
-        if let Some(result) = closed_table(session, slots, a, b, c, pc) {
+    if matches!(KIND, abi::HELPER_GET_TABLE | abi::HELPER_GET_UP_TABLE) {
+        if let Some(result) = constant_table::<KIND>(session, slots, a, b, c, pc) {
             return result;
         }
     }
@@ -627,25 +631,39 @@ unsafe extern "C" fn call<const KIND: u32>(
     result
 }
 
-fn closed_table(
+fn constant_table<const KIND: u32>(
     session: &mut Session<'_, '_, '_, '_, '_>,
     slots: *mut Payload,
     dest: u32,
-    upvalue: u32,
+    receiver: u32,
     operand: u32,
     pc: u32,
 ) -> Option<u32> {
     if dest as usize >= session.count || operand & abi::CONSTANT_OPERAND == 0 {
         return None;
     }
-    let crate::closure::UpValueState::Closed(table) = session
-        .closure
-        .upvalues()
-        .get(upvalue as usize)?
-        .get()
-        .get()
-    else {
-        return None;
+    let table = if KIND == abi::HELPER_GET_UP_TABLE {
+        let crate::closure::UpValueState::Closed(table) = session
+            .closure
+            .upvalues()
+            .get(receiver as usize)?
+            .get()
+            .get()
+        else {
+            return None;
+        };
+        table
+    } else {
+        if receiver as usize >= session.count
+            || unsafe { slots.add(receiver as usize).read().tag } != REFERENCE
+        {
+            return None;
+        }
+        let table = unsafe { session.values.as_ptr().add(receiver as usize).read() };
+        if !matches!(table, Value::Table(_)) {
+            return None;
+        }
+        table
     };
     let key = session
         .closure
@@ -678,7 +696,7 @@ fn closed_table(
             if completed {
                 counts.completed += 1;
                 counts.table_reads += 1;
-                counts.upvalue_reads += 1;
+                counts.upvalue_reads += u64::from(KIND == abi::HELPER_GET_UP_TABLE);
                 unsafe {
                     *session.pc.as_ptr() = pc as usize + 1;
                 }

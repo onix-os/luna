@@ -27,7 +27,7 @@ pub(super) fn identical<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
     }
 }
 
-unsafe fn siblings(slots: *mut Payload, saved: &[Payload], dest: Option<usize>) {
+pub(super) unsafe fn siblings(slots: *mut Payload, saved: &[Payload], dest: Option<usize>) {
     for (index, previous) in saved.iter().copied().enumerate() {
         if Some(index) == dest {
             continue;
