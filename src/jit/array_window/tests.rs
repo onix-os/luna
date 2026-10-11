@@ -23,6 +23,58 @@ fn identical<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
 }
 
 #[test]
+fn scoped_initialization_preserves_every_prefix_and_zero_tail() {
+    Lua::empty().enter(|ctx| {
+        let kinds = [
+            Value::Nil,
+            Value::Boolean(false),
+            Value::Boolean(true),
+            Value::Integer(i64::MIN),
+            Value::Integer(i64::MAX),
+            Value::Number(-0.0),
+            Value::Number(f64::INFINITY),
+            Value::Number(f64::from_bits(0x7ff8_0000_0000_1234)),
+            Value::String(crate::String::from_slice(&ctx, b"window-root")),
+            Value::Table(Table::new(&ctx)),
+        ];
+        let values: [Value<'_>; 66] = std::array::from_fn(|i| kinds[i % kinds.len()]);
+        let table = array(ctx, &values);
+        for length in 1..=64 {
+            for access in [Access::Read, Access::Write] {
+                let mut counts = Counts {
+                    reads: 17,
+                    writes: 19,
+                };
+                let result =
+                    with_window::<_, 64>(ctx, table, 2, length, access, &mut counts, |window| {
+                        assert_eq!((window.first, window.length, window.dirty), (2, length, 0));
+                        assert_eq!((window.counts.reads, window.counts.writes), (17, 19));
+                        for (index, slot) in window.slots.iter().enumerate() {
+                            let expected = if index < length {
+                                Slot::from_value(values[index + 1])
+                            } else {
+                                Slot {
+                                    tag: abi::NIL,
+                                    bits: 0,
+                                }
+                            };
+                            assert_eq!((slot.tag, slot.bits), (expected.tag, expected.bits));
+                        }
+                        (window.first, window.length)
+                    })
+                    .unwrap();
+                assert_eq!(result, (2, length));
+                assert_eq!((counts.reads, counts.writes), (17, 19));
+                assert!(table.into_inner().try_borrow_mut(&ctx).is_ok());
+            }
+        }
+        for (index, value) in values.into_iter().enumerate() {
+            identical(table.get_value(ctx, index as i64 + 1), value);
+        }
+    });
+}
+
+#[test]
 fn reads_and_writes_preserve_scalar_bits_and_reference_cells() {
     Lua::empty().enter(|ctx| {
         let values = [

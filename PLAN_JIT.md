@@ -11,6 +11,40 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Scoped array-window construction — verified, timing pending
+
+Static inspection of the retained array-transport, direct-copy and early-guard
+images finds identical relocation-normalized instruction forms for window
+construction, scoped admission and kernel invocation, at different addresses.
+Transport/VM differences are RIP-relative data-target annotations after
+normalization. This does not prove data/generated-code equivalence or establish
+the cause of the earlier array timing regression.
+
+The constructor separately initializes and copies a 1 KiB slot array. Merely
+constructing the aggregate first does not remove the copy: that rejected trial
+returns a larger 0x438-byte window temporary and adds 15,030 array instructions.
+The revised private `Window::with` constructs, fills, invokes and drops the window
+in one scope, returning only the body result. Both admission paths retain their
+original borrow, weak/readonly/observer, bounds and capacity checks. No unsafe or
+uninitialized storage is introduced; dirty writeback and unwinding stay scoped.
+
+GNU and musl focused checks each pass **39 executions/three summaries**. Default
+and Tree Borrows Miri each pass **19 tests**; actual Tree flags/checkout/filter and
+deferred-runner directory were checked. A new 64-prefix/two-access-mode fixture
+checks scalar/reference/NaN bits, zero tail, seeded counters, returned result,
+canonical identity and lease release. The full revised-root suite is running.
+
+Image `a107418423319704ae0439c326b59d2714a9bb53e08908f8b27f4aea543ad1a8`
+completes eleven profiles with **738,438 fewer array instructions (2.107314%)**
+versus early-guard and identical non-timing statistics for every case. Disassembly
+confirms no memcpy in the scoped constructor. Array memcpy work falls from
+2,211,727 to 1,585,477 instructions; generated kernels are unchanged. Callback,
+allocation, metamethod and scalar Auto totals are unchanged. Upvalue admission
+and allocator differences remain diagnostics rather than claimed gains.
+Hardware acceptance is pending; original gates and all other plan work remain.
+Evidence: `array-hot-assembly*`, `array-window-{direct,scoped}-init*` under
+`target/jit-evidence/short-slice-performance/`.
+
 #### Conditional source-read bypass — verified experiment, layout under test
 
 The experimental payload compiler can bypass the eager source-bits reader for

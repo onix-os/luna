@@ -51,27 +51,35 @@ fn scalar(slot: Slot) -> bool {
 }
 
 impl<'a, 'gc, const CAPACITY: usize> Window<'a, 'gc, CAPACITY> {
-    fn new(backing: Backing<'a, 'gc>, first: i64, counts: &'a mut Counts) -> Self {
-        let values = match &backing {
-            Backing::Read(values) => *values,
-            Backing::Write(values) => &**values,
+    fn with<R>(
+        backing: Backing<'a, 'gc>,
+        first: i64,
+        counts: &'a mut Counts,
+        body: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let length = match &backing {
+            Backing::Read(values) => values.len(),
+            Backing::Write(values) => values.len(),
         };
-        let mut slots = [Slot {
-            tag: abi::NIL,
-            bits: 0,
-        }; CAPACITY];
-        for (slot, value) in slots.iter_mut().zip(values.iter().copied()) {
-            *slot = Slot::from_value(value);
-        }
-        let length = values.len();
-        Self {
+        let mut window = Self {
             backing,
-            slots,
+            slots: [Slot {
+                tag: abi::NIL,
+                bits: 0,
+            }; CAPACITY],
             first,
             length,
             dirty: 0,
             counts,
+        };
+        let values = match &window.backing {
+            Backing::Read(values) => *values,
+            Backing::Write(values) => &**values,
+        };
+        for (slot, value) in window.slots.iter_mut().zip(values.iter().copied()) {
+            *slot = Slot::from_value(value);
         }
+        body(&mut window)
     }
 
     #[cfg(test)]
@@ -150,8 +158,12 @@ pub(super) fn with_window<'gc, R, const CAPACITY: usize>(
         .get(start..end)
         .ok_or(Refusal::Bounds)?;
     if access == Access::Read {
-        let mut window = Window::<CAPACITY>::new(Backing::Read(values), first, counts);
-        return Ok(body(&mut window));
+        return Ok(Window::<CAPACITY>::with(
+            Backing::Read(values),
+            first,
+            counts,
+            body,
+        ));
     }
     drop(state);
     let mut state = inner.try_borrow_mut(&ctx).map_err(|_| Refusal::Borrowed)?;
@@ -160,8 +172,12 @@ pub(super) fn with_window<'gc, R, const CAPACITY: usize>(
         .array_mut()
         .get_mut(start..end)
         .ok_or(Refusal::Bounds)?;
-    let mut window = Window::<CAPACITY>::new(Backing::Write(values), first, counts);
-    Ok(body(&mut window))
+    Ok(Window::<CAPACITY>::with(
+        Backing::Write(values),
+        first,
+        counts,
+        body,
+    ))
 }
 
 #[cfg(test)]
