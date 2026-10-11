@@ -5,6 +5,77 @@ use crate::{
     Value,
 };
 
+#[cfg(not(miri))]
+#[path = "../../../../../examples/jit_support/workloads.rs"]
+mod workloads;
+
+#[cfg(not(miri))]
+#[test]
+fn typed_source_plan_maps_original_workload_boundaries() {
+    fn visit(name: &str, prototype: &crate::FunctionPrototype<'_>) {
+        let source = Snapshot::new(prototype, 4096, 2 * 1024 * 1024).unwrap();
+        let mut pc = 0;
+        while pc < source.operations.len() {
+            if Plan::new(&source, pc, pc + 1).is_err() {
+                eprintln!(
+                    "typed coverage {name} boundary {pc}: {:?}",
+                    source.operations[pc]
+                );
+                pc += 1;
+                continue;
+            }
+            let mut end = pc + 1;
+            while end < source.operations.len()
+                && end - pc < MAX_STEPS
+                && Plan::new(&source, pc, end + 1).is_ok()
+            {
+                end += 1;
+            }
+            let plan = Plan::new(&source, pc, end).unwrap();
+            eprintln!(
+                "typed coverage {name} span {pc}..{end}: {} bindings, {} canonical stores",
+                plan.bindings.len(),
+                plan.steps
+                    .iter()
+                    .filter(|step| step.store == Store::Canonical)
+                    .count()
+            );
+            for operation in &source.operations[pc..end] {
+                assert!(matches!(
+                    operation,
+                    Operation::Add { .. }
+                        | Operation::Sub { .. }
+                        | Operation::Mul { .. }
+                        | Operation::Minus { .. }
+                        | Operation::Move { .. }
+                        | Operation::LoadConstant { .. }
+                ));
+            }
+            pc = end;
+        }
+        for child in prototype.prototypes.iter() {
+            visit(&format!("{name}/child"), child);
+        }
+    }
+    crate::Lua::empty().enter(|ctx| {
+        for workload in workloads::WORKLOADS {
+            eprintln!(
+                "typed coverage {} reference result {}",
+                workload.name, workload.expected
+            );
+            let closure = crate::Closure::load(ctx, None, workload.source).unwrap();
+            visit(workload.name, &closure.prototype());
+        }
+        for (name, source) in [
+            ("oslo_predicate", workloads::PREDICATE_SOURCE),
+            ("cold_config", workloads::COLD_SOURCE),
+        ] {
+            let closure = crate::Closure::load(ctx, None, source).unwrap();
+            visit(name, &closure.prototype());
+        }
+    });
+}
+
 pub(super) fn snapshot(operations: &[Operation], registers: usize) -> Snapshot {
     let mut operations = resources::owned(operations);
     operations.push(Operation::Return {

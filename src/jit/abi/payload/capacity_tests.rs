@@ -24,7 +24,7 @@ fn check<const CAPACITY: usize>() {
                             assert_eq!(load(slots.add(index).read()).unwrap().bits, 17);
                         }
                         if count != 0 {
-                            ((*host).write)(
+                            ((*host).functions.write)(
                                 host,
                                 slots,
                                 (count - 1) as u32,
@@ -36,7 +36,7 @@ fn check<const CAPACITY: usize>() {
                                 (-0.0f64).to_bits()
                             );
                             assert_eq!(
-                                ((*host).helpers[(abi::HELPER_MOVE - 1) as usize])(
+                                ((*host).functions.helpers[(abi::HELPER_MOVE - 1) as usize])(
                                     host.cast(),
                                     slots.cast(),
                                     0,

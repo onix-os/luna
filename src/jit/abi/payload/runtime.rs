@@ -20,23 +20,33 @@ mod capacity_tests;
 pub(crate) struct Bridge {
     pub base: abi::Host,
     pub read: unsafe extern "C" fn(*mut Payload, u32) -> u64,
-    pub write: unsafe extern "C" fn(*mut Bridge, *mut Payload, u32, u64, u64),
-    pub helpers: &'static [abi::HelperEntry; 10],
+    pub functions: &'static Functions,
     materializations: u64,
 }
 
-static HELPERS: [abi::HelperEntry; 10] = [
-    helper::<1>,
-    helper::<2>,
-    helper::<3>,
-    helper::<4>,
-    helper::<5>,
-    helper::<6>,
-    helper::<7>,
-    helper::<8>,
-    helper::<9>,
-    helper::<10>,
-];
+#[repr(C)]
+pub(crate) struct Functions {
+    pub helpers: [abi::HelperEntry; 10],
+    pub write: unsafe extern "C" fn(*mut Bridge, *mut Payload, u32, u64, u64),
+    pub terminal: unsafe extern "C" fn(*mut Bridge, *mut Payload, u32, u64, u64),
+}
+
+static FUNCTIONS: Functions = Functions {
+    helpers: [
+        helper::<1>,
+        helper::<2>,
+        helper::<3>,
+        helper::<4>,
+        helper::<5>,
+        helper::<6>,
+        helper::<7>,
+        helper::<8>,
+        helper::<9>,
+        helper::<10>,
+    ],
+    write: write_scalar,
+    terminal: write_terminal,
+};
 
 unsafe extern "C" fn read_bits(slots: *mut Payload, index: u32) -> u64 {
     unsafe { load(slots.add(index as usize).read()) }.map_or(0, |slot| slot.bits)
@@ -51,6 +61,18 @@ unsafe extern "C" fn write_scalar(
 ) {
     unsafe { (*host).materializations += 1 };
     let result = unsafe { materialize((*host).base.data.cast(), slots, index, tag, bits) };
+    assert_eq!(result, abi::HELPER_COMPLETED);
+}
+
+unsafe extern "C" fn write_terminal(
+    host: *mut Bridge,
+    slots: *mut Payload,
+    index: u32,
+    tag: u64,
+    bits: u64,
+) {
+    unsafe { (*host).materializations += 1 };
+    let result = unsafe { materialize_terminal((*host).base.data.cast(), slots, index, tag, bits) };
     assert_eq!(result, abi::HELPER_COMPLETED);
 }
 
@@ -77,8 +99,7 @@ pub(crate) fn with_bridge<const CAPACITY: usize>(
                 projection: std::ptr::null_mut(),
             },
             read: read_bits,
-            write: write_scalar,
-            helpers: &HELPERS,
+            functions: &FUNCTIONS,
             materializations: 0,
         };
         body(slots, &mut bridge);
@@ -98,8 +119,11 @@ pub(crate) fn check_native_write_guards(
             projection: std::ptr::null_mut(),
         },
         read: read_bits,
-        write: declined,
-        helpers: &[helper::<1>; 10],
+        functions: &Functions {
+            helpers: [helper::<1>; 10],
+            write: declined,
+            terminal: declined,
+        },
         materializations: 0,
     };
     let tags = (0..=255)
@@ -231,11 +255,16 @@ fn bridge_function_table_preserves_original_payload_and_host_pointers() {
                 projection: None,
             };
             with_bridge::<256>(&mut frame, |slots, host| unsafe {
-                assert!(std::ptr::eq((*host).helpers, &HELPERS));
-                ((*host).write)(host, slots, 0, INTEGER, 42);
+                assert!(std::ptr::eq((*host).functions, &FUNCTIONS));
+                ((*host).functions.write)(host, slots, 0, INTEGER, 42);
                 assert_eq!(((*host).read)(slots, 0), 42);
+                ((*host).functions.terminal)(host, slots, 1, INTEGER, 7);
+                let retired = slots.add(1).read();
+                assert_eq!(retired.tag, NIL);
+                assert!(retired.pointer.is_null());
+                assert_eq!((*host).materializations, 2);
                 assert_eq!(
-                    ((*host).helpers[(abi::HELPER_MOVE - 1) as usize])(
+                    ((*host).functions.helpers[(abi::HELPER_MOVE - 1) as usize])(
                         host.cast(),
                         slots.cast(),
                         1,
@@ -450,6 +479,47 @@ unsafe extern "C" fn materialize(
             _ => abi::HELPER_DECLINED,
         }
     }
+}
+
+unsafe extern "C" fn materialize_terminal(
+    host: *mut (),
+    slots: *mut Payload,
+    index: u32,
+    tag: u64,
+    bits: u64,
+) -> u32 {
+    let session = unsafe { &mut *host.cast::<Session<'_, '_, '_, '_, '_>>() };
+    if session.stopped {
+        return abi::HELPER_PANICKED;
+    }
+    if index as usize >= session.count {
+        return abi::HELPER_DECLINED;
+    }
+    let value = match tag {
+        NIL => Value::Nil,
+        BOOLEAN if bits <= 1 => Value::Boolean(bits != 0),
+        INTEGER => Value::Integer(bits as i64),
+        NUMBER => Value::Number(f64::from_bits(bits)),
+        _ => return abi::HELPER_DECLINED,
+    };
+    unsafe {
+        slots.add(index as usize).write(Payload {
+            tag: NIL,
+            pointer: std::ptr::null_mut(),
+        });
+        session.values.as_ptr().add(index as usize).write(value);
+    }
+    abi::HELPER_COMPLETED
+}
+
+#[cfg(test)]
+#[path = "terminal_tests.rs"]
+mod terminal_tests;
+
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_retired_descriptor(descriptor: Payload) {
+    assert_eq!(descriptor.tag, NIL);
+    assert!(descriptor.pointer.is_null());
 }
 
 #[inline(always)]

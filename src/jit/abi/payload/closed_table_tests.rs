@@ -6,7 +6,7 @@ fn key(closure: crate::Closure<'_>) -> u32 {
     }).unwrap() as u32
 }
 
-fn identical<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
+pub(super) fn identical<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
     assert_eq!(
         std::mem::discriminant(&actual),
         std::mem::discriminant(&expected)

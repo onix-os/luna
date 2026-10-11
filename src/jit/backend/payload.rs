@@ -4,13 +4,14 @@ use cranelift_codegen::{
 };
 
 use super::*;
-use crate::jit::abi::payload::runtime::Bridge;
+use crate::jit::abi::payload::runtime::{Bridge, Functions};
 #[cfg(not(miri))]
 use crate::jit::abi::payload::Payload;
 
 mod host_stack;
 mod numeric_reads;
 mod reads;
+mod terminal;
 mod writes;
 
 enum Read {
@@ -280,7 +281,7 @@ fn plan(
                 host_uses = add(host_uses, 2)?;
                 host_calls = true;
                 (
-                    29 + usize::from(function.dfg.value_type(bits) == types::F64),
+                    30 + usize::from(function.dfg.value_type(bits) == types::F64),
                     7,
                 )
             }
@@ -324,6 +325,8 @@ pub(super) fn lower(
     writes
         .try_reserve_exact(plan.writes)
         .map_err(|_| refused())?;
+    let mut terminal =
+        terminal::Analysis::new(function, slots, host, registers, helpers, allocator.clone())?;
     let mut has_numeric = false;
     scan(function, slots, host, registers, helpers, |rewrite| {
         if let Rewrite::Read(inst, index) = rewrite {
@@ -387,6 +390,7 @@ pub(super) fn lower(
                         tag,
                         bits,
                         signature: write,
+                        terminal: terminal.admits(bits_store, index),
                     },
                 ));
             }
@@ -403,13 +407,15 @@ pub(super) fn lower(
                     types::I64,
                     MemFlagsData::new(),
                     host,
-                    std::mem::offset_of!(Bridge, helpers) as i32,
+                    std::mem::offset_of!(Bridge, functions) as i32,
                 );
                 let target = cursor.ins().load(
                     types::I64,
                     MemFlagsData::new(),
                     table,
-                    (index * std::mem::size_of::<abi::HelperEntry>()) as i32,
+                    (std::mem::offset_of!(Functions, helpers)
+                        + index * std::mem::size_of::<abi::HelperEntry>())
+                        as i32,
                 );
                 cursor
                     .func
@@ -419,7 +425,7 @@ pub(super) fn lower(
         }
         Ok(())
     })?;
-    drop(numeric);
+    drop((numeric, terminal));
     if size(&candidate)
         != (
             plan.instructions - plan.host_instructions - 13 * numeric_count,
@@ -569,15 +575,19 @@ fn payload_workspace_quota_refusals_leave_source_and_ledger_unchanged() {
         instructions: 4096,
         blocks: 4096,
     };
-    let required = (std::mem::size_of::<Read>() + std::mem::size_of::<writes::Write>())
-        .max(host_stack::workspace(2));
+    let required = (std::mem::size_of::<Read>()
+        + std::mem::size_of::<writes::Write>()
+        + source.dfg.num_blocks() * (std::mem::size_of::<bool>() + std::mem::size_of::<Block>()))
+    .max(host_stack::workspace(2));
     for (limit, allocations, accepted) in [
         (0, usize::MAX, false),
         (required - 1, usize::MAX, false),
         (required, 0, false),
         (required, 1, false),
         (required, 2, false),
-        (required, 3, true),
+        (required, 3, false),
+        (required, 4, false),
+        (required, 5, true),
     ] {
         let allocator = BudgetAllocator(super::super::resources::Ledger::new(limit));
         allocator.0.fail_after(allocations);
@@ -604,7 +614,10 @@ fn payload_workspace_quota_refusals_leave_source_and_ledger_unchanged() {
             assert!(matches!(
                 result,
                 Err(JitError::ResourceLimit(
-                    "payload rewrite records" | "payload host copy records"
+                    "payload rewrite records"
+                        | "payload host copy records"
+                        | "terminal liveness blocks"
+                        | "terminal liveness queue"
                 ))
             ));
             assert_eq!(function, source);

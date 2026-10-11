@@ -13,6 +13,93 @@
 
 #### Typed canonical regions — test-only groundwork
 
+The current integration step changes the existing payload lowering, not
+runtime dispatch: a bounded CFG liveness pass identifies scalar writes whose
+descriptor is never read or rewritten again before a full helper refresh or
+native exit. Only their slow materialization gateway retires the destination
+descriptor and writes the canonical value without rebuilding that descriptor.
+The same-tag inline fast paths, materialization count, helper counters, source
+operations, budget checks and exits remain unchanged. This is still test-only.
+
+All ten helper kinds are classified against the current session contract.
+GetUpTable is deliberately **not** a full-refresh barrier: its closed-table
+fast path preserves sibling descriptors. Loops and both sides of branches
+are traversed, subsequent destination writes count as descriptor uses, and
+unknown calls/invalid grammar or exhausted analysis work refuse the shortcut.
+The visited set and work queue use the existing budget allocator; quota and
+allocation-failure tests account for both additional allocations. The emitted
+write checker requires the exact retiring gateway when liveness selects it.
+
+Initial GNU ABI/backend/runtime passes 38/30/two tests; the added focused
+retirement/CFG/gateway tests pass one/three/one plus fmt/check-all. Tests cover
+both branches, loops, all helper kinds, wrong kinds/indices/stopped sessions,
+scalar bits, GC identities, retained sibling raw pointers, and refresh after
+a canonical helper. The first build's compiler-API errors and the test's
+incorrect assumption that reference descriptors have scalar bits remain in
+`payload-terminal-initial.log` and `payload-terminal-corrected.log`; corrected
+evidence is `payload-terminal-model.log` and `payload-terminal-gates.log`.
+Final GNU/musl ABI/backend/runtime suites pass 38/32/two tests. Both Stacked
+and Tree Borrows pass the focused one/three/one tests, with no failures or
+ignores. An additional real-native test compiles constant-return and callback-
+argument scripts through ordinary and payload lowering: all exit fields and
+canonical values match at budgets 0/1/2/64, while nonzero-budget payload exits
+leave a retired descriptor over the correct Integer value. It also checks
+mapping reclamation. The focused GNU suite now passes one/four/one plus
+fmt/check-all; native execution is excluded from Miri. Initial test privacy
+and Exit-comparison compile errors were corrected without changing public
+types, with logs in `payload-terminal-native-exits*.log`.
+The final complete GNU and musl reruns each pass **38 ABI, 33 backend and two
+runtime tests**, with zero failures/ignores (`payload-terminal-complete-*`).
+No benchmark or whole-register-copy elimination is established by this local
+optimization. The prior experimental activation patch no longer applies to
+the changed runtime/write modules; adapt it in isolated experimental sources
+for matched profile candidates, not by enabling this path in production.
+Matched experimental sources now exist at control `287acb0` and candidate
+`009e0aa` in detached worktrees under `payload-terminal-profile`. Both use the
+same prior ordinary-payload activation, adapted for the new gateway. Their
+build uses a separate Cargo target directory, preserving the main checkout's
+source and release artifacts. Capture source hashes, activation patches and
+stripped/symbol link images before instruction profiling; the build is not
+performance evidence and neither experimental source is release acceptance.
+
+The first matched build/profile campaign is complete: 20 exact-image profiles
+across ten original workload/mode pairs. Control SHA-256 is
+`ee5c53c14fc42a732332486590eac851129f26fa369ca38f5ffca71b9e64cbca`;
+candidate is `b084b574604c3f8c766cf5a47af509109cc8c773a8099a3c50414f9a217dfb32`.
+Both stripped/symbol images have identical allocated sections and program
+headers, and source/image hashes verify before and after collection.
+
+Callback Auto drops **133,401,602 → 132,947,695 instructions (-0.3403%)**,
+but remains **716,071 (+0.5415%) above the restored ordinary JIT**. Generated
+callback work stays 14,137,456 instructions. Its wrapper grows by 129,698
+instructions (two per entry) while the retiring materializer costs less.
+Upvalue Auto grows 162,936 (+0.1015%); most of that delta is in unchanged
+`Admitted::new`, not the new materializer, and is not yet causally explained.
+Integer/float Off totals are identical; upvalue Off differs by 242 instructions.
+Integer/float Auto each grow about 0.1%; allocation/GC improves 0.0495%.
+This is not a sufficient performance result and no hardware timing gate passes
+on the strength of these profiles.
+
+All execution counters match. The strict all-non-timing comparison exits 3
+because snapshot peaks differ for five Auto workloads; callback peak grows
+11,141 → 11,574 bytes. Preserve that failure and every resource field in
+`payload-terminal-profile/analysis.json`, rather than omitting them.
+
+The next test-only variant moves both scalar gateways into the existing
+shared helper-function table. Its invocation bridge stores one table pointer,
+instead of rebuilding three function/table pointers per entry. A slow scalar
+write adds one table load; expansion accounting and the independent gateway
+checker include it. The direct bridge test invokes both materializers and a
+refreshing helper through that shared table. GNU validation passes 38 ABI,
+33 backend, two runtime and two focused table/capacity tests, plus format and
+all-feature checks. Focused terminal and table/capacity tests pass under both
+Miri aliasing models. The same 75-test native lane passes on x86_64 musl.
+Matched-profile validation remains pending; no further saving is assumed.
+Initial stale-field
+test compile errors and a hard-coded mutation-test instruction index are
+retained in `payload-terminal-table-initial.log` and
+`payload-terminal-table-corrected.log`.
+
 Target the ordinary wrapper's **12,321,657 import/writeback instructions**,
 not another tiny scalar-guard or rejected callback-setup/cache variation.
 Generic direct-payload transport already exists as an unaccepted model, but
@@ -79,13 +166,62 @@ GNU passes **12 typed tests** and fmt/check-all; both Miri models and real i686
 pass **nine model tests each**. The completed musl lane passes **12 typed,
 34 payload ABI, 28 backend and two runtime tests**. Every lane reports zero
 failures and ignores. Miri does not execute the generated machine code.
-This emitter still lacks independent post-lowering semantic IR
+At this stage the emitter still lacked independent post-lowering semantic IR
 certification, production executable/compiler resource accounting, runtime
 PC/fuel/counter integration, branch/helper coverage, and whole-workload
 performance evidence. Generic Cranelift verification and the executable
 oracle do not replace those gates. Do not activate or call this a speedup.
 Native immediate-type compilation failure and corrected results are retained
 under `typed-source-native-*.log`.
+
+The next change adds an independent, bounded post-lowering checker before
+native definition. It revalidates the source plan, validates the C ABI,
+restricts the control-flow graph to one guarded body per source operation,
+and checks exact unsigned budgets and completed counts. Every body must have
+one final canonical or typed write matching its source expression. Pointer
+loads must come from admitted binding entries or initialized canonical
+destination entries; scalar reads may only dereference admitted fields.
+The checker does not regenerate and compare the emitter's output. Its fixed
+workspace and graph-size caps reject extra blocks, detached instructions and
+oversized IR before structural verification.
+
+Fourteen GNU typed tests plus fmt/check-all pass. A corruption corpus rejects
+at least 70 variants that still pass Cranelift's generic verifier, including
+wrong offsets/roots/values, signed budgets, reversed edges, loops, writer
+redirection, wrong helper arguments/ABI, pre-budget reads and extra writes.
+Changed source constants, function ABI and capacity overflow are also refused.
+The existing executable prefix/suffix and boundary corpora now pass through
+this checker. The emitter reuses each budget-count constant in its comparison.
+Compiler API and mutable-borrow errors from the initial checker drafts remain
+in `typed-ir-initial.log` and `typed-ir-corrected.log`; the passing run is
+`typed-ir-mutations.log`. No production activation or speedup is claimed.
+
+The completed checker musl lane passes 14 typed, 36 payload ABI, 28 backend
+and two runtime tests. A further source-map test imports the unchanged
+benchmark workload definitions, traverses their child prototypes, and reports
+potential integer spans and excluded operations. GNU now passes 15 typed
+tests plus fmt/check-all. This is static source admission, not dynamic type
+coverage or performance evidence; for example a Move of a closure is a
+potential span whose integer admission will decline at runtime.
+
+The map determines the integration direction. `rust_callbacks` has GetUpTable
+at PC5, Move at PC6, Call at PC7, Add at PC8 and NumericForLoop at PC9. Its
+current hot scalar spans are only `6..7` and `8..9`. The upvalue callee is
+GetUpValue/Add/SetUpValue/Return, with only its Add in the scalar model.
+**Do not install separate per-span dispatch for these fragments:** it would
+leave the existing import/writeback path and introduce transitions, so this
+is not a justified way to remove the measured copying cost. Instead integrate
+typed accesses within the existing canonical payload execution path, with
+source-certified loop flow and closed helper effects, exact retirement of
+overwritten bindings, and full ordinary fallback. This direction is an
+inference from current source and the earlier profiles, not a measured gain.
+Retain the scalar model as a verified component, not as narrower acceptance.
+The clean single-threaded map is `typed-workload-boundaries-final.log`; its
+initial allocator-box iteration error and first corrected run are retained.
+The final map-inclusive platform checks pass 15 typed tests on musl and ten
+on real i686, with zero failures or ignores (`typed-ir-musl-final.log` and
+`typed-ir-i686.log`). The native IR checker and its mutations do not execute
+under Miri or i686; the prior nine-model Miri results are not checker coverage.
 
 Before activation, require: both Miri alias models; source-certified region and
 binding maps; independent IR/liveness/retirement verification and corruption
