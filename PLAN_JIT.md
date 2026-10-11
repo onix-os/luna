@@ -282,7 +282,49 @@ after-checks include all three new files. Broader GNU/musl suites each pass
 Clippy pass with existing warnings and none in the new files. The broader
 runtime tests still exercise existing transports, not packed runtime activation.
 
-Remaining packed work includes scalar stores, complete whole-entry lowering and accounting,
+Packed scalar-store lowering now admits adjacent canonical tag/bits stores and
+emits a direct write only for a live numeric descriptor whose type matches the
+requested scalar tag. Type changes, retired descriptors, Boolean and Nil writes
+use the checked C writer. In particular, an Empty descriptor never permits
+skipping a Nil write: its canonical destination could still contain a non-Nil
+value. Numeric stores preserve integer and floating-point bit patterns without
+materializing a new Value or incrementing the writer-attempt diagnostic.
+
+Only gateway completion reaches the original continuation. Decline, panic and
+refusal return their exact status before subsequent effects. Shared Rust/native
+oracles check original reference identity on decline, live sibling numeric
+loans, prefix tails, retirement, canonical values, PC/fuel and all helper
+counters. Injected panic/refusal after a canonical write retain that effect and
+the original panic payload; a continuation marker remains untouched. These
+gateway probes do not bypass the full-entry rule that pending panics refuse
+admission before executing any native instructions.
+
+Independent source/emitted checks cover the store pair, guards, cleared pointer,
+writer table/signature, status branch and return. Terminal stores additionally
+require bounded liveness evidence tied to the **same immutable source Function**;
+an unrelated function with matching instruction IDs cannot supply that proof.
+Tests reject 106 well-formed emitted mutations and wrong-source/live-read terminal
+proofs. A composed fixture lowers an ordinary store, reads its refreshed tag/bits,
+then terminally copies the scalar to another register; all component checks and
+the generated-code canonical oracle pass together.
+
+Store expansion is **24 added instructions for I64 or 25 for F64, plus four
+blocks**. These are component expansion measurements, not completed compiler
+resource admission or evidence of speedup. Sources are
+`backend/payload/packed_write*.rs`, `backend/payload/terminal.rs` and
+`abi/payload/packed/store_oracle.rs`; targets are `jit-payload-packed-writes` and
+its `-miri` counterpart. Evidence uses `packed-writes-*`.
+
+Store source `53933f4` passes 37 packed ABI and six compiler tests on GNU/musl,
+33 ABI tests on real i686, and 33 ABI plus five compiler tests under each of
+Stacked and Tree Borrows Miri. Source checksums include the three new files and
+match after validation. Broader GNU and musl runs each pass 200 tests
+(99 ABI, 71 backend, three runtime and 27 helper). Formatting, all-feature
+checking and default/all-feature Clippy pass. Miri emits two new native-only
+unused-item warnings alongside existing warnings. These gates validate the
+test-only components, not production activation or performance acceptance.
+
+Remaining packed work includes complete whole-entry lowering and accounting,
 independent whole-function source/emitted checking,
 precise runtime exit/fuel/counter integration and resource accounting. Fresh
 frozen workload profiles and original hardware/compiled-Off gates still decide
