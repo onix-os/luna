@@ -11,6 +11,64 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Scoped rooted-publication view — rejected after repeated timing
+
+An isolated candidate replaces only the two full register views in
+`Session::complete_rooted` with a scoped closure/PC/value-slice accessor.
+The accessor keeps the top-Lua check and `split_at_mut(base)` bounds check;
+caller/width checks, publication and panic ordering, fuel, counters and native
+continuation checks are unchanged. It neither caches a frame nor adds unsafe
+code. This differs from the earlier rejected broad PC-only projection.
+
+GNU formatting/check-all and focused rooted/region/accounting tests pass
+**128 executions / 14 summaries**, two existing ignored diagnostics. Musl
+passes **10 / three**, none ignored. Three new pure differential tests cover
+current-frame mutation, invalid/missing frames, growth/replacement and exact
+unwind payloads. Shared-target Miri initially executes **zero tests**, with
+old-source diagnostics; those runs are excluded. A fresh candidate-specific
+target executes and passes all three tests under Stacked seed 53 and Tree seed
+54. No full-suite or generated-native Miri acceptance is claimed.
+
+Shipping/speed cost builds and native proofs pass; both no-feature executables
+are byte-identical to production controls. All **56 exact-image Off profiles**
+verify, with main workload instruction counts unchanged and small allocator/
+traversal variations retained. Eight new Auto/no-feature profiles, independently
+compared with eight production profiles, retain identical native work counts.
+Shipping upvalue instructions fall **87,129,491 → 80,761,208 (-7.309%)**;
+speed falls **62,486,177 → 62,183,681 (-0.484%)**. Auto callback instruction
+counts are exactly unchanged in both profiles. No-feature speed upvalues vary
+by 158 allocator instructions; this is not credited to the optimization.
+
+Two cost campaigns complete **96 commands / 864 case gates / 2,112 worker
+records**, eleven pairs and twenty iterations, CPUs 0/16, reordered windows,
+placebos and contention telemetry. All **576 native-proof comparisons** match.
+Independent analysis verifies raw worker medians, original 1.05 limits, source
+and artifact identities. All aggregate commands fail, including controls.
+
+Native timing initially requests `--check` on shipping artifacts, which the
+harness correctly refuses: **36 shipping startup errors are not measurements**.
+The corrected two campaigns use checked speed artifacts and diagnostic shipping
+artifacts, preserving the harness's original opt-level-3 acceptance requirement.
+They collect **72 commands**, verify **864 complete non-timing comparisons**,
+and independently check reported ratios and thresholds. All 36 checked speed
+commands fail aggregate acceptance; shipping exit zero is not a gate pass.
+No owned build, test or profile overlaps either timing campaign.
+
+Shipping native upvalue control/candidate time ratios improve **1.05412 /
+1.06444** on CPU0 and **1.09080 / 1.08356** on CPU16 (initial/repeat).
+Speed upvalue changes remain near parity. These gains do not offset the repeatable
+compiled-Off speed callback regression on CPU16: **0.893230 / 0.891729**,
+approximately **12% more elapsed time**. Same-image placebos are **1.000976 /
+1.000245** and byte-identical no-feature controls **1.002187 / 0.996988**.
+The instruction profiles do not establish the hardware cause of that loss.
+
+**Reject the runtime candidate; production remains unchanged.** Keep the full
+evidence, including failed launch attempts and contention outliers, beneath
+`target/jit-evidence/short-slice-performance/rooted-publish-view-*`.
+The rejected speed compiled-Off image is
+`9468c9f2548602b488bf0875e2cb3616e0d87060e961f7a586b541c9a6ecc208`.
+Full performance/platform/resource/release acceptance remains open.
+
 #### Current production native-cost refresh
 
 Eight new exact-image profiles use the unchanged production control, not the
