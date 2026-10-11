@@ -11,6 +11,80 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Sparse dispatch-prefix regression fixed; callback gate still failing
+
+`6760215` fixes a gap found by the first real selective-binding benchmark.
+Source-PC masks did not include reads in the optimized dispatch prefix.
+The floating loop's root guard also needs register 4; omitting it forced the
+generic native path even though the source-header mask was valid. The compiler
+now unions dispatch-prefix live-ins into each source-entry mask, stopping that
+analysis at source headers. The independent forward checker verifies omitted
+reads from both the source header and the dispatch prefix. Storage and work
+remain budgeted, and native coverage is unchanged.
+
+A new prefix-read regression failed before the fix. Seven analysis tests now
+cover prefix reads, missing-mask mutations, branch definitions, cycles and
+cleanup, alongside the existing four scoped ABI tests. GNU checks, the twenty
+bound/read tests, the eleven-prototype audit and the sparse runtime oracle pass.
+Musl passes the same analysis/ABI/bound/runtime lanes. Stacked and Tree Miri each
+pass seven analysis and four ABI tests; neither executes generated native code.
+These are focused checks, not a new full-suite or release acceptance claim.
+
+Two release campaigns are complete:
+
+- First candidate `edb85658`, matched full-binding control `5bfabe67`:
+  22 identical-load-image profiles and 24 full paired benchmark runs.
+- Fixed candidate `6a0bd14d`: 11 identical-load-image profiles and another
+  24 full paired runs against the same full-binding control, retained
+  `becde851` control and a repeat of the full-binding control.
+- Each hardware campaign uses CPUs 0 and 16, three rotated windows, eleven
+  samples per mode and the original thresholds. All 648 result rows per
+  campaign were parsed. Source/image hashes, execution counters and native
+  code-byte counts were checked; metadata and workspace costs were retained.
+
+The float regression is measured as fixed: native collected instructions
+returned from **29,978,634 to 8,920,002**, exactly the full-binding control's
+native count. Total collected float instructions fell from 37,470,504 to
+16,219,620 (full control: 16,041,902). Float passes its original gate in all six
+fixed-candidate windows, versus zero before the fix.
+
+This does **not** justify activating selective binding. In the fixed campaign,
+the median normalized paired factors versus current full binding are:
+
+| Workload | Candidate / full-binding paired factor | Original gate passes |
+| --- | ---: | ---: |
+| Integer loop | 0.9865 | 6/6 |
+| Float loop | 0.9918 | 6/6 |
+| Array table | 1.0018 | 6/6 |
+| Closure/upvalue | 0.9895 | 6/6 |
+| Polymorphic metamethod | 1.0222 | 4/6 |
+| Rust callbacks | 0.9809 | 0/6 |
+| Allocation/GC | 0.9966 | 6/6 |
+| Cold configuration | 0.9974 | 6/6 |
+
+Each factor divides the candidate's median paired speedup by the corresponding
+control's, then takes the median across six windows. The Oslo predicate remains
+unscored. All 24 aggregate benchmark gates fail in each campaign; successful
+campaign-driver exits mean collection completed, not performance acceptance.
+Shared-host telemetry and placebo controls are retained, so small differences
+are not treated as reliable wins.
+
+Callback collected instructions remain 134,048,030 versus the full control's
+132,428,903. The profile shows increased scalar materialization despite fewer
+incoming bindings. The next investigation is cost-aware binding of scalar
+write destinations, with the dispatch-prefix proof preserved; no such
+optimization is implemented or accepted here. Fixed-candidate callback metadata
+is 1,329 versus 913 bytes, and snapshot peak is 13,850 versus 13,242 bytes.
+These costs are not exempted from the original resource/cost gates.
+
+Production defaults remain unchanged. Frozen sources, images, profiles,
+telemetry and full per-window summaries are under
+`target/jit-evidence/short-slice-performance/`:
+`sparse-first-measurement.md`, `sparse-prefix-measurement.md`,
+`sparse-prefix-*.log`, and `payload-terminal-profile/sparse*`.
+Original performance, compiled-Off cost, platform/resource promotion and
+release gates remain open.
+
 #### Selective two-word entry binding — correctness checked, timing pending
 
 `186455d` adds a test-only `RequireSparsePayload` path on the retained two-word
