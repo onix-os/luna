@@ -109,6 +109,33 @@ Compiler API and mutable-borrow errors from the initial checker drafts remain
 in `typed-ir-initial.log` and `typed-ir-corrected.log`; the passing run is
 `typed-ir-mutations.log`. No production activation or speedup is claimed.
 
+The completed checker musl lane passes 14 typed, 36 payload ABI, 28 backend
+and two runtime tests. A further source-map test imports the unchanged
+benchmark workload definitions, traverses their child prototypes, and reports
+potential integer spans and excluded operations. GNU now passes 15 typed
+tests plus fmt/check-all. This is static source admission, not dynamic type
+coverage or performance evidence; for example a Move of a closure is a
+potential span whose integer admission will decline at runtime.
+
+The map determines the integration direction. `rust_callbacks` has GetUpTable
+at PC5, Move at PC6, Call at PC7, Add at PC8 and NumericForLoop at PC9. Its
+current hot scalar spans are only `6..7` and `8..9`. The upvalue callee is
+GetUpValue/Add/SetUpValue/Return, with only its Add in the scalar model.
+**Do not install separate per-span dispatch for these fragments:** it would
+leave the existing import/writeback path and introduce transitions, so this
+is not a justified way to remove the measured copying cost. Instead integrate
+typed accesses within the existing canonical payload execution path, with
+source-certified loop flow and closed helper effects, exact retirement of
+overwritten bindings, and full ordinary fallback. This direction is an
+inference from current source and the earlier profiles, not a measured gain.
+Retain the scalar model as a verified component, not as narrower acceptance.
+The clean single-threaded map is `typed-workload-boundaries-final.log`; its
+initial allocator-box iteration error and first corrected run are retained.
+The final map-inclusive platform checks pass 15 typed tests on musl and ten
+on real i686, with zero failures or ignores (`typed-ir-musl-final.log` and
+`typed-ir-i686.log`). The native IR checker and its mutations do not execute
+under Miri or i686; the prior nine-model Miri results are not checker coverage.
+
 Before activation, require: both Miri alias models; source-certified region and
 binding maps; independent IR/liveness/retirement verification and corruption
 tests; exact budgets/exits/helper/counter behavior; bounded compiler/runtime
