@@ -209,6 +209,51 @@ captured native bytes, disassembly, per-instruction weighted costs and image
 hashes. The safe proof/emission/mutation tests remain test-only; production still
 uses the ordinary transport and original acceptance remains incomplete.
 
+Two isolated follow-ups distinguish a host-reload hint from fallback placement.
+Removing `notrap` from private host-stack operations passes the 79-test GNU
+payload lane but produces a byte-identical 4,096-byte callback kernel, including
+the same spill. Reject that change. Marking only source-proven-tag materializer
+blocks cold also passes 79 tests and changes placement, but retains exactly
+14,072,656 generated instructions and 194,558 weighted spill instructions.
+Twenty full workload/mode profiles retain all fields; both strict comparisons
+against the stable-tag image pass. Differences in other instruction totals are
+preserved, not assumed to be optimization gains.
+
+The cold-layout image (`8539387af91b734f419368e6e204ff6039ef79cf07f602087fbb4fbd79c22ad2`)
+completes another 24 unchanged hardware commands with ordinary, stable-tag and
+same-inode controls. All aggregate gates still fail. CPU0 ordinary/candidate
+callback ratios recover to 1.0010–1.0295, versus 0.8868–0.8960 for the stable-tag
+image in the same windows; CPU16 remains 0.9751–0.9965. The candidate still fails
+callbacks in four windows, metamethods in six and allocation/GC in three, and
+retains scalar-loop regressions. All 324 non-timing comparisons are retained,
+with only code/snapshot resource differences in 84 comparisons. No owned tests,
+builds or profiles overlap timing. This is a local layout recovery, not original
+JIT performance acceptance or a spill fix.
+
+Retain the cold annotation only in the test model, with exact emitted-policy
+validation and a mutation test rejecting cold annotations on generic writes.
+Generic type-changing materializers remain unmarked. The no-trap hint stays
+unchanged. Evidence is under `payload-terminal-profile/{cold,rare}`,
+`host-hints-native-vgdb`, `tag-vs-{cold,rare}-analysis.json` and
+`rare-hardware-screen` / `rare-hardware-analysis.json`. Main-checkout validation
+passes 79 native tests on each of GNU/musl (38 ABI, 39 backend, two runtime),
+format/all-feature checks and four focused proof tests under each Miri model.
+
+The next structural step must use an explicitly frame-bound entry contract,
+not remove null checks from the existing raw-descriptor ABI. Introduce a private,
+non-escaping binding capability minted only inside the canonical frame/session
+scope, and a distinct compiler/entry kind that cannot use scratch-slot or linked
+entry invocation. Keep all checked-descriptor entry tests, including malformed
+numeric/null inputs, unchanged. For that separate entry kind, a fresh proven
+numeric destination can use its Rust-bound scalar field directly without a
+redundant malformed-pointer materializer path. Source and emitted CFG proofs,
+exact expansion accounting, helper refresh, terminal retirement, native exit
+state and both Miri models remain mandatory. No binding or native frame may
+survive callback/GC or a whole-frame helper borrow. Start with existing full-entry
+lowering, not a new per-span dispatcher, and measure the original workload matrix
+before activation. This separate capability/entry contract is not implemented
+or accepted yet; the checked ABI cannot be weakened in its place.
+
 Target the ordinary wrapper's **12,321,657 import/writeback instructions**,
 not another tiny scalar-guard or rejected callback-setup/cache variation.
 Generic direct-payload transport already exists as an unaccepted model, but
