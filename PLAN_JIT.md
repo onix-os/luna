@@ -84,8 +84,23 @@ same-path/inode invocations and contention telemetry are preserved. No owned
 build, test, profile or edit overlapped hardware timing. There is no production
 activation and no full performance/resource/platform/release acceptance.
 
-Next: attribute the field variant's metamethod instruction regression before
-changing another hot path. The numeric-read recognizer currently accepts the
+The metamethod instruction difference has now been attributed by function,
+with every function's self-cost summed back to the full profile total.
+The initial +324,549 comprises **+427,367 in named libc allocation functions**,
++4 in string interning, and **−102,822 in anonymous code**. Six additional
+profiles (three rotated kind/field pairs, frozen images and common invocation
+alias) retain identical non-timing statistics. Their total field-minus-kind
+deltas are +324,545, −70,583 and +608,495; the anonymous-code saving is unchanged
+in every pair. The same kind image varies by +395,128 versus its initial profile
+entirely in allocation functions, and the same field image varies by +283,950
+in allocation functions, with a separate four-instruction interning difference.
+This demonstrates allocator-path variation, not its underlying cause. Do not
+discard that work, subtract it from acceptance, or blame numeric-read generated
+spills for the aggregate difference. The full hardware gates still fail.
+Evidence: `metamethod-first-delta.json`, `metamethod-repeat/`, `profile-delta.pl`.
+
+Next: audit real-source witnesses before broadening the read proof grammar.
+The numeric-read recognizer currently accepts the
 masked Integer-or-Number guard, not all equivalent exact-integer/exact-number
 guards; extending that grammar is a separate potential optimization requiring
 source/emitted proof tests and original-workload measurements, not a current
