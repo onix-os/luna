@@ -9,9 +9,55 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
-### Progress snapshot — 2026-10-11
+### Progress snapshot — 2026-10-12
 
-#### Scoped array-window construction — array gate restored, callbacks open
+#### Scoped constructor withdrawn — shipping-disabled regression reproduced
+
+The scoped constructor from `6001faf` is withdrawn from production. Its array
+instruction and native timing gains below remain valid experimental evidence,
+but they do not outweigh a repeated regression with JIT compiled in and disabled.
+The original constructor is restored; the added 64-prefix/two-access-mode
+initialization fixture is retained. Array and callback acceptance remain open.
+
+Ordinary speed/shipping cost builds use the unchanged Make workflow, eleven
+samples, twenty iterations and the original 1.05 ceilings. Two controlled
+campaigns complete **96 commands/864 case gates/2,112 worker records**, with exact
+artifact identities, raw median/ratio verification and equal native counters.
+No-feature binaries are byte-identical across the before/after revisions.
+Every aggregate run fails for both revisions and same-image controls; these are
+not full feature-cost passes.
+
+In the second campaign, CPU16 shipping integer before/after compiled-Off time
+ratio is **0.924218**, versus **1.000565** for no-feature and **0.998246** for the
+same-image placebo. All four windows reproduce the adverse result
+(0.922667–0.933264). The first campaign also observed it, with noisier controls.
+CPU0 speed integer ratios are adverse in both campaigns (0.974139/0.977264).
+Passing the absolute integer ceiling does not justify this relative regression.
+The shipping VM retains its instruction length but changes address; the cause
+has not been established, and arbitrary layout padding is not a fix.
+
+A separate `#[inline(always)]` candidate for `Window::with` passes formatting,
+check-all, **39 focused tests**, artifact verification and native execution proof.
+Its shipping pilot completes **24 commands/216 gates/528 worker records**, with
+144 equal native-counter comparisons. CPU16 integer before/candidate ratio is
+**0.928166**, no-feature **0.998731**, placebo **1.001775**; all four windows remain
+adverse (0.924989–0.931903). This candidate is rejected, not integrated. CPU0's
+apparent gain does not cancel the CPU16 regression.
+
+Withdrawal root formatting, check-all and **39 focused tests** pass. Fresh
+shipping and speed builds, artifact checks and native proofs complete; all four
+complete binaries (no-feature and compiled-Off for each profile) are
+**byte-identical to the retained pre-constructor controls**. This removes the
+constructor-induced code change, rather than claiming success from noisy new
+timings. Original feature-cost and native array/callback gates remain open.
+The full root suite completes with **1,801 passes/88 summaries/six ignored**.
+Musl check-all and focused checks also complete with **39 passes/three summaries**.
+These checks verify the restored implementation, not the remaining performance
+thresholds or full-plan completion.
+Evidence: `scoped-window-cost/`, `scoped-window-inline-cost/` and
+`scoped-window-withdrawal/` under `target/jit-evidence/short-slice-performance/`.
+
+#### Withdrawn scoped construction — retained array experiment results
 
 Static inspection of the retained array-transport, direct-copy and early-guard
 images finds identical relocation-normalized instruction forms for window
@@ -95,8 +141,8 @@ same-image placebo. Every before/after non-timing field matches. Array passes
 ratios **0.999159, 0.997157, 0.988335, 0.990024** are retained as adverse observations,
 not hidden by the array gain. Metamethod passes6/24 versus12/24 before, though
 direct Auto ratios straddle parity; upvalue passes22/24 versus21/24. This is not
-blanket production performance acceptance. Actual shipping and compiled-Off
-cost pairs are being built separately with the original Make workflow.
+blanket production performance acceptance. Subsequent shipping/compiled-Off
+cost checks caused the withdrawal documented above.
 Evidence: `scoped-window-production-*` and `scoped-window-cost/` under the same
 evidence directory.
 

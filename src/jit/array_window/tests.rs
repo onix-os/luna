@@ -23,7 +23,7 @@ fn identical<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
 }
 
 #[test]
-fn scoped_initialization_preserves_every_prefix_and_zero_tail() {
+fn initialization_preserves_every_prefix_and_zero_tail() {
     Lua::empty().enter(|ctx| {
         let kinds = [
             Value::Nil,
