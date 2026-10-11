@@ -55,8 +55,24 @@ integer/float totals remain adverse by 281,081/234,233. The integer total includ
 46,848 additional admission instructions; do not attribute all of it to entry
 dispatch. Array/metamethod code mappings still grow 4,096 bytes and callback/
 allocation/metamethod snapshot peaks remain larger, so strict resource equality
-still fails. Cleanup timing is pending. Post-refactor musl passes **37 / seven
-summaries** including hybrid runtime; full GNU Force validation is still running.
+still fails. Post-refactor musl passes **37 / seven summaries** including hybrid
+runtime; full GNU Force validation passes **1,780 / 88 summaries**, six ignored.
+`9b0a81e` strengthens the runtime oracle to require both entry families in one
+simultaneous cache, rather than accumulating observations across Lua states.
+Its GNU and musl focused reruns both pass.
+
+Cleanup timing now completes another **48 commands / 1,296 rows** against
+production, the preceding hybrid and a production placebo, without owned
+validation/profile overlap. Direct Auto ratios against production are integer
+**0.98495 / 0.98387**, float **0.97428 / 0.97467**, array **0.99291 / 0.98354**,
+upvalue **1.00381 / 1.00745**, metamethod **1.03128 / 1.03430**, callback
+**1.02049 / 1.00205**, allocation **1.01133 / 1.02526**, unscored Oslo
+**0.99149 / 0.98592**, and cold **1.00912 / 0.99900**. These are medians of
+window-level direct Auto ratios, not normalized paired ratios or gate results.
+All 48 aggregate gates still fail; callback gates remain 0/12. Numeric throughput
+loss remains reproducible and the callback gain is not stable across campaigns.
+The cleanup removes unused storage but is not a general performance acceptance.
+Reports and raw evidence use the `numeric-transport-clean-*` prefix.
 Production selection remains unchanged; this is development progress only.
 
 Evidence: `target/jit-evidence/short-slice-performance/numeric-transport-*` and
