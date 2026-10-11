@@ -22,6 +22,48 @@ pub(in crate::jit) enum Contract {
     FrameBound,
 }
 
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::jit) enum EntryKind {
+    Ordinary = 0,
+    Checked = 1,
+    FrameBound = 3,
+}
+
+impl EntryKind {
+    pub(super) const fn from_contract(contract: Option<Contract>) -> Self {
+        match contract {
+            None => Self::Ordinary,
+            Some(Contract::Checked) => Self::Checked,
+            Some(Contract::FrameBound) => Self::FrameBound,
+        }
+    }
+
+    pub(in crate::jit) const fn is_payload(self) -> bool {
+        self as u8 & 1 != 0
+    }
+}
+
+#[test]
+fn bound_entry_kinds_preserve_contract_identity_and_payload_family() {
+    assert_eq!(std::mem::size_of::<EntryKind>(), 1);
+    for (contract, kind, payload) in [
+        (None, EntryKind::Ordinary, false),
+        (Some(Contract::Checked), EntryKind::Checked, true),
+        (Some(Contract::FrameBound), EntryKind::FrameBound, true),
+    ] {
+        assert_eq!(EntryKind::from_contract(contract), kind);
+        assert_eq!(kind.is_payload(), payload);
+        for other in [
+            EntryKind::Ordinary,
+            EntryKind::Checked,
+            EntryKind::FrameBound,
+        ] {
+            assert_eq!(kind == other, kind as u8 == other as u8);
+        }
+    }
+}
+
 enum Write {
     Checked(writes::Write),
     Bound(bound_writes::Write),
@@ -830,7 +872,7 @@ impl Code {
         budget: u32,
     ) -> Exit {
         assert!(
-            self.payload.is_some(),
+            self.entry_kind.is_payload(),
             "ordinary entry requires scalar slots"
         );
         assert_eq!(frame.slot_count, self.registers);
@@ -867,7 +909,7 @@ fn relocation_budget_counts_emitted_direct_and_indirect_helper_calls() {
             .unwrap();
             let count = code.relocations;
             let payload = matches!(failure, Failure::RequirePayload);
-            assert_eq!(code.payload.is_some(), payload);
+            assert_eq!(code.entry_kind.is_payload(), payload);
             if payload {
                 assert_eq!(count, 0);
             } else {
@@ -893,7 +935,7 @@ fn relocation_budget_counts_emitted_direct_and_indirect_helper_calls() {
                     Ok(code) => {
                         assert!(count <= limit);
                         assert_eq!(code.relocations, count);
-                        assert_eq!(code.payload.is_some(), payload);
+                        assert_eq!(code.entry_kind.is_payload(), payload);
                     }
                     Err(error) => {
                         assert!(count > limit);
