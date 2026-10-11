@@ -32,8 +32,9 @@ construction and captured table replacement with live siblings, GC and exact
 fuel/interrupt/native counters. The first metric fixture incorrectly included
 the test frame's own 56-byte GC stack allocation; measurement now starts inside
 the frame immediately around the helper, without subtracting a guessed cost.
-The failed fixture log is retained. Miri and frozen performance results are
-separate gates; no performance acceptance or activation is claimed.
+The failed fixture log is retained. Both Stacked and Tree Borrows pass five
+new-table ABI and five terminal model tests each. These are correctness gates,
+not performance acceptance or activation.
 The frozen `new` image passes all 116 payload tests and check-all; SHA-256 is
 `eb16222206adf3fa307a78df2d186da2e0557e9e2a849863b2ac38f7bfe9375d`.
 Ten profiles versus `write` preserve every non-timing statistic. Callback,
@@ -46,7 +47,33 @@ Upvalue work rises 313,434, including +313,704 in Admitted::new; integer rises
 discarded as unrelated to the intended optimization. Symbol/stripped allocated
 ELF sections, invocation inodes, source/image manifests and exact function sums
 verify. Evidence: `write-vs-new-analysis.json` and `new-*-auto-delta.json`.
-Hardware timing remains a separate, outstanding gate.
+Two full hardware campaigns finish with **48/48 aggregate gate failures**.
+Allocation passes all 12 candidate windows and improves versus `write` in all
+12: previous/new Auto median-time ratios are 1.0577–1.0699 on CPU 0 and
+1.0669–1.0805 on CPU 16 initially, then 1.0562–1.0774 and 1.0766–1.0967 in the
+repeat. Metamethod ratios are 1.0285–1.0339 / 1.0360–1.0553 initially and
+1.0338–1.0561 / 1.0271–1.0433 in the repeat. Its original threshold passes in
+**three of twelve** windows (all CPU 16), not consistently; CPU 0 still fails
+every window. Callback thresholds fail all 12. Other scored candidate cases
+pass, but that does not waive the aggregate failures.
+
+Negative relative samples remain: callback ratios include 0.9753 initially and
+0.9879 in the repeat despite identical instruction profiles. Upvalue ratios
+are 0.9865–0.9998 initially and 0.9789–1.0025 in the repeat; the increased
+Admitted::new work remains recorded rather than excused. Array's first CPU 0
+range includes 0.9350. CPU 16 repeat metamethod placebo ratios range
+0.9324–1.0421 and allocation placebo 0.9321–1.0239, so those noisy windows do
+not independently establish a stable small speedup. All raw samples remain.
+
+All **216 direct previous/candidate non-timing comparisons match**; 168 of 648
+ordinary-relative comparisons differ only in code_bytes/snapshot_peak_bytes.
+Original workloads, eleven paired samples, rotated windows, CPUs 0/16,
+same-inode placebo controls, source/image manifests and contention telemetry
+are retained. No owned builds/tests/profiles/edits overlap hardware timing.
+Both drivers exit 0 while all benchmark commands exit 2. Evidence:
+`new-hardware-screen/`, `new-hardware-repeat/`, their analysis files and
+`new-vs-write-hardware{,-repeat}-stats.json`. The candidate stays experimental;
+full performance/resource/platform/release acceptance is still open.
 Evidence: `payload-new-table-*` and `payload-terminal-profile/new*` under
 `target/jit-evidence/short-slice-performance/`.
 
