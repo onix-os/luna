@@ -174,6 +174,9 @@ integer-loop instructions fall only 1,201 and float-loop instructions only 48.
 Callbacks instead grow 64,743, to 132,623,499 (+0.2964% over ordinary).
 All three Off controls match. `tag-analysis.json` retains all statistics and the
 strict resource-field comparison failure; it is not a performance pass.
+The extra charged proof graphs also raise snapshot peaks: callbacks
+11,574 → 13,242 bytes, integer loops 11,551 → 13,155 and float loops
+14,870 → 17,086, compared with the shared-table image.
 
 An additional **24 complete unchanged hardware commands** compare ordinary,
 shared-table, stable-tag and same-inode placebo images over three rotated windows
@@ -191,7 +194,7 @@ per-command contention telemetry are checked as in the preceding campaign.
 Exact-image debugger captures of each original callback kernel localize the
 instruction regression. Both immutable images produce one 4,096-byte executable
 page. Generated-code work rises 14,007,832 → 14,072,656 (+64,824), while the
-ordinary wrapper stays 15,693,458 in both payload variants. Weighted spill
+Rust entry wrapper stays 15,693,458 in both payload variants. Weighted spill
 instructions at stack offsets 8/16 rise 129,685 → 194,558 (+64,873); other
 generated work falls by 49. The new hot spill at offset `0x286` executes 64,837
 times, storing the helper host before the null-pointer/materializer branch.
