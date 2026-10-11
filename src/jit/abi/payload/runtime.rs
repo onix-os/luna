@@ -1173,6 +1173,52 @@ unsafe extern "C" fn materialize_terminal(
 #[path = "terminal_tests.rs"]
 mod terminal_tests;
 
+#[cfg(test)]
+#[path = "terminal_copy_tests.rs"]
+mod terminal_copy_tests;
+
+#[cfg(test)]
+/// Copies a canonical value and retires its destination and optional source.
+///
+/// # Safety
+/// The pointers belong to one live session. Retired descriptors are not used
+/// again until rebound.
+unsafe fn copy_terminal<const RETIRE_SOURCE: bool>(
+    host: *mut (),
+    slots: *mut Payload,
+    dest: u32,
+    source: u32,
+) -> u32 {
+    let session = unsafe { &mut *host.cast::<Session<'_, '_, '_, '_, '_>>() };
+    if session.stopped {
+        return abi::HELPER_PANICKED;
+    }
+    if dest as usize >= session.count || source as usize >= session.count {
+        return abi::HELPER_DECLINED;
+    }
+    let value = if RETIRE_SOURCE {
+        unsafe { session.values.as_ptr().add(source as usize).read() }
+    } else if let Some(value) = table_operand(session, slots, source) {
+        value
+    } else {
+        return abi::HELPER_DECLINED;
+    };
+    unsafe {
+        if RETIRE_SOURCE {
+            slots.add(source as usize).write(Payload {
+                tag: NIL,
+                pointer: std::ptr::null_mut(),
+            });
+        }
+        slots.add(dest as usize).write(Payload {
+            tag: NIL,
+            pointer: std::ptr::null_mut(),
+        });
+        session.values.as_ptr().add(dest as usize).write(value);
+    }
+    abi::HELPER_COMPLETED
+}
+
 #[cfg(all(test, not(miri)))]
 pub(crate) fn check_retired_descriptor(descriptor: Payload) {
     assert_eq!(descriptor.tag, NIL);

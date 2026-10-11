@@ -11,6 +11,30 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Terminal callback copy — verified model, integration pending
+
+The test-only canonical-copy primitive now distinguishes preserving a live source
+descriptor from retiring both source and destination. Reading the entire source
+Value through its parent pointer while retaining an activated scalar descriptor
+failed Tree Borrows. The preserving path instead reads through existing scalar
+descriptors; whole-Value copying requires both descriptors to be retired. The
+failing draft and log remain as evidence, not an accepted implementation.
+
+The corrected model tests twelve Value kinds, widths 1/7/255/256, self and
+distinct copies, activated source pointers, surviving sibling pointers, stopped
+sessions, invalid indices, canonical identity, PC, panic identity and all eight
+seeded counters. GNU and musl each pass **11 executions across four summaries**,
+including existing terminal checks. Independent-root Miri runs pass **three
+tests each** with default and Tree Borrows flags; the runner directory matches
+this checkout. Formatting, check-all and diff checks pass. Logs are under
+`target/jit-evidence/short-slice-performance/terminal-copy-root-fixed-*`.
+
+This is a test-only transport model, not generated-code integration or measured
+speedup. Compiler integration still needs source-value freshness, liveness for
+both retired descriptors, independent gateway verification, resource accounting,
+native differential coverage, frozen profiles and repeated hardware measurements.
+All original acceptance gates remain open.
+
 #### Descriptor/pointee alias classes — no callback benefit
 
 Two isolated compiler trials distinguish frame-bound descriptor storage from its
