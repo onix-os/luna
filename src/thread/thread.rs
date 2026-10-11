@@ -327,6 +327,28 @@ impl<'gc> OpenUpValue<'gc> {
     const UPGRADE_ERR: &'static str = "thread not finalized: upvalues not closed";
 
     #[cfg(all(test, feature = "jit"))]
+    pub(crate) fn with_test_stack<R>(
+        ctx: Context<'gc>,
+        values: &[Value<'gc>],
+        index: usize,
+        locked: bool,
+        call: impl FnOnce(UpValue<'gc>) -> R,
+    ) -> R {
+        let mut values_copy = vec::Vec::new_in(MetricsAlloc::new(&ctx));
+        values_copy.extend_from_slice(values);
+        let stack = Gc::new(&ctx, RefLock::new(values_copy));
+        let cell = UpValue::new(
+            &ctx,
+            UpValueState::Open(Self {
+                stack: Gc::downgrade(stack),
+                stack_index: index,
+            }),
+        );
+        let _guard = locked.then(|| stack.borrow_mut(&ctx));
+        call(cell)
+    }
+
+    #[cfg(all(test, feature = "jit"))]
     pub(super) fn index_in(self, stack: Gc<'gc, RefLock<StackVec<'gc>>>) -> Option<usize> {
         (self.stack.as_ptr() == Gc::as_ptr(stack)).then_some(self.stack_index)
     }
@@ -1412,6 +1434,13 @@ impl<'gc, 'a> LuaFrame<'gc, 'a> {
     }
 }
 
+#[cfg(all(test, feature = "jit"))]
+pub(crate) enum ScopedUpvalue<'gc> {
+    Value(Value<'gc>),
+    Register(usize),
+    Foreign(OpenUpValue<'gc>),
+}
+
 pub(crate) struct LuaRegisters<'gc, 'a> {
     pub pc: &'a mut usize,
     pub stack_frame: &'a mut [Value<'gc>],
@@ -1427,6 +1456,37 @@ pub(crate) struct LuaRegisters<'gc, 'a> {
 }
 
 impl<'gc, 'a> LuaRegisters<'gc, 'a> {
+    /// Resolves a capture without borrowing the current frame's values.
+    ///
+    /// # Safety
+    /// `registers` is live and exclusively held; its metadata and upper stack
+    /// are accessible. Current-frame values may have outstanding field loans.
+    #[cfg(all(test, feature = "jit"))]
+    pub(crate) unsafe fn scoped_upvalue(
+        registers: *const Self,
+        upvalue: UpValue<'gc>,
+    ) -> Option<ScopedUpvalue<'gc>> {
+        match upvalue.get() {
+            UpValueState::Closed(value) => Some(ScopedUpvalue::Value(value)),
+            UpValueState::Open(open) => {
+                let stack = unsafe { std::ptr::addr_of!((*registers).stack).read() };
+                if open.stack.as_ptr() != Gc::as_ptr(stack) {
+                    return Some(ScopedUpvalue::Foreign(open));
+                }
+                let base = unsafe { std::ptr::addr_of!((*registers).base).read() };
+                if open.stack_index < base {
+                    let upper = unsafe { &*std::ptr::addr_of!((*registers).upper_stack) };
+                    upper
+                        .get(open.stack_index)
+                        .copied()
+                        .map(ScopedUpvalue::Value)
+                } else {
+                    Some(ScopedUpvalue::Register(open.stack_index - base))
+                }
+            }
+        }
+    }
+
     #[cfg(feature = "jit")]
     pub(crate) fn fixed_list_stack(&self) -> bool {
         !self.variable

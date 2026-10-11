@@ -25,6 +25,10 @@ mod table_write_tests;
 mod new_table_tests;
 
 #[cfg(test)]
+#[path = "upvalue_read_tests.rs"]
+mod upvalue_read_tests;
+
+#[cfg(test)]
 #[path = "capacity_tests.rs"]
 mod capacity_tests;
 
@@ -624,6 +628,11 @@ unsafe extern "C" fn call<const KIND: u32>(
     if session.stopped {
         return abi::HELPER_PANICKED;
     }
+    if KIND == abi::HELPER_GET_UPVALUE {
+        if let Some(result) = upvalue_read(session, slots, a, b, pc) {
+            return result;
+        }
+    }
     if matches!(KIND, abi::HELPER_GET_TABLE | abi::HELPER_GET_UP_TABLE) {
         if let Some(result) = constant_table::<KIND>(session, slots, a, b, c, pc) {
             return result;
@@ -654,6 +663,69 @@ unsafe extern "C" fn call<const KIND: u32>(
         session.stopped = true;
     }
     result
+}
+
+fn upvalue_read(
+    session: &mut Session<'_, '_, '_, '_, '_>,
+    slots: *mut Payload,
+    dest: u32,
+    source: u32,
+    pc: u32,
+) -> Option<u32> {
+    use crate::thread::ScopedUpvalue;
+    if dest as usize >= session.count {
+        return None;
+    }
+    let upvalue = session.closure.upvalues().get(source as usize)?.get();
+    let origin = unsafe {
+        LuaRegisters::scoped_upvalue(
+            std::ptr::addr_of!(*(*session.frame.as_ptr()).registers),
+            upvalue,
+        )?
+    };
+    let origin = match origin {
+        ScopedUpvalue::Register(index) => {
+            if index >= session.count {
+                return None;
+            }
+            ScopedUpvalue::Value(table_operand(session, slots, index as u32)?)
+        }
+        origin => origin,
+    };
+    unsafe {
+        session.counts.as_mut().calls += 1;
+        *session.pc.as_ptr() = pc as usize + 1;
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let value = match origin {
+            ScopedUpvalue::Value(value) => value,
+            ScopedUpvalue::Foreign(open) => open.get(&session.ctx),
+            ScopedUpvalue::Register(_) => unreachable!(),
+        };
+        let mut canonical = Frame {
+            values: session.values,
+            len: session.count,
+            borrow: PhantomData,
+        };
+        assert!(canonical.store(
+            unsafe { std::slice::from_raw_parts_mut(slots, session.count) },
+            dest as usize,
+            value,
+        ));
+    }));
+    Some(match result {
+        Ok(()) => {
+            let counts = unsafe { session.counts.as_mut() };
+            counts.completed += 1;
+            counts.upvalue_reads += 1;
+            abi::HELPER_COMPLETED
+        }
+        Err(payload) => {
+            unsafe { session.frame.as_mut().panic = Some(payload) };
+            session.stopped = true;
+            abi::HELPER_PANICKED
+        }
+    })
 }
 
 fn new_table_with<'gc>(

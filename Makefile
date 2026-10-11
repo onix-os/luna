@@ -644,6 +644,15 @@ jit-in-place-return:
 .PHONY: jit-payload-local-table jit-payload-local-table-miri
 .PHONY: jit-payload-table-write jit-payload-table-write-miri
 .PHONY: jit-payload-new-table jit-payload-new-table-miri
+.PHONY: jit-payload-upvalue-read jit-payload-upvalue-read-miri
+jit-payload-upvalue-read:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::upvalue_read_tests:: $(ARGS)
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::terminal:: $(ARGS)
+
+jit-payload-upvalue-read-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::runtime::upvalue_read_tests:: -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::terminal:: -- --test-threads=1
+
 jit-payload-new-table:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::new_table_tests:: $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::terminal:: $(ARGS)

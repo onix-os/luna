@@ -103,6 +103,7 @@ fn terminal_liveness_respects_all_paths_loops_and_helper_effects() {
                         0 | abi::HELPER_GET_UP_TABLE
                             | abi::HELPER_SET_TABLE
                             | abi::HELPER_NEW_TABLE
+                            | abi::HELPER_GET_UPVALUE
                     );
                     assert_eq!(
                         analysis.admits(store, 0),
@@ -246,8 +247,12 @@ fn terminal_gateway_selection_follows_original_graph_liveness() {
 }
 
 #[test]
-fn partial_table_helpers_keep_post_helper_reads_live() {
-    for helper in [abi::HELPER_SET_TABLE, abi::HELPER_NEW_TABLE] {
+fn partial_helpers_keep_post_helper_reads_live() {
+    for helper in [
+        abi::HELPER_SET_TABLE,
+        abi::HELPER_NEW_TABLE,
+        abi::HELPER_GET_UPVALUE,
+    ] {
         for read in [false, true] {
             for contract in [Contract::Checked, Contract::FrameBound] {
                 let (mut f, slots, host, _, helpers) = fixture(read, false, helper, false);
