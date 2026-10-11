@@ -16,6 +16,7 @@ mod packed_calls;
 #[cfg(not(miri))]
 mod packed_entry_tests;
 pub(super) mod packed_lower;
+mod packed_progress;
 mod packed_reads;
 mod packed_writes;
 #[cfg(all(test, not(miri)))]
@@ -957,6 +958,16 @@ impl Code {
         pc: usize,
         budget: u32,
     ) -> Result<Exit, crate::jit::abi::payload::packed::scoped::bridge::entry::Failure> {
+        self.invoke_packed_report::<CAPACITY>(frame, pc, budget)
+            .map_err(|fault| fault.cause)
+    }
+
+    pub(in crate::jit) fn invoke_packed_report<const CAPACITY: usize>(
+        &self,
+        frame: &mut helpers::Frame<'_, '_, '_, '_>,
+        pc: usize,
+        budget: u32,
+    ) -> Result<Exit, crate::jit::abi::payload::packed::scoped::bridge::entry::Fault> {
         use crate::jit::abi::payload::packed::scoped::bridge::entry;
         assert_eq!(
             self.entry_kind,
@@ -964,7 +975,7 @@ impl Code {
             "entry requires packed code"
         );
         let entry: entry::Entry = unsafe { std::mem::transmute(self.entry) };
-        unsafe { entry::invoke::<CAPACITY>(frame, entry, self.registers, pc, budget) }
+        unsafe { entry::invoke_report::<CAPACITY>(frame, entry, self.registers, pc, budget) }
     }
 
     #[inline(always)]

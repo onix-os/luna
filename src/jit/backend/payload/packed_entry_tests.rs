@@ -13,6 +13,32 @@ fn compile_packed(snapshot: &Snapshot, total: MappingCounter, metadata: BudgetAl
 }
 
 #[test]
+fn packed_compiled_failure_preserves_real_source_prefix_and_helper_effect() {
+    use crate::jit::abi::payload::packed::scoped::bridge::entry;
+    for (source, helper_failure) in [
+        ("local x=true return 'anchored'", true),
+        ("local x=42 local y=true return y", false),
+    ] {
+        crate::Lua::empty().enter(|ctx| {
+            let closure = crate::Closure::load(ctx, None, source.as_bytes()).unwrap();
+            let snapshot = Snapshot::new(&closure.prototype(), 4096, 2 * 1024 * 1024).unwrap();
+            assert!((2..=3).contains(&snapshot.registers));
+            let total = MappingCounter::new(crate::jit::resources::Ledger::new(8 * 1024 * 1024));
+            let metadata = BudgetAllocator(crate::jit::resources::Ledger::new(2 * 1024 * 1024));
+            let code = compile_packed(&snapshot, total.clone(), metadata.clone());
+            entry::check_native_failure_progress(
+                unsafe { std::mem::transmute::<abi::Entry, entry::Entry>(code.entry) },
+                helper_failure,
+                snapshot.registers,
+            );
+            drop(code);
+            assert_eq!(total.load(Ordering::Relaxed), 0);
+            assert_eq!(metadata.0.current(), 0);
+        });
+    }
+}
+
+#[test]
 fn packed_owned_entries_preserve_scalar_table_boolean_exits_and_release_mappings() {
     ordinary_payload_contract(Failure::RequirePackedPayload);
 }

@@ -27,6 +27,7 @@ pub(super) struct Write {
     blocks: [Block; 5],
     signature: SigRef,
     cast: Option<Inst>,
+    pub(super) progress: Option<packed_progress::Site>,
 }
 
 pub(super) fn admit(
@@ -177,7 +178,12 @@ pub(super) fn emit_with_signature(f: &mut Function, input: Input, signature: Sig
         blocks: [before, after, fast, slow, failed],
         signature,
         cast,
+        progress: None,
     }
+}
+
+pub(super) fn failure_block(write: &Write) -> Block {
+    write.blocks[4]
 }
 
 pub(super) fn fragment<'a>(
@@ -319,7 +325,12 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
     }
     let success = reads::compare(f, success, IntCC::Equal, [status, completed_value])?;
     reads::branch(f, branch, success, after, failed)?;
-    let [returned] = shape(f.layout.block_insts(failed))?;
+    let returned = packed_progress::verify(
+        f,
+        failed,
+        write.progress.as_ref(),
+        crate::jit::abi::payload::packed::scoped::bridge::entry::STORE_FAILURE,
+    )?;
     if f.dfg.insts[returned].opcode() != Opcode::Return || f.dfg.inst_args(returned) != [status] {
         return Err(invalid());
     }

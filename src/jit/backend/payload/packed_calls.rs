@@ -17,6 +17,7 @@ pub(super) struct Call {
     input: Input,
     signature: SigRef,
     blocks: [Block; 3],
+    pub(super) progress: Option<packed_progress::Site>,
 }
 
 pub(super) fn admit(
@@ -130,7 +131,12 @@ pub(super) fn emit_with_signature(f: &mut Function, input: Input, signature: Sig
         input,
         signature,
         blocks: [before, after, refused],
+        progress: None,
     }
+}
+
+pub(super) fn failure_block(call: &Call) -> Block {
+    call.blocks[2]
 }
 
 pub(super) fn fragment<'a>(
@@ -244,7 +250,12 @@ pub(super) fn verify(f: &Function, call: &Call) -> Result<(), JitError> {
     }
     let predicate = reads::compare(f, predicate, IntCC::Equal, [result, status_value])?;
     reads::branch(f, branch, predicate, refused, after)?;
-    let [returned] = shape(f.layout.block_insts(refused))?;
+    let returned = packed_progress::verify(
+        f,
+        refused,
+        call.progress.as_ref(),
+        crate::jit::abi::payload::packed::scoped::bridge::entry::HELPER_FAILURE,
+    )?;
     if f.dfg.insts[returned].opcode() != Opcode::Return
         || f.dfg.inst_args(returned) != [status_value]
     {

@@ -255,6 +255,11 @@ impl Paths {
             .is_some_and(|block| self.owner(block) == Some(pc))
     }
 
+    #[cfg(test)]
+    pub fn instruction_owner(&self, function: &Function, inst: Inst) -> Option<usize> {
+        self.owner(function.layout.inst_block(inst)?)
+    }
+
     pub fn owns_value(&self, function: &Function, pc: usize, value: Value) -> bool {
         match function.dfg.value_def(function.dfg.resolve_aliases(value)) {
             ValueDef::Result(inst, _) => self.owns_inst(function, pc, inst),

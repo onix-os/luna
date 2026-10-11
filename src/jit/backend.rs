@@ -1432,13 +1432,21 @@ fn compile_selected_rooted(
     };
     #[cfg(test)]
     let (instructions, block_count) = if failure == Failure::RequirePackedPayload {
-        let candidate = payload::packed_lower::lower(
+        let mut candidate = payload::packed_lower::lower(
             &context.func,
             parameters[0],
             parameters[4],
             snapshot.registers,
             &helper_refs,
             snapshot.operations.allocator().clone(),
+            expansion,
+        )?;
+        candidate.track_progress(
+            &context.func,
+            &paths,
+            &blocks,
+            snapshot.registers,
+            &helper_refs,
             expansion,
         )?;
         packed_signature_charge = Some(candidate.install(&mut context.func));
