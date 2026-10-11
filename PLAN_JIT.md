@@ -73,6 +73,33 @@ verification, without relaxed thresholds or reduced native coverage.
 Evidence: `array-hot-assembly*`, `array-window-{direct,scoped}-init*` under
 `target/jit-evidence/short-slice-performance/`.
 
+The change is also checked in **ordinary, unmodified production checkouts**:
+`0624f91` before and `e0fda61` after, with no payload activation patch. Their
+opt-level-3 images are respectively
+`2340e2578a9a4c93bcfda29b627467dfe3fc45a90b5a176e9755eaf06a73fc75` and
+`6a860d1fd2fb1439752574ffe5e46c2ecb80355135c152ea69937ac426a1ea6b`.
+Both source/build manifests and symbol/stripped allocated sections are verified.
+Eleven profiles per image retain identical execution statistics and show
+738,438 fewer array instructions (2.116190%). The first after-image callback
+profile has 4,484,919 extra instructions, almost entirely extra map/key/string
+probes; VM, executor, transport, generated code and helper6 are unchanged.
+Eight further profiles per exact image reproduce matching callback work instead.
+Process-random table hashing can change probe work; the outlier is retained,
+not misattributed to a new VM operation or removed by fixing hash seeds.
+
+Four ordinary-production campaigns complete another **96 commands/2,592 aggregate
+rows**, with original thresholds, before/after images, historical production and
+same-image placebo. Every before/after non-timing field matches. Array passes
+**24/24 versus 18/24 before**, with before/after Auto ratios **1.024529, 1.020069,
+1.047929, 1.030694**. Callbacks and aggregate gates still pass **0/24**; callback
+ratios **0.999159, 0.997157, 0.988335, 0.990024** are retained as adverse observations,
+not hidden by the array gain. Metamethod passes6/24 versus12/24 before, though
+direct Auto ratios straddle parity; upvalue passes22/24 versus21/24. This is not
+blanket production performance acceptance. Actual shipping and compiled-Off
+cost pairs are being built separately with the original Make workflow.
+Evidence: `scoped-window-production-*` and `scoped-window-cost/` under the same
+evidence directory.
+
 #### Conditional source-read bypass — verified experiment, layout under test
 
 The experimental payload compiler can bypass the eager source-bits reader for
