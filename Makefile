@@ -832,12 +832,12 @@ jit-payload-model:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::packed_runtime:: $(ARGS)
 
 .PHONY: jit-payload-reference-store jit-payload-reference-store-miri
-.PHONY: jit-payload-pairs jit-payload-pairs-miri
-jit-payload-pairs:
-	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::pair_binding_tests:: $(ARGS)
+.PHONY: jit-payload-full-binding jit-payload-full-binding-miri
+jit-payload-full-binding:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::full_binding_tests:: $(ARGS)
 
-jit-payload-pairs-miri:
-	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::runtime::pair_binding_tests:: -- --test-threads=1
+jit-payload-full-binding-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::runtime::full_binding_tests:: -- --test-threads=1
 
 .PHONY: jit-canonical-cells jit-canonical-cells-miri
 jit-canonical-cells:

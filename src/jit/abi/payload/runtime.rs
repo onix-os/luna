@@ -33,8 +33,8 @@ mod upvalue_read_tests;
 mod capacity_tests;
 
 #[cfg(test)]
-#[path = "pair_binding_tests.rs"]
-mod pair_binding_tests;
+#[path = "full_binding_tests.rs"]
+mod full_binding_tests;
 
 #[cfg(test)]
 #[path = "bound_tests.rs"]
@@ -646,20 +646,6 @@ impl Session<'_, '_, '_, '_, '_> {
         self.pc = NonNull::from(&mut *frame.registers.pc);
         let mut canonical = Frame::new(&mut frame.registers.stack_frame[..count]);
         self.values = canonical.values;
-        if !SELECTED {
-            let mut index = 0;
-            while index < count {
-                if let Some([first, second]) = canonical.bind_integer_pair(index) {
-                    write(index, first);
-                    write(index + 1, second);
-                    index += 2;
-                } else {
-                    write(index, canonical.bind(index).unwrap());
-                    index += 1;
-                }
-            }
-            return;
-        }
         for index in 0..count {
             let value = if !SELECTED || mask[index / 64] & (1 << (index % 64)) != 0 {
                 canonical.bind(index).unwrap()
