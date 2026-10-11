@@ -11,6 +11,40 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Frame-bound numeric stores — implementation, not acceptance
+
+Commit `7abaa73` adds a separate test-only `FrameBound` entry contract alongside
+the existing checked payload entry. A private, non-copyable binding is minted
+inside the canonical frame/session scope and consumed by one native call. The
+higher-ranked closure cannot return that binding; the code owner checks the
+exact register prefix. Both payload kinds reject scratch-slot and linked-entry
+invocation. The existing checked malformed/null-descriptor behavior is intact.
+
+Only Integer/Number writes with independent source and final-CFG same-tag proofs
+can use a direct field store. Generic and type-changing writes keep their checked
+materializer; helper rebinding and terminal descriptor retirement are unchanged.
+The new expansion removes 29 IR instructions and six blocks per direct write
+relative to checked expansion. Exact host-copy accounting removes two host uses
+per such write and the stack copy entirely when no helper call remains. These
+are IR counts, not measured runtime gains. Conservative preflight limits remain.
+
+GNU and musl each pass **40 ABI, 43 backend and three integrated runtime tests**,
+with no failures or ignores. GNU fmt/check-all also passes. The bound differential
+corpus covers every PC in four loop scripts, invalid scalar guards, bounded and
+oversized budgets, canonical values, exits and helper counts. Integrated tests
+compare interpreter, ordinary JIT and bound JIT through callbacks, upvalues,
+coroutines, GC, fuel interruption and array kernels. The bound checker rejects
+40 well-formed pointer/store/tag/guard mutations. Four focused models pass under
+each of Miri Stacked and Tree Borrows; actual native execution is not Miri-tested.
+Logs: `payload-bound-{model,musl,miri-stacked,miri-tree}.log`. Initial compile
+errors (entry-checker visibility and `Exit.pc` width) remain in
+`payload-bound-initial.log`; the passing runs use the corrected source.
+
+Production dispatch remains unchanged. An isolated experimental activation at
+`payload-terminal-profile/bound-source` is being built for the original workload
+matrix, against immutable ordinary and prior payload controls. Full performance,
+resource, platform and release acceptance remains open.
+
 #### Typed canonical regions — test-only groundwork
 
 The current integration step changes the existing payload lowering, not
