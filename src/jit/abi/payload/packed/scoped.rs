@@ -4,7 +4,7 @@ use super::*;
 use crate::jit::{abi, helpers};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Refusal {
+pub(crate) enum Refusal {
     Bounds,
     Alignment,
     Stopped,
@@ -214,4 +214,4 @@ impl<const CAPACITY: usize> FrameScope<'_, '_, '_, '_, '_, CAPACITY> {
 mod tests;
 
 #[path = "bridge.rs"]
-mod bridge;
+pub(crate) mod bridge;

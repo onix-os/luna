@@ -2,7 +2,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use super::*;
 
-const REFUSED: u32 = 3;
+pub(crate) const REFUSED: u32 = 3;
 const _: () = assert!(
     REFUSED != abi::HELPER_COMPLETED
         && REFUSED != abi::HELPER_DECLINED
@@ -12,16 +12,16 @@ type Helper = unsafe extern "C" fn(*mut (), u32, u32, u32, u32) -> u32;
 type Writer = unsafe extern "C" fn(*mut (), u32, u64, u64) -> u32;
 
 #[repr(C)]
-struct Bridge {
-    control: *mut (),
-    functions: &'static Functions,
+pub(crate) struct Bridge {
+    pub(crate) control: *mut (),
+    pub(crate) functions: &'static Functions,
 }
 
 #[repr(C)]
-struct Functions {
-    helpers: [Helper; 10],
-    write: Writer,
-    terminal: Writer,
+pub(crate) struct Functions {
+    pub(crate) helpers: [Helper; 10],
+    pub(crate) write: Writer,
+    pub(crate) terminal: Writer,
 }
 
 struct Gateways<const CAPACITY: usize>;
@@ -133,3 +133,6 @@ mod reentry;
 
 #[path = "writer_tests.rs"]
 mod writer_tests;
+
+#[path = "entry.rs"]
+pub(crate) mod entry;

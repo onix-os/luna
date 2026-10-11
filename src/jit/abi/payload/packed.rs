@@ -1,7 +1,7 @@
 use super::*;
 
 #[path = "packed/scoped.rs"]
-mod scoped;
+pub(crate) mod scoped;
 
 #[cfg(all(
     not(miri),
@@ -21,7 +21,7 @@ const OPAQUE: usize = 5;
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-struct Packed(*mut ());
+pub(crate) struct Packed(*mut ());
 
 impl Packed {
     fn bind(value: &mut Value<'_>) -> Option<Self> {
