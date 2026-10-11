@@ -33,6 +33,9 @@ pub(super) fn emit(f: &mut Function, tag_store: Inst, bits_store: Inst, input: I
     let boolean = block(f);
     let nil = block(f);
     let slow = block(f);
+    if input.known_tag.is_some() {
+        f.layout.set_cold(slow);
+    }
     let Input {
         slots,
         host,
@@ -206,6 +209,9 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
         terminal,
         known_tag,
     } = write.input;
+    if f.layout.is_cold(slow) != known_tag.is_some() {
+        return Err(invalid());
+    }
     for block in [after, kind, wide, other, boolean, nil, slow] {
         if !f.dfg.block_params(block).is_empty() {
             return Err(invalid());
@@ -506,7 +512,10 @@ fn inline_write_checker_rejects_well_formed_guard_store_and_gateway_mutations() 
     let mut changed = function.clone();
     changed.dfg.inst_args_mut(kind[1])[0] = write.input.bits;
     reject(changed);
-    assert_eq!(rejected, 38);
+    let mut changed = function.clone();
+    changed.layout.set_cold(write.blocks[7]);
+    reject(changed);
+    assert_eq!(rejected, 39);
 }
 
 #[cfg(not(miri))]

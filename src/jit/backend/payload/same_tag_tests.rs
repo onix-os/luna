@@ -215,6 +215,13 @@ fn proven_tag_lowering_removes_reload_without_removing_pointer_guards() {
             matches!(f.dfg.insts[inst], InstructionData::Binary { opcode: Opcode::Bor, args } if args == [fixture.tag, fixture.tag])
         }).count();
         assert_eq!(self_tags, 1);
+        assert_eq!(
+            f.layout
+                .blocks()
+                .filter(|&block| f.layout.is_cold(block))
+                .count(),
+            1
+        );
     }
 }
 
