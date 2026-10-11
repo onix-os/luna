@@ -11,6 +11,79 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Inline payload control — measured and withdrawn
+
+`4ab9f67` tested embedding the unchanged FrameBound `Bridge` header at
+offset zero in a `repr(C)` Session. Private helper/materialization shims use the
+complete owner's pointer directly instead of loading a separate Session pointer
+through `Host.data`. The descriptor array remains separately owned. `Binding`
+retains a scoped raw whole-owner pointer, not an `&mut Bridge` loan narrowed to
+the header. Public values, raw-stack access, production native selection and
+resource policies are unchanged. This does not activate the experimental ABI.
+
+`6d0d7ca` independently checks reuse of the same host through a successful
+reference move, caught helper panic and stopped reentry at widths 2/7/256.
+Canonical siblings, retained function table, exact PC and helper counts are
+checked. GNU/check-all, musl and both Miri borrow models pass this test. The
+existing GNU payload/backend/runtime suite passes 227 tests across four
+summaries before that fixture was added. Broader Stacked/Tree runs pass 38/39
+executions across 13 summaries each, including repeated terminal checks. The
+new fixture entered the broad Tree run; its separate Stacked pass is recorded
+above. Focused musl plus the sparse-runtime oracle pass 53 tests across 14
+summaries. Full GNU `jit-test-all JIT_MODE=force` passes 1,774 tests across 88
+summaries with six existing ignores; formatting also passes. This is correctness
+validation, not acceptance of the remaining performance/resource/release gates.
+Initial test pointer-access and Value-equality compilation errors were corrected
+and retained in the evidence logs; neither is reported as a runtime UB finding.
+
+Frozen activated image `c0c5937adcb506b240d91faf50dd4909f80fc600ec145e9b793972f6ea385735`
+completes eleven exact-load-image profiles against reference-store `1fe53ac4`.
+All non-timing execution/resource fields match, and all four Off instruction
+totals are unchanged. Callback instructions fall **259,430**, from 131,521,280
+to 131,261,850 (0.197%). Wrapper self work falls 129,698, helper 6 and terminal
+materialization each fall 64,836, and scalar materialization falls 60. Independent
+self-cost sums equal raw totals; generated callback work remains 13,099,872.
+
+Other instruction deltas are integer -16,323, float -16,240, array -8,936 and
+allocation -7,895. **Upvalue +353,301 and metamethod +78,699 are retained adverse
+totals.** Upvalue admission contributes +261,420, with additional registry/VM/
+Executor differences; helper 8 also grows 2,292. Metamethod allocator differences
+dominate its increase, while helper 8 grows 12,901. Do not attribute every total
+to this change or remove unfavorable differences from the result.
+
+Two complete four-way timing campaigns retain **48 failed aggregate gates** and
+**1,296 complete parsed rows**. Workloads, thresholds, eleven samples, CPU 0/16,
+three rotated windows and historical/control/placebo comparisons at the same
+launch path are unchanged. The repeat uses alternate launch orders. No owned
+build, test, profile or source edit overlaps timing; all source/image identity
+checks pass afterward. External Astrocraft activity and host pressure remain
+recorded, not stopped or used to excuse unfavorable measurements.
+
+Callback candidate gates pass **0/12**. Normalized median-paired factors are
+**1.0005 / 0.9984** against current control (first/repeat); direct Auto timing
+ratios are **1.0038 / 1.0089**. These small apparent gains do not establish paired
+acceptance. Allocation on CPU 16 is adverse in both campaigns: direct Auto
+control/candidate ratios **0.96893 / 0.97281**; CPU 0 is **0.99341 / 1.00483**.
+Metamethod gates pass 5/12, array 11/12 and upvalue 12/12; Oslo stays unscored.
+Ratios above one favor the candidate. All windows, Off timings and placebo
+variation remain in the evidence. Original gates use ratio of medians, not the
+normalized median-paired diagnostic. Current candidate/control and same-image
+placebo execution/resource fields all match. Each campaign retains 48 historical
+comparison differences in metadata bytes/peak, inherited from that older image.
+
+Withdraw the control-layout trial: the small instruction saving does not justify
+its added ownership contract without convincing hardware benefit and with
+adverse allocation measurements. The independent retained-host panic regression
+remains. `f6e724e` restores runtime and sparse-binding fixture source exactly to
+`6d0d7ca`. Restoration passes formatting/check-all, full GNU Force **1,774 tests
+across 88 summaries** (six existing ignores), focused musl **28 across eight**,
+and the retained-host regression under both Miri models. Production selection
+was never changed.
+Full original performance, feature-cost, resource and release gates remain open.
+
+Evidence: `target/jit-evidence/short-slice-performance/inline-session-*` and
+`payload-terminal-profile/inline-session*`. The raw-stack API remains unchanged.
+
 #### Canonical cells — native model passes; migration not approved
 
 `1f75586` adds a test-only fixed-layout cell model targeting descriptor creation

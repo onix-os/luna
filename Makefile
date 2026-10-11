@@ -679,6 +679,13 @@ jit-payload-local-table-miri:
 
 .PHONY: jit-payload-tags jit-payload-tags-miri
 .PHONY: jit-payload-bound jit-payload-bound-miri
+.PHONY: jit-payload-control jit-payload-control-miri
+jit-payload-control:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::bound_tests::bound_entry_retains_control $(ARGS)
+
+jit-payload-control-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::runtime::bound_tests::bound_entry_retains_control -- --test-threads=1
+
 .PHONY: jit-payload-read-audit
 jit-payload-read-audit:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::read_audit::original_workload_reads -- --exact --nocapture
