@@ -89,33 +89,7 @@ fn with_entry(body: impl FnOnce(Entry)) {
 
 #[test]
 fn canonical_generated_stores_match_rust_without_binding() {
-    with_entry(|entry| {
-        assert_eq!(unsafe { entry(std::ptr::null_mut(), 0, 0, 2, 0) }, 0);
-        crate::Lua::empty().enter(|ctx| {
-            for initial in tests::kinds(ctx) {
-                for index in [0, 1, 2, 3, usize::MAX] {
-                    for tag in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, usize::MAX] {
-                        for bits in [0, 1, 2, i64::MIN as u64, u64::MAX, 0x7ff8000000000042] {
-                            let mut cells = [Cell::new(initial); 3];
-                            let mut expected = cells;
-                            let accepted = expected
-                                .get_mut(index)
-                                .is_some_and(|cell| cell.set_scalar(tag, bits));
-                            let address = cells.as_ptr();
-                            let result =
-                                unsafe { entry(cells.as_mut_ptr(), cells.len(), index, tag, bits) };
-                            assert_eq!(result, u32::from(accepted));
-                            assert_eq!(address, cells.as_ptr());
-                            for (actual, expected) in cells.into_iter().zip(expected) {
-                                tests::identical(actual.value(), expected.value());
-                                assert_eq!(actual.scalar(), expected.scalar());
-                            }
-                        }
-                    }
-                }
-            }
-        });
-    });
+    with_entry(tests::check_scalar_entry);
 }
 
 #[test]

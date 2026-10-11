@@ -116,9 +116,9 @@ unsafe extern "C" fn scalar_entry(
     index: usize,
     tag: usize,
     bits: u64,
-) -> bool {
+) -> u32 {
     if index >= len || tag > 3 || (tag == 1 && bits > 1) {
-        return false;
+        return 0;
     }
     unsafe {
         let cell = cells.add(index);
@@ -127,29 +127,42 @@ unsafe extern "C" fn scalar_entry(
             .cast::<usize>()
             .write(tag);
     }
-    true
+    1
 }
 
 #[test]
 #[cfg(target_pointer_width = "64")]
 fn canonical_raw_scalar_entry_writes_the_original_cells_without_binding() {
+    check_scalar_entry(scalar_entry);
+}
+
+#[cfg(target_pointer_width = "64")]
+pub(super) fn check_scalar_entry(
+    entry: for<'gc> unsafe extern "C" fn(*mut Cell<'gc>, usize, usize, usize, u64) -> u32,
+) {
+    assert_eq!(unsafe { entry(std::ptr::null_mut(), 0, 0, 2, 0) }, 0);
     crate::Lua::empty().enter(|ctx| {
         for initial in kinds(ctx) {
-            let mut cells = [Cell::new(initial), Cell::new(Value::Integer(37))];
-            let address = cells.as_ptr();
-            for (tag, bits) in [(0, 0), (1, 1), (2, u64::MAX), (3, 0x7ff8000000000042)] {
-                let base = cells.as_mut_ptr();
-                assert!(unsafe { scalar_entry(base, 2, 0, tag, bits) });
-                assert_eq!(cells[0].scalar(), Some((tag, bits)));
-                assert_eq!(cells[1].scalar(), Some((2, 37)));
-                assert_eq!(cells.as_ptr(), address);
-            }
-            for (index, tag, bits) in [(2, 2, 0), (usize::MAX, 2, 0), (0, 4, 0), (0, 1, 2)] {
-                let before = cells;
-                let base = cells.as_mut_ptr();
-                assert!(!unsafe { scalar_entry(base, 2, index, tag, bits) });
-                identical(cells[0].value(), before[0].value());
-                identical(cells[1].value(), before[1].value());
+            for index in [0, 1, 2, 3, usize::MAX] {
+                for tag in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, usize::MAX] {
+                    for bits in [0, 1, 2, i64::MIN as u64, u64::MAX, 0x7ff8000000000042] {
+                        let mut cells = [Cell::new(initial); 3];
+                        let mut expected = cells;
+                        let accepted = expected
+                            .get_mut(index)
+                            .is_some_and(|cell| cell.set_scalar(tag, bits));
+                        let address = cells.as_ptr();
+                        let len = cells.len();
+                        let base = cells.as_mut_ptr();
+                        let result = unsafe { entry(base, len, index, tag, bits) };
+                        assert_eq!(result, u32::from(accepted));
+                        assert_eq!(address, cells.as_ptr());
+                        for (actual, expected) in cells.into_iter().zip(expected) {
+                            identical(actual.value(), expected.value());
+                            assert_eq!(actual.scalar(), expected.scalar());
+                        }
+                    }
+                }
             }
         }
     });
