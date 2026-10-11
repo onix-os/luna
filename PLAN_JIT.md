@@ -11,6 +11,48 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### General reference-read guard — rejected for no workload gain
+
+An isolated compiler trial moves an exact Move's existing reference guard before
+its scalar bits reader, without requiring terminal source/destination cells.
+The scalar path retains its original store and live descriptors. It excludes
+reads already handled by terminal-copy bypass and requires adjacent original
+loads/guard/stores, a sole bits use including aliases and branch arguments,
+bounded work, charged records, independent verification and pre-admitted
+one-instruction/one-block expansion.
+
+GNU format/check-all and **nine focused tests** pass, followed by the full
+payload model's **250 tests/four summaries**. Musl check-all and the same nine
+focused tests pass. Native probes cover both payload contracts and the twelve
+source/destination Value kinds, helper counters/PC and live descriptor reuse.
+Default and Tree Borrows Miri each pass three compiler tests; actual Tree flags,
+test filter and root directory were observed on the live process.
+These establish correctness of the trial, not a performance improvement.
+
+Frozen activated image
+`da239caa91ebd479e596d22663d1c70212441a6ceed73d1bcbfc9d269b141a0c`
+completes eleven instruction profiles against retained early-guard. Callback
+work is **exactly unchanged at 127,436,132 instructions**, including generated
+code at **12,516,426**. Generated allocation, metamethod and upvalue work is
+also exactly unchanged. Compiler snapshot peaks increase **64 bytes** for
+callbacks/allocation/metamethods; all other non-timing fields match. The strict
+comparison retains those resource differences rather than calling them equal.
+Other whole-process deltas are retained in the diagnostic report, not attributed
+to an optimization with unchanged generated work.
+
+The source-IR audit explains the missed target: the callback workload has nine
+scalar reads; seven are already numeric-reader candidates, and the remaining
+two are guarded Moves, a shape already targeted by terminal-copy handling.
+The measured generalization removes no additional work here. **Reject this trial; do not run hardware
+timings to seek an apparent gain or activate it in production.** Original
+array/callback and feature-cost acceptance remain open.
+The trial is removed from the root; its exact patch/source/image remain in the
+evidence directory. Only alias-use, branch-argument-use and both-cells-live
+rejection fixtures are retained for the existing terminal-copy bypass.
+Restored-root format/check-all and all five bypass tests pass on GNU and musl.
+Evidence: `reference-guard-*` and `payload-terminal-profile/reference-guard*`
+under `target/jit-evidence/short-slice-performance/`.
+
 #### Scoped constructor withdrawn — shipping-disabled regression reproduced
 
 The scoped constructor from `6001faf` is withdrawn from production. Its array
