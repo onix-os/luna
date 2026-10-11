@@ -11,6 +11,47 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Descriptor/pointee alias classes — no callback benefit
+
+Two isolated compiler trials distinguish frame-bound descriptor storage from its
+canonical scalar pointees after the existing lowering proofs. Checked transport
+is unchanged. They add at most two Cranelift alias regions, no readonly/notrap
+claims and no persistent runtime state. Unknown stores and helpers remain
+fences. Unknown loads instead skip annotation unchanged: the pinned optimizer
+does not treat an unclassified load as observing every named store region.
+Only separately verified private host reloads and bounded function-table reads
+may remain outside the two classes. The second trial also covers the existing
+verified F64 pointee-load shape; excluding it conservatively skipped functions
+containing even an untaken float path.
+
+The initial model passes **232 executions across four summaries**. Subsequent
+guarded models pass four and five tests, respectively. These are separate source
+revisions, not a full-suite result for the final trial. Both immutable builds
+pass fmt/check-all and eleven exact-image profiles with every non-timing field
+equal to array-transport. Images are
+`9545a951ce517698d46305c05cd3d22e1e00b48ca17e1bda5bf62536768fc2a6`
+and `d0aee1195334a33b879598ea625e7ee51f84499ad1511e162397d5ad656703e5`.
+Neither changes callback total work or its **13,099,872 generated instructions**.
+Two further callback profiles per final/control image retain identical complete
+non-timing records and the same generated/bridge/helper work; totals differ only
+by the observed 81-instruction allocator variation. Each trial adds **8,184 bytes**
+to host text/data/BSS combined. No hardware speedup is claimed or timing campaign
+run for this absent instruction benefit. **Do not promote either trial.**
+
+Validation caught a shared-target `cargo miri` pitfall: the deferred runner still
+named the earlier `table-pc-source` directory and reported **zero matching tests**
+for the new region model. Those command exits are not passes. A fresh
+variant-specific target directory, checked runner directory and exact five-test
+count give five passes with default flags and five with Tree Borrows requested.
+The stale logs remain. Avoid sharing deferred Miri artifacts across clone paths;
+do not use reserved `MIRI_LOG` as a harness output filename variable. This does
+not retroactively certify other cross-clone runs.
+
+Evidence: `target/jit-evidence/short-slice-performance/payload-regions-*`, including
+`wide`, `callback-repeat`, `final-miri` and decoded runner-directory records, plus
+frozen `payload-terminal-profile/payload-regions*/`. Main-checkout runtime source
+is unchanged; full performance, resource and release acceptance remain open.
+
 #### Constant-table PC write — isolated trial not promoted
 
 The measured payload activation already excludes `Bridge.materializations` and
