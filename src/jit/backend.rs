@@ -225,6 +225,8 @@ pub(super) struct Code {
     #[cfg(test)]
     pub(super) entry_kind: payload::EntryKind,
     #[cfg(test)]
+    pub(super) packed_integer_loop: bool,
+    #[cfg(test)]
     pub integer_activation: bool,
     #[cfg(all(test, not(miri)))]
     pub scalar_kernel: Option<super::owner::Shared<Code>>,
@@ -1272,6 +1274,8 @@ fn compile_selected_rooted(
         return Err(JitError::Compilation("integer loop audit complete".into()));
     }
     #[cfg(test)]
+    let mut packed_checkpoints = None;
+    #[cfg(test)]
     let optimize_integer_loop = matches!(
         failure,
         Failure::None
@@ -1281,6 +1285,7 @@ fn compile_selected_rooted(
             | Failure::RequirePayloadLoop
             | Failure::RequirePayloadTags
             | Failure::RequireBoundPayload
+            | Failure::RequirePackedPayload
     );
     #[cfg(all(test, not(miri)))]
     let optimize_integer_loop = optimize_integer_loop || failure == Failure::AuditPayloadReads;
@@ -1291,6 +1296,7 @@ fn compile_selected_rooted(
         let probe = failure == Failure::ProbeIntegerLoop;
         #[cfg(not(test))]
         let probe = false;
+        #[cfg(not(test))]
         let applied = integer_loop::augment(
             &mut context.func,
             snapshot,
@@ -1299,6 +1305,26 @@ fn compile_selected_rooted(
             probe,
             expansion,
         )?;
+        #[cfg(test)]
+        let applied = if failure == Failure::RequirePackedPayload {
+            packed_checkpoints = integer_loop::augment_checkpoints(
+                &mut context.func,
+                snapshot,
+                &blocks,
+                exhausted,
+                expansion,
+            )?;
+            packed_checkpoints.is_some()
+        } else {
+            integer_loop::augment(
+                &mut context.func,
+                snapshot,
+                &blocks,
+                exhausted,
+                probe,
+                expansion,
+            )?
+        };
         #[cfg(test)]
         if !applied
             && matches!(
@@ -1448,6 +1474,7 @@ fn compile_selected_rooted(
             snapshot.registers,
             &helper_refs,
             expansion,
+            packed_checkpoints.as_ref(),
         )?;
         packed_signature_charge = Some(candidate.install(&mut context.func));
         cranelift_codegen::verify_function(&context.func, module.isa())
@@ -1868,6 +1895,8 @@ fn compile_selected_rooted(
                 _ => None,
             })
         },
+        #[cfg(test)]
+        packed_integer_loop: packed_checkpoints.is_some(),
         #[cfg(test)]
         integer_activation: selection.integer_activation,
         #[cfg(all(test, not(miri)))]

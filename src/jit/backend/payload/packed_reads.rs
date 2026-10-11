@@ -1,6 +1,9 @@
 use super::*;
 use cranelift_codegen::ir::Type;
 
+const NUMERIC_TAGS: i64 = 0xffff0302ffff0302u64 as i64;
+const IMMEDIATE_TAGS: i64 = 0xffff04000101ffffu64 as i64;
+
 const _: () = {
     use crate::jit::abi::payload::packed::*;
     assert!(
@@ -93,28 +96,18 @@ pub(super) fn emit(f: &mut Function, input: Input) -> Read {
                 input.slots,
                 input.index as i32 * 8,
             );
-            let mask = c.ins().iconst(types::I64, 3);
+            let mask = c.ins().iconst(types::I64, 7);
             let low = c.ins().band(packed, mask);
             let top = c.ins().iconst(types::I64, 5);
             let above = c.ins().icmp(IntCC::UnsignedGreaterThan, packed, top);
-            let one = c.ins().iconst(types::I64, 1);
-            let low_valid = c.ins().icmp(IntCC::UnsignedLessThanOrEqual, low, one);
-            let numeric = c.ins().band(above, low_valid);
-            let two = c.ins().iconst(types::I64, 2);
-            let numeric_tag = c.ins().iadd(low, two);
-            let four = c.ins().iconst(types::I64, 4);
-            let nil = c.ins().icmp(IntCC::Equal, packed, four);
-            let zero = c.ins().iconst(types::I64, 0);
-            let immediate = c.ins().select(nil, zero, one);
-            let opaque = c.ins().icmp(IntCC::Equal, packed, top);
-            let immediate = c.ins().select(opaque, four, immediate);
-            let offset = c.ins().isub(packed, two);
-            let immediate_valid = c.ins().icmp(IntCC::UnsignedLessThanOrEqual, offset, mask);
-            let invalid = c.ins().iconst(types::I64, -1);
-            let immediate = c.ins().select(immediate_valid, immediate, invalid);
-            c.func
-                .replace(input.inst)
-                .select(numeric, numeric_tag, immediate);
+            let numeric = c.ins().iconst(types::I64, NUMERIC_TAGS);
+            let immediate = c.ins().iconst(types::I64, IMMEDIATE_TAGS);
+            let table = c.ins().select(above, numeric, immediate);
+            let three = c.ins().iconst(types::I64, 3);
+            let shift = c.ins().ishl(low, three);
+            let selected = c.ins().ushr(table, shift);
+            let byte = c.ins().ireduce(types::I8, selected);
+            c.func.replace(input.inst).sextend(types::I64, byte);
             Read::Tag(input)
         }
         Kind::Bits(ty) => {
@@ -197,7 +190,7 @@ pub(super) fn fragment<'a>(
         Read::Tag(input) => Ok(packed_lower::Fragment {
             source: input.inst,
             first: std::iter::successors(Some(input.inst), |&i| f.layout.prev_inst(i))
-                .nth(20)
+                .nth(12)
                 .ok_or_else(invalid)?,
             next: f.layout.next_inst(input.inst),
             blocks: &[],
@@ -242,58 +235,31 @@ pub(super) fn verify(f: &Function, read: &Read) -> Result<(), JitError> {
             if input.kind != Kind::Tag {
                 return Err(invalid());
             }
-            let mut sequence = shape::<21>(
-                std::iter::successors(Some(input.inst), |&inst| f.layout.prev_inst(inst)).take(21),
+            let mut sequence = shape::<13>(
+                std::iter::successors(Some(input.inst), |&inst| f.layout.prev_inst(inst)).take(13),
             )?;
             sequence.reverse();
-            let [packed, mask, low, top, above, one, low_valid, numeric, two, numeric_tag, four, nil, zero, immediate, opaque, selected, offset, immediate_valid, invalid_tag, admitted, result] =
+            let [packed, mask, low, top, above, numeric, immediate, table, three, shift, selected, byte, result] =
                 sequence;
             let packed = reads::load(f, packed, input.slots, input.index as i32 * 8, types::I64)?;
-            let mask = reads::constant(f, mask, 3)?;
+            let mask = reads::constant(f, mask, 7)?;
             let low = operation(f, low, Opcode::Band, &[packed, mask], types::I64)?;
             let top = reads::constant(f, top, 5)?;
             let above = reads::compare(f, above, IntCC::UnsignedGreaterThan, [packed, top])?;
-            let one = reads::constant(f, one, 1)?;
-            let low_valid =
-                reads::compare(f, low_valid, IntCC::UnsignedLessThanOrEqual, [low, one])?;
-            let numeric = operation(f, numeric, Opcode::Band, &[above, low_valid], types::I8)?;
-            let two = reads::constant(f, two, 2)?;
-            let numeric_tag = operation(f, numeric_tag, Opcode::Iadd, &[low, two], types::I64)?;
-            let four = reads::constant(f, four, 4)?;
-            let nil = reads::compare(f, nil, IntCC::Equal, [packed, four])?;
-            let zero = reads::constant(f, zero, 0)?;
-            let immediate = operation(f, immediate, Opcode::Select, &[nil, zero, one], types::I64)?;
-            let opaque = reads::compare(f, opaque, IntCC::Equal, [packed, top])?;
-            let selected = operation(
+            let numeric = reads::constant(f, numeric, NUMERIC_TAGS)?;
+            let immediate = reads::constant(f, immediate, IMMEDIATE_TAGS)?;
+            let table = operation(
                 f,
-                selected,
+                table,
                 Opcode::Select,
-                &[opaque, four, immediate],
+                &[above, numeric, immediate],
                 types::I64,
             )?;
-            let offset = operation(f, offset, Opcode::Isub, &[packed, two], types::I64)?;
-            let immediate_valid = reads::compare(
-                f,
-                immediate_valid,
-                IntCC::UnsignedLessThanOrEqual,
-                [offset, mask],
-            )?;
-            let invalid_tag = reads::constant(f, invalid_tag, -1)?;
-            let admitted = operation(
-                f,
-                admitted,
-                Opcode::Select,
-                &[immediate_valid, selected, invalid_tag],
-                types::I64,
-            )?;
-            if operation(
-                f,
-                result,
-                Opcode::Select,
-                &[numeric, numeric_tag, admitted],
-                types::I64,
-            )? != input.result
-            {
+            let three = reads::constant(f, three, 3)?;
+            let shift = operation(f, shift, Opcode::Ishl, &[low, three], types::I64)?;
+            let selected = operation(f, selected, Opcode::Ushr, &[table, shift], types::I64)?;
+            let byte = operation(f, byte, Opcode::Ireduce, &[selected], types::I8)?;
+            if operation(f, result, Opcode::Sextend, &[byte], types::I64)? != input.result {
                 return Err(invalid());
             }
         }
@@ -349,5 +315,6 @@ pub(super) fn verify(f: &Function, read: &Read) -> Result<(), JitError> {
     Ok(())
 }
 
+#[cfg(test)]
 #[path = "packed_read_tests.rs"]
 mod tests;

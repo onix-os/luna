@@ -3,6 +3,7 @@ use super::*;
 pub(crate) const RETURNED: u32 = 4;
 pub(crate) const STORE_FAILURE: u32 = 4;
 pub(crate) const HELPER_FAILURE: u32 = 5;
+pub(crate) const CHECKPOINT_FAILURE: u32 = 6;
 pub(crate) type Entry =
     unsafe extern "C" fn(*mut Packed, u64, u32, *mut abi::Exit, *const Bridge) -> u32;
 
@@ -125,12 +126,21 @@ fn progress(
         status,
         abi::HELPER_DECLINED | abi::HELPER_PANICKED | REFUSED
     ) || exit.pc == unwritten_pc
-        || exit.instructions >= budget
+        || exit.instructions > budget
+        || (exit.instructions == budget && exit.reason != CHECKPOINT_FAILURE)
     {
         return None;
     }
     let completed = match (exit.reason, helper) {
         (STORE_FAILURE, None) => false,
+        (CHECKPOINT_FAILURE, None)
+            if matches!(
+                status,
+                abi::HELPER_DECLINED | abi::HELPER_PANICKED | REFUSED
+            ) =>
+        {
+            false
+        }
         (HELPER_FAILURE, None) if status == REFUSED => false,
         (HELPER_FAILURE, Some((pc, result)))
             if exit.pc == u64::from(pc)

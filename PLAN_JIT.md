@@ -397,10 +397,10 @@ suites each pass 211 tests (99 ABI, 82 backend, three existing-transport runtime
 tests, with the complete source manifest unchanged afterward. Real i686 retains
 33 ABI passes; native compiler execution is excluded there. Formatting,
 all-feature checking and default/all-feature Clippy pass with existing warnings.
-The packed selection currently skips integer-loop augmentation: its native loop
-matrix proves semantic equivalence to optimized ordinary entries, not retention
-of that optimization. Integer-loop optimization and optimized scoped helpers
-still need integration before performance acceptance.
+At this stage the packed selection skipped integer-loop augmentation: its native
+loop matrix proved semantic equivalence, not optimization retention. The later
+checkpoint integration below restores that optimization; scoped helper
+optimization remains incomplete.
 
 #### Packed failure progress and test-only runtime integration
 
@@ -453,10 +453,145 @@ ABI, four pure whole-lowering and one progress-checker test; the complete source
 manifest matches afterward. Native runtime execution is not run under Miri.
 Logs use `packed-runtime-*`, and targets include `jit-payload-packed-runtime`.
 
-Remaining packed work includes production activation, optimization retention,
-and resource accounting. Fresh
-frozen workload profiles and original hardware/compiled-Off gates still decide
-acceptance; no speedup or production activation is claimed by these fixtures.
+#### Packed integer-loop optimization retention
+
+ABI commit `56e168b` distinguishes a completed optimized checkpoint from an
+ordinary pre-instruction failure. Only checkpoint failure admits a completed
+count equal to the budget; store/helper pre-instruction failures keep their
+strict bound. A checkpoint cannot borrow a helper completion record.
+
+Compiler commit `f970d90` restores the original integer-loop augmentation for
+packed entries. The existing independent integer-loop verifier produces a
+private region certificate. Checkpoint admission rechecks each complete flush,
+typed parameters, stores, memory flags and outgoing arguments before supplying
+its source PC/count. The completed-loop flush has a constant next PC; the budget
+flush carries a dynamic PC and completed count. Neither is assigned an arbitrary
+ordinary instruction owner. Original source ownership still governs all ordinary
+operations, and helpers cannot claim a loop checkpoint certificate.
+
+Failure emission uses four instructions for a dynamic PC and five for a constant
+PC. Prepublication admission and the whole-function checker account for the exact
+additional size before mutation. The test-only code object records whether the
+optimization was installed, and the exhaustive four-loop integer/float,
+ascending/descending matrix now requires that fact before comparing every entry,
+budget and invalid scalar guard against optimized ordinary code.
+
+Focused GNU checks pass 40 packed ABI, six whole-lowering, two progress-checker,
+one integer-checkpoint and eight owning native-entry tests. Mutation tests reject
+changed flush constants/stores/branch arguments and emitted PC/count/kind fields.
+The initial pure fixture needed the default memory-flag table already present in
+real ordinary IR; the preservation verifier was not relaxed. Failed API/borrow
+and fixture attempts are retained in `packed-loop-*` logs. GNU and musl each pass
+the 207-test core payload/runtime/helper suite, the seven original integer-loop
+tests, the new checkpoint test and repeated focused lowering/progress checks.
+Real i686 passes 36 packed ABI tests. Formatting, all-feature checking and both
+Clippy modes pass with warnings (191 library-test warnings, including the new
+progress-method argument-count warning). Both Stacked and Tree Borrows Miri pass
+36 packed ABI, four whole-lowering, two progress and one integer-checkpoint test.
+All 368 source-manifest entries match after validation. Native code execution is
+covered by GNU/musl, not Miri; these checks do not establish a speedup.
+
+#### Packed scoped helper fast paths
+
+The packed prototype now has destination-local upvalue reads, constant-key local
+and closed-upvalue table reads, table writes and table allocation. These retain
+the legacy payload fast cases without retiring and rebuilding unrelated scalar
+descriptors. Unhandled operations still use the full-frame helper path, retiring
+all descriptors first and refreshing control/value pointers before rebinding.
+Retired Empty operands are read from canonical state rather than treated as nil.
+Current-stack aliases, foreign/closed upvalues, table guards and helper counters
+remain subject to the original helper semantics.
+
+Helper completion is recorded after the canonical destination write and before
+descriptor refresh. An allocation/foreign-stack panic before the write remains
+uncompleted; a failure after a completed write cannot cause replay. The outer
+bridge retains the original panic payload and forbids further helper/writer
+execution. Control metadata is captured before scalar binding and refreshed after
+full-frame fallback; fast operations do not borrow the whole canonical frame.
+
+Native focused checks pass 48 packed ABI tests, including eight new fast-path
+tests covering all value kinds, sibling pointer read/write permission, initialized
+prefixes, current/foreign aliases, expired/locked stacks, read/write guards,
+constants, retired values and original panic identity/single destruction.
+An initial Stacked Borrows smoke test found a real pointer-ancestry error:
+capturing control metadata through the original mutable frame invalidated its
+saved sibling pointer. Setup now derives subsequent borrows through the retained
+parent pointer. The corrected three-test smoke passes; the initial failed log is
+retained. Full GNU and musl checks each pass 215 payload/runtime/helper tests.
+Stacked and Tree Borrows each pass all 44 pure packed ABI tests, and i686 passes
+the same 44 tests. Formatting, check-all and GNU Clippy pass (Clippy still reports
+191 lib-test warnings). All 370 frozen source entries match after validation.
+Logs are retained in `packed-fast-*`. These are test-only implementation results,
+not a speedup claim.
+
+#### Production packed experiment — measured and withdrawn
+
+The withdrawn production experiment selected `compile_runtime_pair`, pairing a
+packed canonical-frame entry with the existing optional array kernels. Ordinary
+scratch compilation remains an explicit control, and native-region compilation
+kept its distinct scoped-helper/ActivationHost ABI. Entry identity and rejection
+of raw scratch/linked invocation for packed code were checked outside test builds.
+Array-prefix writes are published before packed entry; packed exits do not copy
+stale scratch values over canonical writes. Original panic and completed-prefix
+publication retain the previously tested contracts.
+
+Packed ABI/lowering/checkpoint certificates and their signature/workspace charges
+were compiled in the experimental production library. Native owned-entry, every-prefix and
+allocation-refusal tests also exercised the production compiler selection
+without an injected packed failure mode. Nine focused owned-entry tests pass,
+including an explicit packed-plus-array/ordinary-scoped identity check. The
+GNU/musl helper-stage results above remain separate from production validation.
+The experimental production GNU full suite stopped at two resource-fixture failures: the table
+helper fixture no longer emits the expected direct-call relocations, and the
+full compiler's peak-minus-one memory limit no longer fails in the scalar tag
+verifier. These checks have not been relaxed. i686 all-target/all-feature checking
+passes. The first opt-level-3 candidate image is
+`0b53cd972d7d2cc8215708ce11af6e32de88a116a78037cdb4109bed7a3a8975`.
+
+The first hardware screen retained 24 full paired runs (two CPUs, three rotated
+windows, original control/previous candidate/new candidate/placebo, 11 samples).
+All aggregate gates failed. The new candidate passes callback and metamethod
+thresholds in **0/6** runs and allocation in **2/6**; the previous candidate passes
+metamethod and allocation in **6/6**. Callback paired speed is **0.5725–0.6503**
+against the unchanged **0.8333** minimum. Execution counters match the previous
+candidate, but code and snapshot peaks increase. Callback code grows 4096→8192
+bytes and snapshot peak 13242→43441 bytes. No resource difference is waived.
+
+The identical-image symbol capture and all ten retained workload profiles finish.
+Callback instruction count rises 131650796→152207341; generated code accounts for
+13099872→24967926 instructions, and runtime plus packed-entry processing also
+increases. This is diagnostic instruction evidence, not another elapsed-time
+claim. Logs, frozen source archive, image and full activation patch are retained
+under `payload-terminal-profile/packed-production*`.
+
+A test-only follow-up replaces the 21-instruction packed tag decoder with a
+13-instruction byte lookup that preserves invalid encodings, rather than removing
+validation. Native read/whole-lowering/owned-entry checks pass; expanded tag
+oracles cover low and high encodings plus every pointer bit. Stacked Miri passes
+four read, four whole-lowering, two progress and one checkpoint test. The mutation
+fixture now changes sign extension to zero extension rather than performing a
+no-op mutation; reduction mutations replace the operand while retaining its type.
+
+The second frozen image is
+`01767b051f6e117a15afe17000f80bfd6aef47901c33a17824f8dceeacf5d653`.
+Another 24 full paired runs compare it with the first packed image, the previous
+candidate and placebo. Callbacks improve in all six direct comparisons (1.3–7.8%,
+median speed factor 1.048), but still pass **0/6** original callback gates.
+Metamethod gates remain **0/6**, allocation improves to **5/6**. Floating-point
+performance falls roughly 10–11% on CPU16 relative to the first packed image;
+fewer decoding instructions do not imply a universally faster implementation.
+Execution counters match, with array code mapping size falling 20480→16384 bytes.
+The second source archive, patch, hashes, telemetry and analysis are retained in
+`payload-terminal-profile/packed-tag-table*`.
+
+Production activation is withdrawn; the existing production path and resource
+tests remain unchanged. Only the decoder experiment and expanded oracle remain
+in test-only code. Original performance/resource/platform acceptance remains
+open, including compiled-Off costs; no original regression fix is claimed.
+The restored source passes formatting/check-all, 22 focused compiler/entry tests,
+31 resource/registry unit tests and all 14 public resource tests unchanged.
+The default production benchmark binary was rebuilt after withdrawal. These
+checks do not replace the unfinished full performance/platform acceptance.
 
 For the preceding scope source `85103de`, broader payload ABI/backend/runtime
 and helper suites also passed on both

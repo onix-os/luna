@@ -313,9 +313,20 @@ pub(super) fn augment(
     probe: bool,
     expansion: super::super::work::Expansion,
 ) -> Result<bool, JitError> {
+    augment_region(function, source, headers, exhausted, probe, expansion).map(|r| r.is_some())
+}
+
+fn augment_region(
+    function: &mut Function,
+    source: &Snapshot,
+    headers: &[Block],
+    exhausted: Block,
+    probe: bool,
+    expansion: super::super::work::Expansion,
+) -> Result<Option<Region>, JitError> {
     source.verify()?;
     let Some(plan) = Plan::new(source) else {
-        return Ok(false);
+        return Ok(None);
     };
     let instructions: usize = function
         .layout
@@ -337,14 +348,62 @@ pub(super) fn augment(
         )
         .is_err()
     {
-        return Ok(false);
+        return Ok(None);
     }
     let mut candidate = function.clone();
     let region = emit(&mut candidate, source, headers, exhausted, probe, plan)?;
     commit(
         function, candidate, source, headers, exhausted, &region, probe, expansion,
     )?;
-    Ok(true)
+    Ok(Some(region))
+}
+
+#[cfg(test)]
+pub(super) struct Checkpoints {
+    region: Region,
+    next: Block,
+    exhausted: Block,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CheckpointPc {
+    Constant(u64),
+    Dynamic(Value),
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Checkpoint {
+    pub pc: CheckpointPc,
+    pub count: Value,
+}
+
+#[cfg(test)]
+pub(super) fn augment_checkpoints(
+    function: &mut Function,
+    source: &Snapshot,
+    headers: &[Block],
+    exhausted: Block,
+    expansion: super::super::work::Expansion,
+) -> Result<Option<Checkpoints>, JitError> {
+    let region = augment_region(function, source, headers, exhausted, false, expansion)?;
+    Ok(region.map(|region| Checkpoints {
+        next: headers[region.plan.end + 1],
+        region,
+        exhausted,
+    }))
+}
+
+#[cfg(test)]
+impl Checkpoints {
+    pub(super) fn source(
+        &self,
+        function: &Function,
+        inst: cranelift_codegen::ir::Inst,
+    ) -> Result<Option<Checkpoint>, JitError> {
+        verify::checkpoint(function, self, inst)
+    }
 }
 
 fn commit(
@@ -602,7 +661,7 @@ fn emit(
 mod tests {
     use super::*;
 
-    fn snapshot(source: &[u8]) -> Snapshot {
+    pub(super) fn snapshot(source: &[u8]) -> Snapshot {
         crate::Lua::empty().enter(|ctx| {
             let proto = crate::FunctionPrototype::compile(ctx, "integer-loop", source).unwrap();
             Snapshot::new(&proto, 4096, 2 * 1024 * 1024).unwrap()
@@ -674,3 +733,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+pub(super) mod checkpoint_tests;

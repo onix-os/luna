@@ -80,7 +80,7 @@ unsafe extern "C" fn helper<const CAPACITY: usize, const KIND: u32>(
     unsafe { boundary::<CAPACITY>(control, |bound| bound.helper::<KIND>(a, b, c, pc)) }
 }
 
-unsafe fn boundary<const CAPACITY: usize>(
+pub(super) unsafe fn boundary<const CAPACITY: usize>(
     control: *mut (),
     body: impl FnOnce(&mut FrameScope<'_, '_, '_, '_, '_, CAPACITY>) -> Result<u32, Refusal>,
 ) -> u32 {
@@ -119,7 +119,7 @@ fn with_bridge<const CAPACITY: usize, R>(
     refusal.map_or(Ok(result), Err)
 }
 
-fn with_bridge_report<const CAPACITY: usize, R>(
+pub(super) fn with_bridge_report<const CAPACITY: usize, R>(
     frame: &mut helpers::Frame<'_, '_, '_, '_>,
     body: impl FnOnce(*mut Packed, &Bridge) -> R,
 ) -> Result<(R, Option<Refusal>, Option<(u32, u32)>), Refusal> {

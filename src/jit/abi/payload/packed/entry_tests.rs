@@ -189,6 +189,52 @@ fn packed_failure_reports_preserve_prefixes_and_post_helper_completion() {
 }
 
 #[test]
+fn packed_checkpoint_progress_accepts_exact_budget_without_relaxing_preop_failures() {
+    for budget in [0, 1, 63, 64] {
+        for count in [0, 1, 63, 64, 65, u32::MAX] {
+            for status in [
+                abi::HELPER_DECLINED,
+                abi::HELPER_PANICKED,
+                REFUSED,
+                RETURNED,
+                999,
+            ] {
+                for helper in [None, Some((7, abi::HELPER_COMPLETED))] {
+                    let exit = abi::Exit {
+                        pc: 7,
+                        instructions: count,
+                        reason: CHECKPOINT_FAILURE,
+                    };
+                    let expected = if count <= budget
+                        && helper.is_none()
+                        && matches!(
+                            status,
+                            abi::HELPER_DECLINED | abi::HELPER_PANICKED | REFUSED
+                        ) {
+                        Some(Progress {
+                            pc: 7,
+                            instructions: count,
+                        })
+                    } else {
+                        None
+                    };
+                    assert_eq!(progress(&exit, status, helper, budget, u64::MAX), expected);
+                    assert!(progress(&exit, status, helper, budget, 7).is_none());
+                    for kind in [STORE_FAILURE, HELPER_FAILURE] {
+                        let preop = abi::Exit {
+                            pc: 7,
+                            instructions: budget,
+                            reason: kind,
+                        };
+                        assert!(progress(&preop, status, helper, budget, u64::MAX).is_none());
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn packed_failure_progress_refuses_missing_wrong_or_overbudget_metadata() {
     let valid = abi::Exit {
         pc: 7,
