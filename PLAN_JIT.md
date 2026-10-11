@@ -11,6 +11,37 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Scoped table writes — register bindings preserved
+
+Commit `bc742cd` adds a payload SetTable path that does not borrow or refresh
+the whole register frame. Constants come from the existing prototype;
+Boolean/integer/number registers are read through their live typed descriptors.
+Reference and Nil/null descriptors use canonical values; a retired Nil
+descriptor can represent a non-Nil canonical scalar and must not decode as Nil.
+Table mutation uses the same inline operation as ordinary helpers, preserving
+readonly, nil/NaN key, metatable, interception and raw-write error guards. No Lua
+metamethod executes inside this path: a declined write returns to the existing
+interpreter. Bounds/invalid descriptors retain generic fallback, caught panics
+stop reentry, and PC/helper/table-write counters retain their contracts.
+
+Terminal liveness now treats SetTable as a possible no-refresh helper rather
+than a full-refresh boundary. Independent graph tests cover every helper kind,
+reads/writes/loops and bounded workspace; checked and frame-bound lowering both
+retain live post-helper descriptors. No callback-spanning pointers or private
+Value layout assumptions are introduced.
+
+GNU/musl each pass **51 ABI + 57 backend + three runtime + 27 helper tests**;
+GNU formatting/check-all also pass. New model tests preserve all value kinds,
+7/256-register sibling pointers, singleton and operand aliases, constants,
+directly modified and retired scalar values, 96 readonly/metatable/key guard
+combinations, non-table receivers, current-frame captures and full-fallback
+refresh, malformed indices, borrow panics and stopped reentry. Three integrated
+loops exercise constant/dynamic writes and __newindex with live sibling values,
+fuel/interrupt stepping, GC and identical counters against interpreter/ordinary
+controls. Miri and frozen performance evidence are tracked separately; this is
+not activation or performance acceptance. Logs: `payload-table-write-*` and
+`payload-terminal-profile/write*` under `target/jit-evidence/short-slice-performance/`.
+
 #### Branch-local scalar descriptor loads — measured and withdrawn
 
 Commit `3c97f73` moves frame-bound scalar pointer loads into their numeric and
