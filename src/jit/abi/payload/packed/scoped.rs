@@ -152,6 +152,7 @@ impl<'s, 'gc, const CAPACITY: usize> Scope<'s, 'gc, CAPACITY> {
 struct FrameScope<'s, 'gc, 'a, 'b, 'p, const CAPACITY: usize> {
     scope: Scope<'s, 'gc, CAPACITY>,
     frame: NonNull<helpers::Frame<'gc, 'a, 'b, 'p>>,
+    refusal: Option<Refusal>,
 }
 
 fn with_frame_scope<'gc, const CAPACITY: usize, R>(
@@ -173,6 +174,7 @@ fn with_frame_scope<'gc, const CAPACITY: usize, R>(
     let mut bound = FrameScope {
         scope,
         frame: pointer,
+        refusal: None,
     };
     Ok(body(&mut bound))
 }
@@ -208,3 +210,6 @@ impl<const CAPACITY: usize> FrameScope<'_, '_, '_, '_, '_, CAPACITY> {
 #[cfg(test)]
 #[path = "scoped_tests.rs"]
 mod tests;
+
+#[path = "bridge.rs"]
+mod bridge;
