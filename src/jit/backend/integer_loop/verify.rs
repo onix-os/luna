@@ -423,6 +423,54 @@ fn flush(
     Ok(())
 }
 
+#[cfg(test)]
+pub(super) fn checkpoint(
+    function: &Function,
+    checkpoints: &super::Checkpoints,
+    inst: Inst,
+) -> Result<Option<super::Checkpoint>, JitError> {
+    use super::{Checkpoint, CheckpointPc};
+    let r = &checkpoints.region;
+    let block = function.layout.inst_block(inst).ok_or_else(invalid)?;
+    if block != r.done && block != r.budget_exit {
+        return Ok(None);
+    }
+    require(
+        matches!(function.dfg.insts[inst], InstructionData::Store { offset, .. } if i32::from(offset) % 16 == 0),
+    )?;
+    let entry = function.layout.entry_block().ok_or_else(invalid)?;
+    let pointer = *function
+        .dfg
+        .block_params(entry)
+        .first()
+        .ok_or_else(invalid)?;
+    let dynamic = block == r.budget_exit;
+    let prefix: &[cranelift_codegen::ir::Type] = if dynamic {
+        &[types::I64, types::I32]
+    } else {
+        &[types::I32]
+    };
+    let values = state(function, block, prefix, r.plan.used, r.plan.numbers)?;
+    let params = function.dfg.block_params(block);
+    let mut s = Scan::new(function, block, 0);
+    flush(&mut s, pointer, &values, r.plan.written, r.plan.numbers)?;
+    let checkpoint = if dynamic {
+        s.jump(checkpoints.exhausted, &params[..2])?;
+        Checkpoint {
+            pc: CheckpointPc::Dynamic(params[0]),
+            count: params[1],
+        }
+    } else {
+        s.jump(checkpoints.next, &params[..1])?;
+        Checkpoint {
+            pc: CheckpointPc::Constant((r.plan.end + 1) as u64),
+            count: params[0],
+        }
+    };
+    s.finish()?;
+    Ok(Some(checkpoint))
+}
+
 pub(super) fn check(
     before: &Function,
     after: &Function,

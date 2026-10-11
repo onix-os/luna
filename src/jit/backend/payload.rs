@@ -1286,6 +1286,9 @@ fn optimized_payload_contract(failure: Failure) {
             let work = super::super::work::Limits::from(&super::super::JitConfig::default());
             let control = compile_in(&snapshot, total.clone(), 1024 * 1024, metadata.clone(), work, Failure::RequireIntegerLoop).unwrap();
             let candidate = Compiled(compile_in(&snapshot, total.clone(), 1024 * 1024, metadata.clone(), work, failure).unwrap());
+            if failure == Failure::RequirePackedPayload {
+                assert!(candidate.0.packed_integer_loop, "packed code lost its integer loop");
+            }
             let base = snapshot.operations.iter().find_map(|op| match op {
                 Operation::NumericForLoop { base, .. } => Some(usize::from(base.0)),
                 _ => None,

@@ -42,6 +42,7 @@ impl Candidate {
         registers: usize,
         helpers: &[(u32, FuncRef)],
         expansion: Expansion,
+        checkpoints: Option<&super::super::integer_loop::Checkpoints>,
     ) -> Result<(), JitError> {
         let allocator = self.records.allocator().clone();
         let mut sites = BudgetVec::new_in(allocator.clone());
@@ -55,13 +56,6 @@ impl Candidate {
             .map_err(|_| JitError::ResourceLimit("packed failure progress sites"))?;
         let (source_i, source_b) = size(source);
         let (candidate_i, candidate_b) = size(&self.function);
-        let extra = count
-            .checked_mul(5)
-            .ok_or(JitError::ResourceLimit("packed progress expansion"))?;
-        expansion.verify_actual(
-            add(add(source_i, candidate_i)?, extra)?,
-            add(source_b, candidate_b)?,
-        )?;
         for (index, record) in self.records.iter().enumerate() {
             let (block, kind, previous) = match record {
                 Some(Record::Write(w)) => (
@@ -80,9 +74,16 @@ impl Candidate {
                 return Err(invalid());
             }
             let inst = Inst::new(index);
-            let site = packed_progress::Site::new(source, inst, paths, headers, kind)?;
+            let site = packed_progress::Site::new(source, inst, paths, headers, kind, checkpoints)?;
             sites.push((inst, block, site));
         }
+        let extra = sites
+            .iter()
+            .try_fold(0, |sum, (_, _, site)| add(sum, site.instruction_count()))?;
+        expansion.verify_actual(
+            add(add(source_i, candidate_i)?, extra)?,
+            add(source_b, candidate_b)?,
+        )?;
         for (inst, block, site) in sites {
             site.emit(&mut self.function, block)?;
             match self.records[inst.index()].as_mut().ok_or_else(invalid)? {
@@ -91,7 +92,7 @@ impl Candidate {
                 _ => return Err(invalid()),
             }
         }
-        self.verify_progress_source(source, paths, headers)?;
+        self.verify_progress_source(source, paths, headers, checkpoints)?;
         let params = source
             .dfg
             .block_params(source.layout.entry_block().ok_or_else(invalid)?);
@@ -105,6 +106,7 @@ impl Candidate {
         source: &Function,
         paths: &crate::jit::entry_flow::Paths,
         headers: &[Block],
+        checkpoints: Option<&super::super::integer_loop::Checkpoints>,
     ) -> Result<(), JitError> {
         for (index, record) in self.records.iter().enumerate() {
             let (site, kind) = match record {
@@ -118,6 +120,7 @@ impl Candidate {
                 paths,
                 headers,
                 kind,
+                checkpoints,
             )?;
         }
         Ok(())
@@ -444,18 +447,13 @@ fn verify(
     let tracked = candidate
         .records
         .iter()
-        .filter(|r| match r {
-            Some(Record::Write(w)) => w.progress.is_some(),
-            Some(Record::Call(c)) => c.progress.is_some(),
-            _ => false,
+        .filter_map(|r| match r {
+            Some(Record::Write(w)) => w.progress.as_ref(),
+            Some(Record::Call(c)) => c.progress.as_ref(),
+            _ => None,
         })
-        .count();
-    plan.instructions = add(
-        plan.instructions,
-        tracked
-            .checked_mul(5)
-            .ok_or(JitError::ResourceLimit("packed progress expansion"))?,
-    )?;
+        .try_fold(0, |sum, site| add(sum, site.instruction_count()))?;
+    plan.instructions = add(plan.instructions, tracked)?;
     let f = &candidate.function;
     let (source_instructions, source_blocks) = size(source);
     expansion.verify_actual(
