@@ -738,6 +738,13 @@ jit-helper-transports-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::helpers:: -- --test-threads=1
 
 .PHONY: jit-payload-packed jit-payload-packed-miri
+.PHONY: jit-payload-packed-fast jit-payload-packed-fast-miri
+jit-payload-packed-fast:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::packed::scoped::fast:: $(ARGS)
+
+jit-payload-packed-fast-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::packed::scoped::fast:: -- --test-threads=1 $(ARGS)
+
 jit-payload-packed:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::packed:: $(ARGS)
 
@@ -1740,6 +1747,7 @@ help:
 	@echo "  jit-payload-packed-lower Verify whole packed lowering"
 	@echo "  jit-payload-packed-entry Verify owned packed native entries"
 	@echo "  jit-payload-packed-runtime Check packed runtime parity"
+	@echo "  jit-payload-packed-fast Check scoped packed helper fast paths"
 	@echo "  jit-payload-packed-lower-miri Check whole lowering under Miri"
 	@echo "  jit-payload-relocations Check direct/indirect relocation budgets"
 	@echo "  jit-helper-transports   Test scratch and direct helpers"

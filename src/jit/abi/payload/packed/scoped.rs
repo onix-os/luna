@@ -105,10 +105,21 @@ impl<'s, 'gc, const CAPACITY: usize> Scope<'s, 'gc, CAPACITY> {
     }
 
     fn replace(&mut self, index: usize, value: Value<'gc>, terminal: bool) -> Result<(), Refusal> {
+        self.replace_then(index, value, terminal, || {})
+    }
+
+    fn replace_then(
+        &mut self,
+        index: usize,
+        value: Value<'gc>,
+        terminal: bool,
+        stored: impl FnOnce(),
+    ) -> Result<(), Refusal> {
         self.check(index)?;
         self.stopped = true;
         self.retire(index);
         unsafe { self.values.as_ptr().add(index).write(value) };
+        stored();
         if !terminal {
             self.bind_one(index)?;
         }
@@ -155,6 +166,7 @@ struct FrameScope<'s, 'gc, 'a, 'b, 'p, const CAPACITY: usize> {
     refusal: Option<Refusal>,
     materializations: u64,
     helper_result: Option<(u32, u32)>,
+    control: fast::Control<'gc>,
 }
 
 fn with_frame_scope<'gc, const CAPACITY: usize, R>(
@@ -164,8 +176,10 @@ fn with_frame_scope<'gc, const CAPACITY: usize, R>(
     if frame.projection.is_some() {
         return Err(Refusal::Projection);
     }
-    let pointer = NonNull::from(&mut *frame);
+    let mut pointer = NonNull::from(&mut *frame);
+    let frame = unsafe { pointer.as_mut() };
     let stopped = frame.panic.is_some();
+    let control = fast::Control::new(frame);
     let mut descriptors = [MaybeUninit::uninit(); CAPACITY];
     let mut scope = Scope::new(
         frame.registers.stack_frame,
@@ -179,6 +193,7 @@ fn with_frame_scope<'gc, const CAPACITY: usize, R>(
         refusal: None,
         materializations: 0,
         helper_result: None,
+        control,
     };
     Ok(body(&mut bound))
 }
@@ -192,6 +207,9 @@ impl<const CAPACITY: usize> FrameScope<'_, '_, '_, '_, '_, CAPACITY> {
                 Err(Refusal::Stopped)
             };
         }
+        if let Some(result) = self.fast_helper::<KIND>(a, b, c, pc)? {
+            return Ok(result);
+        }
         self.scope.stopped = true;
         for index in 0..self.scope.count {
             self.scope.retire(index);
@@ -200,6 +218,7 @@ impl<const CAPACITY: usize> FrameScope<'_, '_, '_, '_, '_, CAPACITY> {
         let result = helpers::call_direct::<KIND>(frame, a, b, c, pc);
         self.helper_result = Some((pc, result));
         if result != abi::HELPER_PANICKED {
+            self.control = fast::Control::new(frame);
             self.scope.len = frame.registers.stack_frame.len();
             self.scope.values = NonNull::new(frame.registers.stack_frame.as_mut_ptr()).unwrap();
             if self.scope.count > self.scope.len {
@@ -211,6 +230,9 @@ impl<const CAPACITY: usize> FrameScope<'_, '_, '_, '_, '_, CAPACITY> {
         Ok(result)
     }
 }
+
+#[path = "scoped/fast.rs"]
+mod fast;
 
 #[cfg(test)]
 #[path = "scoped_tests.rs"]
