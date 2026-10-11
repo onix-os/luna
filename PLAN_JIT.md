@@ -11,6 +11,120 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Integer-only inline payload binding — measured development WIP
+
+The typed binder now keeps only Integer inline and outlines Number together
+with Nil, Boolean and references. This changes no layout, pointer lifetime,
+bounds, canonical write/rebind behavior, public stack API or production native
+selection. It is distinct from the rejected pair-binding and scratch-prefix
+trials below. `9fa5d54` independently extends the binding oracle with Callback,
+covering 14 kinds/196 canonical transitions and all six reference kinds.
+
+Frozen activated image
+`1ee923cfaa210d8f5c453265e1822b569359cc7b4cc02ea8cdc8e19a9b078a56`
+completes eleven exact-load-image profiles against reference-store `1fe53ac4`.
+All non-timing fields match; four compiled-Off instruction totals are unchanged.
+Auto instruction deltas are callback **-2,918,087 (-2.219%)**, integer -290,640,
+float -209,856, array -190,073, allocation **-1,470,927 (-4.236%)**, upvalue
+-44,757 and metamethod -811,103. Callback reduction is exactly entry-wrapper
+-3,177,601 plus helper 6 +129,672 plus outlined binding +129,842. Generated
+callback self work remains 13,099,872 and scalar/terminal materialization totals
+are unchanged. Reduced instruction counts are not a hardware speedup claim.
+
+GNU format/check-all and payload ABI/backend/runtime pass **229 / four summaries**.
+Stacked and Tree Borrows each pass **six / five summaries**, covering binding
+transitions, mixed-prefix reentry, function-table pointers, capacity/unwind and
+caught-helper-panic reuse. Focused musl passes **29 / eight summaries**. These
+checks are complete; a full-workspace Force rerun is in progress, not yet accepted.
+
+Four complete four-way timing campaigns retain **96 failed aggregate gates**
+and **2,592 parsed rows**, with historical/control/placebo images, eleven paired
+samples, all nine workloads, CPU 0/16 and three rotated windows. Additional
+campaigns reverse CPU order and rotate window order. No owned build/test/profile
+or source edit overlaps timing; source/image checks pass. External contention
+remains recorded. All current-candidate and same-image non-timing comparisons
+match. Each campaign retains 48 historical differences, only the inherited
+metadata-byte/peak fields; these are not silently treated as equality.
+
+Across all 24 windows, median direct Auto ratios (control time / candidate time,
+above one is faster) are callback **1.02126**, metamethod **1.03231**, allocation
+**1.02500**, integer **1.00985**, float 1.00144, array **0.99791** and upvalue
+**0.99831**. Callback improves in 22/24 windows; its normalized median-paired
+ratio is 1.02375 versus same-image placebo 0.99983. However, CPU16 allocation
+is **0.98728** (9/12 slower), upvalue **0.98591** (10/12 slower) and array
+**0.98800** (7/12 slower). These adverse CPU-specific results remain open;
+the favorable pooled medians do not erase them. No blanket speedup is claimed.
+
+Original callback gates still pass **0/24**; array/upvalue pass 23/24,
+metamethod 22/24, integer/float/allocation/cold 24/24; Oslo remains unscored.
+The small, semantically unchanged binder is retained as experimental development
+WIP, **not promoted to production or accepted as the regression fix**. Next,
+compare the complete experimental ABI against a freshly frozen current-production
+image, not merely against the preceding experimental binder. Original full
+performance, feature-cost, resource and release gates remain open.
+
+Evidence: `target/jit-evidence/short-slice-performance/integer-binding-*` and
+`payload-terminal-profile/integer-binding*/`. The root runtime remains on its
+existing production selection; release activation is isolated for measurement.
+
+#### Integer-pair binding — instruction screen rejected
+
+`4e17f8a` trialed binding two adjacent actual Integer values together during full
+payload binding. Non-integer pairs fall back to the existing typed single-cell
+binder; selected-mask binding, public raw-stack access, helper semantics and
+production native selection were unchanged. The candidate is now withdrawn;
+only the independent full-binding prefix/type-change regression is retained.
+
+Three new tests cover all 196 value-kind pairs (including distinct Closure and
+Callback handles), scalar bits, sibling pointer loans, short/overflow ranges,
+widths 0/1/2/3/7/8/256, prefix canaries and type-changing reentry. Focused GNU
+tests pass; Stacked and Tree Borrows each pass six executions across three
+summaries. Focused musl passes 29 executions across seven summaries. Full GNU
+`jit-test-all JIT_MODE=force` passes 1,777 tests across 88 summaries with six
+existing ignores, including the retained-public-stack-alias integration test.
+These are correctness checks on the candidate, not performance acceptance.
+
+Frozen activated image
+`be777003d70b24deb7e3d68c2210024a14cafe32db23129720e04492ccb41718`
+completes eleven exact-load-image profiles against reference-store `1fe53ac4`.
+All non-timing fields match and all four Off instruction totals are unchanged.
+The first instruction screen is **adverse**: callback +2,789,515 (+2.121%),
+integer +388,223, float +412,527, array +94,791, allocation +509,089,
+upvalue +178,385 and metamethod +2,425,622. No hardware speedup is claimed.
+The seven-register binder was outlined: wrapper self work is 10,764,934 and
+the new separate binder contributes 8,496,227, together exceeding the previous
+16,471,646 wrapper by exactly 2,789,515.
+
+A second frozen image,
+`c31e755550daefeec2643859d277753038dc405dceec90d34405a0700a74d58c`,
+adds only explicit inlining of `bind_selected`. All eleven profiles complete,
+all non-timing fields match, and all four Off totals remain unchanged. Inlining
+reduces callback overhead to **+195,519 (+0.149%)**, entirely in the entry
+wrapper, but does not turn it into an instruction reduction. Integer +40,924,
+float +65,228, allocation +365,780 and metamethod +1,369,537 remain adverse;
+upvalue -33,374 and array -51,292 are small favorable totals. Both variants retain
+exactly 13,099,872 generated callback instructions. Extra pair probes plus the
+compiler's outlining decision do not provide the desired entry-cost reduction.
+No hardware campaign was run for either candidate, and no timing regression or
+speedup is inferred from these instruction profiles. Neither is promoted.
+
+The typed single-cell binder and full-binding loop are restored exactly to the
+pre-trial implementation. `make jit-payload-full-binding` and its `-miri` target
+retain the independent mixed-prefix, canary and reentry test; tests specific to
+the removed pair method are available in `4e17f8a`. Restored GNU and musl each
+pass 27 focused tests across seven summaries; formatting/check-all pass, and
+both Miri models pass the retained regression. The full force suite above ran
+on the pre-withdrawal candidate; it is not represented as a new full-suite run
+on the restored tree. `payload.rs` is byte-identical to `b8bf5b0`; runtime differs
+from that baseline only by the new test-module registration. Original performance,
+feature-cost, resource and release acceptance remain incomplete.
+
+Evidence: `target/jit-evidence/short-slice-performance/integer-pair-*.log`,
+`integer-pairs-{build,profile,analyze}.*`, and
+`payload-terminal-profile/integer-pairs*/`. The initial frozen build's misplaced
+test-only annotation was corrected before profiling; its failed check log is
+retained in `integer-pairs-failed-cfg`. It was not a runtime safety failure.
+
 #### Inline payload control — measured and withdrawn
 
 `4ab9f67` tested embedding the unchanged FrameBound `Bridge` header at

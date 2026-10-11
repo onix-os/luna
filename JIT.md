@@ -11,6 +11,13 @@ region execution; `make jit-regions` tests the non-test library with `jit` and
 `jit,async`, including interrupted fuel traces, GC, callbacks and unwind.
 This is implementation progress, **not performance or release acceptance**.
 
+The test-only payload ABI's integer-binding refinement reduces callback
+instructions 2.2%. Four controlled timing campaigns suggest about 2.1% higher
+callback throughput against the preceding experimental binder, but every
+callback acceptance gate still fails. CPU16 allocation, table and upvalue
+timings regress around 1–1.4%. This remains experimental development work;
+production selection is unchanged. `PLAN_JIT.md` records all results and controls.
+
 Native code lookups cache two bucket offsets without retaining entry pointers
 or extra code leases. Mutable map access invalidates them; shared inspection
 preserves them. Repeated measurements improve metamethod time versus the preceding

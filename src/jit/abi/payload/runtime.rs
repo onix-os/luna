@@ -33,6 +33,10 @@ mod upvalue_read_tests;
 mod capacity_tests;
 
 #[cfg(test)]
+#[path = "full_binding_tests.rs"]
+mod full_binding_tests;
+
+#[cfg(test)]
 #[path = "bound_tests.rs"]
 mod bound_tests;
 
