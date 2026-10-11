@@ -11,6 +11,38 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Current production native-cost refresh
+
+Eight new exact-image profiles use the unchanged production control, not the
+experimental early-guard activation fixture. The control source differs from
+current runtime source only in two test modules; its source manifest and image
+hashes verify. Both shipping/speed symbol companions match the previously
+verified load images. Although the feature executable is named `jit-off`, these
+four feature runs explicitly use **Auto**; the no-feature runs use Off.
+
+| Workload | Profile | No-feature instructions | Auto instructions |
+| --- | --- | ---: | ---: |
+| Closure/upvalue | shipping | 79,372,477 | 87,129,491 |
+| Closure/upvalue | speed | 72,523,637 | 62,486,177 |
+| Rust callbacks | shipping | 45,686,830 | 63,638,089 |
+| Rust callbacks | speed | 36,787,240 | 50,865,992 |
+
+Each workload verifies its result over three measured iterations. Auto executes
+298,428 native instructions for upvalues and 99,375 for callbacks in each
+profile. These are instruction diagnostics, not timing or acceptance results.
+Independent event-total/function-self checks pass for all eight profiles.
+
+`Admitted::invoke_rooted` accounts for 23,305,608 shipping / 23,502,816 speed
+upvalue instructions (26.75% / 37.61% of total work). Native-region boundary
+work adds 7,597,267 / 7,831,079. Callback transport `<7, true, false>` accounts
+for 7,849,924 / 7,750,507 (12.34% / 15.24%). Exact executed-PC attribution
+decodes every collected instruction for those three functions in both builds,
+with unchanged image hashes. This distinguishes current production costs from
+the earlier activated `<7, true, true>` callback fixture; do not mix their totals.
+Previous fuel, small-copy, capture and statistics trials remain rejected.
+Evidence: `ordinary-current-native-profile*` and
+`ordinary-current-native-attribution*` beneath the ignored performance directory.
+
 #### Statically owned ordinary frames — rejected at instruction profiling
 
 An isolated trial makes `LuaFrame` generic over stack storage: ordinary
