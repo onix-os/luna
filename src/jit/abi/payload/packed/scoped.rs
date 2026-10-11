@@ -153,6 +153,7 @@ struct FrameScope<'s, 'gc, 'a, 'b, 'p, const CAPACITY: usize> {
     scope: Scope<'s, 'gc, CAPACITY>,
     frame: NonNull<helpers::Frame<'gc, 'a, 'b, 'p>>,
     refusal: Option<Refusal>,
+    materializations: u64,
 }
 
 fn with_frame_scope<'gc, const CAPACITY: usize, R>(
@@ -175,6 +176,7 @@ fn with_frame_scope<'gc, const CAPACITY: usize, R>(
         scope,
         frame: pointer,
         refusal: None,
+        materializations: 0,
     };
     Ok(body(&mut bound))
 }

@@ -9,28 +9,65 @@ const _: () = assert!(
         && REFUSED != abi::HELPER_PANICKED
 );
 type Helper = unsafe extern "C" fn(*mut (), u32, u32, u32, u32) -> u32;
+type Writer = unsafe extern "C" fn(*mut (), u32, u64, u64) -> u32;
 
 #[repr(C)]
 struct Bridge {
     control: *mut (),
-    helpers: &'static [Helper; 10],
+    functions: &'static Functions,
 }
 
-struct Functions<const CAPACITY: usize>;
+#[repr(C)]
+struct Functions {
+    helpers: [Helper; 10],
+    write: Writer,
+    terminal: Writer,
+}
 
-impl<const CAPACITY: usize> Functions<CAPACITY> {
-    const HELPERS: [Helper; 10] = [
-        helper::<CAPACITY, 1>,
-        helper::<CAPACITY, 2>,
-        helper::<CAPACITY, 3>,
-        helper::<CAPACITY, 4>,
-        helper::<CAPACITY, 5>,
-        helper::<CAPACITY, 6>,
-        helper::<CAPACITY, 7>,
-        helper::<CAPACITY, 8>,
-        helper::<CAPACITY, 9>,
-        helper::<CAPACITY, 10>,
-    ];
+struct Gateways<const CAPACITY: usize>;
+
+impl<const CAPACITY: usize> Gateways<CAPACITY> {
+    const TABLE: Functions = Functions {
+        helpers: [
+            helper::<CAPACITY, 1>,
+            helper::<CAPACITY, 2>,
+            helper::<CAPACITY, 3>,
+            helper::<CAPACITY, 4>,
+            helper::<CAPACITY, 5>,
+            helper::<CAPACITY, 6>,
+            helper::<CAPACITY, 7>,
+            helper::<CAPACITY, 8>,
+            helper::<CAPACITY, 9>,
+            helper::<CAPACITY, 10>,
+        ],
+        write: materialize::<CAPACITY, false>,
+        terminal: materialize::<CAPACITY, true>,
+    };
+}
+
+unsafe extern "C" fn materialize<const CAPACITY: usize, const TERMINAL: bool>(
+    control: *mut (),
+    index: u32,
+    tag: u64,
+    bits: u64,
+) -> u32 {
+    unsafe {
+        boundary::<CAPACITY>(control, |bound| {
+            bound.materializations += 1;
+            if index as usize >= bound.scope.count {
+                return Ok(abi::HELPER_DECLINED);
+            }
+            let value = match tag {
+                NIL => Value::Nil,
+                BOOLEAN if bits <= 1 => Value::Boolean(bits != 0),
+                INTEGER => Value::Integer(bits as i64),
+                NUMBER => Value::Number(f64::from_bits(bits)),
+                _ => return Ok(abi::HELPER_DECLINED),
+            };
+            bound.scope.replace(index as usize, value, TERMINAL)?;
+            Ok(abi::HELPER_COMPLETED)
+        })
+    }
 }
 
 unsafe extern "C" fn helper<const CAPACITY: usize, const KIND: u32>(
@@ -81,7 +118,7 @@ fn with_bridge<const CAPACITY: usize, R>(
         let slots = bound.scope.descriptors.as_ptr();
         let bridge = Bridge {
             control: std::ptr::from_mut(bound).cast(),
-            helpers: &Functions::<CAPACITY>::HELPERS,
+            functions: &Gateways::<CAPACITY>::TABLE,
         };
         let result = body(slots, &bridge);
         bound.refusal.map_or(Ok(result), Err)
@@ -93,3 +130,6 @@ mod tests;
 
 #[path = "bridge_reentry.rs"]
 mod reentry;
+
+#[path = "writer_tests.rs"]
+mod writer_tests;
