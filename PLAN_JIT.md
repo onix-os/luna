@@ -11,6 +11,161 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Same-thread callback handoff — test-only candidate
+
+`e51470f` introduces a scoped executor handoff for Lua-to-callback and a direct
+callback Return-to-Lua on the same thread. A matching successor frame, cleared
+running flag and absence of deferred error prove the next normal frame. The
+original frame match finishes before continuation, dropping its stack/state
+borrows and all native descriptors. Exact step/callback/VM fuel charges and the
+interruption test remain before continuation. Auto mode is queried again after
+callbacks; each VM entry still checks hooks, source identity, code ownership and
+policy. No code lease, manager borrow, stack pointer or value descriptor is
+retained across user code. Auto-mode interpreted frames can also use this driver;
+this is not a change to native coverage or an assertion that each handoff follows
+machine-code execution. Other callback outcomes retain general executor dispatch.
+
+Four new tests cover 90 paired schedules (nine scripts, five fuel budgets,
+Off/Auto), a four-schedule interpreter-only model, typed Rust callback panic
+unwinding, and nested/panicking test-scope restoration. Comparisons include
+physical frames, scalar stacks, exact fuel/interruptions, results, all execution
+counters, callback PC/base/fuel observations and collection between steps.
+Scripts include direct/tail callbacks, nested executors/open captures, protected
+errors, coroutines, close handlers, hooks and callback mode/cache mutation.
+Callback observations acquire the manager borrow; the panic fixture reacquires
+executor, thread, stack and manager borrows after unwinding and preserves the
+original `u64` panic payload. It preserves rather than changes the baseline
+post-panic running flag.
+
+The initial whole-statistics comparison fails at budget zero before a handoff:
+only `accounted_jit_peak_bytes` differs across 42 observations. Separate states
+compile their registered core prototypes in different orders. The corrected
+fixture records preparation statistics, asserts all three historical resource
+peaks stay unchanged throughout each run, then compares every remaining field
+and observation. This is an execution differential with separately checked
+historical peaks, not cross-image resource acceptance or a waiver of benchmark
+resource comparisons. The initial failure remains in `callback-handoff-model.log`.
+
+Initial GNU and musl pass the four new tests, with musl also passing all fourteen
+activation tests. GNU boundary/accounting/sequence/error/suspension/debug targets
+pass 116 executions across fifteen summaries. Both Miri models pass the three
+selected non-native tests. Clippy subsequently identifies an unconditional
+single-iteration loop when the test-only continuation is compiled out.
+`fcc9f01` replaces it with an explicitly consumed next-frame flag rather than
+suppressing the lint. Its GNU default/all-feature Clippy, four focused tests and
+check-all pass; final musl and source-hashed Miri checks are tracked separately.
+
+The first frozen activated build (`handoff`) completes before that loop-shape
+fix. A fresh `handoff2` source at `fcc9f01` includes the fix and the unchanged
+preceding payload activation, plus release-only handoff selection. It runs
+payload and callback/fuel/hook/suspension integration gates before capturing the
+release image. Profiling and original paired native/compiled-Off acceptance are
+still pending. In particular, inspect added Auto-mode checks on disabled-JIT
+callback traffic instead of assuming a shared executor rewrite is free.
+No performance improvement or production activation is accepted yet.
+
+Evidence: `callback-handoff-*` and `payload-terminal-profile/handoff*` beneath
+`target/jit-evidence/short-slice-performance/`. Original full performance,
+resource, platform and release requirements remain open.
+
+#### Static payload gateways — rejected direct linking trial
+
+**Decision:** withdraw this trial and restore source/Makefile to `9b59197`.
+The frozen images and all evidence remain available. Correctness passes do not
+offset the repeated metamethod regression, larger resources and unresolved
+callback gate. This decision does not withdraw the preceding scoped GetUpvalue
+optimization or change any original acceptance threshold.
+
+Withdrawal `66078d1` restores `src/` and Makefile byte-for-byte to that revision.
+Restored GNU and musl each pass **62 ABI + 57 backend + three runtime + 27
+helper tests**, formatting and check-all. Logs are
+`payload-static-withdraw-{gnu,musl}.log` in the evidence root below.
+Additional restored accounting, sequence, error, upvalue, suspension and debug
+Make targets pass **109 executions across 15 summaries** (one contains zero
+tests), including async lanes, hooks, callback errors and native resumption.
+`payload-static-withdraw-boundaries.log` is terminal with exit zero. No fresh
+Miri run, rebuilt performance image or full release acceptance is claimed for
+this byte-exact withdrawal.
+
+Fresh instruction attribution of the retained `upread` symbol image, with its
+recorded SHA verified, accounts for every profiled self instruction in
+`Executor::step` (22,649,029), `run_vm_slice` (23,723,328) and
+`Runtime::invoke<7,true>` (15,693,458). Address-resolved invocation blocks split
+into entry/session setup 3,436,997, descriptor binding 6,030,957, bridge/call
+843,037, exit-PC handling 518,792, statistics publication 3,696,393 and
+panic/return handling 1,167,282. These self counts exclude callees and are not
+elapsed-time attribution or removable-work estimates. The three exact sums
+match the existing complete function profile. Files are
+`payload-terminal-profile/upread/callback-*-instruction-costs.tsv`, with
+`wrapper-symbols.txt` and `wrapper.asm`. An initial display command rejected
+`tail -1`; all three attribution scripts had already completed successfully.
+
+The profile directs further investigation toward native-entry/session and
+descriptor setup, not another shared executor rewrite. Source review confirms
+that Lua-frame peek/guard selection, Lua continuation drivers and callback
+setup/return inlining were already measured and rejected below. No new callback
+handoff, borrowed-state lifetime extension or statistics shortcut is implemented
+or accepted by this attribution.
+
+Two complete hardware campaigns ran nine original workloads, eleven paired
+samples, CPUs 0/16 and three rotated windows with ordinary, previous, candidate
+and same-inode placebo images. All **48 aggregate benchmark invocations failed**;
+the driver exits of zero only establish completed campaigns. The static
+candidate fails callbacks **12/12** and passes metamethods **9/12**. On CPU0,
+previous/candidate metamethod time ratios are 0.9815/0.9778/0.9772 in the first
+campaign and 0.9766/0.9816/0.9724 in the repeat: repeatedly slower. Callback
+ratios improve on CPU0, but CPU16 repeat ratios are 0.9998/0.9900/0.9989.
+Repeat metamethod placebo ratios range 0.9633–1.0204 on CPU0 and
+0.9953–1.0180 on CPU16, so individual timing differences remain noisy; this
+is not an uncontended causal estimate.
+
+The instruction profile saves only 129,813 callback instructions (0.0986%).
+Metamethod instructions increase 73,933 (0.0956%); upvalue instructions increase
+136,301 (0.0850%), including allocator changes. Float code allocation doubles
+from 4,096 to 8,192 bytes. Snapshot peaks increase, including callback
+13,242→20,376 and float 17,086→29,628 bytes. Both direct hardware comparators
+retain exit 3: their only non-timing differences are code allocation and snapshot
+peak bytes, not execution counters. These resource differences are not waived.
+All frozen source/image hashes and before/after checks remain intact.
+
+Evidence: `payload-terminal-profile/static-{profile,hardware-screen,hardware-repeat}*`,
+`upread-vs-static-analysis.json`, `static-*-delta.json`, and
+`static-vs-upread-hardware{,-repeat}-stats.json` beneath
+`target/jit-evidence/short-slice-performance/`.
+
+Commit `630f6a2` links the ten existing payload helpers and two scalar writers
+directly for private frame-bound entries. Checked entries retain dynamic gateway
+dispatch. The compiler verifies each table/target load, signature and host,
+rejects shared or escaping targets, then removes exactly two loads per call.
+Independent verification preserves call arguments/results, other instructions,
+branch-pool contents, memory flags and aliases. Private host-stack copies stay;
+their exact expansion accounts for one fewer host use per linked site. Helper
+semantics, callback boundaries and canonical frame handling are unchanged.
+
+Symbol names, writer signatures and bounded linear rewrite/use maps are charged.
+The existing relocation fixture now also checks actual emitted frame-bound
+relocations, exact limits, refusal and complete charge cleanup; checked payload
+still has zero relocations in that fixture. An initial extra admission check
+incorrectly counted simultaneous IR copies as emitted IR and rejected existing
+loop tests. That draft is retained, along with fixture compilation failures;
+final emitted-IR limits and original resource assertions are unchanged. Opaque
+Cranelift internal allocation accounting remains an existing full-plan caveat.
+
+GNU and musl each pass **63 ABI + 63 backend + three runtime + 27 helper tests**;
+format/check-all pass. Six new direct-link tests cover all twelve targets,
+exact/one-less workspace limits, 96 well-formed source mutations, 60 rewritten
+mutations, host-copy accounting and a branch-pool change hidden behind an
+unchanged instruction handle. Both Miri models pass these six tests and the
+symbol-to-gateway identity test. Existing actual-native differential, runtime,
+GC/fuel/interrupt and helper checks remain intact.
+
+Frozen `static` passes 129 payload tests and check-all; image SHA-256 is
+`01688e32485fa266b65008955e9c4532169cd836910a1ddc247d0be6a58e2a4c`.
+One release-only unused-wrapper warning is retained. Activation is confined to
+the frozen experiment; subsequent profiles/timings above reject the trial.
+Evidence: `payload-static-dispatch-*` and `payload-terminal-profile/static*`
+under `target/jit-evidence/short-slice-performance/`.
+
 #### GetUpvalue destination-only refresh — scoped captures
 
 Commit `fb4a461` resolves closed, parent-frame, current-frame and foreign-stack
@@ -47,8 +202,35 @@ Upvalue Off increases 242 allocator instructions; allocation Auto increases
 function sums, resource counters and ELF/source/inode checks are retained.
 Evidence is `payload-upvalue-read-*`, `payload-terminal-profile/upread*` and
 `new-vs-upread-analysis.json` under the short-slice-performance evidence root.
-Hardware measurements for this candidate have not run yet. It remains
-experimental; the original performance/resource/platform/release gates stay open.
+Two full hardware campaigns complete with **48/48 aggregate failures**, but
+the metamethod regression gate now passes **12/12 candidate windows**, versus
+one of twelve for the preceding candidate in these same campaigns. This
+means it meets the original tolerated-regression threshold, not that it beats
+the interpreter. Callbacks still fail all twelve; every other scored candidate
+case passes. The candidate remains experimental and full acceptance stays open.
+
+Previous/candidate metamethod Auto median-time ratios are 1.0547–1.1173 on CPU 0
+and 1.0036–1.0615 on CPU 16 initially; the repeat gives 1.0449–1.0496 and
+1.0352–1.0882. All twelve favor the new candidate. Repeat CPU 0 same-inode
+metamethod placebo ratios are 0.9999–1.0096; CPU 16 spans 0.9603–1.0220, so
+small individual wins on that CPU are not independently stable evidence.
+
+Negative relative samples are retained: upvalue ratios are 0.9901–0.9995 /
+0.9871–0.9935 initially and 0.9888–0.9944 / 0.9973–1.0005 on repeat, despite
+its passing threshold and lower instruction count. Array includes 0.9565
+initially and 0.9583 on repeat. Allocation repeat CPU 0 includes 0.9896;
+callback CPU 16 includes 0.9975 initially and 0.9984 on repeat. Callback CPU 0
+improves 1.0061–1.0236 initially and 1.0098–1.0305 on repeat, but unchanged
+instruction profiles do not establish a cause or waive the failed threshold.
+
+All **216 direct previous/candidate non-timing comparisons match**. Of 648
+ordinary-relative comparisons, 168 differ only in code_bytes/snapshot_peak_bytes.
+Original workloads/thresholds, eleven paired samples, rotated CPU 0/16 windows,
+ordinary/previous/candidate/same-inode placebo images and contention telemetry
+remain intact. Source/image/inode checks and cleanup pass; no owned build,
+test, profile or edit overlaps either hardware campaign. Both drivers exit 0;
+all 48 benchmark commands exit 2. Evidence: `upread-hardware-{screen,repeat}/`,
+`upread-hardware{,-repeat}-analysis.json`, `upread-vs-new-hardware{,-repeat}-stats.json`.
 
 #### NewTable destination-only refresh — scoped construction
 

@@ -21,6 +21,9 @@ use super::{
     vm::run_vm,
 };
 
+#[cfg(all(test, feature = "jit"))]
+mod callback_handoff;
+
 enum ActiveSequence<'gc> {
     User(BoxSequence<'gc>),
     Close(boxed::Box<CloseSequence<'gc>, MetricsAlloc<'gc>>),
@@ -286,7 +289,7 @@ impl<'gc> Executor<'gc> {
     /// delivered through a separate channel than normal results and cannot be caught by Lua.
     pub fn step(self, ctx: Context<'gc>, fuel: &mut Fuel) -> Result<bool, BadThreadMode> {
         let mut state = self.0.borrow_mut(&ctx);
-        Ok(loop {
+        Ok('executor: loop {
             let mut top_thread = state.thread_stack.last().copied().unwrap();
             let mut res_thread = None;
             match top_thread.mode() {
@@ -347,526 +350,571 @@ impl<'gc> Executor<'gc> {
                 drop(res_state);
             }
 
-            #[cfg(all(
-                feature = "jit",
-                any(
-                    test,
-                    all(
-                        not(miri),
-                        target_os = "linux",
-                        any(target_arch = "x86_64", target_arch = "aarch64")
+            #[cfg(all(test, feature = "jit"))]
+            let mut known_normal = false;
+            let mut run_next_frame = true;
+            while std::mem::replace(&mut run_next_frame, false) {
+                #[cfg(all(test, feature = "jit"))]
+                let mut handoff = 0;
+                #[cfg(all(
+                    feature = "jit",
+                    any(
+                        test,
+                        all(
+                            not(miri),
+                            target_os = "linux",
+                            any(target_arch = "x86_64", target_arch = "aarch64")
+                        )
                     )
-                )
-            ))]
-            let mut step_charged = false;
-            if top_thread.mode() == ThreadMode::Normal {
-                fn do_yield<'gc>(
-                    ctx: Context<'gc>,
-                    thread_stack: &mut vec::Vec<Thread<'gc>, MetricsAlloc<'gc>>,
-                    top_state: &mut ThreadState<'gc>,
-                    // As `do_resume`: the caller holds this stack already.
-                    stack: &mut StackVec<'gc>,
-                    to_thread: Option<Thread<'gc>>,
-                    bottom: usize,
-                ) {
-                    if top_state.closing {
-                        stack.truncate(bottom);
-                        top_state.frames.push(Frame::Error(
-                            crate::RuntimeError::new(anyhow::anyhow!(
-                                "cannot yield while closing a coroutine"
-                            ))
-                            .into(),
-                        ));
-                        return;
-                    }
-                    if let Some(to_thread) = to_thread {
-                        if let Err(err) = to_thread.resume(ctx, Variadic(stack.drain(bottom..))) {
-                            top_state.frames.push(Frame::Error(err.into()));
+                ))]
+                let mut step_charged = false;
+                #[cfg(all(test, feature = "jit"))]
+                let normal = known_normal || top_thread.mode() == ThreadMode::Normal;
+                #[cfg(not(all(test, feature = "jit")))]
+                let normal = top_thread.mode() == ThreadMode::Normal;
+                if normal {
+                    fn do_yield<'gc>(
+                        ctx: Context<'gc>,
+                        thread_stack: &mut vec::Vec<Thread<'gc>, MetricsAlloc<'gc>>,
+                        top_state: &mut ThreadState<'gc>,
+                        // As `do_resume`: the caller holds this stack already.
+                        stack: &mut StackVec<'gc>,
+                        to_thread: Option<Thread<'gc>>,
+                        bottom: usize,
+                    ) {
+                        if top_state.closing {
+                            stack.truncate(bottom);
+                            top_state.frames.push(Frame::Error(
+                                crate::RuntimeError::new(anyhow::anyhow!(
+                                    "cannot yield while closing a coroutine"
+                                ))
+                                .into(),
+                            ));
+                            return;
+                        }
+                        if let Some(to_thread) = to_thread {
+                            if let Err(err) = to_thread.resume(ctx, Variadic(stack.drain(bottom..)))
+                            {
+                                top_state.frames.push(Frame::Error(err.into()));
+                            } else {
+                                top_state.frames.push(Frame::Yielded);
+                                thread_stack.pop();
+                                thread_stack.push(to_thread);
+                            }
                         } else {
                             top_state.frames.push(Frame::Yielded);
-                            thread_stack.pop();
-                            thread_stack.push(to_thread);
+                            top_state.frames.push(Frame::Result { bottom });
                         }
-                    } else {
-                        top_state.frames.push(Frame::Yielded);
-                        top_state.frames.push(Frame::Result { bottom });
                     }
-                }
 
-                fn do_resume<'gc>(
-                    ctx: Context<'gc>,
-                    thread_stack: &mut vec::Vec<Thread<'gc>, MetricsAlloc<'gc>>,
-                    top_state: &mut ThreadState<'gc>,
-                    // Passed in rather than borrowed here: the caller already holds this stack,
-                    // and re-locking it would be a double borrow of the same object.
-                    stack: &mut StackVec<'gc>,
-                    thread: Thread<'gc>,
-                    bottom: usize,
-                ) {
-                    if let Err(err) = thread.resume(ctx, Variadic(stack.drain(bottom..))) {
-                        top_state.frames.push(Frame::Error(err.into()));
-                    } else {
-                        // Tail call the thread resume if we can.
-                        if top_state.frames.is_empty() {
-                            thread_stack.pop();
+                    fn do_resume<'gc>(
+                        ctx: Context<'gc>,
+                        thread_stack: &mut vec::Vec<Thread<'gc>, MetricsAlloc<'gc>>,
+                        top_state: &mut ThreadState<'gc>,
+                        // Passed in rather than borrowed here: the caller already holds this stack,
+                        // and re-locking it would be a double borrow of the same object.
+                        stack: &mut StackVec<'gc>,
+                        thread: Thread<'gc>,
+                        bottom: usize,
+                    ) {
+                        if let Err(err) = thread.resume(ctx, Variadic(stack.drain(bottom..))) {
+                            top_state.frames.push(Frame::Error(err.into()));
                         } else {
-                            top_state.frames.push(Frame::WaitThread);
+                            // Tail call the thread resume if we can.
+                            if top_state.frames.is_empty() {
+                                thread_stack.pop();
+                            } else {
+                                top_state.frames.push(Frame::WaitThread);
+                            }
+                            thread_stack.push(thread);
                         }
-                        thread_stack.push(thread);
                     }
-                }
 
-                // Popped under a short borrow. A native frame has to run with its thread
-                // *unborrowed*, so nothing may hold the thread's state across the call.
-                let frame = top_thread.into_inner().borrow_mut(&ctx).frames.pop();
-                match frame {
-                    Some(Frame::Callback { bottom, callback }) => {
-                        fuel.consume(Self::FUEL_PER_CALLBACK);
-                        // The callback runs on a detached window rather than on the thread's own
-                        // stack, and with the thread unborrowed. A callback may drive another
-                        // `Executor`, and Lua run that way can read or write an open upvalue that
-                        // still points into *this* thread's stack; holding the thread borrowed
-                        // across the call turns that into a panic. Detaching also means a callback
-                        // cannot reach the frames below `bottom`.
-                        let inner = top_thread.into_inner();
-                        let stack = {
-                            let top_state = &mut *inner.borrow_mut(&ctx);
-                            top_state.running = true;
-                            top_state.stack
-                        };
-                        // The frames stay borrowed for the duration of the call. Nothing a native
-                        // does reaches them any more: an open upvalue locks only the stack, which
-                        // is a separate object, so a re-entrant read no longer needs this lock.
-                        let frames = inner.borrow();
-                        let result = callback.call(
-                            ctx,
-                            Execution {
+                    // Popped under a short borrow. A native frame has to run with its thread
+                    // *unborrowed*, so nothing may hold the thread's state across the call.
+                    let frame = top_thread.into_inner().borrow_mut(&ctx).frames.pop();
+                    match frame {
+                        Some(Frame::Callback { bottom, callback }) => {
+                            fuel.consume(Self::FUEL_PER_CALLBACK);
+                            // The callback runs on a detached window rather than on the thread's own
+                            // stack, and with the thread unborrowed. A callback may drive another
+                            // `Executor`, and Lua run that way can read or write an open upvalue that
+                            // still points into *this* thread's stack; holding the thread borrowed
+                            // across the call turns that into a panic. Detaching also means a callback
+                            // cannot reach the frames below `bottom`.
+                            let inner = top_thread.into_inner();
+                            let stack = {
+                                let top_state = &mut *inner.borrow_mut(&ctx);
+                                top_state.running = true;
+                                top_state.stack
+                            };
+                            // The frames stay borrowed for the duration of the call. Nothing a native
+                            // does reaches them any more: an open upvalue locks only the stack, which
+                            // is a separate object, so a re-entrant read no longer needs this lock.
+                            let frames = inner.borrow();
+                            let result = callback.call(
+                                ctx,
+                                Execution {
+                                    executor: self,
+                                    fuel,
+                                    threads: &state.thread_stack,
+                                    lua_frames: &frames.frames,
+                                },
+                                Stack::new(ctx, stack, bottom),
+                            );
+                            drop(frames);
+                            let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
+                            let top_stack = top_state.stack;
+                            let mut top_stack = top_stack.borrow_mut(&ctx);
+                            top_state.running = false;
+                            match result {
+                                Ok(CallbackReturn::Return) => {
+                                    top_state.return_to(&mut top_stack, bottom);
+                                    #[cfg(all(test, feature = "jit"))]
+                                    if !top_state.running
+                                        && !top_state.deferred_error
+                                        && matches!(
+                                            top_state.frames.last(),
+                                            Some(Frame::Lua { .. })
+                                        )
+                                    {
+                                        handoff = 2;
+                                    }
+                                }
+                                Ok(CallbackReturn::Sequence(sequence)) => {
+                                    top_state.frames.push(Frame::Sequence {
+                                        bottom,
+                                        sequence,
+                                        pending_error: None,
+                                    });
+                                }
+                                Ok(CallbackReturn::Call { function, then }) => {
+                                    if let Some(sequence) = then {
+                                        top_state.frames.push(Frame::Sequence {
+                                            bottom,
+                                            sequence,
+                                            pending_error: None,
+                                        });
+                                    }
+                                    top_state.push_call(&mut top_stack, bottom, function);
+                                }
+                                Ok(CallbackReturn::Yield { to_thread, then }) => {
+                                    if let Some(sequence) = then {
+                                        top_state.frames.push(Frame::Sequence {
+                                            bottom,
+                                            sequence,
+                                            pending_error: None,
+                                        });
+                                    }
+                                    do_yield(
+                                        ctx,
+                                        &mut state.thread_stack,
+                                        top_state,
+                                        &mut top_stack,
+                                        to_thread,
+                                        bottom,
+                                    );
+                                }
+                                Ok(CallbackReturn::Resume { thread, then }) => {
+                                    if let Some(sequence) = then {
+                                        top_state.frames.push(Frame::Sequence {
+                                            bottom,
+                                            sequence,
+                                            pending_error: None,
+                                        });
+                                    }
+                                    do_resume(
+                                        ctx,
+                                        &mut state.thread_stack,
+                                        top_state,
+                                        &mut top_stack,
+                                        thread,
+                                        bottom,
+                                    );
+                                }
+                                Err(err) => {
+                                    top_stack.truncate(bottom);
+                                    top_state.frames.push(Frame::Error(err))
+                                }
+                            }
+                        }
+                        Some(frame @ (Frame::Sequence { .. } | Frame::Close { .. })) => {
+                            let (bottom, mut sequence, pending_error) =
+                                ActiveSequence::unpack(frame);
+                            fuel.consume(Self::FUEL_PER_SEQ_STEP);
+
+                            let inner = top_thread.into_inner();
+                            let stack = {
+                                let top_state = &mut *inner.borrow_mut(&ctx);
+                                top_state.running = true;
+                                top_state.stack
+                            };
+                            let frames = inner.borrow();
+                            let exec = Execution {
                                 executor: self,
                                 fuel,
                                 threads: &state.thread_stack,
                                 lua_frames: &frames.frames,
-                            },
-                            Stack::new(ctx, stack, bottom),
-                        );
-                        drop(frames);
-                        let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
-                        let top_stack = top_state.stack;
-                        let mut top_stack = top_stack.borrow_mut(&ctx);
-                        top_state.running = false;
-                        match result {
-                            Ok(CallbackReturn::Return) => {
-                                top_state.return_to(&mut top_stack, bottom);
-                            }
-                            Ok(CallbackReturn::Sequence(sequence)) => {
-                                top_state.frames.push(Frame::Sequence {
-                                    bottom,
-                                    sequence,
-                                    pending_error: None,
-                                });
-                            }
-                            Ok(CallbackReturn::Call { function, then }) => {
-                                if let Some(sequence) = then {
-                                    top_state.frames.push(Frame::Sequence {
-                                        bottom,
-                                        sequence,
-                                        pending_error: None,
-                                    });
-                                }
-                                top_state.push_call(&mut top_stack, bottom, function);
-                            }
-                            Ok(CallbackReturn::Yield { to_thread, then }) => {
-                                if let Some(sequence) = then {
-                                    top_state.frames.push(Frame::Sequence {
-                                        bottom,
-                                        sequence,
-                                        pending_error: None,
-                                    });
-                                }
-                                do_yield(
-                                    ctx,
-                                    &mut state.thread_stack,
-                                    top_state,
-                                    &mut top_stack,
-                                    to_thread,
-                                    bottom,
-                                );
-                            }
-                            Ok(CallbackReturn::Resume { thread, then }) => {
-                                if let Some(sequence) = then {
-                                    top_state.frames.push(Frame::Sequence {
-                                        bottom,
-                                        sequence,
-                                        pending_error: None,
-                                    });
-                                }
-                                do_resume(
-                                    ctx,
-                                    &mut state.thread_stack,
-                                    top_state,
-                                    &mut top_stack,
-                                    thread,
-                                    bottom,
-                                );
-                            }
-                            Err(err) => {
-                                top_stack.truncate(bottom);
-                                top_state.frames.push(Frame::Error(err))
-                            }
-                        }
-                    }
-                    Some(frame @ (Frame::Sequence { .. } | Frame::Close { .. })) => {
-                        let (bottom, mut sequence, pending_error) = ActiveSequence::unpack(frame);
-                        fuel.consume(Self::FUEL_PER_SEQ_STEP);
+                            };
+                            let poll = if let Some(err) = pending_error {
+                                sequence.error(ctx, exec, err, Stack::new(ctx, stack, bottom))
+                            } else {
+                                sequence.poll(ctx, exec, Stack::new(ctx, stack, bottom))
+                            };
+                            drop(frames);
+                            let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
+                            let top_stack = top_state.stack;
+                            let mut top_stack = top_stack.borrow_mut(&ctx);
+                            top_state.running = false;
 
-                        let inner = top_thread.into_inner();
-                        let stack = {
-                            let top_state = &mut *inner.borrow_mut(&ctx);
-                            top_state.running = true;
-                            top_state.stack
-                        };
-                        let frames = inner.borrow();
-                        let exec = Execution {
-                            executor: self,
-                            fuel,
-                            threads: &state.thread_stack,
-                            lua_frames: &frames.frames,
-                        };
-                        let poll = if let Some(err) = pending_error {
-                            sequence.error(ctx, exec, err, Stack::new(ctx, stack, bottom))
-                        } else {
-                            sequence.poll(ctx, exec, Stack::new(ctx, stack, bottom))
-                        };
-                        drop(frames);
-                        let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
-                        let top_stack = top_state.stack;
-                        let mut top_stack = top_stack.borrow_mut(&ctx);
-                        top_state.running = false;
-
-                        match poll {
-                            Ok(SequencePoll::Pending) => {
-                                top_state.frames.push(sequence.frame(bottom, None));
-                            }
-                            Ok(SequencePoll::Return) => {
-                                top_state.return_to(&mut top_stack, bottom);
-                            }
-                            Ok(SequencePoll::Call {
-                                function,
-                                bottom: rel_bottom,
-                            }) => {
-                                top_state.frames.push(sequence.frame(bottom, None));
-                                top_state.push_call(&mut top_stack, bottom + rel_bottom, function);
-                            }
-                            Ok(SequencePoll::TailCall(function)) => {
-                                top_state.push_call(&mut top_stack, bottom, function);
-                            }
-                            Ok(SequencePoll::Yield {
-                                to_thread,
-                                bottom: rel_bottom,
-                            }) => {
-                                top_state.frames.push(sequence.frame(bottom, None));
-                                do_yield(
-                                    ctx,
-                                    &mut state.thread_stack,
-                                    top_state,
-                                    &mut top_stack,
+                            match poll {
+                                Ok(SequencePoll::Pending) => {
+                                    top_state.frames.push(sequence.frame(bottom, None));
+                                }
+                                Ok(SequencePoll::Return) => {
+                                    top_state.return_to(&mut top_stack, bottom);
+                                }
+                                Ok(SequencePoll::Call {
+                                    function,
+                                    bottom: rel_bottom,
+                                }) => {
+                                    top_state.frames.push(sequence.frame(bottom, None));
+                                    top_state.push_call(
+                                        &mut top_stack,
+                                        bottom + rel_bottom,
+                                        function,
+                                    );
+                                }
+                                Ok(SequencePoll::TailCall(function)) => {
+                                    top_state.push_call(&mut top_stack, bottom, function);
+                                }
+                                Ok(SequencePoll::Yield {
                                     to_thread,
-                                    bottom + rel_bottom,
-                                );
-                            }
-                            Ok(SequencePoll::TailYield(to_thread)) => {
-                                do_yield(
-                                    ctx,
-                                    &mut state.thread_stack,
-                                    top_state,
-                                    &mut top_stack,
-                                    to_thread,
-                                    bottom,
-                                );
-                            }
-                            Ok(SequencePoll::Resume {
-                                thread,
-                                bottom: rel_bottom,
-                            }) => {
-                                top_state.frames.push(sequence.frame(bottom, None));
-                                do_resume(
-                                    ctx,
-                                    &mut state.thread_stack,
-                                    top_state,
-                                    &mut top_stack,
+                                    bottom: rel_bottom,
+                                }) => {
+                                    top_state.frames.push(sequence.frame(bottom, None));
+                                    do_yield(
+                                        ctx,
+                                        &mut state.thread_stack,
+                                        top_state,
+                                        &mut top_stack,
+                                        to_thread,
+                                        bottom + rel_bottom,
+                                    );
+                                }
+                                Ok(SequencePoll::TailYield(to_thread)) => {
+                                    do_yield(
+                                        ctx,
+                                        &mut state.thread_stack,
+                                        top_state,
+                                        &mut top_stack,
+                                        to_thread,
+                                        bottom,
+                                    );
+                                }
+                                Ok(SequencePoll::Resume {
                                     thread,
-                                    bottom + rel_bottom,
-                                );
-                            }
-                            Ok(SequencePoll::TailResume(thread)) => {
-                                do_resume(
-                                    ctx,
-                                    &mut state.thread_stack,
-                                    top_state,
-                                    &mut top_stack,
-                                    thread,
-                                    bottom,
-                                );
-                            }
-                            Ok(SequencePoll::Waiting(future)) => {
-                                if top_state.closing {
+                                    bottom: rel_bottom,
+                                }) => {
+                                    top_state.frames.push(sequence.frame(bottom, None));
+                                    do_resume(
+                                        ctx,
+                                        &mut state.thread_stack,
+                                        top_state,
+                                        &mut top_stack,
+                                        thread,
+                                        bottom + rel_bottom,
+                                    );
+                                }
+                                Ok(SequencePoll::TailResume(thread)) => {
+                                    do_resume(
+                                        ctx,
+                                        &mut state.thread_stack,
+                                        top_state,
+                                        &mut top_stack,
+                                        thread,
+                                        bottom,
+                                    );
+                                }
+                                Ok(SequencePoll::Waiting(future)) => {
+                                    if top_state.closing {
+                                        top_stack.truncate(bottom);
+                                        top_state.frames.push(Frame::Error(
+                                            crate::RuntimeError::new(anyhow::anyhow!(
+                                                "cannot await while closing a coroutine"
+                                            ))
+                                            .into(),
+                                        ));
+                                    } else {
+                                        top_state.frames.push(sequence.frame(bottom, None));
+                                        state.pending = Some(future);
+                                        break 'executor false;
+                                    }
+                                }
+                                Err(error) => {
                                     top_stack.truncate(bottom);
-                                    top_state.frames.push(Frame::Error(
-                                        crate::RuntimeError::new(anyhow::anyhow!(
-                                            "cannot await while closing a coroutine"
-                                        ))
-                                        .into(),
-                                    ));
-                                } else {
-                                    top_state.frames.push(sequence.frame(bottom, None));
-                                    state.pending = Some(future);
-                                    break false;
+                                    if sequence.has_pending_close() {
+                                        top_state.frames.push(sequence.frame(bottom, None));
+                                    }
+                                    top_state.frames.push(Frame::Error(error));
                                 }
-                            }
-                            Err(error) => {
-                                top_stack.truncate(bottom);
-                                if sequence.has_pending_close() {
-                                    top_state.frames.push(sequence.frame(bottom, None));
-                                }
-                                top_state.frames.push(Frame::Error(error));
                             }
                         }
-                    }
-                    Some(frame @ Frame::Lua { .. }) => {
-                        let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
-                        top_state.frames.push(frame);
+                        Some(frame @ Frame::Lua { .. }) => {
+                            let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
+                            top_state.frames.push(frame);
 
-                        // One borrow of the stack for the whole VM slice, not one per opcode.
-                        let stack = top_state.stack;
-                        let ordinary = |top_state: &mut ThreadState<'gc>, fuel: &mut Fuel| {
-                            let frame_stack = stack.borrow_mut(&ctx);
-                            #[cfg(feature = "jit")]
-                            let mut frame_stack = frame_stack;
-                            let lua_frame = LuaFrame {
+                            // One borrow of the stack for the whole VM slice, not one per opcode.
+                            let stack = top_state.stack;
+                            let ordinary = |top_state: &mut ThreadState<'gc>, fuel: &mut Fuel| {
+                                let frame_stack = stack.borrow_mut(&ctx);
+                                #[cfg(feature = "jit")]
+                                let mut frame_stack = frame_stack;
+                                let lua_frame = LuaFrame {
+                                    #[cfg(all(
+                                        feature = "jit",
+                                        not(miri),
+                                        target_os = "linux",
+                                        any(target_arch = "x86_64", target_arch = "aarch64")
+                                    ))]
+                                    pair_handoff: None,
+                                    state: top_state,
+                                    #[cfg(feature = "jit")]
+                                    stack: &mut frame_stack,
+                                    #[cfg(not(feature = "jit"))]
+                                    stack: frame_stack,
+                                    fuel,
+                                };
                                 #[cfg(all(
+                                    test,
                                     feature = "jit",
                                     not(miri),
                                     target_os = "linux",
                                     any(target_arch = "x86_64", target_arch = "aarch64")
                                 ))]
-                                pair_handoff: None,
-                                state: top_state,
-                                #[cfg(feature = "jit")]
-                                stack: &mut frame_stack,
-                                #[cfg(not(feature = "jit"))]
-                                stack: frame_stack,
-                                fuel,
+                                let mut lua_frame = lua_frame;
+                                #[cfg(all(
+                                    test,
+                                    feature = "jit",
+                                    not(miri),
+                                    target_os = "linux",
+                                    any(target_arch = "x86_64", target_arch = "aarch64")
+                                ))]
+                                let result = if let Some((completed, start, count)) =
+                                    super::vm::try_scalar_activation(
+                                        ctx,
+                                        &mut lua_frame,
+                                        Self::VM_GRANULARITY,
+                                    ) {
+                                    let mut stats = ctx.jit().interpreter_stats();
+                                    stats.dispatches = 1;
+                                    let result = lua_frame
+                                        .return_upper(&ctx, start, count)
+                                        .map(|()| completed);
+                                    if result.is_ok() {
+                                        stats.reported_instructions = Some(0);
+                                    }
+                                    result
+                                } else {
+                                    run_vm(ctx, lua_frame, Self::VM_GRANULARITY)
+                                };
+                                #[cfg(not(all(
+                                    test,
+                                    feature = "jit",
+                                    not(miri),
+                                    target_os = "linux",
+                                    any(target_arch = "x86_64", target_arch = "aarch64")
+                                )))]
+                                let result = run_vm(ctx, lua_frame, Self::VM_GRANULARITY);
+                                result
                             };
                             #[cfg(all(
-                                test,
                                 feature = "jit",
-                                not(miri),
-                                target_os = "linux",
-                                any(target_arch = "x86_64", target_arch = "aarch64")
+                                any(
+                                    test,
+                                    all(
+                                        not(miri),
+                                        target_os = "linux",
+                                        any(target_arch = "x86_64", target_arch = "aarch64")
+                                    )
+                                )
                             ))]
-                            let mut lua_frame = lua_frame;
-                            #[cfg(all(
-                                test,
-                                feature = "jit",
-                                not(miri),
-                                target_os = "linux",
-                                any(target_arch = "x86_64", target_arch = "aarch64")
-                            ))]
-                            let result = if let Some((completed, start, count)) =
-                                super::vm::try_scalar_activation(
-                                    ctx,
-                                    &mut lua_frame,
-                                    Self::VM_GRANULARITY,
-                                ) {
-                                let mut stats = ctx.jit().interpreter_stats();
-                                stats.dispatches = 1;
-                                let result = lua_frame
-                                    .return_upper(&ctx, start, count)
-                                    .map(|()| completed);
-                                if result.is_ok() {
-                                    stats.reported_instructions = Some(0);
-                                }
-                                result
+                            let result = if let Some(limit) =
+                                std::num::NonZeroUsize::new(ctx.jit().scoped_activation_limit())
+                            {
+                                let outcome = {
+                                    let mut host = super::activation::ActivationHost::new(
+                                        top_state,
+                                        stack.borrow_mut(&ctx),
+                                        fuel,
+                                    );
+                                    host.run(
+                                        ctx,
+                                        limit.get(),
+                                        Self::VM_GRANULARITY,
+                                        Self::FUEL_PER_STEP,
+                                    )
+                                };
+                                #[cfg(test)]
+                                ctx.jit()
+                                    .record_activations(outcome.activations, outcome.stack_growths);
+                                step_charged = true;
+                                outcome.result.map(|()| 0)
                             } else {
-                                run_vm(ctx, lua_frame, Self::VM_GRANULARITY)
+                                ordinary(top_state, fuel)
                             };
                             #[cfg(not(all(
-                                test,
                                 feature = "jit",
-                                not(miri),
-                                target_os = "linux",
-                                any(target_arch = "x86_64", target_arch = "aarch64")
+                                any(
+                                    test,
+                                    all(
+                                        not(miri),
+                                        target_os = "linux",
+                                        any(target_arch = "x86_64", target_arch = "aarch64")
+                                    )
+                                )
                             )))]
-                            let result = run_vm(ctx, lua_frame, Self::VM_GRANULARITY);
-                            result
-                        };
-                        #[cfg(all(
-                            feature = "jit",
-                            any(
-                                test,
-                                all(
-                                    not(miri),
-                                    target_os = "linux",
-                                    any(target_arch = "x86_64", target_arch = "aarch64")
-                                )
-                            )
-                        ))]
-                        let result = if let Some(limit) =
-                            std::num::NonZeroUsize::new(ctx.jit().scoped_activation_limit())
-                        {
-                            let outcome = {
-                                let mut host = super::activation::ActivationHost::new(
-                                    top_state,
-                                    stack.borrow_mut(&ctx),
-                                    fuel,
-                                );
-                                host.run(
-                                    ctx,
-                                    limit.get(),
-                                    Self::VM_GRANULARITY,
-                                    Self::FUEL_PER_STEP,
-                                )
-                            };
-                            #[cfg(test)]
-                            ctx.jit()
-                                .record_activations(outcome.activations, outcome.stack_growths);
-                            step_charged = true;
-                            outcome.result.map(|()| 0)
-                        } else {
-                            ordinary(top_state, fuel)
-                        };
-                        #[cfg(not(all(
-                            feature = "jit",
-                            any(
-                                test,
-                                all(
-                                    not(miri),
-                                    target_os = "linux",
-                                    any(target_arch = "x86_64", target_arch = "aarch64")
-                                )
-                            )
-                        )))]
-                        let result = ordinary(top_state, fuel);
-                        match result {
-                            Err(err) => {
-                                // Give the error a `chunk:line:` prefix while the frame that raised
-                                // it is still on the stack. Added as anyhow context rather than
-                                // by replacing the error with a string, so that Rust callers can
-                                // still `root_cause().downcast_ref()` to the typed cause.
-                                let positioned = match error_position(&top_state.frames) {
-                                    // The context is the position alone, not `position: message` — the
-                                    // error it wraps is its own source, and a chain-printing
-                                    // formatter would otherwise repeat the message verbatim.
-                                    Some(at) => Error::from(crate::RuntimeError::new(
-                                        anyhow::Error::new(err).context(at),
-                                    )),
-                                    None => Error::from(err),
-                                };
-                                top_state.frames.push(Frame::Error(positioned));
-                            }
-                            Ok(instructions_run) => {
-                                fuel.consume(instructions_run.try_into().unwrap());
-                            }
-                        }
-                    }
-                    Some(Frame::Error(err)) => {
-                        let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
-                        if state.thread_stack.len() > 1
-                            && !top_state.closing
-                            && !top_state
-                                .frames
-                                .iter()
-                                .any(|frame| matches!(frame, Frame::Sequence { .. }))
-                        {
-                            top_state.terminal_error = Some(err);
-                            top_state.deferred_error = true;
-                            top_state.error_taken = false;
-                        } else {
-                            match top_state
-                                .frames
-                                .pop()
-                                .expect("normal thread must have frame above error")
-                            {
-                                Frame::Lua { bottom, .. } => {
-                                    let stack = top_state.stack;
-                                    let mut stack = stack.borrow_mut(&ctx);
-                                    top_state.close_upvalues(&ctx, &stack, bottom);
-                                    // An error unwinding past a `<close>` variable still has to run its
-                                    // handler — that is the case cleanup exists for. The handler gets
-                                    // the in-flight error, and the sequence re-raises it afterwards.
-                                    let to_close = top_state.take_to_be_closed(&stack, bottom);
-                                    stack.truncate(bottom);
-                                    if to_close.is_empty() {
-                                        top_state.frames.push(Frame::Error(err));
-                                    } else {
-                                        top_state.frames.push(Frame::close(
-                                            ctx,
-                                            bottom,
-                                            to_close,
-                                            Some(err),
-                                        ));
+                            let result = ordinary(top_state, fuel);
+                            match result {
+                                Err(err) => {
+                                    // Give the error a `chunk:line:` prefix while the frame that raised
+                                    // it is still on the stack. Added as anyhow context rather than
+                                    // by replacing the error with a string, so that Rust callers can
+                                    // still `root_cause().downcast_ref()` to the typed cause.
+                                    let positioned = match error_position(&top_state.frames) {
+                                        // The context is the position alone, not `position: message` — the
+                                        // error it wraps is its own source, and a chain-printing
+                                        // formatter would otherwise repeat the message verbatim.
+                                        Some(at) => Error::from(crate::RuntimeError::new(
+                                            anyhow::Error::new(err).context(at),
+                                        )),
+                                        None => Error::from(err),
+                                    };
+                                    top_state.frames.push(Frame::Error(positioned));
+                                }
+                                Ok(instructions_run) => {
+                                    fuel.consume(instructions_run.try_into().unwrap());
+                                    #[cfg(all(test, feature = "jit"))]
+                                    if !top_state.running
+                                        && !top_state.deferred_error
+                                        && matches!(
+                                            top_state.frames.last(),
+                                            Some(Frame::Callback { .. })
+                                        )
+                                    {
+                                        handoff = 1;
                                     }
                                 }
-                                Frame::Sequence {
-                                    bottom,
-                                    sequence,
-                                    pending_error,
-                                } => {
-                                    assert!(pending_error.is_none());
-                                    top_state.frames.push(Frame::Sequence {
-                                        bottom,
-                                        sequence,
-                                        pending_error: Some(err),
-                                    });
-                                }
-                                Frame::Close {
-                                    bottom,
-                                    sequence,
-                                    pending_error,
-                                } => {
-                                    assert!(pending_error.is_none());
-                                    top_state.frames.push(Frame::Close {
-                                        bottom,
-                                        sequence,
-                                        pending_error: Some(err),
-                                    });
-                                }
-                                frame => panic!("tried to wind through improper frame {frame:?}"),
                             }
                         }
+                        Some(Frame::Error(err)) => {
+                            let top_state = &mut *top_thread.into_inner().borrow_mut(&ctx);
+                            if state.thread_stack.len() > 1
+                                && !top_state.closing
+                                && !top_state
+                                    .frames
+                                    .iter()
+                                    .any(|frame| matches!(frame, Frame::Sequence { .. }))
+                            {
+                                top_state.terminal_error = Some(err);
+                                top_state.deferred_error = true;
+                                top_state.error_taken = false;
+                            } else {
+                                match top_state
+                                    .frames
+                                    .pop()
+                                    .expect("normal thread must have frame above error")
+                                {
+                                    Frame::Lua { bottom, .. } => {
+                                        let stack = top_state.stack;
+                                        let mut stack = stack.borrow_mut(&ctx);
+                                        top_state.close_upvalues(&ctx, &stack, bottom);
+                                        // An error unwinding past a `<close>` variable still has to run its
+                                        // handler — that is the case cleanup exists for. The handler gets
+                                        // the in-flight error, and the sequence re-raises it afterwards.
+                                        let to_close = top_state.take_to_be_closed(&stack, bottom);
+                                        stack.truncate(bottom);
+                                        if to_close.is_empty() {
+                                            top_state.frames.push(Frame::Error(err));
+                                        } else {
+                                            top_state.frames.push(Frame::close(
+                                                ctx,
+                                                bottom,
+                                                to_close,
+                                                Some(err),
+                                            ));
+                                        }
+                                    }
+                                    Frame::Sequence {
+                                        bottom,
+                                        sequence,
+                                        pending_error,
+                                    } => {
+                                        assert!(pending_error.is_none());
+                                        top_state.frames.push(Frame::Sequence {
+                                            bottom,
+                                            sequence,
+                                            pending_error: Some(err),
+                                        });
+                                    }
+                                    Frame::Close {
+                                        bottom,
+                                        sequence,
+                                        pending_error,
+                                    } => {
+                                        assert!(pending_error.is_none());
+                                        top_state.frames.push(Frame::Close {
+                                            bottom,
+                                            sequence,
+                                            pending_error: Some(err),
+                                        });
+                                    }
+                                    frame => {
+                                        panic!("tried to wind through improper frame {frame:?}")
+                                    }
+                                }
+                            }
+                        }
+                        _ => panic!("tried to step invalid frame type"),
                     }
-                    _ => panic!("tried to step invalid frame type"),
                 }
-            }
 
-            #[cfg(all(
-                feature = "jit",
-                any(
-                    test,
-                    all(
-                        not(miri),
-                        target_os = "linux",
-                        any(target_arch = "x86_64", target_arch = "aarch64")
+                #[cfg(all(
+                    feature = "jit",
+                    any(
+                        test,
+                        all(
+                            not(miri),
+                            target_os = "linux",
+                            any(target_arch = "x86_64", target_arch = "aarch64")
+                        )
                     )
-                )
-            ))]
-            if !step_charged {
+                ))]
+                if !step_charged {
+                    fuel.consume(Self::FUEL_PER_STEP);
+                }
+                #[cfg(not(all(
+                    feature = "jit",
+                    any(
+                        test,
+                        all(
+                            not(miri),
+                            target_os = "linux",
+                            any(target_arch = "x86_64", target_arch = "aarch64")
+                        )
+                    )
+                )))]
                 fuel.consume(Self::FUEL_PER_STEP);
-            }
-            #[cfg(not(all(
-                feature = "jit",
-                any(
-                    test,
-                    all(
-                        not(miri),
-                        target_os = "linux",
-                        any(target_arch = "x86_64", target_arch = "aarch64")
-                    )
-                )
-            )))]
-            fuel.consume(Self::FUEL_PER_STEP);
 
-            if !fuel.should_continue() {
-                break false;
+                if !fuel.should_continue() {
+                    break 'executor false;
+                }
+                #[cfg(all(test, feature = "jit"))]
+                if handoff != 0 && callback_handoff::enabled(ctx) {
+                    callback_handoff::record(handoff);
+                    known_normal = true;
+                    run_next_frame = true;
+                }
             }
         })
     }
@@ -1218,6 +1266,8 @@ mod activation_tests {
         .unwrap();
         let executor = lua.enter(|ctx| {
             #[cfg(feature = "jit")]
+            callback_handoff::install(ctx);
+            #[cfg(feature = "jit")]
             ctx.jit().test_activation_host(host_limit);
             #[cfg(all(feature = "jit", not(miri)))]
             if integer {
@@ -1252,6 +1302,8 @@ mod activation_tests {
         if native {
             while lua.prepare_jit().unwrap() != 0 {}
         }
+        #[cfg(feature = "jit")]
+        callback_handoff::observe_prepared(lua.jit_stats());
         let mut trace = Vec::new();
         for _ in 0..10_000 {
             let slice = lua.enter(|ctx| {
@@ -1319,6 +1371,8 @@ mod activation_tests {
             });
             let done = slice.done;
             trace.push(slice);
+            #[cfg(feature = "jit")]
+            callback_handoff::observe_slice(lua.jit_stats());
             lua.gc_collect();
             if done {
                 #[cfg(feature = "jit")]
@@ -1356,6 +1410,130 @@ mod activation_tests {
             }
         }
         panic!("Lua activation batch did not finish");
+    }
+
+    #[cfg(feature = "jit")]
+    #[test]
+    fn callback_handoff_matches_full_boundary_traces_and_statistics() {
+        let sources = [
+            "local n=0 for i=1,20 do n=handoff_value(n) end return n",
+            "local n=0 for i=1,20 do n=boundary(n) end return n",
+            "local n=0 local function read() return n end _ENV.read=read for i=1,20 do n=nested_boundary() end return n",
+            "local n=0 for i=1,20 do local ok=pcall(handoff_value,{}) if not ok then n=n+1 end end return n",
+            "local function f(x) return handoff_value(x) end local n=0 for i=1,20 do n=f(n) end return n",
+            "local co=coroutine.create(function() for i=1,20 do coroutine.yield(handoff_value(i)) end end) local n=0 for i=1,20 do local ok,x=coroutine.resume(co) assert(ok) n=x end return n",
+            "local n=0 for i=1,20 do local x <close> = setmetatable({}, {__close=function() n=handoff_value(n) end}) end return n",
+            "local ticks=0 debug.sethook(function() ticks=ticks+1 end,'',7) local n=0 for i=1,20 do n=handoff_value(n) end debug.sethook() return n",
+            "local n=0 for i=1,20 do if i==4 then handoff_mode(false) elseif i==8 then handoff_mode(true) elseif i==12 then handoff_clear() end n=handoff_value(n) end return n",
+        ];
+        let mut exercised = [0; 2];
+        for source in sources {
+            for budget in [0, 1, 7, 17, 4096] {
+                for native in [false, true] {
+                    let (reference, disabled, stats) =
+                        callback_handoff::capture(false, || run(source, budget, native));
+                    let (actual, counts, actual_stats) =
+                        callback_handoff::capture(true, || run(source, budget, native));
+                    assert_eq!(disabled, [0; 2]);
+                    assert_eq!(actual, reference, "{source}, {budget}, {native}");
+                    callback_handoff::check_equivalent(actual_stats, stats);
+                    for index in 0..2 {
+                        exercised[index] += counts[index];
+                    }
+                }
+            }
+        }
+        if !cfg!(miri) && Lua::empty().jit_capabilities().supported_target {
+            assert!(exercised.into_iter().all(|count| count > 0));
+        }
+    }
+
+    #[cfg(feature = "jit")]
+    #[test]
+    fn callback_handoff_interpreter_model_releases_each_boundary() {
+        let mut exercised = [0; 2];
+        for source in [
+            "handoff_mode(true) local n=0 for i=1,3 do n=handoff_value(n) end handoff_mode(false) return n",
+            "handoff_mode(true) local n=0 local function read() return n end _ENV.read=read for i=1,3 do n=nested_boundary() n=handoff_value(n) end return boundary(n)",
+        ] {
+            for budget in [0, 4096] {
+                let (reference, _, stats) = callback_handoff::capture(false, || run(source, budget, false));
+                let (actual, counts, actual_stats) = callback_handoff::capture(true, || run(source, budget, false));
+                assert_eq!(actual, reference);
+                callback_handoff::check_equivalent(actual_stats, stats);
+                for index in 0..2 { exercised[index] += counts[index]; }
+            }
+        }
+        assert!(exercised.into_iter().all(|count| count > 0));
+    }
+
+    #[cfg(feature = "jit")]
+    #[test]
+    fn callback_handoff_user_panic_preserves_payload_and_releases_guards() {
+        for native in [false, true] {
+            let run = |enabled| {
+                callback_handoff::capture(enabled, || {
+                    let mut lua = Lua::empty();
+                    lua.set_jit_config(crate::JitConfig {
+                        mode: crate::JitMode::Auto,
+                        hot_threshold: u32::MAX,
+                        ..Default::default()
+                    })
+                    .unwrap();
+                    let executor = lua.enter(|ctx| {
+                        callback_handoff::install(ctx);
+                        let closure = Closure::load(
+                            ctx,
+                            Some("handoff-panic"),
+                            b"local n=0 for i=1,3 do n=n+i end handoff_panic() return n",
+                        )
+                        .unwrap();
+                        ctx.stash(Executor::start(ctx, closure.into(), ()))
+                    });
+                    let prepared = native && !cfg!(miri) && lua.jit_capabilities().supported_target;
+                    if prepared {
+                        while lua.prepare_jit().unwrap() != 0 {}
+                    }
+                    callback_handoff::observe_prepared(lua.jit_stats());
+                    let mut fuel = Fuel::with(4096);
+                    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        lua.enter(|ctx| ctx.fetch(&executor).step(ctx, &mut fuel).unwrap())
+                    }))
+                    .unwrap_err();
+                    assert_eq!(panic.downcast_ref::<u64>(), Some(&731));
+                    let state = lua.enter(|ctx| {
+                        let executor = ctx.fetch(&executor);
+                        let state = executor.0.borrow_mut(&ctx);
+                        let thread = state
+                            .thread_stack
+                            .last()
+                            .unwrap()
+                            .into_inner()
+                            .borrow_mut(&ctx);
+                        let stack = thread.stack.borrow_mut(&ctx);
+                        let frames = thread.frames.len();
+                        let manager = ctx.jit().0.borrow_mut();
+                        if prepared {
+                            assert!(manager.stats.native_instructions > 0);
+                        }
+                        (
+                            thread.running,
+                            frames,
+                            stack.iter().copied().map(value).collect::<Vec<_>>(),
+                        )
+                    });
+                    callback_handoff::observe_slice(lua.jit_stats());
+                    (state, fuel.remaining())
+                })
+            };
+            let (reference, disabled, stats) = run(false);
+            let (actual, counts, actual_stats) = run(true);
+            assert_eq!(actual, reference);
+            assert_eq!(disabled, [0; 2]);
+            assert!(counts[0] > 0);
+            assert_eq!(counts[1], 0);
+            callback_handoff::check_equivalent(actual_stats, stats);
+        }
     }
 
     #[cfg(feature = "jit")]
