@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-11
 
-#### Scoped array-window construction — verified, timing pending
+#### Scoped array-window construction — array gate restored, callbacks open
 
 Static inspection of the retained array-transport, direct-copy and early-guard
 images finds identical relocation-normalized instruction forms for window
@@ -32,7 +32,8 @@ GNU and musl focused checks each pass **39 executions/three summaries**. Default
 and Tree Borrows Miri each pass **19 tests**; actual Tree flags/checkout/filter and
 deferred-runner directory were checked. A new 64-prefix/two-access-mode fixture
 checks scalar/reference/NaN bits, zero tail, seeded counters, returned result,
-canonical identity and lease release. The full revised-root suite is running.
+canonical identity and lease release. Revised-root `fmt-check check-all test-all`
+completes with **1,801 passes/88 summaries/six ignored**.
 
 Image `a107418423319704ae0439c326b59d2714a9bb53e08908f8b27f4aea543ad1a8`
 completes eleven profiles with **738,438 fewer array instructions (2.107314%)**
@@ -41,7 +42,34 @@ confirms no memcpy in the scoped constructor. Array memcpy work falls from
 2,211,727 to 1,585,477 instructions; generated kernels are unchanged. Callback,
 allocation, metamethod and scalar Auto totals are unchanged. Upvalue admission
 and allocator differences remain diagnostics rather than claimed gains.
-Hardware acceptance is pending; original gates and all other plan work remain.
+Sixteen repeated instruction profiles preserve all same-image non-timing fields.
+Array reductions repeat at 703,368 instructions; the initial additional 35,070
+instruction saving is variable glibc memset work, not a stable constructor gain.
+Constructor, generated-kernel and memcpy work repeat exactly. Upvalue/allocator
+variance is retained rather than counted as an optimization.
+
+Six hardware campaigns complete **144 commands/3,888 aggregate rows**, after all
+owned checks/profiles finish. Four compare retained array-transport and two compare
+early-guard directly, each with ordinary production and same-image placebo,
+unchanged nine workloads, eleven samples, CPUs 0/16 and three rotated windows.
+The independent checker enforces exact image identities, original thresholds,
+counts and gate exit status. External host activity remains recorded, not stopped.
+
+The candidate passes **36/36 array gates**. In the direct early-guard comparison,
+the previous image passes only **9/12**, versus the candidate's **12/12**; every
+non-timing statistic is identical between those two images. Array previous/candidate
+Auto ratios are **1.066720 and 1.003679**, with placebo ratios **1.017203 and
+1.005534**. Against retained array-transport, the four ratios are **1.025350,
+0.997469, 1.026690, 1.066143**. The fourth campaign has a large placebo swing
+(array **1.181558**), so it is retained but does not establish a precise speedup.
+
+Callbacks pass only **1/36**, and aggregate gates pass only **1/36**: original
+performance acceptance still fails. Allocation/upvalue pass36/36, metamethod35/36.
+Execution statistics versus retained array-transport differ only by the previously
+documented snapshot peaks; placebo counters match exactly. This resolves the
+observed repeated array gate regression in these runs, not the full JIT objective.
+Next work remains callback cost and ordinary-production/shipping/disabled-cost
+verification, without relaxed thresholds or reduced native coverage.
 Evidence: `array-hot-assembly*`, `array-window-{direct,scoped}-init*` under
 `target/jit-evidence/short-slice-performance/`.
 
