@@ -1499,6 +1499,22 @@ impl<'gc, 'a> LuaRegisters<'gc, 'a> {
             .consume(count_fuel(LuaFrame::FUEL_PER_ITEM, count));
     }
 
+    /// Charges fixed-list fuel without borrowing the frame's values.
+    ///
+    /// # Safety
+    /// Registers and fuel are live and exclusively held. Frame-value field
+    /// loans may remain outstanding; no other fuel access overlaps this call.
+    #[cfg(all(test, feature = "jit"))]
+    pub(crate) unsafe fn charge_scoped_fixed_list(registers: *mut Self, count: usize) -> bool {
+        if unsafe { std::ptr::addr_of!((*registers).variable).read() } {
+            return false;
+        }
+        let fuel = unsafe { &mut **std::ptr::addr_of_mut!((*registers).fuel) };
+        fuel.consume(LuaFrame::FUEL_PER_CALL);
+        fuel.consume(count_fuel(LuaFrame::FUEL_PER_ITEM, count));
+        true
+    }
+
     #[cfg(all(
         feature = "jit",
         any(

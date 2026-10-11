@@ -690,6 +690,13 @@ jit-payload-control-miri:
 jit-payload-read-audit:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::read_audit::original_workload_reads -- --exact --nocapture
 
+.PHONY: jit-payload-set-list jit-payload-set-list-miri
+jit-payload-set-list:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::set_list_tests:: $(ARGS)
+
+jit-payload-set-list-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::payload::runtime::set_list_tests:: -- --test-threads=1
+
 jit-payload-bound:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::bound_tests:: $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::bound_ $(ARGS)
@@ -908,6 +915,16 @@ jit-known-bits-miri:
 
 .PHONY: jit-read-cache
 .PHONY: jit-integer-loop
+.PHONY: jit-native-transport jit-native-transport-miri jit-native-transport-runtime
+jit-native-transport:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::transport_tests:: $(ARGS)
+
+jit-native-transport-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::transport_tests:: -- --test-threads=1
+
+jit-native-transport-runtime:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::payload_runtime_tests::hybrid_runtime_ $(ARGS)
+
 .PHONY: jit-table-loop
 jit-table-loop:
 	@$(CARGO) test --locked -p luna --features jit --test jit_table_loop $(TARGET_ARG)

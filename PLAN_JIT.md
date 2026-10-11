@@ -11,6 +11,192 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Scoped SetList transport — allocation overhead reduced
+
+`26faadb` adds a bounded fixed-list payload helper. It reads values through live
+descriptors, charges the same fixed-list fuel through an exclusive fuel-field
+loan, writes table elements and refreshes only the index descriptor. It does not
+borrow the whole frame while sibling descriptor loans are live. Malformed bounds
+and receiver/index types use the existing fallback before any fast-path effects.
+Variable frames decline with the original PC/counters; overflow, partial writes,
+readonly panics and stopped-helper behavior retain the original contract. The
+main-checkout helper and scoped fuel API remain test-only.
+
+Three focused differential/provenance tests cover widths 3/7/256, thirteen value
+kinds, negative/overflow indices, malformed prefixes, zero/large counts, exact
+fuel/PC/counters, readonly/variable frames, terminal scalar values, decline/reentry
+and writes through preserved sibling pointers. Both Stacked and Tree Borrows
+pass all three in both isolated and main-checkout sources. Main GNU and musl each
+also pass the enlarged hybrid runtime oracle, including fixed and variable-list
+table constructors with interpreter/ordinary controls, per-slice fuel/counters
+and periodic GC. These are **four tests/two summaries per native platform**.
+A fresh full GNU Force run is active; the completed 1,780-test wrapper run below
+predates this SetList change.
+
+Activated image
+`3e40e67fea4deda32a37902d991c0c6e9436382212381096abdda017ec1ee2e1`
+completes eleven exact-image profiles. Against the previous split candidate all
+non-timing fields match. Allocation work falls **2,102,357 instructions
+(-6.326%)**, bringing total modeled allocation work to 6,109 instructions below
+the current unactivated production control, rather than its former roughly
+6.75% excess. Callback/integer/float Auto totals are unchanged. Array adds 211
+instructions; upvalue removes 102,022 and metamethod removes 35,716. Integer,
+float and callback Off totals are exact; upvalue Off adds 242 instructions.
+GNU size text grows 1,704 bytes versus the split candidate. Snapshot/code-size
+differences against ordinary production remain, so strict resource equality
+against production still fails.
+
+Two four-way timing campaigns complete **48 commands / 1,296 rows**, using the
+current unactivated root-refactor image `1a8916db` as control/placebo and split
+image `599b4756` as previous candidate. Original thresholds, eleven samples,
+CPU0/16 windows, rotated order, exact-image/source checks and contention telemetry
+remain unchanged, with no owned validation/profile overlap. Direct Auto ratios
+versus current production (first/repeat) are integer **0.99433 / 0.99812**, float
+**0.99493 / 0.99159**, array **0.96406 / 1.00629**, upvalue
+**0.99703 / 0.99137**, metamethod **1.04719 / 1.04400**, callback
+**1.02265 / 1.02321**, allocation **1.01593 / 1.01300**, unscored Oslo
+**0.98795 / 1.00555**, cold **0.99274 / 0.99218**. Allocation's improvement
+is measurable here, but array variance and remaining numeric/upvalue losses
+prevent a general acceptance claim. Candidate callback and aggregate gates pass
+**0/12**. Of all commands, 47 fail and one placebo passes (repeat CPU16 window3);
+that placebo result is not candidate acceptance.
+
+Evidence: `target/jit-evidence/short-slice-performance/payload-set-list-*` and
+`payload-terminal-profile/payload-set-list*/`. Production payload activation,
+the remaining resource costs and full-plan acceptance are still incomplete.
+
+#### Split transport wrappers — measured development change
+
+`cb7ccd5` selects the canonical/ordinary wrapper specialization from the actual
+entry kind before entering its outlined body. Frame construction, bounds, array
+prefix commits, scalar write-back, projection, panic propagation and counters
+remain shared. Canonical selection is still test-only in the main checkout;
+the caller-shadow test adapter preserves its existing mode selection. No public
+stack contract, cached-value assumption or native coverage is changed.
+
+The isolated activated image
+`599b47567b433ba36f15eab0beb8d99078cc6c04c7784c8034b9f6686f4ba422`
+passes 61 focused tests/six summaries and eleven exact-image profiles. Against
+the preceding cleanup all non-timing execution/resource fields match; four Off
+instruction totals are exact. Auto instruction changes are callback -194,479,
+integer -135,817, float -88,860, array -65,239, allocation -7,812 and metamethod
+-64,365; upvalue adds 146,791. The five-register ordinary stack reservation
+returns from `0x848` to `0x808`, but some work moves into VM dispatch. Against
+production, numeric overhead remains about 1% in modeled instructions. The
+activated executable's GNU `size` text category grows **104,192 bytes** versus
+the cleanup; equality of JIT-owned resource fields does not hide that host cost.
+
+Two four-way campaigns complete 48 commands/1,296 rows with unchanged thresholds,
+production controls/placebos, preceding-cleanup controls, rotated orders and
+contention telemetry; no owned validation/profile overlaps hardware timing.
+Direct Auto production ratios (first/repeat) are integer **0.99424 / 0.99397**,
+float **0.98792 / 0.98768**, array **1.00479 / 0.97003**, upvalue
+**1.00212 / 0.99688**, metamethod **1.03385 / 1.03982**, callback
+**1.02331 / 1.02074**, allocation **0.99118 / 1.01467**, unscored Oslo
+**0.99321 / 0.99026**, and cold **1.00218 / 0.99852**. Numeric regression is
+smaller, not eliminated. Candidate aggregate/callback gates pass only **1/12**
+(repeat CPU0 window1); 47 of all 48 commands fail. Array variability, remaining
+resource growth and the original acceptance failures remain open.
+
+Main-checkout validation passes GNU **41 / nine summaries**, musl **16 / three**,
+and caller-shadow Stacked/Tree Borrows **seven each**. GNU includes mixed-cache,
+bound, packed-runtime, projection and call-runtime coverage; musl includes the
+mixed cache, packed-entry rejection/failure and caller-shadow checks. A fresh
+full GNU Force rerun now passes **1,780 tests / 88 summaries**, zero failures and
+six ignored tests, on this refactor (`transport-split-root-gnu-all.log`).
+
+The unactivated main-checkout refactor is independently frozen as
+`1a8916dbbba13e5eeed5fb84b7aa33745c2ee4210df4f85ba073f6df1ad4ec26`.
+Its eleven profiles match every production non-timing field. Integer/float/array
+Auto and all four Off instruction totals are unchanged; callback -81, upvalue
++52,996, allocation +6,299 and metamethod -133,864 remain recorded. GNU size
+categories and `.rodata` match, but `.text` and the complete image are not
+byte-identical. Separate two-campaign production timing completes 48 commands:
+integer **1.00214 / 1.00275**, float **0.99976 / 1.00035**, array
+**1.00359 / 1.03181**, upvalue **0.99709 / 0.99650**, metamethod
+**1.00251 / 0.99540**, callback **0.99981 / 1.00441**, allocation
+**0.99723 / 0.99732**, Oslo **1.00166 / 1.00025**, cold **1.00373 / 0.99108**.
+These busy-host observations are not a blanket no-regression or release claim.
+
+Artifact inspection initially used `objcopy --dump-section` without a separate
+output, which rewrote the two unactivated ELF inputs after profiling. The timing
+identity guard rejected them before any samples. Mutated files and the failed
+attempt are retained; exact original images were restored from independently
+hash-verified link captures, without changing expected checksums. All accepted
+timing above uses those restored original images with final identity checks.
+
+Evidence: `target/jit-evidence/short-slice-performance/transport-split-*` and
+`payload-terminal-profile/transport-split*/`. Production payload selection and
+full-plan performance acceptance remain incomplete.
+
+#### Source-based native transport — numeric regression reduced, not accepted
+
+`e043810` adds a test-only `PreferBoundPayload` selector. It preserves ordinary
+native transport when the existing numeric-loop source planner recognizes a
+region, and preserves projected/scoped/rooted/leaf/cell/activation modes. Other
+compatible code uses FrameBound. The query verifies the complete snapshot before
+planning, uses no new charged storage, and contains no benchmark names or runtime
+value assumptions. A source plan does not guarantee optimization within a given
+work budget; declining that optimization still leaves ordinary native code.
+
+Source-policy tests cover integer/float/mixed bodies, effectful prefixes/suffixes,
+unknown inputs, wide frames, invalid registers/constants/jumps and ledger stability.
+Native tests check selected entry families, cleanup and existing specialized-mode
+success/refusal parity. The broad runtime differential now checks a cache containing
+both ABIs, every existing script/budget/GC/callback/hook/counter/array-kernel case,
+and retirement. GNU and musl each pass **12 / four summaries**; both Miri models
+pass the two Rust-only policy tests. Initial fixture API mistakes and an invalid
+assumption that every specialized source/mode compiles were corrected; the latter
+now compares actual acceptance/refusal to ordinary control instead of forcing it.
+
+Activated image `788058ad8e72395ef970f6c23eb9ca66688a9c3b6d86bf862415bd6a14046450`
+completes eleven exact-image profiles against fresh production `7bd2c14f`.
+Integer/float overhead drops to **201,925 instructions each**, entirely in the
+entry wrapper; generated numeric code self work matches production. Numeric
+snapshot peaks also match. Callback reduction remains 3,628,431 instructions.
+Two four-way timing campaigns complete **48 commands / 1,296 rows**, preserving
+all original gates and controls with no owned validation overlap. Direct Auto
+ratios versus production (first/repeat) are integer **0.98119 / 0.98125**, float
+**0.97987 / 0.97771**, callback **1.04202 / 1.02152**, metamethod
+**1.02014 / 1.03432** and array **0.99221 / 0.96502**. Thus the earlier roughly
+13% numeric throughput loss shrinks to roughly 2%, not zero. Callback gates remain
+0/12 and all aggregate gates fail. Metadata/code/remaining snapshot costs are open.
+
+`25ce15b` explicitly scopes sparse-mask dispatch to tests while retaining its
+behavior. A separate activation then also keeps its unused optional sparse
+metadata field test-only, rather than charging every release Code for an
+unselected feature. Image
+`0e3c4b89ebc31eb7f07815c10a07c3f7b45a3af89c0a85ae258c21d6c7672b9a`
+completes eleven profiles: **metadata byte/peak fields now match production in
+every profiled case**. Callback work falls 3,823,059 instructions versus production;
+integer/float totals remain adverse by 281,081/234,233. The integer total includes
+46,848 additional admission instructions; do not attribute all of it to entry
+dispatch. Array/metamethod code mappings still grow 4,096 bytes and callback/
+allocation/metamethod snapshot peaks remain larger, so strict resource equality
+still fails. Post-refactor musl passes **37 / seven summaries** including hybrid
+runtime; full GNU Force validation passes **1,780 / 88 summaries**, six ignored.
+`9b0a81e` strengthens the runtime oracle to require both entry families in one
+simultaneous cache, rather than accumulating observations across Lua states.
+Its GNU and musl focused reruns both pass.
+
+Cleanup timing now completes another **48 commands / 1,296 rows** against
+production, the preceding hybrid and a production placebo, without owned
+validation/profile overlap. Direct Auto ratios against production are integer
+**0.98495 / 0.98387**, float **0.97428 / 0.97467**, array **0.99291 / 0.98354**,
+upvalue **1.00381 / 1.00745**, metamethod **1.03128 / 1.03430**, callback
+**1.02049 / 1.00205**, allocation **1.01133 / 1.02526**, unscored Oslo
+**0.99149 / 0.98592**, and cold **1.00912 / 0.99900**. These are medians of
+window-level direct Auto ratios, not normalized paired ratios or gate results.
+All 48 aggregate gates still fail; callback gates remain 0/12. Numeric throughput
+loss remains reproducible and the callback gain is not stable across campaigns.
+The cleanup removes unused storage but is not a general performance acceptance.
+Reports and raw evidence use the `numeric-transport-clean-*` prefix.
+Production selection remains unchanged; this is development progress only.
+
+Evidence: `target/jit-evidence/short-slice-performance/numeric-transport-*` and
+`payload-terminal-profile/numeric-transport*/`. Failed fixture/build logs are
+retained alongside successful retries, not reported as passing executions.
+
 #### Integer-only inline payload binding — measured development WIP
 
 The typed binder now keeps only Integer inline and outlines Number together
@@ -35,7 +221,9 @@ GNU format/check-all and payload ABI/backend/runtime pass **229 / four summaries
 Stacked and Tree Borrows each pass **six / five summaries**, covering binding
 transitions, mixed-prefix reentry, function-table pointers, capacity/unwind and
 caught-helper-panic reuse. Focused musl passes **29 / eight summaries**. These
-checks are complete; a full-workspace Force rerun is in progress, not yet accepted.
+checks are complete. Full GNU `jit-test-all JIT_MODE=force` subsequently passes
+**1,775 / 88 summaries**, with six existing ignores, including the retained
+public-stack-alias integration regression. It ran after hardware timing.
 
 Four complete four-way timing campaigns retain **96 failed aggregate gates**
 and **2,592 parsed rows**, with historical/control/placebo images, eleven paired
@@ -58,13 +246,37 @@ the favorable pooled medians do not erase them. No blanket speedup is claimed.
 Original callback gates still pass **0/24**; array/upvalue pass 23/24,
 metamethod 22/24, integer/float/allocation/cold 24/24; Oslo remains unscored.
 The small, semantically unchanged binder is retained as experimental development
-WIP, **not promoted to production or accepted as the regression fix**. Next,
-compare the complete experimental ABI against a freshly frozen current-production
-image, not merely against the preceding experimental binder. Original full
-performance, feature-cost, resource and release gates remain open.
+WIP, **not promoted to production or accepted as the regression fix**. Original
+full performance, feature-cost, resource and release gates remain open.
+
+The subsequent clean current-production build at `2f6b2ae` has **no activation
+patch** and image
+`7bd2c14f2e77e33f10fd41fae0a13034600355b94f526f89ef4357617edfd409`.
+Eleven exact-load-image profiles against this actual non-test path expose larger
+ABI tradeoffs: callback -3,628,431 instructions and metamethod -3,396,641, but
+integer **+1,810,139 (+12.988%)**, float **+1,395,470 (+9.666%)**, allocation
+**+2,118,695 (+6.806%)**, array +889,844 and upvalue +146,700. Four Off totals
+are exact. Strict non-timing equality **fails**: metadata grows 32/64/96 bytes,
+array/metamethod code mappings each grow 4,096 bytes, and several snapshot peaks
+increase. Logical execution/native-coverage counters match; resource differences
+are retained rather than removed from comparison.
+
+Two further production-controlled four-way timing campaigns complete 48 commands
+and 1,296 rows, again without owned validation overlap. Direct Auto ratios
+(first/repeat) are integer **0.87339 / 0.86627**, float **0.87656 / 0.87469**,
+array **0.96623 / 0.96904**, allocation **0.98753 / 0.98873**, upvalue
+0.99689 / 1.00820, callback **1.01984 / 1.02678** and metamethod
+**1.02277 / 1.02735**. Every aggregate gate still fails. Snapshot/code/metadata
+differences are present in both candidate and preceding experimental variant;
+same-image placebo fields match. Original workload and threshold definitions
+are unchanged. Thus the full payload ABI must **not** replace ordinary native
+transport indiscriminately. A next candidate must preserve the existing optimized
+numeric-loop transport and evaluate helper-heavy regions separately using
+verified source/IR properties, never benchmark names or skipped native work.
+That selection change is a hypothesis, not implemented or accepted here.
 
 Evidence: `target/jit-evidence/short-slice-performance/integer-binding-*` and
-`payload-terminal-profile/integer-binding*/`. The root runtime remains on its
+`payload-terminal-profile/{integer-binding*,production-current*}/`. The root runtime remains on its
 existing production selection; release activation is isolated for measurement.
 
 #### Integer-pair binding — instruction screen rejected

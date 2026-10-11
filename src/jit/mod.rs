@@ -1794,8 +1794,29 @@ impl Runtime {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
-    #[inline(never)]
+    #[inline(always)]
     fn invoke<'gc, const CAPACITY: usize, const EXACT: bool>(
+        &self,
+        code: &backend::Code,
+        ctx: crate::Context<'gc>,
+        closure: crate::Closure<'gc>,
+        registers: &mut crate::thread::LuaRegisters<'gc, '_>,
+        budget: u32,
+    ) -> u32 {
+        #[cfg(all(test, not(miri)))]
+        if code.entry_kind.needs_canonical_frame() {
+            return self
+                .invoke_transport::<CAPACITY, EXACT, true>(code, ctx, closure, registers, budget);
+        }
+        self.invoke_transport::<CAPACITY, EXACT, false>(code, ctx, closure, registers, budget)
+    }
+
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[inline(never)]
+    fn invoke_transport<'gc, const CAPACITY: usize, const EXACT: bool, const CANONICAL: bool>(
         &self,
         code: &backend::Code,
         ctx: crate::Context<'gc>,
@@ -1805,8 +1826,8 @@ impl Runtime {
     ) -> u32 {
         let register_count = if EXACT { CAPACITY } else { code.registers };
         #[cfg(all(test, not(miri)))]
-        if code.entry_kind.needs_canonical_frame() && code.array_kernels.is_none() {
-            return self.invoke_frame::<CAPACITY, false, false>(
+        if CANONICAL && code.array_kernels.is_none() {
+            return self.invoke_frame_transport::<CAPACITY, false, false, CANONICAL>(
                 code,
                 ctx,
                 closure,
@@ -1852,7 +1873,7 @@ impl Runtime {
                 closure.upvalues(),
                 slots,
                 |registers, pointer, projection| {
-                    self.invoke_frame::<CAPACITY, true, false>(
+                    self.invoke_frame_transport::<CAPACITY, true, false, CANONICAL>(
                         code,
                         ctx,
                         closure,
@@ -1863,7 +1884,7 @@ impl Runtime {
                 },
             )
         } else {
-            self.invoke_frame::<CAPACITY, false, false>(
+            self.invoke_frame_transport::<CAPACITY, false, false, CANONICAL>(
                 code,
                 ctx,
                 closure,
@@ -1929,8 +1950,44 @@ impl Runtime {
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
+    #[cfg(test)]
     #[inline(always)]
     fn invoke_frame<'gc, const CAPACITY: usize, const PROJECTED: bool, const DEFER: bool>(
+        &self,
+        code: &backend::Code,
+        ctx: crate::Context<'gc>,
+        closure: crate::Closure<'gc>,
+        registers: &mut crate::thread::LuaRegisters<'gc, '_>,
+        binding: (
+            *mut abi::Slot,
+            Option<&mut dyn projection::Bridge<'gc>>,
+            usize,
+        ),
+        budget: u32,
+    ) -> u32 {
+        #[cfg(not(miri))]
+        if code.entry_kind.needs_canonical_frame() {
+            return self.invoke_frame_transport::<CAPACITY, PROJECTED, DEFER, true>(
+                code, ctx, closure, registers, binding, budget,
+            );
+        }
+        self.invoke_frame_transport::<CAPACITY, PROJECTED, DEFER, false>(
+            code, ctx, closure, registers, binding, budget,
+        )
+    }
+
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[inline(always)]
+    fn invoke_frame_transport<
+        'gc,
+        const CAPACITY: usize,
+        const PROJECTED: bool,
+        const DEFER: bool,
+        const CANONICAL: bool,
+    >(
         &self,
         code: &backend::Code,
         ctx: crate::Context<'gc>,
@@ -1984,7 +2041,7 @@ impl Runtime {
         };
         let pc = *frame.registers.pc;
         #[cfg(all(test, not(miri)))]
-        if code.entry_kind.needs_canonical_frame() && array_prefix.is_some() {
+        if CANONICAL && array_prefix.is_some() {
             let slots = unsafe { std::slice::from_raw_parts(slots, register_count) };
             for (slot, dest) in slots
                 .iter()
@@ -2014,7 +2071,9 @@ impl Runtime {
             leaf::Binding::from_origin(origin, scratch)
         });
         #[cfg(all(test, not(miri)))]
-        let payload_exit = if code.entry_kind == backend::EntryKind::Packed {
+        let payload_exit = if !CANONICAL {
+            None
+        } else if code.entry_kind == backend::EntryKind::Packed {
             Some(
                 match code.invoke_packed_report::<CAPACITY>(&mut frame, pc, budget) {
                     Ok(exit) => exit,
@@ -2062,7 +2121,7 @@ impl Runtime {
         };
         let write_back = !DEFER || frame.panic.is_some();
         #[cfg(test)]
-        let write_back = write_back && !code.entry_kind.needs_canonical_frame();
+        let write_back = write_back && !CANONICAL;
         if write_back {
             let slots = unsafe { std::slice::from_raw_parts(slots, register_count) };
             for (slot, dest) in slots

@@ -305,6 +305,12 @@ fn constant(cursor: &mut FuncCursor<'_>, slot: abi::Slot) -> Value {
     }
 }
 
+#[cfg(test)]
+pub(super) fn has_source_plan(source: &Snapshot) -> Result<bool, JitError> {
+    source.verify()?;
+    Ok(Plan::new(source).is_some())
+}
+
 pub(super) fn augment(
     function: &mut Function,
     source: &Snapshot,

@@ -109,6 +109,11 @@ fn bound_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
 }
 
 #[test]
+fn hybrid_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
+    payload_runtime_contract(backend::Failure::PreferBoundPayload);
+}
+
+#[test]
 fn sparse_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
     payload_runtime_contract(backend::Failure::RequireSparsePayload);
 }
@@ -124,9 +129,13 @@ fn packed_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
 }
 
 fn payload_runtime_contract(failure: backend::Failure) {
+    let mut observed_mixed_cache = false;
     for (script, expected, arrays) in [
         ("local s=0 for i=1,120 do s=s+i end return s", 7260, false),
         ("local s=0.0 for i=1,120 do s=s+0.5 end return s", 60, false),
+        ("local s=0 for i=1,120 do local t={i,i+1,false,nil,'x'} s=s+t[1]+t[2] assert(t[3]==false and t[4]==nil and t[5]=='x') end return s", 14640, false),
+        ("local function values(i) return i,i+1 end local s=0 for i=1,120 do local t={values(i)} s=s+t[1]+t[2] end return s", 14640, false),
+        ("local function sum() local s=0 for i=1,8 do s=s+i end return s end local function read(t) return t.key end local t={key=3} local n=0 for i=1,80 do n=n+sum()+read(t) end return n", 3120, false),
         ("local n=0 local function f(x) n=n+x return n end for i=1,120 do f(i) end return n", 7260, false),
         ("local n=0 for i=1,120 do n=n+tonumber('1') end return n", 120, false),
         ("local t={} for i=1,120 do t[i]=i end local s=0 for i=1,120 do s=s+t[i] end return s", 7260, true),
@@ -177,13 +186,22 @@ fn payload_runtime_contract(failure: backend::Failure) {
                 assert_eq!(actual_step, expected_step);
                 assert_eq!(counters(candidate.jit_stats()), counters(control.jit_stats()), "{script}: initial={initial} turn={turn}");
                 assert_eq!(candidate.jit_stats().total_dispatches, reference.jit_stats().total_dispatches);
+                let mut observed_transports = [false; 2];
                 candidate.enter(|ctx| assert!(ctx.jit().0.borrow().code.values().all(|cached| {
+                    if failure == backend::Failure::PreferBoundPayload {
+                        return match cached.code.entry_kind {
+                            backend::EntryKind::Ordinary => { observed_transports[0] = true; true }
+                            backend::EntryKind::FrameBound => { observed_transports[1] = true; true }
+                            _ => false,
+                        };
+                    }
                     cached.code.entry_kind == match failure {
                         backend::Failure::RequirePackedPayload => backend::EntryKind::Packed,
                         backend::Failure::RequireBoundPayload | backend::Failure::RequireSparsePayload | backend::Failure::RequireWriteBoundPayload => backend::EntryKind::FrameBound,
                         _ => backend::EntryKind::Checked,
                     }
                 })));
+                observed_mixed_cache |= observed_transports == [true, true];
                 if actual_step.0 { finished = true; break; }
                 if turn % 11 == 0 {
                     reference.gc_collect();
@@ -205,5 +223,8 @@ fn payload_runtime_contract(failure: backend::Failure) {
             candidate.clear_jit_cache();
             assert_eq!(candidate.jit_stats().code_bytes, 0);
         }
+    }
+    if failure == backend::Failure::PreferBoundPayload {
+        assert!(observed_mixed_cache);
     }
 }

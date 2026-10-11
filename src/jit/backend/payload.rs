@@ -997,6 +997,7 @@ impl Code {
         type Entry = unsafe extern "C" fn(*mut Payload, u64, u32, *mut Exit, *mut Bridge);
         let entry: Entry = unsafe { std::mem::transmute(self.entry) };
         let mut exit = Exit::default();
+        #[cfg(test)]
         if let Some(mask) = self
             .binding_requirements
             .as_ref()
@@ -1011,11 +1012,11 @@ impl Code {
                     },
                 );
             }
-        } else {
-            crate::jit::abi::payload::runtime::with_binding::<CAPACITY>(frame, |binding| unsafe {
-                binding.invoke(entry, self.registers, pc, budget, &mut exit);
-            });
+            return exit;
         }
+        crate::jit::abi::payload::runtime::with_binding::<CAPACITY>(frame, |binding| unsafe {
+            binding.invoke(entry, self.registers, pc, budget, &mut exit);
+        });
         exit
     }
 }
