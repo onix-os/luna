@@ -48,10 +48,19 @@ mapping reclamation. The focused GNU suite now passes one/four/one plus
 fmt/check-all; native execution is excluded from Miri. Initial test privacy
 and Exit-comparison compile errors were corrected without changing public
 types, with logs in `payload-terminal-native-exits*.log`.
+The final complete GNU and musl reruns each pass **38 ABI, 33 backend and two
+runtime tests**, with zero failures/ignores (`payload-terminal-complete-*`).
 No benchmark or whole-register-copy elimination is established by this local
 optimization. The prior experimental activation patch no longer applies to
 the changed runtime/write modules; adapt it in isolated experimental sources
 for matched profile candidates, not by enabling this path in production.
+Matched experimental sources now exist at control `287acb0` and candidate
+`009e0aa` in detached worktrees under `payload-terminal-profile`. Both use the
+same prior ordinary-payload activation, adapted for the new gateway. Their
+build uses a separate Cargo target directory, preserving the main checkout's
+source and release artifacts. Capture source hashes, activation patches and
+stripped/symbol link images before instruction profiling; the build is not
+performance evidence and neither experimental source is release acceptance.
 
 Target the ordinary wrapper's **12,321,657 import/writeback instructions**,
 not another tiny scalar-guard or rejected callback-setup/cache variation.
