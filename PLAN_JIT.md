@@ -11,6 +11,65 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### Array-aware entry selection — measured development change
+
+`933e2c6` extends the test-only transport preference to source regions recognized
+by the existing array-window planner. Such functions retain ordinary scalar-slot
+transport; compatible functions without numeric/array plans still use FrameBound.
+Recognition verifies the snapshot and allocates no charged storage. This is a
+source opportunity, not a promise that work/mapping budgets admit a kernel.
+No benchmark names, native coverage changes or runtime type assumptions are used.
+
+Tests cover twelve positive/negative sources, unchanged snapshots/ledger usage,
+six malformed snapshots, both native entry families, and retained executable
+ordinary code when the optional array mapping cannot fit. Runtime comparisons
+cover float-control guards, metatable writes and host readonly mutation between
+GC-stepped slices, in addition to the existing broad mixed-cache oracle. GNU and
+musl each pass **nine tests / four summaries**; both main-checkout Miri models
+pass **four / two**, and isolated query checks pass two per model. A fresh full
+GNU Force run is active; the preceding 1,783-test SetList result is not substituted
+for validation of this policy.
+
+Activated image
+`60ab5a5bddccb73c391e7a89446b15238c7d3302c94f4aa3f035d8f8e0d81cdf`
+completes eleven exact-image profiles. Against the SetList candidate, array work
+falls **723,024 instructions (-2.0216%)** and retained array code falls from
+**16,384 to 12,288 bytes**, matching current ordinary production. Array kernels,
+main generated code, window setup and helper5 work now match production; wrapper
+and VM-entry work leave **90,383 extra instructions (+0.2586%)**. Every array
+non-timing execution/resource field matches production. Other workloads retain
+prior snapshot/code costs; allocation and callback improvements are unchanged.
+Against SetList, integer Auto adds 109 instructions, upvalue removes 106,532, and
+all four Off totals match. These incidental changes are not attributed to array
+kernels. Host GNU size text shrinks 228 bytes; total text/data/bss shrinks four.
+
+Four unchanged eleven-sample, four-way campaigns complete **96 commands / 2,592
+report rows**, retaining current production `1a8916db`, previous SetList
+`3e40e67f`, same-image placebos, CPU0/16 windows, rotated order, frozen thresholds
+and external telemetry. No owned validation/profile overlaps timing. The first
+two campaigns show large non-repeatable direct timing shifts, including integer
+1.35323/1.00015 and array 0.99794/1.19240 against production. Unchanged workload
+instruction counts, paired ratios and the next two campaigns do not substantiate
+those large direct ratios as optimization gains. All raw data is retained.
+
+The second pair gives direct Auto production ratios (screen/repeat): integer
+**0.99210 / 0.99105**, float **0.99420 / 0.99214**, array
+**0.99402 / 0.98984**, upvalue **0.99970 / 1.00222**, metamethod
+**1.03970 / 1.03828**, callback **1.02799 / 1.02539**, allocation
+**1.01525 / 1.02359**, unscored Oslo **0.98937 / 0.99603**, cold
+**0.98268 / 0.99683**. Array is **1.00791 / 1.00403** versus the previous
+candidate on direct Auto timings, a modest improvement rather than a claimed
+19% gain. Its normalized paired candidate/previous ratios across all four
+campaigns are 1.00619, 1.02158, 1.01688 and 1.00460; these are not direct timings
+or original gate ratios. All 96 aggregate gates fail. Candidate array gates pass
+20/24, callback 1/24, upvalue 23/24 and metamethod 21/24; numeric/allocation/cold
+pass 24/24. Remaining regressions and callback/resource gates are still open.
+
+Evidence: `target/jit-evidence/short-slice-performance/array-transport-*`, including
+the separate `round2` campaigns and `control-stability.json`, plus frozen
+`payload-terminal-profile/array-transport*/`. Production activation and full-plan
+acceptance remain incomplete.
+
 #### Scoped SetList transport — allocation overhead reduced
 
 `26faadb` adds a bounded fixed-list payload helper. It reads values through live
