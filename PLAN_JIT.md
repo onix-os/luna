@@ -161,6 +161,32 @@ to **516,846 (0.2422%)**, and integer/float Off growth drops from 128,661 to
 The guarded refinement reduces rather than eliminates callback-free overhead;
 original paired hardware gates and compiled-Off cost acceptance remain open.
 
+Both `handoff4` hardware campaigns subsequently finish, again with **48/48
+aggregate invocations failing**. All **216** full direct non-timing/resource
+comparisons match. Source/image manifests, aliases and cleanup verify, with no
+owned build/test/profile or source edit overlapping the timing runs. Each round
+retains all nine workloads, eleven pairs, CPUs 0/16, three rotated windows and
+ordinary/previous/candidate/placebo controls with contention telemetry.
+
+Callbacks still fail **12/12**, with paired medians **0.7684–0.7963**, below
+0.8333. Previous/candidate Auto ratios improve in all windows: CPU0
+**1.0100–1.0313**, CPU16 **1.0385–1.1522**. These gains do not meet the target
+or outweigh regressions: metamethods pass **7/12 versus previous 12/12**, and
+arrays **9/12 versus previous 12/12**. Metamethod Auto is slower in every
+window, with ratios **0.9696–0.9917** on CPU0 and **0.9508–0.9772** on CPU16.
+Array Auto is slower in nine of twelve windows. All other scored cases pass
+12/12; Oslo stays unscored. Full adverse and placebo data remain in
+`handoff4-vs-upread-hardware-combined.json` and the two hardware analyses.
+
+**Decision: withdraw the scoped callback handoff trial**, including its
+test-only executor driver and dedicated test support. Reducing guard overhead
+does not remove its measured cross-workload regressions. Retain its frozen
+sources, activation patches, executables, validation logs and failed profiles
+and timing campaigns; do not run another loop-layout variant on this evidence.
+Restore `src` and `Makefile` exactly to `c361f26` before continuing with a
+different measured bottleneck. This restores the retained experimental payload
+baseline, not performance/release acceptance; restoration validation is pending.
+
 Evidence: `callback-handoff-*` and `payload-terminal-profile/handoff*` beneath
 `target/jit-evidence/short-slice-performance/`. Original full performance,
 resource, platform and release requirements remain open.
