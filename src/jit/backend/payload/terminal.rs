@@ -143,5 +143,6 @@ impl<'f> Analysis<'f> {
     }
 }
 
+#[cfg(test)]
 #[path = "terminal_tests.rs"]
 mod tests;

@@ -38,8 +38,20 @@ a canonical helper. The first build's compiler-API errors and the test's
 incorrect assumption that reference descriptors have scalar bits remain in
 `payload-terminal-initial.log` and `payload-terminal-corrected.log`; corrected
 evidence is `payload-terminal-model.log` and `payload-terminal-gates.log`.
-Both Miri models and final platform validation are pending. No benchmark or
-whole-register-copy elimination is established by this local optimization.
+Final GNU/musl ABI/backend/runtime suites pass 38/32/two tests. Both Stacked
+and Tree Borrows pass the focused one/three/one tests, with no failures or
+ignores. An additional real-native test compiles constant-return and callback-
+argument scripts through ordinary and payload lowering: all exit fields and
+canonical values match at budgets 0/1/2/64, while nonzero-budget payload exits
+leave a retired descriptor over the correct Integer value. It also checks
+mapping reclamation. The focused GNU suite now passes one/four/one plus
+fmt/check-all; native execution is excluded from Miri. Initial test privacy
+and Exit-comparison compile errors were corrected without changing public
+types, with logs in `payload-terminal-native-exits*.log`.
+No benchmark or whole-register-copy elimination is established by this local
+optimization. The prior experimental activation patch no longer applies to
+the changed runtime/write modules; adapt it in isolated experimental sources
+for matched profile candidates, not by enabling this path in production.
 
 Target the ordinary wrapper's **12,321,657 import/writeback instructions**,
 not another tiny scalar-guard or rejected callback-setup/cache variation.

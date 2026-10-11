@@ -498,8 +498,15 @@ unsafe extern "C" fn materialize_terminal(
     abi::HELPER_COMPLETED
 }
 
+#[cfg(test)]
 #[path = "terminal_tests.rs"]
 mod terminal_tests;
+
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_retired_descriptor(descriptor: Payload) {
+    assert_eq!(descriptor.tag, NIL);
+    assert!(descriptor.pointer.is_null());
+}
 
 #[inline(always)]
 unsafe fn materialize_scalar<const TAG: u64>(

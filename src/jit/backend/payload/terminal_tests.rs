@@ -161,3 +161,94 @@ fn terminal_gateway_selection_follows_original_graph_liveness() {
         assert_eq!(gateways, expected, "read={read} helper={helper}");
     }
 }
+
+#[cfg(not(miri))]
+#[test]
+fn native_terminal_stores_preserve_canonical_values_at_budget_and_call_exits() {
+    use crate::{
+        jit::{resources::Ledger, JitConfig},
+        thread::LuaRegisters,
+        Value,
+    };
+    crate::Lua::empty().enter(|ctx| {
+        for source in [b"return 7".as_slice(), b"return host_increment(7)"] {
+            let closure = crate::Closure::load(ctx, None, source).unwrap();
+            let snapshot = Snapshot::new(&closure.prototype(), 4096, 2 * 1024 * 1024).unwrap();
+            let (pc, destination) = snapshot
+                .operations
+                .iter()
+                .enumerate()
+                .find_map(|(pc, op)| match op {
+                    Operation::LoadConstant { dest, constant }
+                        if snapshot.constants[usize::from(constant.0)].tag == abi::INTEGER =>
+                    {
+                        Some((pc, usize::from(dest.0)))
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            let total = MappingCounter::new(Ledger::new(8 * 1024 * 1024));
+            let control = compile(&snapshot, total.clone(), 1024 * 1024).unwrap();
+            let code = compile_in(
+                &snapshot,
+                total.clone(),
+                1024 * 1024,
+                BudgetAllocator(Ledger::new(2 * 1024 * 1024)),
+                crate::jit::work::Limits::from(&JitConfig::default()),
+                Failure::RequirePayload,
+            )
+            .unwrap();
+            for budget in [0, 1, 2, 64] {
+                let mut expected = vec![Value::Nil; snapshot.registers];
+                let (expected_exit, counts) =
+                    super::super::run(&control, None, (ctx, closure), &mut expected, pc, budget);
+                assert_eq!(counts, [0; 8]);
+                let mut actual = vec![Value::Nil; snapshot.registers];
+                let mut helper_pc = pc;
+                let mut exit = Exit::default();
+                LuaRegisters::with_test_frame(ctx, &mut helper_pc, &mut actual, |mut registers| {
+                    let mut frame = helpers::Frame {
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: helpers::Counts::default(),
+                        slot_count: snapshot.registers,
+                        panic: None,
+                        projection: None,
+                    };
+                    type Entry =
+                        unsafe extern "C" fn(*mut Payload, u64, u32, *mut Exit, *mut Bridge);
+                    let entry: Entry = unsafe { std::mem::transmute(code.entry) };
+                    crate::jit::abi::payload::runtime::with_bridge::<256>(
+                        &mut frame,
+                        |slots, host| unsafe {
+                            entry(slots, pc as u64, budget, &mut exit, host);
+                            crate::jit::abi::payload::runtime::check_retired_descriptor(
+                                slots.add(destination).read(),
+                            );
+                        },
+                    );
+                    assert!(frame.panic.is_none());
+                    assert_eq!(frame.count.calls, 0);
+                });
+                assert_eq!(
+                    (exit.pc, exit.instructions, exit.reason),
+                    (
+                        expected_exit.pc,
+                        expected_exit.instructions,
+                        expected_exit.reason
+                    )
+                );
+                for (actual, expected) in actual.iter().copied().zip(expected) {
+                    let (actual, expected) = (Slot::from_value(actual), Slot::from_value(expected));
+                    assert_eq!((actual.tag, actual.bits), (expected.tag, expected.bits));
+                }
+                if budget != 0 {
+                    assert!(matches!(actual[destination], Value::Integer(7)));
+                }
+            }
+            drop((code, control));
+            assert_eq!(total.load(Ordering::Relaxed), 0);
+        }
+    });
+}
