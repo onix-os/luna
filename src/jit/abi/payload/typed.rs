@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "typed/plan.rs"]
+mod plan;
+
 fn assert_same<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
     match (actual, expected) {
         (Value::Nil, Value::Nil) => {}

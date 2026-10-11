@@ -29,7 +29,7 @@ Unselected GC values and retained sibling scalar pointers remain untouched.
 Bindings are scoped to the canonical borrow and may not survive callbacks,
 collection or whole-frame helper access. No production transport is changed.
 
-Six GNU tests and fmt/check-all pass. Tests cover invalid/duplicate selections,
+The initial six GNU tests and fmt/check-all pass. Tests cover invalid/duplicate selections,
 all Value kinds, NaN bits, widths 0/1/7/255/256, sparse/reverse selection,
 unwind visibility and fresh admission. An executable Cranelift probe performs
 a typed integer add and a terminal canonical scalar store via a Rust leaf;
@@ -38,6 +38,31 @@ checks **500 schedules** (25 integer pairs, four destinations including both
 selected aliases, five budgets), exact completed work and descriptor retirement.
 The same ABI protocol has a Rust simulation for Miri; native execution is not
 Miri coverage. Initial comparison/GC-lifetime compile errors remain in the logs.
+
+Foundation validation also passes Stacked/Tree Miri (five tests each), musl
+(six typed, 28 payload ABI, 28 backend, two runtime tests), and i686 (five
+model tests), all without failures or ignores. Native execution remains
+excluded under Miri and unsupported architectures.
+
+A source-backed test-only plan now admits bounded straight-line integer
+Add/Sub/Mul/Minus/Move/LoadConstant spans from verified bytecode snapshots.
+Only read-before-definition inputs need typed admission. Subsequent reads
+refer to their exact reaching definition; writes to admitted cells use the
+typed field, while other destinations use canonical replacement and are
+never read through a retired field pointer. This permits reuse of computed
+results without rebuilding descriptors. Every operation still writes its
+canonical destination before an exit. No helper, branch or callback crosses
+the region, and a fuel stop requires fresh admission for a suffix.
+
+An independently traversed source-plan verifier checks operand provenance,
+binding uniqueness/use, destinations, stores, constants and the 64-operation
+cap. Plan storage uses the existing budget allocator, with exact-limit and
+failed-allocation cleanup tests. Prefix/suffix oracles cover wrapping extrema,
+aliasing, same-type and type-changing destinations, and unselected GC values;
+compiler-generated arithmetic spans are covered too. GNU now passes ten
+typed tests plus fmt/check-all. This verifies the plan/model, not emitted IR
+or integration with runtime fuel/counters. Source-plan initial module-path
+failure and corrected output are retained in `typed-source-plan-*.log`.
 
 Before activation, require: both Miri alias models; source-certified region and
 binding maps; independent IR/liveness/retirement verification and corruption
