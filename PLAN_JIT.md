@@ -47,8 +47,35 @@ Upvalue Off increases 242 allocator instructions; allocation Auto increases
 function sums, resource counters and ELF/source/inode checks are retained.
 Evidence is `payload-upvalue-read-*`, `payload-terminal-profile/upread*` and
 `new-vs-upread-analysis.json` under the short-slice-performance evidence root.
-Hardware measurements for this candidate have not run yet. It remains
-experimental; the original performance/resource/platform/release gates stay open.
+Two full hardware campaigns complete with **48/48 aggregate failures**, but
+the metamethod regression gate now passes **12/12 candidate windows**, versus
+one of twelve for the preceding candidate in these same campaigns. This
+means it meets the original tolerated-regression threshold, not that it beats
+the interpreter. Callbacks still fail all twelve; every other scored candidate
+case passes. The candidate remains experimental and full acceptance stays open.
+
+Previous/candidate metamethod Auto median-time ratios are 1.0547–1.1173 on CPU 0
+and 1.0036–1.0615 on CPU 16 initially; the repeat gives 1.0449–1.0496 and
+1.0352–1.0882. All twelve favor the new candidate. Repeat CPU 0 same-inode
+metamethod placebo ratios are 0.9999–1.0096; CPU 16 spans 0.9603–1.0220, so
+small individual wins on that CPU are not independently stable evidence.
+
+Negative relative samples are retained: upvalue ratios are 0.9901–0.9995 /
+0.9871–0.9935 initially and 0.9888–0.9944 / 0.9973–1.0005 on repeat, despite
+its passing threshold and lower instruction count. Array includes 0.9565
+initially and 0.9583 on repeat. Allocation repeat CPU 0 includes 0.9896;
+callback CPU 16 includes 0.9975 initially and 0.9984 on repeat. Callback CPU 0
+improves 1.0061–1.0236 initially and 1.0098–1.0305 on repeat, but unchanged
+instruction profiles do not establish a cause or waive the failed threshold.
+
+All **216 direct previous/candidate non-timing comparisons match**. Of 648
+ordinary-relative comparisons, 168 differ only in code_bytes/snapshot_peak_bytes.
+Original workloads/thresholds, eleven paired samples, rotated CPU 0/16 windows,
+ordinary/previous/candidate/same-inode placebo images and contention telemetry
+remain intact. Source/image/inode checks and cleanup pass; no owned build,
+test, profile or edit overlaps either hardware campaign. Both drivers exit 0;
+all 48 benchmark commands exit 2. Evidence: `upread-hardware-{screen,repeat}/`,
+`upread-hardware{,-repeat}-analysis.json`, `upread-vs-new-hardware{,-repeat}-stats.json`.
 
 #### NewTable destination-only refresh — scoped construction
 
