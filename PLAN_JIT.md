@@ -59,10 +59,107 @@ The first frozen activated build (`handoff`) completes before that loop-shape
 fix. A fresh `handoff2` source at `fcc9f01` includes the fix and the unchanged
 preceding payload activation, plus release-only handoff selection. It runs
 payload and callback/fuel/hook/suspension integration gates before capturing the
-release image. Profiling and original paired native/compiled-Off acceptance are
-still pending. In particular, inspect added Auto-mode checks on disabled-JIT
-callback traffic instead of assuming a shared executor rewrite is free.
-No performance improvement or production activation is accepted yet.
+release image. That build passes 235 tests across nineteen summaries; image
+SHA-256 is `f7c558e76cee6bb76d03e56fa0f5283f33b78b996348ae332f72bb4e33cab7dd`.
+Final musl passes four handoff plus fourteen activation tests. Source-hashed
+Stacked and Tree Miri runs each pass all three selected tests; source after-check
+passes. Exact profiles verify allocated ELF bytes/metadata/program headers,
+source/image manifests and twelve new runs: eleven candidate cases plus a
+previous-image callback Off control. All eleven full non-timing comparisons
+match, including resources, and all instruction self totals reconcile.
+
+Callback Auto instructions fall **131,650,796→126,597,901 (3.8381%)**. Combined
+executor/adapter work falls 5,052,814; allocator variation contributes another
+81 fewer instructions. VM, native invocation, generated callback code and helper
+work are unchanged. Metamethod instructions fall 863,946 (1.1172%). Adverse
+results remain: closure Auto +110,571 (0.0690%), closure Off +3,111,048 (1.4578%),
+integer/float Off +95,966 (0.1943%/0.1809%), integer/float Auto about +0.60%,
+array +55,967 and allocation +36,745. Most importantly, callback Off grows
+**102,871,353→105,983,969 (3.0257%)**. Executor gains 5,128,019 there while its
+outlined adapter loses 2,015,403: this is real additional disabled-path work,
+not a claimed callback speedup. No hardware campaign is run for this form.
+
+The refinement stops considering handoffs for the rest of the current step
+after the first disabled/refused policy check. Successor probes are skipped
+once that flag is false. It does not cache a positive mode, source, code or
+frame: every taken handoff still requires a fresh Auto query, and VM/native
+selection remains fresh even when this optional dispatch shortcut is suppressed.
+An Off→Auto change can enable the shortcut at the next step; the new differential
+explicitly checks both the same-step refusal and activation after an interrupt.
+All five focused tests and fifteen activation tests pass GNU/check-all.
+This refinement still requires final musl/Miri checks and a new frozen profile;
+the preceding profile does not establish its performance. Original paired
+native/compiled-Off acceptance and production activation remain pending.
+
+The refusal refinement (`185c5f0`, frozen `handoff3`) subsequently passes five
+focused plus fifteen activation tests on both GNU and musl, default/all-feature
+Clippy with the existing warnings, and four selected tests under each Miri alias
+model. The Miri source manifest verifies unchanged after both runs. Its activated
+frozen build passes **236 tests / nineteen summaries** and check-all; image is
+`5bfa24093ee3252d9281852734c9afc7eba1cf2b49073880f2538a8ee5a9b443`.
+Eleven exact-image profiles and both previous-candidate/baseline comparisons
+pass all non-timing/resource checks. This is not a timing acceptance result.
+
+Against `upread`, callback Auto instructions fall **4,597,359 (3.4921%)** and
+callback Off grows **654,485 (0.6362%)**, down from the first candidate's 3.0257%
+Off growth. The refinement does not fix callback-free paths: closure Off grows
+**4,151,841 (1.9455%)**, integer/float Off each grow 128,661 (0.2604%/0.2426%),
+integer/float Auto each grow 128,661 (about 0.81%), closure Auto grows 390,469
+(0.2435%), array grows 76,183 and allocation grows 51,233. Metamethods fall
+720,537 (0.9318%). All adverse cases remain in `handoff3-*-delta.json` and
+`upread-vs-handoff3-analysis.json`. The per-step refusal only starts after a
+possible handoff; workloads without callback transitions still pay its probes.
+Proceed to the original paired hardware controls rather than claiming either
+an elapsed improvement or an elapsed regression from these instruction counts.
+
+Both `handoff3` hardware rounds finish: **48 original aggregate invocations all
+fail**, with **216 complete direct non-timing/resource comparisons equal**.
+All nine workloads, eleven paired samples, CPUs 0/16, three rotated windows,
+ordinary/previous/candidate/same-inode-placebo controls and contention telemetry
+are retained. No owned build, test, profile or source edit overlaps timing;
+source/image after-checks and alias cleanup pass.
+
+Candidate callbacks fail **12/12**, with paired medians **0.7619–0.8082** against
+the unchanged **0.8333** minimum. Previous/candidate Auto time ratios on CPU16
+are **1.0298–1.0684**, but CPU0 is mixed (**0.9942–1.0169**). Metamethod gates
+fall from the same-campaign previous image's **12/12 passes to 6/12**; all six
+CPU0 time ratios are adverse (**0.9714–0.9887**) while its same-image placebo
+range is **0.9989–1.0114**. Arrays pass 11/12 versus previous 12/12; all other
+scored candidates pass 12/12 and Oslo remains unscored. CPU16 callback placebo
+ratios span 0.9197–1.0091 and array placebos vary substantially, so these are
+contended observations, not an uncontended causal estimate. Retain CPU16
+allocation losses and CPU0 float/upvalue losses in the complete JSON rather
+than selecting only callback gains. This candidate is **not accepted**.
+
+`0c238cd` tests a targeted guard refinement: eligibility is queried once at
+step entry, and a possible successor's kind is tested before its running/error
+flags. Off entry suppresses callback-free probes for that step; a later mode
+change still follows ordinary VM selection, and every actual handoff still
+rechecks current Auto policy. An initial true flag does not authorize a handoff
+after disabling JIT. No code/source/value/frame identity is cached. GNU and
+musl each pass five handoff plus fifteen activation tests/check-all; GNU
+default/all-feature Clippy also passes with existing warnings. Fresh Miri and
+frozen `handoff4` validation/profile were pending at that checkpoint; no speedup
+was attributed to that source change. Preserve `handoff3-hardware{,-repeat}*` and
+`handoff3-vs-upread-hardware-combined.json` as failed evidence.
+
+The entry-policy refinement now passes all four selected tests under each Miri
+model, with its source manifest unchanged. Frozen `handoff4` passes **236 tests
+/ nineteen summaries**, check-all and release capture. Its executable SHA-256 is
+`eb88b299d8ebb5421e88c3f38deb9946453ff7dc5bbea269d8bc9be72770dec7`.
+All eleven exact-image profiles pass full non-timing/resource comparisons;
+allocated ELF bytes, metadata, program headers, source manifests and image
+hashes verify. Both `upread` and `handoff3` aggregate profile comparisons pass.
+
+Against `upread`, callback Auto instructions fall **4,659,603 (3.5394%)**;
+callback Off still grows **648,440**. Closure Off growth drops from 4,151,841
+to **516,846 (0.2422%)**, and integer/float Off growth drops from 128,661 to
+**15,730 each (0.0318% / 0.0297%)**. Remaining adverse Auto counts are closure
++359,649 (0.2243%), integer +89,081 (0.5588%), float +88,972 (0.5580%), array
++52,089 (0.1448%) and allocation +35,555 (0.1015%). Metamethods fall 797,627
+(1.0315%). These are diagnostic instruction counts, not elapsed-time acceptance.
+The guarded refinement reduces rather than eliminates callback-free overhead;
+original paired hardware gates and compiled-Off cost acceptance remain open.
 
 Evidence: `callback-handoff-*` and `payload-terminal-profile/handoff*` beneath
 `target/jit-evidence/short-slice-performance/`. Original full performance,

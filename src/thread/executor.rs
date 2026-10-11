@@ -289,6 +289,8 @@ impl<'gc> Executor<'gc> {
     /// delivered through a separate channel than normal results and cannot be caught by Lua.
     pub fn step(self, ctx: Context<'gc>, fuel: &mut Fuel) -> Result<bool, BadThreadMode> {
         let mut state = self.0.borrow_mut(&ctx);
+        #[cfg(all(test, feature = "jit"))]
+        let mut permit_handoff = callback_handoff::enabled(ctx);
         Ok('executor: loop {
             let mut top_thread = state.thread_stack.last().copied().unwrap();
             let mut res_thread = None;
@@ -471,12 +473,13 @@ impl<'gc> Executor<'gc> {
                                 Ok(CallbackReturn::Return) => {
                                     top_state.return_to(&mut top_stack, bottom);
                                     #[cfg(all(test, feature = "jit"))]
-                                    if !top_state.running
-                                        && !top_state.deferred_error
+                                    if permit_handoff
                                         && matches!(
                                             top_state.frames.last(),
                                             Some(Frame::Lua { .. })
                                         )
+                                        && !top_state.running
+                                        && !top_state.deferred_error
                                     {
                                         handoff = 2;
                                     }
@@ -795,12 +798,13 @@ impl<'gc> Executor<'gc> {
                                 Ok(instructions_run) => {
                                     fuel.consume(instructions_run.try_into().unwrap());
                                     #[cfg(all(test, feature = "jit"))]
-                                    if !top_state.running
-                                        && !top_state.deferred_error
+                                    if permit_handoff
                                         && matches!(
                                             top_state.frames.last(),
                                             Some(Frame::Callback { .. })
                                         )
+                                        && !top_state.running
+                                        && !top_state.deferred_error
                                     {
                                         handoff = 1;
                                     }
@@ -910,10 +914,14 @@ impl<'gc> Executor<'gc> {
                     break 'executor false;
                 }
                 #[cfg(all(test, feature = "jit"))]
-                if handoff != 0 && callback_handoff::enabled(ctx) {
-                    callback_handoff::record(handoff);
-                    known_normal = true;
-                    run_next_frame = true;
+                if handoff != 0 {
+                    if callback_handoff::enabled(ctx) {
+                        callback_handoff::record(handoff);
+                        known_normal = true;
+                        run_next_frame = true;
+                    } else {
+                        permit_handoff = false;
+                    }
                 }
             }
         })
@@ -1453,8 +1461,8 @@ mod activation_tests {
     fn callback_handoff_interpreter_model_releases_each_boundary() {
         let mut exercised = [0; 2];
         for source in [
-            "handoff_mode(true) local n=0 for i=1,3 do n=handoff_value(n) end handoff_mode(false) return n",
-            "handoff_mode(true) local n=0 local function read() return n end _ENV.read=read for i=1,3 do n=nested_boundary() n=handoff_value(n) end return boundary(n)",
+            "handoff_mode(true) boundary(0) local n=0 for i=1,3 do n=handoff_value(n) end handoff_mode(false) return n",
+            "handoff_mode(true) boundary(0) local n=0 local function read() return n end _ENV.read=read for i=1,3 do n=nested_boundary() n=handoff_value(n) end return boundary(n)",
         ] {
             for budget in [0, 4096] {
                 let (reference, _, stats) = callback_handoff::capture(false, || run(source, budget, false));
@@ -1465,6 +1473,28 @@ mod activation_tests {
             }
         }
         assert!(exercised.into_iter().all(|count| count > 0));
+    }
+
+    #[cfg(feature = "jit")]
+    #[test]
+    fn callback_handoff_refusal_rechecks_at_the_next_step() {
+        for interrupted in [false, true] {
+            let source = format!(
+                "handoff_mode(true) {} local n=0 for i=1,3 do n=handoff_value(n) end return n",
+                if interrupted { "boundary(0)" } else { "" }
+            );
+            let (reference, _, stats) =
+                callback_handoff::capture(false, || run(&source, 4096, false));
+            let (actual, counts, actual_stats) =
+                callback_handoff::capture(true, || run(&source, 4096, false));
+            assert_eq!(actual, reference);
+            callback_handoff::check_equivalent(actual_stats, stats);
+            if interrupted {
+                assert!(counts.into_iter().all(|count| count > 0));
+            } else {
+                assert_eq!(counts, [0; 2]);
+            }
+        }
     }
 
     #[cfg(feature = "jit")]

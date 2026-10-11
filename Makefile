@@ -1472,6 +1472,7 @@ jit-callback-handoff:
 
 jit-callback-handoff-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' callback_handoff_interpreter_model_releases_each_boundary -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' callback_handoff_refusal_rechecks_at_the_next_step -- --test-threads=1
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' callback_handoff_user_panic_preserves_payload_and_releases_guards -- --test-threads=1
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' callback_handoff_capture_restores_after_panic_and_nested_scopes -- --test-threads=1
 
