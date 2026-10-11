@@ -98,8 +98,13 @@ fn terminal_liveness_respects_all_paths_loops_and_helper_effects() {
                     let allocator = BudgetAllocator(crate::jit::resources::Ledger::new(4096));
                     let mut analysis =
                         Analysis::new(&f, slots, host, 2, &helpers, allocator.clone()).unwrap();
-                    let refreshes =
-                        !matches!(helper, 0 | abi::HELPER_GET_UP_TABLE | abi::HELPER_SET_TABLE);
+                    let refreshes = !matches!(
+                        helper,
+                        0 | abi::HELPER_GET_UP_TABLE
+                            | abi::HELPER_SET_TABLE
+                            | abi::HELPER_NEW_TABLE
+                            | abi::HELPER_GET_UPVALUE
+                    );
                     assert_eq!(
                         analysis.admits(store, 0),
                         refreshes || !(read || overwrite),
@@ -242,39 +247,44 @@ fn terminal_gateway_selection_follows_original_graph_liveness() {
 }
 
 #[test]
-fn table_write_terminal_lowering_keeps_post_helper_reads_live() {
-    for read in [false, true] {
-        for contract in [Contract::Checked, Contract::FrameBound] {
-            let (mut f, slots, host, _, helpers) =
-                fixture(read, false, abi::HELPER_SET_TABLE, false);
-            let memory = BudgetAllocator(crate::jit::resources::Ledger::new(1 << 20));
-            lower_contract(
-                &mut f,
-                slots,
-                host,
-                2,
-                &helpers,
-                memory.clone(),
-                crate::jit::work::Expansion {
-                    instructions: 4096,
-                    blocks: 4096,
-                },
-                contract,
-            )
-            .unwrap();
-            cranelift_codegen::verify_function(&f, &settings::Flags::new(settings::builder()))
+fn partial_helpers_keep_post_helper_reads_live() {
+    for helper in [
+        abi::HELPER_SET_TABLE,
+        abi::HELPER_NEW_TABLE,
+        abi::HELPER_GET_UPVALUE,
+    ] {
+        for read in [false, true] {
+            for contract in [Contract::Checked, Contract::FrameBound] {
+                let (mut f, slots, host, _, helpers) = fixture(read, false, helper, false);
+                let memory = BudgetAllocator(crate::jit::resources::Ledger::new(1 << 20));
+                lower_contract(
+                    &mut f,
+                    slots,
+                    host,
+                    2,
+                    &helpers,
+                    memory.clone(),
+                    crate::jit::work::Expansion {
+                        instructions: 4096,
+                        blocks: 4096,
+                    },
+                    contract,
+                )
                 .unwrap();
-            let gateways = f
-                .layout
-                .blocks()
-                .flat_map(|b| f.layout.block_insts(b))
-                .filter(|&i| {
-                    matches!(f.dfg.insts[i], InstructionData::Load { offset, .. }
+                cranelift_codegen::verify_function(&f, &settings::Flags::new(settings::builder()))
+                    .unwrap();
+                let gateways = f
+                    .layout
+                    .blocks()
+                    .flat_map(|b| f.layout.block_insts(b))
+                    .filter(|&i| {
+                        matches!(f.dfg.insts[i], InstructionData::Load { offset, .. }
                     if i32::from(offset) == std::mem::offset_of!(Functions, terminal) as i32)
-                })
-                .count();
-            assert_eq!(gateways, usize::from(!read));
-            assert_eq!(memory.0.current(), 0);
+                    })
+                    .count();
+                assert_eq!(gateways, usize::from(!read));
+                assert_eq!(memory.0.current(), 0);
+            }
         }
     }
 }

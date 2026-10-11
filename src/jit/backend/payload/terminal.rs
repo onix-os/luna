@@ -105,8 +105,13 @@ impl<'f> Analysis<'f> {
                     else {
                         return false;
                     };
-                    if !matches!(kind, abi::HELPER_GET_UP_TABLE | abi::HELPER_SET_TABLE)
-                        && (kind != abi::HELPER_GET_TABLE || register_key(f, inst))
+                    if !matches!(
+                        kind,
+                        abi::HELPER_GET_UP_TABLE
+                            | abi::HELPER_SET_TABLE
+                            | abi::HELPER_NEW_TABLE
+                            | abi::HELPER_GET_UPVALUE
+                    ) && (kind != abi::HELPER_GET_TABLE || register_key(f, inst))
                     {
                         return true;
                     }

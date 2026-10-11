@@ -11,6 +11,111 @@
 
 ### Progress snapshot — 2026-10-11
 
+#### GetUpvalue destination-only refresh — scoped captures
+
+Commit `fb4a461` resolves closed, parent-frame, current-frame and foreign-stack
+captures without refreshing every register. A narrow raw metadata accessor
+reads stack identity, base and upper-stack values without borrowing the current
+frame's canonical values. Current-frame scalars use their live descriptors;
+retired descriptors use canonical storage. No per-entry Session fields or
+cross-callback pointers are added. Foreign reads remain inside the unwind
+boundary; invalid operands preserve generic fallback, PC/counters, prior writes
+and stopped reentry. Terminal liveness independently treats helper8 as partial.
+
+GNU and musl each pass **62 ABI + 57 backend + three runtime + 27 helper tests**;
+format/check-all pass. Six new ABI tests include 312 value/alias/frame-size
+cases, exact foreign bounds/borrow/expired-stack panic payload comparisons,
+closing/joining, retirement and prefix fallback. The first prefix fixture
+incorrectly expected an out-of-prefix destination to succeed: the original
+helper writes canonical storage before its transport bounds panic. The corrected
+test preserves that ordering; failed focused/Stacked logs remain. Both Stacked
+and Tree Borrows pass six ABI and five terminal tests each. Integrated scripts
+cover the original metamethod construction pattern and open/closed captures
+with live siblings, GC, fuel/interrupt steps and exact native counters.
+
+Frozen `upread` passes all 122 payload tests and check-all; image SHA-256 is
+`becde8510092d77cabe7c608739b121c3f2983ac6e6b72c9576c12a6920328fa`.
+All ten diagnostic profiles preserve every non-timing statistic versus `new`.
+Metamethod work falls **2,499,807 instructions (3.1314%)**: rebind falls
+1,741,635 to 3,696, bind_non_numeric falls 619,248, and the ordinary upvalue
+helper's 348,327 disappears; scoped helper8 itself increases 245,119.
+Upvalue work falls 320,559 (0.1995%), but 156,852 is in Admitted::new rather than
+the scoped read, so the entire decrease is not attributed to this optimization.
+Callback and float Auto, integer Off and float Off are instruction-identical.
+Upvalue Off increases 242 allocator instructions; allocation Auto increases
+1,345, array increases 39 and integer Auto decreases 109. All 13 events, exact
+function sums, resource counters and ELF/source/inode checks are retained.
+Evidence is `payload-upvalue-read-*`, `payload-terminal-profile/upread*` and
+`new-vs-upread-analysis.json` under the short-slice-performance evidence root.
+Hardware measurements for this candidate have not run yet. It remains
+experimental; the original performance/resource/platform/release gates stay open.
+
+#### NewTable destination-only refresh — scoped construction
+
+Commit `ddf2582` creates a table with the existing RawTable/Table constructors
+inside the helper's unwind boundary, then replaces and refreshes only its
+destination. It preserves PC/call/completion/allocation counters and stops
+reentry after a panic. Invalid destinations retain generic fallback, including
+the original allocation-before-bounds-panic behavior. Constructor unwind tests
+inject panics before and after allocation; they do not claim real OOM recovery.
+Terminal liveness now treats NewTable as a possible partial-refresh helper.
+Checked and frame-bound lowering independently preserve live post-helper reads.
+
+GNU/musl each pass **56 ABI + 57 backend + three runtime + 27 helper tests**;
+GNU formatting/check-all pass. The five new ABI tests cover 330 value/capacity/
+destination cases at 1/7/256 registers, exact constructor and subsequent growth
+allocation deltas, readonly old values, live sibling descriptors, retired
+destinations/siblings, full-helper refresh, open-upvalue aliases, invalid
+destinations and stopped reentry. Two integrated loops add per-iteration table
+construction and captured table replacement with live siblings, GC and exact
+fuel/interrupt/native counters. The first metric fixture incorrectly included
+the test frame's own 56-byte GC stack allocation; measurement now starts inside
+the frame immediately around the helper, without subtracting a guessed cost.
+The failed fixture log is retained. Both Stacked and Tree Borrows pass five
+new-table ABI and five terminal model tests each. These are correctness gates,
+not performance acceptance or activation.
+The frozen `new` image passes all 116 payload tests and check-all; SHA-256 is
+`eb16222206adf3fa307a78df2d186da2e0557e9e2a849863b2ac38f7bfe9375d`.
+Ten profiles versus `write` preserve every non-timing statistic. Callback,
+float Auto and all three Off controls are instruction-identical. Allocation
+work falls **4,758,461 instructions (11.9582%)**, including −4,422,536 in rebind
+and −334,256 in helper3. Metamethod work falls **2,717,814 (3.2924%)**, including
+−1,772,981 in rebind, −776,652 in bind_non_numeric and −168,181 in helper3.
+Upvalue work rises 313,434, including +313,704 in Admitted::new; integer rises
+109 and array falls 224. These increases and all 13 events are retained, not
+discarded as unrelated to the intended optimization. Symbol/stripped allocated
+ELF sections, invocation inodes, source/image manifests and exact function sums
+verify. Evidence: `write-vs-new-analysis.json` and `new-*-auto-delta.json`.
+Two full hardware campaigns finish with **48/48 aggregate gate failures**.
+Allocation passes all 12 candidate windows and improves versus `write` in all
+12: previous/new Auto median-time ratios are 1.0577–1.0699 on CPU 0 and
+1.0669–1.0805 on CPU 16 initially, then 1.0562–1.0774 and 1.0766–1.0967 in the
+repeat. Metamethod ratios are 1.0285–1.0339 / 1.0360–1.0553 initially and
+1.0338–1.0561 / 1.0271–1.0433 in the repeat. Its original threshold passes in
+**three of twelve** windows (all CPU 16), not consistently; CPU 0 still fails
+every window. Callback thresholds fail all 12. Other scored candidate cases
+pass, but that does not waive the aggregate failures.
+
+Negative relative samples remain: callback ratios include 0.9753 initially and
+0.9879 in the repeat despite identical instruction profiles. Upvalue ratios
+are 0.9865–0.9998 initially and 0.9789–1.0025 in the repeat; the increased
+Admitted::new work remains recorded rather than excused. Array's first CPU 0
+range includes 0.9350. CPU 16 repeat metamethod placebo ratios range
+0.9324–1.0421 and allocation placebo 0.9321–1.0239, so those noisy windows do
+not independently establish a stable small speedup. All raw samples remain.
+
+All **216 direct previous/candidate non-timing comparisons match**; 168 of 648
+ordinary-relative comparisons differ only in code_bytes/snapshot_peak_bytes.
+Original workloads, eleven paired samples, rotated windows, CPUs 0/16,
+same-inode placebo controls, source/image manifests and contention telemetry
+are retained. No owned builds/tests/profiles/edits overlap hardware timing.
+Both drivers exit 0 while all benchmark commands exit 2. Evidence:
+`new-hardware-screen/`, `new-hardware-repeat/`, their analysis files and
+`new-vs-write-hardware{,-repeat}-stats.json`. The candidate stays experimental;
+full performance/resource/platform/release acceptance is still open.
+Evidence: `payload-new-table-*` and `payload-terminal-profile/new*` under
+`target/jit-evidence/short-slice-performance/`.
+
 #### Scoped table writes — register bindings preserved
 
 Commit `bc742cd` adds a payload SetTable path that does not borrow or refresh
@@ -54,8 +159,39 @@ Auto loops are identical; callback work rises 81 and allocation work rises
 table helpers; retain that attribution rather than claiming a table-write gain.
 All 13 events, function sums, resource counters, ELF section comparisons and
 source/image/inode checks remain intact. Evidence: `local-vs-write-analysis.json`
-and `write-*-auto-delta.json`. Full workspace tests and hardware timing remain
+and `write-*-auto-delta.json`. Full workspace tests and hardware timing are
 separate gates; this is not activation or performance acceptance.
+The main checkout's `jit-test-all JIT_MODE=auto jit-test-doc` completes with
+**1,652 passing executions / 91 summaries**, zero failures and eight existing
+ignores, recorded in `payload-table-write-workspace.log`. The activated frozen
+image's 111-test gate is distinct from this ordinary-runtime workspace run.
+
+Two full hardware campaigns complete: **48/48 aggregate gates fail**. Candidate
+callbacks and metamethods fail in all 12 windows, allocation passes all 12, and
+array fails once. That array failure is retained: repeat CPU 16 window 1 has
+ratio-of-medians 1.2445 below 1.25 despite median paired speedup 1.3362.
+Previous/write Auto median-time ratios for metamethods are 1.0076–1.0230 on
+CPU 0 and 1.0125–1.0493 on CPU 16 in the first campaign; repeat ranges are
+1.0020–1.0180 and 0.9895–1.0359. Array timings remain noisy: first CPU 16
+0.9294–1.0802, repeat 0.9582–1.0333, notwithstanding reduced instruction work.
+
+Do not hide unrelated negative samples: CPU 0 callback ratios are
+0.9904–0.9965 initially and 0.9837–1.0010 in the repeat. CPU 16 callbacks include
+a 0.9413 repeat outlier (other repeat windows 0.9896/1.0187). Allocation CPU 0
+is 0.9831–0.9955 initially but 0.9957–1.0034 in the repeat; no stable timing
+improvement is claimed for that unchanged workload. Same-inode placebo ranges
+and all raw windows remain available rather than subtracting contention or
+discarding outliers. The candidate remains experimental, not accepted.
+
+Across both campaigns all **216 direct previous/candidate non-timing comparisons
+match**. The 648 ordinary-relative comparisons retain 168 differences, solely
+code_bytes and snapshot_peak_bytes. All original nine workloads, eleven paired
+samples, three rotated orders on CPUs 0/16, source/image/inode verification and
+contention telemetry are preserved. Both drivers exit 0 while their individual
+benchmark gates exit 2; no owned tests/builds/profiles/edits overlap timing.
+Evidence: `write-hardware-screen/`, `write-hardware-repeat/`, their analysis JSON
+files, and `write-vs-local-hardware{,-repeat}-stats.json`. Full performance,
+resource, platform and release acceptance remains open.
 Logs: `payload-table-write-*` and
 `payload-terminal-profile/write*` under `target/jit-evidence/short-slice-performance/`.
 
