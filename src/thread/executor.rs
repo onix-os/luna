@@ -352,7 +352,8 @@ impl<'gc> Executor<'gc> {
 
             #[cfg(all(test, feature = "jit"))]
             let mut known_normal = false;
-            loop {
+            let mut run_next_frame = true;
+            while std::mem::replace(&mut run_next_frame, false) {
                 #[cfg(all(test, feature = "jit"))]
                 let mut handoff = 0;
                 #[cfg(all(
@@ -912,9 +913,8 @@ impl<'gc> Executor<'gc> {
                 if handoff != 0 && callback_handoff::enabled(ctx) {
                     callback_handoff::record(handoff);
                     known_normal = true;
-                    continue;
+                    run_next_frame = true;
                 }
-                break;
             }
         })
     }
