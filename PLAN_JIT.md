@@ -64,6 +64,27 @@ typed tests plus fmt/check-all. This verifies the plan/model, not emitted IR
 or integration with runtime fuel/counters. Source-plan initial module-path
 failure and corrected output are retained in `typed-source-plan-*.log`.
 
+The next test-only lowering emits native code from these verified plans,
+instead of a manually specified two-operation probe. It caches admitted field
+pointers and SSA results, writes canonical state at each instruction, and
+checks the remaining operation budget before each body. The code owner borrows
+the immutable plan used for admission and frees executable memory on drop.
+Tests compare all prefixes of every suffix of the arithmetic fixture and a
+real compiler-generated span against a separate bytecode oracle. The boundary
+corpus includes 64 operations, register 255, wrong-type no-write admission,
+plan corruption before compilation, and a zero-budget native call with null
+tables proving no table access on that path.
+
+GNU passes **12 typed tests** and fmt/check-all; both Miri models and real i686
+pass **nine model tests each**. Miri does not execute the generated machine
+code. This emitter still lacks independent post-lowering semantic IR
+certification, production executable/compiler resource accounting, runtime
+PC/fuel/counter integration, branch/helper coverage, and whole-workload
+performance evidence. Generic Cranelift verification and the executable
+oracle do not replace those gates. Do not activate or call this a speedup.
+Native immediate-type compilation failure and corrected results are retained
+under `typed-source-native-*.log`.
+
 Before activation, require: both Miri alias models; source-certified region and
 binding maps; independent IR/liveness/retirement verification and corruption
 tests; exact budgets/exits/helper/counter behavior; bounded compiler/runtime

@@ -5,7 +5,7 @@ use crate::{
     Value,
 };
 
-fn snapshot(operations: &[Operation], registers: usize) -> Snapshot {
+pub(super) fn snapshot(operations: &[Operation], registers: usize) -> Snapshot {
     let mut operations = resources::owned(operations);
     operations.push(Operation::Return {
         start: RegisterIndex(0),
@@ -20,7 +20,7 @@ fn snapshot(operations: &[Operation], registers: usize) -> Snapshot {
     }
 }
 
-fn sample() -> Snapshot {
+pub(super) fn sample() -> Snapshot {
     snapshot(
         &[
             Operation::Add {
@@ -55,7 +55,7 @@ fn sample() -> Snapshot {
     )
 }
 
-fn interpret(source: &Snapshot, start: usize, count: usize, values: &mut [Value<'_>]) {
+pub(super) fn interpret(source: &Snapshot, start: usize, count: usize, values: &mut [Value<'_>]) {
     for operation in &source.operations[start..start + count] {
         let input = |operand: RCIndex| match operand {
             RCIndex::Register(index) => match values[usize::from(index.0)] {
@@ -112,7 +112,7 @@ fn run(plan: &Plan, values: &mut [Value<'_>], budget: u32) -> Option<u32> {
     })
 }
 
-fn with_bindings<'gc, T>(
+pub(super) fn with_bindings<'gc, T>(
     plan: &Plan,
     values: &mut [Value<'gc>],
     body: impl FnOnce(&[*mut i64], &[*mut Value<'gc>]) -> T,
