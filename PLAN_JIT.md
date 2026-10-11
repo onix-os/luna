@@ -11,6 +11,48 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Interpreter-statistics finalization — rejected after repeated cost gates
+
+The shipping compiled-Off callback profile attributes **600,120 instructions**
+to the out-of-line statistics destructor. An isolated `inline(always)` hint
+passes 49 focused tests, immutable speed/shipping builds and native proofs.
+Its 56 exact-image profiles show no runtime saving: shipping merely renames
+the destructor to `drop_glue` with identical work; speed is unchanged apart
+from allocator variation. Do not mistake the disappeared symbol for saved work.
+
+A refinement explicitly finalizes successful VM slices, retaining the original
+destructor on error/unwind. Publication arithmetic, timing relative to owning
+locals, counter fields and limits remain unchanged. `ManuallyDrop` prevents a
+second publication if finalization itself panics. The 51 focused tests include
+432 whole-statistics saturation comparisons and both original/refined
+live-manager-borrow panic cases. No full-suite or Miri pass is claimed.
+
+Another 56 profiles show shipping callback work down **175,040 (-0.366%)** and
+upvalue work down **749,607 (-0.841%, including allocator variation)**. Speed
+numeric work instead grows 3,130 instructions per case; upvalue grows 50,413,
+of which 50,005 is VM work. Both no-feature binaries remain byte-identical to
+the current restored controls, and symbol companions match allocated images.
+
+Two original feature-cost campaigns complete **96 commands/864 case gates/
+2,112 worker records**, with eleven pairs, twenty iterations, CPUs 0/16,
+reordered windows, same-image placebos and contention telemetry. All 576 native
+proof comparisons match; raw medians/ratios and the original 1.05 ceilings verify.
+Every aggregate command fails, including controls. No owned validation overlaps
+timing; large co-moving outliers remain in the reports.
+
+Control/candidate compiled-Off time ratios reproduce adverse changes: shipping
+CPU0 float **0.96562 / 0.96439**, shipping CPU16 integer **0.94811 / 0.95740**,
+and speed CPU16 callbacks **0.99016 / 0.98222**. Repeat same-image placebo ratios
+are **1.00299 / 1.00219 / 0.99482**, respectively. Shipping callback gains do not
+offset these regressions or resolve the existing failed gates. **Reject both
+forms; production code is unchanged.** No additional native timing or full
+validation campaign is warranted for this candidate.
+
+Evidence: `inline-stats-*` and `inline-stats-finish-*` beneath
+`target/jit-evidence/short-slice-performance/`. Refined compiled-Off images:
+shipping `72f583869ed5ffdb75a27062b445f0db8d82dc2269f274d0146612702d49deb3`,
+speed `fb5ca67ab4d72cd936126872c23cf8547fd3d6373ff090c9d6cfe83590dfc867`.
+
 #### Vectorized counter publication — not promoted
 
 Exact-image callback attribution finds **2,140,017 instructions** in the eight
