@@ -118,6 +118,53 @@ Follow that lifetime separation and add Miri tests reusing the exact same array
 pointer across helper calls before native integration. Current retained sibling
 tests exercise scalar-field pointers, not this future descriptor-array loan.
 
+Storage separation is implemented in `f840c21`: each factory owns its descriptor
+buffer outside the mutably borrowed control object, initializes only the admitted
+prefix, and retains its lifetime through a private raw pointer/capability.
+An additional regression reuses the exact same array pointer across partial
+replacement, retirement and full real-helper reborrows, reloading descriptors
+after full refresh. GNU passes fourteen tests/check-all; both Miri alias models
+pass thirteen Rust tests with source manifests unchanged.
+
+The next packed-only C bridge provides all ten canonical helper entries behind
+one unwind boundary. Its differential checks each helper's success path against
+direct invocation: canonical results, table/upvalue effects, all eight helper
+counters, PC and SetList fuel. Additional tests exercise ordinary decline with
+fresh subsequent reads, real helper panics, an injected typed Rust panic,
+already-pending panic and stopped state. A second attempted panic must not
+replace the original payload. The descriptor array remains separate throughout.
+
+This private bridge adds **refusal status 3**, distinct from decline 0,
+completion 1 and panic 2. It records the exact refusal and stops subsequent
+calls. A mutation fixture completes one real helper, then refuses refresh:
+its committed PC/effects/counters remain, the next call does nothing, and the
+outer Rust factory returns the refusal. It must never masquerade as ordinary
+decline and replay an effect, or invent a panic result without a panic payload.
+Any future packed compiler/runtime integration must handle this hard-stop
+contract explicitly; the existing two-word ABI is unchanged.
+
+A generated numeric probe writes canonical state, calls the real C gateway,
+then reloads the same descriptor-array pointer and writes again **only** on
+completion. Matched Rust/native fixtures cover completion, decline, panic and
+post-effect refusal, verifying canonical values and exact PC/counts. This probe
+has admitted numeric preconditions; it is not arbitrary-bytecode lowering,
+runtime activation or independent emitted-IR certification.
+
+Final focused validation passes **22 tests each on GNU/musl**, formatting and
+check-all, default/all-feature GNU Clippy with existing warnings, and **20 Rust
+tests each under Stacked and Tree Miri** with complete source after-checks.
+The real i686-musl executable passes **20 model tests**, with native probes
+excluded. Initial native addition-builder deprecation warnings were corrected
+before these final runs. Evidence is `packed-storage-*` and
+`packed-c-bridge-*`; source is in `packed/bridge*.rs` and `scoped.rs`.
+Broader payload/helper regression suites are tracked separately.
+
+Remaining packed work includes scalar materialization/terminal-write gateways,
+the separate full-entry compiler contract, independent source/emitted checking,
+precise runtime exit/fuel/counter integration and resource accounting. Fresh
+frozen workload profiles and original hardware/compiled-Off gates still decide
+acceptance; no speedup or production activation is claimed by these fixtures.
+
 Broader payload ABI/backend/runtime and helper suites subsequently pass on both
 GNU and musl: **162 tests each across four summaries**, with no failures or
 ignores. Logs are `packed-scope-broad-{gnu,musl}.log`. This includes unchanged
