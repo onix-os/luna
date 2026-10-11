@@ -139,9 +139,27 @@ rechecks current Auto policy. An initial true flag does not authorize a handoff
 after disabling JIT. No code/source/value/frame identity is cached. GNU and
 musl each pass five handoff plus fifteen activation tests/check-all; GNU
 default/all-feature Clippy also passes with existing warnings. Fresh Miri and
-frozen `handoff4` validation/profile remain pending; no speedup is attributed to
-this source change yet. Preserve `handoff3-hardware{,-repeat}*` and
+frozen `handoff4` validation/profile were pending at that checkpoint; no speedup
+was attributed to that source change. Preserve `handoff3-hardware{,-repeat}*` and
 `handoff3-vs-upread-hardware-combined.json` as failed evidence.
+
+The entry-policy refinement now passes all four selected tests under each Miri
+model, with its source manifest unchanged. Frozen `handoff4` passes **236 tests
+/ nineteen summaries**, check-all and release capture. Its executable SHA-256 is
+`eb88b299d8ebb5421e88c3f38deb9946453ff7dc5bbea269d8bc9be72770dec7`.
+All eleven exact-image profiles pass full non-timing/resource comparisons;
+allocated ELF bytes, metadata, program headers, source manifests and image
+hashes verify. Both `upread` and `handoff3` aggregate profile comparisons pass.
+
+Against `upread`, callback Auto instructions fall **4,659,603 (3.5394%)**;
+callback Off still grows **648,440**. Closure Off growth drops from 4,151,841
+to **516,846 (0.2422%)**, and integer/float Off growth drops from 128,661 to
+**15,730 each (0.0318% / 0.0297%)**. Remaining adverse Auto counts are closure
++359,649 (0.2243%), integer +89,081 (0.5588%), float +88,972 (0.5580%), array
++52,089 (0.1448%) and allocation +35,555 (0.1015%). Metamethods fall 797,627
+(1.0315%). These are diagnostic instruction counts, not elapsed-time acceptance.
+The guarded refinement reduces rather than eliminates callback-free overhead;
+original paired hardware gates and compiled-Off cost acceptance remain open.
 
 Evidence: `callback-handoff-*` and `payload-terminal-profile/handoff*` beneath
 `target/jit-evidence/short-slice-performance/`. Original full performance,
