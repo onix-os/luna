@@ -172,6 +172,17 @@ mod tests {
                             ),
                         )
                         .unwrap();
+                        let once = function.display().to_string();
+                        assert!(Rewrite::apply(
+                            Plan {
+                                resume: resume as u32
+                            },
+                            function,
+                            paths,
+                            root
+                        )
+                        .is_err());
+                        assert_eq!(function.display().to_string(), once);
                         rewrite.verify(&original, function, paths, root)
                     },
                 )
@@ -257,6 +268,85 @@ mod tests {
                     Ok(())
                 },
             )
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn corrupt_generic_routing_bounds_and_initial_counts_are_refused() {
+        for fault in 0..8 {
+            super::super::tests::fixture_with(2, None, |function, _, paths, _, root, _, _| {
+                let original = function.clone();
+                let rewrite = Rewrite::apply(Plan { resume: 1 }, function, paths, root)?;
+                let entry = function.layout.entry_block().unwrap();
+                let [length, bound, _] = super::super::instructions::<3>(function, entry)?;
+                match fault {
+                    0 | 1 => {
+                        let InstructionData::BranchTable { table, .. } =
+                            function.dfg.insts[rewrite.table]
+                        else {
+                            unreachable!()
+                        };
+                        if fault == 0 {
+                            function.dfg.jump_tables[table].as_mut_slice().swap(0, 1);
+                        } else {
+                            let wrong = function.dfg.jump_tables[table].as_slice()[0];
+                            *function.dfg.jump_tables[table].default_block_mut() = wrong;
+                        }
+                    }
+                    2 => {
+                        let budget = function.dfg.block_params(entry)[2];
+                        let InstructionData::BranchTable { arg, .. } =
+                            &mut function.dfg.insts[rewrite.table]
+                        else {
+                            unreachable!()
+                        };
+                        *arg = budget;
+                    }
+                    3 => {
+                        let branch = function.layout.last_inst(root.dispatch).unwrap();
+                        let target = cranelift_codegen::ir::BlockCall::new(
+                            paths.points[0].trampoline,
+                            [],
+                            &mut function.dfg.value_lists,
+                        );
+                        let InstructionData::Brif { blocks, .. } = &mut function.dfg.insts[branch]
+                        else {
+                            unreachable!()
+                        };
+                        blocks[1] = target;
+                    }
+                    4 | 6 | 7 => {
+                        let inst = match fault {
+                            4 => length,
+                            6 => function
+                                .layout
+                                .first_inst(paths.points[1].trampoline)
+                                .unwrap(),
+                            _ => function.layout.first_inst(root.unknown).unwrap(),
+                        };
+                        let InstructionData::UnaryImm { imm, .. } = &mut function.dfg.insts[inst]
+                        else {
+                            unreachable!()
+                        };
+                        *imm = 1.into();
+                    }
+                    5 => {
+                        let InstructionData::IntCompare { cond, .. } =
+                            &mut function.dfg.insts[bound]
+                        else {
+                            unreachable!()
+                        };
+                        *cond = IntCC::SignedLessThan;
+                    }
+                    _ => unreachable!(),
+                }
+                assert!(
+                    rewrite.verify(&original, function, paths, root).is_err(),
+                    "fault {fault}"
+                );
+                Ok(())
+            })
             .unwrap();
         }
     }

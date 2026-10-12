@@ -7,6 +7,8 @@ use crate::jit::{
     work, JitConfig,
 };
 
+mod frames;
+
 fn compile(snapshot: &Snapshot, failure: Failure) -> Code {
     backend::compile_in(
         snapshot,

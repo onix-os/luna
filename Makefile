@@ -2298,11 +2298,33 @@ h: help
 
 .PHONY: jit-preferred-entry jit-preferred-entry-miri
 jit-preferred-entry:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::preferred::tests | awk '/^test result: ok[.] 6 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::preferred::tests | awk '/^test result: ok[.] 7 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 jit-preferred-entry-miri:
-	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::entry_flow::preferred::tests -- --test-threads=1 | awk '/^test result: ok[.] 6 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::entry_flow::preferred::tests -- --test-threads=1 | awk '/^test result: ok[.] 7 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 .PHONY: jit-preferred-entry-native
 jit-preferred-entry-native:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::preferred::native | awk '/^test result: ok[.] 2 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::preferred::native | awk '/^test result: ok[.] 3 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+.PHONY: jit-preferred-entry-runtime
+jit-preferred-entry-runtime:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::payload_runtime_tests::preferred_entry | awk '/^test result: ok[.] 2 passed; 0 failed; 1 ignored;/ { valid=1 } { print } END { exit !valid }'
+
+PREFERRED_ENTRY_DIR ?= target/jit-evidence/short-slice-performance/preferred-entry-profile
+.PHONY: jit-preferred-entry-profile-build jit-preferred-entry-profile-run
+jit-preferred-entry-profile-build:
+	@$(MAKE) jit-strided-profile-build STRIDED_DIR='$(PREFERRED_ENTRY_DIR)'
+	@{ rustc -vV; $(CARGO) --version; printf 'opt_level=3\nstrip=false\nscope=frozen rust_callbacks workload in empty Lua state\nwarmups=2\nmeasured_executions=1\nexperiment=test-only preferred entry\n'; } > '$(PREFERRED_ENTRY_DIR)/configuration'
+
+jit-preferred-entry-profile-run: jit-profile-cpu-check
+	@sha256sum -c '$(PREFERRED_ENTRY_DIR)/binary.sha256' '$(PREFERRED_ENTRY_DIR)/source.sha256' > '$(PREFERRED_ENTRY_DIR)/verification-before.log'
+	@set -e; for round in 0 1 2; do order='0 1'; if [ $$round = 1 ]; then order='1 0'; fi; for selected in $$order; do \
+		out='$(PREFERRED_ENTRY_DIR)'/$$round-$$selected; test ! -e "$$out.callgrind"; \
+		LUNA_JIT_DIAGNOSTIC_DIR="$$out-native" LUNA_PREFERRED_ENTRY=$$selected taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*preferred_entry::profile_execute*' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file="$$out.callgrind" \
+			'$(PREFERRED_ENTRY_DIR)/test-binary' jit::payload_runtime_tests::preferred_entry::profile_preferred_callback --ignored --exact --nocapture --test-threads=1 > "$$out.log" 2>&1; \
+		grep -Fq "case=rust_callbacks preferred=$$([ $$selected = 1 ] && echo true || echo false) validated=true" "$$out.log"; \
+		grep -Fq 'test result: ok. 1 passed; 0 failed' "$$out.log"; \
+		grep -Eq '^summary: [1-9][0-9]*' "$$out.callgrind"; \
+	done; done
+	@sha256sum -c '$(PREFERRED_ENTRY_DIR)/binary.sha256' '$(PREFERRED_ENTRY_DIR)/source.sha256' > '$(PREFERRED_ENTRY_DIR)/verification-after.log'

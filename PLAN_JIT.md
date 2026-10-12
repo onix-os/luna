@@ -53,6 +53,28 @@ speed measurement. Live helper-frame/GC/mutation coverage and performance
 profiling remain open. Logs: `preferred-entry-native*.log` under the ignored
 short-slice evidence directory; the initial compile error is retained separately.
 
+Follow-up native coverage now uses real helper frames and checks reference
+identities, all four weak modes, environment rebinding, completed/declined reads
+and borrow panics, including the expected panic PC. Seven restoration/model
+tests cover the original bounds, generic table/default/index, false branch and
+initial counts, and prove repeated application refuses without mutation.
+All seven model/restoration tests also pass under Miri (194.15 seconds).
+
+Two integrated runtime tests also pass: Off/ordinary/preferred execution matches
+every fuel/interrupt boundary, counters and final results across 16 scalar or
+reference-mutating callback scenarios with interleaved GC; the unchanged frozen
+5,000-callback workload matches its expected result and all 25 execution counters.
+These dedicated fixtures use an empty Lua state: explicitly preparing a core
+state also prepares unrelated library prototypes, which the required mode
+correctly refuses. This is not an all-workload acceptance result.
+
+`make jit-preferred-entry-profile-build` and `jit-preferred-entry-profile-run`
+freeze a symbol-retaining optimized test executable and collect three ordered
+control/candidate pairs for that callback workload, including finalized native
+code and source/binary hashes. This is a diagnostic instruction profile, not the
+shipping performance or compiled-Off overhead gate. Results must be inspected
+before claiming the preferred route reduces actual work.
+
 #### Prepared-key-only identity comparison — improvement with a rejected cost
 
 The earlier general string-key shortcut changed interpreter lookup. This trial
