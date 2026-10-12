@@ -11,6 +11,34 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Integrated batching: refreshed compiled-Off and size evidence
+
+Matched stripped speed/shipping artifacts built at `99aba17` retain the
+integrated batching runtime. Sixteen completed checked comparisons cover four
+windows per profile on CPUs 0 and 16, eleven alternating process pairs, twenty
+iterations and all nine original workloads. An independent audit recomputes
+medians and the unchanged 1.05 ceiling from all 352 worker rows; all 144 gate
+records, native Auto proofs and source/artifact checks are complete. No owned
+build, test or profiler overlapped these measurements.
+
+Compiled-Off controls still fail: shipping upvalues in 8/8 windows, shipping
+Oslo in 2/8 and metamethods in 1/8; speed callbacks in 7/8, cold configuration
+in 5/8, upvalues in 4/8 and metamethods in 1/8. Median shipping upvalue overhead
+ratios are 1.0853 on CPU 0 and 1.2459 on CPU 16. Speed callbacks are 1.0605
+and 1.0588. Contention and failed samples remain in the evidence.
+
+Binary sizes (feature-disabled / JIT-enabled) are 1,432,640 / 7,226,768 bytes
+for speed and 1,152,712 / 4,719,632 bytes for shipping. These are size reports,
+not proof of disabled-cost acceptance or a separate numerical size ceiling.
+The native work proof prevents measuring a dead-stripped Off-only executable.
+
+An initial launch outside the Nix environment refused artifact verification:
+the ambient `bash` resolves to an Oslo shim without associative arrays. Those
+sixteen refused commands executed no comparisons and are retained separately,
+not counted as benchmark failures. The corrected Make campaign runs inside
+Nix and refuses incomplete gate output immediately. Evidence is under
+`target/jit-evidence/short-slice-performance/inline-batching-feature-cost/`.
+
 #### Prepared string-key lookups — incremental improvement integrated
 
 Commits `48d5928`, `69480f5`, `cfef771` and `4f83fa4` were developed and tested
