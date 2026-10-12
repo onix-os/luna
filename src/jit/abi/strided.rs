@@ -68,14 +68,15 @@ impl<'code> Kernel<'code> {
             return None;
         }
         let stride = mem::size_of::<Value<'gc>>();
-        let origin = values.as_ptr().addr();
         let mut offset = None;
         for index in self.required.indices() {
-            let Value::Integer(payload) = values.get(index)? else {
+            let value = values.get(index)?;
+            let Value::Integer(payload) = value else {
                 return None;
             };
-            let start = origin.checked_add(index.checked_mul(stride)?)?;
-            let field = ptr::from_ref(payload).addr().checked_sub(start)?;
+            let field = ptr::from_ref(payload)
+                .addr()
+                .checked_sub(ptr::from_ref(value).addr())?;
             if field.checked_add(mem::size_of::<i64>())? > stride
                 || field % mem::align_of::<i64>() != 0
                 || offset.is_some_and(|previous| previous != field)
