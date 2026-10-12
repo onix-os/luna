@@ -11,6 +11,50 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Scheduled input imports — boundary model, not a runtime fix
+
+`91ba2df` adds a test-only native boundary model and reproducible Make targets:
+`jit-import-model`, `jit-import-model-miri`, `jit-import-profile-build` and
+`jit-import-profile-run`. The model compares full seven-slot packing, individual
+checked importer calls, and one statically specialized bulk importer. Bulk
+imports initialize all slots; omitted inputs are canonical proxies, not cached
+values. Generated code checks import refusal before accessing scratch storage.
+
+GNU and fresh-target musl each pass three tests with one ignored diagnostic.
+Stacked seed 65 and Tree seed 66 each pass two pure tests. The native differential
+test compiles both import variants for every seven-bit mask, refreshes mutated
+inputs and exercises refusal with uninitialized scratch. Memcheck passes this
+test with zero errors and zero definite/indirect leaks; 48 possible TLS bytes and
+544 reachable bytes remain. This is not a whole-runtime memory validation.
+
+The refined model uses production-shaped full packing and six integer inputs
+plus nil. **24 profiles** each execute 100,000 verified entries; independent
+analysis checks all thirteen event totals against summed self-costs. Model
+source and binary checks pass. Initial mixed-value profiles are kept separately
+and are not pooled with these results.
+
+| Instructions per 100,000 entries | Shipping | Speed |
+| --- | ---: | ---: |
+| Five inputs used, full packing | 13,800,022 | 11,300,023 |
+| Five inputs used, individual imports | 21,800,022 | 19,500,023 |
+| Five inputs used, bulk import | 11,100,022 | 10,900,023 |
+| Seven inputs used, full packing | 14,400,022 | 11,900,023 |
+| Seven inputs used, bulk import | 15,000,022 | 15,000,023 |
+
+At five inputs, bulk saves **27 / 4 instructions per entry**, or approximately
+**19.6% / 3.5% of this boundary model**, while increasing data reads and writes.
+At seven inputs it loses **6 / 31 instructions per entry**. Individual checked
+calls lose at five and seven inputs. These are software instruction counts,
+not application speedups or evidence that the callback regression is fixed.
+
+Production import code is unchanged by this probe. A safe Rust static-mask packer
+can test whether compile-time specialization avoids the earlier dynamic-mask
+loop overhead without adding a native helper ABI. It still needs source-derived
+read-before-definition proofs, charged optional metadata, exact native coverage,
+alias/PC/budget/GC/borrow tests, and original end-to-end acceptance gates. Full
+packing must remain available for ineligible or unprofitable entries. Evidence:
+`target/jit-evidence/short-slice-performance/scheduled-import-final/`.
+
 #### Precomputed string-key hashes — measured lookup model only
 
 `d87fc1c` adds a test-only, GC-free `PreparedHash(u64)` model and Make targets.
