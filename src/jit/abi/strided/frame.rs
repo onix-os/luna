@@ -34,6 +34,7 @@ impl Header {
         self.base = values.as_mut_ptr().cast();
     }
 
+    #[inline(always)]
     fn update(&mut self, index: usize, value: &Value<'_>) {
         let (tag, field, width, alignment) = match value {
             Value::Nil => (abi::NIL, ptr::null(), 0, 1),
