@@ -27392,6 +27392,47 @@ Evidence is under
 both screen `audit.json` files. Hosted platform CI remains separate from the
 completed local evidence; no full-plan completion is claimed.
 
+### Ordinary native-slice dispatch trial: rejected
+
+The trial routed ordinary compiled slices through ActivationHost rather than
+the interpreter dispatch body, reusing the existing charged code lease and
+canonical resume token. The initial version was inactive for callbacks:
+activation admission required an installed Lua call pair. Its small software
+profile change therefore did not demonstrate execution of the proposed path.
+The enabled version admitted ordinary compiled code and the callback profile
+confirmed native-slice and native-transition execution.
+
+The enabled candidate passed 98 focused tests across region, accounting,
+error, suspension and sequence targets, plus formatting and compilation checks.
+Callback native entries, instruction coverage, helper work and retained code
+and metadata were unchanged. Collected callback Auto instructions nevertheless
+rose from 126,201,795 in the frozen control to 136,118,386 in the candidate.
+Profiled wall times were not treated as hardware evidence.
+
+The completed opt-level-3 hardware screen retained 24 checked commands, 432
+timing-summary rows and 216 workload gates. Four rotated control/candidate/
+same-image-placebo windows ran on each of CPUs 0 and 16, with 11 alternating
+Off/Auto samples per workload. The control was the frozen integrated batching
+binary used by `45d10e4`; all thresholds, workload coverage, image/source hashes,
+matching hardlink launch paths and contention telemetry were checked. No owned
+build, test or profiler overlapped hardware timing.
+
+- Callback median control/candidate time ratios were 0.9076 and 0.8790;
+  same-image placebo ratios were 0.9959 and 0.9571.
+- Metamethod ratios were 0.8560 and 0.8699; placebo ratios were 1.0054 and
+  1.0170. Both candidate workload gates failed in all eight windows.
+- All eight candidate aggregate checks failed. Minor changes in other cases
+  do not offset these regressions or satisfy the original acceptance gates.
+
+The candidate was removed, leaving the committed inline batching runtime
+unchanged. Its tracked patch, new module, source hashes, executable, profile,
+focused-test logs and audited hardware results are retained under
+`target/jit-evidence/short-slice-performance/native-slice-enabled-*`.
+The inactive predecessor remains separately named `native-slice-*`.
+Next work must reduce measured per-entry/helper costs rather than assume that
+moving native entry outside the VM dispatch body is sufficient. Callback,
+metamethod, shipping-array and compiled-Off/size acceptance remain open.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
