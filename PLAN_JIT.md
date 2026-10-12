@@ -11,6 +11,53 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Borrowed scalar matching: runtime forms rejected, models retained
+
+`ad96fcb` retains two test-only import models and an 8,206-value differential.
+Both match a borrowed `Value` directly; the second keeps numeric values inline
+and outlines nonnumeric matching. This differs from the older borrowed-iterator
+trial, which still copied each value into `Slot::from_value`. Neither model
+changes value layout, tags, reference rooting, register coverage or public APIs.
+
+Three temporary runtime variants replaced ordinary scratch imports: direct
+borrowed matching, forced inlining of that match, and numeric-first matching
+with a cold remainder. The first and third passed ABI10/native18/heap20/
+upvalue7 tests and compilation checks; the annotation-only refinement reran
+ABI10/heap20. Twelve immutable full-runtime profiles compare all three
+variants with one control across callbacks, metamethods and upvalues. All
+eighteen smoke records and complete profile execution/resource records match.
+
+Callback instructions increase from **126,201,876** to **127,368,798** for
+both direct/forced-inline forms (+0.9246%), and **127,629,922** for the cold
+remainder (+1.1316%). The direct match increases seven-register wrapper self
+instructions from 20,233,235 to 21,400,157. Disassembly has fourteen static
+indirect jumps instead of seven; collected indirect branches increase by
+453,943, exactly seven per native entry. These are jump-table branches, not
+seven new function calls. Forced inlining leaves callback instruction totals
+unchanged. The numeric/cold refinement also raises metamethod instructions
+2.8344%; its lower upvalue instruction count does not fix the target regression.
+These are software profiles, not hardware timing or a claim about elapsed costs.
+
+No hardware campaign was run for these candidates. All production hooks and
+annotations are withdrawn; only the model/oracle and Make targets remain.
+The oracle covers every Value kind, integer extremes, signed zero, infinities,
+generated integer/float payloads and mutation between imports. Both final models
+pass Stacked Borrows seed72 and Tree Borrows seed73 under `nix develop .#miri`,
+one test each with 38 existing warnings. The default dev shell and separately
+installed dated rustup toolchain lacked Miri; both failed launch logs remain.
+
+Restored formatting, the focused oracle, ABI10/native18/heap20 and no-feature/
+all-feature checks pass. The rebuilt default executable is byte-identical to
+the frozen control, SHA256
+`73b609225834a42f9a2501be785a4f3fdd33d4e10dbf29eab15c3b03eef6090c`;
+all eighteen fresh non-timing smoke records match. Evidence is under
+`target/jit-evidence/short-slice-performance/reference-match/`, including all
+three patches/images, twelve profiles, disassembly and `audit.json`.
+`make jit-reference-import` and `make jit-reference-import-miri` rerun the
+retained oracle. Full performance/platform/resource/release acceptance remains
+open; do not retry borrowed matching or numeric-first import source rewrites
+without evidence of a different generated import sequence.
+
 #### Wide prepared-helper ABI: compiler validated, runtime trial withdrawn
 
 `cc5397f` and `be37d28` probe a four-argument GetUpTable entry: host, scratch,
