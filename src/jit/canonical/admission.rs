@@ -11,6 +11,13 @@ pub(in crate::jit) struct Admitted<'program, 'gc> {
 }
 
 impl<'program, 'gc> Admitted<'program, 'gc> {
+    pub(in crate::jit) fn allows_inline(&self) -> bool {
+        #[cfg(test)]
+        return !self.program.custom_hooks;
+        #[cfg(not(test))]
+        true
+    }
+
     pub(in crate::jit) fn caller(&self) -> Closure<'gc> {
         self.caller
     }

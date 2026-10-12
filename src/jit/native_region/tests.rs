@@ -2,6 +2,7 @@ use super::*;
 
 mod cache;
 mod cost;
+mod inline_runs;
 mod registration;
 mod request;
 mod service;
@@ -419,6 +420,10 @@ fn returned_pair_preserves_wide_scalar_and_reference_prefixes() {
 
 #[test]
 fn returned_pair_preserves_open_upper_frame_captures() {
+    for (source, inline) in [
+        (&b"local n=0 local function caller() local p=99 local function f(v) n=n+v end for i=1,10 do f(i) p=p+1 end return end caller() return n"[..], false),
+        (&b"local n=0 local function caller() local function f(v) n=n+v end for i=1,10 do f(i) end return end caller() return n"[..], true),
+    ] {
     let mut lua = Lua::empty();
     lua.set_jit_config(JitConfig {
         mode: JitMode::Auto,
@@ -426,7 +431,7 @@ fn returned_pair_preserves_open_upper_frame_captures() {
     })
     .unwrap();
     lua.enter(|ctx| {
-        let root = Closure::load(ctx, None, &b"local n=0 local function caller() local p=99 local function f(v) n=n+v end for i=1,10 do f(i) p=p+1 end return end caller() return n"[..]).unwrap();
+        let root = Closure::load(ctx, None, source).unwrap();
         let mut slices = 0;
         let mut run = |native: bool| with_test_thread(ctx, root, &mut Fuel::with(10000), |host| {
             ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
@@ -438,6 +443,7 @@ fn returned_pair_preserves_open_upper_frame_captures() {
                 ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
                 let (region, found) = build_region(ctx, caller);
                 assert_eq!(found, start);
+                assert_eq!(region.inline.is_some(), inline);
                 region
             });
             ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
@@ -461,6 +467,7 @@ fn returned_pair_preserves_open_upper_frame_captures() {
         let native = run(true);
         assert_eq!(native, run(false));
     });
+    }
 }
 
 #[test]
@@ -1181,7 +1188,13 @@ fn generated_region_matches_canonical_bounded_frames_fuel_and_work() {
                             assert!(outcome.fragments > 0 && outcome.fragments <= limit);
                             if (limit, budget, fuel) == (64, 64, 10000) {
                                 assert_eq!(outcome.pairs, 20);
-                                assert!(outcome.fragments > 20);
+                                if region.inline.is_some()
+                                    && !DEFERRED_ENABLED.with(|flag| flag.get())
+                                {
+                                    assert!(outcome.fragments < 20);
+                                } else {
+                                    assert!(outcome.fragments > 20);
+                                }
                                 assert!(matches!(
                                     host.test_trace().1.as_slice(),
                                     [Value::Integer(210)]

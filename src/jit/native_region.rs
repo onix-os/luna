@@ -31,6 +31,7 @@ pub(crate) struct Region {
     ordinary: Prepared,
     pair: PreparedPair,
     driver: region::Driver,
+    inline: Option<super::owner::Shared<super::backend::inline_loop::Code>>,
     source: u64,
     config: super::JitConfig,
 }
@@ -321,6 +322,12 @@ impl Session<'_, '_, '_, '_> {
         {
             return RootedCompletion::Unavailable;
         }
+        if self.region.inline.is_some()
+            && self.admitted.allows_inline()
+            && matches!(self.registers, Registers::Rooted(_))
+        {
+            return self.complete_inline(view);
+        }
         let Some(mut snapshot) = self.registers.snapshot() else {
             return RootedCompletion::Unavailable;
         };
@@ -375,6 +382,86 @@ impl Session<'_, '_, '_, '_> {
         {
             return RootedCompletion::Complete(0);
         }
+        let Some(pc) = pc else {
+            return RootedCompletion::Complete(0);
+        };
+        view.pc = pc as u64;
+        self.publish(view);
+        RootedCompletion::Complete(1)
+    }
+
+    fn complete_inline(&mut self, view: &mut View) -> RootedCompletion {
+        let ctx = self.frame.ctx;
+        self.frame.host.with_registers(|caller, registers| {
+            assert_eq!(caller, self.admitted.caller());
+            assert!(self.registers.materialize(registers.stack_frame));
+            *registers.pc = view.exit.pc as usize;
+        });
+        self.rooted_pending = false;
+        record(ctx, &view.exit, std::mem::take(&mut self.frame.count));
+        #[cfg(test)]
+        tests::rooted_checkpoint(1);
+        let Some(progress) = self.region.inline.as_ref().unwrap().run(
+            ctx,
+            self.frame.host,
+            self.limit - self.outcome.slices,
+            self.budget,
+            view.exit.instructions,
+        ) else {
+            return RootedCompletion::Declined;
+        };
+        self.outcome.slices += progress.slices as usize;
+        self.outcome.pairs += progress.calls as usize;
+        ctx.jit()
+            .record_pair_execution(progress.calls as usize, progress.calls as usize);
+        {
+            let mut manager = ctx.jit().0.borrow_mut();
+            let stats = &mut manager.stats;
+            stats.total_dispatches = stats
+                .total_dispatches
+                .saturating_add(u64::from(progress.slices));
+            stats.interpreted_slices = stats
+                .interpreted_slices
+                .saturating_add(u64::from(progress.slices));
+            stats.native_upvalue_reads = stats
+                .native_upvalue_reads
+                .saturating_add(u64::from(progress.calls));
+            stats.native_upvalue_writes = stats
+                .native_upvalue_writes
+                .saturating_add(u64::from(progress.calls));
+        }
+        #[cfg(test)]
+        {
+            tests::ROOTED_COMPLETIONS
+                .with(|count| count.set(count.get() + progress.calls as usize));
+            tests::rooted_checkpoint(2);
+        }
+        if progress.pending != 0 {
+            let pc = self.frame.host.with_registers(|_, registers| *registers.pc);
+            self.fallback(&abi::Exit {
+                pc: pc as u64,
+                instructions: progress.pending,
+                reason: super::exits::Kind::Interpreter as u32,
+            });
+        }
+        if self.outcome.result.is_err()
+            || self.outcome.slices >= self.limit
+            || !self.frame.host.fuel().should_continue()
+            || !self.frame.host.lua_ready()
+            || self.frame.host.frame_identity() != self.identity
+        {
+            return RootedCompletion::Complete(0);
+        }
+        let pc = self.frame.host.with_registers(|caller, registers| {
+            if caller != self.admitted.caller()
+                || registers.stack_frame.len() < self.registers.len()
+                || !self.region.caller.accepts_pc(*registers.pc)
+            {
+                return None;
+            }
+            assert!(self.registers.recapture(registers.stack_frame));
+            Some(*registers.pc)
+        });
         let Some(pc) = pc else {
             return RootedCompletion::Complete(0);
         };

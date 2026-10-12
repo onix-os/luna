@@ -14,6 +14,7 @@ use ottavino_gc_arena::Gc;
 
 pub(crate) struct Request {
     snapshot: Snapshot,
+    inline_callee: Option<Snapshot>,
     source: u64,
     ordinary: Prepared,
     pair: PreparedPair,
@@ -55,8 +56,31 @@ impl Request {
             manager.config.max_prototype_instructions,
             manager.snapshots.clone(),
         )?;
+        let inline_callee = (snapshot.registers <= 16)
+            .then(|| {
+                let callee = ctx
+                    .jit_registry()
+                    .borrow()
+                    .resolve(ctx, pair.program.key().callee)?;
+                let source = Snapshot::new_in(
+                    &callee,
+                    manager.config.max_prototype_instructions,
+                    manager.snapshots.clone(),
+                )
+                .ok()?;
+                crate::jit::inline_loop::Plan::new(
+                    &snapshot,
+                    &source,
+                    pair.program.key().pc,
+                    Limits::from(&manager.config),
+                )
+                .ok()?;
+                Some(source)
+            })
+            .flatten();
         Ok(Self {
             snapshot,
+            inline_callee,
             source,
             ordinary,
             pair,
@@ -108,34 +132,80 @@ impl Request {
         {
             return Err(JitError::ResourceLimit("connected region IR"));
         }
-        let caller = scoped_helpers::Code::compile_region(
-            &self.snapshot,
-            self.source,
-            self.memory.clone(),
-            self.metadata.clone(),
-            &self.config,
-        )?;
-        drop(self.snapshot);
+        let mut inline_callee = self.inline_callee;
+        let compile_caller = || {
+            scoped_helpers::Code::compile_region(
+                &self.snapshot,
+                self.source,
+                self.memory.clone(),
+                self.metadata.clone(),
+                &self.config,
+            )
+        };
+        let caller = match compile_caller() {
+            Err(JitError::ResourceLimit(_)) if inline_callee.is_some() => {
+                drop(inline_callee.take());
+                compile_caller()?
+            }
+            result => result?,
+        };
+        let mut snapshot = Some(self.snapshot);
+        if inline_callee.is_none() {
+            drop(snapshot.take());
+        }
         let remaining = Limits {
             instructions: 64,
             blocks: 4,
             relocations: limits.relocations.saturating_sub(caller.relocations()),
         };
-        let driver = region::compile(
-            caller.entry(),
-            boundary,
-            self.memory,
-            self.config.max_code_bytes,
-            self.metadata,
-            self.workspace,
-            remaining,
-            region::Fault::None,
-        )?;
+        let compile_driver = || {
+            region::compile(
+                caller.entry(),
+                boundary,
+                self.memory.clone(),
+                self.config.max_code_bytes,
+                self.metadata.clone(),
+                self.workspace.clone(),
+                remaining,
+                region::Fault::None,
+            )
+        };
+        let driver = match compile_driver() {
+            Err(JitError::ResourceLimit(_)) if snapshot.is_some() => {
+                drop(snapshot.take());
+                drop(inline_callee.take());
+                compile_driver()?
+            }
+            result => result?,
+        };
+        let inline = snapshot
+            .as_ref()
+            .zip(inline_callee.as_ref())
+            .and_then(|(caller, callee)| {
+                let code = crate::jit::backend::inline_loop::Code::compile(
+                    self.pair.program.key(),
+                    caller,
+                    callee,
+                    self.memory.clone(),
+                    self.config.max_code_bytes,
+                    self.metadata.clone(),
+                    Limits {
+                        instructions: limits.instructions - expansion.instructions - 64,
+                        blocks: limits.blocks - expansion.blocks - 4,
+                        relocations: limits.relocations,
+                    },
+                    #[cfg(test)]
+                    crate::jit::backend::Failure::None,
+                )
+                .ok()?;
+                Shared::try_new(code, self.metadata.clone()).ok()
+            });
         Ok(Region {
             caller,
             ordinary: self.ordinary,
             pair: self.pair,
             driver,
+            inline,
             source: self.source,
             config: self.config,
         })

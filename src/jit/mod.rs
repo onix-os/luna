@@ -103,6 +103,15 @@ mod handoff;
 ))]
 mod helper_flow;
 mod helpers;
+#[cfg(any(
+    test,
+    all(
+        not(miri),
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )
+))]
+mod inline_loop;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64"),

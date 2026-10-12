@@ -65,7 +65,7 @@ fn fixture(tag: u64, conjunction: bool) -> Fixture {
         let zero = b.ins().iconst(types::I64, 0);
         b.ins().return_(&[zero]);
         b.seal_all_blocks();
-        let isa = cranelift_codegen::isa::lookup_by_name("x86_64")
+        let isa = cranelift_codegen::isa::lookup_by_name(std::env::consts::ARCH)
             .unwrap()
             .finish(settings::Flags::new(settings::builder()))
             .unwrap();

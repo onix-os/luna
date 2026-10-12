@@ -71,6 +71,16 @@ Evidence is under `target/jit-evidence/short-slice-performance/`: the frozen
 `prehashed-final-aggregate.json`, and `prehashed-final-*` validation logs.
 Earlier rejected variants and their failures are retained separately.
 
+The promoted main checkout was package-cleaned and rebuilt in both profiles.
+Its ELF/text hashes differ from the isolated checkout, so the measured binaries
+were not assumed interchangeable. Fresh main callback and allocation profiles
+reproduce the instruction/counter findings, and a separate 48-command screen
+retains all controls and source manifests. CPU16 callback ratios are
+1.11895/1.03712; CPU0 is heavily disturbed (callback placebo ratios range from
+0.40810 to 1.90863, and shipping arrays are adverse). This main-image screen is
+not clean timing acceptance. The declared main executable is the newly built
+speed image, byte-identical to its frozen `prehashed-main-profile` artifact.
+
 #### Static-mask runtime imports — measured and rejected
 
 An isolated checkout at `466a24d` integrates safe Rust static-mask packers into
@@ -27215,6 +27225,172 @@ to this candidate. Only fresh build/configuration/hash/section outputs are curre
 - `fuzz/`, `Makefile`, `flake.nix` — uncommitted coverage-package work.
 - `target/jit-evidence/coverage-package/` — focused pass and failed build logs.
 - `target/jit-evidence/current-frame-upvalues/` — committed alias acceptance.
+
+### Guarded inline-loop source admission (experimental)
+
+`src/jit/inline_loop.rs` is test-only groundwork for removing repeated
+Rust call/return transitions from numeric loops containing scalar upvalue
+callees. It retains the existing aggregate source-identity and expansion
+checks, bounds the loop body, and rejects effects outside its admitted shape.
+`make jit-inline-loop-plan` passes four tests. The original positive `x=x+x`
+fixture actually contains two `GetUpValue` instructions; it now explicitly
+tests fallback instead of weakening the four-operation callee guard.
+
+The follow-on test-only `inline_loop/native.rs` emits a bounded native loop
+containing moves, a scalar captured-cell callee, full call-stack slot effects,
+and integer loop advancement. The generated function has no imported helpers;
+the native test also requires zero machine-code relocations. It rechecks the
+function root token on each call, scalar tags, fuel admission and work bounds,
+and compares the emitted program against source-derived reconstruction before
+execution. Actual IR expansion must fit the original aggregate bound.
+
+Focused GNU and musl checks pass four source tests and four native tests each.
+`make jit-test JIT_MODE=auto` passes 1,811 executions across 87 summaries,
+with eight ignored diagnostics (workspace/all-targets with `jit`, not the
+all-features or documentation-test targets).
+The native tests compare every work budget from zero through 64, complete slot
+state (including nil tails), fuel, negative/zero steps, arithmetic overflow,
+loop overflow, captures aliasing loop-control slots, and changed guards/writes.
+More than 12,000 additional cases replay generated progress through physical
+VM operations and real call/return transitions; this is not a shipping executor
+integration test. Stacked Borrows seed 78 and Tree Borrows seed 79 pass the four
+pure source tests; Miri does not execute the machine code. Native Memcheck
+passes all four tests with zero errors and no definite/indirect leaks; 48 bytes
+possibly lost and 632 bytes reachable remain in the test process.
+
+This is not an integrated optimization or a runtime safety certificate. The
+experimental 64-bytecode work bound is not the public per-activation budget.
+The runtime adapter must preserve slice accounting, pending caller-fragment
+charges, source/closure/capture binding, hooks, capacity and close guards,
+root ownership, publication, code leases and charged allocation. Production
+upper-frame binding, dispatcher-boundary fault injection, and end-to-end timing
+acceptance remain required. No original gate or supported-language contract
+has changed, and shipping code still does not select this kernel.
+
+The scoped test-only bridge now binds actual caller/callee prototypes and
+capture origins, normalizes equal closure-root aliases without changing the
+root owners, and reuses the existing atomic-call capacity/close/frame guards.
+It limits a burst to whole call pairs that fit both the activation limit and
+the native work bound. It selects only budgets that cannot exhaust a caller
+fragment inside this source shape; other budgets retain the ordinary path.
+The bridge restores the charge for an unfinished caller prefix before
+publishing, so the existing continuation can charge that prefix exactly once.
+The publication operation copies the complete rooted frame, upper capture,
+PC and fuel while the scoped frame witness remains borrowed.
+
+`make jit-inline-loop-bridge` passes four tests. Its physical-state matrix
+covers 25,920 input combinations, including declines, with positive native
+coverage required separately for every source. Successful batches are replayed
+through real VM call/return activations, comparing frame state, rooted value
+identity, captures and fuel. Cases include a physical upper-frame capture and
+table-valued unused arguments. Fourteen pre-publication corruption/panic cases,
+eight runtime-refusal cases and a post-publication unwind check also pass.
+At `3215906`, the focused GNU source/native/bridge and original atomic-call
+targets passed 17 executions across six summaries. The full GNU Auto
+`jit-test-all` run at that source state reported 1,835 passes across 88
+summaries, with eight ignored diagnostics; this broad run predates the dynamic
+binding follow-up below. This bridge still runs only in tests:
+charged code ownership, installation in the region dispatcher, production
+counter aggregation and end-to-end performance acceptance remain open. The
+bridge is not included in the current source-only Miri target.
+
+The follow-up uses one generated image for both current-frame and upper-frame
+captures. The entry validates the scalar-cell index before forming its
+address; no GC pointer is embedded in the image. Runtime metadata is now an
+owned, source-verified descriptor rather than a borrow of the compiler plan.
+A test drops the independent source snapshots, checks both workspace ledgers
+return to zero, and then executes a native batch using that descriptor.
+The current focused GNU and musl targets each pass 13 tests (four source,
+five native, four bridge). Tree Borrows seed 80 passes the four pure source
+tests. Memcheck passes all nine native/bridge tests with zero errors or
+definite/indirect leaks, retaining the same 48 possible and 632 reachable
+bytes. These focused checks do not substitute for shipping dispatcher,
+code-owner, counter, or performance acceptance.
+
+The preceding upvalue profile has now been independently audited: all 13
+events agree between self-cost sums, totals and summaries for both modes,
+the binary hashes match, and instruction coverage is unchanged (780,104
+reported instructions). Off/Auto simulated instruction counts are 213,407,295
+and 160,242,060 respectively. The audit is in
+`target/jit-evidence/short-slice-performance/prehashed-main-upvalue/audit.json`;
+these software-profiler counts are not hardware speed acceptance.
+
+### Integrated inline-loop code ownership and dispatch
+
+The native inline-loop path now participates in production region compilation
+and dispatch on supported native targets, superseding the test-only status
+above. `backend/inline_loop.rs` uses the existing charged mapping provider,
+W^X finalization, metadata owner and workspace reservations. Caller and callee
+snapshots must share a workspace ledger and runtime root. The image contains
+no GC pointers or compiler snapshots, and has zero machine relocations.
+
+Region requests capture the optional callee source outside execution, compile
+the original caller and driver first, then optionally install the inline image.
+Resource refusal releases optional source/image ownership; original region
+compilation retries without optional snapshots when those snapshots cause a
+resource refusal. Aggregate IR admission includes caller, driver and inline
+expansion without increasing configured limits.
+
+The dispatcher publishes the caller prefix before entering a batch, retains
+the owning region lease, records actual native entries rather than one entry
+per inlined call, and resumes unfinished caller work through the existing
+prefix-preserving token. After publication, unwind handling does not write
+stale register snapshots over committed results. Unsupported budgets, source
+shapes, capture types and runtime guards retain the existing fallback.
+
+GNU and musl `jit-check`, `jit-inline-loop-owner` and `jit-native-region` pass.
+The three new owner tests cover execution after source-workspace release,
+final-lease reclamation, allocation/protection/IR refusal and foreign ledgers.
+Three new dispatcher tests include 6,160 optimized/original runs compared
+against canonical execution across five sources, seven slice limits, eight
+budgets and eleven fuel values; late-batch unwind and optional-IR refusal are
+also checked. Existing source/native/bridge tests remain separate evidence.
+
+The all-features GNU Auto suite at `b202111` passes 1,843 tests across 88
+summaries, with eight ignored diagnostics and a saved Make exit of zero.
+The first broad attempt stopped on an old assumption that repeated calls
+require repeated region fragments. The public test now requires more paired
+returns than fragments for the admitted batching case, while retaining exact
+interrupted fuel/dispatch traces and the original assertions for other cases.
+Both synchronous and async public region tests pass. `def45a4` additionally
+checks actual upper-frame captures through the integrated image; the focused
+GNU region targets pass with that stronger fixture.
+
+Integrated owner and dispatcher Memcheck runs pass all six tests with zero
+errors or definite/indirect leaks. Each retains 48 possible and 632 reachable
+bytes. These runs do not replace ARM runtime or Rust-only Miri coverage.
+
+Two completed hardware screens retain 48 commands, 864 timing-summary rows
+and 432 workload gates across speed and size-optimized shipping profiles.
+Each profile uses four rotated control/candidate/placebo windows on CPUs 0 and
+16, with 11 alternating Off/Auto samples per workload. Controls use the frozen
+`6366a5d` main binary; candidate runtime code is `623683b`. Binary/source hashes,
+original thresholds, every failed gate and contention telemetry are retained.
+No owned builds, tests or profiler runs overlapped these timing windows.
+
+- Speed upvalue ratios against interpreter: 2.5951–2.8957; all eight gates pass.
+  Median old-JIT/new-JIT ratios are 1.8909 on CPU 0 and 2.0744 on CPU 16;
+  same-image placebo medians are 1.0093 and 0.9951.
+- Shipping upvalue ratios against interpreter: 2.1089–2.6533; all eight printed
+  gates pass. Median old-JIT/new-JIT ratios are 2.4972 and 2.6518; placebo
+  medians are 0.9966 and 1.0075. Shipping results are diagnostic, not an
+  opt-level-3 `--check` acceptance run.
+- Speed controls also pass the upvalue threshold in these windows
+  (1.3589–1.4257). This is an incremental improvement, not evidence that the
+  earlier contended failures never occurred.
+- Reported upvalue instruction coverage remains 780,104. In the speed screen,
+  native entries fall from 259,491 to 38,122 and caller fragments from 129,299
+  to 18,427. Code mappings rise by 4,096 bytes and retained metadata by 240.
+- Overall acceptance remains open: seven of eight candidate speed aggregates
+  fail, with callback failures in seven windows and metamethod failures in
+  three. Shipping has callback failures in all eight windows, array failures
+  in four and metamethod failures in three. Compiled-but-disabled cost/size
+  gates still need a fresh run for this implementation.
+
+Evidence is under
+`target/jit-evidence/short-slice-performance/inline-loop-integrated-*`, including
+both screen `audit.json` files. Hosted platform CI remains separate from the
+completed local evidence; no full-plan completion is claimed.
 
 ## 15. Primary references
 

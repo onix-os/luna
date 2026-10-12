@@ -22,7 +22,36 @@ pub(crate) struct Window<'gc, 'borrow, 'host> {
     pc: usize,
 }
 
-impl Window<'_, '_, '_> {
+impl<'gc> Window<'gc, '_, '_> {
+    pub(crate) fn publish_region(
+        self,
+        values: &[Value<'gc>],
+        pc: usize,
+        fuel: i32,
+        captured: i64,
+    ) -> bool {
+        if fuel > self.host.fuel.remaining() {
+            return false;
+        }
+        let published = self.host.with_registers(|caller, registers| {
+            if pc >= caller.prototype().opcodes.len() || values.len() != registers.stack_frame.len()
+            {
+                return false;
+            }
+            registers.stack_frame.copy_from_slice(values);
+            *registers.pc = pc;
+            true
+        });
+        if !published {
+            return false;
+        }
+        if let Some(index) = self.upper {
+            self.host.stack[index] = Value::Integer(captured);
+        }
+        self.host.fuel.set_remaining(fuel);
+        true
+    }
+
     #[inline(always)]
     pub(crate) fn commit(self, captured: i64) {
         if let Some(index) = self.upper {
