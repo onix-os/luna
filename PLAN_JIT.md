@@ -71,6 +71,16 @@ Evidence is under `target/jit-evidence/short-slice-performance/`: the frozen
 `prehashed-final-aggregate.json`, and `prehashed-final-*` validation logs.
 Earlier rejected variants and their failures are retained separately.
 
+The promoted main checkout was package-cleaned and rebuilt in both profiles.
+Its ELF/text hashes differ from the isolated checkout, so the measured binaries
+were not assumed interchangeable. Fresh main callback and allocation profiles
+reproduce the instruction/counter findings, and a separate 48-command screen
+retains all controls and source manifests. CPU16 callback ratios are
+1.11895/1.03712; CPU0 is heavily disturbed (callback placebo ratios range from
+0.40810 to 1.90863, and shipping arrays are adverse). This main-image screen is
+not clean timing acceptance. The declared main executable is the newly built
+speed image, byte-identical to its frozen `prehashed-main-profile` artifact.
+
 #### Static-mask runtime imports — measured and rejected
 
 An isolated checkout at `466a24d` integrates safe Rust static-mask packers into
