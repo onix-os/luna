@@ -11,6 +11,97 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Per-field alias regions — no useful workload gain; resumption limit demonstrated
+
+`b446e86` tests a finer classification than the universal-region trial: every
+eight-byte scratch tag/payload field has its own region, and the three exit
+stores share an exit region. This remains test-only
+`Failure::RequireFieldMemory`, with ordinary transport, integer-loop augmentation
+and prepared-key helpers preserved. No shipping selection changes.
+
+The classifier admits only eight-byte I64/F64 loads/stores at aligned offsets
+inside the verified register prefix, or the exact exit stores at offsets 0/8/12.
+All other memory roots, overlapping/partial accesses, global-value loads,
+preexisting regions and oversized source flag tables are refused. Equal scratch
+and exit IR roots are refused. Scratch fields are disjoint intervals in the
+same initialized array; `abi::invoke` supplies a separate newly created Exit.
+There are no admitted direct host-memory accesses. Opaque calls invalidate all
+regions in the pinned compiler. Entry-to-entry inlining is not performed after
+this pass; introducing it would require revisiting region identity/relocation.
+
+The normalized emitted checker requires full source-function equality after
+restoring flag handles/tables, and independently checks region selection for
+each original access. Publication is atomic. Verification records are fallible;
+table admission reserves 16 KiB plus 384 bytes per memory access through
+compiler/module destruction. This remains bounded additional-table accounting,
+**not** complete accounting for the function clone or optimizer workspace.
+The extra reservation is observable: integer snapshot peak rises from 9,147 to
+48,099 bytes, and callbacks from 10,737 to 41,253 bytes in the profile image.
+
+All seven frozen workloads again have two reversed-order paired profiles:
+
+| Workload | Round 0 ordinary / candidate instructions | Round 1 ordinary / candidate instructions |
+| --- | ---: | ---: |
+| Integer loop | 1,102,903 / 1,102,903 | 1,102,903 / 1,102,903 |
+| Float loop | 1,139,463 / 1,139,463 | 1,139,463 / 1,139,463 |
+| Array table | 2,721,165 / 2,720,520 | 2,722,661 / 2,720,952 |
+| Closure/upvalue | 32,916,853 / 32,916,853 | 32,916,853 / 33,278,941 |
+| Polymorphic/metamethod | 7,457,495 / 7,433,963 | 7,453,543 / 7,470,975 |
+| Rust callbacks | 10,754,709 / 10,754,709 | 10,754,709 / 10,754,709 |
+| Allocation/GC | 3,609,316 / 3,608,784 | 3,609,316 / 3,608,784 |
+
+All 28 runs preserve results and all 25 execution-counter deltas; all paired
+mapped-code sizes match. Numeric/callback counts remain exactly unchanged.
+The adverse upvalue repeat (+1.100%) and sign-changing metamethod result remain
+in the evidence. The small allocation difference is not useful performance
+acceptance. **Do not enable this pass as a regression fix.** These are software
+instruction profiles, not hardware timings. This also corroborates the older
+rejected `scalar-alias` per-slot experiment recorded below; further ordinary
+alias-region granularity variations are not a fresh optimization direction.
+
+`cc1e408` adds a causal compiler diagnostic. In the same native fixture,
+per-field regions reduce optimized loads from **4 to 3** with one entry, while
+adding a second resumption edge leaves **4 loads with either selection**.
+Both entry PCs execute with correct helper mutations, floating payload bits and
+exit records. The metadata is therefore being used, not ignored. The actual
+ordinary entry dispatcher exposes a trampoline for each opcode
+(`entry_flow::Paths::emit_entry`), so earlier stores generally cannot dominate
+later resumable bodies. The diagnostic demonstrates this constraint; it does
+not establish that it explains every measured runtime cost. Do not remove valid
+resumption/fuel entries to manufacture a speedup.
+
+Validation at `b446e86`: **1,887 Force tests / 87 summaries**, 15 ignored;
+`make check`, `make check-all`, and `make fmt-check` pass. Focused and optimized
+native runs pass nine tests. Full focused native Memcheck passes all nine,
+including the 24-script/eight-budget matrix, all 256 nil-prefix widths and all
+seven workloads, with zero errors/definite/indirect leaks; 48 possibly lost and
+632 reachable bytes remain reported.
+
+Two new runtime tests add explicit candidate evidence rather than relying only
+on existing ordinary-path tests: helper panic materializes pending scalars/table
+effects before Rust unwinding, preserves panic counters and permits recovery;
+a retained public stack alias replaces the backing vector with a distinct live
+allocation (preserving its GC metrics allocator), then mutates integer, float,
+table and boolean registers. All 20 script/budget combinations match interpreter
+and ordinary traces, and both native selections preserve all 25 counters.
+
+Compiler/model tests pass Stacked/Tree Miri seeds 101/102. After the diagnostic
+refinement, four backend tests pass, the native fixture again passes Memcheck
+(zero errors/definite/indirect leaks; 48 possibly lost and 544 reachable bytes),
+and the three model tests pass Miri seeds 103/104. Miri does not execute native
+code. The refinement changes only test fixtures, not the measured lowering.
+
+Evidence: `target/jit-evidence/short-slice-performance/field-memory-runtime/`,
+source revision `b446e86`, optimized test image SHA-256
+`bfcd541984e0d94e40106728dd59a32273b2e943d15f960f40ad454c4217d56d`;
+28 profiles, manifests, configuration and `audit.json`. Other logs use the
+`field-memory-*` prefix. Production benchmarks were not rebuilt. Full elapsed
+time, compiled-Off, compiler-resource and platform/release acceptance remain open.
+The next performance change should be grounded in actual hot generated code or
+helper/VM costs, accounting for prior rejected SSA/cache experiments, rather than
+another ordinary alias-label variant or an assumption that resumption edges can
+be removed.
+
 #### Universal alias-region experiment — measured, no useful gain
 
 `1b98403` implements the previously proposed single-region experiment on the
