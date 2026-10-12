@@ -162,7 +162,7 @@ jit-prehash-profile-run: jit-profile-cpu-check
 	@sha256sum -c '$(PREHASH_DIR)/binary.sha256' '$(PREHASH_DIR)/source.sha256' > '$(PREHASH_DIR)/verification-after.log'
 
 .PHONY: jit-prepared-keys jit-prepared-keys-miri
-.PHONY: jit-inline-loop-plan jit-inline-loop-plan-miri jit-inline-loop-native
+.PHONY: jit-inline-loop-plan jit-inline-loop-plan-miri jit-inline-loop-native jit-inline-loop-bridge
 jit-inline-loop-plan:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::inline_loop::tests | awk '/^test result: ok[.] 4 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
@@ -171,6 +171,9 @@ jit-inline-loop-plan-miri:
 
 jit-inline-loop-native:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::inline_loop::native::tests | awk '/^test result: ok[.] 4 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+jit-inline-loop-bridge:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::inline_loop::native::bridge::tests | awk '/^test result: ok[.] 3 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 jit-prepared-keys:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::prepared_keys::tests | awk '/^test result: ok[.] 9 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'

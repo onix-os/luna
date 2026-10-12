@@ -14,7 +14,7 @@ impl Drop for Code {
     }
 }
 
-fn with_entry(plan: &Plan<'_>, capture: Option<usize>, test: impl FnOnce(Entry)) {
+pub(super) fn with_entry(plan: &Plan<'_>, capture: Option<usize>, test: impl FnOnce(Entry)) {
     let mut code = Code(Some(JITModule::new(
         JITBuilder::new(default_libcall_names()).unwrap(),
     )));

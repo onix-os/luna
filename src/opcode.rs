@@ -5,6 +5,7 @@ use crate::types::{
 };
 
 #[derive(Debug, Copy, Clone, Collect)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[collect(require_static)]
 pub enum RCIndex {
     Register(RegisterIndex),
@@ -24,6 +25,7 @@ impl From<ConstantIndex8> for RCIndex {
 }
 
 #[derive(Debug, Copy, Clone, Collect)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[collect(require_static)]
 pub enum Operation {
     Move {

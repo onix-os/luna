@@ -27267,6 +27267,30 @@ upper-frame binding, fault injection at that boundary, and end-to-end timing
 acceptance remain required. No original gate or supported-language contract
 has changed, and shipping code still does not select this kernel.
 
+The scoped test-only bridge now binds actual caller/callee prototypes and
+capture origins, normalizes equal closure-root aliases without changing the
+root owners, and reuses the existing atomic-call capacity/close/frame guards.
+It limits a burst to whole call pairs that fit both the activation limit and
+the native work bound. It selects only budgets that cannot exhaust a caller
+fragment inside this source shape; other budgets retain the ordinary path.
+The bridge restores the charge for an unfinished caller prefix before
+publishing, so the existing continuation can charge that prefix exactly once.
+The publication operation copies the complete rooted frame, upper capture,
+PC and fuel while the scoped frame witness remains borrowed.
+
+`make jit-inline-loop-bridge` passes three tests. Its physical-state matrix
+covers 25,920 input combinations, including declines, with positive native
+coverage required separately for every source. Successful batches are replayed
+through real VM call/return activations, comparing frame state, rooted value
+identity, captures and fuel. Cases include a physical upper-frame capture and
+table-valued unused arguments. Thirteen pre-publication corruption/panic cases,
+eight runtime-refusal cases and a post-publication unwind check also pass.
+The focused GNU source/native/bridge and original atomic-call targets pass
+17 executions across six summaries. This bridge still runs only in tests:
+charged code ownership, installation in the region dispatcher, production
+counter aggregation and end-to-end performance acceptance remain open. The
+bridge is not included in the current source-only Miri target.
+
 The preceding upvalue profile has now been independently audited: all 13
 events agree between self-cost sums, totals and summaries for both modes,
 the binary hashes match, and instruction coverage is unchanged (780,104
