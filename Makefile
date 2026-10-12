@@ -1360,6 +1360,8 @@ jit-universal-memory-profile-run: jit-profile-cpu-check
 	@sha256sum -c '$(MEMORY_RUNTIME_DIR)/binary.sha256' '$(MEMORY_RUNTIME_DIR)/source.sha256' > '$(MEMORY_RUNTIME_DIR)/verification-after.log'
 
 STRIDED_CASES ?= rust_callbacks closure_upvalue integer_loop float_loop
+STRIDED_ROUNDS ?= 0 1
+STRIDED_DUMP ?= 0
 .PHONY: jit-strided-runtime-profile-build jit-strided-runtime-profile-run
 jit-strided-runtime-profile-build:
 	@$(MAKE) jit-strided-profile-build STRIDED_DIR='$(STRIDED_RUNTIME_DIR)'
@@ -1367,15 +1369,28 @@ jit-strided-runtime-profile-build:
 
 jit-strided-runtime-profile-run: jit-profile-cpu-check
 	@sha256sum -c '$(STRIDED_RUNTIME_DIR)/binary.sha256' '$(STRIDED_RUNTIME_DIR)/source.sha256' > '$(STRIDED_RUNTIME_DIR)/verification-before.log'
-	@set -e; for round in 0 1; do for shape in $(STRIDED_CASES); do for strided in 0 1; do \
+	@set -e; for round in $(STRIDED_ROUNDS); do for shape in $(STRIDED_CASES); do for strided in 0 1; do \
 		out='$(STRIDED_RUNTIME_DIR)'/$$round-$$shape-$$strided; test ! -e "$$out.callgrind"; \
-		LUNA_STRIDED_CASE=$$shape LUNA_STRIDED=$$strided taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*strided_profile::profile_execute*' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file="$$out.callgrind" \
+		$(if $(filter 1,$(STRIDED_DUMP)),LUNA_JIT_DIAGNOSTIC_DIR="$$out-native",) LUNA_STRIDED_CASE=$$shape LUNA_STRIDED=$$strided taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*strided_profile::profile_execute*' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file="$$out.callgrind" \
 			'$(STRIDED_RUNTIME_DIR)/test-binary' jit::payload_runtime_tests::strided_profile::profile_strided_runtime --ignored --exact --nocapture --test-threads=1 > "$$out.log" 2>&1; \
 		grep -Fq "case=$$shape strided=$$([ $$strided = 1 ] && echo true || echo false) validated=true" "$$out.log"; \
 		grep -Fq 'test result: ok. 1 passed; 0 failed' "$$out.log"; \
 		grep -Eq '^summary: [1-9][0-9]*' "$$out.callgrind"; \
 	done; done; done
 	@sha256sum -c '$(STRIDED_RUNTIME_DIR)/binary.sha256' '$(STRIDED_RUNTIME_DIR)/source.sha256' > '$(STRIDED_RUNTIME_DIR)/verification-after.log'
+	@$(if $(filter 1,$(STRIDED_DUMP)),$(MAKE) --no-print-directory jit-strided-runtime-disassemble,:)
+
+.PHONY: jit-strided-runtime-disassemble
+jit-strided-runtime-disassemble:
+	@set -e; case "$$(uname -m)" in x86_64) machine='i386:x86-64';; aarch64) machine=aarch64;; *) exit 2;; esac; \
+	for metadata in '$(STRIDED_RUNTIME_DIR)'/*-native/kernel-*.metadata; do \
+		grep -Fxq "arch=$$(uname -m)" "$$metadata"; \
+		address=$$(sed -n 's/^entry_address=//p' "$$metadata"); test -n "$$address"; \
+		binary=$${metadata%.metadata}.bin; test -s "$$binary"; \
+		objdump -D -b binary -m "$$machine" --adjust-vma="$$address" "$$binary" > "$${metadata%.metadata}.asm"; \
+		grep -Eq '^[[:space:]]*[[:xdigit:]]+:[[:space:]]' "$${metadata%.metadata}.asm"; \
+		sha256sum "$$binary" "$$metadata" > "$${metadata%.metadata}.sha256"; \
+	done
 
 STRIDED_DIR ?= target/jit-evidence/short-slice-performance/strided
 jit-strided:

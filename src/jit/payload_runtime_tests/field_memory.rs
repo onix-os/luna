@@ -3,8 +3,17 @@ use crate::{Callback, CallbackReturn, Table, Thread, Value};
 
 #[test]
 fn field_memory_runtime_panic_materializes_scalars_and_recovers() {
+    panic_contract(backend::Failure::RequireFieldMemory);
+}
+
+#[test]
+fn strided_runtime_panic_materializes_scalars_and_recovers() {
+    panic_contract(backend::Failure::RequireStrided);
+}
+
+fn panic_contract(candidate: backend::Failure) {
     let mut previous = None;
-    for failure in [backend::Failure::None, backend::Failure::RequireFieldMemory] {
+    for failure in [backend::Failure::None, candidate] {
         let mut lua = state(JitMode::Auto, false);
         lua.enter(|ctx| ctx.jit().0.borrow_mut().memory_failure = failure);
         let (executor, thread) = lua.enter(|ctx| {
@@ -59,6 +68,15 @@ fn field_memory_runtime_panic_materializes_scalars_and_recovers() {
 
 #[test]
 fn field_memory_runtime_retained_alias_and_relocated_stack_match_every_step() {
+    alias_contract(backend::Failure::RequireFieldMemory);
+}
+
+#[test]
+fn strided_runtime_retained_alias_and_relocated_stack_match_every_step() {
+    alias_contract(backend::Failure::RequireStrided);
+}
+
+fn alias_contract(candidate: backend::Failure) {
     for (script, expected) in [
         ("local n=0 local s=0 capture_stack() for i=1,80 do n=n+1 mutate_stack(i*3) s=s+n end return s", 9720),
         ("local n=0 local s=0 capture_stack() for i=1,80 do n=n+1 mutate_stack(i+0.5) s=s+n end return s", 3280),
@@ -71,7 +89,7 @@ fn field_memory_runtime_retained_alias_and_relocated_stack_match_every_step() {
             for mode in 0..3 {
                 let mut lua = state(if mode == 0 { JitMode::Off } else { JitMode::Auto }, false);
                 lua.enter(|ctx| {
-                    if mode == 2 { ctx.jit().0.borrow_mut().memory_failure = backend::Failure::RequireFieldMemory; }
+                    if mode == 2 { ctx.jit().0.borrow_mut().memory_failure = candidate; }
                     ctx.set_global("relocated", false);
                     ctx.set_global("capture_stack", Callback::from_fn(&ctx, |ctx, exec, _| {
                         let base = exec.upper_lua_frame().unwrap().base;

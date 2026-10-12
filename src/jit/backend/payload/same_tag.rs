@@ -16,6 +16,23 @@ pub(super) struct Analysis {
     predecessors: Predecessors,
     remaining: usize,
     verification_remaining: usize,
+    cycles: bool,
+}
+
+struct Route {
+    active: [Option<Inst>; 32],
+    witnessed: bool,
+    cycles: bool,
+}
+
+impl Route {
+    fn new(cycles: bool) -> Self {
+        Self {
+            active: [None; 32],
+            witnessed: false,
+            cycles,
+        }
+    }
 }
 
 impl Analysis {
@@ -55,7 +72,14 @@ impl Analysis {
             predecessors: Predecessors::new(f, allocator)?,
             remaining,
             verification_remaining: remaining,
+            cycles: false,
         })
+    }
+
+    pub(super) fn with_cycles(f: &Function, allocator: BudgetAllocator) -> Result<Self, JitError> {
+        let mut analysis = Self::new(f, allocator)?;
+        analysis.cycles = true;
+        Ok(analysis)
     }
 
     pub(super) fn admit(
@@ -67,7 +91,15 @@ impl Analysis {
         tag: IrValue,
     ) -> Option<Proof> {
         let proof = Proof { store, index, tag };
-        verify(f, &self.predecessors, slots, proof, &mut self.remaining).then_some(proof)
+        verify(
+            f,
+            &self.predecessors,
+            slots,
+            proof,
+            &mut self.remaining,
+            self.cycles,
+        )
+        .then_some(proof)
     }
 
     pub(super) fn verify(&mut self, f: &Function, slots: IrValue, proof: Proof) -> bool {
@@ -77,6 +109,7 @@ impl Analysis {
             slots,
             proof,
             &mut self.verification_remaining,
+            self.cycles,
         )
     }
 
@@ -87,7 +120,15 @@ impl Analysis {
         at: Inst,
         index: u32,
     ) -> bool {
-        numeric_at(f, &self.predecessors, slots, at, index, &mut self.remaining)
+        numeric_with_cycles(
+            f,
+            &self.predecessors,
+            slots,
+            at,
+            index,
+            &mut self.remaining,
+            self.cycles,
+        )
     }
 
     pub(super) fn verify_numeric(
@@ -97,13 +138,14 @@ impl Analysis {
         at: Inst,
         index: u32,
     ) -> bool {
-        numeric_at(
+        numeric_with_cycles(
             f,
             &self.predecessors,
             slots,
             at,
             index,
             &mut self.verification_remaining,
+            self.cycles,
         )
     }
 }
@@ -116,11 +158,24 @@ pub(super) fn numeric_at(
     index: u32,
     remaining: &mut usize,
 ) -> bool {
+    numeric_with_cycles(f, predecessors, slots, at, index, remaining, true)
+}
+
+fn numeric_with_cycles(
+    f: &Function,
+    predecessors: &Predecessors,
+    slots: IrValue,
+    at: Inst,
+    index: u32,
+    remaining: &mut usize,
+    cycles: bool,
+) -> bool {
     if index >= 256 {
         return false;
     }
     [abi::INTEGER, abi::NUMBER].into_iter().any(|tag| {
-        if let Some(previous) = f.layout.prev_inst(at) {
+        let mut route = Route::new(cycles);
+        let proven = if let Some(previous) = f.layout.prev_inst(at) {
             search(
                 f,
                 predecessors,
@@ -130,10 +185,22 @@ pub(super) fn numeric_at(
                 previous,
                 32,
                 remaining,
+                &mut route,
             )
         } else {
-            search_parents(f, predecessors, slots, index, tag as i64, at, 32, remaining)
-        }
+            search_parents(
+                f,
+                predecessors,
+                slots,
+                index,
+                tag as i64,
+                at,
+                32,
+                remaining,
+                &mut route,
+            )
+        };
+        proven && route.witnessed
     })
 }
 
@@ -143,6 +210,7 @@ fn verify(
     slots: IrValue,
     proof: Proof,
     remaining: &mut usize,
+    cycles: bool,
 ) -> bool {
     let InstructionData::Store {
         opcode: Opcode::Store,
@@ -159,7 +227,7 @@ fn verify(
     {
         return false;
     }
-    verify_at(
+    verify_at_with_cycles(
         f,
         predecessors,
         slots,
@@ -167,6 +235,7 @@ fn verify(
         proof.index,
         proof.tag,
         remaining,
+        cycles,
     )
 }
 
@@ -178,6 +247,19 @@ pub(super) fn verify_at(
     index: u32,
     tag: IrValue,
     remaining: &mut usize,
+) -> bool {
+    verify_at_with_cycles(f, predecessors, slots, at, index, tag, remaining, true)
+}
+
+fn verify_at_with_cycles(
+    f: &Function,
+    predecessors: &Predecessors,
+    slots: IrValue,
+    at: Inst,
+    index: u32,
+    tag: IrValue,
+    remaining: &mut usize,
+    cycles: bool,
 ) -> bool {
     if index >= 256 {
         return false;
@@ -194,7 +276,18 @@ pub(super) fn verify_at(
     let Some(previous) = f.layout.prev_inst(at) else {
         return false;
     };
-    search(f, predecessors, slots, index, tag, previous, 32, remaining)
+    let mut route = Route::new(cycles);
+    search(
+        f,
+        predecessors,
+        slots,
+        index,
+        tag,
+        previous,
+        32,
+        remaining,
+        &mut route,
+    ) && route.witnessed
 }
 
 fn search(
@@ -206,10 +299,17 @@ fn search(
     mut inst: Inst,
     depth: usize,
     remaining: &mut usize,
+    route: &mut Route,
 ) -> bool {
-    if depth == 0 {
+    if depth == 0 || *remaining == 0 {
         return false;
     }
+    let level = route.active.len() - depth;
+    if route.cycles && route.active[..level].contains(&Some(inst)) {
+        *remaining -= 1;
+        return true;
+    }
+    route.active[level] = Some(inst);
     loop {
         let Some(next) = remaining.checked_sub(1) else {
             return false;
@@ -223,7 +323,17 @@ fn search(
             inst = previous;
             continue;
         }
-        return search_parents(f, predecessors, slots, index, tag, inst, depth, remaining);
+        return search_parents(
+            f,
+            predecessors,
+            slots,
+            index,
+            tag,
+            inst,
+            depth,
+            remaining,
+            route,
+        );
     }
 }
 
@@ -236,6 +346,7 @@ fn search_parents(
     inst: Inst,
     depth: usize,
     remaining: &mut usize,
+    route: &mut Route,
 ) -> bool {
     if depth == 0 {
         return false;
@@ -254,7 +365,10 @@ fn search_parents(
                     && blocks[1].block(&f.dfg.value_lists) != block
                 {
                     if let Some(load) = predicate(f, arg, slots, index, tag, 8, remaining) {
-                        return fresh(f, predecessors, load, parent.inst, depth - 1, remaining);
+                        let proven =
+                            fresh(f, predecessors, load, parent.inst, depth - 1, remaining);
+                        route.witnessed |= proven;
+                        return proven;
                     }
                 }
             }
@@ -267,6 +381,7 @@ fn search_parents(
                 parent.inst,
                 depth - 1,
                 remaining,
+                route,
             )
         })
 }

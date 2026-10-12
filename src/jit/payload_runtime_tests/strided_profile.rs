@@ -63,6 +63,26 @@ fn run(
             .all(|cached| cached.code.entry_kind == expected))
     });
     let delta = std::array::from_fn(|i| counters(after)[i] - counters(before)[i]);
+    if profile {
+        if let Some(directory) = std::env::var_os("LUNA_JIT_DIAGNOSTIC_DIR") {
+            let directory = std::path::PathBuf::from(directory);
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(directory.join("workload.lua"), workload.source).unwrap();
+            lua.enter(|ctx| {
+                for (index, cached) in ctx.jit().0.borrow().code.values().enumerate() {
+                    let mut metadata = cached
+                        .code
+                        .dump_finalized(&directory.join(format!("kernel-{index}.bin")));
+                    metadata.push_str(&format!(
+                        "workload={}\nexpected={}\nactual={actual}\ncounters={delta:?}\n",
+                        workload.name, workload.expected,
+                    ));
+                    std::fs::write(directory.join(format!("kernel-{index}.metadata")), metadata)
+                        .unwrap();
+                }
+            });
+        }
+    }
     lua.clear_jit_cache();
     assert_eq!(lua.jit_stats().code_bytes, 0);
     (delta, after)

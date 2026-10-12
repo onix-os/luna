@@ -463,7 +463,11 @@ pub(super) fn lower_contract(
         .map_err(|_| JitError::ResourceLimit("payload copy bypass records"))?;
     let mut terminal =
         terminal::Analysis::new(function, slots, host, registers, helpers, allocator.clone())?;
-    let mut same_tag = same_tag::Analysis::new(function, allocator.clone())?;
+    let mut same_tag = if contract == Contract::FrameBound {
+        same_tag::Analysis::with_cycles(function, allocator.clone())?
+    } else {
+        same_tag::Analysis::new(function, allocator.clone())?
+    };
     let mut proven_writes = 0;
     let mut bound_count = 0;
     let mut has_numeric = false;

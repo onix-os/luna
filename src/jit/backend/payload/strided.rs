@@ -1,6 +1,7 @@
 use super::*;
 use crate::jit::abi::strided::frame::Header;
 
+mod guarded;
 mod uniform;
 
 #[derive(Clone, Copy)]
@@ -10,12 +11,15 @@ struct Read {
     pointer: bool,
     result: IrValue,
     uniform: Option<usize>,
+    numeric: bool,
 }
 
 impl Read {
     fn extra(self) -> usize {
         if !self.pointer {
             1
+        } else if self.numeric {
+            2
         } else if self.uniform.is_some() {
             11
         } else {
@@ -44,6 +48,10 @@ pub(in crate::jit::backend) fn expansion(
 }
 
 fn emit(f: &mut Function, slots: IrValue, read: Read) {
+    if read.numeric {
+        guarded::emit(f, slots, read);
+        return;
+    }
     if read.pointer && read.uniform.is_some() {
         uniform::emit(f, slots, read);
         return;
@@ -92,6 +100,12 @@ fn emit(f: &mut Function, slots: IrValue, read: Read) {
 }
 
 fn verify(f: &Function, slots: IrValue, read: Read) -> Result<(), JitError> {
+    if read.numeric {
+        if !read.pointer || read.uniform.is_none() || read.uniform != Header::uniform_offset() {
+            return Err(invalid());
+        }
+        return guarded::verify(f, slots, read);
+    }
     if let Some(offset) = read.uniform {
         if !read.pointer || Header::uniform_offset() != Some(offset) {
             return Err(invalid());
@@ -184,7 +198,8 @@ pub(in crate::jit::backend) fn lower(
     if registers == 0 || registers > 256 {
         return Err(invalid());
     }
-    let mut records = BudgetVec::new_in(allocator);
+    let mut records = BudgetVec::new_in(allocator.clone());
+    let mut analysis = same_tag::Analysis::with_cycles(f, allocator)?;
     let (mut instructions, blocks) = size(f);
     for block in f.layout.blocks() {
         for inst in f.layout.block_insts(block) {
@@ -209,16 +224,20 @@ pub(in crate::jit::backend) fn lower(
                         return Err(invalid());
                     }
                     let pointer = offset % 16 == 8;
+                    let uniform = if pointer {
+                        Header::uniform_offset()
+                    } else {
+                        None
+                    };
+                    let index = offset as usize / 16;
                     let read = Read {
                         inst,
-                        index: offset as usize / 16,
+                        index,
                         pointer,
                         result: f.dfg.first_result(inst),
-                        uniform: if pointer {
-                            Header::uniform_offset()
-                        } else {
-                            None
-                        },
+                        uniform,
+                        numeric: uniform.is_some()
+                            && analysis.admit_numeric(f, slots, inst, index as u32),
                     };
                     instructions = instructions
                         .checked_add(read.extra())
@@ -247,9 +266,7 @@ pub(in crate::jit::backend) fn lower(
     for &read in &records {
         emit(&mut candidate, slots, read);
     }
-    for &read in &records {
-        verify(&candidate, slots, read)?;
-    }
+    guarded::verify_plan(f, &candidate, slots, &records, &mut analysis)?;
     if size(&candidate) != (instructions, blocks) {
         return Err(invalid());
     }
@@ -257,5 +274,7 @@ pub(in crate::jit::backend) fn lower(
     Ok(())
 }
 
+#[cfg(test)]
+mod guarded_tests;
 #[cfg(test)]
 mod tests;

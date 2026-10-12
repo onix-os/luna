@@ -38,6 +38,7 @@ fn fixture(pointer: bool, index: usize) -> (Function, IrValue, Read) {
             } else {
                 None
             },
+            numeric: false,
         },
     )
 }

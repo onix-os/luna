@@ -11,6 +11,180 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Effect-free cycle proofs — further numeric reduction, still experimental
+
+`4d2e0de` adds an opt-in, bounded exact-tag cycle mode for FrameBound
+source lowering and strided pointer lowering. It records active predecessor
+instruction positions in a fixed 32-entry stack route. Revisiting an already
+scanned, effect-free portion closes that cycle; admission still requires a real
+fresh tag guard and every incoming path must pass. Stores and calls still kill
+the proof, including stores after the query on a backedge. Exact INTEGER and
+NUMBER states remain separate; no ambiguous numeric predicate can authorize a
+same-tag write. Depth, work, expansion and configured resource limits are not
+increased. Source and emitted verification remain independent.
+
+The initial all-contract trial made the existing Checked-payload loop fixture
+fail its emitted grammar checker. It was not accepted by weakening that checker:
+legacy Checked admission remains unchanged, and stronger admission is explicitly
+limited to FrameBound/strided. The previously failing fixture now passes.
+Four additional tests cover guarded cycles, helper/store/bypass mutations,
+post-query writes, depth/work exhaustion and 1,024 forward-reachability oracle
+cases. Focused native proof tests pass, and both Miri aliasing models pass the
+eight applicable tag-proof and eight strided-backend tests (seeds 107/108).
+
+The final opt-level-3, symbol-retained image has 28 full-workload software
+profiles (seven cases, both transports, two repeats), with all 25 execution
+counters preserved. The integer/float ordinary controls are unchanged:
+
+| Workload | Previous strided instructions | Cycle-proof strided | Reduction | Remaining gap vs ordinary |
+| --- | ---: | ---: | ---: | ---: |
+| Integer loop | 1,297,083 | 1,225,957 | 5.484% | +11.157% |
+| Float loop | 1,277,067 | 1,204,661 | 5.670% | +5.722% |
+
+Both repeats agree exactly. The entire reduction is generated code: exclusive
+integer native work falls 710,261 → 639,135 and float 690,136 → 617,730.
+The hot loops each execute three fewer instructions per iteration (31 → 28
+integer; 30 → 27 float), accounting for 59,912 fewer dynamic instructions in
+each case; the rest comes from entry/exit code. Mapped numeric code remains
+8,192 bytes versus ordinary's 4,096. Callbacks and upvalues retain their previous
+instruction totals and regressions. Array/metamethod/allocation totals vary;
+all raw results remain in the audit, not converted into a performance pass.
+
+The first matrix showed allocation at 3,873,315 instructions, versus the prior
+3,789,137. A four-process rotated old/new-image diagnostic reproduced both
+totals with the old image and the lower total with the new image. All four
+allocation kernels are **byte-identical**, SHA-256
+`be9fbba03c96d2feb8a0c3837ffd9831570fd4ceea31f0798ee24808b5bb7dba`,
+and execute exactly 669,562 native instructions; the varying work is outside
+that kernel. This is not evidence of an allocation speedup, or justification
+to discard the higher measurements.
+
+A preceding cold-exit layout trial was removed: eight numeric profiles retained
+exactly the previous totals despite passing runtime checks. No more cold-layout
+tweaks are justified by that result alone. The shared native dumper also now
+excludes its ignored native-only test under Miri, fixing a diagnostic build
+failure without changing runtime code.
+
+Final validation passes **1,896 tests / 87 summaries**, 15 ignored, in the Force
+workspace/all-target suite, plus no/all-feature compilation and formatting.
+Optimized tag-proof tests, the formerly failing Checked fixture, strided backend
+and six runtime tests pass. Native Memcheck passes all six runtime tests with
+zero errors and no definite/indirect leaks; the previously observed 48 possibly
+lost and 632 reachable bytes remain reported. Evidence under
+`target/jit-evidence/short-slice-performance/`: `strided-runtime-cycle-final/`
+(image SHA-256 `a6116b69bd434f4a71db0ad64dcd802094e1f63161fd27213f50fa70a4255ae2`),
+`strided-cycle-final-*`, `strided-cycle-allocation-screen/` and
+`strided-runtime-cold-exits/`. Production selection and the production benchmark
+executable are unchanged. Elapsed-time, compiled-Off, whole compiler accounting,
+platform and release acceptance remain open; Off remains the default.
+
+#### Live numeric disassembly — register pressure, not hot pointer predicates
+
+The strided software-profile lane can now save the actual cached kernel bytes
+after the measured execution, while their owners remain live. Addresses match
+the same process's instruction-level Callgrind records; these are not synthetic
+stand-ins or captures from a different ASLR mapping. The existing finalized
+kernel dumper shares the byte-copy implementation. Dumps explicitly reject
+projected/leaf images whose recorded length includes separate functions.
+
+Four complete integer/float profiles reproduce the preceding ordinary/candidate
+totals exactly: 1,102,903/1,297,083 and 1,139,463/1,277,067 instructions.
+Exclusive native counts are 510,692/710,261 and 547,252/690,136. Address-joined
+disassembly attributes much of the remaining numeric gap to extra register
+copies in the scalar SSA loop: the candidate saves/restores its fuel register
+around overflow flag extraction and moves more loop-carried values. The hot
+loop itself contains no descriptor-pointer loads or scalar-range predicates.
+Exit-only tag/base values remain live across that loop. This changes the next
+experiment toward exit-state lifetime/allocation, not further hot pointer-check
+removal. No elapsed-time acceptance or shipping speedup is claimed.
+
+Evidence: `target/jit-evidence/short-slice-performance/strided-runtime-live/`,
+image SHA-256 `5c4b61ae3d480d1287d19aa52b3bdca8161d5c0a3e215e92d36c8988f4040895`.
+Opt in with `STRIDED_DUMP=1` on `make jit-strided-runtime-profile-run`;
+`STRIDED_ROUNDS` defaults to both rounds. The capture runs outside collection,
+and ordinary benchmark/profile defaults remain unchanged.
+
+#### Reused numeric pointer guards — measured reduction, regressions remain
+
+`e72aea2` implements the strided numeric-witness lead. A source descriptor-pointer
+read with a fresh, verified INTEGER or NUMBER guard and a measured uniform scalar
+offset now lowers to three instructions: load the canonical base, form the
+measured displacement, and add. The previous pattern used twelve instructions,
+including another tag load, range predicate and null selection. Unproven sites,
+nil/reference reads and nonuniform layouts retain the existing guarded patterns.
+The conservative source expansion limits are unchanged.
+
+Admission and verification use separate work budgets in the existing
+`same_tag::Analysis`. The witness is checked against the original verified
+FrameBound IR, not inferred from the replacement address. Helpers invalidate
+freshness. The emitted checker verifies every replacement instruction and the
+measured offset; an additional preservation check retains the original CFG,
+branch destinations/arguments, instruction order, dataflow, call instructions and
+metadata outside the declared read rewrites. This keeps the source guard in place
+instead of trusting an unchecked boolean annotation. The candidate is published
+only after all checks succeed. The new predecessor/proof workspace shares the
+snapshot ledger and has atomic quota-refusal tests.
+
+The optimized test image has 28 full-workload profiles: all seven frozen cases,
+two selections and two repeats, each with two warmups and one collected execution.
+Every pair preserves expected results and all 25 execution-counter deltas.
+
+| Workload | Round 0 ordinary / candidate instructions | Round 1 ordinary / candidate instructions |
+| --- | ---: | ---: |
+| Integer loop | 1,102,903 / 1,297,083 | 1,102,903 / 1,297,083 |
+| Float loop | 1,139,463 / 1,277,067 | 1,139,463 / 1,277,067 |
+| Array table | 2,721,661 / 2,784,829 | 2,721,369 / 2,786,919 |
+| Closure/upvalue | 32,916,853 / 33,421,700 | 32,916,853 / 33,421,700 |
+| Polymorphic/metamethod | 7,465,092 / 7,354,022 | 7,457,495 / 7,334,499 |
+| Rust callbacks | 10,754,709 / 11,185,063 | 10,754,709 / 11,185,063 |
+| Allocation/GC | 3,612,099 / 3,789,137 | 3,608,281 / 3,789,137 |
+
+Against the preceding uniform-address strided candidate, integer instructions
+fall from 1,320,238 to 1,297,083 (**1.754% fewer**), and float from 1,300,818 to
+1,277,067 (**1.826% fewer**). Their ordinary controls are unchanged. The candidate
+still exceeds ordinary by **17.606% integer / 12.076% float**, with 8 KiB rather
+than 4 KiB mapped code in both cases. Callback/upvalue overhead remains
+4.002%/1.534%; array and allocation also regress. The metamethod instruction
+improvement alone does not establish broad acceptance. These are software
+profiles, not elapsed-time speedups or a shipping performance fix.
+
+The integer native-body exclusive count falls from 733,416 to **710,261**, versus
+510,692 for ordinary code. This accounts for the entire measured integer
+reduction and leaves generated code as the main remaining cost difference.
+Invocation and header-binding counts remain 98,282 and 78,876 respectively.
+
+Validation passes **1,892 Force tests / 87 summaries**, 15 ignored, plus
+`make check`, `make check-all` and `make fmt-check`. Eight compiler tests include
+forged numeric witnesses, mutated source guards/branches/addresses, helper
+invalidation, nonnumeric fallback, layout and exact quota boundaries. All eight
+pass Stacked/Tree Miri seeds 105/106; Miri does not execute native code.
+
+Six runtime tests pass in debug and optimized builds, including all seven
+workloads, 24 scripts/eight initial budgets, all 256 nil prefixes, and resource
+refusal/recovery. The retained-public-alias/forced-backing-relocation and Rust
+helper-panic/recovery tests now also run against strided transport, preserving
+step traces, canonical effects and counter parity. Full native Memcheck of these
+six runtime tests reports zero errors or definite/indirect leaks, retaining the
+48 possibly lost and 632 reachable bytes already reported by these test processes.
+
+Evidence: `target/jit-evidence/short-slice-performance/strided-runtime-numeric/`,
+source revision `e72aea2`, image SHA-256
+`7d20dbac75e66fc5938b7cb3402abf56c5f68da28a37c5941ca3ee49ec6b4bc2`;
+manifests, 28 profiles, eight exclusive annotations and `audit.json`. Other logs
+use `strided-numeric-*`. The production benchmark executable was not rebuilt;
+strided transport remains test-selected and Off remains the default.
+
+Next inspect the remaining generated hot code and which pointer sites still use
+the guarded fallback. Freshness currently rejects intervening stores even when
+they may target canonical payloads rather than header tags; any relaxation needs
+an explicit nonoverlap/effect proof, never a blanket exemption for stores or
+helpers. Existing `make jit-disassembly`/`dump_finalized_native_kernels` provides
+a starting point for machine-code capture, but its current fixtures are not the
+full strided workload and must be adapted before using them as that evidence.
+Ordinary alias-label and older SSA-cache trials remain rejected. Full elapsed
+time, compiled-Off, complete resource accounting and platform/release gates stay
+open.
+
 #### Per-field alias regions — no useful workload gain; resumption limit demonstrated
 
 `b446e86` tests a finer classification than the universal-region trial: every
@@ -101,6 +275,18 @@ The next performance change should be grounded in actual hot generated code or
 helper/VM costs, accounting for prior rejected SSA/cache experiments, rather than
 another ordinary alias-label variant or an assumption that resumption edges can
 be removed.
+
+A specific unimplemented lead is in the strided address pass:
+`payload/strided/uniform.rs` emits a 12-instruction tag-range/null-select pattern
+for every pointer read, even though `payload/bound_reads.rs` already proves
+numeric state for some source descriptor-pointer loads using
+`same_tag::numeric_at`. Investigate carrying a fresh, source-verified numeric
+witness into the strided rewrite, so those sites can form the measured address
+without repeating the scalar/null predicate. Retain the existing guarded pattern
+for unproven sites and nonuniform layouts. The witness must survive the complete
+translation: source guards, helper invalidation, nil/reference behavior and every
+generated instruction still need independent verification and workload evidence.
+No guard has been removed and no performance result is claimed for this lead.
 
 #### Universal alias-region experiment — measured, no useful gain
 
