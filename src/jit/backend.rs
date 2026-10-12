@@ -6316,6 +6316,7 @@ mod memory_tests {
         refuse_corrupted_float(Failure::CorruptFloatPayload);
     }
 
+    #[cfg(not(miri))]
     #[test]
     #[ignore = "writes generated-kernel artifacts through make jit-disassembly"]
     fn dump_finalized_native_kernels() {
