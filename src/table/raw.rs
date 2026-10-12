@@ -1105,9 +1105,17 @@ mod access_tests;
 #[cfg(any(test, feature = "jit"))]
 impl<'gc> Key<'gc> {
     fn eq_string(self, query: String<'gc>) -> bool {
+        #[cold]
+        #[inline(never)]
+        fn equal_contents(a: String<'_>, b: String<'_>) -> bool {
+            a == b
+        }
+
         match self {
             Self::Live(CanonicalKey::String(key))
-            | Self::Weak(WeakKey::Immediate(CanonicalKeyRepr::String(key)), _) => key == query,
+            | Self::Weak(WeakKey::Immediate(CanonicalKeyRepr::String(key)), _) => {
+                Gc::ptr_eq(key.into_inner(), query.into_inner()) || equal_contents(key, query)
+            }
             _ => false,
         }
     }
