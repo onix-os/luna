@@ -14,6 +14,14 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{default_libcall_names, Linkage, Module};
 use std::hint::black_box;
 
+#[allow(dead_code)]
+mod workloads {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/examples/jit_support/workloads.rs"
+    ));
+}
+
 type Entry = unsafe extern "C" fn(*mut abi::Host, *mut Slot) -> u32;
 
 struct Code {
@@ -39,7 +47,7 @@ fn compile(wide: bool, packed: u32, pc: u32, hash: u64) -> Code {
     builder.symbol(
         "wide_helper_probe",
         if wide {
-            call as *const u8
+            direct as *const u8
         } else {
             PREHASHED_ENTRY as *const u8
         },
@@ -114,13 +122,26 @@ fn compile(wide: bool, packed: u32, pc: u32, hash: u64) -> Code {
 }
 
 fn source(ctx: Context<'_>) -> (Closure<'_>, usize, u32, u64) {
-    let closure = Closure::load(ctx, None, b"return target").unwrap();
+    let (closure, width, packed, hash, pc) = source_from(ctx, b"return target");
+    assert_eq!(pc, 0);
+    (closure, width, packed, hash)
+}
+
+fn source_from<'gc>(ctx: Context<'gc>, source: &[u8]) -> (Closure<'gc>, usize, u32, u64, u32) {
+    let closure = Closure::load(ctx, None, source).unwrap();
     let snapshot = Snapshot::new(&closure.prototype(), 4096, 1 << 20).unwrap();
+    let mut reads = snapshot
+        .operations
+        .iter()
+        .enumerate()
+        .filter(|(_, operation)| matches!(operation, Operation::GetUpTable { .. }));
+    let (pc, &operation) = reads.next().unwrap();
+    assert!(reads.next().is_none());
     let Operation::GetUpTable {
         dest,
         table,
         key: RCIndex::Constant(index),
-    } = snapshot.operations[0]
+    } = operation
     else {
         panic!("fixture opcode")
     };
@@ -130,6 +151,7 @@ fn source(ctx: Context<'_>) -> (Closure<'_>, usize, u32, u64) {
         snapshot.registers,
         packed,
         snapshot.prepared_keys.as_ref().unwrap().hash(index.0),
+        pc.try_into().unwrap(),
     )
 }
 
@@ -247,18 +269,29 @@ fn profile_generated_helper_calls() {
         "1" => true,
         _ => panic!("LUNA_WIDE_HELPER must be 0 or 1"),
     };
+    let shape = std::env::var("LUNA_WIDE_SOURCE").unwrap();
+    assert!(matches!(shape.as_str(), "scalar" | "callback"));
     crate::Lua::empty().enter(|ctx| {
-        let (closure, width, packed, hash) = source(ctx);
-        let code = compile(wide, packed, 0, hash);
+        let workload = workloads::WORKLOADS.iter().find(|workload| workload.name == "rust_callbacks").unwrap();
+        assert_eq!(workload.expected, 12507500);
+        let bytes: &[u8] = if shape == "callback" { workload.source } else { b"return target" };
+        let (closure, width, packed, hash, call_pc) = source_from(ctx, bytes);
+        let code = compile(wide, packed, call_pc, hash);
+        let value = if shape == "callback" {
+            Value::Function(crate::Callback::from_fn(&ctx, |_, _, _| Ok(crate::CallbackReturn::Return)).into())
+        } else {
+            Value::Integer(42)
+        };
+        ctx.globals().set(ctx, if shape == "callback" { "host_increment" } else { "target" }, value).unwrap();
+        let dest = (packed >> 16) as usize;
         if let Ok(directory) = std::env::var("LUNA_WIDE_DIR") {
             let bytes = unsafe { std::slice::from_raw_parts(code.entry as *const u8, code.bytes) };
             std::fs::write(
-                std::path::Path::new(&directory).join(format!("{wide}.native")),
+                std::path::Path::new(&directory).join(format!("{shape}-{wide}.native")),
                 bytes,
             )
             .unwrap();
         }
-        ctx.globals().set(ctx, "target", 42).unwrap();
         let mut canonical = vec![Value::Nil; width];
         let mut pc = 0;
         LuaRegisters::with_test_frame(ctx, &mut pc, &mut canonical, |mut registers| {
@@ -283,7 +316,7 @@ fn profile_generated_helper_calls() {
             };
             let sum = profile_calls(code.entry, &mut host, slots.as_mut_ptr(), 100_000);
             assert_eq!(sum, 100_000 * abi::HELPER_COMPLETED);
-            assert_eq!(*frame.registers.pc, 1);
+            assert_eq!(*frame.registers.pc, call_pc as usize + 1);
             assert_eq!(
                 (
                     frame.count.calls,
@@ -295,11 +328,12 @@ fn profile_generated_helper_calls() {
                 (100_000, 100_000, 0, 100_000, 100_000)
             );
             assert!(frame.panic.is_none());
-            assert!(matches!(frame.registers.stack_frame[0], Value::Integer(42)));
-            assert_eq!((slots[0].tag, slots[0].bits), (abi::INTEGER, 42));
+            crate::jit::helpers::tests::assert_identical(frame.registers.stack_frame[dest], value);
+            let expected = Slot::from_value(value);
+            assert_eq!((slots[dest].tag, slots[dest].bits), (expected.tag, expected.bits));
             eprintln!(
-                "wide={wide} calls=100000 completed=100000 pc=1 result=42 native_bytes={}",
-                code.bytes
+                "shape={shape} wide={wide} calls=100000 completed=100000 validated=true pc={} packed={packed} native_bytes={}",
+                call_pc + 1, code.bytes
             );
         });
     });

@@ -22,6 +22,11 @@ pub(in crate::jit) unsafe extern "C" fn call(
     }
 }
 
+helper_entry!(@body direct, [extern "C"], [],
+    [host: *mut abi::Host, slots: *mut Slot, operands: u64, hash: u64],
+    [let a = operands as u32; let b = hash as u32; let c = (hash >> 32) as u32; let pc = (operands >> 32) as u32;],
+    [host, slots, a, b, c, pc], abi::HELPER_GET_UP_TABLE, true);
+
 #[test]
 fn wide_operands_preserve_reserved_bits_and_full_pc() {
     let words = [

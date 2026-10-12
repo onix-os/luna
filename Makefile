@@ -507,20 +507,20 @@ jit-wide-helper-profile-build:
 	@test "$$(wc -l < '$(WIDE_HELPER_DIR)/binary-path')" -eq 1
 	@cp "$$(cat '$(WIDE_HELPER_DIR)/binary-path')" '$(WIDE_HELPER_DIR)/test-binary'
 	@sha256sum '$(WIDE_HELPER_DIR)/test-binary' > '$(WIDE_HELPER_DIR)/binary.sha256'
-	@{ find src -type f -name '*.rs' -print0; printf '%s\0' Cargo.toml Cargo.lock Makefile; } | sort -z | xargs -0 sha256sum > '$(WIDE_HELPER_DIR)/source.sha256'
+	@{ find src -type f -name '*.rs' -print0; printf '%s\0' examples/jit_support/workloads.rs Cargo.toml Cargo.lock Makefile; } | sort -z | xargs -0 sha256sum > '$(WIDE_HELPER_DIR)/source.sha256'
 	@{ rustc -vV; $(CARGO) --version; printf 'opt_level=3\nstrip=false\ncalls=100000\ncollection=*wide::native::profile_calls*\n'; } > '$(WIDE_HELPER_DIR)/configuration'
 
 jit-wide-helper-profile-run: jit-profile-cpu-check
 	@sha256sum -c '$(WIDE_HELPER_DIR)/binary.sha256' '$(WIDE_HELPER_DIR)/source.sha256' > '$(WIDE_HELPER_DIR)/verification-before.log'
 	@valgrind --version > '$(WIDE_HELPER_DIR)/profiler.log'
-	@set -e; for wide in 0 1; do \
-		LUNA_WIDE_HELPER=$$wide LUNA_WIDE_DIR='$(WIDE_HELPER_DIR)' taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*wide::native::profile_calls*' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file='$(WIDE_HELPER_DIR)'/$$wide.callgrind \
-			'$(WIDE_HELPER_DIR)/test-binary' jit::helpers::wide::native::profile_generated_helper_calls --ignored --exact --nocapture --test-threads=1 > '$(WIDE_HELPER_DIR)'/$$wide.log 2>&1; \
-		grep -Fq "wide=$$([ $$wide = 1 ] && echo true || echo false) calls=100000 completed=100000 pc=1 result=42" '$(WIDE_HELPER_DIR)'/$$wide.log; \
-		grep -Fq 'test result: ok. 1 passed; 0 failed' '$(WIDE_HELPER_DIR)'/$$wide.log; \
-		grep -Eq '^summary: [1-9][0-9]*' '$(WIDE_HELPER_DIR)'/$$wide.callgrind; \
-		callgrind_annotate --inclusive=no --threshold=99 '$(WIDE_HELPER_DIR)'/$$wide.callgrind > '$(WIDE_HELPER_DIR)'/$$wide-annotation.log; \
-	done
+	@set -e; for shape in scalar callback; do for wide in 0 1; do \
+		LUNA_WIDE_SOURCE=$$shape LUNA_WIDE_HELPER=$$wide LUNA_WIDE_DIR='$(WIDE_HELPER_DIR)' taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*wide::native::profile_calls*' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file='$(WIDE_HELPER_DIR)'/$$shape-$$wide.callgrind \
+			'$(WIDE_HELPER_DIR)/test-binary' jit::helpers::wide::native::profile_generated_helper_calls --ignored --exact --nocapture --test-threads=1 > '$(WIDE_HELPER_DIR)'/$$shape-$$wide.log 2>&1; \
+		grep -Fq "shape=$$shape wide=$$([ $$wide = 1 ] && echo true || echo false) calls=100000 completed=100000 validated=true" '$(WIDE_HELPER_DIR)'/$$shape-$$wide.log; \
+		grep -Fq 'test result: ok. 1 passed; 0 failed' '$(WIDE_HELPER_DIR)'/$$shape-$$wide.log; \
+		grep -Eq '^summary: [1-9][0-9]*' '$(WIDE_HELPER_DIR)'/$$shape-$$wide.callgrind; \
+		callgrind_annotate --inclusive=no --threshold=99 '$(WIDE_HELPER_DIR)'/$$shape-$$wide.callgrind > '$(WIDE_HELPER_DIR)'/$$shape-$$wide-annotation.log; \
+	done; done
 	@sha256sum -c '$(WIDE_HELPER_DIR)/binary.sha256' '$(WIDE_HELPER_DIR)/source.sha256' > '$(WIDE_HELPER_DIR)/verification-after.log'
 
 jit-builtin-fusion:

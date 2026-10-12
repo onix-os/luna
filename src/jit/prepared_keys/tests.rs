@@ -216,7 +216,7 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
             ] {
                 ctx.globals().set(ctx, "target", value).unwrap();
                 for borrowed in [false, true] {
-                    let results = [0, 1, 2].map(|prepared| {
+                    let results = [0, 1, 2, 3].map(|prepared| {
                         let mut canonical = std::vec![Value::Integer(73); snapshot.registers];
                         let mut pc = 0;
                         let result = LuaRegisters::with_test_frame(
@@ -246,8 +246,13 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
                                 let global_table = ctx.globals().into_inner();
                                 let guard = borrowed.then(|| global_table.borrow_mut(&ctx));
                                 let status = unsafe {
-                                    if prepared == 2 {
-                                        helpers::wide::call(
+                                    if prepared >= 2 {
+                                        let entry = if prepared == 2 {
+                                            helpers::wide::call
+                                        } else {
+                                            helpers::wide::direct
+                                        };
+                                        entry(
                                             &mut host,
                                             slots.as_mut_ptr(),
                                             helpers::wide::operands(packed, 0),
