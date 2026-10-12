@@ -71,14 +71,15 @@ mod tests {
     use crate::{Callback, CallbackReturn, Closure, Lua, String, Table, Thread, UserData};
 
     fn shape<const N: usize>() {
-        let aligned = (9 * N).div_ceil(8) * 8;
+        let alignment = std::mem::align_of::<u64>();
+        let aligned = (9 * N).div_ceil(alignment) * alignment;
         assert_eq!(std::mem::size_of::<Scratch<N>>(), aligned);
-        assert_eq!(std::mem::align_of::<Scratch<N>>(), 8);
+        assert_eq!(std::mem::align_of::<Scratch<N>>(), alignment);
         assert_eq!(std::mem::offset_of!(Scratch<N>, bits), 0);
         assert_eq!(std::mem::offset_of!(Scratch<N>, tags), 8 * N);
         let mut scratch = Scratch::capture(&[Value::Nil; N]);
         let (bits, tags) = scratch.planes();
-        assert_eq!(bits.as_ptr() as usize % 8, 0);
+        assert_eq!(bits.as_ptr() as usize % alignment, 0);
         assert_eq!(tags.as_ptr() as usize - bits.as_ptr() as usize, 8 * N);
         for index in 0..N {
             bits[index] = index as u64;
