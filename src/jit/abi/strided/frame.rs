@@ -16,7 +16,13 @@ impl Header {
     fn empty() -> Self {
         Self {
             base: ptr::null_mut(),
-            offsets: [0; 5],
+            offsets: [
+                0,
+                Self::scalar_offset(&Value::Boolean(false)),
+                Self::scalar_offset(&Value::Integer(0)),
+                Self::scalar_offset(&Value::Number(0.0)),
+                0,
+            ],
             tags: [0; 256],
         }
     }
@@ -36,33 +42,29 @@ impl Header {
 
     #[inline(always)]
     fn update(&mut self, index: usize, value: &Value<'_>) {
-        let (tag, field, width, alignment) = match value {
-            Value::Nil => (abi::NIL, ptr::null(), 0, 1),
-            Value::Boolean(v) => (abi::BOOLEAN, ptr::from_ref(v).cast::<u8>(), 1, 1),
-            Value::Integer(v) => (
-                abi::INTEGER,
-                ptr::from_ref(v).cast::<u8>(),
-                8,
-                mem::align_of::<i64>(),
-            ),
-            Value::Number(v) => (
-                abi::NUMBER,
-                ptr::from_ref(v).cast::<u8>(),
-                8,
-                mem::align_of::<f64>(),
-            ),
-            _ => (abi::REFERENCE, ptr::null(), 0, 1),
+        self.tags[index] = match value {
+            Value::Nil => abi::NIL,
+            Value::Boolean(_) => abi::BOOLEAN,
+            Value::Integer(_) => abi::INTEGER,
+            Value::Number(_) => abi::NUMBER,
+            _ => abi::REFERENCE,
+        } as u8;
+    }
+
+    fn scalar_offset(value: &Value<'_>) -> usize {
+        let (field, width, alignment) = match value {
+            Value::Boolean(v) => (ptr::from_ref(v).cast::<u8>(), 1, 1),
+            Value::Integer(v) => (ptr::from_ref(v).cast::<u8>(), 8, mem::align_of::<i64>()),
+            Value::Number(v) => (ptr::from_ref(v).cast::<u8>(), 8, mem::align_of::<f64>()),
+            _ => unreachable!("scalar payload required"),
         };
-        self.tags[index] = tag as u8;
-        if !field.is_null() {
-            let offset = field
-                .addr()
-                .checked_sub(ptr::from_ref(value).addr())
-                .unwrap();
-            assert!(offset + width <= mem::size_of::<Value<'_>>());
-            assert_eq!(offset % alignment, 0);
-            self.offsets[tag as usize] = offset;
-        }
+        let offset = field
+            .addr()
+            .checked_sub(ptr::from_ref(value).addr())
+            .unwrap();
+        assert!(offset + width <= mem::size_of::<Value<'_>>());
+        assert_eq!(offset % alignment, 0);
+        offset
     }
 
     unsafe fn pointer(&self, index: usize) -> *mut u8 {
