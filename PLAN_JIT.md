@@ -11,6 +11,58 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Fresh transport profiles and binding specialization — timing pending
+
+Fresh ordinary and activated checkouts at `13dd871` build both shipping and
+speed feature-cost images with linker-replayed symbol companions. All source,
+artifact, program-header and allocated-section comparisons pass. Both no-feature
+images are byte-identical across activation. **56 Off + 24 Auto/no-feature**
+profiles verify results, mode protocols, native counts and complete event/self-cost
+sums. Upvalue/callback/array Auto counts remain **298,428 / 99,375 / 121,166**.
+
+| Callback CPU instructions | Shipping | Speed |
+| --- | ---: | ---: |
+| Fresh ordinary transport | 63,638,089 | 50,865,992 |
+| Activated transport | 61,876,136 | 49,028,970 |
+| Only force `with_binding` inline | 62,695,889 | 49,028,970 |
+| Also inline binding loop and use direct conditional | 60,584,404 | 49,028,970 |
+
+Activation removes **2.77% / 3.61%** of callback instruction work, but adds
+**0.46% / 0.25%** to arrays and roughly **0.03% / 0.07%** to upvalues. Most Off
+totals remain identical. These are exact-image software profiles, not elapsed
+performance acceptance or proof of a hardware cause for earlier regressions.
+
+The first isolated trial forces only `with_binding` inline. Shipping instead
+outlines `Session::bind_selected` (**2,583,440** instructions) and a `bool::then`
+closure (**1,887,916**), replacing the original wrapper's **3,601,921** instructions.
+The enclosing transport saves **49,682**, leaving callbacks **819,753 / 1.325%**
+worse. **Reject this one-attribute form.** Its GNU/musl focused checks each pass
+**77 / 12 summaries**, no ignores, and another **80** profiles verify; passing
+tests and removing a symbol did not make it an optimization.
+
+The follow-up retains that attribute, forces the binding loop inline and replaces
+the non-test `CANONICAL.then` closure with an explicit conditional. All capacity,
+entry-kind, alias/borrow, panic, fuel/PC and quota checks remain. GNU/musl each
+again pass **77 / 12**, and another **80** profiles verify. Shipping callbacks
+remove **1,291,651 instructions / 2.087%** against their fresh activated control;
+speed callbacks show no instruction reduction. Array work is unchanged apart
+from small allocator differences; numeric Off totals remain identical.
+
+A same-image no-feature speed callback outlier adds **1,725,000 instructions /
+4.689%**, entirely in table/key/string probes. The executable bytes are identical;
+table hashing remains process-randomized. Retain that result rather than attributing
+it to binding changes, changing hash seeds or claiming deterministic total work.
+The shipping Off metamethod outlier in the first trial is likewise not a proven
+causal effect of its attribute. Every raw profile remains available.
+
+**No runtime trial is promoted and no new timing result is claimed.** The
+follow-up is undergoing fresh Stacked/Tree Miri, full Auto verification and
+native benchmark builds for ordinary, activated-control and candidate images.
+Those gates and subsequent repeated paired hardware/cost measurements must finish
+before any elapsed-time or broader acceptance conclusion. Evidence is under
+`target/jit-evidence/short-slice-performance/transport-current-*` and
+`transport-binding-{inline,direct}-*`; production selection remains unchanged.
+
 #### Faster transport resource validation — repaired, not promoted
 
 `13dd871` adds permanent resource-boundary coverage for ordinary and preferred
