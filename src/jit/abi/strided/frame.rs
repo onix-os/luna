@@ -13,6 +13,11 @@ pub(in crate::jit) struct Header {
 }
 
 impl Header {
+    pub(in crate::jit) fn uniform_offset() -> Option<usize> {
+        let offsets = Self::empty().offsets;
+        (offsets[1] == offsets[2] && offsets[2] == offsets[3]).then_some(offsets[1])
+    }
+
     fn empty() -> Self {
         Self {
             base: ptr::null_mut(),
