@@ -202,6 +202,7 @@ pub(super) fn verify_guard(
     write: &Write,
     predecessors: Option<&crate::jit::preds::Predecessors>,
     remaining: &mut usize,
+    contract: Contract,
 ) -> Result<(), JitError> {
     if write.input.known_tag.is_some() {
         let at = f
@@ -210,7 +211,12 @@ pub(super) fn verify_guard(
             .rev()
             .nth(3)
             .ok_or_else(invalid)?;
-        if !same_tag::verify_at(
+        let verify = if contract == Contract::FrameBound {
+            same_tag::verify_bound_at
+        } else {
+            same_tag::verify_at
+        };
+        if !verify(
             f,
             predecessors.ok_or_else(invalid)?,
             write.input.slots,

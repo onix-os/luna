@@ -61,7 +61,7 @@ pub(super) fn verify(
 ) -> Result<(), JitError> {
     if !matches!(read.ty, types::I64 | types::F64)
         || f.layout.next_inst(read.pointer) != Some(read.inst)
-        || !same_tag::numeric_at(f, predecessors, slots, read.pointer, read.index, remaining)
+        || !same_tag::numeric_bound_at(f, predecessors, slots, read.pointer, read.index, remaining)
     {
         return Err(invalid());
     }

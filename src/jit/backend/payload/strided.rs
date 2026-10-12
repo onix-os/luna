@@ -199,7 +199,7 @@ pub(in crate::jit::backend) fn lower(
         return Err(invalid());
     }
     let mut records = BudgetVec::new_in(allocator.clone());
-    let mut analysis = same_tag::Analysis::with_cycles(f, allocator)?;
+    let mut analysis = same_tag::Analysis::with_bound_stores(f, allocator)?;
     let (mut instructions, blocks) = size(f);
     for block in f.layout.blocks() {
         for inst in f.layout.block_insts(block) {

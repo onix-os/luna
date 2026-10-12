@@ -912,6 +912,13 @@ jit-payload-tags:
 jit-payload-tags-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::same_tag:: -- --test-threads=1
 
+.PHONY: jit-tag-effects jit-tag-effects-miri
+jit-tag-effects:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::tag_effects:: $(ARGS)
+
+jit-tag-effects-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::tag_effects:: -- --test-threads=1
+
 jit-payload-functions:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::bridge_function_table $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::capacity_tests:: $(ARGS)

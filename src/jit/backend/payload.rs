@@ -27,6 +27,7 @@ mod packed_writes;
 pub(super) mod read_audit;
 mod reads;
 mod same_tag;
+mod tag_effects;
 mod terminal;
 mod writes;
 
@@ -464,7 +465,7 @@ pub(super) fn lower_contract(
     let mut terminal =
         terminal::Analysis::new(function, slots, host, registers, helpers, allocator.clone())?;
     let mut same_tag = if contract == Contract::FrameBound {
-        same_tag::Analysis::with_cycles(function, allocator.clone())?
+        same_tag::Analysis::with_source_stores(function, allocator.clone())?
     } else {
         same_tag::Analysis::new(function, allocator.clone())?
     };
@@ -570,6 +571,7 @@ pub(super) fn lower_contract(
                         bits,
                         proof,
                     )));
+                    same_tag.record_bound_write(tag_store, bits_store)?;
                 } else {
                     let copy = copy::admit(
                         function,
@@ -716,7 +718,13 @@ pub(super) fn lower_contract(
                 writes::verify_source(function, write, &mut same_tag)?;
                 writes::verify_copy_source(function, write, &mut same_tag, &mut terminal)?;
                 writes::verify(&candidate, write)?;
-                writes::verify_guard(&candidate, write, predecessors.as_ref(), &mut tag_work)?;
+                writes::verify_guard(
+                    &candidate,
+                    write,
+                    predecessors.as_ref(),
+                    &mut tag_work,
+                    contract,
+                )?;
             }
             Write::Bound(write) => {
                 bound_writes::verify_source(function, write, &mut same_tag)?;
