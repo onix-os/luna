@@ -11,6 +11,78 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Bound-store tag effects — numeric instruction gap substantially reduced
+
+`5823da8` preserves tag proofs across a narrow class of verified writes, without
+changing ordinary/Checked admission or selecting strided transport in production.
+Source Slot stores must be registered producers of an admitted Bound write,
+eight bytes wide, aligned, at the exact Slot base and disjoint from the queried
+tag. The producer map uses the charged allocator. Emitted FrameBound stores must
+immediately follow their verified descriptor-pointer load; canonical scalar
+storage cannot alias descriptor metadata. Calls and unknown stores still kill
+proofs. Copied-payload freshness continues to reject **all** intervening stores,
+even when a tag proof could survive them. Block-start emitted queries now examine
+their incoming edges rather than failing solely because there is no previous
+instruction. Independent source/emitted verification remains mandatory.
+
+The frozen opt-level-3 image preserves all 25 execution counters in the complete
+28-profile matrix: seven workloads, ordinary/strided, two repeats. Compared with
+the previous cycle-proof image:
+
+| Workload | Previous strided instructions | Bound-store strided | Reduction | Gap vs ordinary |
+| --- | ---: | ---: | ---: | ---: |
+| Integer loop | 1,225,957 | 1,102,951 | 10.033% | +0.004% |
+| Float loop | 1,204,661 | 1,103,458 | 8.401% | -3.160% |
+
+Both repeats agree exactly, and ordinary numeric controls are unchanged. The
+entire reduction is in generated code: exclusive native instructions fall
+639,135 → 516,129 for integer and 617,730 → 516,527 for float. Hot loops shrink
+from 28/27 to 23/23 instructions; ordinary uses 23/25. Integer kernel bytes fall
+4,192 → 3,776, reducing its mapping from 8,192 to 4,096 bytes. Float falls
+5,112 → 4,664 bytes but still needs an 8,192-byte mapping. These are software
+instruction counts, **not elapsed-time speedups or full performance acceptance**.
+
+Callbacks and upvalues are unchanged by this patch and remain 4.002%/1.534%
+above ordinary in total instructions. Additional same-process kernel captures
+localize their remaining cost: callback native instructions are
+730,160 ordinary versus 1,290,318 strided; the two upvalue kernels sum to
+1,295,848 versus 2,588,928. Costs outside the captured kernels are lower in the
+strided cases, so another host-dispatch rewrite is not supported by these data.
+Next inspect the executed scalar-pointer predicates and materialization paths;
+numeric-read eligibility can be weaker than exact-tag write eligibility, but
+must not authorize a same-tag write from an ambiguous numeric guard.
+
+Array and metamethod totals vary between repeats. The lower allocation totals
+are not attributed to this optimization: a separate four-process rotated
+old/new screen again captures byte-identical allocation kernels with exactly
+669,562 exclusive native instructions and matching execution counters. Its
+whole-execution totals range from 3,764,259 to 3,873,315. All measurements remain
+in the evidence rather than selecting the favorable totals.
+
+Four new edge-case tests cover store widths/offsets/registration, malformed
+descriptor pointers, intervening helpers, copied-bit invalidation, composed
+lowering and exact quota refusal without source mutation. Focused native tests
+pass 47 cases. The Force workspace/all-target suite passes **1,900 tests across
+87 summaries**, with 15 ignored diagnostics; no/all-feature checks and formatting
+also pass. Both Miri models pass four effect, eight tag and eight strided tests
+each (seeds 109/110). Optimized proof/Checked regression/backend/runtime checks
+pass. Native Memcheck passes all six runtime tests with zero errors and no
+definite/indirect leaks; the existing 48 possibly lost and 632 reachable bytes
+remain reported.
+
+Evidence under `target/jit-evidence/short-slice-performance/`:
+`strided-runtime-effects/` (image SHA-256
+`c34bc23a1665ac6b369c1f0fd7edc3bff29f1b7939846877770be34be000a317`),
+`strided-effects-allocation-screen/`, and `strided-effects-*` logs. There are
+28 primary profiles, four callback/upvalue captures and four rotated allocation
+profiles. Linear binary disassembly initially crossed an embedded float jump
+table at the wrong boundary; the annotation audit rejected the unmatched live
+address. Separate decoding from that recorded address restores a complete cost
+mapping, retaining both the original and supplemental disassembly. Production
+selection, the production benchmark executable and the Off default are unchanged.
+Elapsed-time, compiled-Off, whole compiler accounting, platform and release
+acceptance remain open.
+
 #### Effect-free cycle proofs — further numeric reduction, still experimental
 
 `4d2e0de` adds an opt-in, bounded exact-tag cycle mode for FrameBound
