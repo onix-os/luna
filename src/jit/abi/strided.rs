@@ -162,3 +162,5 @@ mod native;
 mod tests;
 
 pub(in crate::jit) mod transition;
+
+pub(in crate::jit) mod frame;
