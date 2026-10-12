@@ -69,12 +69,12 @@ fn run(source: &[u8], mode: JitMode, available: i32) -> (i64, Vec<(i32, u64)>, J
 
 #[test]
 fn production_regions_preserve_interrupted_traces_and_native_call_coverage() {
-    for (source, expected, repeats) in [
-        (&b"local n=0 local function f(v) n=n+v end for i=1,1000 do f(i) end return n"[..], 500500, true),
-        (&b"local n=0 local function f(v) n=n+v end for i=1,1000 do local q=i%3 f(i) end return n"[..], 500500, true),
-        (&b"local n=0 local function f(v) n=n+v end local a='a' local b='b' for i=1,1000 do local q=a<b f(i) end return n"[..], 500500, true),
-        (&b"local n=0 local function f(v) n=n+v end for i=1,1000 do f(i) f(i) end return n"[..], 1001000, true),
-        (&b"local n=0 local function f(v) n=n+v end for i=1,1000 do f(i) if i%73==0 then cb() end end return n"[..], 500500, false),
+    for (source, expected, repeats, batched) in [
+        (&b"local n=0 local function f(v) n=n+v end for i=1,1000 do f(i) end return n"[..], 500500, true, true),
+        (&b"local n=0 local function f(v) n=n+v end for i=1,1000 do local q=i%3 f(i) end return n"[..], 500500, true, false),
+        (&b"local n=0 local function f(v) n=n+v end local a='a' local b='b' for i=1,1000 do local q=a<b f(i) end return n"[..], 500500, true, false),
+        (&b"local n=0 local function f(v) n=n+v end for i=1,1000 do f(i) f(i) end return n"[..], 1001000, true, false),
+        (&b"local n=0 local function f(v) n=n+v end for i=1,1000 do f(i) if i%73==0 then cb() end end return n"[..], 500500, false, false),
     ] {
         for fuel in [1, 20, 127] {
             let off = run(source, JitMode::Off, fuel);
@@ -86,7 +86,10 @@ fn production_regions_preserve_interrupted_traces_and_native_call_coverage() {
             assert!(auto.2.native_instructions > 0);
             if fuel == 127 {
                 assert!(auto.2.native_region_entries > 0);
-                if repeats {
+                if batched {
+                    assert!(auto.2.native_region_fragments >= auto.2.native_region_entries);
+                    assert!(auto.2.native_pair_returns > auto.2.native_region_fragments);
+                } else if repeats {
                     assert!(auto.2.native_region_fragments > auto.2.native_region_entries);
                 } else {
                     assert_eq!(auto.2.native_region_fragments, auto.2.native_region_entries);
