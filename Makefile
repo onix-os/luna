@@ -488,6 +488,41 @@ jit-backend:
 	@$(CARGO) test -p luna --features jit --test jit_backend $(TARGET_ARG)
 
 .PHONY: jit-entry-guard jit-builtin-fusion jit-builtin-identity jit-builtin-miri
+.PHONY: jit-wide-helper
+WIDE_HELPER_DIR ?= target/jit-evidence/short-slice-performance/wide-helper-profile
+jit-wide-helper:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::wide:: -- --list | grep -F 'generated_wide_calls_match_current_values_guards_and_panics: test'
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::wide:: -- --nocapture
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::prepared_keys::tests::prepared_rust_helper_matches_generic_mutation_and_decline -- --exact --nocapture
+
+.PHONY: jit-wide-helper-miri jit-wide-helper-profile-build jit-wide-helper-profile-run
+jit-wide-helper-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::helpers::wide:: -- --test-threads=1 | awk '/^test result: ok[.] 1 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::prepared_keys::tests::prepared_rust_helper_matches_generic_mutation_and_decline -- --exact --test-threads=1 | awk '/^test result: ok[.] 1 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+jit-wide-helper-profile-build:
+	@mkdir -p '$(WIDE_HELPER_DIR)'
+	@CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_STRIP=false $(CARGO) test --locked --release -p luna --features jit --lib $(TARGET_ARG) --no-run --message-format=json-render-diagnostics > '$(WIDE_HELPER_DIR)/build.jsonl'
+	@jq -r 'select(.reason == "compiler-artifact" and .target.name == "luna" and .profile.test and .executable != null) | .executable' '$(WIDE_HELPER_DIR)/build.jsonl' > '$(WIDE_HELPER_DIR)/binary-path'
+	@test "$$(wc -l < '$(WIDE_HELPER_DIR)/binary-path')" -eq 1
+	@cp "$$(cat '$(WIDE_HELPER_DIR)/binary-path')" '$(WIDE_HELPER_DIR)/test-binary'
+	@sha256sum '$(WIDE_HELPER_DIR)/test-binary' > '$(WIDE_HELPER_DIR)/binary.sha256'
+	@{ find src -type f -name '*.rs' -print0; printf '%s\0' Cargo.toml Cargo.lock Makefile; } | sort -z | xargs -0 sha256sum > '$(WIDE_HELPER_DIR)/source.sha256'
+	@{ rustc -vV; $(CARGO) --version; printf 'opt_level=3\nstrip=false\ncalls=100000\ncollection=*wide::native::profile_calls*\n'; } > '$(WIDE_HELPER_DIR)/configuration'
+
+jit-wide-helper-profile-run: jit-profile-cpu-check
+	@sha256sum -c '$(WIDE_HELPER_DIR)/binary.sha256' '$(WIDE_HELPER_DIR)/source.sha256' > '$(WIDE_HELPER_DIR)/verification-before.log'
+	@valgrind --version > '$(WIDE_HELPER_DIR)/profiler.log'
+	@set -e; for wide in 0 1; do \
+		LUNA_WIDE_HELPER=$$wide LUNA_WIDE_DIR='$(WIDE_HELPER_DIR)' taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*wide::native::profile_calls*' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file='$(WIDE_HELPER_DIR)'/$$wide.callgrind \
+			'$(WIDE_HELPER_DIR)/test-binary' jit::helpers::wide::native::profile_generated_helper_calls --ignored --exact --nocapture --test-threads=1 > '$(WIDE_HELPER_DIR)'/$$wide.log 2>&1; \
+		grep -Fq "wide=$$([ $$wide = 1 ] && echo true || echo false) calls=100000 completed=100000 pc=1 result=42" '$(WIDE_HELPER_DIR)'/$$wide.log; \
+		grep -Fq 'test result: ok. 1 passed; 0 failed' '$(WIDE_HELPER_DIR)'/$$wide.log; \
+		grep -Eq '^summary: [1-9][0-9]*' '$(WIDE_HELPER_DIR)'/$$wide.callgrind; \
+		callgrind_annotate --inclusive=no --threshold=99 '$(WIDE_HELPER_DIR)'/$$wide.callgrind > '$(WIDE_HELPER_DIR)'/$$wide-annotation.log; \
+	done
+	@sha256sum -c '$(WIDE_HELPER_DIR)/binary.sha256' '$(WIDE_HELPER_DIR)/source.sha256' > '$(WIDE_HELPER_DIR)/verification-after.log'
+
 jit-builtin-fusion:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::thread::builtin::tests:: -- --nocapture
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::executor::builtin_tests:: -- --list | grep -F 'builtin_fusion_matches_every_step_and_collects_between_steps: test'

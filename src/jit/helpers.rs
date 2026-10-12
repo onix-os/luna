@@ -22,6 +22,9 @@ mod operand_source_tests;
 #[cfg(test)]
 mod direct_tests;
 
+#[cfg(test)]
+pub(super) mod wide;
+
 trait Transport<'gc> {
     fn read(&self, index: usize, canonical: Value<'gc>) -> Value<'gc>;
     fn read_alias(&self, index: usize, canonical: Value<'gc>) -> Value<'gc>;
