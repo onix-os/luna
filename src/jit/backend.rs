@@ -879,14 +879,7 @@ fn compile_selected_rooted(
     let prepare_keys = prepare_keys && !selection.scoped_helpers;
     #[cfg(test)]
     let prepare_keys = prepare_keys
-        && (failure == Failure::None
-            || matches!(
-                failure,
-                Failure::CorruptHelperFlow(
-                    super::helper_flow::Fault::PreparedLow
-                        | super::helper_flow::Fault::PreparedHigh
-                )
-            ))
+        && (failure == Failure::None || matches!(failure, Failure::CorruptHelperFlow(_)))
         && !selection.leaf
         && !selection.cell_kernel
         && !selection.integer_activation;
