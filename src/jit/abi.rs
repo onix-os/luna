@@ -584,7 +584,7 @@ mod tag_encoding;
 mod reference_import;
 
 #[cfg(test)]
-mod strided;
+pub(in crate::jit) mod strided;
 
 #[cfg(test)]
 impl Slot {

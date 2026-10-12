@@ -1300,10 +1300,17 @@ jit-abi:
 .PHONY: jit-strided jit-strided-miri
 STRIDED_DIR ?= target/jit-evidence/short-slice-performance/strided
 jit-strided:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::strided:: -- --test-threads=1 | awk '/^test result: ok[.] 6 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::strided:: -- --test-threads=1 | awk '/^test result: ok[.] 10 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 jit-strided-miri:
-	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::strided:: -- --test-threads=1 | awk '/^test result: ok[.] 4 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::strided:: -- --test-threads=1 | awk '/^test result: ok[.] 7 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+.PHONY: jit-strided-helpers jit-strided-helpers-miri
+jit-strided-helpers:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) strided_helpers_ -- --test-threads=1 | awk '/^test result: ok[.] 6 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+jit-strided-helpers-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' strided_helpers_ -- --test-threads=1 | awk '/^test result: ok[.] 4 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 .PHONY: jit-strided-profile-build jit-strided-profile-run
 jit-strided-profile-build:

@@ -45,6 +45,16 @@ struct Header {
     len: usize,
 }
 
+impl Header {
+    fn retired() -> Self {
+        Self {
+            base: ptr::null_mut(),
+            stride: 0,
+            len: 0,
+        }
+    }
+}
+
 type Entry = unsafe extern "C" fn(*const Header, i64) -> u32;
 
 struct Kernel<'code> {
@@ -64,12 +74,21 @@ impl<'code> Kernel<'code> {
         &'code self,
         values: &'frame mut [Value<'gc>],
     ) -> Option<Window<'frame, 'gc, 'code>> {
+        let header = Self::admit(values, self.required)?;
+        Some(Window {
+            header,
+            kernel: self,
+            borrow: PhantomData,
+        })
+    }
+
+    fn admit(values: &mut [Value<'_>], required: Mask) -> Option<Header> {
         if values.len() > 256 {
             return None;
         }
-        let stride = mem::size_of::<Value<'gc>>();
+        let stride = mem::size_of::<Value<'_>>();
         let mut offset = None;
-        for (group, mut word) in self.required.0.into_iter().enumerate() {
+        for (group, mut word) in required.0.into_iter().enumerate() {
             while word != 0 {
                 let index = 64 * group + word.trailing_zeros() as usize;
                 word &= word - 1;
@@ -94,11 +113,7 @@ impl<'code> Kernel<'code> {
         let base = values.as_mut_ptr().cast::<u8>();
         // Derive the field address from the full mutable slice's provenance.
         let base = unsafe { base.add(offset) };
-        Some(Window {
-            header: Header { base, stride, len },
-            kernel: self,
-            borrow: PhantomData,
-        })
+        Some(Header { base, stride, len })
     }
 }
 
@@ -145,3 +160,5 @@ fn rust_kernel<const SOURCE: usize, const DEST: usize>(required: Mask) -> Option
 mod native;
 
 mod tests;
+
+pub(in crate::jit) mod transition;
