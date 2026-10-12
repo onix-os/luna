@@ -6,6 +6,10 @@ use cranelift_codegen::{
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 
 fn fixture() -> (Function, Roots) {
+    fixture_with_resume(false)
+}
+
+fn fixture_with_resume(resumable: bool) -> (Function, Roots) {
     let mut f = Function::new();
     f.signature.call_conv = cranelift_codegen::isa::CallConv::SystemV;
     f.signature
@@ -23,6 +27,17 @@ fn fixture() -> (Function, Roots) {
         exit: p[3],
         registers: 1,
     };
+    let body = b.create_block();
+    let resume = b.create_block();
+    if resumable {
+        let active = b
+            .ins()
+            .icmp_imm_s(cranelift_codegen::ir::condcodes::IntCC::NotEqual, p[1], 0);
+        b.ins().brif(active, resume, &[], body, &[]);
+    } else {
+        b.ins().jump(body, &[]);
+    }
+    b.switch_to_block(body);
     let a = b.ins().iconst(types::I64, 11);
     let v = b.ins().iconst(types::I64, 17);
     b.ins().store(MemFlagsData::new(), a, p[0], 0);
@@ -35,6 +50,8 @@ fn fixture() -> (Function, Roots) {
     let bits = b.ins().load(types::I64, MemFlagsData::new(), p[0], 8);
     let sum = b.ins().iadd(tag, bits);
     b.ins().store(MemFlagsData::new(), sum, p[0], 8);
+    b.ins().jump(resume, &[]);
+    b.switch_to_block(resume);
     let tag = b.ins().load(types::I64, MemFlagsData::new(), p[0], 0);
     let bits = b.ins().load(types::F64, MemFlagsData::new(), p[0], 8);
     let bits = b.ins().bitcast(types::I64, MemFlagsData::new(), bits);
@@ -223,52 +240,66 @@ fn field_memory_native_preserves_float_bits_and_helper_clobbers() {
             *pointer.add(1) += 7;
         }
     }
-    for selected in [false, true] {
-        let mut flags = settings::builder();
-        flags.set("opt_level", "speed").unwrap();
-        let isa = cranelift_codegen::isa::lookup_by_name(std::env::consts::ARCH)
-            .unwrap()
-            .finish(settings::Flags::new(flags))
-            .unwrap();
-        let _charge;
-        let mut module = JITModule::new(JITBuilder::with_isa(isa, default_libcall_names()));
-        let mut context = module.make_context();
-        let (source, roots) = fixture();
-        context.func = source;
-        _charge = selected.then(|| apply(&mut context.func, roots, memory(1 << 20)).unwrap());
-        let id = module
-            .declare_function("field_probe", Linkage::Export, &context.func.signature)
-            .unwrap();
-        module.define_function(id, &mut context).unwrap();
-        module.finalize_definitions().unwrap();
-        let call: unsafe extern "C" fn(
-            *mut i64,
-            u64,
-            u32,
-            *mut crate::jit::abi::Exit,
-            usize,
-        ) -> i64 = unsafe { std::mem::transmute(module.get_finalized_function(id)) };
-        for _ in 0..100 {
-            let mut slots = [0i64; 2];
-            let mut exit = crate::jit::abi::Exit::default();
-            assert_eq!(
-                unsafe {
-                    call(
-                        slots.as_mut_ptr(),
-                        0,
-                        64,
-                        &mut exit,
-                        change as *const () as usize,
-                    )
-                },
-                56
-            );
-            assert_eq!(slots, [16, 40]);
-            assert_eq!((exit.pc, exit.instructions, exit.reason), (56, 2, 0));
-        }
-        drop(context);
-        unsafe {
-            module.free_memory();
+    let mut optimized_loads = [[0usize; 2]; 2];
+    for resumable in [false, true] {
+        for selected in [false, true] {
+            let mut flags = settings::builder();
+            flags.set("opt_level", "speed").unwrap();
+            let isa = cranelift_codegen::isa::lookup_by_name(std::env::consts::ARCH)
+                .unwrap()
+                .finish(settings::Flags::new(flags))
+                .unwrap();
+            let _charge;
+            let mut module = JITModule::new(JITBuilder::with_isa(isa, default_libcall_names()));
+            let mut context = module.make_context();
+            let (source, roots) = fixture_with_resume(resumable);
+            context.func = source;
+            _charge = selected.then(|| apply(&mut context.func, roots, memory(1 << 20)).unwrap());
+            let id = module
+                .declare_function("field_probe", Linkage::Export, &context.func.signature)
+                .unwrap();
+            module.define_function(id, &mut context).unwrap();
+            optimized_loads[usize::from(resumable)][usize::from(selected)] = context
+                .func
+                .layout
+                .blocks()
+                .flat_map(|block| context.func.layout.block_insts(block))
+                .filter(|&inst| context.func.dfg.insts[inst].opcode().can_load())
+                .count();
+            module.finalize_definitions().unwrap();
+            let call: unsafe extern "C" fn(
+                *mut i64,
+                u64,
+                u32,
+                *mut crate::jit::abi::Exit,
+                usize,
+            ) -> i64 = unsafe { std::mem::transmute(module.get_finalized_function(id)) };
+            for _ in 0..100 {
+                for pc in 0..=u64::from(resumable) {
+                    let mut slots = [16i64, 40];
+                    let mut exit = crate::jit::abi::Exit::default();
+                    assert_eq!(
+                        unsafe {
+                            call(
+                                slots.as_mut_ptr(),
+                                pc,
+                                64,
+                                &mut exit,
+                                change as *const () as usize,
+                            )
+                        },
+                        56
+                    );
+                    assert_eq!(slots, [16, 40]);
+                    assert_eq!((exit.pc, exit.instructions, exit.reason), (56, 2, 0));
+                }
+            }
+            drop(context);
+            unsafe {
+                module.free_memory();
+            }
         }
     }
+    println!("field memory fixture optimized loads: {optimized_loads:?}");
+    assert_eq!(optimized_loads, [[4, 3], [4, 4]]);
 }
