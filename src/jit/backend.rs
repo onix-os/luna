@@ -251,6 +251,30 @@ pub(super) struct Code {
 }
 
 impl Code {
+    #[cfg(all(test, not(miri)))]
+    pub(super) fn dump_finalized(&self, path: &std::path::Path) -> String {
+        assert!(!self.projected_upvalues);
+        assert!(self.scalar_leaf.is_none());
+        assert!(self.byte_len > 0);
+        assert!(matches!(
+            self.entry_kind,
+            payload::EntryKind::Ordinary | payload::EntryKind::Strided
+        ));
+        let address = self.entry as *const u8;
+        // Read finalized code bytes while the owning executable module is live.
+        let bytes = unsafe { std::slice::from_raw_parts(address, self.byte_len) };
+        std::fs::write(path, bytes).unwrap();
+        format!(
+            "abi=3\narch={}\nos={}\nentry_address={:#x}\ncode_bytes={}\nregisters={}\nentry_kind={:?}\n",
+            std::env::consts::ARCH,
+            std::env::consts::OS,
+            address as usize,
+            self.byte_len,
+            self.registers,
+            self.entry_kind,
+        )
+    }
+
     #[cfg(not(miri))]
     pub(super) fn linked_entry(&self) -> Entry {
         #[cfg(test)]
@@ -6348,19 +6372,8 @@ mod memory_tests {
             };
             assert!(code.byte_len > 0);
             assert!(code.byte_len <= total.load(Ordering::Relaxed));
-            let address = code.entry as *const u8;
-            // Read finalized code bytes while the owning executable module is live.
-            let bytes = unsafe { std::slice::from_raw_parts(address, code.byte_len) };
-            fs::write(directory.join(format!("{name}.bin")), bytes).unwrap();
+            let mut metadata = code.dump_finalized(&directory.join(format!("{name}.bin")));
             fs::write(directory.join(format!("{name}.lua")), source).unwrap();
-            let mut metadata = format!(
-                "abi=3\narch={}\nos={}\nentry_address={:#x}\ncode_bytes={}\nregisters={}\n",
-                std::env::consts::ARCH,
-                std::env::consts::OS,
-                address as usize,
-                code.byte_len,
-                code.registers,
-            );
             for (_, symbol, entry) in helpers::SYMBOLS {
                 writeln!(metadata, "helper={symbol} address={:#x}", entry as usize).unwrap();
             }

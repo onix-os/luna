@@ -11,6 +11,32 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Live numeric disassembly — register pressure, not hot pointer predicates
+
+The strided software-profile lane can now save the actual cached kernel bytes
+after the measured execution, while their owners remain live. Addresses match
+the same process's instruction-level Callgrind records; these are not synthetic
+stand-ins or captures from a different ASLR mapping. The existing finalized
+kernel dumper shares the byte-copy implementation. Dumps explicitly reject
+projected/leaf images whose recorded length includes separate functions.
+
+Four complete integer/float profiles reproduce the preceding ordinary/candidate
+totals exactly: 1,102,903/1,297,083 and 1,139,463/1,277,067 instructions.
+Exclusive native counts are 510,692/710,261 and 547,252/690,136. Address-joined
+disassembly attributes much of the remaining numeric gap to extra register
+copies in the scalar SSA loop: the candidate saves/restores its fuel register
+around overflow flag extraction and moves more loop-carried values. The hot
+loop itself contains no descriptor-pointer loads or scalar-range predicates.
+Exit-only tag/base values remain live across that loop. This changes the next
+experiment toward exit-state lifetime/allocation, not further hot pointer-check
+removal. No elapsed-time acceptance or shipping speedup is claimed.
+
+Evidence: `target/jit-evidence/short-slice-performance/strided-runtime-live/`,
+image SHA-256 `5c4b61ae3d480d1287d19aa52b3bdca8161d5c0a3e215e92d36c8988f4040895`.
+Opt in with `STRIDED_DUMP=1` on `make jit-strided-runtime-profile-run`;
+`STRIDED_ROUNDS` defaults to both rounds. The capture runs outside collection,
+and ordinary benchmark/profile defaults remain unchanged.
+
 #### Reused numeric pointer guards — measured reduction, regressions remain
 
 `e72aea2` implements the strided numeric-witness lead. A source descriptor-pointer
