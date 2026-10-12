@@ -486,6 +486,11 @@ jit-chain:
 jit-backend:
 	@$(CARGO) test -p luna --features jit --test jit_backend $(TARGET_ARG)
 
+.PHONY: jit-entry-guard
+jit-entry-guard:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::entry_guard_tests -- --list | grep -Fx 'jit::backend::entry_guard_tests::arithmetic_entry_guards_preserve_values_and_budget_priority: test'
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::entry_guard_tests $(ARGS)
+
 jit-helpers:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::helpers::tests
 

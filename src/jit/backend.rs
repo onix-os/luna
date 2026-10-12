@@ -29,6 +29,8 @@ use crate::opcode::{Operation, RCIndex};
 pub(super) mod calls;
 #[cfg(not(miri))]
 pub(super) mod compact;
+#[cfg(all(test, not(miri)))]
+mod entry_guard_tests;
 #[cfg(test)]
 mod exit_transport;
 #[cfg(not(miri))]
