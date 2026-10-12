@@ -11,6 +11,70 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Frame-bound writes — redundant pointer checks removed
+
+`c7d10b3` gives generic payload writes an explicit descriptor contract. Checked
+descriptors retain all pointer checks. FrameBound writes rely on their bound
+scalar-pointer invariant, removing five IR instructions per generic write while
+retaining tag equality, Boolean bits <= 1, bit-preserving float conversion,
+byte-width Boolean stores and the existing helper/copy/terminal paths. Both
+exact expansion checks account for the reduction; conservative admission limits
+are unchanged. The emitted verifier rejects contract substitution and checks the
+complete contract-specific instruction shape.
+
+All 28 software profiles retain the same 25 execution counters as both their
+ordinary controls and the previous range image. Stable workloads agree across
+both repeats:
+
+| Workload | Range strided instructions | Bound-write strided | Gap vs ordinary |
+| --- | ---: | ---: | ---: |
+| Rust callbacks | 10,889,997 | 10,859,997 | +0.979% |
+| Closure/upvalue | 32,979,042 | 32,879,045 | -0.115% |
+| Integer loop | 1,101,262 | 1,101,021 | -0.171% |
+| Float loop | 1,102,087 | 1,101,763 | -3.309% |
+
+These four reductions are entirely in captured native code. Allocation native
+work falls 513,010 -> 480,764 instructions in both repeats; whole-workload totals
+fall 3,609,434 -> 3,573,541, but ordinary controls also move by 1,035 instructions,
+so the entire cross-image reduction is not attributed to this patch. Current
+allocation controls report 3,608,281, giving a -0.963% instruction gap. Array
+still has +1.810%/+2.168% overhead. Metamethod totals vary between repeats;
+neither workload's variation is hidden or treated as an exact optimization gain.
+
+Float code shrinks 4,184 -> 4,056 bytes and allocation 4,128 -> 3,984 bytes.
+Their charged executable mappings both fall **8,192 -> 4,096 bytes**, confirmed
+by the execution reports, not just estimated from code size. Callback code is
+3,504 bytes, integer 3,232, and the captured upvalue kernels 3,712 + 853 bytes.
+Upvalue's total mapping remains 20,480 bytes, including auxiliary native chunks.
+
+The nine focused write tests pass, including four new tests for contract
+substitution/exact savings, 34 well-formed bound-write mutations, exact quota
+refusal with unchanged source/ledger, and native I64/F64 writes. Native guard
+tests use genuinely bound descriptors and cover invalid Boolean bits, requested
+tag mismatches and reference delegation; malformed descriptors remain a
+Checked-only test. Existing terminal-gateway and float-conversion tests now
+exercise both contracts. Full Force workspace/all-target verification passes
+**1,912 tests / 87 summaries**, with 15 ignored diagnostics. No/all-feature
+compilation and formatting pass. Optimized write tests and their native Memcheck
+run pass all nine tests with zero errors and no definite/indirect leaks; the
+existing 48 possibly lost and 632 reachable bytes remain reported.
+
+Miri passes all six write-verifier tests under Stacked Borrows (final seed 117)
+and Tree Borrows (seed 116). Both models also pass the 11 copy/terminal tests
+(Stacked seed 115). Optimized strided backend/runtime checks pass 12/6 tests;
+full runtime Memcheck passes all six tests with zero errors and no
+definite/indirect leaks. Its 48 possibly lost and 632 reachable bytes remain
+reported. These validation-run durations are not benchmark timing evidence.
+
+Evidence: `target/jit-evidence/short-slice-performance/strided-runtime-write-contract/`,
+its `audit.json`, `range-comparison.log` and address-checked live kernel costs;
+other logs use `strided-write-contract-*`. Image SHA-256:
+`c4c44e67344c8b1bfd80ab5171e4de088e7d4125150483b73ea4d9438d5f15dd`.
+This removes the upvalue instruction regression in these profiles, not its
+elapsed-time acceptance requirement. Production selection and the shipping
+benchmark executable are unchanged; elapsed-time, compiled-Off, compiler/resource,
+platform and release acceptance remain open.
+
 #### Unsigned scalar range — smaller verified pointer predicates
 
 `5342416` makes uniform and generic strided pointer lowering share the exact I64 predicate
