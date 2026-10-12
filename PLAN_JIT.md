@@ -11,6 +11,41 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Borrowed dispatch ownership boundary — rejected
+
+A provisional trial kept the prepared-code owner in the VM prelude and passed
+a borrowed dispatch to one outlined execution closure. It retained a single
+opcode body, existing statistics, lease lifetime, hook ordering and fuel rules;
+it did not split Off/Auto interpreters or retain a lease across slices.
+
+The candidate passed **59 focused tests** and **13 Rust-only Miri tests**.
+Shipping/speed builds and four exact-image upvalue profiles completed. Verified
+symbol companions preserve the stripped images' program headers and allocated
+bytes. Whole-profile instruction counts, compared with the preceding cost
+refresh, show that this boundary adds work:
+
+| Profile / feature mode | Baseline instructions | Trial instructions | Change |
+|---|---:|---:|---:|
+| Shipping / no-feature | 79,372,477 | 79,323,559 | -0.06% |
+| Shipping / JIT-Off | 89,176,738 | 92,427,336 | +3.65% |
+| Speed / no-feature | 72,523,637 | 71,024,067 | -2.07% |
+| Speed / JIT-Off | 81,879,248 | 84,629,343 | +3.36% |
+
+The smaller opcode-body symbol is not a saving: shipping moves work from the
+35,804,245-instruction VM into a 30,554,010-instruction closure, an
+8,000,400-instruction prelude and a 500,025-instruction wrapper. The statistics
+destructor remains 2,400,120 instructions. These are software instruction counts,
+not hardware timings; no elapsed-time improvement or full-suite acceptance is
+claimed for the trial.
+
+Both runtime files are restored. Formatting and **58 focused tests** pass on
+the restored source; `make jit-bench-build` reproduces the prior native image
+byte-for-byte (`d38b7f5c98ab6de0a75cef2733c5098a4eaf6d057f3dd72142742f43707d4464`).
+The candidate patch, source manifests, images, profiles and logs remain under
+`target/jit-evidence/short-slice-performance/borrowed-dispatch*`. No ownership
+wrapper or candidate-only test is shipped. Native callback and compiled-Off
+cost gates remain open; the full plan is not complete.
+
 #### Current compiled-disabled cost gate — measured and still failing
 
 Fresh matched no-feature/JIT-Off cost probes at `f08cb70` replace stale cost
