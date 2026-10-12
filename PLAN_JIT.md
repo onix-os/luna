@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-12
 
-#### Rooted preflight — capture outlining identified
+#### Rooted preflight — code-generation variants rejected
 
 An isolated per-call preflight shares the caller/base/width/fixed-frame reads
 between capture lookup and snapshot-window admission. Its exclusive borrow
@@ -32,9 +32,40 @@ in shipping and increase by 81 in speed. All four no-feature totals are unchange
 
 Exact-PC attribution identifies a newly outlined capture closure with
 **2,673,660 / 2,090,316** self instructions in shipping/speed. Other reductions
-do not offset it in the speed build. A separate frozen-source experiment
-flattens that closure into ordinary matches without changing the checks.
-**No runtime candidate is promoted; no hardware speedup is claimed.**
+do not offset it in the speed build. Three separate frozen-source experiments
+then retain the preflight checks while changing only the capture/publication
+function boundaries:
+
+| Variant | Shipping upvalue instructions | Speed upvalue instructions |
+| --- | ---: | ---: |
+| Production | 87,129,491 | 62,486,177 |
+| Flatten capture closure into matches | 85,596,302 | 65,252,039 |
+| Also force-inline the capture getter | 84,758,300 | 64,268,339 |
+| Also isolate unchanged exit publication | 85,465,478 | 63,107,951 |
+
+Flattening eliminates the closure symbol but outlines the capture getter
+(1,118,076 self instructions in each profile) and speed statistics drop glue
+(2,326,752 additional instructions). Inlining removes the capture call, not
+the drop-glue cost. Isolating the original two statistics guards/drops and
+native-exit update in a non-inlined function removes that extra drop symbol;
+its call/body cost still leaves speed upvalues **0.995% above production**.
+Publication arithmetic, ordering and the post-commit observation boundary are
+unchanged; this is not the earlier combined-counter implementation.
+
+Each follow-up completes another **56 Off + eight Auto/no-feature profiles**,
+with event totals, summed function costs, native work and image/source identities
+verified. Exact-PC attribution covers the executed rooted/capture/publication
+functions where present. All six follow-up no-feature images are byte-identical
+to their production controls. Small allocator/traversal variations remain in
+the data and are not credited as gains. The flat variant repeats GNU **128 /
+14**, two existing ignores; the other two pass **10 / three** targeted tests.
+Each also passes **60 / six** statistics/activation tests and formatting/checks.
+No new full-suite, musl or Miri claim is made for these follow-ups.
+
+**Reject this preflight family at instruction-cost screening.** Neither profile
+improves consistently; no hardware timing was launched for these variants, so
+instruction changes are not claimed as elapsed-time changes. Production source
+remains unchanged and all original performance gates remain open.
 Evidence and reproducible analysis remain under
 `target/jit-evidence/short-slice-performance/rooted-preflight-*`.
 
