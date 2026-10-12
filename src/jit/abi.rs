@@ -584,6 +584,9 @@ mod tag_encoding;
 mod reference_import;
 
 #[cfg(test)]
+mod strided;
+
+#[cfg(test)]
 impl Slot {
     #[inline(always)]
     pub(super) fn import_integer_nil_prefix(

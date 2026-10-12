@@ -1297,6 +1297,40 @@ jit-gc-requests:
 jit-abi:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests
 
+.PHONY: jit-strided jit-strided-miri
+STRIDED_DIR ?= target/jit-evidence/short-slice-performance/strided
+jit-strided:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::strided:: -- --test-threads=1 | awk '/^test result: ok[.] 6 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+jit-strided-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::strided:: -- --test-threads=1 | awk '/^test result: ok[.] 4 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+.PHONY: jit-strided-profile-build jit-strided-profile-run
+jit-strided-profile-build:
+	@mkdir -p '$(STRIDED_DIR)'
+	@test ! -e '$(STRIDED_DIR)/test-binary'
+	@CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_STRIP=false $(CARGO) test --locked --release -p luna --features jit --lib $(TARGET_ARG) --no-run --message-format=json > '$(STRIDED_DIR)/build.jsonl'
+	@jq -r 'select(.reason == "compiler-artifact" and .target.name == "luna" and .profile.test and .executable != null) | .executable' '$(STRIDED_DIR)/build.jsonl' > '$(STRIDED_DIR)/binary-path'
+	@test "$$(wc -l < '$(STRIDED_DIR)/binary-path')" -eq 1
+	@cp "$$(cat '$(STRIDED_DIR)/binary-path')" '$(STRIDED_DIR)/test-binary'
+	@sha256sum '$(STRIDED_DIR)/test-binary' > '$(STRIDED_DIR)/binary.sha256'
+	@{ find src -type f -name '*.rs' -print0; printf '%s\0' Cargo.toml Cargo.lock Makefile; } | sort -z | xargs -0 sha256sum > '$(STRIDED_DIR)/source.sha256'
+	@{ rustc -vV; $(CARGO) --version; printf 'opt_level=3\nstrip=false\ncalls=100000\nscope=synthetic transport only\n'; } > '$(STRIDED_DIR)/configuration'
+
+jit-strided-profile-run: jit-profile-cpu-check
+	@sha256sum -c '$(STRIDED_DIR)/binary.sha256' '$(STRIDED_DIR)/source.sha256' > '$(STRIDED_DIR)/verification-before.log'
+	@valgrind --version > '$(STRIDED_DIR)/profiler.log'
+	@set -e; for shape in single mixed7 dense7 mixed16 dense16 mixed256 dense256; do for strided in 0 1; do \
+		test ! -e '$(STRIDED_DIR)'/$$shape-$$strided.callgrind; \
+		LUNA_STRIDED_SHAPE=$$shape LUNA_STRIDED=$$strided taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*strided::native::probe::profile_transport*' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file='$(STRIDED_DIR)'/$$shape-$$strided.callgrind \
+			'$(STRIDED_DIR)/test-binary' jit::abi::strided::native::probe::profile_generated_transport --ignored --exact --nocapture --test-threads=1 > '$(STRIDED_DIR)'/$$shape-$$strided.log 2>&1; \
+		grep -Fq "shape=$$shape strided=$$([ $$strided = 1 ] && echo true || echo false) calls=100000 completed=100000 validated=true" '$(STRIDED_DIR)'/$$shape-$$strided.log; \
+		grep -Fq 'test result: ok. 1 passed; 0 failed' '$(STRIDED_DIR)'/$$shape-$$strided.log; \
+		grep -Eq '^summary: [1-9][0-9]*' '$(STRIDED_DIR)'/$$shape-$$strided.callgrind; \
+		callgrind_annotate --inclusive=no --threshold=99 '$(STRIDED_DIR)'/$$shape-$$strided.callgrind > '$(STRIDED_DIR)'/$$shape-$$strided-annotation.log; \
+	done; done
+	@sha256sum -c '$(STRIDED_DIR)/binary.sha256' '$(STRIDED_DIR)/source.sha256' > '$(STRIDED_DIR)/verification-after.log'
+
 .PHONY: jit-reference-import jit-reference-import-miri
 jit-reference-import:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests::borrowed_import_matches_owned_values_and_current_mutations -- --list | grep -F 'borrowed_import_matches_owned_values_and_current_mutations: test'
