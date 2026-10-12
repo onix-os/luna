@@ -11,6 +11,33 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Rooted preflight — capture outlining identified
+
+An isolated per-call preflight shares the caller/base/width/fixed-frame reads
+between capture lookup and snapshot-window admission. Its exclusive borrow
+ends within the call attempt: no state survives callbacks or frame transitions.
+Original policy, capture ownership, bounds, capacity, close, fuel and publication
+checks remain. GNU focused tests pass **128 executions / 14 summaries**, with
+two existing ignored diagnostics; musl passes **10 / three**. Three expanded
+pure tests cover capture rebinding and **26 guard cases × six fuel values**;
+fresh-target Miri passes all three under Stacked seed 55 and Tree seed 56.
+
+Both cost builds/native proofs and **56 exact-image Off profiles** pass their
+verification checks; both no-feature images remain byte-identical to production.
+Eight candidate Auto/no-feature profiles compared with eight current-production
+profiles preserve exact native work counts. Shipping upvalue instructions fall
+**87,129,491 → 86,061,635 (-1.226%)**, but speed increases
+**62,486,177 → 63,400,202 (+1.463%)**. Callback instructions are unchanged
+in shipping and increase by 81 in speed. All four no-feature totals are unchanged.
+
+Exact-PC attribution identifies a newly outlined capture closure with
+**2,673,660 / 2,090,316** self instructions in shipping/speed. Other reductions
+do not offset it in the speed build. A separate frozen-source experiment
+flattens that closure into ordinary matches without changing the checks.
+**No runtime candidate is promoted; no hardware speedup is claimed.**
+Evidence and reproducible analysis remain under
+`target/jit-evidence/short-slice-performance/rooted-preflight-*`.
+
 #### Scoped rooted-publication view — rejected after repeated timing
 
 An isolated candidate replaces only the two full register views in
