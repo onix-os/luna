@@ -11,6 +11,74 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Closed-table helper trial — withdrawn after extended timing
+
+Separate production callback profiles record **126,201,795 Auto instructions**
+versus **102,871,353 Off instructions**. In Auto, ordinary register transport
+accounts for 20,233,235 self instructions (16.03%) and the prepared table helper
+for 11,281,464 (8.94%). These are software instruction counts, not elapsed-time
+shares. The bridge count reproduces earlier attribution; it is not a newly
+discovered hotspot or evidence that the interpreter should be bypassed.
+
+A runtime trial reads a current closed table upvalue directly in the prepared
+helper, preserving the original accessor for open/current-frame/foreign-stack
+aliases. It caches nothing and retains table guards, panic materialization,
+projection synchronization, fuel and counters. `fb726cf` independently expands
+generic/prepared/wide helper parity across environment replacement, non-table
+values, restoration and borrowed-table panics; that test is retained.
+
+Candidate correctness passes **1,937 full forced-JIT tests / 88 suites**, with
+16 ignored, 57 focused executions and five prepared-key Miri tests. The initial
+Miri invocation failed because the default shell lacks cargo-miri; the existing
+`.#miri` shell supplies the successful run. Passing these checks does not justify
+retaining a performance regression.
+
+Auto callback instructions fall **126,201,795 → 125,553,516 (0.514%)**. Two full
+paired profiles reproduce roughly 648,000 fewer callback instructions, with all
+37 compared complete non-timing report records matching, including resource and
+native-coverage fields. Other profile totals vary; for example the first paired
+metamethod interval adds 1,058,495 instructions, dominated by allocator work, while
+the repeat total decreases. No whole-program saving is inferred from a vanished
+or merged helper symbol. Symbolized profiling images are separate from stripped
+timing artifacts.
+
+Two 21-sample screens measure **9,072 executions**. An additional **201-sample**
+screen measures **43,416**, preserving full nine-case context, old-A/new/old-B
+controls, CPU order 0/16/16/0, original thresholds and host telemetry. All three
+audits report zero counter/resource mismatches. No owned build, test or profiler
+overlaps timing; unrelated applications remain untouched. Reports contain
+aggregates/min/max, not individual raw sample distributions.
+
+The extended screen gives these control/candidate Auto-time ratios (>1 is faster):
+
+| Workload | CPU 0, first / repeat | CPU 16, first / repeat |
+|---|---:|---:|
+| Rust callbacks | 1.009459 / 1.003033 | 0.993867 / 0.989490 |
+| Metamethods | 1.010182 / 1.013412 | 0.949107 / 0.969012 |
+| Upvalues | 0.998932 / 0.999166 | 0.991187 / 1.001473 |
+
+CPU 16 metamethod placebos are 1.002161 / 1.000792; the candidate is slower in
+both extended comparisons. Callback gates fail **12/12** across the three
+screens. Metamethod gates fail **4/12**, despite passing all four extended runs.
+Other scored workloads pass 12/12; the predicate remains unscored. Short-window
+CPU 16 integer placebos reach 0.485193 and large candidate slowdowns remain in
+the logs. Longer sampling reduces that variation but does not rescue this trial.
+No samples are discarded or hardware cause asserted.
+
+**The runtime change is withdrawn.** Production helper source is restored;
+the rebinding test and evidence remain. Restored formatting and 54 focused tests
+pass; rebuilding the stripped shipping benchmark reproduces the baseline
+SHA-256 byte-for-byte. Further small closed-table accessor
+rewrites are not the next performance direction. The larger ordinary transport
+cost, original callback/metamethod gates, disabled overhead and full release
+acceptance remain unresolved.
+
+Evidence: `target/jit-evidence/short-slice-performance/callback-separated-{auto,off}/`
+and `closed-table-helper-*`. Frozen candidate timing SHA-256:
+`a8778d2509a171ddffa6b41e44ef9f40e43783d092131ec3c22297bc071765ef`;
+baseline: `d38b7f5c98ab6de0a75cef2733c5098a4eaf6d057f3dd72142742f43707d4464`.
+The candidate remains an archived rejected artifact, not the shipping runtime.
+
 #### Retained preflight callee binding — tested; shipping gates still open
 
 `91b16ee` retains the exact callee prototype after successful canonical-call
