@@ -62,8 +62,8 @@ the data and are not credited as gains. The flat variant repeats GNU **128 /
 Each also passes **60 / six** statistics/activation tests and formatting/checks.
 No new full-suite, musl or Miri claim is made for these follow-ups.
 
-**Reject this preflight family at instruction-cost screening.** Neither profile
-improves consistently; no hardware timing was launched for these variants, so
+**Reject this preflight family at instruction-cost screening.** No variant
+reduces work in both profiles; no hardware timing was launched for them, so
 instruction changes are not claimed as elapsed-time changes. Production source
 remains unchanged and all original performance gates remain open.
 Evidence and reproducible analysis remain under
