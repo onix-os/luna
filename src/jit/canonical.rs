@@ -234,6 +234,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
     }
 
     fn preflight(&mut self, budget: u32) -> bool {
+        self.callee = None;
         if !self.host.lua_ready() {
             return false;
         }
@@ -253,7 +254,8 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
         }
         let ctx = self.ctx;
         let site = self.site;
-        self.host.with_registers(|caller, registers| {
+        let mut admitted = None;
+        let accepted = self.host.with_registers(|caller, registers| {
             let registry = ctx.jit_registry().borrow();
             if *registers.pc != site.pc
                 || registry.identity(ctx, caller.prototype()) != Some(site.caller)
@@ -304,7 +306,7 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
             {
                 return false;
             }
-            match site.pattern.right {
+            let supported = match site.pattern.right {
                 Operand::Register(register) if register == site.pattern.read => true,
                 Operand::Register(register) => {
                     usize::from(register.0) < usize::from(site.arguments)
@@ -320,8 +322,14 @@ impl<'gc, 'host, 'borrow> Session<'gc, 'host, 'borrow> {
                     callee.prototype().constants.get(usize::from(constant)),
                     Some(crate::Constant::Integer(_))
                 ),
+            };
+            if supported {
+                admitted = Some(callee.prototype());
             }
-        })
+            supported
+        });
+        self.callee = admitted;
+        accepted
     }
 
     fn enter(&mut self, pc: u64, function: u32, arguments: u32) -> *mut NativeFrame {
