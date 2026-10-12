@@ -11,6 +11,53 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Strided helper transitions — actual helpers verified, VM integration open
+
+`f4d51bd` extends the strided experiment across Luna's ten generic helper
+operations. A scoped session owns access to `helpers::Frame`; its mutable header
+is separate from the original immutable arithmetic window. The adapter retires
+the header before borrowing the canonical frame for a helper, then admits the
+current fields again after completion. Declines and caught panics stop that
+session, and re-entry returns the terminal status without repeating effects or
+incrementing counters. A completed helper that creates a noninteger value is
+still reported as completed, with subsequent integer access disabled separately.
+
+A real Cranelift controller performs integer arithmetic before and after the
+helper call, reloads the current header after the call, and skips the suffix when
+admission fails. Its Rust counterpart exercises the same boundary under Miri.
+The existing proxy-helper oracle now compares **10 helpers x 10 scenarios** for
+each controller. It checks canonical values/reference identities, table effects,
+open/closed upvalues, all eight helper counters, PC, fuel, declines and caught
+panics. The table oracle also checks key3, which the arithmetic prefix can affect
+through `SetList`. Additional tests cover all value kinds, integer restoration
+within one session, terminal re-entry and preexisting panics.
+
+Debug strided10/helper6/ABI10/native18/heap20 tests and no/all-feature checks pass.
+Final Miri checks pass under Stacked (helper4 seed81, complete model7 seed83) and
+Tree Borrows (helper4 plus complete model7, seed82). Generated execution is
+checked natively, not claimed under Miri. The frozen optimized image passes
+strided10 and helper6. Native Memcheck passes helper6 with zero reported errors,
+zero definitely/indirectly lost bytes, 48 possibly lost bytes and 632 reachable
+bytes. The residual allocations are retained in the report, not described as
+zero-allocation acceptance. Binary/source identities are checked before both
+optimized and Memcheck execution.
+
+This is not yet a backend mode, source/effect verifier or VM dispatch change.
+The existing helpers decline metamethod cases rather than invoke user callbacks,
+so this does not prove actual callback re-entry or stack relocation. The hot
+prepared-key `GetUpTable` entry is separate from generic `call_direct` and is not
+covered by this adapter; its seeded hash/packed operand contract must be retained.
+Projection, code-lease/resource accounting and full PC/fuel/native-coverage
+integration remain open. No helper-inclusive performance gain, production fix,
+hardware timing or release acceptance is claimed.
+
+Evidence: `target/jit-evidence/short-slice-performance/strided-helper-tests.log`,
+`strided-helper-validation.log`, `strided-helper-final-miri-{stacked,tree}.log`,
+`strided-helper-admission-miri-stacked.log`, `strided-helper-release.log` and
+`strided-helpers/`. Focused entry points are `make jit-strided-helpers` and
+`make jit-strided-helpers-miri`; the ignored `strided-helper-tools.mk` drives
+frozen optimized/native validation through Make.
+
 #### Strided integer-field transport — scoped model, not runtime acceptance
 
 `8bab591` adds a test-only alternative to per-register payload descriptors: a
