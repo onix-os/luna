@@ -179,15 +179,106 @@ fn strided_uniform_layout_checks_measured_offset_and_keeps_fallback() {
                 ..read
             };
             assert!(verify(&candidate, slots, altered).is_err());
-            assert_eq!(size(&candidate).0, size(&source).0 + 10);
+            assert_eq!(size(&candidate).0, size(&source).0 + 9);
         }
         read.uniform = None;
         let mut fallback = source.clone();
         emit(&mut fallback, slots, read);
         verify(&fallback, slots, read).unwrap();
-        assert_eq!(size(&fallback).0, size(&source).0 + 15);
+        assert_eq!(size(&fallback).0, size(&source).0 + 14);
         cranelift_codegen::verify_function(&fallback, &settings::Flags::new(settings::builder()))
             .unwrap();
+    }
+}
+
+#[test]
+fn strided_byte_tag_verifier_rejects_signed_wide_and_retargeted_loads() {
+    for (pointer, uniform) in [(false, false), (true, false), (true, true)] {
+        let (mut source, slots, mut read) = fixture(pointer, 255);
+        if !uniform {
+            read.uniform = None;
+        }
+        emit(&mut source, slots, read);
+        verify(&source, slots, read).unwrap();
+        let tag = source
+            .layout
+            .first_inst(source.layout.entry_block().unwrap())
+            .unwrap();
+        let offset = (std::mem::offset_of!(Header, tags) + read.index) as i32;
+        for fault in 0..6 {
+            let mut changed = source.clone();
+            let flags = MemFlagsData::new();
+            match fault {
+                0 => {
+                    changed
+                        .replace(tag)
+                        .sload8(types::I64, flags, slots, offset);
+                }
+                1 => {
+                    changed
+                        .replace(tag)
+                        .uload16(types::I64, flags, slots, offset);
+                }
+                2 => {
+                    changed.replace(tag).load(types::I64, flags, slots, offset);
+                }
+                3 => {
+                    let mut flags = flags;
+                    flags.set_readonly();
+                    changed
+                        .replace(tag)
+                        .uload8(types::I64, flags, slots, offset);
+                }
+                4 => {
+                    changed
+                        .replace(tag)
+                        .uload8(types::I64, flags, slots, offset - 1);
+                }
+                _ => {
+                    let mut c = FuncCursor::new(&mut changed);
+                    c.goto_inst(tag);
+                    let other = c.ins().iconst(types::I64, 0);
+                    c.func.replace(tag).uload8(types::I64, flags, other, offset);
+                }
+            }
+            cranelift_codegen::verify_function(
+                &changed,
+                &settings::Flags::new(settings::builder()),
+            )
+            .unwrap();
+            assert!(verify(&changed, slots, read).is_err(), "fault={fault}");
+        }
+    }
+}
+
+#[cfg(not(miri))]
+#[test]
+fn strided_byte_tag_native_zero_extends_every_byte_at_boundary_registers() {
+    for index in [0, 6, 63, 64, 255] {
+        let (mut f, slots, read) = fixture(false, index);
+        let original = size(&f);
+        emit(&mut f, slots, read);
+        verify(&f, slots, read).unwrap();
+        assert_eq!(size(&f), original);
+        crate::jit::backend::projection_probe::with_projection_probe(f, |pointer| {
+            let entry = unsafe {
+                std::mem::transmute::<*const u8, unsafe extern "C" fn(*const Header) -> u64>(
+                    pointer,
+                )
+            };
+            let mut header = Header {
+                base: std::ptr::null_mut(),
+                offsets: [usize::MAX; 5],
+                tags: [0xa5; 256],
+            };
+            for tag in 0..=u8::MAX {
+                header.tags[index] = tag;
+                let expected = header.tags;
+                assert_eq!(unsafe { entry(&header) }, u64::from(tag));
+                assert_eq!(header.tags, expected);
+            }
+        })
+        .unwrap();
     }
 }
 

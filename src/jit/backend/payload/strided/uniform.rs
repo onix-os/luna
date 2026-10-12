@@ -3,13 +3,12 @@ use super::*;
 pub(super) fn emit(f: &mut Function, slots: IrValue, read: Read) {
     let mut c = FuncCursor::new(f);
     c.goto_inst(read.inst);
-    let byte = c.ins().load(
-        types::I8,
+    let tag = c.ins().uload8(
+        types::I64,
         MemFlagsData::new(),
         slots,
         (std::mem::offset_of!(Header, tags) + read.index) as i32,
     );
-    let tag = c.ins().uextend(types::I64, byte);
     let base = c.ins().load(
         types::I64,
         MemFlagsData::new(),
@@ -34,18 +33,11 @@ pub(super) fn verify(f: &Function, slots: IrValue, read: Read) -> Result<(), Jit
         previous = f.layout.prev_inst(inst);
         Some(inst)
     });
-    let mut instructions = shape::<11>(backwards.take(11))?;
+    let mut instructions = shape::<10>(backwards.take(10))?;
     instructions.reverse();
-    let [byte, tag, base, displacement, address, first, adjusted, range, scalar, null, result] =
+    let [tag, base, displacement, address, first, adjusted, range, scalar, null, result] =
         instructions;
-    let byte = load(
-        f,
-        byte,
-        slots,
-        (std::mem::offset_of!(Header, tags) + read.index) as i32,
-        types::I8,
-    )?;
-    let tag = value(f, tag, Opcode::Uextend, &[byte], types::I64)?;
+    let tag = verify_tag(f, tag, slots, read.index)?;
     let base = load(
         f,
         base,

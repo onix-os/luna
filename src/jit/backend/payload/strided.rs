@@ -18,13 +18,13 @@ struct Read {
 impl Read {
     fn extra(self) -> usize {
         if !self.pointer {
-            1
+            0
         } else if self.numeric {
             2
         } else if self.uniform.is_some() {
-            10
+            9
         } else {
-            15
+            14
         }
     }
 }
@@ -59,17 +59,21 @@ fn emit(f: &mut Function, slots: IrValue, read: Read) {
     }
     let mut c = FuncCursor::new(f);
     c.goto_inst(read.inst);
-    let byte = c.ins().load(
-        types::I8,
+    if !read.pointer {
+        c.func.replace(read.inst).uload8(
+            types::I64,
+            MemFlagsData::new(),
+            slots,
+            (std::mem::offset_of!(Header, tags) + read.index) as i32,
+        );
+        return;
+    }
+    let tag = c.ins().uload8(
+        types::I64,
         MemFlagsData::new(),
         slots,
         (std::mem::offset_of!(Header, tags) + read.index) as i32,
     );
-    if !read.pointer {
-        c.func.replace(read.inst).uextend(types::I64, byte);
-        return;
-    }
-    let tag = c.ins().uextend(types::I64, byte);
     let width = c.ins().iconst(types::I64, 8);
     let scaled = c.ins().imul(tag, width);
     let table = c.ins().iadd(slots, scaled);
@@ -96,6 +100,18 @@ fn emit(f: &mut Function, slots: IrValue, read: Read) {
     c.func.replace(read.inst).select(scalar, address, null);
 }
 
+fn verify_tag(f: &Function, inst: Inst, slots: IrValue, index: usize) -> Result<IrValue, JitError> {
+    let InstructionData::Load { offset, flags, .. } = f.dfg.insts[inst] else {
+        return Err(invalid());
+    };
+    if i32::from(offset) != (std::mem::offset_of!(Header, tags) + index) as i32
+        || f.dfg.mem_flags[flags] != MemFlagsData::new()
+    {
+        return Err(invalid());
+    }
+    reads::value(f, inst, Opcode::Uload8, &[slots], types::I64)
+}
+
 fn verify(f: &Function, slots: IrValue, read: Read) -> Result<(), JitError> {
     if read.numeric {
         if !read.pointer || read.uniform.is_none() || read.uniform != Header::uniform_offset() {
@@ -111,37 +127,22 @@ fn verify(f: &Function, slots: IrValue, read: Read) -> Result<(), JitError> {
     }
     use reads::{constant, load, value};
     let mut previous = Some(read.inst);
-    let mut backwards = std::iter::from_fn(|| {
+    let backwards = std::iter::from_fn(|| {
         let inst = previous?;
         previous = f.layout.prev_inst(inst);
         Some(inst)
     });
     if !read.pointer {
-        let byte = backwards.nth(1).ok_or_else(invalid)?;
-        let byte = load(
-            f,
-            byte,
-            slots,
-            (std::mem::offset_of!(Header, tags) + read.index) as i32,
-            types::I8,
-        )?;
-        if value(f, read.inst, Opcode::Uextend, &[byte], types::I64)? != read.result {
+        if verify_tag(f, read.inst, slots, read.index)? != read.result {
             return Err(invalid());
         }
         return Ok(());
     }
-    let mut instructions = shape::<16>(backwards.take(16))?;
+    let mut instructions = shape::<15>(backwards.take(15))?;
     instructions.reverse();
-    let [byte, tag, width, scaled, table, offset, base, displacement, cell, address, first, adjusted, range, scalar, null, result] =
+    let [tag, width, scaled, table, offset, base, displacement, cell, address, first, adjusted, range, scalar, null, result] =
         instructions;
-    let byte = load(
-        f,
-        byte,
-        slots,
-        (std::mem::offset_of!(Header, tags) + read.index) as i32,
-        types::I8,
-    )?;
-    let tag = value(f, tag, Opcode::Uextend, &[byte], types::I64)?;
+    let tag = verify_tag(f, tag, slots, read.index)?;
     let width = constant(f, width, 8)?;
     let scaled = value(f, scaled, Opcode::Imul, &[tag, width], types::I64)?;
     let table = value(f, table, Opcode::Iadd, &[slots, scaled], types::I64)?;
