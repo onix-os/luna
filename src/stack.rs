@@ -13,6 +13,8 @@ use crate::{
 
 #[cfg(test)]
 mod consume_tests;
+#[cfg(test)]
+mod replace_tests;
 
 /// A thread's value stack.
 pub(crate) type StackVec<'gc> = vec::Vec<Value<'gc>, MetricsAlloc<'gc>>;

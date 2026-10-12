@@ -1684,6 +1684,15 @@ numeric-conversions:
 		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test numeric_semantics $(TARGET_ARG) || exit $$?; \
 	done
 
+.PHONY: stack-replace stack-replace-miri
+stack-replace:
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) stack::replace_tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) stack::replace_tests
+
+stack-replace-miri:
+	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' stack::replace_tests -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' stack::replace_tests -- --test-threads=1
+
 .PHONY: stack-consume stack-consume-miri
 stack-consume:
 	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) stack::consume_tests
