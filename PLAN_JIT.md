@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-12
 
-#### Guarded built-in call fusion: test-only prototype
+#### Guarded built-in call fusion: hardware tradeoff rejected
 
 An exact-instance `setmetatable` fast path replaces the ordinary callback
 transition only for fixed two-argument plain-table operations. The registry
@@ -21,18 +21,61 @@ interruption, insufficient boundary fuel, frame limits and relevant open
 captures/close slots retain the ordinary path. Normal and tail calls use the
 original fuel charges; transitions remain interpreted instructions in coverage.
 
-The GNU step oracle passes 196 paired schedules with collection between steps
-and 70 actual fused calls. In the metamethod case at budget 4096, 22 calls fuse:
-the two initializations and all twenty loop tail calls. Separate tests cover
-96 admission states, scope restoration on unwind and weak identity survival,
-collection and replacement. No-feature/all-feature checks and formatting pass.
-This is not yet a production optimization or measured speedup.
+The first GNU step oracle passes 196 paired schedules with collection between
+steps and 70 actual fused calls. In the metamethod case at budget 4096, 22 calls
+fuse: the two initializations and all twenty loop tail calls. The retained
+tail-only variant still passes all 196 schedules, with 49 fused calls overall
+and twenty in that metamethod case. The trace now also compares pending Lua
+return state. Separate fixtures cover 96 admission states, fifteen root/normal/
+multiple/variable/metamethod tail-return states, scope unwind and weak identity
+survival, collection and replacement. No-feature/all-feature checks pass.
 
 A persistent instruction hook with zero fuel fails to complete even in the
 ordinary control. It remains covered by a 64-step bounded trace comparison;
 the completion matrix separately uses a self-clearing hook. No completion
-claim is made for the persistent-hook case. Memory-model checks, production
-activation review and unchanged hardware benchmarks remain pending.
+claim is made for the persistent-hook case. The final three primitive and two
+identity tests pass both Stacked Borrows (seed 0) and Tree Borrows (seed 1)
+Miri, with existing warnings; no native execution is claimed from Miri.
+
+Three experimental production binaries were measured, each after the paired
+step tests and eighteen native integration tests passed:
+
+| Variant | Metamethod CPU instructions | Callback CPU instructions |
+| --- | ---: | ---: |
+| Normal and tail calls | -4.430% | +0.103% |
+| Tail calls only, VM-side check | -4.789% | +0.156% |
+| Tail calls only, outlined transition | -4.351% | unchanged |
+
+These are Callgrind instruction counts, not speedups. The outlined variant
+measures 78,314,650 to 74,906,944 metamethod instructions and exactly
+126,201,876 callback instructions in both images. All non-timing records match.
+
+Five complete hardware screens ran 120 commands and 2,160 timing-summary rows:
+two for normal/tail fusion, one for VM-side tail fusion and two for the outlined
+transition. Every screen uses four rotated control/candidate/same-image-placebo
+windows on CPUs 0 and 16, unchanged paired eleven-sample workloads and gates,
+immutable images, equal hardlink launch paths, hashes and contention telemetry.
+No owned build, test, profiler or source edit overlaps those hardware windows.
+All non-timing fields match across the five screens.
+
+The outlined candidate's control/candidate Auto time ratios are 1.0349/1.0445
+for metamethods on CPU 0 and 1.0054/1.0197 on CPU 16 (first/repeat). However,
+callbacks are 0.9310/0.9260 on CPU 0: roughly 7–8% slower despite identical
+software instruction counts. The repeat CPU-0 callback placebo ratio is 1.0002.
+CPU-16 callback ratios are 1.0039/1.0055. Earlier variants also regress callback
+timing; removing the ordinary-call check does not establish non-regression.
+This does not prove a particular hardware cause or fix the callback gate.
+
+The production hook is withdrawn. Only the test-only tail transition and its
+guard/identity/return fixtures remain. The frozen candidate patches, images
+and audited screens are retained; no acceptance threshold or workload changed.
+Do not promote this fusion from its local metamethod improvement alone.
+After withdrawal, all seven focused GNU tests, no-feature/all-feature checking
+and formatting pass. The actual default benchmark is rebuilt without the hook;
+its frozen copy matches all eighteen non-timing records against the control
+in a fresh nine-case smoke with cold/Off/native-work and image identity checks.
+That smoke is not a hardware acceptance run. The callback, shipping-array,
+compiled-Off, platform, resource and release gates remain open.
 Evidence: `target/jit-evidence/short-slice-performance/builtin-*`.
 
 #### Branched integer-loop direction: hardware trial rejected
