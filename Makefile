@@ -2295,3 +2295,10 @@ help:
 	@echo
 
 h: help
+
+.PHONY: jit-preferred-entry jit-preferred-entry-miri
+jit-preferred-entry:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::preferred::tests | awk '/^test result: ok[.] 3 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+jit-preferred-entry-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::entry_flow::preferred::tests -- --test-threads=1 | awk '/^test result: ok[.] 3 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'

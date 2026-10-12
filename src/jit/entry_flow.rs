@@ -1224,3 +1224,6 @@ mod tests {
     rejected!(growth_is_refused, Growth);
     rejected!(root_is_refused, Root);
 }
+
+#[cfg(test)]
+mod preferred;
