@@ -1,6 +1,7 @@
 use super::*;
 use crate::{Closure, Executor, Fuel, Lua, StashedExecutor};
 
+mod field_memory;
 mod strided_profile;
 
 fn state(mode: JitMode, payload: bool) -> Lua {
@@ -121,6 +122,26 @@ fn strided_runtime_nil_fanout_preserves_every_register_prefix() {
 }
 
 #[test]
+fn universal_memory_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
+    payload_runtime_contract(backend::Failure::RequireUniversalMemory);
+}
+
+#[test]
+fn universal_memory_runtime_nil_fanout_preserves_every_register_prefix() {
+    nil_fanout_contract(backend::Failure::RequireUniversalMemory);
+}
+
+#[test]
+fn field_memory_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
+    payload_runtime_contract(backend::Failure::RequireFieldMemory);
+}
+
+#[test]
+fn field_memory_runtime_nil_fanout_preserves_every_register_prefix() {
+    nil_fanout_contract(backend::Failure::RequireFieldMemory);
+}
+
+#[test]
 fn hybrid_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
     payload_runtime_contract(backend::Failure::PreferBoundPayload);
 }
@@ -208,6 +229,7 @@ fn payload_runtime_contract(failure: backend::Failure) {
                         };
                     }
                     cached.code.entry_kind == match failure {
+                        backend::Failure::RequireUniversalMemory | backend::Failure::RequireFieldMemory => backend::EntryKind::Ordinary,
                         backend::Failure::RequirePackedPayload => backend::EntryKind::Packed,
                         backend::Failure::RequireStrided => backend::EntryKind::Strided,
                         backend::Failure::RequireBoundPayload | backend::Failure::RequireSparsePayload | backend::Failure::RequireWriteBoundPayload => backend::EntryKind::FrameBound,

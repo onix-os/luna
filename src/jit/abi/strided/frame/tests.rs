@@ -119,6 +119,51 @@ fn strided_frame_full_width_and_retirement() {
 }
 
 #[test]
+fn strided_frame_layout_matches_each_live_scalar_field() {
+    let layout = Header::empty().offsets;
+    for width in [1, 7, 16, 64, 256] {
+        let mut values: Vec<_> = (0..width)
+            .map(|i| match i % 8 {
+                0 => Value::Boolean(false),
+                1 => Value::Boolean(true),
+                2 => Value::Integer(i64::MIN),
+                3 => Value::Integer(i64::MAX),
+                4 => Value::Number(-0.0),
+                5 => Value::Number(f64::INFINITY),
+                6 => Value::Number(f64::from_bits(0x7ff8000000000042)),
+                _ => Value::Integer(0),
+            })
+            .collect();
+        let expected: Vec<_> = values
+            .iter()
+            .map(|value| {
+                let (tag, field) = match value {
+                    Value::Boolean(v) => (abi::BOOLEAN, ptr::from_ref(v).cast::<u8>()),
+                    Value::Integer(v) => (abi::INTEGER, ptr::from_ref(v).cast::<u8>()),
+                    Value::Number(v) => (abi::NUMBER, ptr::from_ref(v).cast::<u8>()),
+                    _ => unreachable!(),
+                };
+                assert_eq!(
+                    layout[tag as usize],
+                    field.addr() - ptr::from_ref(value).addr()
+                );
+                (field.addr(), abi::Slot::from_value(*value))
+            })
+            .collect();
+        let mut header = Header::empty();
+        header.bind(&mut values);
+        assert_eq!(header.offsets, layout);
+        for (index, (address, expected)) in expected.into_iter().enumerate() {
+            unsafe {
+                assert_eq!(header.pointer(index).addr(), address);
+                let actual = read(&mut header, index);
+                assert_eq!((actual.tag, actual.bits), (expected.tag, expected.bits));
+            }
+        }
+    }
+}
+
+#[test]
 fn strided_frame_tracks_open_alias_kinds_inside_and_outside_prefix() {
     crate::Lua::empty().enter(|ctx| {
         let closure = crate::Closure::load(ctx, None, b"return _ENV").unwrap();

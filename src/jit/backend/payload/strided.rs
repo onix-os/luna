@@ -1,12 +1,27 @@
 use super::*;
 use crate::jit::abi::strided::frame::Header;
 
+mod uniform;
+
 #[derive(Clone, Copy)]
 struct Read {
     inst: Inst,
     index: usize,
     pointer: bool,
     result: IrValue,
+    uniform: Option<usize>,
+}
+
+impl Read {
+    fn extra(self) -> usize {
+        if !self.pointer {
+            1
+        } else if self.uniform.is_some() {
+            11
+        } else {
+            16
+        }
+    }
 }
 
 pub(in crate::jit::backend) fn expansion(
@@ -29,6 +44,10 @@ pub(in crate::jit::backend) fn expansion(
 }
 
 fn emit(f: &mut Function, slots: IrValue, read: Read) {
+    if read.pointer && read.uniform.is_some() {
+        uniform::emit(f, slots, read);
+        return;
+    }
     let mut c = FuncCursor::new(f);
     c.goto_inst(read.inst);
     let byte = c.ins().load(
@@ -73,6 +92,12 @@ fn emit(f: &mut Function, slots: IrValue, read: Read) {
 }
 
 fn verify(f: &Function, slots: IrValue, read: Read) -> Result<(), JitError> {
+    if let Some(offset) = read.uniform {
+        if !read.pointer || Header::uniform_offset() != Some(offset) {
+            return Err(invalid());
+        }
+        return uniform::verify(f, slots, read);
+    }
     use reads::{compare, constant, load, value};
     let mut previous = Some(read.inst);
     let mut backwards = std::iter::from_fn(|| {
@@ -184,18 +209,24 @@ pub(in crate::jit::backend) fn lower(
                         return Err(invalid());
                     }
                     let pointer = offset % 16 == 8;
-                    instructions = instructions
-                        .checked_add(if pointer { 16 } else { 1 })
-                        .ok_or(JitError::ResourceLimit("strided expansion overflow"))?;
-                    records
-                        .try_reserve(1)
-                        .map_err(|_| JitError::ResourceLimit("strided read records"))?;
-                    records.push(Read {
+                    let read = Read {
                         inst,
                         index: offset as usize / 16,
                         pointer,
                         result: f.dfg.first_result(inst),
-                    });
+                        uniform: if pointer {
+                            Header::uniform_offset()
+                        } else {
+                            None
+                        },
+                    };
+                    instructions = instructions
+                        .checked_add(read.extra())
+                        .ok_or(JitError::ResourceLimit("strided expansion overflow"))?;
+                    records
+                        .try_reserve(1)
+                        .map_err(|_| JitError::ResourceLimit("strided read records"))?;
+                    records.push(read);
                 }
                 InstructionData::CallIndirect {
                     opcode: Opcode::CallIndirect,

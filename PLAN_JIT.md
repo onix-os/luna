@@ -11,6 +11,255 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Per-field alias regions — no useful workload gain; resumption limit demonstrated
+
+`b446e86` tests a finer classification than the universal-region trial: every
+eight-byte scratch tag/payload field has its own region, and the three exit
+stores share an exit region. This remains test-only
+`Failure::RequireFieldMemory`, with ordinary transport, integer-loop augmentation
+and prepared-key helpers preserved. No shipping selection changes.
+
+The classifier admits only eight-byte I64/F64 loads/stores at aligned offsets
+inside the verified register prefix, or the exact exit stores at offsets 0/8/12.
+All other memory roots, overlapping/partial accesses, global-value loads,
+preexisting regions and oversized source flag tables are refused. Equal scratch
+and exit IR roots are refused. Scratch fields are disjoint intervals in the
+same initialized array; `abi::invoke` supplies a separate newly created Exit.
+There are no admitted direct host-memory accesses. Opaque calls invalidate all
+regions in the pinned compiler. Entry-to-entry inlining is not performed after
+this pass; introducing it would require revisiting region identity/relocation.
+
+The normalized emitted checker requires full source-function equality after
+restoring flag handles/tables, and independently checks region selection for
+each original access. Publication is atomic. Verification records are fallible;
+table admission reserves 16 KiB plus 384 bytes per memory access through
+compiler/module destruction. This remains bounded additional-table accounting,
+**not** complete accounting for the function clone or optimizer workspace.
+The extra reservation is observable: integer snapshot peak rises from 9,147 to
+48,099 bytes, and callbacks from 10,737 to 41,253 bytes in the profile image.
+
+All seven frozen workloads again have two reversed-order paired profiles:
+
+| Workload | Round 0 ordinary / candidate instructions | Round 1 ordinary / candidate instructions |
+| --- | ---: | ---: |
+| Integer loop | 1,102,903 / 1,102,903 | 1,102,903 / 1,102,903 |
+| Float loop | 1,139,463 / 1,139,463 | 1,139,463 / 1,139,463 |
+| Array table | 2,721,165 / 2,720,520 | 2,722,661 / 2,720,952 |
+| Closure/upvalue | 32,916,853 / 32,916,853 | 32,916,853 / 33,278,941 |
+| Polymorphic/metamethod | 7,457,495 / 7,433,963 | 7,453,543 / 7,470,975 |
+| Rust callbacks | 10,754,709 / 10,754,709 | 10,754,709 / 10,754,709 |
+| Allocation/GC | 3,609,316 / 3,608,784 | 3,609,316 / 3,608,784 |
+
+All 28 runs preserve results and all 25 execution-counter deltas; all paired
+mapped-code sizes match. Numeric/callback counts remain exactly unchanged.
+The adverse upvalue repeat (+1.100%) and sign-changing metamethod result remain
+in the evidence. The small allocation difference is not useful performance
+acceptance. **Do not enable this pass as a regression fix.** These are software
+instruction profiles, not hardware timings. This also corroborates the older
+rejected `scalar-alias` per-slot experiment recorded below; further ordinary
+alias-region granularity variations are not a fresh optimization direction.
+
+`cc1e408` adds a causal compiler diagnostic. In the same native fixture,
+per-field regions reduce optimized loads from **4 to 3** with one entry, while
+adding a second resumption edge leaves **4 loads with either selection**.
+Both entry PCs execute with correct helper mutations, floating payload bits and
+exit records. The metadata is therefore being used, not ignored. The actual
+ordinary entry dispatcher exposes a trampoline for each opcode
+(`entry_flow::Paths::emit_entry`), so earlier stores generally cannot dominate
+later resumable bodies. The diagnostic demonstrates this constraint; it does
+not establish that it explains every measured runtime cost. Do not remove valid
+resumption/fuel entries to manufacture a speedup.
+
+Validation at `b446e86`: **1,887 Force tests / 87 summaries**, 15 ignored;
+`make check`, `make check-all`, and `make fmt-check` pass. Focused and optimized
+native runs pass nine tests. Full focused native Memcheck passes all nine,
+including the 24-script/eight-budget matrix, all 256 nil-prefix widths and all
+seven workloads, with zero errors/definite/indirect leaks; 48 possibly lost and
+632 reachable bytes remain reported.
+
+Two new runtime tests add explicit candidate evidence rather than relying only
+on existing ordinary-path tests: helper panic materializes pending scalars/table
+effects before Rust unwinding, preserves panic counters and permits recovery;
+a retained public stack alias replaces the backing vector with a distinct live
+allocation (preserving its GC metrics allocator), then mutates integer, float,
+table and boolean registers. All 20 script/budget combinations match interpreter
+and ordinary traces, and both native selections preserve all 25 counters.
+
+Compiler/model tests pass Stacked/Tree Miri seeds 101/102. After the diagnostic
+refinement, four backend tests pass, the native fixture again passes Memcheck
+(zero errors/definite/indirect leaks; 48 possibly lost and 544 reachable bytes),
+and the three model tests pass Miri seeds 103/104. Miri does not execute native
+code. The refinement changes only test fixtures, not the measured lowering.
+
+Evidence: `target/jit-evidence/short-slice-performance/field-memory-runtime/`,
+source revision `b446e86`, optimized test image SHA-256
+`bfcd541984e0d94e40106728dd59a32273b2e943d15f960f40ad454c4217d56d`;
+28 profiles, manifests, configuration and `audit.json`. Other logs use the
+`field-memory-*` prefix. Production benchmarks were not rebuilt. Full elapsed
+time, compiled-Off, compiler-resource and platform/release acceptance remain open.
+The next performance change should be grounded in actual hot generated code or
+helper/VM costs, accounting for prior rejected SSA/cache experiments, rather than
+another ordinary alias-label variant or an assumption that resumption edges can
+be removed.
+
+#### Universal alias-region experiment — measured, no useful gain
+
+`1b98403` implements the previously proposed single-region experiment on the
+ordinary scratch transport. It is selected only by test-only
+`Failure::RequireUniversalMemory`; production lowering and the Off default are
+unchanged. Integer-loop augmentation and prepared-key helpers remain enabled.
+
+The pass runs after the existing source checks and lowering. It assigns one
+region to actual memory instructions, retaining every other memory flag. It
+makes no claim that two buffers or registers cannot overlap. The emitted checker
+normalizes the changed flag handles/tables and requires full `Function` equality
+with the verified source, including control flow, signatures and other metadata.
+The source is replaced only after verification succeeds. Calls remain fences in
+the pinned Cranelift implementation; trap/alignment/readonly/endian flags remain
+unchanged. Native tests execute both overlapping and separate input addresses,
+including a helper that mutates memory between loads.
+
+An initial integration failure exposed an important API detail:
+`InstructionData::memflags()` also returns flags for `bitcast`, which uses the
+`LoadNoOffset` instruction format but is not a memory operation. Annotating it
+fails Cranelift verification. Selection now checks `can_load`/`can_store`, retains
+the original flag table and includes integer/float bitcast round trips in the
+native fixture. Global-value loads and unflagged non-call loads are refused
+rather than left outside the access classification.
+
+The pass admits at most 32 source flag entries, reserves 16 KiB for bounded
+additional flag/region tables through compiler destruction, and uses fallible
+ledger-backed verification records. Tests cover exact quota boundaries,
+oversized tables, malformed/uncovered reads, repeated application and atomic
+refusal. This is **not** complete compiler accounting: the cloned function and
+other Cranelift transient allocations remain within the previously documented
+unaccounted compiler-workspace scope. No resource or release gate is closed.
+
+The immutable optimized test image was profiled for all seven frozen workloads,
+twice per selection, with the pair order reversed on the second round. Each run
+warms twice and collects one complete execution. All 28 profiles preserve the
+expected result and all 25 execution-counter deltas. Instruction results:
+
+| Workload | Round 0 ordinary / candidate | Round 1 ordinary / candidate |
+| --- | ---: | ---: |
+| Integer loop | 1,102,903 / 1,102,903 | 1,102,903 / 1,102,903 |
+| Float loop | 1,139,463 / 1,139,463 | 1,139,463 / 1,139,463 |
+| Array table | 2,720,913 / 2,723,961 | 2,721,584 / 2,721,259 |
+| Closure/upvalue | 32,916,853 / 32,918,809 | 32,916,853 / 32,916,853 |
+| Polymorphic/metamethod | 7,457,495 / 7,464,580 | 7,465,092 / 7,464,580 |
+| Rust callbacks | 10,754,709 / 10,754,709 | 10,754,709 / 10,754,709 |
+| Allocation/GC | 3,612,099 / 3,612,040 | 3,609,316 / 3,609,311 |
+
+Mapped code sizes match in every pair. Numeric and callback counts are exactly
+unchanged; the other differences are small and inconsistent, not evidence of a
+useful improvement. **Do not promote this pass as a performance fix.** These are
+software instruction profiles, not elapsed-time acceptance measurements.
+
+Focused validation passes seven tests, including the 24-script/eight-initial-fuel
+runtime matrix, all 256 nil-prefix widths and the seven frozen workloads.
+The three compiler/model tests pass Stacked Miri seed 99 and Tree Miri seed 100;
+Miri does not execute generated code. Optimized native validation also passes all
+seven tests. Native Memcheck passes the overlapping/helper-clobber fixture and
+all seven workloads with zero errors or definite/indirect leaks; the workload
+process retains the prior 48 possibly lost and 632 reachable bytes.
+The complete Force workspace/all-target suite passes **1,878 tests / 87
+summaries**, 14 ignored. `make check`, `make check-all` and `make fmt-check` also
+pass; the combined log is `universal-memory-force.log`.
+
+Evidence: `target/jit-evidence/short-slice-performance/universal-memory-runtime/`,
+image SHA-256 `f7339d428b48f673785d4233ee8f1fc555568b1d8bdc59921e2136b8692f4c52`,
+source revision `1b98403`, source/binary manifests, 28 profiles and `audit.json`.
+Focused/build/profile/Miri/Memcheck logs use the `universal-memory-*` prefix.
+
+The next alias-analysis investigation should distinguish proven nonoverlapping
+scratch fields, not merely rename all memory with one region. Ordinary lowering
+uses eight-byte tag/payload accesses at checked offsets from the same scratch
+base; a store to a tag currently advances the same memory version as payload
+stores. A per-field experiment still needs complete address/range classification,
+proof that exit/host accesses cannot overlap those fields, call invalidation,
+stable region identities, bounded compiler storage and the same workload gates.
+This finer-grained pass is **not implemented**. The strided numeric regressions
+and all elapsed-time/platform/resource/release acceptance gates remain open.
+
+#### Classifier and address costs — measured reductions, rollout still withheld
+
+Three incremental changes continue the integrated transport experiment:
+
+- `c042c8d` inlines `Header::update`. Callback instructions fall from 12,605,394
+  to 11,890,273; the corresponding ordinary control remains 10,754,709.
+- `b57ae97` separates tag classification from scalar layout measurement.
+  Boolean/integer/number offsets are measured from Rust-constructed values once
+  per header, rather than recalculated for each register or helper write.
+  The classifier only writes a byte tag. Callback instructions fall to
+  11,230,077. A new test compares the measured layout against actual live scalar
+  field addresses across widths 1/7/16/64/256, preserving bit-exact reads.
+- `a79b185` specializes generated addresses when those three measured offsets
+  agree. The compiler emits one measured displacement instead of a runtime
+  offset-table lookup. It does not assume a numeric offset or an enum tag layout.
+  The generic table-based lowering remains available for nonuniform layouts.
+  Its checker verifies the measured offset and every emitted address/guard;
+  mutation tests cover both paths. Each specialized pointer rewrite adds 11
+  instructions rather than 16; admission retains the conservative existing bound.
+
+Each stage has its own immutable image and 16 full-workload software profiles.
+All pairs preserve all 25 execution counters and expected results. Final uniform
+profiles repeat these totals exactly:
+
+| Full workload | Ordinary instructions | Final candidate instructions | Change |
+| --- | ---: | ---: | ---: |
+| Rust callbacks | 10,754,709 | 11,185,063 | +4.002% |
+| Closure/upvalue | 32,916,853 | 33,421,700 | +1.534% |
+| Integer loop | 1,102,903 | 1,320,238 | +19.706% |
+| Float loop | 1,139,463 | 1,300,818 | +14.161% |
+
+The callback native-code mapping shrinks from 8,192 to 4,096 bytes, matching its
+ordinary control. Upvalue mappings remain 24,576 versus 20,480 bytes; numeric
+mappings remain 8,192 versus 4,096 bytes. The final callback candidate executes
+1,420,331 fewer instructions than the tracked-write starting point, but still
+430,354 more than ordinary transport. This is **not** a shipping speedup.
+
+Earlier-stage variation is retained rather than hidden: inline upvalue candidate
+totals differ by 1,956 instructions; its integer control differs by 7,512.
+The measured-layout stage's upvalue control differs by 1,956. Counter parity
+holds in those runs; use their raw per-pair results, not a claim of universal
+instruction determinism. No hardware timing or frozen threshold changes occurred.
+
+Final validation passes **1,871 tests / 87 summaries**, 13 ignored, in the Force
+workspace/all-target run, plus no/all-feature compilation and formatting.
+Every optimized stage passes runtime/resource tests and native Memcheck for the
+frame tests and all seven frozen workloads. Memcheck reports zero errors and no
+definite/indirect leaks, retaining the previously observed 48 possibly lost and
+632 reachable bytes. Layout changes pass Stacked/Tree Miri seeds 94/95; a
+separate `-Zrandomize-layout` Miri build passes the frame tests at seed 96.
+Final frame and compiler tests pass both Miri models at seeds 97/98.
+
+The remaining integer-loop regression is concentrated in generated code:
+exclusive profile counts are 733,416 versus 510,692 instructions for its native
+body. Frame invocation plus binding costs are already slightly below the
+ordinary wrapper in that pair. Investigate emitted code and alias information
+before assuming a smaller header alone fixes this. The pinned Cranelift 0.136.1
+supports disjoint `AliasRegion`s, but none are added here. Any experiment must
+prove header/canonical storage separation, preserve call invalidation and source
+checks, and account for compiler storage; marking mutable headers `readonly`
+would not be a valid substitute.
+Also investigate a single, universal memory region on ordinary scratch lowering:
+the pinned optimizer treats unannotated stores as fences, so useful optimization
+may be available without changing transport at all. A universal region makes no
+disjointness claim. It still needs an emitted-IR verifier, resource accounting,
+call/trap preservation tests and paired full-workload evidence before adoption.
+
+Evidence directories under `target/jit-evidence/short-slice-performance/`:
+`strided-runtime-inline/` (SHA-256
+`0fe7e2170cbaed62793bf697e37fa0a9b2c53f90ca6b06cf2d0d7651808dcb66`),
+`strided-runtime-layout/`
+(`69b63574d221e84cf3778612f68964c347b91858a72ebd7851feb4cf410735e5`),
+and `strided-runtime-uniform/`
+(`4660e5f4b7d2ace64ee7abda1fc37d29d3adadf575cda7254698f8b3a7cde8ec`).
+Their validation/Miri/native/profile logs use corresponding `strided-inline-*`,
+`strided-layout-*` and `strided-uniform-*` prefixes. Production selection, all
+elapsed-time/compiled-Off gates, retained-public-alias stress and platform/release
+acceptance remain open. Off remains the default.
+
 #### Typed strided VM transport — integrated candidate, not a shipping selection
 
 `59fbb1b`, `70737fa` and `f5e7490` move the experiment beyond the one-field

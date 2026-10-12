@@ -35,6 +35,8 @@ mod direction;
 mod entry_guard_tests;
 #[cfg(test)]
 mod exit_transport;
+#[cfg(test)]
+mod field_memory;
 #[cfg(not(miri))]
 pub(super) mod inline_loop;
 mod integer_loop;
@@ -46,6 +48,8 @@ mod read_cache;
 pub(super) mod region;
 #[cfg(test)]
 mod transport_tests;
+#[cfg(test)]
+mod universal_memory;
 
 #[cfg(not(miri))]
 pub(super) mod array;
@@ -362,6 +366,8 @@ pub(super) enum Failure {
     RequirePayloadTags,
     RequireBoundPayload,
     RequireStrided,
+    RequireUniversalMemory,
+    RequireFieldMemory,
     PreferBoundPayload,
     RequireSparsePayload,
     RequireWriteBoundPayload,
@@ -777,6 +783,21 @@ fn compile_selected_rooted(
         selection.failure
     };
     #[cfg(test)]
+    if failure == Failure::RequireFieldMemory {
+        let incompatible = rooted_moves
+            || selection.projected
+            || selection.leaf
+            || selection.cell_kernel
+            || selection.integer_activation;
+        #[cfg(not(miri))]
+        let incompatible = incompatible || selection.scoped_helpers;
+        if incompatible {
+            return Err(JitError::Compilation(
+                "field memory requires ordinary lowering".into(),
+            ));
+        }
+    }
+    #[cfg(test)]
     if matches!(
         failure,
         Failure::RequirePayload
@@ -899,7 +920,11 @@ fn compile_selected_rooted(
         && (failure == Failure::None
             || matches!(
                 failure,
-                Failure::CorruptHelperFlow(_) | Failure::WidePrepared(_) | Failure::RequireStrided
+                Failure::CorruptHelperFlow(_)
+                    | Failure::WidePrepared(_)
+                    | Failure::RequireStrided
+                    | Failure::RequireUniversalMemory
+                    | Failure::RequireFieldMemory
             ))
         && !selection.leaf
         && !selection.cell_kernel
@@ -975,6 +1000,8 @@ fn compile_selected_rooted(
     let signature_charge;
     #[cfg(test)]
     let mut packed_signature_charge = None;
+    #[cfg(test)]
+    let universal_memory_charge;
     let mut module = JITModule::new(jit);
     let ptr = module.target_config().pointer_type();
     let entry_types = [ptr, types::I64, types::I32, ptr, ptr];
@@ -1406,6 +1433,8 @@ fn compile_selected_rooted(
     let optimize_integer_loop = matches!(
         failure,
         Failure::None
+            | Failure::RequireUniversalMemory
+            | Failure::RequireFieldMemory
             | Failure::RequireIntegerLoop
             | Failure::ProbeIntegerLoop
             | Failure::RequirePayload
@@ -1911,9 +1940,39 @@ fn compile_selected_rooted(
             baseline + signature_bytes + symbol_bytes
         );
     }
+    #[cfg(test)]
+    {
+        universal_memory_charge = if failure == Failure::RequireUniversalMemory {
+            Some(universal_memory::lower(
+                &mut context.func,
+                snapshot.operations.allocator().clone(),
+                expansion,
+            )?)
+        } else if failure == Failure::RequireFieldMemory {
+            Some(field_memory::lower(
+                &mut context.func,
+                parameters[0],
+                parameters[3],
+                snapshot.registers,
+                snapshot.operations.allocator().clone(),
+                expansion,
+            )?)
+        } else {
+            None
+        };
+    }
     context
         .compile(module.isa(), &mut Default::default())
-        .map_err(|error| fail(error.into()))?;
+        .map_err(|error| {
+            #[cfg(test)]
+            if matches!(
+                failure,
+                Failure::RequireUniversalMemory | Failure::RequireFieldMemory
+            ) {
+                return JitError::Compilation(format!("memory region compilation: {error:?}"));
+            }
+            fail(error.into())
+        })?;
     let compiled = context.compiled_code().unwrap();
     let mut relocations = compiled.buffer.relocs().len();
     for projection in projection_contexts.iter_mut().flatten() {
@@ -2052,6 +2111,8 @@ fn compile_selected_rooted(
     drop(module);
     #[cfg(test)]
     drop(packed_signature_charge);
+    #[cfg(test)]
+    drop(universal_memory_charge);
     drop(signature_charge);
     drop(symbol_charge);
     drop(relocation_copy_charge);

@@ -33,6 +33,11 @@ fn fixture(pointer: bool, index: usize) -> (Function, IrValue, Read) {
             index,
             pointer,
             result,
+            uniform: if pointer {
+                Header::uniform_offset()
+            } else {
+                None
+            },
         },
     )
 }
@@ -94,10 +99,7 @@ fn strided_lowering_preserves_result_and_checks_quota_atomically() {
                 &settings::Flags::new(settings::builder()),
             )
             .unwrap();
-            assert_eq!(
-                size(&lowered),
-                (size(&source).0 + if pointer { 16 } else { 1 }, 1)
-            );
+            assert_eq!(size(&lowered), (size(&source).0 + read.extra(), 1));
             assert_eq!(quota.0.current(), 0);
             let peak = quota.0.peak();
             assert!(peak > 0);
@@ -132,8 +134,11 @@ fn strided_lowering_preserves_result_and_checks_quota_atomically() {
 
 #[test]
 fn strided_checker_rejects_changed_addresses_tags_widths_and_guards() {
-    for pointer in [false, true] {
-        let (mut f, slots, read) = fixture(pointer, 255);
+    for (pointer, uniform) in [(false, false), (true, false), (true, true)] {
+        let (mut f, slots, mut read) = fixture(pointer, 255);
+        if !uniform {
+            read.uniform = None;
+        }
         emit(&mut f, slots, read);
         verify(&f, slots, read).unwrap();
         let block = f.layout.entry_block().unwrap();
@@ -156,7 +161,32 @@ fn strided_checker_rejects_changed_addresses_tags_widths_and_guards() {
             assert!(verify(&changed, slots, read).is_err());
             rejected += 1;
         }
-        assert_eq!(rejected, if pointer { 17 } else { 2 });
+        assert_eq!(rejected, 1 + read.extra());
+    }
+}
+
+#[test]
+fn strided_uniform_layout_checks_measured_offset_and_keeps_fallback() {
+    for index in [0, 6, 255] {
+        let (source, slots, mut read) = fixture(true, index);
+        if let Some(offset) = read.uniform {
+            let mut candidate = source.clone();
+            emit(&mut candidate, slots, read);
+            verify(&candidate, slots, read).unwrap();
+            let altered = Read {
+                uniform: Some(offset ^ 1),
+                ..read
+            };
+            assert!(verify(&candidate, slots, altered).is_err());
+            assert_eq!(size(&candidate).0, size(&source).0 + 11);
+        }
+        read.uniform = None;
+        let mut fallback = source.clone();
+        emit(&mut fallback, slots, read);
+        verify(&fallback, slots, read).unwrap();
+        assert_eq!(size(&fallback).0, size(&source).0 + 16);
+        cranelift_codegen::verify_function(&fallback, &settings::Flags::new(settings::builder()))
+            .unwrap();
     }
 }
 
