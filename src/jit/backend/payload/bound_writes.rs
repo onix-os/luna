@@ -109,7 +109,7 @@ pub(super) fn verify(
     )?;
     writes::store(f, store, bits, address)?;
     writes::jump(f, end, after)?;
-    if !same_tag::verify_at(
+    if !same_tag::verify_bound_at(
         f,
         predecessors,
         write.slots,

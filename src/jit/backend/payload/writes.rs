@@ -17,6 +17,7 @@ pub(super) struct Input {
 }
 
 pub(super) struct Write {
+    contract: Contract,
     blocks: [Block; 8],
     input: Input,
     cast: Option<Inst>,
@@ -34,6 +35,16 @@ pub(super) fn copy_predecessors(f: &Function, write: &Write) -> Option<[Inst; 2]
 }
 
 pub(super) fn emit(f: &mut Function, tag_store: Inst, bits_store: Inst, input: Input) -> Write {
+    emit_contract(f, tag_store, bits_store, input, Contract::Checked)
+}
+
+pub(super) fn emit_contract(
+    f: &mut Function,
+    tag_store: Inst,
+    bits_store: Inst,
+    input: Input,
+    contract: Contract,
+) -> Write {
     let before = f.layout.inst_block(bits_store).unwrap();
     let after = f.dfg.make_block();
     f.layout.remove_inst(tag_store);
@@ -84,8 +95,9 @@ pub(super) fn emit(f: &mut Function, tag_store: Inst, bits_store: Inst, input: I
     c.goto_bottom(kind);
     let is_wide = emit_wide(&mut c, tag);
     let null = c.ins().iconst(types::I64, 0);
-    let nonnull = c.ins().icmp(IntCC::NotEqual, pointer, null);
-    let valid = c.ins().band(is_wide, nonnull);
+    let nonnull =
+        (contract == Contract::Checked).then(|| c.ins().icmp(IntCC::NotEqual, pointer, null));
+    let valid = nonnull.map_or(is_wide, |nonnull| c.ins().band(is_wide, nonnull));
     c.ins().brif(valid, wide, &[], other, &[]);
     c.goto_bottom(wide);
     c.ins().store(MemFlagsData::new(), bits, pointer, 0);
@@ -96,7 +108,7 @@ pub(super) fn emit(f: &mut Function, tag_store: Inst, bits_store: Inst, input: I
     let valid_bits = c
         .ins()
         .icmp(IntCC::UnsignedLessThanOrEqual, bits, boolean_tag);
-    let valid = c.ins().band(is_boolean, nonnull);
+    let valid = nonnull.map_or(is_boolean, |nonnull| c.ins().band(is_boolean, nonnull));
     let valid = c.ins().band(valid, valid_bits);
     c.ins().brif(valid, boolean, &[], nil, &[]);
     c.goto_bottom(boolean);
@@ -105,8 +117,12 @@ pub(super) fn emit(f: &mut Function, tag_store: Inst, bits_store: Inst, input: I
     c.ins().jump(after, &[]);
     c.goto_bottom(nil);
     let is_nil = c.ins().icmp(IntCC::Equal, tag, null);
-    let is_null = c.ins().icmp(IntCC::Equal, pointer, null);
-    let valid = c.ins().band(is_nil, is_null);
+    let valid = if contract == Contract::Checked {
+        let is_null = c.ins().icmp(IntCC::Equal, pointer, null);
+        c.ins().band(is_nil, is_null)
+    } else {
+        is_nil
+    };
     c.ins().brif(valid, after, &[], slow, &[]);
     c.goto_bottom(slow);
     let functions = c.ins().load(
@@ -140,6 +156,7 @@ pub(super) fn emit(f: &mut Function, tag_store: Inst, bits_store: Inst, input: I
         .call_indirect(signature, target, &[host, slots, index, tag, bits]);
     c.ins().jump(after, &[]);
     Write {
+        contract,
         blocks: [before, after, kind, wide, other, boolean, nil, slow],
         input,
         cast,
@@ -202,7 +219,11 @@ pub(super) fn verify_guard(
     write: &Write,
     predecessors: Option<&crate::jit::preds::Predecessors>,
     remaining: &mut usize,
+    contract: Contract,
 ) -> Result<(), JitError> {
+    if write.contract != contract {
+        return Err(invalid());
+    }
     if write.input.known_tag.is_some() {
         let at = f
             .layout
@@ -210,7 +231,12 @@ pub(super) fn verify_guard(
             .rev()
             .nth(3)
             .ok_or_else(invalid)?;
-        if !same_tag::verify_at(
+        let verify = if contract == Contract::FrameBound {
+            same_tag::verify_bound_at
+        } else {
+            same_tag::verify_at
+        };
+        if !verify(
             f,
             predecessors.ok_or_else(invalid)?,
             write.input.slots,
@@ -243,6 +269,17 @@ pub(super) fn verify_copy_source(
 }
 
 pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
+    verify_contract(f, write, Contract::Checked)
+}
+
+pub(super) fn verify_contract(
+    f: &Function,
+    write: &Write,
+    contract: Contract,
+) -> Result<(), JitError> {
+    if write.contract != contract {
+        return Err(invalid());
+    }
     let [before, after, kind, wide, other, boolean, nil, slow] = write.blocks;
     let Input {
         slots,
@@ -293,18 +330,42 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
     )?;
     let same = compare(f, same, IntCC::Equal, [actual, tag])?;
     branch(f, split, same, kind, slow)?;
-    let [mask, masked, integer, is_wide, null, nonnull, valid, split] =
-        shape(f.layout.block_insts(kind))?;
-    let is_wide = verify_wide(f, [mask, masked, integer, is_wide], tag)?;
-    let null = constant(f, null, 0)?;
-    let nonnull = compare(f, nonnull, IntCC::NotEqual, [pointer, null])?;
-    let valid = value(f, valid, Opcode::Band, &[is_wide, nonnull], types::I8)?;
+    let (wide_prefix, null_inst, guards, split) = if contract == Contract::Checked {
+        let [mask, masked, integer, is_wide, null, nonnull, valid, split] =
+            shape(f.layout.block_insts(kind))?;
+        (
+            [mask, masked, integer, is_wide],
+            null,
+            Some((nonnull, valid)),
+            split,
+        )
+    } else {
+        let [mask, masked, integer, is_wide, null, split] = shape(f.layout.block_insts(kind))?;
+        ([mask, masked, integer, is_wide], null, None, split)
+    };
+    let is_wide = verify_wide(f, wide_prefix, tag)?;
+    let null = constant(f, null_inst, 0)?;
+    let (nonnull, valid) = if let Some((nonnull, valid)) = guards {
+        let nonnull = compare(f, nonnull, IntCC::NotEqual, [pointer, null])?;
+        (
+            Some(nonnull),
+            value(f, valid, Opcode::Band, &[is_wide, nonnull], types::I8)?,
+        )
+    } else {
+        (None, is_wide)
+    };
     branch(f, split, valid, wide, other)?;
     let [write_inst, end] = shape(f.layout.block_insts(wide))?;
     store(f, write_inst, bits, pointer)?;
     jump(f, end, after)?;
-    let [boolean_tag, is_boolean, valid_bits, nonnull_boolean, valid, split] =
-        shape(f.layout.block_insts(other))?;
+    let (boolean_tag, is_boolean, valid_bits, nonnull_boolean, valid, split) =
+        if contract == Contract::Checked {
+            let [tag, boolean, bits, nonnull, valid, split] = shape(f.layout.block_insts(other))?;
+            (tag, boolean, bits, Some(nonnull), valid, split)
+        } else {
+            let [tag, boolean, bits, valid, split] = shape(f.layout.block_insts(other))?;
+            (tag, boolean, bits, None, valid, split)
+        };
     let boolean_tag = constant(f, boolean_tag, abi::BOOLEAN as i64)?;
     let is_boolean = compare(f, is_boolean, IntCC::Equal, [tag, boolean_tag])?;
     let valid_bits = compare(
@@ -313,13 +374,13 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
         IntCC::UnsignedLessThanOrEqual,
         [bits, boolean_tag],
     )?;
-    let nonnull_boolean = value(
-        f,
-        nonnull_boolean,
-        Opcode::Band,
-        &[is_boolean, nonnull],
-        types::I8,
-    )?;
+    let nonnull_boolean = match (nonnull_boolean, nonnull) {
+        (Some(inst), Some(nonnull)) => {
+            value(f, inst, Opcode::Band, &[is_boolean, nonnull], types::I8)?
+        }
+        (None, None) => is_boolean,
+        _ => return Err(invalid()),
+    };
     let valid = value(
         f,
         valid,
@@ -332,10 +393,20 @@ pub(super) fn verify(f: &Function, write: &Write) -> Result<(), JitError> {
     let byte = value(f, reduce, Opcode::Ireduce, &[bits], types::I8)?;
     store(f, write_inst, byte, pointer)?;
     jump(f, end, after)?;
-    let [is_nil, is_null, valid, split] = shape(f.layout.block_insts(nil))?;
+    let (is_nil, guards, split) = if contract == Contract::Checked {
+        let [is_nil, is_null, valid, split] = shape(f.layout.block_insts(nil))?;
+        (is_nil, Some((is_null, valid)), split)
+    } else {
+        let [is_nil, split] = shape(f.layout.block_insts(nil))?;
+        (is_nil, None, split)
+    };
     let is_nil = compare(f, is_nil, IntCC::Equal, [tag, null])?;
-    let is_null = compare(f, is_null, IntCC::Equal, [pointer, null])?;
-    let valid = value(f, valid, Opcode::Band, &[is_nil, is_null], types::I8)?;
+    let valid = if let Some((is_null, valid)) = guards {
+        let is_null = compare(f, is_null, IntCC::Equal, [pointer, null])?;
+        value(f, valid, Opcode::Band, &[is_nil, is_null], types::I8)?
+    } else {
+        is_nil
+    };
     branch(f, split, valid, after, slow)?;
     let (functions, target, register, call, end, tag, bits) = if let Some(proof) = copy {
         let [functions, target, register, source, zero, call, end] =
@@ -407,24 +478,41 @@ fn fixture() -> (Function, Write) {
 
 #[test]
 fn terminal_write_checker_binds_the_retiring_gateway() {
-    let (mut function, mut write) = fixture();
+    for contract in [Contract::Checked, Contract::FrameBound] {
+        check_terminal_gateway(contract);
+    }
+}
+
+fn check_terminal_gateway(contract: Contract) {
+    let (mut function, mut write) = typed_fixture_contract(false, contract);
     let slow = write.blocks[7];
     let table = function.layout.first_inst(slow).unwrap();
     let target = function.layout.next_inst(table).unwrap();
     write.input.terminal = true;
-    assert!(verify(&function, &write).is_err());
+    assert!(verify_contract(&function, &write, contract).is_err());
     let InstructionData::Load { offset, .. } = &mut function.dfg.insts[target] else {
         unreachable!()
     };
     *offset = (std::mem::offset_of!(Functions, terminal) as i32).into();
     cranelift_codegen::verify_function(&function, &settings::Flags::new(settings::builder()))
         .unwrap();
-    verify(&function, &write).unwrap();
+    verify_contract(&function, &write, contract).unwrap();
     write.input.terminal = false;
-    assert!(verify(&function, &write).is_err());
+    assert!(verify_contract(&function, &write, contract).is_err());
 }
 
 fn typed_fixture(floating: bool) -> (Function, Write) {
+    typed_fixture_contract(floating, Contract::Checked)
+}
+
+fn typed_fixture_contract(floating: bool, contract: Contract) -> (Function, Write) {
+    let (mut function, tag_store, bits_store, input) = source_fixture(floating);
+    let write = emit_contract(&mut function, tag_store, bits_store, input, contract);
+    verify_contract(&function, &write, contract).unwrap();
+    (function, write)
+}
+
+fn source_fixture(floating: bool) -> (Function, Inst, Inst, Input) {
     let mut function = Function::new();
     function.signature.call_conv = cranelift_codegen::isa::CallConv::SystemV;
     function.signature.params = vec![AbiParam::new(types::I64); 4];
@@ -451,8 +539,8 @@ fn typed_fixture(floating: bool) -> (Function, Write) {
     let tag_store = c.ins().store(MemFlagsData::new(), tag, slots, 0);
     let bits_store = c.ins().store(MemFlagsData::new(), bits, slots, 8);
     c.ins().return_(&[]);
-    let write = emit(
-        &mut function,
+    (
+        function,
         tag_store,
         bits_store,
         Input {
@@ -466,22 +554,76 @@ fn typed_fixture(floating: bool) -> (Function, Write) {
             known_tag: None,
             copy: None,
         },
-    );
-    verify(&function, &write).unwrap();
-    (function, write)
+    )
+}
+
+#[test]
+fn frame_bound_generic_write_quota_refusal_preserves_source_and_ledger() {
+    let flags = settings::Flags::new(settings::builder());
+    let expansion = crate::jit::work::Expansion {
+        instructions: 4096,
+        blocks: 4096,
+    };
+    for floating in [false, true] {
+        let (source, _, _, input) = source_fixture(floating);
+        for contract in [Contract::Checked, Contract::FrameBound] {
+            let ledger = crate::jit::resources::Ledger::new(1 << 20);
+            let mut lowered = source.clone();
+            assert_eq!(
+                lower_contract(
+                    &mut lowered,
+                    input.slots,
+                    input.host,
+                    1,
+                    &[],
+                    BudgetAllocator(ledger.clone()),
+                    expansion,
+                    contract,
+                )
+                .unwrap(),
+                0
+            );
+            assert_eq!(ledger.current(), 0);
+            cranelift_codegen::verify_function(&lowered, &flags).unwrap();
+            for limit in [0, ledger.peak() - 1, ledger.peak()] {
+                let quota = crate::jit::resources::Ledger::new(limit);
+                let mut candidate = source.clone();
+                let result = lower_contract(
+                    &mut candidate,
+                    input.slots,
+                    input.host,
+                    1,
+                    &[],
+                    BudgetAllocator(quota.clone()),
+                    expansion,
+                    contract,
+                );
+                assert_eq!(quota.current(), 0);
+                if limit == ledger.peak() {
+                    result.unwrap();
+                    assert_eq!(candidate, lowered);
+                } else {
+                    assert!(matches!(result, Err(JitError::ResourceLimit(_))));
+                    assert_eq!(candidate, source);
+                }
+            }
+        }
+    }
 }
 
 #[test]
 fn float_write_checker_requires_bit_preserving_conversion() {
-    let (function, write) = typed_fixture(true);
-    let flags = settings::Flags::new(settings::builder());
-    cranelift_codegen::verify_function(&function, &flags).unwrap();
-    let mut changed = function.clone();
-    changed
-        .replace(write.cast.unwrap())
-        .fcvt_to_sint_sat(types::I64, write.input.bits);
-    cranelift_codegen::verify_function(&changed, &flags).unwrap();
-    assert!(verify(&changed, &write).is_err());
+    for contract in [Contract::Checked, Contract::FrameBound] {
+        let (function, write) = typed_fixture_contract(true, contract);
+        let flags = settings::Flags::new(settings::builder());
+        cranelift_codegen::verify_function(&function, &flags).unwrap();
+        let mut changed = function.clone();
+        changed
+            .replace(write.cast.unwrap())
+            .fcvt_to_sint_sat(types::I64, write.input.bits);
+        cranelift_codegen::verify_function(&changed, &flags).unwrap();
+        assert!(verify_contract(&changed, &write, contract).is_err());
+    }
 }
 
 #[cfg(not(miri))]
@@ -504,13 +646,22 @@ fn generated_float_write_preserves_payload_bits() {
 
 #[test]
 fn inline_write_checker_rejects_well_formed_guard_store_and_gateway_mutations() {
-    let (function, write) = fixture();
+    check_write_mutations(Contract::Checked, 39);
+}
+
+#[test]
+fn frame_bound_write_checker_rejects_guard_store_and_gateway_mutations() {
+    check_write_mutations(Contract::FrameBound, 34);
+}
+
+fn check_write_mutations(contract: Contract, expected: usize) {
+    let (function, write) = typed_fixture_contract(false, contract);
     let flags = settings::Flags::new(settings::builder());
     cranelift_codegen::verify_function(&function, &flags).unwrap();
     let mut rejected = 0;
     let mut reject = |changed: Function| {
         cranelift_codegen::verify_function(&changed, &flags).unwrap();
-        assert!(verify(&changed, &write).is_err());
+        assert!(verify_contract(&changed, &write, contract).is_err());
         rejected += 1;
     };
     for block in write
@@ -582,7 +733,56 @@ fn inline_write_checker_rejects_well_formed_guard_store_and_gateway_mutations() 
     let mut changed = function.clone();
     changed.layout.set_cold(write.blocks[7]);
     reject(changed);
-    assert_eq!(rejected, 39);
+    assert_eq!(rejected, expected);
+}
+
+#[test]
+fn frame_bound_write_has_exact_savings_and_rejects_contract_substitution() {
+    for floating in [false, true] {
+        let (checked, checked_write) = typed_fixture_contract(floating, Contract::Checked);
+        let (bound, bound_write) = typed_fixture_contract(floating, Contract::FrameBound);
+        assert_eq!(size(&checked), (size(&bound).0 + 5, size(&bound).1));
+        for (function, mut write, contract, other) in [
+            (
+                checked,
+                checked_write,
+                Contract::Checked,
+                Contract::FrameBound,
+            ),
+            (bound, bound_write, Contract::FrameBound, Contract::Checked),
+        ] {
+            cranelift_codegen::verify_function(
+                &function,
+                &settings::Flags::new(settings::builder()),
+            )
+            .unwrap();
+            verify_contract(&function, &write, contract).unwrap();
+            assert!(verify_contract(&function, &write, other).is_err());
+            assert!(verify_guard(&function, &write, None, &mut 100, other).is_err());
+            write.contract = other;
+            assert!(verify_contract(&function, &write, other).is_err());
+        }
+    }
+}
+
+#[cfg(not(miri))]
+#[test]
+fn generated_frame_bound_write_preserves_bits_and_delegates_invalid_values() {
+    for floating in [false, true] {
+        let (function, write) = typed_fixture_contract(floating, Contract::FrameBound);
+        verify_contract(&function, &write, Contract::FrameBound).unwrap();
+        crate::jit::backend::projection_probe::with_projection_probe(function, |pointer| {
+            let entry = unsafe {
+                std::mem::transmute::<
+                    *const u8,
+                    unsafe extern "C" fn(*mut Payload, *mut Bridge, u64, u64),
+                >(pointer)
+            };
+            crate::jit::abi::payload::runtime::check_native_write(entry);
+            crate::jit::abi::payload::runtime::check_native_bound_write_guards(entry);
+        })
+        .unwrap();
+    }
 }
 
 #[cfg(not(miri))]

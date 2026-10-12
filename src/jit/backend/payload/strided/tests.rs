@@ -179,15 +179,106 @@ fn strided_uniform_layout_checks_measured_offset_and_keeps_fallback() {
                 ..read
             };
             assert!(verify(&candidate, slots, altered).is_err());
-            assert_eq!(size(&candidate).0, size(&source).0 + 11);
+            assert_eq!(size(&candidate).0, size(&source).0 + 9);
         }
         read.uniform = None;
         let mut fallback = source.clone();
         emit(&mut fallback, slots, read);
         verify(&fallback, slots, read).unwrap();
-        assert_eq!(size(&fallback).0, size(&source).0 + 16);
+        assert_eq!(size(&fallback).0, size(&source).0 + 14);
         cranelift_codegen::verify_function(&fallback, &settings::Flags::new(settings::builder()))
             .unwrap();
+    }
+}
+
+#[test]
+fn strided_byte_tag_verifier_rejects_signed_wide_and_retargeted_loads() {
+    for (pointer, uniform) in [(false, false), (true, false), (true, true)] {
+        let (mut source, slots, mut read) = fixture(pointer, 255);
+        if !uniform {
+            read.uniform = None;
+        }
+        emit(&mut source, slots, read);
+        verify(&source, slots, read).unwrap();
+        let tag = source
+            .layout
+            .first_inst(source.layout.entry_block().unwrap())
+            .unwrap();
+        let offset = (std::mem::offset_of!(Header, tags) + read.index) as i32;
+        for fault in 0..6 {
+            let mut changed = source.clone();
+            let flags = MemFlagsData::new();
+            match fault {
+                0 => {
+                    changed
+                        .replace(tag)
+                        .sload8(types::I64, flags, slots, offset);
+                }
+                1 => {
+                    changed
+                        .replace(tag)
+                        .uload16(types::I64, flags, slots, offset);
+                }
+                2 => {
+                    changed.replace(tag).load(types::I64, flags, slots, offset);
+                }
+                3 => {
+                    let mut flags = flags;
+                    flags.set_readonly();
+                    changed
+                        .replace(tag)
+                        .uload8(types::I64, flags, slots, offset);
+                }
+                4 => {
+                    changed
+                        .replace(tag)
+                        .uload8(types::I64, flags, slots, offset - 1);
+                }
+                _ => {
+                    let mut c = FuncCursor::new(&mut changed);
+                    c.goto_inst(tag);
+                    let other = c.ins().iconst(types::I64, 0);
+                    c.func.replace(tag).uload8(types::I64, flags, other, offset);
+                }
+            }
+            cranelift_codegen::verify_function(
+                &changed,
+                &settings::Flags::new(settings::builder()),
+            )
+            .unwrap();
+            assert!(verify(&changed, slots, read).is_err(), "fault={fault}");
+        }
+    }
+}
+
+#[cfg(not(miri))]
+#[test]
+fn strided_byte_tag_native_zero_extends_every_byte_at_boundary_registers() {
+    for index in [0, 6, 63, 64, 255] {
+        let (mut f, slots, read) = fixture(false, index);
+        let original = size(&f);
+        emit(&mut f, slots, read);
+        verify(&f, slots, read).unwrap();
+        assert_eq!(size(&f), original);
+        crate::jit::backend::projection_probe::with_projection_probe(f, |pointer| {
+            let entry = unsafe {
+                std::mem::transmute::<*const u8, unsafe extern "C" fn(*const Header) -> u64>(
+                    pointer,
+                )
+            };
+            let mut header = Header {
+                base: std::ptr::null_mut(),
+                offsets: [usize::MAX; 5],
+                tags: [0xa5; 256],
+            };
+            for tag in 0..=u8::MAX {
+                header.tags[index] = tag;
+                let expected = header.tags;
+                assert_eq!(unsafe { entry(&header) }, u64::from(tag));
+                assert_eq!(header.tags, expected);
+            }
+        })
+        .unwrap();
     }
 }
 
@@ -232,5 +323,161 @@ fn strided_lowering_refuses_non_descriptor_accesses() {
         .is_err());
         assert_eq!(f, source);
         assert_eq!(quota.0.current(), 0);
+    }
+}
+
+#[test]
+fn strided_scalar_range_verifier_rejects_signed_bounds_and_wrapped_operands() {
+    for uniform in [false, true] {
+        let (mut source, slots, mut read) = fixture(true, 0);
+        if !uniform {
+            read.uniform = None;
+        }
+        emit(&mut source, slots, read);
+        verify(&source, slots, read).unwrap();
+        let null = source.layout.prev_inst(read.inst).unwrap();
+        let scalar = source.layout.prev_inst(null).unwrap();
+        let width = source.layout.prev_inst(scalar).unwrap();
+        let offset = source.layout.prev_inst(width).unwrap();
+        let first = source.layout.prev_inst(offset).unwrap();
+        for fault in 0..7 {
+            let mut changed = source.clone();
+            match fault {
+                0 | 1 => {
+                    let InstructionData::IntCompare { args, .. } = changed.dfg.insts[scalar] else {
+                        unreachable!()
+                    };
+                    let cond = if fault == 0 {
+                        IntCC::SignedLessThanOrEqual
+                    } else {
+                        IntCC::UnsignedLessThan
+                    };
+                    changed.replace(scalar).icmp(cond, args[0], args[1]);
+                }
+                2 => {
+                    changed.replace(width).iconst(types::I64, 3);
+                }
+                3 => {
+                    changed.replace(first).iconst(types::I64, 0);
+                }
+                4 | 5 => {
+                    let InstructionData::Binary { args, .. } = changed.dfg.insts[offset] else {
+                        unreachable!()
+                    };
+                    if fault == 4 {
+                        changed.replace(offset).isub(args[1], args[0]);
+                    } else {
+                        changed.replace(offset).iadd(args[0], args[1]);
+                    }
+                }
+                _ => {
+                    let InstructionData::Ternary { args, .. } = &mut changed.dfg.insts[read.inst]
+                    else {
+                        unreachable!()
+                    };
+                    args.swap(1, 2);
+                }
+            }
+            cranelift_codegen::verify_function(
+                &changed,
+                &settings::Flags::new(settings::builder()),
+            )
+            .unwrap();
+            assert!(
+                verify(&changed, slots, read).is_err(),
+                "uniform={uniform} fault={fault}"
+            );
+        }
+    }
+}
+
+#[cfg(not(miri))]
+#[test]
+fn strided_scalar_range_native_matches_every_byte_tag_and_wide_boundary() {
+    let mut f = Function::new();
+    f.signature.call_conv = cranelift_codegen::isa::CallConv::SystemV;
+    f.signature.params.push(AbiParam::new(types::I64));
+    f.signature.returns.push(AbiParam::new(types::I64));
+    let mut context = FunctionBuilderContext::new();
+    let mut b = FunctionBuilder::new(&mut f, &mut context);
+    let block = b.create_block();
+    b.append_block_params_for_function_params(block);
+    b.switch_to_block(block);
+    let tag = b.block_params(block)[0];
+    let end = b.ins().return_(&[tag]);
+    b.seal_all_blocks();
+    let isa = cranelift_codegen::isa::lookup_by_name(std::env::consts::ARCH)
+        .unwrap()
+        .finish(settings::Flags::new(settings::builder()))
+        .unwrap();
+    b.finalize(isa.frontend_config());
+    let mut c = FuncCursor::new(&mut f);
+    c.goto_inst(end);
+    let scalar = scalar_range::emit(&mut c, tag);
+    let result = c.ins().uextend(types::I64, scalar);
+    c.func.replace(end).return_(&[result]);
+    crate::jit::backend::projection_probe::with_projection_probe(f, |pointer| {
+        let entry =
+            unsafe { std::mem::transmute::<*const u8, unsafe extern "C" fn(u64) -> u64>(pointer) };
+        for tag in (0..=255).chain([256, u32::MAX as u64, 1 << 63, u64::MAX - 1, u64::MAX]) {
+            assert_eq!(
+                unsafe { entry(tag) },
+                u64::from((1..=3).contains(&tag)),
+                "tag={tag}"
+            );
+        }
+    })
+    .unwrap();
+}
+
+#[cfg(not(miri))]
+#[test]
+fn strided_scalar_range_native_pointers_preserve_null_and_measured_offsets() {
+    for index in [0, 6, 255] {
+        for uniform in [false, true] {
+            let (mut f, slots, mut read) = fixture(true, index);
+            if !uniform {
+                read.uniform = None;
+            }
+            if uniform && read.uniform.is_none() {
+                continue;
+            }
+            emit(&mut f, slots, read);
+            verify(&f, slots, read).unwrap();
+            crate::jit::backend::projection_probe::with_projection_probe(f, |pointer| {
+                let entry = unsafe {
+                    std::mem::transmute::<*const u8, unsafe extern "C" fn(*const Header) -> usize>(
+                        pointer,
+                    )
+                };
+                let mut storage = [0u8; 256 * std::mem::size_of::<crate::Value<'_>>() + 32];
+                let mut header = Header {
+                    base: storage.as_mut_ptr(),
+                    offsets: [0, 1, 8, 8, 0],
+                    tags: [0; 256],
+                };
+                let last = if uniform {
+                    u8::MAX
+                } else {
+                    abi::REFERENCE as u8
+                };
+                for tag in 0..=last {
+                    header.tags[index] = tag;
+                    let expected = if (1..=3).contains(&tag) {
+                        header.base.addr()
+                            + index * std::mem::size_of::<crate::Value<'_>>()
+                            + read.uniform.unwrap_or(header.offsets[usize::from(tag)])
+                    } else {
+                        0
+                    };
+                    assert_eq!(
+                        unsafe { entry(&header) },
+                        expected,
+                        "index={index} uniform={uniform} tag={tag}"
+                    );
+                }
+            })
+            .unwrap();
+        }
     }
 }

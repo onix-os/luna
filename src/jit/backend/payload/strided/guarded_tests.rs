@@ -183,3 +183,53 @@ fn strided_numeric_analysis_quota_refusal_keeps_source_unchanged() {
         assert_eq!(quota.0.current(), 0);
     }
 }
+
+#[test]
+fn strided_numeric_union_witness_rechecks_mask_and_emitted_address() {
+    if Header::uniform_offset().is_none() {
+        return;
+    }
+    let (mut source, slots, records) = fixture(abi::INTEGER, false);
+    let entry = source.layout.entry_block().unwrap();
+    let compare = source
+        .layout
+        .block_insts(entry)
+        .find(|&i| source.dfg.insts[i].opcode() == Opcode::Icmp)
+        .unwrap();
+    let InstructionData::IntCompare { args, .. } = source.dfg.insts[compare] else {
+        unreachable!()
+    };
+    let mut c = FuncCursor::new(&mut source);
+    c.goto_inst(compare);
+    let mask = c.ins().iconst(types::I64, -2);
+    let bits = c.ins().band(args[0], mask);
+    c.func.replace(compare).icmp(IntCC::Equal, bits, args[1]);
+    let mut candidate = source.clone();
+    lower(
+        &mut candidate,
+        slots,
+        2,
+        memory(1 << 20),
+        expansion(&source),
+    )
+    .unwrap();
+    assert_eq!(candidate.dfg.insts[records[1].inst].opcode(), Opcode::Iadd);
+    let check = |source: &Function, candidate: &Function| {
+        let mut analysis = same_tag::Analysis::with_bound_stores(source, memory(1 << 20)).unwrap();
+        guarded::verify_plan(source, candidate, slots, &records, &mut analysis)
+    };
+    check(&source, &candidate).unwrap();
+    let mask = source.dfg.value_def(mask).inst().unwrap();
+    for other in [-4, -1, 0, 1] {
+        let mut changed = source.clone();
+        changed.replace(mask).iconst(types::I64, other);
+        let mut forged = candidate.clone();
+        forged.replace(mask).iconst(types::I64, other);
+        assert!(check(&changed, &forged).is_err());
+    }
+    let InstructionData::Binary { args, .. } = candidate.dfg.insts[records[1].inst] else {
+        unreachable!()
+    };
+    candidate.replace(records[1].inst).isub(args[0], args[1]);
+    assert!(check(&source, &candidate).is_err());
+}

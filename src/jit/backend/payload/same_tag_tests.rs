@@ -3,6 +3,9 @@ use super::*;
 #[path = "same_tag_loop_tests.rs"]
 mod loops;
 
+#[path = "same_tag_numeric_tests.rs"]
+mod numeric;
+
 #[test]
 fn numeric_read_proofs_refuse_exhausted_admission_and_verification_work() {
     for tag in [abi::INTEGER, abi::NUMBER] {
@@ -309,8 +312,9 @@ fn emitted_tag_proofs_reject_guard_and_substitution_corruption() {
     let check = |f: &Function| {
         cranelift_codegen::verify_function(f, &settings::Flags::new(settings::builder())).unwrap();
         let predecessors = Predecessors::new(f, allocator()).unwrap();
-        writes::verify(f, &write)
-            .and_then(|()| writes::verify_guard(f, &write, Some(&predecessors), &mut 4096))
+        writes::verify(f, &write).and_then(|()| {
+            writes::verify_guard(f, &write, Some(&predecessors), &mut 4096, Contract::Checked)
+        })
     };
     check(&f).unwrap();
     for mutation in 0..5 {
