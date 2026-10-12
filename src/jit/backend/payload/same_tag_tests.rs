@@ -3,6 +3,9 @@ use super::*;
 #[path = "same_tag_loop_tests.rs"]
 mod loops;
 
+#[path = "same_tag_numeric_tests.rs"]
+mod numeric;
+
 #[test]
 fn numeric_read_proofs_refuse_exhausted_admission_and_verification_work() {
     for tag in [abi::INTEGER, abi::NUMBER] {

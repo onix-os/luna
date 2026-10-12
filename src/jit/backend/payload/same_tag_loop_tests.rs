@@ -217,6 +217,30 @@ fn tag_cycle_proofs_match_forward_effect_reachability() {
                     tag: fixture.tag,
                 };
                 assert_eq!(analysis.verify(&f, fixture.slots, forged), expected);
+                let InstructionData::Brif { arg, .. } = f.dfg.insts[fixture.guard] else {
+                    unreachable!()
+                };
+                let compare = definition(&f, arg).unwrap();
+                let InstructionData::IntCompare { args, .. } = f.dfg.insts[compare] else {
+                    unreachable!()
+                };
+                let mut c = FuncCursor::new(&mut f);
+                c.goto_inst(compare);
+                let mask = c.ins().iconst(types::I64, -2);
+                let bits = c.ins().band(args[0], mask);
+                c.func.replace(compare).icmp(IntCC::Equal, bits, args[1]);
+                let mut numeric = Analysis::with_cycles(&f, allocator()).unwrap();
+                assert_eq!(
+                    numeric.admit_numeric(&f, fixture.slots, fixture.store, 0),
+                    expected
+                );
+                assert_eq!(
+                    numeric.verify_numeric(&f, fixture.slots, fixture.store, 0),
+                    expected
+                );
+                assert!(numeric
+                    .admit(&f, fixture.slots, fixture.store, 0, fixture.tag)
+                    .is_none());
             }
         }
     }

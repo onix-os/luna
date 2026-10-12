@@ -13,6 +13,21 @@ pub(super) struct Proof {
     tag: IrValue,
 }
 
+#[derive(Clone, Copy)]
+enum Tag {
+    Exact(i64),
+    Numeric,
+}
+
+impl Tag {
+    fn accepts(self, value: i64) -> bool {
+        match self {
+            Self::Exact(tag) => value == tag,
+            Self::Numeric => matches!(value as u64, abi::INTEGER | abi::NUMBER),
+        }
+    }
+}
+
 pub(super) struct Analysis {
     predecessors: Predecessors,
     remaining: usize,
@@ -248,35 +263,33 @@ fn numeric_with_cycles(
     if index >= 256 {
         return false;
     }
-    [abi::INTEGER, abi::NUMBER].into_iter().any(|tag| {
-        let mut route = Route::new(cycles, effects, stores);
-        let proven = if let Some(previous) = f.layout.prev_inst(at) {
-            search(
-                f,
-                predecessors,
-                slots,
-                index,
-                tag as i64,
-                previous,
-                32,
-                remaining,
-                &mut route,
-            )
-        } else {
-            search_parents(
-                f,
-                predecessors,
-                slots,
-                index,
-                tag as i64,
-                at,
-                32,
-                remaining,
-                &mut route,
-            )
-        };
-        proven && route.witnessed
-    })
+    let mut route = Route::new(cycles, effects, stores);
+    let proven = if let Some(previous) = f.layout.prev_inst(at) {
+        search(
+            f,
+            predecessors,
+            slots,
+            index,
+            Tag::Numeric,
+            previous,
+            32,
+            remaining,
+            &mut route,
+        )
+    } else {
+        search_parents(
+            f,
+            predecessors,
+            slots,
+            index,
+            Tag::Numeric,
+            at,
+            32,
+            remaining,
+            &mut route,
+        )
+    };
+    proven && route.witnessed
 }
 
 fn verify(
@@ -389,6 +402,7 @@ fn verify_at_with_cycles(
         return false;
     }
     let mut route = Route::new(cycles, effects, stores);
+    let tag = Tag::Exact(tag);
     let proven = if let Some(previous) = f.layout.prev_inst(at) {
         search(
             f,
@@ -424,7 +438,7 @@ fn search(
     predecessors: &Predecessors,
     slots: IrValue,
     index: u32,
-    tag: i64,
+    tag: Tag,
     mut inst: Inst,
     depth: usize,
     remaining: &mut usize,
@@ -473,7 +487,7 @@ fn search_parents(
     predecessors: &Predecessors,
     slots: IrValue,
     index: u32,
-    tag: i64,
+    tag: Tag,
     inst: Inst,
     depth: usize,
     remaining: &mut usize,
@@ -605,7 +619,7 @@ fn predicate(
     value: IrValue,
     slots: IrValue,
     index: u32,
-    tag: i64,
+    tag: Tag,
     depth: usize,
     remaining: &mut usize,
 ) -> Option<Inst> {
@@ -628,18 +642,42 @@ fn predicate(
             ..
         } => {
             reads::compare(f, inst, IntCC::Equal, args).ok()?;
-            let loaded = if immediate(f, args[1]) == Some(tag) {
-                args[0]
-            } else if immediate(f, args[0]) == Some(tag) {
-                args[1]
+            let (loaded, expected) = if immediate(f, args[1]).is_some_and(|v| tag.accepts(v)) {
+                (args[0], immediate(f, args[1])?)
+            } else if immediate(f, args[0]).is_some_and(|v| tag.accepts(v)) {
+                (args[1], immediate(f, args[0])?)
             } else {
                 return None;
+            };
+            let loaded = if matches!(tag, Tag::Numeric) && expected == abi::INTEGER as i64 {
+                unmask_numeric(f, loaded).unwrap_or(loaded)
+            } else {
+                loaded
             };
             let load = definition(f, loaded)?;
             reads::load(f, load, slots, index as i32 * 16, types::I64).ok()?;
             Some(load)
         }
         _ => None,
+    }
+}
+
+fn unmask_numeric(f: &Function, value: IrValue) -> Option<IrValue> {
+    let inst = definition(f, value)?;
+    let InstructionData::Binary {
+        opcode: Opcode::Band,
+        args,
+    } = f.dfg.insts[inst]
+    else {
+        return None;
+    };
+    reads::value(f, inst, Opcode::Band, &args, types::I64).ok()?;
+    if immediate(f, args[1]) == Some(-2) {
+        Some(args[0])
+    } else if immediate(f, args[0]) == Some(-2) {
+        Some(args[1])
+    } else {
+        None
     }
 }
 

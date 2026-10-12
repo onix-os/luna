@@ -287,3 +287,52 @@ fn exact_numeric_native_reads_preserve_bits_and_reject_other_tags() {
         }
     }
 }
+
+#[cfg(not(miri))]
+#[test]
+fn bound_numeric_union_native_reads_preserve_bits_and_reject_other_tags() {
+    for floating in [false, true] {
+        let (mut f, slots, _) = fixture(1, abi::INTEGER, floating);
+        let entry = f.layout.entry_block().unwrap();
+        let compare = f
+            .layout
+            .block_insts(entry)
+            .find(|&i| f.dfg.insts[i].opcode() == Opcode::Icmp)
+            .unwrap();
+        let InstructionData::IntCompare { args, .. } = f.dfg.insts[compare] else {
+            unreachable!()
+        };
+        let mut c = FuncCursor::new(&mut f);
+        c.goto_inst(compare);
+        let mask = c.ins().iconst(types::I64, -2);
+        let numeric = c.ins().band(args[0], mask);
+        c.func.replace(compare).icmp(IntCC::Equal, numeric, args[1]);
+        let original = size(&f);
+        lower_contract(
+            &mut f,
+            slots,
+            slots,
+            1,
+            &[],
+            allocator(1 << 20),
+            crate::jit::work::Expansion {
+                instructions: 4096,
+                blocks: 4096,
+            },
+            Contract::FrameBound,
+        )
+        .unwrap();
+        valid(&f);
+        assert_eq!(size(&f), (original.0 + 1, original.1));
+        crate::jit::backend::projection_probe::with_projection_probe(f, |pointer| {
+            let entry = unsafe {
+                std::mem::transmute::<
+                    *const u8,
+                    unsafe extern "C" fn(*const crate::jit::abi::payload::Payload) -> u64,
+                >(pointer)
+            };
+            crate::jit::abi::payload::runtime::check_native_bound_numeric_read(entry, None);
+        })
+        .unwrap();
+    }
+}
