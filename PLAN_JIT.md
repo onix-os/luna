@@ -11,6 +11,50 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Split scratch storage: prototype does not justify an ABI change
+
+`994b09a` adds a test-only split representation: aligned u64 payloads and u8
+tags, preserving every integer/float bit and keeping references in canonical
+values. Seven registers occupy 64 bytes instead of the ordinary 112. This is
+a storage-layout investigation, not the earlier split scalar-match experiment,
+and does not change public `Value`, the production ABI or generated coverage.
+
+The final model passes four tests on GNU with JIT and all features, four on
+i686-musl, and four each under Stacked and Tree Borrows Miri. The profile-only
+test is explicitly ignored in those correctness runs. Target layout assertions
+use the platform's u64 alignment rather than assuming eight-byte alignment on
+32-bit targets. No-feature checking and formatting pass; Miri reports 36 warnings
+and i686 reports 28, not warning-free builds.
+
+Four tests cover fourteen capacities through 256, 1,030 numeric bit patterns,
+all reference kinds, invalid-tag/bounds refusal and repeated opaque transport
+calls. The initial convenience-array/two-pointer cost probe is retained but
+is not the main comparison. The corrected control uses the production-shaped
+MaybeUninit/zip import and writeback, with one-pointer calls for both layouts.
+Each synthetic run performs 100,000 increments and checks every unchanged
+suffix value. No Cranelift-generated entry, helper, callback or projection path
+is claimed for this probe.
+
+| Collected CPU instructions | Ordinary | Initial split | Refined split |
+| --- | ---: | ---: | ---: |
+| Integer registers | 17,900,024 | 35,100,025 | 23,400,022 |
+| Mixed registers | 20,900,024 | 35,200,025 | 23,200,022 |
+
+`6accf65` removes checked-index packing and inlines writeback within the probe.
+Its extracted wrapper stack reservation falls from the control's 120 bytes to
+72 bytes, but it still costs 30.73% / 11.00% more instructions. Both matched
+four-run sets verify binary/source hashes before and after collection, exact
+results and one executed test per run. An independent audit checks their
+scope and totals. Profiled times are not hardware acceptance evidence.
+
+The unchanged real callback control is separately reprofiled: 126,201,795
+instructions, including 20,233,235 self instructions in seven-register ordinary
+transport. That locates relevant work; it does not turn the synthetic layout
+results into integrated performance evidence. **Do not switch the production
+ABI on the basis of the smaller buffer.** All original acceptance gates remain
+open. Evidence is under `split-scratch-*` in the short-slice evidence directory;
+use `make jit-split-scratch`, `jit-split-scratch-miri` and the two profile targets.
+
 #### Arithmetic entry precheck: rejected at profiling
 
 A fresh canonical operand check was tested before ordinary native scratch
