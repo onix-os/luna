@@ -11,6 +11,85 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Prepared strided lookups — helper-inclusive savings, no runtime selection
+
+`a83abd5` shares `Frame::prehashed_up_table` through the existing `Transport`
+trait, rather than duplicating lookup semantics or replacing the prepared lookup
+with a generic key lookup. Test-only direct/strided adapters preserve the packed
+operand word, both halves of the process-seeded hash and the full 32-bit PC.
+`d020e9b` adds independent expected-value/control assertions to the differential.
+
+Rust and generated controllers each pass **288 comparisons**: eight value forms,
+twelve scenarios and three PCs. Cases include open aliases, reserved operand
+bits, invalid constant/upvalue/destination indices, borrowed-table panics,
+initially noninteger admission and a perturbed hash. Hash perturbation checks
+lookup parity, not a new runtime hash-rejection guarantee; source verification
+still supplies valid prepared hashes. Both controllers preserve canonical values,
+all helper counters, fuel, PC, panic state and the separate readiness result.
+The first run caught a packed-control bug: an initially retired header was not
+restored after the helper produced an integer. The corrected control and failed
+debug/Miri attempts are retained; this was not a production runtime bug.
+
+Eight immutable software profiles compare full packing/writeback plus the actual
+`PREHASHED_ENTRY` against scoped admission plus the shared prepared canonical
+helper. Each runs 100,000 generated arithmetic/lookup transitions. The callback
+shape derives its width and operands from the frozen `rust_callbacks` source,
+but does **not** execute the whole script or call the returned callback; the
+probe explicitly asserts zero callback invocations. It admits only the one
+integer field used by this component's arithmetic, not a whole-function mask.
+
+| Component | Packed instructions | Strided instructions | Change |
+| --- | ---: | ---: | ---: |
+| Single-slot scalar lookup | 39,200,026 | 38,200,028 | -2.551% |
+| Seven-slot callback lookup | 55,500,020 | 41,700,028 | -24.865% |
+
+Both repeats reproduce these instruction totals and validate every result,
+helper counter, PC and fuel value. These are helper-inclusive component savings,
+not elapsed-time measurements or a production callback speedup. Their images are
+frozen at `a83abd5`; the later assertion-only commit has separate optimized/native
+validation evidence.
+
+The shared signature changes the production image from
+`73b609225834a42f9a2501be785a4f3fdd33d4e10dbf29eab15c3b03eef6090c` to
+`ab7a3efa30ae82b7b64cd06d84d5da6b8b9ce5333eecca8b4dab77aec6ef9760`.
+A bytewise ELF audit resolves relative relocations and verifies **exactly nine
+changed bytes**, all source-line numbers in `src/jit/helpers.rs` panic locations;
+all other bytes, including executable code, are identical. Size categories match.
+Four full callback profiles preserve every non-timing execution/resource field.
+The control records 126,201,795 then 126,201,876 instructions; the shared image
+records 126,201,876 twice. The 81-instruction difference also occurs between runs
+of the same immutable control, so exact instruction equality is not claimed for
+all pairs. No hardware timing or performance-acceptance gate was substituted.
+
+Final prepared tests pass under both Miri models (seeds 87/88), in an optimized
+image and under native Memcheck. Memcheck reports zero errors and no definite or
+indirect leaks, while retaining 48 possibly lost and 632 reachable bytes. The
+earlier adapter version also passed Miri seeds 85/86 and optimized/native checks. Final
+Force-mode workspace/all-target tests pass **1,857 tests / 87 summaries**, with 12
+ignored; the same log includes a separate two-test prepared preflight. Focused
+ABI/native/heap/upvalue/prepared-key/wide-compiler/wide-helper checks and final
+formatting/no/all-feature compilation pass.
+
+The first binary audit incorrectly depended on `cmp -l` exit status, then omitted
+PIE filename relocations; both failed attempts remain beside the corrected
+bytewise/relocation-aware audit. A first profile audit assumed exact instruction
+equality; repeated controls disproved that assumption. The final report retains
+all raw deltas and explicitly marks performance acceptance false.
+
+Strided VM selection, source/effect and complete scalar-domain verification,
+actual callback/GC/relocation behavior, projections, code ownership/resource
+accounting and whole-runtime performance acceptance remain open. Do not replace
+those requirements with this component result or reduce native coverage to make
+an integer-only mode pass.
+
+Evidence: `target/jit-evidence/short-slice-performance/strided-prepared/`,
+`strided-prepared-oracle/`, `strided-prepared-runtime/`,
+`strided-prepared-{validation,final-full,final-checks,final-audit}.log` and
+`strided-prepared-oracle-miri-{stacked,tree}.log`. Reproduction uses
+`make jit-strided-prepared`, `jit-strided-prepared-miri` and
+`jit-strided-prepared-profile-{build,run}`; ignored audit scripts and
+`strided-prepared-tools.mk` preserve the artifact and complete-record checks.
+
 #### Strided helper transitions — actual helpers verified, VM integration open
 
 `f4d51bd` extends the strided experiment across Luna's ten generic helper
