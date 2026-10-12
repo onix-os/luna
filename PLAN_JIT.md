@@ -11,6 +11,64 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Numeric-union read proofs — callback and upvalue gaps reduced
+
+`d58e38b` makes numeric reads ask for a distinct `Tag::Numeric` fact rather than trying
+exact INTEGER and NUMBER facts separately. The bounded search accepts the
+verified I64 predicate `(tag & -2) == 2`, either operand order, and incoming
+paths that independently establish INTEGER or NUMBER. It still requires fresh
+loads from the exact queried register, valid guards on every incoming path,
+independent emitted verification and the existing depth/work budgets. Calls and
+unrecognized stores invalidate the proof. Writes explicitly ask for
+`Tag::Exact`; an ambiguous numeric guard cannot authorize a same-tag store.
+No runtime contract, production transport selector or Off default changes.
+
+The frozen opt-level-3 test image has 28 primary software profiles, preserving
+all 25 execution counters. The four stable workloads agree exactly across both
+repeats, with unchanged ordinary controls:
+
+| Workload | Bound-store strided | Numeric-union strided | Reduction | Gap vs ordinary |
+| --- | ---: | ---: | ---: | ---: |
+| Rust callbacks | 11,185,063 | 10,925,003 | 2.325% | +1.583% |
+| Closure/upvalue | 33,421,700 | 33,089,047 | 0.995% | +0.523% |
+| Integer loop | 1,102,951 | 1,101,354 | 0.145% | -0.140% |
+| Float loop | 1,103,458 | 1,102,179 | 0.116% | -3.272% |
+
+All four reductions are in captured generated code. Callback native work falls
+1,290,318 → 1,030,258 instructions; the upvalue kernels sum to
+2,588,928 → 2,256,275. Upvalue mappings fall 24,576 → 20,480 bytes, matching the
+ordinary mapping total. The callback kernel falls to 3,728 bytes; numeric
+kernels are 3,472 integer and 4,296 float, with unchanged 4,096/8,192 mappings.
+Six extra same-process captures cover array, metamethod and allocation. The
+allocation kernel now changes and executes 541,005 native instructions, versus
+669,562 in the previous image, a 19.200% native-only reduction. Its varying
+whole-execution totals are not treated as an exact speedup. Array remains about
+2.2% above ordinary in total instructions, while allocation remains about 0.7%
+above it in the primary repeats; neither gap is declared resolved. The partial
+array kernel captures do not account for all specialized native code.
+
+Five new tests exercise numeric-mask variants, stale/helper/bypass/wrong-slot
+mutations, mixed incoming tags, independent source/emitted proof corruption and
+native I64/F64 raw-bit reads across runtime value kinds. The 1,024-case graph
+oracle now checks masked numeric-read admission and exact-write refusal as well
+as the original exact proofs. Focused validation passes 52 tests plus six
+runtime tests. Both Miri aliasing models pass eleven applicable tag tests and
+nine strided tests (seeds 111/112). Optimized proof, Checked regression, backend
+and runtime checks pass, as does the dedicated numeric-union native-read
+Memcheck test. The Force workspace/all-target suite passes **1,905 tests across
+87 summaries**, with 15 ignored diagnostics; no/all-feature compilation and
+formatting pass. Runtime Memcheck passes all six tests with zero errors and
+no definite/indirect leaks. It retains the previously observed 48 possibly lost
+and 632 reachable bytes.
+
+Evidence: `target/jit-evidence/short-slice-performance/strided-runtime-union/`,
+its `audit.json`, `effects-comparison.log`, source/binary manifests and live
+kernel cost maps, plus `strided-union-*` logs. Image SHA-256:
+`0e043b6cfd5ec102370dff78b6fe1cb8e22781e0c6d2883dfab8ecc14c2e747f`.
+The 34 profiles are software instruction evidence, not elapsed-time acceptance.
+Remaining callback/upvalue/array/allocation overhead, compiled-Off cost, full
+compiler/resource accounting and platform/release gates remain open.
+
 #### Bound-store tag effects — numeric instruction gap substantially reduced
 
 `5823da8` preserves tag proofs across a narrow class of verified writes, without
