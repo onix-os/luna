@@ -27346,10 +27346,51 @@ against canonical execution across five sources, seven slice limits, eight
 budgets and eleven fuel values; late-batch unwind and optional-IR refusal are
 also checked. Existing source/native/bridge tests remain separate evidence.
 
-The all-features Auto suite, integrated Memcheck and end-to-end timing are
-being checked separately. No new performance acceptance or full-plan completion
-is claimed by this integration. Evidence is under
-`target/jit-evidence/short-slice-performance/inline-loop-integrated-*`.
+The all-features GNU Auto suite at `b202111` passes 1,843 tests across 88
+summaries, with eight ignored diagnostics and a saved Make exit of zero.
+The first broad attempt stopped on an old assumption that repeated calls
+require repeated region fragments. The public test now requires more paired
+returns than fragments for the admitted batching case, while retaining exact
+interrupted fuel/dispatch traces and the original assertions for other cases.
+Both synchronous and async public region tests pass. `def45a4` additionally
+checks actual upper-frame captures through the integrated image; the focused
+GNU region targets pass with that stronger fixture.
+
+Integrated owner and dispatcher Memcheck runs pass all six tests with zero
+errors or definite/indirect leaks. Each retains 48 possible and 632 reachable
+bytes. These runs do not replace ARM runtime or Rust-only Miri coverage.
+
+Two completed hardware screens retain 48 commands, 864 timing-summary rows
+and 432 workload gates across speed and size-optimized shipping profiles.
+Each profile uses four rotated control/candidate/placebo windows on CPUs 0 and
+16, with 11 alternating Off/Auto samples per workload. Controls use the frozen
+`6366a5d` main binary; candidate runtime code is `623683b`. Binary/source hashes,
+original thresholds, every failed gate and contention telemetry are retained.
+No owned builds, tests or profiler runs overlapped these timing windows.
+
+- Speed upvalue ratios against interpreter: 2.5951–2.8957; all eight gates pass.
+  Median old-JIT/new-JIT ratios are 1.8909 on CPU 0 and 2.0744 on CPU 16;
+  same-image placebo medians are 1.0093 and 0.9951.
+- Shipping upvalue ratios against interpreter: 2.1089–2.6533; all eight printed
+  gates pass. Median old-JIT/new-JIT ratios are 2.4972 and 2.6518; placebo
+  medians are 0.9966 and 1.0075. Shipping results are diagnostic, not an
+  opt-level-3 `--check` acceptance run.
+- Speed controls also pass the upvalue threshold in these windows
+  (1.3589–1.4257). This is an incremental improvement, not evidence that the
+  earlier contended failures never occurred.
+- Reported upvalue instruction coverage remains 780,104. In the speed screen,
+  native entries fall from 259,491 to 38,122 and caller fragments from 129,299
+  to 18,427. Code mappings rise by 4,096 bytes and retained metadata by 240.
+- Overall acceptance remains open: seven of eight candidate speed aggregates
+  fail, with callback failures in seven windows and metamethod failures in
+  three. Shipping has callback failures in all eight windows, array failures
+  in four and metamethod failures in three. Compiled-but-disabled cost/size
+  gates still need a fresh run for this implementation.
+
+Evidence is under
+`target/jit-evidence/short-slice-performance/inline-loop-integrated-*`, including
+both screen `audit.json` files. Hosted platform CI remains separate from the
+completed local evidence; no full-plan completion is claimed.
 
 ## 15. Primary references
 
