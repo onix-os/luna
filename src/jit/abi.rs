@@ -381,6 +381,54 @@ mod tests {
     }
 
     #[test]
+    fn borrowed_import_matches_owned_values_and_current_mutations() {
+        crate::Lua::empty().enter(|ctx| {
+            let mut values = vec![
+                Value::Nil,
+                Value::Boolean(false),
+                Value::Boolean(true),
+                Value::Integer(i64::MIN),
+                Value::Integer(i64::MAX),
+                Value::Number(-0.0),
+                Value::Number(f64::INFINITY),
+                Value::Number(f64::NEG_INFINITY),
+                Value::String(crate::String::from_slice(&ctx, b"borrowed")),
+                Value::Table(crate::Table::new(&ctx)),
+                Value::Function(
+                    crate::Closure::load(ctx, None, b"return 42")
+                        .unwrap()
+                        .into(),
+                ),
+                Value::Function(
+                    crate::Callback::from_fn(&ctx, |_, _, _| Ok(crate::CallbackReturn::Return))
+                        .into(),
+                ),
+                Value::Thread(crate::Thread::new(ctx)),
+                Value::UserData(crate::UserData::new_static(&ctx, 42i64)),
+            ];
+            let mut bits = 0x123456789abcdef0u64;
+            for _ in 0..4096 {
+                bits = bits.wrapping_mul(6364136223846793005).wrapping_add(1);
+                values.push(Value::Integer(bits as i64));
+                values.push(Value::Number(f64::from_bits(bits)));
+            }
+            let mut current = Value::Nil;
+            for value in values {
+                let stale = Slot::from_ref(&current);
+                let original = current;
+                assert_identical(stale.value(original), original);
+                current = value;
+                let expected = Slot::from_value(value);
+                for actual in [Slot::from_ref(&current), Slot::from_ref_numeric(&current)] {
+                    assert_eq!((actual.tag, actual.bits), (expected.tag, expected.bits));
+                    assert_identical(actual.value(current), value);
+                }
+                assert_identical(current, value);
+            }
+        });
+    }
+
+    #[test]
     fn same_integer_writeback_preserves_bits_references_and_refusals() {
         crate::Lua::empty().enter(|ctx| {
             let destinations = [
@@ -531,6 +579,9 @@ pub(super) mod exit_buffer;
 
 #[cfg(test)]
 mod tag_encoding;
+
+#[cfg(test)]
+mod reference_import;
 
 #[cfg(test)]
 impl Slot {

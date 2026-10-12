@@ -1297,6 +1297,14 @@ jit-gc-requests:
 jit-abi:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests
 
+.PHONY: jit-reference-import jit-reference-import-miri
+jit-reference-import:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests::borrowed_import_matches_owned_values_and_current_mutations -- --list | grep -F 'borrowed_import_matches_owned_values_and_current_mutations: test'
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::tests::borrowed_import_matches_owned_values_and_current_mutations -- --exact
+
+jit-reference-import-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::tests::borrowed_import_matches_owned_values_and_current_mutations -- --exact --test-threads=1 | awk '/^test result: ok[.] 1 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
 .PHONY: jit-same-integer-miri
 jit-same-integer-miri:
 	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::tests::same_integer_writeback_preserves_bits_references_and_refusals -- --exact --test-threads=1
