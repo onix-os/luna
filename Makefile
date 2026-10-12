@@ -1300,10 +1300,36 @@ jit-abi:
 .PHONY: jit-strided jit-strided-miri
 STRIDED_DIR ?= target/jit-evidence/short-slice-performance/strided
 jit-strided:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::strided:: -- --test-threads=1 | awk '/^test result: ok[.] 10 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::strided:: -- --test-threads=1 | awk '/^test result: ok[.] 12 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 jit-strided-miri:
-	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::strided:: -- --test-threads=1 | awk '/^test result: ok[.] 7 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::strided:: -- --test-threads=1 | awk '/^test result: ok[.] 8 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+.PHONY: jit-strided-prepared jit-strided-prepared-miri
+jit-strided-prepared:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) strided_prepared_ -- --test-threads=1 | awk '/^test result: ok[.] 2 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+jit-strided-prepared-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' strided_prepared_ -- --test-threads=1 | awk '/^test result: ok[.] 1 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+STRIDED_PREPARED_DIR ?= target/jit-evidence/short-slice-performance/strided-prepared
+.PHONY: jit-strided-prepared-profile-build jit-strided-prepared-profile-run
+jit-strided-prepared-profile-build:
+	@$(MAKE) jit-strided-profile-build STRIDED_DIR='$(STRIDED_PREPARED_DIR)'
+
+jit-strided-prepared-profile-run: jit-profile-cpu-check
+	@sha256sum -c '$(STRIDED_PREPARED_DIR)/binary.sha256' '$(STRIDED_PREPARED_DIR)/source.sha256' > '$(STRIDED_PREPARED_DIR)/verification-before.log'
+	@valgrind --version > '$(STRIDED_PREPARED_DIR)/profiler.log'
+	@set -e; for round in 0 1; do for shape in scalar_lookup callback_lookup; do for strided in 0 1; do \
+		out='$(STRIDED_PREPARED_DIR)'/$$round-$$shape-$$strided; test ! -e "$$out.callgrind"; \
+		LUNA_STRIDED_SHAPE=$$shape LUNA_STRIDED=$$strided taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*strided::transition::prepared::probe::profile_calls*' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file="$$out.callgrind" \
+			'$(STRIDED_PREPARED_DIR)/test-binary' jit::abi::strided::transition::prepared::probe::profile_prepared_transport --ignored --exact --nocapture --test-threads=1 > "$$out.log" 2>&1; \
+		grep -Fq "shape=$$shape strided=$$([ $$strided = 1 ] && echo true || echo false) calls=100000 completed=100000 callback_invocations=0 validated=true" "$$out.log"; \
+		grep -Fq 'test result: ok. 1 passed; 0 failed' "$$out.log"; \
+		grep -Eq '^summary: [1-9][0-9]*' "$$out.callgrind"; \
+		callgrind_annotate --inclusive=no --threshold=99 "$$out.callgrind" > "$$out-annotation.log"; \
+	done; done; done
+	@sha256sum -c '$(STRIDED_PREPARED_DIR)/binary.sha256' '$(STRIDED_PREPARED_DIR)/source.sha256' > '$(STRIDED_PREPARED_DIR)/verification-after.log'
 
 .PHONY: jit-strided-helpers jit-strided-helpers-miri
 jit-strided-helpers:

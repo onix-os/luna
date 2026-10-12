@@ -180,7 +180,12 @@ pub(super) fn write_table_value<'gc>(
 }
 
 impl<'gc> Frame<'gc, '_, '_, '_> {
-    fn prehashed_up_table(&mut self, slots: &mut [Slot], packed: u32, hash: u64) -> bool {
+    fn prehashed_up_table(
+        &mut self,
+        slots: &mut (impl Transport<'gc> + ?Sized),
+        packed: u32,
+        hash: u64,
+    ) -> bool {
         if packed >> 24 != 0 {
             return false;
         }
@@ -376,11 +381,31 @@ pub(super) fn call_direct<const KIND: u32>(
     c: u32,
     pc: u32,
 ) -> u32 {
+    call_direct_selected::<KIND, false>(frame, a, b, c, pc)
+}
+
+#[cfg(test)]
+pub(super) fn call_direct_selected<const KIND: u32, const PREHASHED: bool>(
+    frame: &mut Frame<'_, '_, '_, '_>,
+    a: u32,
+    b: u32,
+    c: u32,
+    pc: u32,
+) -> u32 {
     frame.count.calls += 1;
     let result = catch_unwind(AssertUnwindSafe(|| {
         assert!(frame.projection.is_none());
         *frame.registers.pc = pc as usize + 1;
-        if !frame.operation::<KIND>(&mut Direct(frame.slot_count), a, b, c) {
+        let completed = if PREHASHED {
+            frame.prehashed_up_table(
+                &mut Direct(frame.slot_count),
+                a,
+                u64::from(b) | (u64::from(c) << 32),
+            )
+        } else {
+            frame.operation::<KIND>(&mut Direct(frame.slot_count), a, b, c)
+        };
+        if !completed {
             *frame.registers.pc = pc as usize;
             return abi::HELPER_DECLINED;
         }
