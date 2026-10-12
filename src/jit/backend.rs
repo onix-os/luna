@@ -368,6 +368,7 @@ pub(super) enum Failure {
     AuditPackedLowering,
     RequireReadCache,
     BranchLoopDirection,
+    WidePrepared(Option<super::helper_flow::Fault>),
     RequireWriteback,
     RequireIntegerLoop,
     ProbeIntegerLoop,
@@ -886,10 +887,23 @@ fn compile_selected_rooted(
     let prepare_keys = prepare_keys && !selection.scoped_helpers;
     #[cfg(test)]
     let prepare_keys = prepare_keys
-        && (failure == Failure::None || matches!(failure, Failure::CorruptHelperFlow(_)))
+        && (failure == Failure::None
+            || matches!(
+                failure,
+                Failure::CorruptHelperFlow(_) | Failure::WidePrepared(_)
+            ))
         && !selection.leaf
         && !selection.cell_kernel
         && !selection.integer_activation;
+    #[cfg(test)]
+    let wide_prepared = matches!(failure, Failure::WidePrepared(_));
+    #[cfg(not(test))]
+    let wide_prepared = false;
+    if wide_prepared && !prepare_keys {
+        return Err(JitError::Compilation(
+            "wide prepared helper unavailable".into(),
+        ));
+    }
     if prepare_keys {
         let symbol = helper_symbols
             .iter_mut()
@@ -897,10 +911,18 @@ fn compile_selected_rooted(
             .unwrap();
         *symbol = (
             abi::HELPER_GET_UP_TABLE,
-            "luna_get_up_table_h1",
+            if wide_prepared {
+                "luna_get_up_table_h2"
+            } else {
+                "luna_get_up_table_h1"
+            },
             helpers::PREHASHED_ENTRY,
         );
         stores.helper_calls.prepared_keys = true;
+        #[cfg(test)]
+        {
+            stores.helper_calls.wide_prepared = wide_prepared;
+        }
     }
     #[cfg(not(miri))]
     let helper_symbols = if selection.scoped_helpers {
@@ -925,8 +947,16 @@ fn compile_selected_rooted(
     #[cfg(not(test))]
     let native_isa = cranelift_native::builder();
     let mut jit = native_builder(native_isa)?;
-    for (_, name, entry) in helper_symbols {
-        jit.symbol(owned_symbol(name)?, entry as *const u8);
+    for (kind, name, entry) in helper_symbols {
+        let _ = kind;
+        let address = entry as *const u8;
+        #[cfg(test)]
+        let address = if wide_prepared && kind == abi::HELPER_GET_UP_TABLE {
+            helpers::wide::direct as *const u8
+        } else {
+            address
+        };
+        jit.symbol(owned_symbol(name)?, address);
     }
     jit.memory_provider(provider);
     let relocation_copy_charge;
@@ -962,6 +992,15 @@ fn compile_selected_rooted(
         helper_returns.len(),
         helpers::SYMBOLS.len() + 2 * projection_count,
     )?;
+    let signature_bytes = signature_bytes
+        .checked_add(if wide_prepared {
+            Layout::array::<AbiParam>(5)
+                .map_err(|_| JitError::ResourceLimit("wide helper signature size"))?
+                .size()
+        } else {
+            0
+        })
+        .ok_or(JitError::ResourceLimit("wide helper signature size"))?;
     #[cfg(test)]
     let signature_bytes = signature_bytes
         .checked_add(
@@ -1034,10 +1073,26 @@ fn compile_selected_rooted(
     let mut helper_signature = module.make_signature();
     fill_signature(&mut helper_signature.params, helper_types)?;
     fill_signature(&mut helper_signature.returns, helper_returns)?;
+    let wide_signature = if wide_prepared {
+        let mut signature = module.make_signature();
+        fill_signature(&mut signature.params, [ptr, ptr, types::I64, types::I64])?;
+        fill_signature(&mut signature.returns, helper_returns)?;
+        Some(signature)
+    } else {
+        None
+    };
     let helper_ids = super::arrays::try_array::<_, _, { helpers::SYMBOLS.len() }>(|index| {
         let (kind, name, _) = helper_symbols[index];
         module
-            .declare_function(name, Linkage::Import, &helper_signature)
+            .declare_function(
+                name,
+                Linkage::Import,
+                if kind == abi::HELPER_GET_UP_TABLE {
+                    wide_signature.as_ref().unwrap_or(&helper_signature)
+                } else {
+                    &helper_signature
+                },
+            )
             .map(|id| (kind, id))
     })
     .map_err(fail)?;
@@ -1052,6 +1107,7 @@ fn compile_selected_rooted(
         }
     })?;
     drop(helper_signature);
+    drop(wide_signature);
     let mut context = module.make_context();
     context.func.signature = signature;
     let mut fb_context = FunctionBuilderContext::new();
@@ -1282,7 +1338,7 @@ fn compile_selected_rooted(
     )?;
     stores.verify_transfers(&context.func, parameters[0], snapshot, &blocks, fallback)?;
     #[cfg(test)]
-    if let Failure::CorruptHelperFlow(fault) = failure {
+    if let Failure::CorruptHelperFlow(fault) | Failure::WidePrepared(Some(fault)) = failure {
         stores
             .helper_calls
             .corrupt(&mut context.func, fault, &helper_refs);
@@ -2239,17 +2295,31 @@ impl Emitter<'_, '_> {
             } else {
                 [a, b, c]
             };
-        let args = [a, b, c, self.pc as u32]
-            .map(|arg| self.builder.ins().iconst(types::I32, i64::from(arg)));
         let helper = self
             .helpers
             .iter()
             .find_map(|(key, helper)| (*key == kind).then_some(*helper))
             .expect("missing native helper symbol");
-        let call = self.builder.ins().call(
-            helper,
-            &[self.host, self.slots, args[0], args[1], args[2], args[3]],
-        );
+        let call = if kind == abi::HELPER_GET_UP_TABLE && self.stores.helper_calls.wide_prepared() {
+            let operands = self
+                .builder
+                .ins()
+                .iconst(types::I64, (u64::from(a) | ((self.pc as u64) << 32)) as i64);
+            let hash = self
+                .builder
+                .ins()
+                .iconst(types::I64, (u64::from(b) | (u64::from(c) << 32)) as i64);
+            self.builder
+                .ins()
+                .call(helper, &[self.host, self.slots, operands, hash])
+        } else {
+            let args = [a, b, c, self.pc as u32]
+                .map(|arg| self.builder.ins().iconst(types::I32, i64::from(arg)));
+            self.builder.ins().call(
+                helper,
+                &[self.host, self.slots, args[0], args[1], args[2], args[3]],
+            )
+        };
         let status = self.builder.inst_results(call)[0];
         let completed =
             self.builder

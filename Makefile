@@ -489,6 +489,12 @@ jit-backend:
 
 .PHONY: jit-entry-guard jit-builtin-fusion jit-builtin-identity jit-builtin-miri
 .PHONY: jit-wide-helper
+.PHONY: jit-wide-compiler
+jit-wide-compiler:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::prepared_keys::wide_tests:: -- --list | grep -F 'wide_compiler_matches_all_entries_budgets_and_helper_outcomes: test'
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::prepared_keys::wide_tests:: -- --nocapture
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::prepared_keys::tests:: -- --nocapture
+
 WIDE_HELPER_DIR ?= target/jit-evidence/short-slice-performance/wide-helper-profile
 jit-wide-helper:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::helpers::wide:: -- --list | grep -F 'generated_wide_calls_match_current_values_guards_and_panics: test'
