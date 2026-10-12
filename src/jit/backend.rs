@@ -31,6 +31,8 @@ pub(super) mod calls;
 pub(super) mod compact;
 #[cfg(test)]
 mod exit_transport;
+#[cfg(not(miri))]
+pub(super) mod inline_loop;
 mod integer_loop;
 #[cfg(test)]
 mod projection_mode;

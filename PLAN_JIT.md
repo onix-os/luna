@@ -27315,6 +27315,42 @@ and 160,242,060 respectively. The audit is in
 `target/jit-evidence/short-slice-performance/prehashed-main-upvalue/audit.json`;
 these software-profiler counts are not hardware speed acceptance.
 
+### Integrated inline-loop code ownership and dispatch
+
+The native inline-loop path now participates in production region compilation
+and dispatch on supported native targets, superseding the test-only status
+above. `backend/inline_loop.rs` uses the existing charged mapping provider,
+W^X finalization, metadata owner and workspace reservations. Caller and callee
+snapshots must share a workspace ledger and runtime root. The image contains
+no GC pointers or compiler snapshots, and has zero machine relocations.
+
+Region requests capture the optional callee source outside execution, compile
+the original caller and driver first, then optionally install the inline image.
+Resource refusal releases optional source/image ownership; original region
+compilation retries without optional snapshots when those snapshots cause a
+resource refusal. Aggregate IR admission includes caller, driver and inline
+expansion without increasing configured limits.
+
+The dispatcher publishes the caller prefix before entering a batch, retains
+the owning region lease, records actual native entries rather than one entry
+per inlined call, and resumes unfinished caller work through the existing
+prefix-preserving token. After publication, unwind handling does not write
+stale register snapshots over committed results. Unsupported budgets, source
+shapes, capture types and runtime guards retain the existing fallback.
+
+GNU and musl `jit-check`, `jit-inline-loop-owner` and `jit-native-region` pass.
+The three new owner tests cover execution after source-workspace release,
+final-lease reclamation, allocation/protection/IR refusal and foreign ledgers.
+Three new dispatcher tests include 6,160 optimized/original runs compared
+against canonical execution across five sources, seven slice limits, eight
+budgets and eleven fuel values; late-batch unwind and optional-IR refusal are
+also checked. Existing source/native/bridge tests remain separate evidence.
+
+The all-features Auto suite, integrated Memcheck and end-to-end timing are
+being checked separately. No new performance acceptance or full-plan completion
+is claimed by this integration. Evidence is under
+`target/jit-evidence/short-slice-performance/inline-loop-integrated-*`.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.

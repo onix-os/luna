@@ -23,7 +23,6 @@ pub(crate) struct Window<'gc, 'borrow, 'host> {
 }
 
 impl<'gc> Window<'gc, '_, '_> {
-    #[cfg(test)]
     pub(crate) fn publish_region(
         self,
         values: &[Value<'gc>],

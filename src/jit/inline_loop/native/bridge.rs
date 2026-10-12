@@ -1,25 +1,29 @@
 use super::*;
 use crate::{
-    jit::{ir::Snapshot, projection::Origin},
+    jit::projection::Origin,
     thread::activation::{atomic_call::Spec, ActivationHost},
     Context, Function as LuaFunction, FunctionPrototype, JitMode, Value as LuaValue,
 };
 use ottavino_gc_arena::Gc;
 
-struct Binding<'gc> {
+pub(in crate::jit) struct Binding<'gc> {
     descriptor: super::super::Descriptor,
     caller: Gc<'gc, FunctionPrototype<'gc>>,
     callee: Gc<'gc, FunctionPrototype<'gc>>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct Progress {
-    calls: u32,
-    slices: u32,
-    instructions: u32,
-    pending: u32,
+pub(in crate::jit) struct Progress {
+    pub calls: u32,
+    pub slices: u32,
+    pub instructions: u32,
+    pub pending: u32,
 }
 
+#[cfg(test)]
+use crate::jit::ir::Snapshot;
+
+#[cfg(test)]
 fn matches(snapshot: &Snapshot, prototype: &FunctionPrototype<'_>) -> bool {
     snapshot.registers == usize::from(prototype.stack_size)
         && snapshot.upvalues == prototype.upvalues.len()
@@ -42,6 +46,22 @@ fn matches(snapshot: &Snapshot, prototype: &FunctionPrototype<'_>) -> bool {
 }
 
 impl<'gc> Binding<'gc> {
+    pub(in crate::jit) fn bind(
+        descriptor: super::super::Descriptor,
+        caller: Gc<'gc, FunctionPrototype<'gc>>,
+        callee: Gc<'gc, FunctionPrototype<'gc>>,
+    ) -> Option<Self> {
+        if descriptor.arguments > callee.fixed_params {
+            return None;
+        }
+        Some(Self {
+            descriptor,
+            caller,
+            callee,
+        })
+    }
+
+    #[cfg(test)]
     fn new(
         plan: &Plan<'_>,
         caller: Gc<'gc, FunctionPrototype<'gc>>,
@@ -61,7 +81,7 @@ impl<'gc> Binding<'gc> {
         })
     }
 
-    fn run(
+    pub(in crate::jit) fn run(
         &self,
         ctx: Context<'gc>,
         host: &mut ActivationHost<'gc, '_>,
@@ -213,4 +233,5 @@ impl<'gc> Binding<'gc> {
     }
 }
 
+#[cfg(test)]
 mod tests;

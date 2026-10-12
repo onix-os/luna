@@ -16,7 +16,7 @@ const INVALID: u32 = 4;
 
 #[repr(C)]
 #[derive(Clone, Debug)]
-struct State {
+pub(in crate::jit) struct State {
     slots: [abi::Slot; MAX_REGISTERS],
     upper: abi::Slot,
     root: u64,
@@ -34,6 +34,20 @@ struct Emitter<'a> {
     b: FunctionBuilder<'a>,
     state: Value,
     exits: [Block; 5],
+}
+
+impl State {
+    pub(in crate::jit) fn exit(&self) -> abi::Exit {
+        abi::Exit {
+            pc: self.pc,
+            instructions: 0,
+            reason: match self.reason {
+                BUDGET => crate::jit::exits::Kind::Budget,
+                GUARD | INVALID => crate::jit::exits::Kind::Guard,
+                _ => crate::jit::exits::Kind::Interpreter,
+            } as u32,
+        }
+    }
 }
 
 impl Emitter<'_> {
@@ -139,7 +153,7 @@ fn slot(index: usize) -> usize {
 }
 
 impl Plan<'_> {
-    fn function(
+    pub(in crate::jit) fn function(
         &self,
         config: TargetFrontendConfig,
         convention: CallConv,
@@ -163,7 +177,12 @@ impl Plan<'_> {
         b.switch_to_block(entry);
         let state = b.block_params(entry)[0];
         let exits = std::array::from_fn(|_| b.create_block());
-        let blocks: Vec<_> = (self.start..=self.end).map(|_| b.create_block()).collect();
+        let mut blocks =
+            allocator_api2::vec::Vec::new_in(self.caller.operations.allocator().clone());
+        blocks
+            .try_reserve_exact(self.end - self.start + 1)
+            .map_err(|_| JitError::ResourceLimit("inline loop blocks"))?;
+        blocks.extend((self.start..=self.end).map(|_| b.create_block()));
         let mut e = Emitter { b, state, exits };
         for offset in [
             std::mem::offset_of!(State, instructions),
@@ -323,7 +342,7 @@ impl Plan<'_> {
         Ok(result)
     }
 
-    fn verify_function(
+    pub(in crate::jit) fn verify_function(
         &self,
         function: &Function,
         config: TargetFrontendConfig,
@@ -338,5 +357,6 @@ impl Plan<'_> {
     }
 }
 
-mod bridge;
+pub(in crate::jit) mod bridge;
+#[cfg(test)]
 mod tests;

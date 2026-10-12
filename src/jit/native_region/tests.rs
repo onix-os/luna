@@ -2,6 +2,7 @@ use super::*;
 
 mod cache;
 mod cost;
+mod inline_runs;
 mod registration;
 mod request;
 mod service;
@@ -1181,7 +1182,13 @@ fn generated_region_matches_canonical_bounded_frames_fuel_and_work() {
                             assert!(outcome.fragments > 0 && outcome.fragments <= limit);
                             if (limit, budget, fuel) == (64, 64, 10000) {
                                 assert_eq!(outcome.pairs, 20);
-                                assert!(outcome.fragments > 20);
+                                if region.inline.is_some()
+                                    && !DEFERRED_ENABLED.with(|flag| flag.get())
+                                {
+                                    assert!(outcome.fragments < 20);
+                                } else {
+                                    assert!(outcome.fragments > 20);
+                                }
                                 assert!(matches!(
                                     host.test_trace().1.as_slice(),
                                     [Value::Integer(210)]

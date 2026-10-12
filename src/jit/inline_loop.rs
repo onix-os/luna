@@ -6,7 +6,7 @@ const MAX_REGISTERS: usize = 16;
 const MAX_OPERATIONS: usize = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Descriptor {
+pub(super) struct Descriptor {
     start: usize,
     call: usize,
     end: usize,
@@ -28,7 +28,7 @@ pub(super) struct Plan<'a> {
 }
 
 impl<'a> Plan<'a> {
-    fn descriptor(&self) -> Result<Descriptor, JitError> {
+    pub(super) fn descriptor(&self) -> Result<Descriptor, JitError> {
         self.verify(self.caller, self.callee)?;
         let Operation::Return { start, .. } = self.callee.operations[3] else {
             unreachable!()
@@ -110,4 +110,4 @@ mod tests;
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
-mod native;
+pub(super) mod native;
