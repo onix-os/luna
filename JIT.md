@@ -1,5 +1,15 @@
 # Native JIT: experimental scalar and heap tier
 
+Ordinary constant-string upvalue-table reads can embed a process-seeded key hash.
+Each lookup still checks the current table and full key equality; no GC pointers
+or table values are cached. Optional, charged hash storage falls back to ordinary
+compilation under pressure. `make jit-prepared-keys` exercises the prepared ABI,
+native source identity, mutations/GC, panic handling and resource fallback.
+Repeated contended-host measurements improve callback timings, but original
+performance gates still fail and some collateral measurements remain adverse.
+This is incremental experimental functionality, not performance acceptance;
+`PLAN_JIT.md` records the controls, rejected variants and remaining work.
+
 Current production Auto includes scoped paired-code execution, lease reuse and
 indexed caller-region execution. Successful hot pairs queue region promotion;
 `Lua::service_jit()` prepares and compiles it outside executor steps. The existing
