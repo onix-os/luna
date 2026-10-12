@@ -46,6 +46,8 @@ mod read_cache;
 pub(super) mod region;
 #[cfg(test)]
 mod transport_tests;
+#[cfg(test)]
+mod universal_memory;
 
 #[cfg(not(miri))]
 pub(super) mod array;
@@ -362,6 +364,7 @@ pub(super) enum Failure {
     RequirePayloadTags,
     RequireBoundPayload,
     RequireStrided,
+    RequireUniversalMemory,
     PreferBoundPayload,
     RequireSparsePayload,
     RequireWriteBoundPayload,
@@ -899,7 +902,10 @@ fn compile_selected_rooted(
         && (failure == Failure::None
             || matches!(
                 failure,
-                Failure::CorruptHelperFlow(_) | Failure::WidePrepared(_) | Failure::RequireStrided
+                Failure::CorruptHelperFlow(_)
+                    | Failure::WidePrepared(_)
+                    | Failure::RequireStrided
+                    | Failure::RequireUniversalMemory
             ))
         && !selection.leaf
         && !selection.cell_kernel
@@ -975,6 +981,8 @@ fn compile_selected_rooted(
     let signature_charge;
     #[cfg(test)]
     let mut packed_signature_charge = None;
+    #[cfg(test)]
+    let universal_memory_charge;
     let mut module = JITModule::new(jit);
     let ptr = module.target_config().pointer_type();
     let entry_types = [ptr, types::I64, types::I32, ptr, ptr];
@@ -1406,6 +1414,7 @@ fn compile_selected_rooted(
     let optimize_integer_loop = matches!(
         failure,
         Failure::None
+            | Failure::RequireUniversalMemory
             | Failure::RequireIntegerLoop
             | Failure::ProbeIntegerLoop
             | Failure::RequirePayload
@@ -1911,9 +1920,27 @@ fn compile_selected_rooted(
             baseline + signature_bytes + symbol_bytes
         );
     }
+    #[cfg(test)]
+    {
+        universal_memory_charge = if failure == Failure::RequireUniversalMemory {
+            Some(universal_memory::lower(
+                &mut context.func,
+                snapshot.operations.allocator().clone(),
+                expansion,
+            )?)
+        } else {
+            None
+        };
+    }
     context
         .compile(module.isa(), &mut Default::default())
-        .map_err(|error| fail(error.into()))?;
+        .map_err(|error| {
+            #[cfg(test)]
+            if failure == Failure::RequireUniversalMemory {
+                return JitError::Compilation(format!("universal memory compilation: {error:?}"));
+            }
+            fail(error.into())
+        })?;
     let compiled = context.compiled_code().unwrap();
     let mut relocations = compiled.buffer.relocs().len();
     for projection in projection_contexts.iter_mut().flatten() {
@@ -2052,6 +2079,8 @@ fn compile_selected_rooted(
     drop(module);
     #[cfg(test)]
     drop(packed_signature_charge);
+    #[cfg(test)]
+    drop(universal_memory_charge);
     drop(signature_charge);
     drop(symbol_charge);
     drop(relocation_copy_charge);

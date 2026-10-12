@@ -1319,6 +1319,31 @@ jit-strided-runtime-nil:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) strided_runtime_nil_fanout_ -- --test-threads=1
 
 STRIDED_RUNTIME_DIR ?= target/jit-evidence/short-slice-performance/strided-runtime
+MEMORY_RUNTIME_DIR ?= target/jit-evidence/short-slice-performance/universal-memory-runtime
+MEMORY_CASES ?= integer_loop float_loop array_table closure_upvalue polymorphic_metamethod rust_callbacks allocation_gc
+.PHONY: jit-universal-memory jit-universal-memory-miri jit-universal-memory-profile-build jit-universal-memory-profile-run
+jit-universal-memory:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) universal_memory -- --test-threads=1
+
+jit-universal-memory-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::universal_memory:: -- --test-threads=1
+
+jit-universal-memory-profile-build:
+	@$(MAKE) jit-strided-profile-build STRIDED_DIR='$(MEMORY_RUNTIME_DIR)'
+	@printf 'scope=full frozen workload execution\nwarmups=2\nmeasured_executions=1\nexperiment=universal memory region\n' >> '$(MEMORY_RUNTIME_DIR)/configuration'
+
+jit-universal-memory-profile-run: jit-profile-cpu-check
+	@sha256sum -c '$(MEMORY_RUNTIME_DIR)/binary.sha256' '$(MEMORY_RUNTIME_DIR)/source.sha256' > '$(MEMORY_RUNTIME_DIR)/verification-before.log'
+	@set -e; for round in 0 1; do order='0 1'; if [ $$round = 1 ]; then order='1 0'; fi; for shape in $(MEMORY_CASES); do for selected in $$order; do \
+		out='$(MEMORY_RUNTIME_DIR)'/$$round-$$shape-$$selected; test ! -e "$$out.callgrind"; \
+		LUNA_MEMORY_CASE=$$shape LUNA_UNIVERSAL_MEMORY=$$selected taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*strided_profile::profile_execute*' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file="$$out.callgrind" \
+			'$(MEMORY_RUNTIME_DIR)/test-binary' jit::payload_runtime_tests::strided_profile::profile_universal_memory_runtime --ignored --exact --nocapture --test-threads=1 > "$$out.log" 2>&1; \
+		grep -Fq "case=$$shape universal_memory=$$([ $$selected = 1 ] && echo true || echo false) validated=true" "$$out.log"; \
+		grep -Fq 'test result: ok. 1 passed; 0 failed' "$$out.log"; \
+		grep -Eq '^summary: [1-9][0-9]*' "$$out.callgrind"; \
+	done; done; done
+	@sha256sum -c '$(MEMORY_RUNTIME_DIR)/binary.sha256' '$(MEMORY_RUNTIME_DIR)/source.sha256' > '$(MEMORY_RUNTIME_DIR)/verification-after.log'
+
 STRIDED_CASES ?= rust_callbacks closure_upvalue integer_loop float_loop
 .PHONY: jit-strided-runtime-profile-build jit-strided-runtime-profile-run
 jit-strided-runtime-profile-build:
