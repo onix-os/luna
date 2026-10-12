@@ -72,6 +72,11 @@ supports disjoint `AliasRegion`s, but none are added here. Any experiment must
 prove header/canonical storage separation, preserve call invalidation and source
 checks, and account for compiler storage; marking mutable headers `readonly`
 would not be a valid substitute.
+Also investigate a single, universal memory region on ordinary scratch lowering:
+the pinned optimizer treats unannotated stores as fences, so useful optimization
+may be available without changing transport at all. A universal region makes no
+disjointness claim. It still needs an emitted-IR verifier, resource accounting,
+call/trap preservation tests and paired full-workload evidence before adoption.
 
 Evidence directories under `target/jit-evidence/short-slice-performance/`:
 `strided-runtime-inline/` (SHA-256
