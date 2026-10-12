@@ -18,9 +18,16 @@ telemetry() {
     date --iso-8601=ns
     uptime
     cat /proc/stat /proc/pressure/cpu
+    for field in topology/core_id topology/thread_siblings_list cpufreq/scaling_cur_freq cpufreq/cpuinfo_max_freq cpufreq/base_frequency; do
+        if test -r "/sys/devices/system/cpu/cpu$cpu/$field"; then
+            printf 'cpu%s %s=' "$cpu" "$field"
+            cat "/sys/devices/system/cpu/cpu$cpu/$field"
+        fi
+    done
     ps -eo pid,ppid,comm,pcpu,pmem,stat,etime
 }
 verify > "$out/verification-before.log"
+{ awk '/^model name/{print; exit}' /proc/cpuinfo; lscpu -e=CPU,CORE,SOCKET,NODE,ONLINE,MAXMHZ,MINMHZ; } > "$out/host-topology"
 sha256sum "$image/test-binary" > "$out/binary.sha256"
 sha256sum "$0" "${BASH_SOURCE[0]%/*}/strided_timing_audit.pl" > "$out/tools.sha256"
 printf 'protocol=1\ncpu=%s\nwindows=%s\nimage=%s\nwarmups=2\nmeasured_executions=1\nscope=warm execution only; test image; not release acceptance\n' "$cpu" "$windows" "$image" > "$out/configuration"
