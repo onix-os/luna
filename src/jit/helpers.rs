@@ -403,31 +403,10 @@ pub(super) fn call_direct<const KIND: u32>(
     }
 }
 
+const PREPARED_GET_UP_TABLE: u32 = u32::MAX;
+pub(super) const PREHASHED_ENTRY: abi::HelperEntry = call::<PREPARED_GET_UP_TABLE>;
+
 pub(super) unsafe extern "C" fn call<const KIND: u32>(
-    host: *mut abi::Host,
-    slots: *mut Slot,
-    a: u32,
-    b: u32,
-    c: u32,
-    pc: u32,
-) -> u32 {
-    unsafe { call_selected::<KIND, false>(host, slots, a, b, c, pc) }
-}
-
-pub(super) unsafe extern "C" fn call_prehashed(
-    host: *mut abi::Host,
-    slots: *mut Slot,
-    packed: u32,
-    low: u32,
-    high: u32,
-    pc: u32,
-) -> u32 {
-    unsafe {
-        call_selected::<{ abi::HELPER_GET_UP_TABLE }, true>(host, slots, packed, low, high, pc)
-    }
-}
-
-unsafe fn call_selected<const KIND: u32, const PREHASHED: bool>(
     host: *mut abi::Host,
     slots: *mut Slot,
     a: u32,
@@ -450,7 +429,7 @@ unsafe fn call_selected<const KIND: u32, const PREHASHED: bool>(
         }
         let completed = {
             let slots = unsafe { std::slice::from_raw_parts_mut(slots, frame.slot_count) };
-            if PREHASHED {
+            if KIND == PREPARED_GET_UP_TABLE {
                 frame.prehashed_up_table(slots, a, u64::from(b) | (u64::from(c) << 32))
             } else {
                 frame.operation::<KIND>(slots, a, b, c)

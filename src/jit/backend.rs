@@ -898,7 +898,7 @@ fn compile_selected_rooted(
         *symbol = (
             abi::HELPER_GET_UP_TABLE,
             "luna_get_up_table_h1",
-            helpers::call_prehashed,
+            helpers::PREHASHED_ENTRY,
         );
         stores.helper_calls.prepared_keys = true;
     }

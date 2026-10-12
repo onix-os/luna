@@ -62,7 +62,9 @@ fn optional_retry_releases_keys_and_preserves_other_errors() {
         let closure = Closure::load(ctx, None, b"return target").unwrap();
         for (enabled, resource_error) in [(true, true), (false, true), (true, false)] {
             let ledger = Ledger::new(1 << 20);
-            let mut snapshot = Snapshot::new_in(&closure.prototype(), 4096, BudgetAllocator(ledger.clone())).unwrap();
+            let mut snapshot =
+                Snapshot::new_in(&closure.prototype(), 4096, BudgetAllocator(ledger.clone()))
+                    .unwrap();
             let before = ledger.current();
             let keys = snapshot.prepared_keys.as_ref().unwrap().0.len() * 8;
             let mut attempts = 0;
@@ -98,7 +100,11 @@ fn optional_retry_releases_keys_and_preserves_other_errors() {
     });
 }
 
-#[cfg(all(not(miri), target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))]
+#[cfg(all(
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 #[test]
 fn exact_workspace_limit_retains_ordinary_compilation() {
     use crate::jit::{backend, resources::MappingCounter, work};
@@ -115,7 +121,12 @@ fn exact_workspace_limit_retains_ordinary_compilation() {
             )
         };
         let baseline = Ledger::new(2 << 20);
-        let mut source = Snapshot::new_in(&closure.prototype(), 4096, BudgetAllocator(baseline.clone())).unwrap();
+        let mut source = Snapshot::new_in(
+            &closure.prototype(),
+            4096,
+            BudgetAllocator(baseline.clone()),
+        )
+        .unwrap();
         source.prepared_keys = None;
         drop(compile(&source).unwrap());
         let peak = baseline.peak();
@@ -123,14 +134,17 @@ fn exact_workspace_limit_retains_ordinary_compilation() {
         assert_eq!(baseline.current(), 0);
 
         let ledger = Ledger::new(peak);
-        let mut source = Snapshot::new_in(&closure.prototype(), 4096, BudgetAllocator(ledger.clone())).unwrap();
+        let mut source =
+            Snapshot::new_in(&closure.prototype(), 4096, BudgetAllocator(ledger.clone())).unwrap();
         assert!(source.prepared_keys.is_some());
         assert!(matches!(compile(&source), Err(JitError::ResourceLimit(_))));
         let mut attempts = 0;
-        let code = source.with_prepared_fallback(true, |source| {
-            attempts += 1;
-            compile(source)
-        }).unwrap();
+        let code = source
+            .with_prepared_fallback(true, |source| {
+                attempts += 1;
+                compile(source)
+            })
+            .unwrap();
         assert_eq!(attempts, 2);
         assert!(source.prepared_keys.is_none());
         assert!(ledger.peak() <= peak);
@@ -226,7 +240,7 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
                             };
                             let status = unsafe {
                                 if prepared {
-                                    helpers::call_prehashed(
+                                    helpers::PREHASHED_ENTRY(
                                         &mut host,
                                         slots.as_mut_ptr(),
                                         packed,

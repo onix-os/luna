@@ -20,7 +20,10 @@ impl Snapshot {
         mut compile: impl FnMut(&Self) -> Result<T, JitError>,
     ) -> Result<T, JitError> {
         let result = compile(self);
-        if retry && matches!(result, Err(JitError::ResourceLimit(_))) && self.prepared_keys.is_some() {
+        if retry
+            && matches!(result, Err(JitError::ResourceLimit(_)))
+            && self.prepared_keys.is_some()
+        {
             self.prepared_keys = None;
             compile(self)
         } else {
@@ -51,10 +54,14 @@ impl Keys {
         }
         let mut hashes = Vec::new_in(snapshot.operations.allocator().clone());
         hashes.try_reserve_exact(count).ok()?;
-        hashes.extend(prototype.constants[..count].iter().map(|constant| match constant {
-            Constant::String(key) => PreparedStringHash::new(*key).bits(),
-            _ => 0,
-        }));
+        hashes.extend(
+            prototype.constants[..count]
+                .iter()
+                .map(|constant| match constant {
+                    Constant::String(key) => PreparedStringHash::new(*key).bits(),
+                    _ => 0,
+                }),
+        );
         Some(Self(hashes))
     }
 
