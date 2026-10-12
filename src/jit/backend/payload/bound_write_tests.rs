@@ -37,7 +37,7 @@ fn fixture(tag_value: u64, floating: bool) -> (Function, IrValue, IrValue, IrVal
         b.ins().return_(&[]);
         b.seal_all_blocks();
         b.finalize(
-            cranelift_codegen::isa::lookup_by_name("x86_64")
+            cranelift_codegen::isa::lookup_by_name(std::env::consts::ARCH)
                 .unwrap()
                 .finish(settings::Flags::new(settings::builder()))
                 .unwrap()
