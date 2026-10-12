@@ -7,14 +7,14 @@ use cranelift_codegen::{
     ir::{types, InstBuilder, InstructionData, Opcode},
 };
 
-struct Rewrite {
+pub(in crate::jit) struct Rewrite {
     slow: Block,
     table: Inst,
     resume: u32,
 }
 
 impl Rewrite {
-    fn apply(
+    pub(in crate::jit) fn apply(
         plan: Plan,
         function: &mut Function,
         paths: &Paths,
@@ -59,7 +59,7 @@ impl Rewrite {
         })
     }
 
-    fn verify(
+    pub(in crate::jit) fn verify(
         &self,
         original: &Function,
         function: &Function,
@@ -98,12 +98,12 @@ impl Rewrite {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Plan {
+pub(in crate::jit) struct Plan {
     resume: u32,
 }
 
 impl Plan {
-    fn new(source: &Snapshot, graph: &FlowGraph) -> Option<Self> {
+    pub(in crate::jit) fn new(source: &Snapshot, graph: &FlowGraph) -> Option<Self> {
         if source.operations.len() != graph.nodes.len() {
             return None;
         }
@@ -261,7 +261,7 @@ mod tests {
         }
     }
 
-    fn source() -> Snapshot {
+    pub(super) fn source() -> Snapshot {
         use crate::opcode::RCIndex;
         Snapshot {
             prepared_keys: None,
@@ -394,3 +394,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(not(miri))]
+mod native;

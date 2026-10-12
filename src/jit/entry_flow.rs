@@ -1254,4 +1254,4 @@ mod tests {
 }
 
 #[cfg(test)]
-mod preferred;
+pub(super) mod preferred;

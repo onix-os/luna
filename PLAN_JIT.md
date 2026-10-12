@@ -36,6 +36,23 @@ is not a bounded production verifier. Native all-PC/all-budget differential
 execution, bounded compiler-resource integration and paired profiling/timing
 remain necessary before enabling this route. Shipping dispatch is unchanged.
 
+The explicit test-only backend mode now requires selection and the guarded
+rewrite; it refuses ineligible sources rather than silently testing baseline
+code. Original source, helper, entry, region and binding verification run first.
+The mode retains prepared-key helpers and the ordinary integer-loop pass, and
+checks the expanded IR counts before compilation. Its clone/display restoration
+oracle remains unbounded test machinery, not production resource acceptance.
+
+Two native tests pass: ineligible-source refusal releases tracked resources,
+and **104,104 native invocations** compare ordinary/preferred entries across all
+six source PCs, end/unknown/full-width PCs, seven budgets, scalar extremes,
+NaNs and reference sentinels. Slots and exit PC/count/reason match; zero-budget,
+unknown-PC and interpreter-only entries also have independent expected results.
+These are fragment differentials, not end-to-end Lua callback execution or a
+speed measurement. Live helper-frame/GC/mutation coverage and performance
+profiling remain open. Logs: `preferred-entry-native*.log` under the ignored
+short-slice evidence directory; the initial compile error is retained separately.
+
 #### Prepared-key-only identity comparison — improvement with a rejected cost
 
 The earlier general string-key shortcut changed interpreter lookup. This trial
