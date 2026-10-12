@@ -1461,7 +1461,7 @@ impl Runtime {
         self.0.borrow().memory.load(Ordering::Relaxed)
     }
 
-    pub(crate) fn compile(&self, id: u64, snapshot: ir::Snapshot) -> Result<(), JitError> {
+    pub(crate) fn compile(&self, id: u64, mut snapshot: ir::Snapshot) -> Result<(), JitError> {
         #[cfg(test)]
         {
             let hook = self.0.borrow_mut().before_compile.take();
@@ -1485,11 +1485,14 @@ impl Runtime {
             };
             #[cfg(test)]
             let failure = self.0.borrow().memory_failure;
-            let compile = || {
+            let retry_prepared = true;
+            #[cfg(test)]
+            let retry_prepared = retry_prepared && failure == backend::Failure::None;
+            let compile = |snapshot: &ir::Snapshot| {
                 #[cfg(all(test, not(miri)))]
                 if self.0.borrow().array_kernels {
                     return backend::array::compile_pair(
-                        &snapshot,
+                        snapshot,
                         memory.clone(),
                         limit,
                         metadata.clone(),
@@ -1500,7 +1503,7 @@ impl Runtime {
                 #[cfg(all(test, not(miri)))]
                 if self.activation_limit() > 0 {
                     return backend::compile_continuations_in(
-                        &snapshot,
+                        snapshot,
                         memory.clone(),
                         limit,
                         metadata.clone(),
@@ -1510,10 +1513,10 @@ impl Runtime {
                 }
                 #[cfg(all(test, not(miri)))]
                 if self.0.borrow().integer_activations
-                    && leaf::Pattern::recognize(&snapshot).is_some()
+                    && leaf::Pattern::recognize(snapshot).is_some()
                 {
                     return backend::compile_integer_leaf_pair_in(
-                        &snapshot,
+                        snapshot,
                         memory.clone(),
                         limit,
                         metadata.clone(),
@@ -1522,9 +1525,9 @@ impl Runtime {
                     );
                 }
                 #[cfg(all(test, not(miri)))]
-                if self.0.borrow().scalar_kernels && leaf::Pattern::recognize(&snapshot).is_some() {
+                if self.0.borrow().scalar_kernels && leaf::Pattern::recognize(snapshot).is_some() {
                     return backend::compile_leaf_pair_in(
-                        &snapshot,
+                        snapshot,
                         memory.clone(),
                         limit,
                         metadata.clone(),
@@ -1533,9 +1536,9 @@ impl Runtime {
                     );
                 }
                 #[cfg(test)]
-                if self.0.borrow().scalar_leaves && leaf::Pattern::recognize(&snapshot).is_some() {
+                if self.0.borrow().scalar_leaves && leaf::Pattern::recognize(snapshot).is_some() {
                     return backend::compile_leaf_in(
-                        &snapshot,
+                        snapshot,
                         memory.clone(),
                         limit,
                         metadata.clone(),
@@ -1545,7 +1548,7 @@ impl Runtime {
                 }
                 #[cfg(not(any(test, miri)))]
                 return backend::array::compile_pair(
-                    &snapshot,
+                    snapshot,
                     memory.clone(),
                     limit,
                     metadata.clone(),
@@ -1553,7 +1556,7 @@ impl Runtime {
                 );
                 #[cfg(any(test, miri))]
                 backend::compile_in(
-                    &snapshot,
+                    snapshot,
                     memory.clone(),
                     limit,
                     metadata.clone(),
@@ -1562,7 +1565,7 @@ impl Runtime {
                     failure,
                 )
             };
-            let mut result = compile();
+            let mut result = snapshot.with_prepared_fallback(retry_prepared, compile);
             if matches!(&result, Err(JitError::ResourceLimit("native mappings"))) {
                 let retry = {
                     let mut manager = self.0.borrow_mut();
@@ -1573,7 +1576,7 @@ impl Runtime {
                     manager.stats.compilation_failures =
                         manager.stats.compilation_failures.saturating_add(1);
                     drop(manager);
-                    result = compile();
+                    result = snapshot.with_prepared_fallback(retry_prepared, compile);
                 }
             }
             drop(snapshot);

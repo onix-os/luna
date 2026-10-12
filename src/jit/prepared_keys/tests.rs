@@ -32,6 +32,115 @@ fn source_keys_are_optional_charged_and_keep_reference_bits_zero() {
 }
 
 #[test]
+fn prepared_storage_covers_only_the_addressable_prefix() {
+    crate::Lua::empty().enter(|ctx| {
+        let mut source = std::string::String::from("local r=target\n");
+        for i in 1000..1300 {
+            source.push_str(&format!("r=r+{i}\n"));
+        }
+        source.push_str("return r");
+        let closure = Closure::load(ctx, None, source.as_bytes()).unwrap();
+        let proto = closure.prototype();
+        assert!(proto.constants.len() > 256);
+        let bytes = proto.opcodes.len() * std::mem::size_of::<Operation>()
+            + proto.constants.len() * std::mem::size_of::<abi::Slot>();
+        let ledger = Ledger::new(bytes + 8);
+        let mut snapshot = Snapshot::new_in(&proto, 4096, BudgetAllocator(ledger.clone())).unwrap();
+        assert_eq!(snapshot.prepared_keys.as_ref().unwrap().0.len(), 1);
+        assert_eq!(ledger.current(), bytes + 8);
+        snapshot.verify().unwrap();
+        snapshot.prepared_keys.as_mut().unwrap().0.clear();
+        assert!(snapshot.verify().is_err());
+        drop(snapshot);
+        assert_eq!(ledger.current(), 0);
+    });
+}
+
+#[test]
+fn optional_retry_releases_keys_and_preserves_other_errors() {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = Closure::load(ctx, None, b"return target").unwrap();
+        for (enabled, resource_error) in [(true, true), (false, true), (true, false)] {
+            let ledger = Ledger::new(1 << 20);
+            let mut snapshot = Snapshot::new_in(&closure.prototype(), 4096, BudgetAllocator(ledger.clone())).unwrap();
+            let before = ledger.current();
+            let keys = snapshot.prepared_keys.as_ref().unwrap().0.len() * 8;
+            let mut attempts = 0;
+            let result = snapshot.with_prepared_fallback(enabled, |source| {
+                attempts += 1;
+                if attempts == 1 {
+                    assert!(source.prepared_keys.is_some());
+                    if resource_error {
+                        Err(JitError::ResourceLimit("fixture"))
+                    } else {
+                        Err(JitError::Compilation("fixture".into()))
+                    }
+                } else {
+                    assert!(source.prepared_keys.is_none());
+                    assert_eq!(ledger.current(), before - keys);
+                    Ok(())
+                }
+            });
+            assert_eq!(result.is_ok(), enabled && resource_error);
+            assert_eq!(attempts, if enabled && resource_error { 2 } else { 1 });
+            drop(snapshot);
+            assert_eq!(ledger.current(), 0);
+        }
+        let mut snapshot = Snapshot::new(&closure.prototype(), 4096, 1 << 20).unwrap();
+        let mut attempts = 0;
+        let result: Result<(), _> = snapshot.with_prepared_fallback(true, |_| {
+            attempts += 1;
+            Err(JitError::ResourceLimit("persistent"))
+        });
+        assert!(matches!(result, Err(JitError::ResourceLimit("persistent"))));
+        assert_eq!(attempts, 2);
+        assert!(snapshot.prepared_keys.is_none());
+    });
+}
+
+#[cfg(all(not(miri), target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))]
+#[test]
+fn exact_workspace_limit_retains_ordinary_compilation() {
+    use crate::jit::{backend, resources::MappingCounter, work};
+    crate::Lua::empty().enter(|ctx| {
+        let closure = Closure::load(ctx, None, b"return target").unwrap();
+        let compile = |source: &Snapshot| {
+            backend::compile_in(
+                source,
+                MappingCounter::new(Ledger::new(usize::MAX)),
+                8 << 20,
+                BudgetAllocator(Ledger::new(2 << 20)),
+                work::Limits::from(&crate::JitConfig::default()),
+                backend::Failure::None,
+            )
+        };
+        let baseline = Ledger::new(2 << 20);
+        let mut source = Snapshot::new_in(&closure.prototype(), 4096, BudgetAllocator(baseline.clone())).unwrap();
+        source.prepared_keys = None;
+        drop(compile(&source).unwrap());
+        let peak = baseline.peak();
+        drop(source);
+        assert_eq!(baseline.current(), 0);
+
+        let ledger = Ledger::new(peak);
+        let mut source = Snapshot::new_in(&closure.prototype(), 4096, BudgetAllocator(ledger.clone())).unwrap();
+        assert!(source.prepared_keys.is_some());
+        assert!(matches!(compile(&source), Err(JitError::ResourceLimit(_))));
+        let mut attempts = 0;
+        let code = source.with_prepared_fallback(true, |source| {
+            attempts += 1;
+            compile(source)
+        }).unwrap();
+        assert_eq!(attempts, 2);
+        assert!(source.prepared_keys.is_none());
+        assert!(ledger.peak() <= peak);
+        drop(code);
+        drop(source);
+        assert_eq!(ledger.current(), 0);
+    });
+}
+
+#[test]
 fn register_keys_do_not_select_the_prepared_abi() {
     crate::Lua::empty().enter(|ctx| {
         let closure = Closure::load(ctx, None, b"local key=... return _ENV[key]").unwrap();

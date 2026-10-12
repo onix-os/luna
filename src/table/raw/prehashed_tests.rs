@@ -131,12 +131,12 @@ fn prepared_collision_probes_still_check_key_equality() {
                 |_| hash.0,
             );
         }
-        for typed in [false, true] {
+        for mode in 0..3 {
             for (i, key) in keys.into_iter().enumerate() {
-                let actual = if typed {
-                    prepared_read::<true>(&table, &ctx, key, hash)
-                } else {
-                    prepared_read::<false>(&table, &ctx, key, hash)
+                let actual = match mode {
+                    0 => prepared_read::<false>(&table, &ctx, key, hash),
+                    1 => prepared_read::<true>(&table, &ctx, key, hash),
+                    _ => table.get_prepared_string(&ctx, key, PreparedStringHash::from_bits(hash.0)),
                 };
                 if i == 2 {
                     assert!(actual.is_nil());
