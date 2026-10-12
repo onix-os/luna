@@ -11,6 +11,70 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Paired elapsed-time screen — mixed results, no default switch
+
+`a7168b8` adds a separate warm-execution timing diagnostic without instrumenting
+the existing Callgrind path. Each process loads one frozen workload, performs
+two checked warmups and prepares an executor before starting `Instant`.
+Only execution is timed; setup, compilation, statistics, result/counter checks
+and cache cleanup remain outside the timer. Every sample requires the expected
+result, native execution, the requested entry kind and no new compilation.
+
+Four completed primary screens retain **1,764 measured executions**: two repeats
+on each of CPUs 0 and 16, each with 21 windows, all seven frozen workloads, and
+ordinary-A / strided / ordinary-B triplets. Six balanced run orders and rotated
+workload order reduce ordering bias. CPU order across screens is 0/16/16/0.
+All 25 counters match within triplets and across all four screens; no sample or
+outlier was removed. Ordinary/ordinary runs provide a same-image placebo.
+
+Below are pooled medians of the 42 paired ratios per workload and logical CPU.
+Ratios are geometric-mean ordinary time divided by strided time: above 1 favors
+strided. They are not ratios formed from independently pooled timing medians.
+
+| Workload | CPU 0 ordinary/strided | CPU 16 ordinary/strided |
+| --- | ---: | ---: |
+| Integer loop | 0.9959 | 0.9726 |
+| Float loop | 1.0135 | 0.9908 |
+| Array/table | 1.1655 | 1.1546 |
+| Closure/upvalue | 1.0154 | 1.0130 |
+| Metamethod | 1.0353 | 1.0160 |
+| Rust callbacks | 0.9605 | 1.0177 |
+| Allocation/GC | 1.0119 | 1.0453 |
+
+Array medians repeat at 1.1654/1.1655 on CPU 0 and 1.1516/1.1558 on CPU 16,
+despite their earlier positive instruction-count overhead. Callback medians
+repeat at 0.9580/0.9689 on CPU 0 but 1.0160/1.0194 on CPU 16. CPU 0's pooled
+callback ratio interquartile interval is 0.9376–0.9922, with placebo median
+0.9974; this is a remaining regression, not a confirmed callback improvement.
+CPU 16's integer regression also repeats. Smaller effects must be read with
+the retained dispersion and placebo results, not treated as universal gains.
+
+The host is an i7-13700KF. Kernel topology places CPU 0 in `cpu_core` (SMT sibling
+1, maximum reported frequency 5.3 GHz) and CPU 16 in `cpu_atom` (no SMT sibling,
+maximum 4.2 GHz). These are different core classes, not interchangeable replicas.
+Topology was captured after the primary screens; `c4cab56` additionally records
+it and available selected-CPU frequency fields for future windows. This topology
+is relevant context, not proof of the cause of the callback split. Every primary
+window retains load, CPU counters, pressure and process telemetry. No owned
+build/test/profiler overlapped timing; unrelated activity was not stopped. An
+unrelated molla build was identified during the initial smoke run.
+
+Focused timing verification passes for all seven workloads in both modes.
+The report audit passes its valid fixture and rejects eleven malformed screens.
+Separate three-window smoke runs verify the original and topology-aware runners;
+their raw samples remain separate from the predefined primary screens. All
+source/binary hashes and original collector/auditor versions are retained.
+
+Evidence: `target/jit-evidence/short-slice-performance/strided-timing-screen-{0,1}-cpu{0,16}/`,
+each `audit.json`, pooled `strided-timing-summary.json`, and
+`strided-timing-topology-after.log`. Immutable test image SHA-256:
+`04b5071479cd54a2a735b5eb4ba3fe0bb19a74a4dbfae6e20174dc4e98138d6b`.
+This is an ordinary-versus-strided test-image diagnosis, **not** the production
+Off/Auto acceptance gate. Keep production selection unchanged. Next performance
+work must address the measured CPU 0 callback and CPU 16 numeric regressions;
+instruction-count reductions alone are not a sufficient selection criterion.
+Compiled-Off, compiler/resource, platform and release acceptance remain open.
+
 #### Byte tag loads — explicit zero extension
 
 `146cdff` replaces strided `load.i8` plus `uextend.i64` with `uload8.i64`.
