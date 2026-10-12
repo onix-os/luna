@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-12
 
-#### Wide prepared-helper ABI: generated-call model, not runtime activation
+#### Wide prepared-helper ABI: compiler validated, runtime trial withdrawn
 
 `cc5397f` and `be37d28` probe a four-argument GetUpTable entry: host, scratch,
 packed operands plus the full 32-bit PC in one u64, and the seeded hash in
@@ -70,11 +70,67 @@ installation. Exact-workspace-limit and one-byte-below checks release snapshot
 charges and executable mappings; unsupported register-key sources refuse the
 experimental selection. These are compiler-path tests, not full-runtime speedups.
 
-Next measure an experimental full-runtime activation without changing workload
-or acceptance thresholds. Only that comparison can establish whether the
-component saving survives native entry and register-allocation costs.
+The subsequent runtime trial below does not justify production activation.
 Evidence: `target/jit-evidence/short-slice-performance/wide-helper-*`.
 Compiler evidence: `target/jit-evidence/short-slice-performance/wide-compiler-*`.
+
+The full baseline `make jit-test jit-heap check check-all` passed, including
+1,325 library tests with ten explicitly ignored tests and the integration
+suite. A fresh opt-level-3, unstripped control was frozen at `e36cd80` before
+temporarily enabling the compiler path. Native18, heap20, upvalue7 and
+resource28+3+3+14 tests passed for that activation. Each subsequent inlining
+variant reran the compiler differential and heap tests before measurement.
+
+Four immutable runtime candidates were profiled against that same control:
+
+| Candidate | Metamethod instructions | Callback instructions |
+| --- | ---: | ---: |
+| Control, six arguments | 78,474,542 | 126,201,876 |
+| Four arguments, default inlining | 78,753,080 | 127,433,760 |
+| Inline prepared helper body | 78,559,205 | 126,461,220 |
+| Also inline table borrow wrapper | 78,585,055 | 126,590,811 |
+| Also inline raw prepared lookup | 78,415,186 | 125,812,860 |
+
+All four profiles confirm execution of `helpers::wide::direct`. Default
+inlining outlines the prepared lookup that was inline in the control;
+inlining it exposes additional outlined table wrappers. The final variant
+saves six instructions per callback table read, 0.3082% of that full workload,
+and 0.0756% in the metamethod workload. These are instruction counts, not
+elapsed-time improvements. All eighteen smoke records and profile records
+retain execution counts, native coverage, helper outcomes and retained
+resources. The only non-timing differences are charged snapshot peaks:
+44 extra bytes in callbacks and Oslo predicates, 28 in metamethods.
+
+The final variant then completed two independently audited hardware screens:
+48 checked commands, 864 timing-summary rows and 432 workload gates. Each
+screen rotates control/candidate/same-image-placebo through four windows on
+CPUs 0 and 16, using all nine unchanged workloads and eleven alternating
+Off/Auto samples. Image/source hashes, identical hardlink launch paths,
+coverage, resource differences and external-contention telemetry are retained.
+No owned build, test or profiler overlapped these timing runs.
+
+Callback Auto control/candidate median time ratios are 1.0055/0.9897 in the
+first screen and 0.9923/1.0010 in the repeat, for CPUs 0/16 respectively.
+Same-image-placebo ratios are 1.0411/0.9879 and 0.9946/1.0052. This does not
+establish a reproducible callback improvement. CPU16 compiled-Off callbacks
+regress in both screens: control/candidate ratios 0.8877 and 0.9423, while
+placebo ratios are 1.0031 and 1.0025. A roughly twofold shared timing excursion
+in the first CPU0 screen remains in the raw evidence rather than being removed.
+Only four of sixteen candidate aggregate checks pass; those passes do not
+override the compiled-Off regression or establish full-plan acceptance.
+
+The temporary runtime activation and all three inline annotations are removed.
+The validated compiler experiment remains test-only. Formatting, compiler3+
+prepared9 tests and all-feature checks pass after withdrawal. The default
+benchmark is rebuilt and byte-identical to the frozen control (SHA256
+`73b609225834a42f9a2501be785a4f3fdd33d4e10dbf29eab15c3b03eef6090c`);
+all eighteen fresh non-timing smoke records match exactly. Evidence, patches,
+immutable executables and independent audits are under
+`target/jit-evidence/short-slice-performance/wide-runtime/`, including
+`{candidate,inline,inline_table,inline_raw}-audit.json` and both
+`screen{,-repeat}/audit.json`. The remaining performance work must remove
+larger runtime costs without moving those costs into compiled-Off execution;
+the isolated helper ABI saving is not sufficient.
 
 #### Guarded built-in call fusion: hardware tradeoff rejected
 
