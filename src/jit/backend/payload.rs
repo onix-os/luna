@@ -30,6 +30,9 @@ mod same_tag;
 mod terminal;
 mod writes;
 
+#[cfg(test)]
+pub(super) mod strided;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::jit) enum Contract {
     Checked,
@@ -43,6 +46,7 @@ pub(in crate::jit) enum EntryKind {
     Checked = 1,
     Packed = 2,
     FrameBound = 3,
+    Strided = 5,
 }
 
 impl EntryKind {
@@ -1077,6 +1081,17 @@ impl Code {
             "ordinary entry requires scalar slots"
         );
         assert_eq!(frame.slot_count, self.registers);
+        if self.entry_kind == EntryKind::Strided {
+            use crate::jit::abi::strided::frame;
+            type StridedEntry =
+                unsafe extern "C" fn(*mut frame::Header, u64, u32, *mut Exit, *mut frame::Bridge);
+            let entry: StridedEntry = unsafe { std::mem::transmute(self.entry) };
+            let mut exit = Exit::default();
+            frame::with_frame(frame, self.strided_prepared, |header, host| unsafe {
+                entry(header, pc as u64, budget.min(64), &mut exit, host);
+            });
+            return exit;
+        }
         type Entry = unsafe extern "C" fn(*mut Payload, u64, u32, *mut Exit, *mut Bridge);
         let entry: Entry = unsafe { std::mem::transmute(self.entry) };
         let mut exit = Exit::default();

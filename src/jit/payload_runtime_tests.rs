@@ -1,6 +1,8 @@
 use super::*;
 use crate::{Closure, Executor, Fuel, Lua, StashedExecutor};
 
+mod strided_profile;
+
 fn state(mode: JitMode, payload: bool) -> Lua {
     let mut lua = Lua::core();
     lua.load_debug();
@@ -109,6 +111,16 @@ fn bound_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
 }
 
 #[test]
+fn strided_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
+    payload_runtime_contract(backend::Failure::RequireStrided);
+}
+
+#[test]
+fn strided_runtime_nil_fanout_preserves_every_register_prefix() {
+    nil_fanout_contract(backend::Failure::RequireStrided);
+}
+
+#[test]
 fn hybrid_runtime_preserves_steps_callbacks_upvalues_gc_and_array_kernels() {
     payload_runtime_contract(backend::Failure::PreferBoundPayload);
 }
@@ -197,6 +209,7 @@ fn payload_runtime_contract(failure: backend::Failure) {
                     }
                     cached.code.entry_kind == match failure {
                         backend::Failure::RequirePackedPayload => backend::EntryKind::Packed,
+                        backend::Failure::RequireStrided => backend::EntryKind::Strided,
                         backend::Failure::RequireBoundPayload | backend::Failure::RequireSparsePayload | backend::Failure::RequireWriteBoundPayload => backend::EntryKind::FrameBound,
                         _ => backend::EntryKind::Checked,
                     }

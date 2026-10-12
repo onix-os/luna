@@ -34,12 +34,29 @@ unsafe extern "C" fn helper<const KIND: u32>(
     c: u32,
     pc: u32,
 ) -> u32 {
+    unsafe { helper_selected::<KIND, false>(header, data, a, b, c, pc) }
+}
+
+unsafe extern "C" fn helper_selected<const KIND: u32, const PREHASHED: bool>(
+    header: *mut Header,
+    data: *mut (),
+    a: u32,
+    b: u32,
+    c: u32,
+    pc: u32,
+) -> u32 {
     unsafe { header.write(Header::retired()) };
     let session = unsafe { &mut *data.cast::<Session<'_, '_, '_, '_, '_>>() };
     if let Some(status) = session.terminal {
         return status;
     }
-    let result = helpers::call_direct::<KIND>(unsafe { session.frame.as_mut() }, a, b, c, pc);
+    let result = helpers::call_direct_selected::<KIND, PREHASHED>(
+        unsafe { session.frame.as_mut() },
+        a,
+        b,
+        c,
+        pc,
+    );
     if result == abi::HELPER_COMPLETED {
         unsafe { header.write(session.bind()) };
     } else {
@@ -127,3 +144,5 @@ pub(in crate::jit) fn probe<const KIND: u32>(
 mod native;
 
 mod tests;
+
+mod prepared;

@@ -233,6 +233,8 @@ pub(super) struct Code {
     #[cfg(test)]
     pub(super) entry_kind: payload::EntryKind,
     #[cfg(test)]
+    strided_prepared: bool,
+    #[cfg(test)]
     binding_requirements: Option<payload::binding_requirements::Requirements>,
     #[cfg(test)]
     pub(super) packed_integer_loop: bool,
@@ -359,6 +361,7 @@ pub(super) enum Failure {
     RequirePayloadLoop,
     RequirePayloadTags,
     RequireBoundPayload,
+    RequireStrided,
     PreferBoundPayload,
     RequireSparsePayload,
     RequireWriteBoundPayload,
@@ -780,6 +783,7 @@ fn compile_selected_rooted(
             | Failure::RequirePayloadLoop
             | Failure::RequirePayloadTags
             | Failure::RequireBoundPayload
+            | Failure::RequireStrided
             | Failure::RequireSparsePayload
             | Failure::RequireWriteBoundPayload
             | Failure::RequirePackedPayload
@@ -815,12 +819,17 @@ fn compile_selected_rooted(
             | Failure::RequirePayloadLoop
             | Failure::RequirePayloadTags
             | Failure::RequireBoundPayload
+            | Failure::RequireStrided
             | Failure::RequireSparsePayload
             | Failure::RequireWriteBoundPayload
             | Failure::RequirePackedPayload
             | Failure::AuditPackedLowering
     ) {
-        payload::expansion(snapshot, work)?
+        if failure == Failure::RequireStrided {
+            payload::strided::expansion(snapshot, work)?
+        } else {
+            payload::expansion(snapshot, work)?
+        }
     } else {
         expansion
     };
@@ -890,7 +899,7 @@ fn compile_selected_rooted(
         && (failure == Failure::None
             || matches!(
                 failure,
-                Failure::CorruptHelperFlow(_) | Failure::WidePrepared(_)
+                Failure::CorruptHelperFlow(_) | Failure::WidePrepared(_) | Failure::RequireStrided
             ))
         && !selection.leaf
         && !selection.cell_kernel
@@ -1010,6 +1019,7 @@ fn compile_selected_rooted(
                     | Failure::RequirePayloadLoop
                     | Failure::RequirePayloadTags
                     | Failure::RequireBoundPayload
+                    | Failure::RequireStrided
                     | Failure::RequireSparsePayload
                     | Failure::RequireWriteBoundPayload
             ) {
@@ -1402,6 +1412,7 @@ fn compile_selected_rooted(
             | Failure::RequirePayloadLoop
             | Failure::RequirePayloadTags
             | Failure::RequireBoundPayload
+            | Failure::RequireStrided
             | Failure::RequireSparsePayload
             | Failure::RequireWriteBoundPayload
             | Failure::RequirePackedPayload
@@ -1590,6 +1601,7 @@ fn compile_selected_rooted(
             | Failure::RequirePayloadLoop
             | Failure::RequirePayloadTags
             | Failure::RequireBoundPayload
+            | Failure::RequireStrided
             | Failure::RequireSparsePayload
             | Failure::RequireWriteBoundPayload
     ) {
@@ -1604,6 +1616,7 @@ fn compile_selected_rooted(
             if matches!(
                 failure,
                 Failure::RequireBoundPayload
+                    | Failure::RequireStrided
                     | Failure::RequireSparsePayload
                     | Failure::RequireWriteBoundPayload
             ) {
@@ -1614,6 +1627,15 @@ fn compile_selected_rooted(
         )?;
         if failure == Failure::RequirePayloadTags && proven_writes == 0 {
             return Err(JitError::Compilation("no proven payload tag writes".into()));
+        }
+        if failure == Failure::RequireStrided {
+            payload::strided::lower(
+                &mut context.func,
+                parameters[0],
+                snapshot.registers,
+                snapshot.operations.allocator().clone(),
+                expansion,
+            )?;
         }
         cranelift_codegen::verify_function(&context.func, module.isa())
             .map_err(|error| JitError::Compilation(error.to_string()))?;
@@ -2059,6 +2081,8 @@ fn compile_selected_rooted(
         #[cfg(test)]
         entry_kind: if failure == Failure::RequirePackedPayload {
             payload::EntryKind::Packed
+        } else if failure == Failure::RequireStrided {
+            payload::EntryKind::Strided
         } else {
             payload::EntryKind::from_contract(match failure {
                 Failure::RequireBoundPayload
@@ -2070,6 +2094,8 @@ fn compile_selected_rooted(
                 _ => None,
             })
         },
+        #[cfg(test)]
+        strided_prepared: failure == Failure::RequireStrided && prepare_keys,
         #[cfg(test)]
         binding_requirements,
         #[cfg(test)]

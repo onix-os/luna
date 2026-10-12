@@ -11,6 +11,181 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Typed strided VM transport — integrated candidate, not a shipping selection
+
+`59fbb1b`, `70737fa` and `f5e7490` move the experiment beyond the one-field
+lookup probe. A test-selected `RequireStrided` entry now compiles real Lua
+snapshots, owns its generated code through the existing cache/lease machinery,
+and executes through the real VM's canonical-frame path. The ordinary shipping
+transport and Off default are unchanged.
+
+The frame header contains one canonical allocation base, measured per-kind
+payload offsets and byte tags for the register prefix. Boolean, integer and
+number fields remain in the public `Vec<Value>`; nil and reference descriptors
+have null field pointers. Native writes touch only existing scalar fields.
+Type-changing writes and reference copies materialize through Rust, rather than
+writing private enum discriminants. Helper boundaries retire the old base before
+canonical reborrows and renew its provenance afterwards. Prepared helpers use
+the same verified packed operands and full hash as the ordinary compiler.
+
+The backend first applies the existing source/effect-verified FrameBound
+lowering, then replaces descriptor loads with checked header-address patterns.
+The second pass preserves SSA results, independently checks emitted addresses,
+tag bounds, widths, memory flags and null selection, and charges its rewrite
+records and instruction expansion. Mutation tests reject altered patterns;
+quota failures preserve the original IR and release temporary records.
+
+The initial integration passes all seven frozen workloads with identical results
+and all 25 compared execution counters. It also passes 24 script families across
+eight initial fuel budgets, with subsequent interruption/GC/slice checks against
+both the interpreter and ordinary JIT, and resource refusal/recovery checks.
+The 1–256-register nil fanout test initially found an undercounted expansion
+bound. The strided preflight now charges the additional 17 instructions per nil
+destination and still rejects the unchanged configured limit when insufficient;
+all 256 widths pass. This fixes candidate accounting, not a production failure.
+
+The first integrated image (`strided-runtime/`, SHA-256
+`1e8d0eb8c49d7de6ea0f4f94d7e92455f81cd1768972aefff82a5d114ead98ac`) has
+16 software profiles: four complete frozen workloads, both transports, two
+repeats. Collection covers one complete execution after two warmups, including
+actual callback bodies. Every pair preserves the 25 execution counters; both
+repeats agree. It does **not** reproduce the one-field component saving:
+
+| Full workload | Ordinary instructions | Initial strided instructions | Change |
+| --- | ---: | ---: | ---: |
+| Rust callbacks | 10,754,709 | 13,170,748 | +22.465% |
+| Closure/upvalue | 32,916,853 | 36,372,192 | +10.497% |
+| Integer loop | 1,102,903 | 1,382,962 | +25.393% |
+| Float loop | 1,139,463 | 1,363,111 | +19.627% |
+
+Callback and numeric mapped code grow from 4,096 to 8,192 bytes; the upvalue
+case grows from 20,480 to 24,576 bytes. These regressions prevent production
+selection. The initial full Force suite passes 1,868 tests / 87 summaries,
+with 13 ignored. Optimized runtime/resource tests and native Memcheck pass;
+Memcheck reports zero errors/definite/indirect leaks, with 48 possibly lost and
+632 reachable bytes. Stacked/Tree Miri validate the Rust frame lifecycle and
+the address-checking pass, not generated instructions.
+
+`4fe8b16` uses `Transport::write` and `write_alias` to refresh only
+changed kind metadata after helpers, while still ending and renewing the whole
+canonical pointer loan. It does not persist a raw view across callbacks or rely
+on a private-stack version counter. Its dedicated alias test covers all scalar
+kinds and references, with open upvalues both inside and outside the compiled
+prefix. Both Miri models pass the four frame/helper tests (seeds 92/93).
+
+Its separately frozen image (`strided-runtime-tracked/`, SHA-256
+`844576b9c4991389f970afadfeb9e9c9154dad01528616fa892d81560ec7fccb`)
+has another 16 paired profiles with exact counter parity and repeated totals:
+
+| Full workload | Ordinary instructions | Tracked strided instructions | Change |
+| --- | ---: | ---: | ---: |
+| Rust callbacks | 10,754,709 | 12,605,394 | +17.208% |
+| Closure/upvalue | 32,916,853 | 36,248,419 | +10.121% |
+| Integer loop | 1,102,903 | 1,439,601 | +30.528% |
+| Float loop | 1,139,463 | 1,420,874 | +24.697% |
+
+Tracking removes 565,354 callback instructions from the initial candidate, but
+the result remains worse than ordinary transport; numeric cases get worse.
+The code-page increases are unchanged. Profiles now expose an outlined
+`Header::update` routine; its call/classification costs and the generated address
+expansion need investigation, not a claim that eliminating scans automatically
+improves every workload. Optimized runtime/resource tests and both native
+Memcheck selections pass with the same residual-allocation counts as above.
+Neither candidate is a production performance fix or accepted selection policy.
+The callback annotation attributes 1,360,326 instructions (10.79%) to
+`Header::update`, giving the next optimization a measured target. The final
+tracked-write Force workspace/all-target run passes **1,869 tests / 87
+summaries**, with 13 ignored; no/all-feature compilation and formatting pass.
+No hardware timing or acceptance-threshold changes were used.
+
+Evidence is under `target/jit-evidence/short-slice-performance/strided-runtime/`
+and `strided-integrated-*`, with the tracked-write follow-up under
+`strided-runtime-tracked/` and `strided-tracked-*`. Tracked targets are `make jit-strided-frame`,
+`jit-strided-backend`, `jit-strided-runtime`, their available Miri counterparts,
+and `jit-strided-runtime-profile-{build,run}`. Full performance, production
+selection, public retained-alias/relocation stress, projections and platform/
+release acceptance remain open. The historical component-only sections below
+describe earlier stages, not the current integration coverage.
+
+#### Prepared strided lookups — helper-inclusive savings, no runtime selection
+
+`a83abd5` shares `Frame::prehashed_up_table` through the existing `Transport`
+trait, rather than duplicating lookup semantics or replacing the prepared lookup
+with a generic key lookup. Test-only direct/strided adapters preserve the packed
+operand word, both halves of the process-seeded hash and the full 32-bit PC.
+`d020e9b` adds independent expected-value/control assertions to the differential.
+
+Rust and generated controllers each pass **288 comparisons**: eight value forms,
+twelve scenarios and three PCs. Cases include open aliases, reserved operand
+bits, invalid constant/upvalue/destination indices, borrowed-table panics,
+initially noninteger admission and a perturbed hash. Hash perturbation checks
+lookup parity, not a new runtime hash-rejection guarantee; source verification
+still supplies valid prepared hashes. Both controllers preserve canonical values,
+all helper counters, fuel, PC, panic state and the separate readiness result.
+The first run caught a packed-control bug: an initially retired header was not
+restored after the helper produced an integer. The corrected control and failed
+debug/Miri attempts are retained; this was not a production runtime bug.
+
+Eight immutable software profiles compare full packing/writeback plus the actual
+`PREHASHED_ENTRY` against scoped admission plus the shared prepared canonical
+helper. Each runs 100,000 generated arithmetic/lookup transitions. The callback
+shape derives its width and operands from the frozen `rust_callbacks` source,
+but does **not** execute the whole script or call the returned callback; the
+probe explicitly asserts zero callback invocations. It admits only the one
+integer field used by this component's arithmetic, not a whole-function mask.
+
+| Component | Packed instructions | Strided instructions | Change |
+| --- | ---: | ---: | ---: |
+| Single-slot scalar lookup | 39,200,026 | 38,200,028 | -2.551% |
+| Seven-slot callback lookup | 55,500,020 | 41,700,028 | -24.865% |
+
+Both repeats reproduce these instruction totals and validate every result,
+helper counter, PC and fuel value. These are helper-inclusive component savings,
+not elapsed-time measurements or a production callback speedup. Their images are
+frozen at `a83abd5`; the later assertion-only commit has separate optimized/native
+validation evidence.
+
+The shared signature changes the production image from
+`73b609225834a42f9a2501be785a4f3fdd33d4e10dbf29eab15c3b03eef6090c` to
+`ab7a3efa30ae82b7b64cd06d84d5da6b8b9ce5333eecca8b4dab77aec6ef9760`.
+A bytewise ELF audit resolves relative relocations and verifies **exactly nine
+changed bytes**, all source-line numbers in `src/jit/helpers.rs` panic locations;
+all other bytes, including executable code, are identical. Size categories match.
+Four full callback profiles preserve every non-timing execution/resource field.
+The control records 126,201,795 then 126,201,876 instructions; the shared image
+records 126,201,876 twice. The 81-instruction difference also occurs between runs
+of the same immutable control, so exact instruction equality is not claimed for
+all pairs. No hardware timing or performance-acceptance gate was substituted.
+
+Final prepared tests pass under both Miri models (seeds 87/88), in an optimized
+image and under native Memcheck. Memcheck reports zero errors and no definite or
+indirect leaks, while retaining 48 possibly lost and 632 reachable bytes. The
+earlier adapter version also passed Miri seeds 85/86 and optimized/native checks. Final
+Force-mode workspace/all-target tests pass **1,857 tests / 87 summaries**, with 12
+ignored; the same log includes a separate two-test prepared preflight. Focused
+ABI/native/heap/upvalue/prepared-key/wide-compiler/wide-helper checks and final
+formatting/no/all-feature compilation pass.
+
+The first binary audit incorrectly depended on `cmp -l` exit status, then omitted
+PIE filename relocations; both failed attempts remain beside the corrected
+bytewise/relocation-aware audit. A first profile audit assumed exact instruction
+equality; repeated controls disproved that assumption. The final report retains
+all raw deltas and explicitly marks performance acceptance false.
+
+Strided VM selection, source/effect and complete scalar-domain verification,
+actual callback/GC/relocation behavior, projections, code ownership/resource
+accounting and whole-runtime performance acceptance remain open. Do not replace
+those requirements with this component result or reduce native coverage to make
+an integer-only mode pass.
+
+Evidence: `target/jit-evidence/short-slice-performance/strided-prepared/`,
+`strided-prepared-oracle/`, `strided-prepared-runtime/`,
+`strided-prepared-{validation,final-full,final-checks,final-audit}.log` and
+`strided-prepared-oracle-miri-{stacked,tree}.log`. Reproduction uses
+`make jit-strided-prepared`, `jit-strided-prepared-miri` and
+`jit-strided-prepared-profile-{build,run}`; ignored audit scripts and
+`strided-prepared-tools.mk` preserve the artifact and complete-record checks.
+
 #### Strided helper transitions — actual helpers verified, VM integration open
 
 `f4d51bd` extends the strided experiment across Luna's ten generic helper
