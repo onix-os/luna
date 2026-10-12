@@ -11,6 +11,85 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Universal alias-region experiment — measured, no useful gain
+
+`1b98403` implements the previously proposed single-region experiment on the
+ordinary scratch transport. It is selected only by test-only
+`Failure::RequireUniversalMemory`; production lowering and the Off default are
+unchanged. Integer-loop augmentation and prepared-key helpers remain enabled.
+
+The pass runs after the existing source checks and lowering. It assigns one
+region to actual memory instructions, retaining every other memory flag. It
+makes no claim that two buffers or registers cannot overlap. The emitted checker
+normalizes the changed flag handles/tables and requires full `Function` equality
+with the verified source, including control flow, signatures and other metadata.
+The source is replaced only after verification succeeds. Calls remain fences in
+the pinned Cranelift implementation; trap/alignment/readonly/endian flags remain
+unchanged. Native tests execute both overlapping and separate input addresses,
+including a helper that mutates memory between loads.
+
+An initial integration failure exposed an important API detail:
+`InstructionData::memflags()` also returns flags for `bitcast`, which uses the
+`LoadNoOffset` instruction format but is not a memory operation. Annotating it
+fails Cranelift verification. Selection now checks `can_load`/`can_store`, retains
+the original flag table and includes integer/float bitcast round trips in the
+native fixture. Global-value loads and unflagged non-call loads are refused
+rather than left outside the access classification.
+
+The pass admits at most 32 source flag entries, reserves 16 KiB for bounded
+additional flag/region tables through compiler destruction, and uses fallible
+ledger-backed verification records. Tests cover exact quota boundaries,
+oversized tables, malformed/uncovered reads, repeated application and atomic
+refusal. This is **not** complete compiler accounting: the cloned function and
+other Cranelift transient allocations remain within the previously documented
+unaccounted compiler-workspace scope. No resource or release gate is closed.
+
+The immutable optimized test image was profiled for all seven frozen workloads,
+twice per selection, with the pair order reversed on the second round. Each run
+warms twice and collects one complete execution. All 28 profiles preserve the
+expected result and all 25 execution-counter deltas. Instruction results:
+
+| Workload | Round 0 ordinary / candidate | Round 1 ordinary / candidate |
+| --- | ---: | ---: |
+| Integer loop | 1,102,903 / 1,102,903 | 1,102,903 / 1,102,903 |
+| Float loop | 1,139,463 / 1,139,463 | 1,139,463 / 1,139,463 |
+| Array table | 2,720,913 / 2,723,961 | 2,721,584 / 2,721,259 |
+| Closure/upvalue | 32,916,853 / 32,918,809 | 32,916,853 / 32,916,853 |
+| Polymorphic/metamethod | 7,457,495 / 7,464,580 | 7,465,092 / 7,464,580 |
+| Rust callbacks | 10,754,709 / 10,754,709 | 10,754,709 / 10,754,709 |
+| Allocation/GC | 3,612,099 / 3,612,040 | 3,609,316 / 3,609,311 |
+
+Mapped code sizes match in every pair. Numeric and callback counts are exactly
+unchanged; the other differences are small and inconsistent, not evidence of a
+useful improvement. **Do not promote this pass as a performance fix.** These are
+software instruction profiles, not elapsed-time acceptance measurements.
+
+Focused validation passes seven tests, including the 24-script/eight-initial-fuel
+runtime matrix, all 256 nil-prefix widths and the seven frozen workloads.
+The three compiler/model tests pass Stacked Miri seed 99 and Tree Miri seed 100;
+Miri does not execute generated code. Optimized native validation also passes all
+seven tests. Native Memcheck passes the overlapping/helper-clobber fixture and
+all seven workloads with zero errors or definite/indirect leaks; the workload
+process retains the prior 48 possibly lost and 632 reachable bytes.
+The complete Force workspace/all-target suite passes **1,878 tests / 87
+summaries**, 14 ignored. `make check`, `make check-all` and `make fmt-check` also
+pass; the combined log is `universal-memory-force.log`.
+
+Evidence: `target/jit-evidence/short-slice-performance/universal-memory-runtime/`,
+image SHA-256 `f7339d428b48f673785d4233ee8f1fc555568b1d8bdc59921e2136b8692f4c52`,
+source revision `1b98403`, source/binary manifests, 28 profiles and `audit.json`.
+Focused/build/profile/Miri/Memcheck logs use the `universal-memory-*` prefix.
+
+The next alias-analysis investigation should distinguish proven nonoverlapping
+scratch fields, not merely rename all memory with one region. Ordinary lowering
+uses eight-byte tag/payload accesses at checked offsets from the same scratch
+base; a store to a tag currently advances the same memory version as payload
+stores. A per-field experiment still needs complete address/range classification,
+proof that exit/host accesses cannot overlap those fields, call invalidation,
+stable region identities, bounded compiler storage and the same workload gates.
+This finer-grained pass is **not implemented**. The strided numeric regressions
+and all elapsed-time/platform/resource/release acceptance gates remain open.
+
 #### Classifier and address costs — measured reductions, rollout still withheld
 
 Three incremental changes continue the integrated transport experiment:
