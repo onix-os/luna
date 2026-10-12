@@ -133,10 +133,10 @@ table-access-miri:
 .PHONY: jit-prehash-model jit-prehash-model-miri jit-prehash-profile-build jit-prehash-profile-run
 PREHASH_DIR ?= target/jit-evidence/short-slice-performance/prehashed-lookup
 jit-prehash-model:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) table::raw::prehashed_tests $(ARGS) | awk '/^test result: ok[.] 3 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) table::raw::prehashed_tests $(ARGS) | awk '/^test result: ok[.] 4 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 jit-prehash-model-miri:
-	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' table::raw::prehashed_tests -- --test-threads=1 | awk '/^test result: ok[.] 3 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' table::raw::prehashed_tests -- --test-threads=1 | awk '/^test result: ok[.] 4 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 jit-prehash-profile-build:
 	@mkdir -p '$(PREHASH_DIR)'
