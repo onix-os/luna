@@ -11,6 +11,60 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Byte tag loads — explicit zero extension
+
+`146cdff` replaces strided `load.i8` plus `uextend.i64` with `uload8.i64`.
+The memory access remains exactly one byte; this is not a wider read of adjacent
+tags. The verifier binds the unsigned-load opcode, I64 result, tag address,
+offset and memory flags. Tag-only reads add no instructions beyond the source
+load, uniform pointer reads add nine and generic pointer reads fourteen. Proven
+numeric-pointer reads and the conservative nil-fanout admission bound are unchanged.
+
+All 28 software profiles pass exact 25-counter parity against their ordinary
+controls and the preceding bound-write image. Both repeats agree for the stable
+cases:
+
+| Workload | Bound-write strided instructions | Byte-load strided | Gap vs ordinary |
+| --- | ---: | ---: | ---: |
+| Rust callbacks | 10,859,997 | 10,819,984 | +0.607% |
+| Closure/upvalue | 32,879,045 | 32,789,196 | -0.388% |
+| Integer loop | 1,101,021 | 1,101,429 | -0.134% |
+| Float loop | 1,101,763 | 1,102,198 | -3.270% |
+
+The callback/upvalue reductions of 40,013/89,849 instructions are entirely in
+captured native code. This is a trade-off: integer/float native work rises by
+408/435 instructions, about 0.04% of the complete workloads, relative to the
+previous image. No universal speedup or elapsed-time acceptance follows.
+Allocation native work falls 480,764 -> 459,001 instructions in both repeats,
+while its full totals vary (3,557,004/3,557,475). Array overhead remains
++2.140%/+2.147%; metamethod totals and their controls also vary. All raw runs
+remain in the evidence rather than selecting only favorable repeats.
+
+Code mappings are unchanged. Float remains 4,056 bytes and allocation falls to
+3,920 bytes, both retaining their 4,096-byte mappings. Callback code is 3,456
+bytes, integer 3,232 and the captured upvalue kernels 3,616 + 865 bytes.
+
+Two new tests reject signed/widened/retargeted/flag-altered loads and execute
+every byte tag at registers 0/6/63/64/255 with nonzero neighboring bytes. The
+14 focused backend tests and no/all-feature compilation/formatting pass. Both
+Miri models pass 11 backend tests (Stacked seed 118, Tree seed 119). The new
+tests pass native Memcheck with zero errors and no definite/indirect leaks;
+48 possibly lost and 632 reachable bytes remain reported. Full Force
+workspace/all-target verification passes **1,914 tests / 87 summaries**, with
+15 ignored diagnostics. Optimized backend/runtime tests pass 14/6 cases, and
+integrated runtime Memcheck passes all six cases with zero errors and no
+definite/indirect leaks; the same possible/reachable allocations remain reported.
+Validation durations are not elapsed-time benchmark evidence.
+
+Evidence: `target/jit-evidence/short-slice-performance/strided-runtime-byte-load/`,
+including `audit.json`, `write-contract-comparison.log` and fully address-mapped
+native costs. Other logs use `strided-byte-load-*`. Image SHA-256:
+`4a10668bb9e930a635984e2eb76b3e47dc753c761dd2171801a6a3217c72b117`.
+Next is repeated paired elapsed-time diagnosis, including ordinary/ordinary
+placebo runs and contention telemetry, rather than assuming instruction counts
+predict latency. Production selection, shipping benchmark and frozen acceptance
+thresholds remain unchanged; full-plan acceptance is still open.
+
 #### Frame-bound writes — redundant pointer checks removed
 
 `c7d10b3` gives generic payload writes an explicit descriptor contract. Checked
