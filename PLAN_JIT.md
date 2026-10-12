@@ -57,13 +57,14 @@ A second image keeps the same identity check but places content equality in a
 private cold, non-inlined fallback. It passes **40 focused tests and nine Miri
 tests**. Its exact-link image checks and eighteen full-context non-timing records
 pass; both no-feature binaries again match the original controls byte-for-byte.
-The full Force suite for this second variant is still running, not inherited
-from the first variant.
+Its own full Force suite passes **1,938 executions / 88 summaries**, with 16
+ignored diagnostics; formatting and all-feature checking also pass.
 
 Callback instructions are **124,777,527**, 1.13% below baseline but 780,075 above
 the first variant. VM self-work increases 780,156 instructions between variants;
 helper and invocation self-work are unchanged in the isolated profile. The
-smaller fallback is not a whole-program instruction improvement over that trial.
+single profile does not establish the variant's instruction effect: the
+fresh-process repeats below change VM work without changing the binary.
 
 Another **47,952 native measured executions** and **181,440 cost workload
 iterations** complete with unchanged thresholds, interleaved controls, shared
@@ -78,9 +79,62 @@ The 21-sample callback control/candidate ratios are CPU0 **1.035386 / 1.027824**
 CPU16 **1.007079 / 1.016104**. The 201-sample repeat retains an unstable CPU0
 window with a **0.431203** same-image placebo; its apparent 1.57x gain is not
 claimed as an optimization. Seven of eight callback gates still fail. The
-runtime patch remains uncommitted and provisional while its remaining costs
-are investigated. Frozen images/logs are under `prepared-identity-outlined*` in
+runtime form is checkpointed in `3abd2d0` as provisional development work while
+its remaining costs are investigated; this does not accept the new cold-cost
+failure. Frozen images/logs are under `prepared-identity-outlined*` in
 the ignored performance directory. This is not full performance acceptance.
+
+#### Native selector boundary — withdrawn; fresh-process attribution corrected
+
+Exact assembly exposes fourteen native transport tier calls inside the VM. A
+trial marks only `Runtime::run` non-inlined, keeping its original guard ordering,
+prepared-code ownership, register selection and counters. The speed cost VM
+shrinks from `0xde08` to `0xd92f` bytes and gains a separate `0x1ea`-byte selector.
+Formatting/checking and **65 focused executions** pass. Three feature images
+have fresh exact-link symbol companions; two cached, byte-identical no-feature
+companions are explicitly reused and reverified, not called fresh captures.
+
+The first callback profile misleadingly suggests an instruction regression:
+**127,768,425** instructions versus the prior **124,777,527**. Three fresh
+processes with the same candidate image instead execute **123,737,277 /
+123,737,277 / 123,737,196**. Three fresh processes with the unchanged prior image
+each execute **123,997,452**. All complete result/resource/counter records match;
+the image hashes remain unchanged. The prior image's 780,156-instruction VM
+difference is therefore not stable and cannot be attributed to fallback
+outlining alone.
+
+An independent raw-PC audit explains the candidate's table-probe variation:
+
+| Same candidate image | Key identity checks | Content fallback calls | Successful value loads |
+|---|---:|---:|---:|
+| Initial process | 129,672 | 64,836 | 64,836 |
+| Each of three fresh processes | 64,836 | 0 | 64,836 |
+
+The initial process checks an extra rejected key for each successful native
+lookup. These are real costs in the process-seeded hash table, not extra Lua
+operations. Longer sampling inside one process does not resample that table
+layout. Keep all observations and add independent process repetitions; do not
+disable hashing randomness or waive existing gates. VM metadata lookups also
+use a map, but this audit does not prove the cause of their variation.
+
+Matched low-probe profiles save roughly **0.21%** of callback instructions, not
+an elapsed-time acceptance result. Three full fresh-process timing campaigns
+complete **13,608 native measured executions** with zero counter/resource
+mismatches. All twelve candidate callback gates still fail. Another **181,440
+cost workload iterations / 216 audited gate reports** produce candidate
+failures **25/72**, versus **11/72** in each prior-image control. Repeated new
+losses include CPU16 shipping allocation (**1.071537 / 1.089526**) and predicate
+(**1.065536 / 1.059279**), and speed integer (**1.051847 / 1.053135**).
+
+The selector annotation is removed. Restored formatting/checking and **65
+focused executions** pass, and Make reproduces the `3abd2d0` benchmark image
+byte-for-byte (`43873296e21d4337aecf8ef44a957c2d434662d70dd7d53746b104855c5cfc64`).
+The cost driver finished all measurements but failed its final audit because a
+path substitution named a nonexistent script. A separate Make recovery verifies
+all original source/tool/image hashes and audits all records; the failed log and
+executed script remain unchanged. No measurement is rerun or omitted to recover
+the audit. Evidence is under `native-selector-outline*`, including the raw-PC
+`probe-variance.json` and disassembly. Full performance acceptance remains open.
 
 ### Progress snapshot — 2026-10-12
 
