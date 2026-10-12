@@ -77,6 +77,22 @@ fn recover(lua: &mut Lua, closure: &StashedClosure) {
     assert_eq!(lua.jit_stats().snapshot_bytes, 0);
 }
 
+fn minimum_workspace(selection: backend::Failure, script: &[u8], peak: usize) -> usize {
+    let mut low = 1;
+    let mut high = peak;
+    while low < high {
+        let limit = low + (high - low) / 2;
+        let mut lua = state(selection, JitConfig::default().max_relocations, limit);
+        let _closure = source(&mut lua, script);
+        match lua.prepare_jit() {
+            Ok(1) => high = limit,
+            Err(JitError::ResourceLimit(_)) => low = limit + 1,
+            result => panic!("unexpected workspace admission: {result:?}"),
+        }
+    }
+    low
+}
+
 #[test]
 fn relocation_admission_matches_emitted_count_for_both_transports() {
     let defaults = JitConfig::default();
@@ -149,6 +165,7 @@ fn workspace_refusal_preserves_source_and_retry_for_both_transports() {
             let peak = probe.jit_stats().snapshot_peak_bytes;
             assert!(peak > 1);
             execute(&mut probe, &closure);
+            let peak = minimum_workspace(selection, script, peak);
             for limit in [peak - 1, peak] {
                 let mut lua = state(selection, defaults.max_relocations, limit);
                 let closure = source(&mut lua, script);

@@ -274,11 +274,15 @@ jit-bench-run:
 jit-bench: jit-bench-build
 	@$(MAKE) --no-print-directory jit-bench-run
 
-.PHONY: jit-pgo-pilot jit-pgo-script-check
-jit-pgo-script-check:
-	@bash -n examples/jit_support/pgo_pilot.sh
+.PHONY: jit-pgo-pilot jit-pgo-script-check jit-pgo-coverage-tests
+jit-pgo-coverage-tests:
+	@bash tests/test-jit-pgo-coverage.sh
 
-jit-pgo-pilot:
+jit-pgo-script-check: jit-pgo-coverage-tests
+	@bash -n examples/jit_support/pgo_pilot.sh
+	@bash -n tests/test-jit-pgo-coverage.sh
+
+jit-pgo-pilot: jit-pgo-script-check
 	@bash examples/jit_support/pgo_pilot.sh '$(PGO_DIR)'
 
 .PHONY: jit-bench-paired-profile-run jit-bench-paired-profile-verify jit-bench-paired-profile-annotate jit-bench-paired-profile-tests

@@ -11,6 +11,130 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Held-out PGO on the integrated batching runtime: not accepted
+
+The unchanged held-out PGO pilot was rerun at `618a4c8`, with the current
+integrated batching runtime rather than reusing an older profile. Training uses
+scripts/callback/metamethod tests in Off/Auto/Force and self-configuring native/
+region tests once; no benchmark workload trains the profile. All 89 training
+and 129 profile-use correctness test executions pass. Eleven raw profiles,
+merged data, complete build logs and source/image manifests are retained.
+
+Training covers the new `Session::complete_inline` dispatch as well as region
+boundaries and rooted calls. Their summed host profile block counters are
+181,415 / 371,025 / 104,926 respectively, not native instruction or invocation
+counts. The candidate build reports 264 missing-profile warnings, including
+held-out executable-specific monomorphizations; this is not a warning-free or
+fully profiled application. Fresh matching control/candidate binaries both use
+`jit,async`, opt-level 3, LTO, one codegen unit, explicit GNU target and stripping.
+
+Two completed screens retain 48 checked commands, 864 summary rows and 432
+workload gates. Each uses four rotated control/candidate/same-image-placebo
+windows on CPUs 0 and 16, eleven alternating Off/Auto samples, matching launch
+paths, unchanged thresholds and contention telemetry. Independent audits verify
+all complete non-timing records are equal, plus source/profile/binary identity.
+No owned build, test, profiler or source edit overlaps hardware timing.
+
+| Control time / PGO time | CPU 0 first / repeat | CPU 16 first / repeat |
+| --- | --- | --- |
+| Callback Auto | 1.1724 / 1.2285 | 1.1373 / 1.1226 |
+| Callback Off | 1.3455 / 1.2269 | 1.2503 / 1.2442 |
+| Upvalue Auto | 1.0433 / 1.1426 | 1.0874 / 1.1014 |
+| Array Auto | 0.8112 / 0.9919 | 0.9812 / 0.9824 |
+| Metamethod Auto | 0.8893 / 1.1230 | 1.1124 / 1.0983 |
+
+Absolute callback gains do not close its relative JIT overhead: all sixteen
+candidate callback gates fail. Array and metamethod gates each fail twelve of
+sixteen windows. Every candidate aggregate fails. The first CPU 0 float Auto
+ratio of 0.6873 does not reproduce (repeat 1.0204); CPU 16 Off-float placebo
+variation is substantial (repeat median 1.3532). Those observations and adverse
+samples remain recorded, not removed or attributed to a hardware cause.
+
+Control/candidate executable sizes are 7,185,760 / 6,150,912 bytes. This is not
+matched no-feature/compiled-Off acceptance. No shipping, new platform or full
+feature-cost acceptance is claimed for PGO, and no default compiler flags change.
+Evidence is under `target/jit-evidence/short-slice-performance/inline-batching-pgo*`.
+
+After timing, the pilot's coverage checker was strengthened to require positive
+inline-batch dispatch coverage. It resets symbol ownership at each new profile
+record and rejects malformed counters, preventing an unrelated function's counts
+from satisfying a missing record. The Make preflight now runs a valid fixture
+and nine refusal cases; the fresh real profile passes the stronger checker.
+
+#### Integrated batching: refreshed compiled-Off and size evidence
+
+Matched stripped speed/shipping artifacts built at `99aba17` retain the
+integrated batching runtime. Sixteen completed checked comparisons cover four
+windows per profile on CPUs 0 and 16, eleven alternating process pairs, twenty
+iterations and all nine original workloads. An independent audit recomputes
+medians and the unchanged 1.05 ceiling from all 352 worker rows; all 144 gate
+records, native Auto proofs and source/artifact checks are complete. No owned
+build, test or profiler overlapped these measurements.
+
+Compiled-Off controls still fail: shipping upvalues in 8/8 windows, shipping
+Oslo in 2/8 and metamethods in 1/8; speed callbacks in 7/8, cold configuration
+in 5/8, upvalues in 4/8 and metamethods in 1/8. Median shipping upvalue overhead
+ratios are 1.0853 on CPU 0 and 1.2459 on CPU 16. Speed callbacks are 1.0605
+and 1.0588. Contention and failed samples remain in the evidence.
+
+Binary sizes (feature-disabled / JIT-enabled) are 1,432,640 / 7,226,768 bytes
+for speed and 1,152,712 / 4,719,632 bytes for shipping. These are size reports,
+not proof of disabled-cost acceptance or a separate numerical size ceiling.
+The native work proof prevents measuring a dead-stripped Off-only executable.
+
+An initial launch outside the Nix environment refused artifact verification:
+the ambient `bash` resolves to an Oslo shim without associative arrays. Those
+sixteen refused commands executed no comparisons and are retained separately,
+not counted as benchmark failures. The corrected Make campaign runs inside
+Nix and refuses incomplete gate output immediately. Evidence is under
+`target/jit-evidence/short-slice-performance/inline-batching-feature-cost/`.
+
+#### Prepared register-table keys: measured and rejected
+
+An ordinary-transport trial extends prepared string hashes from `GetUpTable`
+to eligible constant-string `GetTable` operations, without storing GC addresses
+or changing table equality, current-value reads, weak handling or metamethod
+declines. Register/non-string table keys retain ordinary lookup; their presence
+does not disable existing eligible upvalue-table preparation. Hash storage stays
+optional, charged and released before the existing resource-limited retry.
+
+Twelve focused tests pass, including register-source/destination aliasing,
+non-table receivers, borrowed-table panics, source eligibility, real native
+mutation/GC reads and forty malformed-helper-flow variants. Twenty public heap
+tests pass. The first broad boundary run passes 1,209 tests but fails one
+resource fixture: `peak - 1` admits ordinary compilation after optional hashes
+are dropped. The corrected fixture searches the actual minimum workspace and
+retains exact success/refusal checks at that minimum and one byte below it;
+all three transport-resource tests then pass. The original failure is retained.
+
+The actual metamethod Auto profile executes the new helper and reduces collected
+instructions from 78,314,650 to 76,762,439. Native/interpreted work, helper counts
+and retained code/metadata match; peak snapshot bytes rise from 16,177 to 16,185.
+This is software-profile evidence, not a hardware speedup claim.
+
+Two completed opt-level-3 screens retain 48 checked commands, 864 summary rows
+and 432 workload gates. Each uses four rotated control/candidate/placebo windows
+on CPUs 0 and 16, eleven alternating samples, matching launch paths, unchanged
+thresholds and checked source/image identity. No owned build/test/profile overlaps
+timing. Across-window median control/candidate Auto time ratios are:
+
+| Workload | CPU 0 first / repeat | CPU 16 first / repeat |
+| --- | --- | --- |
+| Metamethod | 0.9838 / 0.9950 | 1.0274 / 1.0146 |
+| Callback | 0.9741 / 0.9735 | 0.9819 / 0.9906 |
+| Upvalue | 0.9857 / 0.9952 | 0.9803 / 0.9742 |
+
+Candidate callback gates fail all sixteen windows and metamethod gates fail
+one of eight windows in each screen. CPU 0 callback placebo medians are 1.0093
+and 1.0013, rather than reproducing the candidate slowdown. CPU 16 metamethod
+gains do not establish a net improvement given the other regressions. No
+shipping, Miri or compiled-Off acceptance is claimed for this candidate.
+
+The runtime and candidate-only tests are removed; the independently useful
+minimum-workspace resource fixture is retained. Candidate patch, binary,
+profiles, tests and both audited screens remain under
+`target/jit-evidence/short-slice-performance/prepared-table-*`.
+
 #### Prepared string-key lookups — incremental improvement integrated
 
 Commits `48d5928`, `69480f5`, `cfef771` and `4f83fa4` were developed and tested
@@ -27391,6 +27515,47 @@ Evidence is under
 `target/jit-evidence/short-slice-performance/inline-loop-integrated-*`, including
 both screen `audit.json` files. Hosted platform CI remains separate from the
 completed local evidence; no full-plan completion is claimed.
+
+### Ordinary native-slice dispatch trial: rejected
+
+The trial routed ordinary compiled slices through ActivationHost rather than
+the interpreter dispatch body, reusing the existing charged code lease and
+canonical resume token. The initial version was inactive for callbacks:
+activation admission required an installed Lua call pair. Its small software
+profile change therefore did not demonstrate execution of the proposed path.
+The enabled version admitted ordinary compiled code and the callback profile
+confirmed native-slice and native-transition execution.
+
+The enabled candidate passed 98 focused tests across region, accounting,
+error, suspension and sequence targets, plus formatting and compilation checks.
+Callback native entries, instruction coverage, helper work and retained code
+and metadata were unchanged. Collected callback Auto instructions nevertheless
+rose from 126,201,795 in the frozen control to 136,118,386 in the candidate.
+Profiled wall times were not treated as hardware evidence.
+
+The completed opt-level-3 hardware screen retained 24 checked commands, 432
+timing-summary rows and 216 workload gates. Four rotated control/candidate/
+same-image-placebo windows ran on each of CPUs 0 and 16, with 11 alternating
+Off/Auto samples per workload. The control was the frozen integrated batching
+binary used by `45d10e4`; all thresholds, workload coverage, image/source hashes,
+matching hardlink launch paths and contention telemetry were checked. No owned
+build, test or profiler overlapped hardware timing.
+
+- Callback median control/candidate time ratios were 0.9076 and 0.8790;
+  same-image placebo ratios were 0.9959 and 0.9571.
+- Metamethod ratios were 0.8560 and 0.8699; placebo ratios were 1.0054 and
+  1.0170. Both candidate workload gates failed in all eight windows.
+- All eight candidate aggregate checks failed. Minor changes in other cases
+  do not offset these regressions or satisfy the original acceptance gates.
+
+The candidate was removed, leaving the committed inline batching runtime
+unchanged. Its tracked patch, new module, source hashes, executable, profile,
+focused-test logs and audited hardware results are retained under
+`target/jit-evidence/short-slice-performance/native-slice-enabled-*`.
+The inactive predecessor remains separately named `native-slice-*`.
+Next work must reduce measured per-entry/helper costs rather than assume that
+moving native entry outside the VM dispatch body is sufficient. Callback,
+metamethod, shipping-array and compiled-Off/size acceptance remain open.
 
 ## 15. Primary references
 
