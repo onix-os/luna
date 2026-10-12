@@ -136,6 +136,33 @@ executed script remain unchanged. No measurement is rerun or omitted to recover
 the audit. Evidence is under `native-selector-outline*`, including the raw-PC
 `probe-variance.json` and disassembly. Full performance acceptance remains open.
 
+#### Narrow register-tier boundary — rejected
+
+This trial keeps admission guards in the VM and outlines only the fourteen
+register-capacity choices. Formatting/checking and **65 focused executions**
+pass; exact-image profiles, source manifests and three fresh callback process
+pairs complete. Low-probe callback work grows from **123,997,452** to
+**124,321,723** instructions. One candidate process reaches **125,101,879**;
+that same-image variation is retained rather than attributed to the patch.
+
+Three native campaigns complete **13,608 measured executions**, with zero
+counter/resource mismatches. Eleven of twelve callback gates fail. Upvalue
+control/candidate ratios range **0.962814–1.001060**, with eleven of twelve
+below one. The narrower boundary does not yield a dependable callback gain.
+Another **181,440 cost workload iterations / 216 audited reports** finish;
+the driver and audits exit successfully. Candidate failures are **14/72**,
+versus **15/72** and **14/72** controls. Speed CPU0 predicate cost introduces
+repeated failures at **1.055860 / 1.054968**; fewer aggregate failures would not
+justify a new regression. All original gates, outliers and contention records
+remain, with no owned validation overlapping timing.
+
+The trial is removed; restoration checks are recorded separately in the
+ignored `native-tier-outline-restored.log`. The frozen patch, binaries, exact
+symbol companions, fresh-process profiles and complete audited timing records
+remain under `target/jit-evidence/short-slice-performance/native-tier-outline*`.
+No candidate full-suite acceptance is claimed. Next investigate the proven
+extra table-key comparisons, not another ungrounded selector-layout change.
+
 ### Progress snapshot — 2026-10-12
 
 #### Borrowed dispatch ownership boundary — rejected
