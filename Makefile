@@ -45,6 +45,7 @@ COST_OPT := $(if $(filter shipping,$(SIZE_PROFILE)),s,3)
 MIRI_TARGET ?= x86_64-unknown-linux-gnu
 MIRI_DIR := target/jit-evidence/miri/$(MIRI_TARGET)
 REGION_PROFILE_DIR ?= target/jit-evidence/short-slice-performance/native-region-profile
+SPLIT_SCRATCH_DIR ?= target/jit-evidence/short-slice-performance/split-scratch-profile
 
 HAS_REL := $(shell command -v git-rel 2>/dev/null)
 
@@ -490,6 +491,38 @@ jit-backend:
 jit-entry-guard:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::entry_guard_tests -- --list | grep -Fx 'jit::backend::entry_guard_tests::arithmetic_entry_guards_preserve_values_and_budget_priority: test'
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::entry_guard_tests $(ARGS)
+
+.PHONY: jit-split-scratch jit-split-scratch-miri
+jit-split-scratch:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::split:: -- --list | grep -Fx 'jit::abi::split::tests::planes_have_bounded_storage_and_aligned_payloads: test'
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::split:: $(ARGS)
+
+jit-split-scratch-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::split:: -- --test-threads=1 | awk '/^test result: ok[.] 4 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+.PHONY: jit-split-scratch-profile-build jit-split-scratch-profile-run
+jit-split-scratch-profile-build:
+	@mkdir -p '$(SPLIT_SCRATCH_DIR)'
+	@CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_STRIP=false $(CARGO) test --locked --release -p luna --features jit --lib $(TARGET_ARG) --no-run --message-format=json-render-diagnostics > '$(SPLIT_SCRATCH_DIR)/build.jsonl'
+	@jq -r 'select(.reason == "compiler-artifact" and .target.name == "luna" and .profile.test and .executable != null) | .executable' '$(SPLIT_SCRATCH_DIR)/build.jsonl' > '$(SPLIT_SCRATCH_DIR)/binary-path'
+	@test "$$(wc -l < '$(SPLIT_SCRATCH_DIR)/binary-path')" -eq 1
+	@cp "$$(cat '$(SPLIT_SCRATCH_DIR)/binary-path')" '$(SPLIT_SCRATCH_DIR)/test-binary'
+	@sha256sum '$(SPLIT_SCRATCH_DIR)/test-binary' > '$(SPLIT_SCRATCH_DIR)/binary.sha256'
+	@{ find src -type f -name '*.rs' -print0; printf '%s\0' Cargo.toml Cargo.lock Makefile; } | sort -z | xargs -0 sha256sum > '$(SPLIT_SCRATCH_DIR)/source.sha256'
+	@{ rustc -vV; $(CARGO) --version; printf 'opt_level=3\nstrip=false\nsteps=100000\ncollection=*split::probe::transport_probe_*\n'; } > '$(SPLIT_SCRATCH_DIR)/configuration'
+
+jit-split-scratch-profile-run: jit-profile-cpu-check
+	@sha256sum -c '$(SPLIT_SCRATCH_DIR)/binary.sha256' '$(SPLIT_SCRATCH_DIR)/source.sha256' > '$(SPLIT_SCRATCH_DIR)/verification-before.log'
+	@valgrind --version > '$(SPLIT_SCRATCH_DIR)/profiler.log'
+	@set -e; for mixed in 0 1; do for split in 0 1; do \
+		LUNA_SPLIT_SCRATCH=$$split LUNA_SPLIT_MIXED=$$mixed taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*split::probe::transport_probe_*' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file='$(SPLIT_SCRATCH_DIR)'/$$mixed-$$split.callgrind \
+			'$(SPLIT_SCRATCH_DIR)/test-binary' jit::abi::split::probe::profile_roundtrip_transport --ignored --exact --nocapture --test-threads=1 > '$(SPLIT_SCRATCH_DIR)'/$$mixed-$$split.log 2>&1; \
+		grep -Fq "split=$$([ $$split = 1 ] && echo true || echo false) mixed=$$([ $$mixed = 1 ] && echo true || echo false) steps=100000 result=100000" '$(SPLIT_SCRATCH_DIR)'/$$mixed-$$split.log; \
+		grep -Fq 'test result: ok. 1 passed; 0 failed' '$(SPLIT_SCRATCH_DIR)'/$$mixed-$$split.log; \
+		grep -Eq '^summary: [1-9][0-9]*' '$(SPLIT_SCRATCH_DIR)'/$$mixed-$$split.callgrind; \
+		callgrind_annotate --inclusive=no --threshold=99 '$(SPLIT_SCRATCH_DIR)'/$$mixed-$$split.callgrind > '$(SPLIT_SCRATCH_DIR)'/$$mixed-$$split-annotation.log; \
+	done; done
+	@sha256sum -c '$(SPLIT_SCRATCH_DIR)/binary.sha256' '$(SPLIT_SCRATCH_DIR)/source.sha256' > '$(SPLIT_SCRATCH_DIR)/verification-after.log'
 
 jit-helpers:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::helpers::tests
