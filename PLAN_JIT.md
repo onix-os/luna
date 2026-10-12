@@ -11,6 +11,48 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Arithmetic entry precheck: rejected at profiling
+
+A fresh canonical operand check was tested before ordinary native scratch
+packing. It declined only Add/Sub/Mul/Div entries with a nonnumeric operand,
+without changing PC, values, fuel or statistics. Numeric strings still fell
+back to the interpreter; each invocation reread current operands rather than
+caching a failed type. No skipped attempt was recorded as a native invocation.
+
+Three candidate tests passed, including direct generated-code guard checks and
+table-to-number-to-table mutation across repeated runtime entries. Another 71
+test executions passed across native execution, numeric exits, errors,
+suspension and helper targets. Formatting and compilation checks passed.
+
+The actual metamethod workload disproved the proposed benefit. Fresh paired
+Callgrind profiles of the frozen integrated control and candidate both report
+25,751 native entries, 12,801 guard exits, 116,239 native bytecodes and 1,021
+interpreted bytecodes. Every non-timing benchmark field matches. Collected CPU
+instructions increase from 78,318,230 to 78,714,091 (0.5055%). Aggregate guard
+counts therefore did not establish avoidable zero-work arithmetic entries;
+the implemented check removes none in this workload. Profiled wall times are
+not hardware performance evidence, and no hardware campaign was started for
+this ineffective candidate.
+
+The production check and opcode accessor were removed. Only a generated-code
+regression test remains: 147,456 invocations cover four arithmetic operators,
+register/constant operands, destination aliases, reference and scalar values,
+numeric strings, NaN/infinities, signed zero and zero-budget priority. It checks
+that failed entry guards preserve all scratch slots and execute no bytecodes.
+Run it with `make jit-entry-guard`.
+
+The retained test passes on GNU and a fresh musl target directory. The existing
+musl target reused an older test binary and initially reported success with
+zero matching tests; that run is not validation. The Make target now requires
+the named test in the harness listing before execution. It rejects that stale
+binary with exit 2 and accepts both current binaries. No claim is made about
+the cause of Cargo's stale reuse.
+
+Candidate source patch, binary/hash, profiles, independent non-timing audit
+and validation logs are retained under
+`target/jit-evidence/short-slice-performance/entry-guard-*`. This is a rejected
+optimization, not a runtime regression fix or progress on performance gates.
+
 #### Held-out PGO on the integrated batching runtime: not accepted
 
 The unchanged held-out PGO pilot was rerun at `618a4c8`, with the current
