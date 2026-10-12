@@ -11,6 +11,73 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Effect-free cycle proofs — further numeric reduction, still experimental
+
+`4d2e0de` adds an opt-in, bounded exact-tag cycle mode for FrameBound
+source lowering and strided pointer lowering. It records active predecessor
+instruction positions in a fixed 32-entry stack route. Revisiting an already
+scanned, effect-free portion closes that cycle; admission still requires a real
+fresh tag guard and every incoming path must pass. Stores and calls still kill
+the proof, including stores after the query on a backedge. Exact INTEGER and
+NUMBER states remain separate; no ambiguous numeric predicate can authorize a
+same-tag write. Depth, work, expansion and configured resource limits are not
+increased. Source and emitted verification remain independent.
+
+The initial all-contract trial made the existing Checked-payload loop fixture
+fail its emitted grammar checker. It was not accepted by weakening that checker:
+legacy Checked admission remains unchanged, and stronger admission is explicitly
+limited to FrameBound/strided. The previously failing fixture now passes.
+Four additional tests cover guarded cycles, helper/store/bypass mutations,
+post-query writes, depth/work exhaustion and 1,024 forward-reachability oracle
+cases. Focused native proof tests pass, and both Miri aliasing models pass the
+eight applicable tag-proof and eight strided-backend tests (seeds 107/108).
+
+The final opt-level-3, symbol-retained image has 28 full-workload software
+profiles (seven cases, both transports, two repeats), with all 25 execution
+counters preserved. The integer/float ordinary controls are unchanged:
+
+| Workload | Previous strided instructions | Cycle-proof strided | Reduction | Remaining gap vs ordinary |
+| --- | ---: | ---: | ---: | ---: |
+| Integer loop | 1,297,083 | 1,225,957 | 5.484% | +11.157% |
+| Float loop | 1,277,067 | 1,204,661 | 5.670% | +5.722% |
+
+Both repeats agree exactly. The entire reduction is generated code: exclusive
+integer native work falls 710,261 → 639,135 and float 690,136 → 617,730.
+The hot loops each execute three fewer instructions per iteration (31 → 28
+integer; 30 → 27 float), accounting for 59,912 fewer dynamic instructions in
+each case; the rest comes from entry/exit code. Mapped numeric code remains
+8,192 bytes versus ordinary's 4,096. Callbacks and upvalues retain their previous
+instruction totals and regressions. Array/metamethod/allocation totals vary;
+all raw results remain in the audit, not converted into a performance pass.
+
+The first matrix showed allocation at 3,873,315 instructions, versus the prior
+3,789,137. A four-process rotated old/new-image diagnostic reproduced both
+totals with the old image and the lower total with the new image. All four
+allocation kernels are **byte-identical**, SHA-256
+`be9fbba03c96d2feb8a0c3837ffd9831570fd4ceea31f0798ee24808b5bb7dba`,
+and execute exactly 669,562 native instructions; the varying work is outside
+that kernel. This is not evidence of an allocation speedup, or justification
+to discard the higher measurements.
+
+A preceding cold-exit layout trial was removed: eight numeric profiles retained
+exactly the previous totals despite passing runtime checks. No more cold-layout
+tweaks are justified by that result alone. The shared native dumper also now
+excludes its ignored native-only test under Miri, fixing a diagnostic build
+failure without changing runtime code.
+
+Final validation passes **1,896 tests / 87 summaries**, 15 ignored, in the Force
+workspace/all-target suite, plus no/all-feature compilation and formatting.
+Optimized tag-proof tests, the formerly failing Checked fixture, strided backend
+and six runtime tests pass. Native Memcheck passes all six runtime tests with
+zero errors and no definite/indirect leaks; the previously observed 48 possibly
+lost and 632 reachable bytes remain reported. Evidence under
+`target/jit-evidence/short-slice-performance/`: `strided-runtime-cycle-final/`
+(image SHA-256 `a6116b69bd434f4a71db0ad64dcd802094e1f63161fd27213f50fa70a4255ae2`),
+`strided-cycle-final-*`, `strided-cycle-allocation-screen/` and
+`strided-runtime-cold-exits/`. Production selection and the production benchmark
+executable are unchanged. Elapsed-time, compiled-Off, whole compiler accounting,
+platform and release acceptance remain open; Off remains the default.
+
 #### Live numeric disassembly — register pressure, not hot pointer predicates
 
 The strided software-profile lane can now save the actual cached kernel bytes
