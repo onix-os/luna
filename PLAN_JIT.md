@@ -11,6 +11,55 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Unsigned scalar range — smaller verified pointer predicates
+
+`5342416` makes uniform and generic strided pointer lowering share the exact I64 predicate
+`(tag - 1) <= 2`, with wrapping subtraction and an unsigned comparison, instead
+of two comparisons plus AND. The accepted types remain BOOLEAN/INTEGER/NUMBER;
+nil/reference pointers remain null. The emitted verifier checks every operand,
+constant, opcode, width and unsigned condition. Actual per-read expansion falls
+11 → 10 instructions for uniform offsets and 16 → 15 for generic offsets; the
+conservative nil-fanout bound and configured limits are unchanged.
+
+All 28 primary software profiles retain the same 25 execution counters. Both
+repeats agree for the stable workloads. Relative to the numeric-union image:
+
+| Workload | Previous strided instructions | Range strided | Gap vs ordinary |
+| --- | ---: | ---: | ---: |
+| Rust callbacks | 10,925,003 | 10,889,997 | +1.258% |
+| Closure/upvalue | 33,089,047 | 32,979,042 | +0.189% |
+| Integer loop | 1,101,354 | 1,101,262 | -0.149% |
+| Float loop | 1,102,179 | 1,102,087 | -3.280% |
+
+The reductions are entirely in captured generated code. Allocation native work
+falls 541,005 → 513,010 instructions; both full-workload repeats report
+3,609,434 versus ordinary's 3,609,316. That near parity is instruction evidence,
+not elapsed-time acceptance. Array still has roughly 2.2% overhead, with
+variation also present in ordinary controls. Metamethod totals vary between
+images; all raw profiles are retained. Kernel bytes fall to 3,344 integer,
+4,184 float, 3,552 callback and 4,128 allocation. Float/allocation still exceed
+a 4,096-byte mapping; no page saving is claimed.
+
+Three new tests reject signed/off-by-one/wrapped-operand/null-selection
+corruption, execute the predicate for every byte tag plus wide integer boundary
+cases, and check native pointer results at registers 0/6/255. Uniform-pointer
+tests cover every byte tag; generic-pointer tests retain their existing 0–4
+runtime-tag contract. Focused backend/runtime tests pass 12/6 cases. Both Miri
+models pass ten backend tests (seeds 113/114). The Force workspace/all-target
+suite passes **1,908 tests / 87 summaries**, with 15 ignored diagnostics;
+no/all-feature compilation and formatting pass. The three new tests pass
+native Memcheck; runtime Memcheck also passes all six tests with zero errors
+and no definite/indirect leaks. The existing 48 possibly lost and 632 reachable
+bytes remain reported.
+
+Evidence: `target/jit-evidence/short-slice-performance/strided-runtime-range/`,
+its `audit.json`, `union-comparison.log` and live kernel maps; other logs use
+`strided-range-*`. Image SHA-256:
+`552ebc80f50cb548c445a9cf55a3addc6e1dc168b50913136507f3d5e16ffaa1`.
+Production transport selection and the benchmark executable are unchanged.
+Elapsed-time, compiled-Off, compiler/resource, platform and release acceptance
+remain open; this does not authorize enabling strided transport by default.
+
 #### Numeric-union read proofs — callback and upvalue gaps reduced
 
 `d58e38b` makes numeric reads ask for a distinct `Tag::Numeric` fact rather than trying
