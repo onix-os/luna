@@ -11,6 +11,31 @@
 
 ### Progress snapshot — 2026-10-13
 
+#### Preferred call-resumption dispatcher — test-only prototype
+
+`84beab8` adds a source selector for one reachable fixed-arity Call enclosed by
+a numeric-loop backedge, with a native post-call operation. It refuses ambiguous,
+variable, unreachable, non-native and non-enclosing cases without adding storage.
+This is a source-shape heuristic, not evidence that the selected PC is hot.
+
+The test-only CLIF prototype keeps the original full-width entry bounds check,
+all operation trampolines and budget headers. Inside the valid-PC dispatcher it
+adds an equality guard leading directly to the selected existing trampoline;
+the original jump-table instruction moves to the false branch. No PC is removed,
+no body is entered past its budget guard, and no value or lease survives a new
+callback boundary. Cranelift verification and an independent restoration check
+compare the remaining original function after removing only the added routing.
+Wrong selected PC, inverted comparison, budget bypass and altered budget checks
+are explicitly refused; invalid preferred indices leave the function unchanged.
+
+The expanded model and existing entry checks pass **52 executions / three
+summaries**; all-feature checking and formatting pass. All **six new model
+tests** also pass under Miri. These are Rust/CLIF checks, **not native execution
+or performance evidence**. The restoration oracle clones/formats functions and
+is not a bounded production verifier. Native all-PC/all-budget differential
+execution, bounded compiler-resource integration and paired profiling/timing
+remain necessary before enabling this route. Shipping dispatch is unchanged.
+
 #### Prepared-key-only identity comparison — improvement with a rejected cost
 
 The earlier general string-key shortcut changed interpreter lookup. This trial

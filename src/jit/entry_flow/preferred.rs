@@ -1,6 +1,101 @@
 use crate::opcode::Operation;
 
 use super::super::{flow::FlowGraph, ir::Snapshot};
+use super::{Block, Function, Inst, IntCC, JitError, Paths, Root};
+use cranelift_codegen::{
+    cursor::{Cursor, FuncCursor},
+    ir::{types, InstBuilder, InstructionData, Opcode},
+};
+
+struct Rewrite {
+    slow: Block,
+    table: Inst,
+    resume: u32,
+}
+
+impl Rewrite {
+    fn apply(
+        plan: Plan,
+        function: &mut Function,
+        paths: &Paths,
+        root: Root,
+    ) -> Result<Self, JitError> {
+        let point = paths
+            .points
+            .get(plan.resume as usize)
+            .ok_or_else(super::invalid)?;
+        let [reduce, table] = super::instructions::<2>(function, root.dispatch)?;
+        let index = super::result(function, reduce, types::I32)?;
+        let InstructionData::BranchTable {
+            opcode: Opcode::BrTable,
+            arg,
+            table: jump_table,
+        } = function.dfg.insts[table]
+        else {
+            return Err(super::invalid());
+        };
+        if !super::same(function, arg, index) {
+            return Err(super::invalid());
+        }
+        let destination = function.dfg.jump_tables[jump_table]
+            .as_slice()
+            .get(plan.resume as usize)
+            .copied()
+            .ok_or_else(super::invalid)?;
+        super::no_args(function, destination, point.trampoline)?;
+        let slow = function.dfg.make_block();
+        function.layout.append_block(slow);
+        function.layout.remove_inst(table);
+        function.layout.append_inst(table, slow);
+        let mut cursor = FuncCursor::new(function);
+        cursor.goto_bottom(root.dispatch);
+        let literal = cursor.ins().iconst(types::I32, i64::from(plan.resume));
+        let equal = cursor.ins().icmp(IntCC::Equal, index, literal);
+        cursor.ins().brif(equal, point.trampoline, &[], slow, &[]);
+        Ok(Self {
+            slow,
+            table,
+            resume: plan.resume,
+        })
+    }
+
+    fn verify(
+        &self,
+        original: &Function,
+        function: &Function,
+        paths: &Paths,
+        root: Root,
+    ) -> Result<(), JitError> {
+        let point = paths
+            .points
+            .get(self.resume as usize)
+            .ok_or_else(super::invalid)?;
+        let [reduce, literal, compare, branch] = super::instructions::<4>(function, root.dispatch)?;
+        let index = super::result(function, reduce, types::I32)?;
+        let value = super::result(function, literal, types::I32)?;
+        if !super::constant(function, value, types::I32, u64::from(self.resume))
+            || !super::compare(function, compare, IntCC::Equal, index, value)
+            || super::instructions::<1>(function, self.slow)? != [self.table]
+        {
+            return Err(super::invalid());
+        }
+        let condition = super::result(function, compare, types::I8)?;
+        let arms = super::conditional(function, branch, condition)?;
+        super::no_args(function, arms[0], point.trampoline)?;
+        super::no_args(function, arms[1], self.slow)?;
+        let mut restored = function.clone();
+        for inst in [literal, compare, branch] {
+            restored.layout.remove_inst(inst);
+        }
+        restored.layout.remove_inst(self.table);
+        restored.layout.append_inst(self.table, root.dispatch);
+        restored.layout.remove_block(self.slow);
+        if restored.display().to_string() != original.display().to_string() {
+            return Err(super::invalid());
+        }
+        Ok(())
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Plan {
@@ -52,6 +147,119 @@ impl Plan {
 mod tests {
     use super::*;
     use crate::types::{RegisterIndex as R, VarCount};
+
+    #[test]
+    fn guarded_route_preserves_every_original_block_and_generic_dispatch() {
+        for length in [1, 2, 7, 17] {
+            for resume in [0, length - 1] {
+                super::super::tests::fixture_with(
+                    length,
+                    None,
+                    |function, _, paths, _, root, _, _| {
+                        let original = function.clone();
+                        let rewrite = Rewrite::apply(
+                            Plan {
+                                resume: resume as u32,
+                            },
+                            function,
+                            paths,
+                            root,
+                        )?;
+                        cranelift_codegen::verify_function(
+                            function,
+                            &cranelift_codegen::settings::Flags::new(
+                                cranelift_codegen::settings::builder(),
+                            ),
+                        )
+                        .unwrap();
+                        rewrite.verify(&original, function, paths, root)
+                    },
+                )
+                .unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_preferred_pc_refuses_without_mutating_the_function() {
+        for resume in [2, u32::MAX] {
+            super::super::tests::fixture_with(2, None, |function, _, paths, _, root, _, _| {
+                let original = function.display().to_string();
+                assert!(Rewrite::apply(Plan { resume }, function, paths, root).is_err());
+                assert_eq!(function.display().to_string(), original);
+                Ok(())
+            })
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn corrupt_pc_polarity_target_and_original_budget_are_refused() {
+        for fault in 0..4 {
+            super::super::tests::fixture_with(
+                2,
+                None,
+                |function, _, paths, headers, root, _, _| {
+                    let original = function.clone();
+                    let rewrite = Rewrite::apply(Plan { resume: 1 }, function, paths, root)?;
+                    let [_, literal, comparison, branch] =
+                        super::super::instructions::<4>(function, root.dispatch)?;
+                    match fault {
+                        0 => {
+                            if let InstructionData::UnaryImm { imm, .. } =
+                                &mut function.dfg.insts[literal]
+                            {
+                                *imm = 0.into();
+                            } else {
+                                unreachable!()
+                            }
+                        }
+                        1 => {
+                            if let InstructionData::IntCompare { cond, .. } =
+                                &mut function.dfg.insts[comparison]
+                            {
+                                *cond = IntCC::NotEqual;
+                            } else {
+                                unreachable!()
+                            }
+                        }
+                        2 => {
+                            let target = cranelift_codegen::ir::BlockCall::new(
+                                paths.body(1),
+                                [],
+                                &mut function.dfg.value_lists,
+                            );
+                            if let InstructionData::Brif { blocks, .. } =
+                                &mut function.dfg.insts[branch]
+                            {
+                                blocks[0] = target;
+                            } else {
+                                unreachable!()
+                            }
+                        }
+                        3 => {
+                            let [_, comparison, _] =
+                                super::super::instructions::<3>(function, headers[1])?;
+                            if let InstructionData::IntCompare { cond, .. } =
+                                &mut function.dfg.insts[comparison]
+                            {
+                                *cond = IntCC::UnsignedLessThan;
+                            } else {
+                                unreachable!()
+                            }
+                        }
+                        _ => unreachable!(),
+                    }
+                    assert!(
+                        rewrite.verify(&original, function, paths, root).is_err(),
+                        "fault {fault}"
+                    );
+                    Ok(())
+                },
+            )
+            .unwrap();
+        }
+    }
 
     fn source() -> Snapshot {
         use crate::opcode::RCIndex;
