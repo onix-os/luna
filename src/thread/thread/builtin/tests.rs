@@ -19,9 +19,10 @@ fn builtin_scope_restores_selection_and_counts_on_unwind() {
 fn builtin_normal_call_admission_preserves_refused_state_and_exact_fuel() {
     let mut admitted = 0;
     let mut refused = 0;
+    let mut lua = Lua::core();
     for case in 0..12 {
         for available in [i32::MIN, 0, 6, 13, 14, 20, 64, i32::MAX] {
-            Lua::core().enter(|ctx| {
+            lua.enter(|ctx| {
                 let callback: Callback = ctx.get_global("setmetatable").unwrap();
                 if case == 11 {
                     ctx.set_debug_hook(Value::Function(callback.into()), true, 1);
@@ -125,7 +126,133 @@ fn builtin_normal_call_admission_preserves_refused_state_and_exact_fuel() {
                     assert_eq!(table.metatable(), original_mt);
                 }
             });
+            lua.gc_collect();
         }
     }
     assert_eq!((admitted, refused), (12, 84));
+}
+
+#[test]
+fn builtin_tail_returns_preserve_caller_shape_and_boundary_fuel() {
+    let mut lua = Lua::core();
+    for case in 0..5 {
+        for available in [13, 14, 64] {
+            lua.enter(|ctx| {
+                let callback: Callback = ctx.get_global("setmetatable").unwrap();
+                let table = Table::new(&ctx);
+                let mt = Table::new(&ctx);
+                let thread = Thread::new(ctx);
+                let mut state = thread.into_inner().borrow_mut(&ctx);
+                let closure = Closure::load(ctx, None, b"return 1").unwrap();
+                state.frames.reserve(3);
+                let bottom = if case == 0 { 0 } else { 3 };
+                if case != 0 {
+                    state.frames.push(Frame::Lua {
+                        bottom: 0,
+                        base: 0,
+                        closure,
+                        is_variable: false,
+                        pc: 1,
+                        stack_size: if case == 4 { 3 } else { 8 },
+                        expected_return: Some(match case {
+                            1 => LuaReturn::Normal(VarCount::constant(1)),
+                            2 => LuaReturn::Normal(VarCount::constant(3)),
+                            3 => LuaReturn::Normal(VarCount::variable()),
+                            4 => LuaReturn::Meta(MetaReturn::Register(RegisterIndex(1))),
+                            _ => unreachable!(),
+                        }),
+                    });
+                }
+                state.frames.push(Frame::Lua {
+                    bottom,
+                    base: bottom,
+                    closure,
+                    is_variable: false,
+                    pc: 1,
+                    stack_size: 5,
+                    expected_return: None,
+                });
+                let storage = state.stack;
+                let mut stack = storage.borrow_mut(&ctx);
+                for number in 0..bottom {
+                    stack.push(Value::Integer(number as i64 + 11));
+                }
+                stack.extend([
+                    Value::Function(callback.into()),
+                    Value::Table(table),
+                    Value::Table(mt),
+                    Value::Integer(42),
+                    Value::Number(-0.0),
+                ]);
+                let before = format!("{stack:?}");
+                let frames_before = format!("{:?}", state.frames);
+                let mut fuel = Fuel::with(available);
+                let (used, hits) = scoped(true, || {
+                    LuaFrame {
+                        #[cfg(all(
+                            not(miri),
+                            target_os = "linux",
+                            any(target_arch = "x86_64", target_arch = "aarch64")
+                        ))]
+                        pair_handoff: None,
+                        state: &mut state,
+                        stack: &mut stack,
+                        fuel: &mut fuel,
+                    }
+                    .try_set_metatable(
+                        ctx,
+                        RegisterIndex(0),
+                        VarCount::constant(2),
+                        None,
+                        3,
+                    )
+                });
+                assert_eq!(used, available > 13);
+                assert_eq!(hits, u64::from(used));
+                if !used {
+                    assert_eq!(format!("{stack:?}"), before);
+                    assert_eq!(format!("{:?}", state.frames), frames_before);
+                    assert_eq!(fuel.remaining(), available);
+                    assert_eq!(table.metatable(), None);
+                    return;
+                }
+                assert_eq!(fuel.remaining(), available - 18);
+                assert_eq!(table.metatable(), Some(mt));
+                assert_eq!(state.frames.len(), 1);
+                let result = if case == 4 { 1 } else { bottom };
+                assert!(matches!(stack[result], Value::Table(found) if found == table));
+                assert_eq!(
+                    stack.len(),
+                    match case {
+                        0 => 1,
+                        3 => 4,
+                        4 => 3,
+                        _ => 8,
+                    }
+                );
+                if case == 0 {
+                    assert!(matches!(state.frames[0], Frame::Result { bottom: 0 }));
+                } else {
+                    let Frame::Lua {
+                        expected_return,
+                        is_variable,
+                        pc,
+                        ..
+                    } = &state.frames[0]
+                    else {
+                        panic!("caller lost")
+                    };
+                    assert!(expected_return.is_none());
+                    assert_eq!(*is_variable, case == 3);
+                    assert_eq!(*pc, 1);
+                    assert!(matches!(stack[0], Value::Integer(11)));
+                    assert!(matches!(stack[2], Value::Integer(13)));
+                    if case == 1 || case == 2 {
+                        assert!(stack[4..].iter().all(|value| value.is_nil()));
+                    }
+                }
+            });
+            lua.gc_collect();
+        }
+    }
 }

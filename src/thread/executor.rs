@@ -1274,9 +1274,10 @@ mod activation_tests {
                                     bottom,
                                     stack_size,
                                     is_variable,
+                                    expected_return,
                                     ..
                                 } => {
-                                    format!("lua:{pc}:{base}:{bottom}:{stack_size}:{is_variable}")
+                                    format!("lua:{pc}:{base}:{bottom}:{stack_size}:{is_variable}:{expected_return:?}")
                                 }
                                 Frame::Callback { bottom, .. } => format!("callback:{bottom}"),
                                 Frame::Sequence {

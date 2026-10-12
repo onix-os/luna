@@ -449,33 +449,12 @@ fn run_vm_slice<'gc>(
                                     returns,
                                 );
                             }
-                            #[cfg(all(test, feature = "jit"))]
-                            if args.to_constant() == Some(2)
-                                && lua_frame.try_set_metatable(
-                                    ctx,
-                                    func,
-                                    args,
-                                    Some(returns),
-                                    instructions_run,
-                                )
-                            {
-                                break;
-                            }
                             lua_frame.call_function(ctx, func, args, returns)?;
                         }
                         crate::opcode::CallTransition::TailCall { func, args } => {
                             #[cfg(all(test, feature = "jit"))]
-                            if args.to_constant() == Some(2)
-                                && lua_frame.try_set_metatable(
-                                    ctx,
-                                    func,
-                                    args,
-                                    None,
-                                    instructions_run,
-                                )
-                            {
-                                break;
-                            }
+                            lua_frame.tail_call_builtin(ctx, func, args, instructions_run)?;
+                            #[cfg(not(all(test, feature = "jit")))]
                             lua_frame.tail_call_function(ctx, func, args)?;
                         }
                         crate::opcode::CallTransition::Return { start, count } => {

@@ -1,13 +1,16 @@
+#[cfg(test)]
 use std::cell::Cell;
 
 use super::*;
 use crate::{IntoValue, MetaMethod};
 
+#[cfg(test)]
 thread_local! {
     static ENABLED: Cell<bool> = const { Cell::new(false) };
     static HITS: Cell<u64> = const { Cell::new(0) };
 }
 
+#[cfg(test)]
 pub(in crate::thread) fn scoped<R>(enabled: bool, run: impl FnOnce() -> R) -> (R, u64) {
     struct Restore(bool, u64);
     impl Drop for Restore {
@@ -23,6 +26,23 @@ pub(in crate::thread) fn scoped<R>(enabled: bool, run: impl FnOnce() -> R) -> (R
 
 impl<'gc> LuaFrame<'gc, '_> {
     #[inline(never)]
+    pub(in crate::thread) fn tail_call_builtin(
+        mut self,
+        ctx: Context<'gc>,
+        function: RegisterIndex,
+        arguments: VarCount,
+        prefix: u32,
+    ) -> Result<(), VMError> {
+        if arguments.to_constant() == Some(2)
+            && self.try_set_metatable(ctx, function, arguments, None, prefix)
+        {
+            Ok(())
+        } else {
+            self.tail_call_function(ctx, function, arguments)
+        }
+    }
+
+    #[inline(never)]
     pub(in crate::thread) fn try_set_metatable(
         &mut self,
         ctx: Context<'gc>,
@@ -31,8 +51,11 @@ impl<'gc> LuaFrame<'gc, '_> {
         returns: Option<VarCount>,
         prefix: u32,
     ) -> bool {
-        if !ENABLED.get()
-            || arguments.to_constant() != Some(2)
+        #[cfg(test)]
+        if !ENABLED.get() {
+            return false;
+        }
+        if arguments.to_constant() != Some(2)
             || returns.is_some_and(|count| count.to_constant() != Some(1))
             || prefix > 64
             || ctx.hook_enabled()
@@ -137,6 +160,7 @@ impl<'gc> LuaFrame<'gc, '_> {
             self.stack[start] = Value::Table(table);
             self.stack[start + 1..].fill(Value::Nil);
         }
+        #[cfg(test)]
         HITS.set(HITS.get() + 1);
         true
     }

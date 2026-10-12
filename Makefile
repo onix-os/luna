@@ -498,7 +498,7 @@ jit-builtin-identity:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::registry::intrinsic_tests:: -- --nocapture
 
 jit-builtin-miri:
-	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::thread::builtin::tests:: -- --test-threads=1 | awk '/^test result: ok[.] 2 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::thread::builtin::tests:: -- --test-threads=1 | awk '/^test result: ok[.] 3 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::registry::intrinsic_tests:: -- --test-threads=1 | awk '/^test result: ok[.] 2 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 jit-loop-direction:
