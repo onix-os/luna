@@ -377,21 +377,23 @@ pub fn load_base<'gc>(ctx: Context<'gc>) {
         }),
     );
 
-    ctx.set_global(
-        "setmetatable",
-        Callback::from_fn(&ctx, |ctx, _, mut stack| {
-            let (t, mt): (Table, Option<Table>) = stack.consume(ctx)?;
-            // A protected metatable refuses replacement, or the protection would be pointless.
-            if let Some(existing) = t.metatable() {
-                if !existing.get_value(ctx, MetaMethod::Metatable).is_nil() {
-                    return Err("cannot change a protected metatable".into_value(ctx).into());
-                }
+    let set_metatable = Callback::from_fn(&ctx, |ctx, _, mut stack| {
+        let (t, mt): (Table, Option<Table>) = stack.consume(ctx)?;
+        // A protected metatable refuses replacement, or the protection would be pointless.
+        if let Some(existing) = t.metatable() {
+            if !existing.get_value(ctx, MetaMethod::Metatable).is_nil() {
+                return Err("cannot change a protected metatable".into_value(ctx).into());
             }
-            t.set_metatable(ctx, mt);
-            stack.replace(ctx, t);
-            Ok(CallbackReturn::Return)
-        }),
-    );
+        }
+        t.set_metatable(ctx, mt);
+        stack.replace(ctx, t);
+        Ok(CallbackReturn::Return)
+    });
+    #[cfg(all(test, feature = "jit"))]
+    ctx.jit_registry()
+        .borrow_mut(&ctx)
+        .register_set_metatable(set_metatable);
+    ctx.set_global("setmetatable", set_metatable);
 
     fn next<'gc>(
         ctx: Context<'gc>,

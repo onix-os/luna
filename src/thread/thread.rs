@@ -13,6 +13,8 @@ use thiserror::Error;
 #[cfg(test)]
 mod tests;
 
+#[cfg(all(test, feature = "jit"))]
+pub(super) mod builtin;
 #[cfg(test)]
 mod callback_setup;
 

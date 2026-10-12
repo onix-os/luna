@@ -18,6 +18,8 @@ pub(super) struct Record {
 
 pub(super) struct Calls {
     pub(super) prepared_keys: bool,
+    #[cfg(test)]
+    pub(super) wide_prepared: bool,
     records: Vec<Record, BudgetAllocator>,
     expected: Option<usize>,
     overflowed: bool,
@@ -66,6 +68,16 @@ fn refused() -> JitError {
 }
 
 impl Calls {
+    pub(super) fn wide_prepared(&self) -> bool {
+        #[cfg(test)]
+        {
+            self.wide_prepared
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
+    }
     #[cfg(test)]
     pub fn corrupt_ownership(&mut self) {
         self.records[0].pc += 1;
@@ -104,6 +116,8 @@ impl Calls {
         records.try_reserve_exact(count).map_err(|_| refused())?;
         Ok(Self {
             prepared_keys: false,
+            #[cfg(test)]
+            wide_prepared: false,
             records,
             expected: Some(count),
             overflowed: false,
@@ -117,6 +131,8 @@ impl Calls {
         }
         Ok(Self {
             prepared_keys: false,
+            #[cfg(test)]
+            wide_prepared: false,
             records: Vec::new_in(snapshot.operations.allocator().clone()),
             expected: Some(0),
             overflowed: false,
@@ -128,6 +144,7 @@ impl Calls {
     pub fn empty(allocator: BudgetAllocator) -> Self {
         Self {
             prepared_keys: false,
+            wide_prepared: false,
             records: Vec::new_in(allocator),
             expected: None,
             overflowed: false,
@@ -186,7 +203,8 @@ impl Calls {
         let InstructionData::Call { func_ref, .. } = function.dfg.insts[record.call] else {
             unreachable!()
         };
-        let args: [Value; 6] = function.dfg.inst_args(record.call).try_into().unwrap();
+        let args = function.dfg.inst_args(record.call).to_vec();
+        let wide = self.wide_prepared() && args.len() == 4;
         match fault {
             Symbol => {
                 let wrong = imports
@@ -201,13 +219,19 @@ impl Calls {
                 *func_ref = wrong;
             }
             Pointer | Operand | ConstantFlag | SourcePc | PreparedLow | PreparedHigh => {
-                let mut values = args;
+                let mut values = args.clone();
                 if fault == Pointer {
                     values.swap(0, 1);
                 } else {
                     let mut cursor = FuncCursor::new(function);
                     cursor.goto_inst(record.call);
-                    let index = if fault == PreparedLow {
+                    let index = if wide {
+                        if matches!(fault, PreparedLow | PreparedHigh) {
+                            3
+                        } else {
+                            2
+                        }
+                    } else if fault == PreparedLow {
                         3
                     } else if fault == PreparedHigh {
                         4
@@ -218,7 +242,15 @@ impl Calls {
                     } else {
                         5
                     };
-                    let wrong = if matches!(fault, PreparedLow | PreparedHigh) {
+                    let ty = if wide { types::I64 } else { types::I32 };
+                    let wrong = if wide {
+                        literal(cursor.func, args[index], ty).unwrap()
+                            ^ match fault {
+                                PreparedHigh | SourcePc => 1 << 32,
+                                Operand => 1 << 24,
+                                _ => 1,
+                            }
+                    } else if matches!(fault, PreparedLow | PreparedHigh) {
                         literal(cursor.func, args[index], types::I32).unwrap() ^ 1
                     } else if fault == ConstantFlag {
                         literal(cursor.func, args[index], types::I32).unwrap()
@@ -226,7 +258,7 @@ impl Calls {
                     } else {
                         123
                     };
-                    values[index] = cursor.ins().iconst(types::I32, wrong as i64);
+                    values[index] = cursor.ins().iconst(ty, wrong as i64);
                 }
                 let list = cranelift_codegen::ir::ValueList::from_slice(
                     &values,
@@ -408,6 +440,9 @@ impl Calls {
             Predecessors::empty(self.records.allocator().clone())
         };
         let mut records = self.records.iter();
+        if self.wide_prepared() && !self.prepared_keys {
+            return Err(invalid());
+        }
         for (pc, &op) in snapshot.operations.iter().enumerate() {
             if self.rooted_moves && matches!(op, Operation::Move { .. }) {
                 continue;
@@ -456,8 +491,11 @@ impl Calls {
                 return Err(invalid());
             }
             let signature = &function.dfg.signatures[function.dfg.ext_funcs[func_ref].signature];
-            if signature.call_conv != function.signature.call_conv
-                || signature.params.iter().copied().ne([
+            let wide = self.wide_prepared() && kind == abi::HELPER_GET_UP_TABLE;
+            let parameters: &[Type] = if wide {
+                &[types::I64, types::I64, types::I64, types::I64]
+            } else {
+                &[
                     types::I64,
                     types::I64,
                     types::I32,
@@ -465,7 +503,13 @@ impl Calls {
                     types::I32,
                     types::I32,
                 ]
-                .map(AbiParam::new))
+            };
+            if signature.call_conv != function.signature.call_conv
+                || signature
+                    .params
+                    .iter()
+                    .copied()
+                    .ne(parameters.iter().copied().map(AbiParam::new))
                 || signature.returns.len() != 1
                 || signature.returns[0] != AbiParam::new(types::I32)
             {
@@ -473,7 +517,7 @@ impl Calls {
             }
             let args = function.dfg.inst_args(record.call);
             let results = function.dfg.inst_results(record.call);
-            if args.len() != 6
+            if args.len() != parameters.len()
                 || results.len() != 1
                 || function.dfg.value_type(results[0]) != types::I32
                 || !same(function, args[0], boundary.host)
@@ -483,13 +527,25 @@ impl Calls {
             {
                 return Err(invalid());
             }
-            for (value, expected) in args[2..]
-                .iter()
-                .copied()
-                .zip(operands.into_iter().chain([pc as u32]))
-            {
-                if literal(function, value, types::I32) != Some(u64::from(expected)) {
-                    return Err(invalid());
+            if wide {
+                let expected = [
+                    u64::from(operands[0]) | ((pc as u64) << 32),
+                    u64::from(operands[1]) | (u64::from(operands[2]) << 32),
+                ];
+                for (&value, expected) in args[2..].iter().zip(expected) {
+                    if literal(function, value, types::I64) != Some(expected) {
+                        return Err(invalid());
+                    }
+                }
+            } else {
+                for (value, expected) in args[2..]
+                    .iter()
+                    .copied()
+                    .zip(operands.into_iter().chain([pc as u32]))
+                {
+                    if literal(function, value, types::I32) != Some(u64::from(expected)) {
+                        return Err(invalid());
+                    }
                 }
             }
             let InstructionData::Brif { arg, blocks, .. } = function.dfg.insts[record.completed]

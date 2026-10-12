@@ -11,6 +11,194 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Wide prepared-helper ABI: compiler validated, runtime trial withdrawn
+
+`cc5397f` and `be37d28` probe a four-argument GetUpTable entry: host, scratch,
+packed operands plus the full 32-bit PC in one u64, and the seeded hash in
+another u64. Public values, stack storage, source admission, production helper
+signatures and native selection remain unchanged. The direct entry expands
+the existing helper macro body, retaining lookup, projection, panic capture,
+PC-before-effects, counters and panic materialization rather than bypassing them.
+
+The first adapter merely converts back to the six-argument Rust entry. Its
+100,000-call generated probe costs 26,300,023 versus 26,100,023 instructions,
+despite reducing the native stub from 39 to 35 bytes. That adapter is not an
+optimization. The direct-body model removes the extra conversion call.
+
+Two complete direct-body profile sets reproduce identical instruction totals:
+scalar lookup 28,900,023 to 28,100,023; callback-shaped lookup 28,300,023 to
+27,500,023. Both save eight instructions per helper invocation, about 2.77%
+and 2.83% respectively. The callback shape imports the frozen workload's real
+source and derives its seven-register width, packed operands 327683 and source
+PC 5, returning the current callback reference. It does not execute the callback
+or the benchmark loop. Native stubs shrink 44 to 42 bytes for this shape.
+These are component instruction profiles, not whole-runtime speedups or hardware
+acceptance. Cross-build scalar totals are not comparable because helper outlining
+changes in the test artifact. Four of the eight saved instructions are an old
+entry shim in this artifact; production inlining may change that benefit.
+
+The encoding model checks 81 full-PC/reserved-bit combinations. Actual generated
+calls match the six-argument entry in 35 value/missing/metamethod/borrow-panic/null
+host cases across five PCs through u32::MAX. The existing helper differential now
+compares generic, prepared, wide-adapter and wide-direct entries. GNU passes
+29 helper tests, 20 heap integration tests and the four-way differential; the
+profile-only test remains explicitly ignored outside profiling. Stacked seed 0
+and Tree seed 1 each report 28+1+1 model passes, with existing warnings and no
+generated-code execution under Miri. No-feature/all-feature checks and formatting
+pass. Profile audits verify counters, source operands, exact native byte sizes,
+positive collection, source/image hashes and one executed test per capture.
+
+The shared macro refactor's actual production benchmark is rebuilt, still using
+the six-argument ABI. Its fresh nine-case smoke matches all eighteen non-timing
+records, and callback instruction profiles match exactly at 126,201,795. Neither
+check establishes elapsed-time or release acceptance.
+
+`85cfb9f` adds a test-only four-argument compiler selection. The independent
+helper-flow verifier checks its signature, both u64 constants, source PC,
+operands and hash; the extra signature workspace is charged. Ordinary helper
+imports retain six arguments, including writes in mixed read/write sources.
+Production selection and its generic/projected/resource fallback are unchanged.
+
+`make jit-wide-compiler` passes three new compiler tests and nine existing
+prepared-key tests. Native wide/ordinary execution matches in 1,155 paired
+cases over four sources, every source entry plus invalid entries, five budgets
+and seven value/decline/borrow-panic states. The comparison includes exits,
+charged instructions, frame PC, helper counters, captured panic state, scratch,
+canonical registers and global effects; 205 successful reads execute in each
+variant. All twenty injected call-flow corruptions are refused before
+installation. Exact-workspace-limit and one-byte-below checks release snapshot
+charges and executable mappings; unsupported register-key sources refuse the
+experimental selection. These are compiler-path tests, not full-runtime speedups.
+
+The subsequent runtime trial below does not justify production activation.
+Evidence: `target/jit-evidence/short-slice-performance/wide-helper-*`.
+Compiler evidence: `target/jit-evidence/short-slice-performance/wide-compiler-*`.
+
+The full baseline `make jit-test jit-heap check check-all` passed, including
+1,325 library tests with ten explicitly ignored tests and the integration
+suite. A fresh opt-level-3, unstripped control was frozen at `e36cd80` before
+temporarily enabling the compiler path. Native18, heap20, upvalue7 and
+resource28+3+3+14 tests passed for that activation. Each subsequent inlining
+variant reran the compiler differential and heap tests before measurement.
+
+Four immutable runtime candidates were profiled against that same control:
+
+| Candidate | Metamethod instructions | Callback instructions |
+| --- | ---: | ---: |
+| Control, six arguments | 78,474,542 | 126,201,876 |
+| Four arguments, default inlining | 78,753,080 | 127,433,760 |
+| Inline prepared helper body | 78,559,205 | 126,461,220 |
+| Also inline table borrow wrapper | 78,585,055 | 126,590,811 |
+| Also inline raw prepared lookup | 78,415,186 | 125,812,860 |
+
+All four profiles confirm execution of `helpers::wide::direct`. Default
+inlining outlines the prepared lookup that was inline in the control;
+inlining it exposes additional outlined table wrappers. The final variant
+saves six instructions per callback table read, 0.3082% of that full workload,
+and 0.0756% in the metamethod workload. These are instruction counts, not
+elapsed-time improvements. All eighteen smoke records and profile records
+retain execution counts, native coverage, helper outcomes and retained
+resources. The only non-timing differences are charged snapshot peaks:
+44 extra bytes in callbacks and Oslo predicates, 28 in metamethods.
+
+The final variant then completed two independently audited hardware screens:
+48 checked commands, 864 timing-summary rows and 432 workload gates. Each
+screen rotates control/candidate/same-image-placebo through four windows on
+CPUs 0 and 16, using all nine unchanged workloads and eleven alternating
+Off/Auto samples. Image/source hashes, identical hardlink launch paths,
+coverage, resource differences and external-contention telemetry are retained.
+No owned build, test or profiler overlapped these timing runs.
+
+Callback Auto control/candidate median time ratios are 1.0055/0.9897 in the
+first screen and 0.9923/1.0010 in the repeat, for CPUs 0/16 respectively.
+Same-image-placebo ratios are 1.0411/0.9879 and 0.9946/1.0052. This does not
+establish a reproducible callback improvement. CPU16 compiled-Off callbacks
+regress in both screens: control/candidate ratios 0.8877 and 0.9423, while
+placebo ratios are 1.0031 and 1.0025. A roughly twofold shared timing excursion
+in the first CPU0 screen remains in the raw evidence rather than being removed.
+Only four of sixteen candidate aggregate checks pass; those passes do not
+override the compiled-Off regression or establish full-plan acceptance.
+
+The temporary runtime activation and all three inline annotations are removed.
+The validated compiler experiment remains test-only. Formatting, compiler3+
+prepared9 tests and all-feature checks pass after withdrawal. The default
+benchmark is rebuilt and byte-identical to the frozen control (SHA256
+`73b609225834a42f9a2501be785a4f3fdd33d4e10dbf29eab15c3b03eef6090c`);
+all eighteen fresh non-timing smoke records match exactly. Evidence, patches,
+immutable executables and independent audits are under
+`target/jit-evidence/short-slice-performance/wide-runtime/`, including
+`{candidate,inline,inline_table,inline_raw}-audit.json` and both
+`screen{,-repeat}/audit.json`. The remaining performance work must remove
+larger runtime costs without moving those costs into compiled-Off execution;
+the isolated helper ABI saving is not sufficient.
+
+#### Guarded built-in call fusion: hardware tradeoff rejected
+
+An exact-instance `setmetatable` fast path replaces the ordinary callback
+transition only for fixed two-argument plain-table operations. The registry
+holds a weak identity, not a global-name or function-address assumption.
+Protected, weak/finalizing, borrowed or invalid tables, active hooks,
+interruption, insufficient boundary fuel, frame limits and relevant open
+captures/close slots retain the ordinary path. Normal and tail calls use the
+original fuel charges; transitions remain interpreted instructions in coverage.
+
+The first GNU step oracle passes 196 paired schedules with collection between
+steps and 70 actual fused calls. In the metamethod case at budget 4096, 22 calls
+fuse: the two initializations and all twenty loop tail calls. The retained
+tail-only variant still passes all 196 schedules, with 49 fused calls overall
+and twenty in that metamethod case. The trace now also compares pending Lua
+return state. Separate fixtures cover 96 admission states, fifteen root/normal/
+multiple/variable/metamethod tail-return states, scope unwind and weak identity
+survival, collection and replacement. No-feature/all-feature checks pass.
+
+A persistent instruction hook with zero fuel fails to complete even in the
+ordinary control. It remains covered by a 64-step bounded trace comparison;
+the completion matrix separately uses a self-clearing hook. No completion
+claim is made for the persistent-hook case. The final three primitive and two
+identity tests pass both Stacked Borrows (seed 0) and Tree Borrows (seed 1)
+Miri, with existing warnings; no native execution is claimed from Miri.
+
+Three experimental production binaries were measured, each after the paired
+step tests and eighteen native integration tests passed:
+
+| Variant | Metamethod CPU instructions | Callback CPU instructions |
+| --- | ---: | ---: |
+| Normal and tail calls | -4.430% | +0.103% |
+| Tail calls only, VM-side check | -4.789% | +0.156% |
+| Tail calls only, outlined transition | -4.351% | unchanged |
+
+These are Callgrind instruction counts, not speedups. The outlined variant
+measures 78,314,650 to 74,906,944 metamethod instructions and exactly
+126,201,876 callback instructions in both images. All non-timing records match.
+
+Five complete hardware screens ran 120 commands and 2,160 timing-summary rows:
+two for normal/tail fusion, one for VM-side tail fusion and two for the outlined
+transition. Every screen uses four rotated control/candidate/same-image-placebo
+windows on CPUs 0 and 16, unchanged paired eleven-sample workloads and gates,
+immutable images, equal hardlink launch paths, hashes and contention telemetry.
+No owned build, test, profiler or source edit overlaps those hardware windows.
+All non-timing fields match across the five screens.
+
+The outlined candidate's control/candidate Auto time ratios are 1.0349/1.0445
+for metamethods on CPU 0 and 1.0054/1.0197 on CPU 16 (first/repeat). However,
+callbacks are 0.9310/0.9260 on CPU 0: roughly 7–8% slower despite identical
+software instruction counts. The repeat CPU-0 callback placebo ratio is 1.0002.
+CPU-16 callback ratios are 1.0039/1.0055. Earlier variants also regress callback
+timing; removing the ordinary-call check does not establish non-regression.
+This does not prove a particular hardware cause or fix the callback gate.
+
+The production hook is withdrawn. Only the test-only tail transition and its
+guard/identity/return fixtures remain. The frozen candidate patches, images
+and audited screens are retained; no acceptance threshold or workload changed.
+Do not promote this fusion from its local metamethod improvement alone.
+After withdrawal, all seven focused GNU tests, no-feature/all-feature checking
+and formatting pass. The actual default benchmark is rebuilt without the hook;
+its frozen copy matches all eighteen non-timing records against the control
+in a fresh nine-case smoke with cold/Off/native-work and image identity checks.
+That smoke is not a hardware acceptance run. The callback, shipping-array,
+compiled-Off, platform, resource and release gates remain open.
+Evidence: `target/jit-evidence/short-slice-performance/builtin-*`.
+
 #### Branched integer-loop direction: hardware trial rejected
 
 The callback kernel computes both signed integer-limit comparisons before

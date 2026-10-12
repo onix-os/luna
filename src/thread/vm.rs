@@ -452,6 +452,9 @@ fn run_vm_slice<'gc>(
                             lua_frame.call_function(ctx, func, args, returns)?;
                         }
                         crate::opcode::CallTransition::TailCall { func, args } => {
+                            #[cfg(all(test, feature = "jit"))]
+                            lua_frame.tail_call_builtin(ctx, func, args, instructions_run)?;
+                            #[cfg(not(all(test, feature = "jit")))]
                             lua_frame.tail_call_function(ctx, func, args)?;
                         }
                         crate::opcode::CallTransition::Return { start, count } => {

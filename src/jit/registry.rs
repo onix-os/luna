@@ -10,6 +10,8 @@ use crate::{Context, FunctionPrototype};
 
 #[cfg(test)]
 mod identity_tests;
+#[cfg(test)]
+mod intrinsic_tests;
 
 #[derive(Collect)]
 #[collect(no_drop)]
@@ -176,6 +178,8 @@ mod tests {
 pub(crate) struct Registrations<'gc> {
     entries: MetadataMap<usize, Registration<'gc>>,
     compactor: Compactor,
+    #[cfg(test)]
+    set_metatable: Option<GcWeak<'gc, crate::callback::CallbackInner<'gc>>>,
 }
 
 pub(crate) type Registry<'gc> = Gc<'gc, RefLock<Registrations<'gc>>>;
@@ -185,7 +189,25 @@ impl<'gc> Registrations<'gc> {
         Self {
             entries: metadata_map(allocator),
             compactor: Compactor::default(),
+            #[cfg(test)]
+            set_metatable: None,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn register_set_metatable(&mut self, callback: crate::Callback<'gc>) {
+        self.set_metatable = Some(Gc::downgrade(callback.into_inner()));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_set_metatable(
+        &self,
+        ctx: Context<'gc>,
+        callback: crate::Callback<'gc>,
+    ) -> bool {
+        self.set_metatable
+            .and_then(|weak| weak.upgrade(&ctx))
+            .is_some_and(|live| Gc::ptr_eq(live, callback.into_inner()))
     }
 
     pub fn reset(&mut self, ctx: Context<'gc>) {
