@@ -11,6 +11,44 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Faster transport resource validation — repaired, not promoted
+
+`13dd871` adds permanent resource-boundary coverage for ordinary and preferred
+frame-bound lowering. The historical activated failures were fixture assumptions:
+the small table program emits five relocations ordinarily but zero with the
+frame-bound transport, while the small scalar program's peak-minus-one workspace
+refusal moves from scalar tag verification to frontend dominance storage. Neither
+observation establishes a quota bypass.
+
+Shared array/integer fixtures now exercise the intended relocation and scalar
+verifier boundaries in the public tests. The relocation-limit lowering test uses
+the same pressure fixture. All original exact error, peer survival, reclamation,
+fallback, native-work and explicit-retry assertions remain. Three internal tests
+also cover the original table/scalar programs under both selectors, actual emitted
+relocation-count boundaries, workspace peak-minus-one/exact-peak admission, GC,
+source survival and successful native recovery. `make jit-resources` includes the
+new `make jit-transport-resources` target. The initial test-only import error is
+corrected before validation; its failed log remains available.
+
+Root GNU and musl resource gates each pass **48 tests / four summaries**, none
+ignored. Root `make verify` passes **2,263 / 175**, with eight existing ignores.
+A fresh isolated checkout at `13dd871` replays only the experimental transport
+activation changes, retaining current tests and ordinary integer/array plans.
+Two additional non-test integration probes confirm actual activated admission
+and refusal behavior. Activated GNU and musl focused gates each pass **50 / five**;
+the full GNU `make jit-test-all JIT_MODE=auto` passes **1,811 / 89**, with six
+existing ignores and no failures. All fourteen public resource tests pass in
+that activated all-feature build. Source hashes remain unchanged during testing.
+The experimental non-test build still reports fourteen dead-code warnings.
+
+**This closes the two historical activated resource-test failures, not the
+performance gates.** Production selection remains unchanged. No new timing,
+Miri, aarch64 or release acceptance is claimed here. Next work returns to fresh
+ordinary/activated performance images and profiling, preserving callback, array
+and compiled-Off thresholds. Logs, the isolated activation patch, source hashes
+and probes are under
+`target/jit-evidence/short-slice-performance/transport-resource*`.
+
 #### Single-borrow callback replacement — measured and rejected
 
 `49bbe5c` adds five baseline-tested `Stack::replace` regressions and

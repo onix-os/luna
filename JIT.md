@@ -11,6 +11,13 @@ region execution; `make jit-regions` tests the non-test library with `jit` and
 `jit,async`, including interrupted fuel traces, GC, callbacks and unwind.
 This is implementation progress, **not performance or release acceptance**.
 
+`make jit-transport-resources` checks ordinary and experimental frame-bound
+relocation/workspace limits, fallback, GC, peer survival and explicit retry.
+The public resource fixtures retain exact refusal assertions across both paths.
+A fresh activated experimental build passes the full GNU Auto all-feature suite;
+that resolves the earlier resource-test fixture failures, not the outstanding
+performance gates. Production transport selection remains unchanged.
+
 The test-only payload ABI's integer-binding refinement reduces callback
 instructions 2.2%. Four controlled timing campaigns suggest about 2.1% higher
 callback throughput against the preceding experimental binder, but every
