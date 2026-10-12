@@ -115,7 +115,9 @@ fn observe<'gc, const KIND: u32>(
                     *value = value.wrapping_add(1);
                 }
             }
-            let result = if direct && boundary != 0 {
+            let result = if direct && boundary == 3 {
+                abi::strided::frame::probe::<KIND>(&mut frame, [a, b, c, 11])
+            } else if direct && boundary != 0 {
                 abi::strided::transition::probe::<KIND>(&mut frame, [a, b, c, 11], boundary == 2)
             } else if direct {
                 call_direct::<KIND>(&mut frame, a, b, c, 11)
@@ -222,6 +224,11 @@ fn direct_transport_matches_proxy_helpers_effects_aliases_and_panics() {
 #[test]
 fn strided_helpers_match_all_proxy_effects_and_control() {
     compare_all(1);
+}
+
+#[test]
+fn strided_frame_helpers_match_all_proxy_effects_and_control() {
+    compare_all(3);
 }
 
 #[cfg(all(

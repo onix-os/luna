@@ -17,7 +17,7 @@ unsafe fn read(header: *mut Header, index: usize) -> abi::Slot {
 }
 
 #[test]
-fn strided_frame_all_kinds_survive_helpers_materialization_and_aliases() {
+fn strided_frame_all_kinds_survive_helpers_materialization_and_neighbors() {
     crate::Lua::empty().enter(|ctx| {
         let closure = crate::Closure::load(ctx, None, b"return 1").unwrap();
         let kinds = [

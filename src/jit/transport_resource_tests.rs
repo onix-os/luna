@@ -77,6 +77,52 @@ fn recover(lua: &mut Lua, closure: &StashedClosure) {
     assert_eq!(lua.jit_stats().snapshot_bytes, 0);
 }
 
+#[test]
+fn strided_runtime_resource_refusal_releases_and_recovers() {
+    let defaults = JitConfig::default();
+    let selection = backend::Failure::RequireStrided;
+    for script in [TABLE, SCALAR, workloads::RELOCATIONS] {
+        let mut probe = state(
+            selection,
+            defaults.max_relocations,
+            defaults.max_snapshot_bytes,
+        );
+        let closure = source(&mut probe, script);
+        assert_eq!(probe.prepare_jit().unwrap(), 1);
+        let (kind, relocations) = installed(&mut probe);
+        assert_eq!(kind, EntryKind::Strided);
+        execute(&mut probe, &closure);
+        let peak = probe.jit_stats().snapshot_peak_bytes;
+        let minimum = minimum_workspace(selection, script, peak);
+        for limit in [minimum - 1, minimum] {
+            let mut lua = state(selection, defaults.max_relocations, limit);
+            let closure = source(&mut lua, script);
+            let result = lua.prepare_jit();
+            if limit < minimum {
+                assert!(
+                    matches!(result, Err(JitError::ResourceLimit(_))),
+                    "{result:?}"
+                );
+                recover(&mut lua, &closure);
+            } else {
+                assert_eq!(result.unwrap(), 1);
+                execute(&mut lua, &closure);
+                assert_eq!(installed(&mut lua).0, EntryKind::Strided);
+                assert_eq!(lua.jit_stats().snapshot_bytes, 0);
+            }
+        }
+        if relocations > 1 {
+            let mut lua = state(selection, relocations - 1, defaults.max_snapshot_bytes);
+            let closure = source(&mut lua, script);
+            assert!(matches!(
+                lua.prepare_jit(),
+                Err(JitError::ResourceLimit("native relocations"))
+            ));
+            recover(&mut lua, &closure);
+        }
+    }
+}
+
 fn minimum_workspace(selection: backend::Failure, script: &[u8], peak: usize) -> usize {
     let mut low = 1;
     let mut high = peak;

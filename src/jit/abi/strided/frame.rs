@@ -217,6 +217,28 @@ pub(in crate::jit) fn with_frame<R>(
     body(&mut header, &mut bridge)
 }
 
+pub(in crate::jit) fn probe<const KIND: u32>(
+    frame: &mut helpers::Frame<'_, '_, '_, '_>,
+    args: [u32; 4],
+) -> u32 {
+    let count = frame.slot_count;
+    with_frame(frame, false, |header, host| unsafe {
+        let increment = |delta| {
+            if count > 1 && (*header).tags[1] as u64 == abi::INTEGER {
+                let pointer = (*header).pointer(1).cast::<i64>();
+                pointer.write(pointer.read().wrapping_add(delta));
+            }
+        };
+        increment(1);
+        let [a, b, c, pc] = args;
+        let result = helper::<KIND, false>(host.cast(), header.cast(), a, b, c, pc);
+        if result == abi::HELPER_COMPLETED {
+            increment(2);
+        }
+        result
+    })
+}
+
 const _: () = {
     use abi::payload::runtime as payload;
     assert!(mem::offset_of!(Bridge, functions) == mem::offset_of!(payload::Bridge, functions));
