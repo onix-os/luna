@@ -5,6 +5,18 @@ use super::{calls, ir::Snapshot, work, JitError};
 const MAX_REGISTERS: usize = 16;
 const MAX_OPERATIONS: usize = 32;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Descriptor {
+    start: usize,
+    call: usize,
+    end: usize,
+    registers: usize,
+    function: crate::types::RegisterIndex,
+    arguments: u8,
+    pattern: super::leaf::Pattern,
+    return_start: crate::types::RegisterIndex,
+}
+
 pub(super) struct Plan<'a> {
     pair: calls::Plan<'a>,
     caller: &'a Snapshot,
@@ -16,6 +28,23 @@ pub(super) struct Plan<'a> {
 }
 
 impl<'a> Plan<'a> {
+    fn descriptor(&self) -> Result<Descriptor, JitError> {
+        self.verify(self.caller, self.callee)?;
+        let Operation::Return { start, .. } = self.callee.operations[3] else {
+            unreachable!()
+        };
+        Ok(Descriptor {
+            start: self.start,
+            call: self.call,
+            end: self.end,
+            registers: self.caller.registers,
+            function: self.pair.function,
+            arguments: self.pair.arguments,
+            pattern: self.pair.pattern,
+            return_start: start,
+        })
+    }
+
     fn region(caller: &Snapshot, callee: &Snapshot, call: usize) -> Option<(usize, usize, usize)> {
         if caller.registers > MAX_REGISTERS || callee.registers > MAX_REGISTERS {
             return None;

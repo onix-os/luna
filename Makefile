@@ -170,10 +170,10 @@ jit-inline-loop-plan-miri:
 	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::inline_loop::tests -- --test-threads=1 | awk '/^test result: ok[.] 4 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 jit-inline-loop-native:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::inline_loop::native::tests | awk '/^test result: ok[.] 4 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::inline_loop::native::tests | awk '/^test result: ok[.] 5 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 jit-inline-loop-bridge:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::inline_loop::native::bridge::tests | awk '/^test result: ok[.] 3 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::inline_loop::native::bridge::tests | awk '/^test result: ok[.] 4 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 jit-prepared-keys:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::prepared_keys::tests | awk '/^test result: ok[.] 9 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'

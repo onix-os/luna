@@ -6,11 +6,10 @@ use crate::{
 };
 use ottavino_gc_arena::Gc;
 
-struct Binding<'plan, 'source, 'gc> {
-    plan: &'plan Plan<'source>,
+struct Binding<'gc> {
+    descriptor: super::super::Descriptor,
     caller: Gc<'gc, FunctionPrototype<'gc>>,
     callee: Gc<'gc, FunctionPrototype<'gc>>,
-    capture: Option<usize>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -42,26 +41,23 @@ fn matches(snapshot: &Snapshot, prototype: &FunctionPrototype<'_>) -> bool {
             })
 }
 
-impl<'plan, 'source, 'gc> Binding<'plan, 'source, 'gc> {
+impl<'gc> Binding<'gc> {
     fn new(
-        plan: &'plan Plan<'source>,
+        plan: &Plan<'_>,
         caller: Gc<'gc, FunctionPrototype<'gc>>,
         callee: Gc<'gc, FunctionPrototype<'gc>>,
-        capture: Option<usize>,
     ) -> Option<Self> {
-        plan.verify(plan.caller, plan.callee).ok()?;
+        let descriptor = plan.descriptor().ok()?;
         if !matches(plan.caller, &caller)
             || !matches(plan.callee, &callee)
-            || capture.is_some_and(|index| index >= usize::from(plan.pair.function.0))
             || plan.pair.arguments > callee.fixed_params
         {
             return None;
         }
         Some(Self {
-            plan,
+            descriptor,
             caller,
             callee,
-            capture,
         })
     }
 
@@ -74,7 +70,7 @@ impl<'plan, 'source, 'gc> Binding<'plan, 'source, 'gc> {
         prefix: u32,
         invoke: impl FnOnce(&mut State),
     ) -> Option<Progress> {
-        let plan = self.plan;
+        let plan = self.descriptor;
         let between = u32::try_from(plan.end - plan.start).ok()?;
         if !(4..=64).contains(&budget)
             || prefix >= budget
@@ -90,7 +86,7 @@ impl<'plan, 'source, 'gc> Binding<'plan, 'source, 'gc> {
         }
         let maximum = (limit / 2).min((59 / (between + 5) + 1) as usize) as u32;
         let work = 5 + (maximum - 1) * (between + 5);
-        let width = plan.caller.registers;
+        let width = plan.registers;
         let mut roots = [LuaValue::Nil; MAX_REGISTERS];
         let mut state = State {
             slots: [abi::Slot {
@@ -101,7 +97,7 @@ impl<'plan, 'source, 'gc> Binding<'plan, 'source, 'gc> {
                 tag: abi::NIL,
                 bits: 0,
             },
-            root: u64::from(plan.pair.function.0),
+            root: u64::from(plan.function.0),
             pc: plan.call as u64,
             fuel: host.fuel().remaining(),
             interrupted: u32::from(host.fuel().is_interrupted()),
@@ -109,6 +105,7 @@ impl<'plan, 'source, 'gc> Binding<'plan, 'source, 'gc> {
             instructions: 0,
             calls: 0,
             reason: INVALID,
+            capture: MAX_REGISTERS as u32,
         };
         let (caller, spec) = host.with_registers(|caller, registers| {
             if !Gc::ptr_eq(caller.prototype(), self.caller) || *registers.pc != plan.call
@@ -116,16 +113,16 @@ impl<'plan, 'source, 'gc> Binding<'plan, 'source, 'gc> {
             {
                 return None;
             }
-            let LuaValue::Function(LuaFunction::Closure(callee)) = registers.stack_frame[usize::from(plan.pair.function.0)] else {
+            let LuaValue::Function(LuaFunction::Closure(callee)) = registers.stack_frame[usize::from(plan.function.0)] else {
                 return None;
             };
             if !Gc::ptr_eq(callee.prototype(), self.callee) {
                 return None;
             }
-            let origin = registers.projection_origin(callee.upvalues().get(usize::from(plan.pair.pattern.upvalue))?.get())?;
+            let origin = registers.projection_origin(callee.upvalues().get(usize::from(plan.pattern.upvalue))?.get())?;
             let (capture, captured) = match origin {
-                Origin::Register(index, LuaValue::Integer(value)) if self.capture == Some(index) => ((false, index), value),
-                Origin::Upper(index, LuaValue::Integer(value)) if self.capture.is_none() => ((true, index), value),
+                Origin::Register(index, LuaValue::Integer(value)) => ((false, index), value),
+                Origin::Upper(index, LuaValue::Integer(value)) => ((true, index), value),
                 _ => return None,
             };
             if !abi::roots::capture(&mut roots[..width], &mut state.slots[..width], registers.stack_frame) {
@@ -137,21 +134,22 @@ impl<'plan, 'source, 'gc> Binding<'plan, 'source, 'gc> {
                 }
             }
             state.upper = abi::Slot::from_value(LuaValue::Integer(captured));
-            let Operation::Return { start, .. } = plan.callee.operations[3] else { unreachable!() };
+            state.capture = if capture.0 { MAX_REGISTERS as u32 } else { u32::try_from(capture.1).ok()? };
             Some((caller, Spec {
                 callee,
-                function: plan.pair.function,
-                arguments: plan.pair.arguments,
+                function: plan.function,
+                arguments: plan.arguments,
                 capture,
-                read: plan.pair.pattern.read,
-                result: plan.pair.pattern.result,
-                start,
+                read: plan.pattern.read,
+                result: plan.pattern.result,
+                start: plan.return_start,
                 prefix,
             }))
         })?;
         let window = host.snapshot_window(&spec, caller, width, plan.call)?;
         state.fuel -= prefix as i32;
         let initial_fuel = state.fuel;
+        let capture = state.capture;
         invoke(&mut state);
         if state.calls == 0 {
             return None;
@@ -172,7 +170,7 @@ impl<'plan, 'source, 'gc> Binding<'plan, 'source, 'gc> {
         };
         let consumed = state
             .calls
-            .checked_mul(19 + u32::from(plan.pair.arguments))?
+            .checked_mul(19 + u32::from(plan.arguments))?
             .checked_add((state.calls - 1).checked_mul(between)?)?
             .checked_add(pending)?;
         if state.calls > maximum
@@ -183,7 +181,8 @@ impl<'plan, 'source, 'gc> Binding<'plan, 'source, 'gc> {
             || state.fuel != initial_fuel.checked_sub(i32::try_from(consumed).ok()?)?
             || state.reason > FUEL
             || state.interrupted != 0
-            || state.root != u64::from(plan.pair.function.0)
+            || state.root != u64::from(plan.function.0)
+            || state.capture != capture
         {
             return None;
         }

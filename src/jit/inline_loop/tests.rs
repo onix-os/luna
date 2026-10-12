@@ -43,6 +43,9 @@ fn admits_source_bound_scalar_calls_without_benchmark_constants() {
                 )
             });
             plan.verify(&caller, &callee).unwrap();
+            let descriptor = plan.descriptor().unwrap();
+            assert_eq!(descriptor.call, call);
+            assert_eq!(descriptor.registers, caller.registers);
             assert_eq!(plan.end, call + 1);
             assert!(plan.start <= call);
             assert!(plan.base + 4 <= caller.registers);
@@ -86,6 +89,7 @@ fn region_fields_and_source_owners_are_rechecked() {
                 _ => plan.call += 1,
             }
             assert!(plan.verify(&caller, &callee).is_err());
+            assert!(plan.descriptor().is_err());
         }
         let plan = Plan::new(&caller, &callee, call, limits).unwrap();
         sources(SOURCE, |other_caller, other_callee, _| {

@@ -4,7 +4,7 @@ use crate::{jit::work, thread::activation::with_test_thread, Closure, Fuel, JitC
 fn fixture(
     source: &[u8],
     upper: bool,
-    test: impl for<'gc> FnOnce(Context<'gc>, Closure<'gc>, Binding<'_, '_, 'gc>),
+    test: impl for<'gc> FnOnce(Context<'gc>, Closure<'gc>, Binding<'gc>, &Plan<'_>),
 ) {
     Lua::empty().enter(|ctx| {
         let root = Closure::load(ctx, None, source).unwrap();
@@ -28,19 +28,16 @@ fn fixture(
             work::Limits::from(&JitConfig::default()),
         )
         .unwrap();
-        let binding = Binding::new(&plan, caller, callee, (!upper).then_some(0)).unwrap();
-        test(ctx, root, binding);
+        let binding = Binding::new(&plan, caller, callee).unwrap();
+        test(ctx, root, binding, &plan);
     });
 }
 
-fn position<'gc>(
-    ctx: Context<'gc>,
-    host: &mut ActivationHost<'gc, '_>,
-    binding: &Binding<'_, '_, 'gc>,
-) {
+fn position<'gc>(ctx: Context<'gc>, host: &mut ActivationHost<'gc, '_>, binding: &Binding<'gc>) {
     for _ in 0..64 {
         if host.with_registers(|caller, registers| {
-            Gc::ptr_eq(caller.prototype(), binding.caller) && *registers.pc == binding.plan.call
+            Gc::ptr_eq(caller.prototype(), binding.caller)
+                && *registers.pc == binding.descriptor.call
         }) {
             return;
         }
@@ -101,8 +98,8 @@ fn scoped_batches_preserve_physical_calls_pending_prefixes_and_fuel() {
         (&b"local x=7 local t={} local function f(v,w) x=x+v end for i=1,12 do f(i,t) end return x"[..], false),
     ] {
         let before = completed;
-        fixture(source, upper, |ctx, root, binding| {
-            super::super::tests::with_entry(binding.plan, binding.capture, |entry| {
+        fixture(source, upper, |ctx, root, binding, plan| {
+            super::super::tests::with_entry(plan, |entry| {
                 for budget in [0, 1, 3, 4, 8, 32, 64, 65] {
                     for limit in [0, 1, 2, 3, 4, 8, 16, 64, usize::MAX] {
                         for prefix in [0, 1, 3, 31, 63, 64] {
@@ -163,9 +160,9 @@ fn invalid_bindings_and_precommit_failures_leave_the_host_unchanged() {
     fixture(
         &b"local x=7 local function f(v) x=x+v end for i=1,12 do f(i) end return x"[..],
         false,
-        |ctx, root, binding| {
-            super::super::tests::with_entry(binding.plan, binding.capture, |entry| {
-                for fault in 0..13 {
+        |ctx, root, binding, plan| {
+            super::super::tests::with_entry(plan, |entry| {
+                for fault in 0..14 {
                     ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
                     with_test_thread(ctx, root, &mut Fuel::with(10000), |host| {
                         position(ctx, host, &binding);
@@ -195,6 +192,7 @@ fn invalid_bindings_and_precommit_failures_leave_the_host_unchanged() {
                                         }
                                     }
                                     12 => state.upper.tag = abi::NUMBER,
+                                    13 => state.capture ^= 1,
                                     _ => unreachable!(),
                                 }
                             })
@@ -213,27 +211,8 @@ fn invalid_bindings_and_precommit_failures_leave_the_host_unchanged() {
                 }
             });
             let foreign = Closure::load(ctx, None, &b"return 9"[..]).unwrap();
-            assert!(Binding::new(
-                binding.plan,
-                foreign.prototype(),
-                binding.callee,
-                binding.capture
-            )
-            .is_none());
-            assert!(Binding::new(
-                binding.plan,
-                binding.caller,
-                foreign.prototype(),
-                binding.capture
-            )
-            .is_none());
-            assert!(Binding::new(
-                binding.plan,
-                binding.caller,
-                binding.callee,
-                Some(usize::from(binding.plan.pair.function.0))
-            )
-            .is_none());
+            assert!(Binding::new(plan, foreign.prototype(), binding.callee,).is_none());
+            assert!(Binding::new(plan, binding.caller, foreign.prototype(),).is_none());
         },
     );
 }
@@ -243,8 +222,8 @@ fn runtime_refusals_and_post_publication_unwind_keep_canonical_state() {
     fixture(
         &b"local x=7 local function f(v) x=x+v end for i=1,12 do f(i) end return x"[..],
         false,
-        |ctx, root, binding| {
-            super::super::tests::with_entry(binding.plan, binding.capture, |entry| {
+        |ctx, root, binding, plan| {
+            super::super::tests::with_entry(plan, |entry| {
                 for fault in 0..8 {
                     ctx.jit().0.borrow_mut().config.mode = JitMode::Off;
                     with_test_thread(ctx, root, &mut Fuel::with(10000), |host| {
@@ -260,14 +239,14 @@ fn runtime_refusals_and_post_publication_unwind_keep_canonical_state() {
                             }
                             3 => host.with_registers(|_, r| *r.pc += 1),
                             4 => host.with_registers(|_, r| {
-                                r.stack_frame[usize::from(binding.plan.pair.function.0)] =
+                                r.stack_frame[usize::from(binding.descriptor.function.0)] =
                                     LuaValue::Nil
                             }),
                             5 => {
                                 host.with_registers(|_, r| r.stack_frame[0] = LuaValue::Number(7.5))
                             }
                             6 => host.with_registers(|_, r| {
-                                r.stack_frame[usize::from(binding.plan.pair.function.0) + 1] =
+                                r.stack_frame[usize::from(binding.descriptor.function.0) + 1] =
                                     LuaValue::Number(2.5)
                             }),
                             7 => host.test_replace_closure(
@@ -307,6 +286,47 @@ fn runtime_refusals_and_post_publication_unwind_keep_canonical_state() {
                     );
                     assert!(ctx.jit().0.try_borrow_mut().is_ok());
                 });
+            });
+        },
+    );
+}
+
+#[test]
+fn runtime_descriptor_does_not_retain_source_workspace() {
+    fixture(
+        &b"local x=7 local function f(v) x=x+v end for i=1,12 do f(i) end return x"[..],
+        false,
+        |ctx, root, original, plan| {
+            super::super::tests::with_entry(plan, |entry| {
+                let (binding, caller_ledger, callee_ledger) = {
+                    let caller = Snapshot::new(&original.caller, 4096, 1 << 20).unwrap();
+                    let callee = Snapshot::new(&original.callee, 4096, 1 << 20).unwrap();
+                    let caller_ledger = caller.operations.allocator().0.clone();
+                    let callee_ledger = callee.operations.allocator().0.clone();
+                    let independent = Plan::new(
+                        &caller,
+                        &callee,
+                        original.descriptor.call,
+                        work::Limits::from(&JitConfig::default()),
+                    )
+                    .unwrap();
+                    let binding =
+                        Binding::new(&independent, original.caller, original.callee).unwrap();
+                    assert_eq!(binding.descriptor, original.descriptor);
+                    (binding, caller_ledger, callee_ledger)
+                };
+                assert_eq!(caller_ledger.current(), 0);
+                assert_eq!(callee_ledger.current(), 0);
+                with_test_thread(ctx, root, &mut Fuel::with(10000), |host| {
+                    position(ctx, host, &binding);
+                    ctx.jit().0.borrow_mut().config.mode = JitMode::Auto;
+                    let progress = binding
+                        .run(ctx, host, 16, 64, 0, |state| unsafe { entry(state) })
+                        .unwrap();
+                    assert!(progress.calls > 1);
+                });
+                assert_eq!(caller_ledger.current(), 0);
+                assert_eq!(callee_ledger.current(), 0);
             });
         },
     );

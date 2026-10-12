@@ -14,7 +14,7 @@ impl Drop for Code {
     }
 }
 
-pub(super) fn with_entry(plan: &Plan<'_>, capture: Option<usize>, test: impl FnOnce(Entry)) {
+pub(super) fn with_entry(plan: &Plan<'_>, test: impl FnOnce(Entry)) {
     let mut code = Code(Some(JITModule::new(
         JITBuilder::new(default_libcall_names()).unwrap(),
     )));
@@ -22,8 +22,8 @@ pub(super) fn with_entry(plan: &Plan<'_>, capture: Option<usize>, test: impl FnO
     let mut context = module.make_context();
     let config = module.isa().frontend_config();
     let convention = module.isa().default_call_conv();
-    context.func = plan.function(capture, config, convention).unwrap();
-    plan.verify_function(&context.func, capture, config, convention)
+    context.func = plan.function(config, convention).unwrap();
+    plan.verify_function(&context.func, config, convention)
         .unwrap();
     cranelift_codegen::verify_function(&context.func, module.isa()).unwrap();
     assert!(context.func.dfg.ext_funcs.is_empty());
@@ -51,6 +51,7 @@ fn initial(plan: &Plan<'_>, pc: usize, budget: u32, fuel: i32) -> State {
         instructions: u32::MAX,
         calls: u32::MAX,
         reason: u32::MAX,
+        capture: MAX_REGISTERS as u32,
     };
     let function = plan.pair.function;
     for operation in &plan.caller.operations[plan.start..plan.call] {
@@ -76,7 +77,10 @@ fn initial(plan: &Plan<'_>, pc: usize, budget: u32, fuel: i32) -> State {
 fn reference(plan: &Plan<'_>, capture: Option<usize>, state: &mut State) {
     state.instructions = 0;
     state.calls = 0;
-    if state.budget > 64 || state.root >= plan.caller.registers as u64 {
+    if (state.capture >= u32::from(plan.pair.function.0) && state.capture != MAX_REGISTERS as u32)
+        || state.budget > 64
+        || state.root >= plan.caller.registers as u64
+    {
         state.reason = INVALID;
         return;
     }
@@ -202,7 +206,8 @@ fn reference(plan: &Plan<'_>, capture: Option<usize>, state: &mut State) {
     }
 }
 
-fn compare(plan: &Plan<'_>, capture: Option<usize>, entry: Entry, state: State) -> State {
+fn compare(plan: &Plan<'_>, capture: Option<usize>, entry: Entry, mut state: State) -> State {
+    state.capture = capture.unwrap_or(MAX_REGISTERS) as u32;
     let mut expected = state.clone();
     reference(plan, capture, &mut expected);
     let mut actual = state;
@@ -229,7 +234,7 @@ fn native_loops_match_full_slot_and_fuel_model_at_every_budget() {
             )
             .unwrap();
             for capture in [None, Some(0)] {
-                with_entry(&plan, capture, |entry| {
+                with_entry(&plan, |entry| {
                     for pc in plan.start..=plan.end {
                         for budget in 0..=64 {
                             for fuel in [i32::MIN, -1, 0, 1, 8, 9, 10, 11, 19, 20, 21, 64, i32::MAX]
@@ -269,7 +274,7 @@ fn native_loop_guards_aliases_and_overflow_preserve_exit_state() {
             Some(plan.base + 1),
             Some(plan.base + 2),
         ] {
-            with_entry(&plan, capture, |entry| {
+            with_entry(&plan, |entry| {
                 for fault in 0..14 {
                     let mut state = initial(&plan, plan.call, 64, i32::MAX);
                     match fault {
@@ -343,11 +348,8 @@ fn native_target_template_rejects_modified_guards_and_writes() {
                 .unwrap();
             let config = isa.frontend_config();
             let convention = isa.default_call_conv();
-            let original = plan.function(Some(0), config, convention).unwrap();
+            let original = plan.function(config, convention).unwrap();
             cranelift_codegen::verify_function(&original, isa.as_ref()).unwrap();
-            assert!(plan
-                .function(Some(usize::from(plan.pair.function.0)), config, convention)
-                .is_err());
             let mut mutations = 0;
             for block in original.layout.blocks() {
                 for inst in original.layout.block_insts(block) {
@@ -369,17 +371,12 @@ fn native_target_template_rejects_modified_guards_and_writes() {
                         _ => false,
                     };
                     if mutated {
-                        assert!(plan
-                            .verify_function(&changed, Some(0), config, convention)
-                            .is_err());
+                        assert!(plan.verify_function(&changed, config, convention).is_err());
                         mutations += 1;
                     }
                 }
             }
             assert!(mutations > 100);
-            assert!(plan
-                .verify_function(&original, None, config, convention)
-                .is_err());
         }
     });
 }
@@ -408,7 +405,7 @@ fn generated_regions_match_physical_vm_operations_and_call_transitions() {
             let callee = Snapshot::new(&closure.prototype().prototypes[0], 4096, 1 << 20).unwrap();
             let call = caller.operations.iter().position(|op| matches!(op, Operation::Call { .. })).unwrap();
             let plan = Plan::new(&caller, &callee, call, work::Limits::from(&JitConfig::default())).unwrap();
-            with_entry(&plan, Some(0), |entry| {
+            with_entry(&plan, |entry| {
                 for start in plan.start..=plan.end {
                     for budget in 0..=64 {
                         for fuel in [-1, 0, 8, 9, 10, 11, 20, 64, 1000] {
@@ -423,6 +420,7 @@ fn generated_regions_match_physical_vm_operations_and_call_transitions() {
                                 let (roots, mut state) = host.with_registers(|_, registers| {
                                     let mut roots = vec![LuaValue::Nil; caller.registers];
                                     let mut state = initial(&plan, start, budget, fuel);
+                                    state.capture = 0;
                                     assert!(abi::roots::capture(&mut roots, &mut state.slots[..caller.registers], registers.stack_frame));
                                     let (index, function) = roots.iter().enumerate().find_map(|(index, value)| match value {
                                         LuaValue::Function(LuaFunction::Closure(value)) if std::ptr::eq(&*value.prototype(), &*closure.prototype().prototypes[0]) => Some((index, *value)),
@@ -472,4 +470,41 @@ fn generated_regions_match_physical_vm_operations_and_call_transitions() {
         compared > 12000 && calls > 1000,
         "compared={compared} calls={calls}"
     );
+}
+
+#[test]
+fn one_image_binds_local_and_upper_cells_and_refuses_invalid_indices() {
+    super::super::tests::sources(super::super::tests::SOURCE, |caller, callee, call| {
+        let plan = Plan::new(
+            &caller,
+            &callee,
+            call,
+            work::Limits::from(&JitConfig::default()),
+        )
+        .unwrap();
+        with_entry(&plan, |entry| {
+            let mut calls = 0;
+            for capture in (0..usize::from(plan.pair.function.0))
+                .map(Some)
+                .chain([None])
+            {
+                let result = compare(&plan, capture, entry, initial(&plan, plan.end, 64, 1000));
+                if capture.is_none() || capture == Some(0) {
+                    assert!(result.calls > 1);
+                }
+                calls += result.calls;
+            }
+            assert!(calls > 5);
+            for capture in [u32::from(plan.pair.function.0), 15, 17, u32::MAX] {
+                let mut state = initial(&plan, plan.end, 64, 1000);
+                state.capture = capture;
+                let mut expected = state.clone();
+                expected.instructions = 0;
+                expected.calls = 0;
+                expected.reason = INVALID;
+                unsafe { entry(&mut state) };
+                assert_eq!(format!("{state:?}"), format!("{expected:?}"));
+            }
+        });
+    });
 }

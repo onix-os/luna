@@ -27,6 +27,7 @@ struct State {
     instructions: u32,
     calls: u32,
     reason: u32,
+    capture: u32,
 }
 
 struct Emitter<'a> {
@@ -88,6 +89,22 @@ impl Emitter<'_> {
         self.store(offset + 8, bits);
     }
 
+    fn cell_integer(&mut self, cell: Value) -> Value {
+        let tag = self.b.ins().load(types::I64, MemFlagsData::new(), cell, 0);
+        let valid = self
+            .b
+            .ins()
+            .icmp_imm_u(IntCC::Equal, tag, abi::INTEGER as i64);
+        self.guard(valid, GUARD);
+        self.b.ins().load(types::I64, MemFlagsData::new(), cell, 8)
+    }
+
+    fn write_cell(&mut self, cell: Value, bits: Value) {
+        let tag = self.b.ins().iconst(types::I64, abi::INTEGER as i64);
+        self.b.ins().store(MemFlagsData::new(), tag, cell, 0);
+        self.b.ins().store(MemFlagsData::new(), bits, cell, 8);
+    }
+
     fn adjust(&mut self, offset: usize, amount: i64) {
         let value = self.load(types::I32, offset);
         let value = self.b.ins().iadd_imm_s(value, amount);
@@ -124,14 +141,13 @@ fn slot(index: usize) -> usize {
 impl Plan<'_> {
     fn function(
         &self,
-        capture: Option<usize>,
         config: TargetFrontendConfig,
         convention: CallConv,
     ) -> Result<Function, JitError> {
         self.verify(self.caller, self.callee)?;
         let function = usize::from(self.pair.function.0);
         let arguments = usize::from(self.pair.arguments);
-        if capture.is_some_and(|index| index >= function) || arguments > self.callee.registers {
+        if arguments > self.callee.registers {
             return Err(JitError::Compilation("invalid inline loop binding".into()));
         }
         let mut result = Function::new();
@@ -155,6 +171,21 @@ impl Plan<'_> {
         ] {
             e.constant(offset, types::I32, 0);
         }
+        assert_eq!(slot(MAX_REGISTERS), std::mem::offset_of!(State, upper));
+        let capture = e.load(types::I32, std::mem::offset_of!(State, capture));
+        let local =
+            e.b.ins()
+                .icmp_imm_u(IntCC::UnsignedLessThan, capture, function as i64);
+        let upper =
+            e.b.ins()
+                .icmp_imm_u(IntCC::Equal, capture, MAX_REGISTERS as i64);
+        let valid = e.b.ins().bor(local, upper);
+        e.guard(valid, INVALID);
+        let offset = e.b.ins().uextend(config.pointer_type(), capture);
+        let offset =
+            e.b.ins()
+                .imul_imm_u(offset, std::mem::size_of::<abi::Slot>() as i64);
+        let cell = e.b.ins().iadd(state, offset);
         let budget = e.load(types::I32, std::mem::offset_of!(State, budget));
         let bounded =
             e.b.ins()
@@ -204,10 +235,7 @@ impl Plan<'_> {
                     let expected = e.load(types::I64, std::mem::offset_of!(State, root));
                     let identity = e.b.ins().icmp(IntCC::Equal, bits, expected);
                     e.guard(identity, GUARD);
-                    let cell = capture
-                        .map(slot)
-                        .unwrap_or(std::mem::offset_of!(State, upper));
-                    let left = e.integer(cell);
+                    let left = e.cell_integer(cell);
                     let pattern = self.pair.pattern;
                     let right = match pattern.right {
                         leaf::Operand::Register(index) if index == pattern.read => left,
@@ -239,7 +267,7 @@ impl Plan<'_> {
                             e.write_integer(slot(index), value);
                         }
                     }
-                    e.write_integer(cell, updated);
+                    e.write_cell(cell, updated);
                     e.charge(5, 19 + arguments as i32, pc + 1);
                     e.adjust(std::mem::offset_of!(State, calls), 1);
                     e.fuel_guard(0);
@@ -298,11 +326,10 @@ impl Plan<'_> {
     fn verify_function(
         &self,
         function: &Function,
-        capture: Option<usize>,
         config: TargetFrontendConfig,
         convention: CallConv,
     ) -> Result<(), JitError> {
-        if *function != self.function(capture, config, convention)? {
+        if *function != self.function(config, convention)? {
             return Err(JitError::Compilation(
                 "inline loop program differs from source".into(),
             ));

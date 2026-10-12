@@ -27262,8 +27262,8 @@ This is not an integrated optimization or a runtime safety certificate. The
 experimental 64-bytecode work bound is not the public per-activation budget.
 The runtime adapter must preserve slice accounting, pending caller-fragment
 charges, source/closure/capture binding, hooks, capacity and close guards,
-root ownership, publication, code leases and charged allocation. Physical
-upper-frame binding, fault injection at that boundary, and end-to-end timing
+root ownership, publication, code leases and charged allocation. Production
+upper-frame binding, dispatcher-boundary fault injection, and end-to-end timing
 acceptance remain required. No original gate or supported-language contract
 has changed, and shipping code still does not select this kernel.
 
@@ -27278,18 +27278,34 @@ publishing, so the existing continuation can charge that prefix exactly once.
 The publication operation copies the complete rooted frame, upper capture,
 PC and fuel while the scoped frame witness remains borrowed.
 
-`make jit-inline-loop-bridge` passes three tests. Its physical-state matrix
+`make jit-inline-loop-bridge` passes four tests. Its physical-state matrix
 covers 25,920 input combinations, including declines, with positive native
 coverage required separately for every source. Successful batches are replayed
 through real VM call/return activations, comparing frame state, rooted value
 identity, captures and fuel. Cases include a physical upper-frame capture and
-table-valued unused arguments. Thirteen pre-publication corruption/panic cases,
+table-valued unused arguments. Fourteen pre-publication corruption/panic cases,
 eight runtime-refusal cases and a post-publication unwind check also pass.
-The focused GNU source/native/bridge and original atomic-call targets pass
-17 executions across six summaries. This bridge still runs only in tests:
+At `3215906`, the focused GNU source/native/bridge and original atomic-call
+targets passed 17 executions across six summaries. The full GNU Auto
+`jit-test-all` run at that source state reported 1,835 passes across 88
+summaries, with eight ignored diagnostics; this broad run predates the dynamic
+binding follow-up below. This bridge still runs only in tests:
 charged code ownership, installation in the region dispatcher, production
 counter aggregation and end-to-end performance acceptance remain open. The
 bridge is not included in the current source-only Miri target.
+
+The follow-up uses one generated image for both current-frame and upper-frame
+captures. The entry validates the scalar-cell index before forming its
+address; no GC pointer is embedded in the image. Runtime metadata is now an
+owned, source-verified descriptor rather than a borrow of the compiler plan.
+A test drops the independent source snapshots, checks both workspace ledgers
+return to zero, and then executes a native batch using that descriptor.
+The current focused GNU and musl targets each pass 13 tests (four source,
+five native, four bridge). Tree Borrows seed 80 passes the four pure source
+tests. Memcheck passes all nine native/bridge tests with zero errors or
+definite/indirect leaks, retaining the same 48 possible and 632 reachable
+bytes. These focused checks do not substitute for shipping dispatcher,
+code-owner, counter, or performance acceptance.
 
 The preceding upvalue profile has now been independently audited: all 13
 events agree between self-cost sums, totals and summaries for both modes,
