@@ -281,6 +281,7 @@ pub(in crate::jit::backend) fn run(
         .is_err());
     }
     let mut changed_source = Snapshot {
+        prepared_keys: None,
         operations: super::super::super::resources::owned(&source.operations),
         constants: super::super::super::resources::owned(&source.constants),
         registers: source.registers,

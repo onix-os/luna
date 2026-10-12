@@ -873,7 +873,35 @@ fn compile_selected_rooted(
             "injected provider setup probe".into(),
         ));
     }
-    let helper_symbols = helpers::SYMBOLS;
+    let mut helper_symbols = helpers::SYMBOLS;
+    let prepare_keys = snapshot.prepared_keys.is_some() && !selection.projected && !rooted_moves;
+    #[cfg(not(miri))]
+    let prepare_keys = prepare_keys && !selection.scoped_helpers;
+    #[cfg(test)]
+    let prepare_keys = prepare_keys
+        && (failure == Failure::None
+            || matches!(
+                failure,
+                Failure::CorruptHelperFlow(
+                    super::helper_flow::Fault::PreparedLow
+                        | super::helper_flow::Fault::PreparedHigh
+                )
+            ))
+        && !selection.leaf
+        && !selection.cell_kernel
+        && !selection.integer_activation;
+    if prepare_keys {
+        let symbol = helper_symbols
+            .iter_mut()
+            .find(|(kind, _, _)| *kind == abi::HELPER_GET_UP_TABLE)
+            .unwrap();
+        *symbol = (
+            abi::HELPER_GET_UP_TABLE,
+            "luna_get_up_table_h1",
+            helpers::call_prehashed,
+        );
+        stores.helper_calls.prepared_keys = true;
+    }
     #[cfg(not(miri))]
     let helper_symbols = if selection.scoped_helpers {
         super::scoped_helpers::SYMBOLS
@@ -2171,6 +2199,25 @@ impl Emitter<'_, '_> {
         );
         self.exit_state(ExitKind::Interpreter);
         self.exit_state(ExitKind::Panic);
+        let [a, b, c] =
+            if kind == abi::HELPER_GET_UP_TABLE && self.stores.helper_calls.prepared_keys {
+                assert!(a <= 255 && b <= 255 && c & abi::CONSTANT_OPERAND != 0);
+                let index = c & !abi::CONSTANT_OPERAND;
+                assert!(index <= 255);
+                let hash = self
+                    .snapshot
+                    .prepared_keys
+                    .as_ref()
+                    .unwrap()
+                    .hash(index as u8);
+                [
+                    (a << 16) | (b << 8) | index,
+                    hash as u32,
+                    (hash >> 32) as u32,
+                ]
+            } else {
+                [a, b, c]
+            };
         let args = [a, b, c, self.pc as u32]
             .map(|arg| self.builder.ins().iconst(types::I32, i64::from(arg)));
         let helper = self
@@ -2959,6 +3006,7 @@ mod exit_tests {
 
     pub(super) fn with_emitter(op: Operation, action: impl FnOnce(&mut Emitter<'_, '_>)) {
         let snapshot = Snapshot {
+            prepared_keys: None,
             operations: super::super::resources::owned(&[
                 op,
                 Operation::Return {
@@ -3264,6 +3312,7 @@ mod comparison_tests {
             },
         };
         let snapshot = Snapshot {
+            prepared_keys: None,
             operations: super::super::resources::owned(&[
                 op,
                 Operation::Return {
@@ -3450,6 +3499,7 @@ mod loop_tests {
             }
         };
         let snapshot = Snapshot {
+            prepared_keys: None,
             operations: super::super::resources::owned(&[
                 op,
                 Operation::Return {
@@ -3642,6 +3692,7 @@ mod transfer_tests {
 
     fn fixture(op: Operation, slot: Slot, fault: Option<Fault>) -> Result<(), JitError> {
         let snapshot = Snapshot {
+            prepared_keys: None,
             operations: super::super::resources::owned(&[
                 op,
                 Operation::Return {
@@ -4029,6 +4080,7 @@ mod helper_flow_tests {
         for (op, expected) in operations().into_iter().zip(allowed) {
             for position in 0..8 {
                 let mut snapshot = Snapshot {
+                    prepared_keys: None,
                     operations: super::super::resources::owned(
                         &[Operation::Return {
                             start: R(0),
@@ -4067,6 +4119,7 @@ mod helper_flow_tests {
 
     fn fixture(op: Operation, fault: Option<Fault>) -> Result<(), JitError> {
         let snapshot = Snapshot {
+            prepared_keys: None,
             operations: super::super::resources::owned(&[
                 op,
                 Operation::Return {
@@ -4315,6 +4368,7 @@ mod ownership_tests {
 
     fn fixture(op: Operation, fault: Option<BindingFault>) -> Result<(), JitError> {
         let snapshot = Snapshot {
+            prepared_keys: None,
             operations: super::super::resources::owned(&[
                 op,
                 Operation::Return {
@@ -5242,6 +5296,7 @@ mod memory_tests {
     fn numeric_guards_reject_invalid_loop_operands_at_every_position() {
         use crate::types::{RegisterIndex as R, VarCount};
         let snapshot = Snapshot {
+            prepared_keys: None,
             operations: super::super::resources::owned(&[
                 Operation::NumericForLoop {
                     base: R(0),
@@ -5396,6 +5451,7 @@ mod memory_tests {
             ),
         ] {
             let snapshot = Snapshot {
+                prepared_keys: None,
                 operations: super::super::resources::owned(&[
                     operation,
                     Operation::Return {

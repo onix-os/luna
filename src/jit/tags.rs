@@ -3991,6 +3991,7 @@ mod tests {
             _ => Operation::Div { dest, left, right },
         };
         super::super::ir::Snapshot {
+            prepared_keys: None,
             operations: super::super::resources::owned(&[
                 op,
                 Operation::Return {
@@ -4291,6 +4292,7 @@ mod tests {
     fn comparison_record_allocation_refusal_releases_partial_storage() {
         use crate::types::{RegisterIndex, VarCount};
         let snapshot = super::super::ir::Snapshot {
+            prepared_keys: None,
             operations: super::super::resources::owned(&[
                 Operation::Less {
                     left: RCIndex::Register(RegisterIndex(0)),
@@ -4331,6 +4333,7 @@ mod tests {
         use crate::types::{RegisterIndex as R, VarCount};
         for prep in [false, true] {
             let snapshot = super::super::ir::Snapshot {
+                prepared_keys: None,
                 operations: super::super::resources::owned(&[
                     if prep {
                         Operation::NumericForPrep {
@@ -4387,6 +4390,7 @@ mod tests {
         for stage in 0..3 {
             let empty = stage == 2;
             let snapshot = super::super::ir::Snapshot {
+                prepared_keys: None,
                 operations: super::super::resources::owned(&[
                     if empty {
                         Operation::LoadNil {
@@ -4440,6 +4444,7 @@ mod tests {
     fn helper_call_allocation_refusal_releases_partial_storage() {
         use crate::types::{RegisterIndex as R, VarCount};
         let snapshot = super::super::ir::Snapshot {
+            prepared_keys: None,
             operations: super::super::resources::owned(&[
                 Operation::NewTable {
                     dest: R(0),
@@ -4477,6 +4482,7 @@ mod tests {
     ) -> Result<(), JitError> {
         use crate::types::{RegisterIndex, VarCount};
         let snapshot = super::super::ir::Snapshot {
+            prepared_keys: None,
             operations: super::super::resources::owned(&[
                 if let Some(is_true) = test {
                     Operation::Test {

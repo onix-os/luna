@@ -83,6 +83,7 @@ pub(super) fn snapshot(operations: &[Operation], registers: usize) -> Snapshot {
         count: VarCount::constant(0),
     });
     Snapshot {
+        prepared_keys: None,
         operations,
         constants: resources::owned(&[abi::Slot::from_value(Value::Integer(i64::MIN))]),
         registers,

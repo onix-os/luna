@@ -391,6 +391,7 @@ mod tests {
         owned.try_reserve_exact(operations.len()).unwrap();
         owned.extend_from_slice(operations);
         Snapshot {
+            prepared_keys: None,
             operations: owned,
             constants: Vec::new_in(allocator),
             registers: 4,

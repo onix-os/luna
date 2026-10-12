@@ -18,6 +18,7 @@ fn source(read: u8, result: u8, right: RCIndex, arithmetic: Arithmetic) -> Snaps
         Arithmetic::Mul => Operation::Mul { dest, left, right },
     };
     Snapshot {
+        prepared_keys: None,
         operations: owned(&[
             Operation::GetUpValue {
                 dest: RegisterIndex(read),

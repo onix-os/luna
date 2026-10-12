@@ -33,6 +33,7 @@ fn prepared_read<'gc, const TYPED: bool>(
 fn compare<'gc>(table: &RawTable<'gc>, mc: &Mutation<'gc>, key: String<'gc>, hash: PreparedHash) {
     let expected = table.get(mc, key.into());
     for actual in [
+        table.get_prepared_string(mc, key, PreparedStringHash::from_bits(hash.0)),
         prepared_read::<false>(table, mc, key, hash),
         prepared_read::<true>(table, mc, key, hash),
     ] {

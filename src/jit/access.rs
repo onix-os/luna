@@ -320,6 +320,7 @@ mod tests {
 
     fn snapshot() -> Snapshot {
         Snapshot {
+            prepared_keys: None,
             operations: super::super::resources::owned(&[]),
             constants: super::super::resources::owned(&[
                 abi::Slot {

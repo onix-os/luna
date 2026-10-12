@@ -180,6 +180,43 @@ pub(super) fn write_table_value<'gc>(
 }
 
 impl<'gc> Frame<'gc, '_, '_, '_> {
+    fn prehashed_up_table(&mut self, slots: &mut [Slot], packed: u32, hash: u64) -> bool {
+        if packed >> 24 != 0 {
+            return false;
+        }
+        let dest = packed >> 16;
+        let upvalue = (packed >> 8) & 255;
+        let index = packed & 255;
+        let Some(crate::Constant::String(key)) = self
+            .closure
+            .prototype()
+            .constants
+            .get(index as usize)
+            .copied()
+        else {
+            return false;
+        };
+        let Value::Table(table) = self.upvalue(slots, upvalue) else {
+            return false;
+        };
+        let value = table.get_prepared_string(
+            self.ctx,
+            key,
+            crate::table::PreparedStringHash::from_bits(hash),
+        );
+        if value.is_nil()
+            && table
+                .metatable()
+                .is_some_and(|mt| !mt.get_value(self.ctx, MetaMethod::Index).is_nil())
+        {
+            return false;
+        }
+        self.store(slots, dest, value);
+        self.count.table_reads += 1;
+        self.count.upvalue_reads += 1;
+        true
+    }
+
     fn register(&self, slots: &(impl Transport<'gc> + ?Sized), index: u32) -> Value<'gc> {
         slots.read(index as usize, self.registers.stack_frame[index as usize])
     }
@@ -374,6 +411,30 @@ pub(super) unsafe extern "C" fn call<const KIND: u32>(
     c: u32,
     pc: u32,
 ) -> u32 {
+    unsafe { call_selected::<KIND, false>(host, slots, a, b, c, pc) }
+}
+
+pub(super) unsafe extern "C" fn call_prehashed(
+    host: *mut abi::Host,
+    slots: *mut Slot,
+    packed: u32,
+    low: u32,
+    high: u32,
+    pc: u32,
+) -> u32 {
+    unsafe {
+        call_selected::<{ abi::HELPER_GET_UP_TABLE }, true>(host, slots, packed, low, high, pc)
+    }
+}
+
+unsafe fn call_selected<const KIND: u32, const PREHASHED: bool>(
+    host: *mut abi::Host,
+    slots: *mut Slot,
+    a: u32,
+    b: u32,
+    c: u32,
+    pc: u32,
+) -> u32 {
     if host.is_null() {
         return abi::HELPER_DECLINED;
     }
@@ -389,7 +450,11 @@ pub(super) unsafe extern "C" fn call<const KIND: u32>(
         }
         let completed = {
             let slots = unsafe { std::slice::from_raw_parts_mut(slots, frame.slot_count) };
-            frame.operation::<KIND>(slots, a, b, c)
+            if PREHASHED {
+                frame.prehashed_up_table(slots, a, u64::from(b) | (u64::from(c) << 32))
+            } else {
+                frame.operation::<KIND>(slots, a, b, c)
+            }
         };
         if let Some(projection) = frame.projection.as_deref_mut() {
             projection

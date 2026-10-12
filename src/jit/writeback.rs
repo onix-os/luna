@@ -57,6 +57,7 @@ mod tests {
 
     fn snapshot(operations: &[Operation], registers: usize) -> Snapshot {
         Snapshot {
+            prepared_keys: None,
             operations: super::super::resources::owned(operations),
             constants: super::super::resources::owned(&[]),
             registers,

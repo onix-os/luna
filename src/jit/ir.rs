@@ -11,6 +11,7 @@ use super::{
 use allocator_api2::vec::Vec;
 
 pub(crate) struct Snapshot {
+    pub(super) prepared_keys: Option<super::prepared_keys::Keys>,
     pub(super) operations: Vec<Operation, BudgetAllocator>,
     pub(super) constants: Vec<Slot, BudgetAllocator>,
     pub(super) registers: usize,
@@ -26,6 +27,7 @@ mod tests {
     #[test]
     fn fixed_set_list_sources_must_fit_the_declared_frame() {
         let mut snapshot = Snapshot {
+            prepared_keys: None,
             operations: super::super::resources::owned(&[
                 Operation::SetList {
                     base: RegisterIndex(0),
@@ -98,7 +100,8 @@ impl Snapshot {
             .try_reserve_exact(proto.constants.len())
             .map_err(|_| JitError::ResourceLimit("prototype snapshot"))?;
         constants.extend(proto.constants.iter().copied().map(Slot::from_constant));
-        let snapshot = Self {
+        let mut snapshot = Self {
+            prepared_keys: None,
             operations,
             constants,
             registers: usize::from(proto.stack_size),
@@ -106,11 +109,15 @@ impl Snapshot {
             prototypes: proto.prototypes.len(),
         };
         snapshot.verify()?;
+        snapshot.prepared_keys = super::prepared_keys::Keys::new(&snapshot, proto);
         Ok(snapshot)
     }
 
     pub(super) fn verify(&self) -> Result<(), JitError> {
         use Operation::*;
+        if let Some(keys) = &self.prepared_keys {
+            keys.verify(self)?;
+        }
         if self.registers > 256 || self.operations.len() > u32::MAX as usize {
             return Err(JitError::Compilation("invalid snapshot capacity".into()));
         }

@@ -93,6 +93,7 @@ mod tests {
 
     fn snapshot(operation: Operation) -> Snapshot {
         Snapshot {
+            prepared_keys: None,
             operations: resources::owned(&[
                 Operation::LoadConstant {
                     dest: RegisterIndex(0),

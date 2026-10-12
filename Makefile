@@ -161,6 +161,13 @@ jit-prehash-profile-run: jit-profile-cpu-check
 	done; done
 	@sha256sum -c '$(PREHASH_DIR)/binary.sha256' '$(PREHASH_DIR)/source.sha256' > '$(PREHASH_DIR)/verification-after.log'
 
+.PHONY: jit-prepared-keys jit-prepared-keys-miri
+jit-prepared-keys:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::prepared_keys::tests | awk '/^test result: ok[.] 5 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+jit-prepared-keys-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::prepared_keys::tests -- --test-threads=1 | awk '/^test result: ok[.] 3 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
 .PHONY: jit-import-model jit-import-model-miri jit-import-profile-build jit-import-profile-run
 IMPORT_DIR ?= target/jit-evidence/short-slice-performance/scheduled-import-replay
 jit-import-model:

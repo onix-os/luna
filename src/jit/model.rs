@@ -830,6 +830,7 @@ mod tests {
                         _ => Operation::Div { dest, left, right },
                     };
                     let snapshot = Snapshot {
+                        prepared_keys: None,
                         operations: super::super::resources::owned(&[
                             op,
                             Operation::Return {
@@ -919,6 +920,7 @@ mod tests {
         .map(slot);
         for base in [0, 4] {
             let snapshot = Snapshot {
+                prepared_keys: None,
                 operations: super::super::resources::owned(&[
                     Operation::NumericForLoop {
                         base: R(base),
@@ -1058,6 +1060,7 @@ mod tests {
                         },
                     };
                     let snapshot = Snapshot {
+                        prepared_keys: None,
                         operations: super::super::resources::owned(&[
                             op,
                             Operation::LoadBool {

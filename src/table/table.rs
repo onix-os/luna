@@ -100,6 +100,19 @@ impl<'gc> Table<'gc> {
         self.get_raw(&ctx, key.into_value(ctx))
     }
 
+    #[cfg(feature = "jit")]
+    pub(crate) fn get_prepared_string(
+        self,
+        ctx: Context<'gc>,
+        key: crate::String<'gc>,
+        hash: super::PreparedStringHash,
+    ) -> Value<'gc> {
+        self.0
+            .borrow()
+            .raw_table
+            .get_prepared_string(&ctx, key, hash)
+    }
+
     /// A convenience method over [`Table::set`] for setting a string field of a table.
     ///
     /// It behaves exactly the same as [`Table::set`], except since this only accepts string keys,
