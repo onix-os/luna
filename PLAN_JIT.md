@@ -163,7 +163,7 @@ remain under `target/jit-evidence/short-slice-performance/native-tier-outline*`.
 No candidate full-suite acceptance is claimed. Next investigate the proven
 extra table-key comparisons, not another ungrounded selector-layout change.
 
-#### Prepared-key stored-hash rejection — placement under investigation
+#### Prepared-key stored-hash rejection — both placements withdrawn
 
 Commit `3758a01` adds a baseline-tested full stored-hash collision fixture.
 Distinct equal strings must still match, distinct same-length byte strings must
@@ -187,13 +187,34 @@ instructions per successful lookup. Its exact disassembly shows changed PC
 register/stack placement. No hardware speedup or elapsed regression is inferred
 from that diagnostic. No elapsed timing was run for this placement.
 
-The current uncommitted variant moves the stored-hash check inside the existing
-cold, non-inlined content fallback instead. Equal hashes still require byte
-equality. No process randomization, interpreter comparator, allocation layout,
-native coverage or resource/statistics contract changes. This variant must
-earn its own validation and timing; it does not inherit the first placement's
-full-suite result. Artifacts and logs remain under `prepared-hash-filter*` in
-the ignored short-slice performance directory. Full acceptance remains open.
+A second variant moves the stored-hash check inside the existing cold,
+non-inlined content fallback. It passes its own **43 focused and ten Rust-only
+Miri executions**, exact-image verification, eighteen full-context and three
+isolated non-timing comparisons. All three fresh callback profiles match the
+control's **123,997,452 instructions / 39,031,239 reads / 25,754,795 writes**.
+This removes the first placement's observed successful-path instruction cost;
+no high-probe process was observed in these profiles, so a negative-probe saving
+is not measured. Changed simulated branch misses are not hardware evidence.
+
+Three native timing campaigns finish **13,608 measured executions** with zero
+counter/resource mismatches. Ten of twelve callback control/candidate ratios
+are below one; ten of twelve candidate callback gates and four metamethod gates
+fail. Remaining scored native gates pass. Another **181,440 cost workload
+iterations / 216 audited gate reports** finish, with candidate failures **21/72**
+versus **14/72** and **16/72** controls. CPU0 speed has broad noisy windows in
+both candidate and controls; those observations remain, without a clean-host
+attribution. CPU16 speed allocation instead repeatedly fails at **1.055287 /
+1.052795**, versus four controls **1.042566–1.047525**, all passing the unchanged
+1.05 ceiling. Instruction parity does not justify this elapsed-time tradeoff.
+
+Both runtime placements are withdrawn; the independent collision fixture stays.
+Restored formatting/checking and **43 focused executions** pass, and Make
+reproduces the baseline benchmark byte-for-byte (`43873296e21d4337aecf8ef44a957c2d434662d70dd7d53746b104855c5cfc64`).
+The cold variant did not run its own full Force suite; the first placement's
+result is not substituted. No owned validation/profiling overlaps elapsed
+timing. Frozen patches, images, profiles, all adverse windows and audits remain
+under `prepared-hash-filter*` in the ignored short-slice performance directory.
+The original callback and disabled-cost failures remain unresolved.
 
 ### Progress snapshot — 2026-10-12
 
