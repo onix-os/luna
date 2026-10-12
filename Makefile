@@ -456,7 +456,7 @@ jit-disassembly:
 	@set -o pipefail; LUNA_JIT_DIAGNOSTIC_DIR='$(abspath $(JIT_DUMP_DIR))' $(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::backend::memory_tests::dump_finalized_native_kernels -- --exact --ignored --nocapture 2>&1 | tee '$(JIT_DUMP_DIR)/test.log'
 	@grep -Fq 'test jit::backend::memory_tests::dump_finalized_native_kernels ... ok' '$(JIT_DUMP_DIR)/test.log'
 	@set -e; case "$$(uname -m)" in x86_64) machine='i386:x86-64';; aarch64) machine=aarch64;; esac; \
-	for fixture in scalar table; do \
+	for fixture in scalar table callback callback_direction; do \
 		grep -Fxq "arch=$$(uname -m)" '$(JIT_DUMP_DIR)'/$$fixture.metadata; \
 		address=$$(sed -n 's/^entry_address=//p' '$(JIT_DUMP_DIR)'/$$fixture.metadata); \
 		test -n "$$address"; test -s '$(JIT_DUMP_DIR)'/$$fixture.bin; \
@@ -488,6 +488,10 @@ jit-backend:
 	@$(CARGO) test -p luna --features jit --test jit_backend $(TARGET_ARG)
 
 .PHONY: jit-entry-guard
+jit-loop-direction:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::direction::tests:: -- --list | grep -F 'native_loop_direction_matches_control_and_model_at_all_boundaries: test'
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::direction::tests:: -- --nocapture
+
 jit-entry-guard:
 	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::entry_guard_tests -- --list | grep -Fx 'jit::backend::entry_guard_tests::arithmetic_entry_guards_preserve_values_and_budget_priority: test'
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::entry_guard_tests $(ARGS)

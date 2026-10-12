@@ -11,6 +11,32 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Branched integer-loop direction: test-only performance probe
+
+The callback kernel computes both signed integer-limit comparisons before
+selecting one according to step direction. A new test-only rewrite moves each
+comparison into its selected branch. It runs after ordinary source/entry/exit
+verification and retains the original comparisons, overflow handling, values,
+budgets and native instruction accounting. Shared comparison results, including
+successor arguments, are refused; there are fixed function-size/site caps.
+This is not the earlier combined numeric-tag guard experiment.
+
+The GNU native oracle covers 231,525 index/limit/step, PC and budget combinations
+against both the unchanged kernel and the scalar model. Candidate and control
+slots match bitwise; model NaN results are compared as NaNs. Bounds include
+signed integer overflow, negative/zero steps, mixed floats, infinities, invalid
+scalar kinds, zero fuel and unknown entry PCs. Pure IR tests check idempotence
+and refusal without mutation. These are prototype checks, not production
+activation or full performance acceptance.
+
+`make jit-disassembly` now imports the frozen callback workload and emits both
+ordinary and experimental kernels, including the prepared-helper address.
+Both initial x86-64 kernels occupy 2,160 bytes. Assembly confirms an actual
+direction branch replaces the integer conditional selection. The diagnostic
+invokes only the helper-free prefix, stopping at GetUpTable without a host;
+it does not claim to execute callbacks. Whole-workload profiling is next.
+Evidence: `target/jit-evidence/short-slice-performance/loop-direction-*`.
+
 #### Split scratch storage: prototype does not justify an ABI change
 
 `994b09a` adds a test-only split representation: aligned u64 payloads and u8
