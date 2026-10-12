@@ -2,6 +2,7 @@ use super::*;
 use crate::jit::abi::strided::frame::Header;
 
 mod guarded;
+mod scalar_range;
 mod uniform;
 
 #[derive(Clone, Copy)]
@@ -21,9 +22,9 @@ impl Read {
         } else if self.numeric {
             2
         } else if self.uniform.is_some() {
-            11
+            10
         } else {
-            16
+            15
         }
     }
 }
@@ -90,11 +91,7 @@ fn emit(f: &mut Function, slots: IrValue, read: Read) {
     );
     let cell = c.ins().iadd(base, displacement);
     let address = c.ins().iadd(cell, offset);
-    let one = c.ins().iconst(types::I64, abi::BOOLEAN as i64);
-    let three = c.ins().iconst(types::I64, abi::NUMBER as i64);
-    let nonzero = c.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, tag, one);
-    let nonref = c.ins().icmp(IntCC::UnsignedLessThanOrEqual, tag, three);
-    let scalar = c.ins().band(nonzero, nonref);
+    let scalar = scalar_range::emit(&mut c, tag);
     let null = c.ins().iconst(types::I64, 0);
     c.func.replace(read.inst).select(scalar, address, null);
 }
@@ -112,7 +109,7 @@ fn verify(f: &Function, slots: IrValue, read: Read) -> Result<(), JitError> {
         }
         return uniform::verify(f, slots, read);
     }
-    use reads::{compare, constant, load, value};
+    use reads::{constant, load, value};
     let mut previous = Some(read.inst);
     let mut backwards = std::iter::from_fn(|| {
         let inst = previous?;
@@ -133,9 +130,9 @@ fn verify(f: &Function, slots: IrValue, read: Read) -> Result<(), JitError> {
         }
         return Ok(());
     }
-    let mut instructions = shape::<17>(backwards.take(17))?;
+    let mut instructions = shape::<16>(backwards.take(16))?;
     instructions.reverse();
-    let [byte, tag, width, scaled, table, offset, base, displacement, cell, address, one, three, nonzero, nonref, scalar, null, result] =
+    let [byte, tag, width, scaled, table, offset, base, displacement, cell, address, first, adjusted, range, scalar, null, result] =
         instructions;
     let byte = load(
         f,
@@ -169,11 +166,7 @@ fn verify(f: &Function, slots: IrValue, read: Read) -> Result<(), JitError> {
     )?;
     let cell = value(f, cell, Opcode::Iadd, &[base, displacement], types::I64)?;
     let address = value(f, address, Opcode::Iadd, &[cell, offset], types::I64)?;
-    let one = constant(f, one, abi::BOOLEAN as i64)?;
-    let three = constant(f, three, abi::NUMBER as i64)?;
-    let nonzero = compare(f, nonzero, IntCC::UnsignedGreaterThanOrEqual, [tag, one])?;
-    let nonref = compare(f, nonref, IntCC::UnsignedLessThanOrEqual, [tag, three])?;
-    let scalar = value(f, scalar, Opcode::Band, &[nonzero, nonref], types::I8)?;
+    let scalar = scalar_range::verify(f, [first, adjusted, range, scalar], tag)?;
     let null = constant(f, null, 0)?;
     if value(
         f,
