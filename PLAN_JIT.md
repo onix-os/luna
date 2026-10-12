@@ -53,13 +53,28 @@ the six-argument ABI. Its fresh nine-case smoke matches all eighteen non-timing
 records, and callback instruction profiles match exactly at 126,201,795. Neither
 check establishes elapsed-time or release acceptance.
 
-Next integrate the four-argument form only behind an experimental compiler
-selection, with an independently checked signature, both u64 constants, exact
-source PC/operands/hash, helper outcomes and charged declaration workspace.
-Keep generic/projected/resource fallback intact and reject corrupted calls before
-installation. Only a subsequent unchanged full-runtime comparison can establish
-whether the component saving survives native entry and register-allocation costs.
+`85cfb9f` adds a test-only four-argument compiler selection. The independent
+helper-flow verifier checks its signature, both u64 constants, source PC,
+operands and hash; the extra signature workspace is charged. Ordinary helper
+imports retain six arguments, including writes in mixed read/write sources.
+Production selection and its generic/projected/resource fallback are unchanged.
+
+`make jit-wide-compiler` passes three new compiler tests and nine existing
+prepared-key tests. Native wide/ordinary execution matches in 1,155 paired
+cases over four sources, every source entry plus invalid entries, five budgets
+and seven value/decline/borrow-panic states. The comparison includes exits,
+charged instructions, frame PC, helper counters, captured panic state, scratch,
+canonical registers and global effects; 205 successful reads execute in each
+variant. All twenty injected call-flow corruptions are refused before
+installation. Exact-workspace-limit and one-byte-below checks release snapshot
+charges and executable mappings; unsupported register-key sources refuse the
+experimental selection. These are compiler-path tests, not full-runtime speedups.
+
+Next measure an experimental full-runtime activation without changing workload
+or acceptance thresholds. Only that comparison can establish whether the
+component saving survives native entry and register-allocation costs.
 Evidence: `target/jit-evidence/short-slice-performance/wide-helper-*`.
+Compiler evidence: `target/jit-evidence/short-slice-performance/wide-compiler-*`.
 
 #### Guarded built-in call fusion: hardware tradeoff rejected
 
