@@ -4,6 +4,8 @@ use super::*;
 #[allow(dead_code)]
 mod workloads;
 
+mod timing;
+
 fn configured(failure: backend::Failure) -> Lua {
     let mut lua = state(JitMode::Auto, false);
     lua.enter(|ctx| {
