@@ -11,6 +11,56 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Wide prepared-helper ABI: generated-call model, not runtime activation
+
+`cc5397f` and `be37d28` probe a four-argument GetUpTable entry: host, scratch,
+packed operands plus the full 32-bit PC in one u64, and the seeded hash in
+another u64. Public values, stack storage, source admission, production helper
+signatures and native selection remain unchanged. The direct entry expands
+the existing helper macro body, retaining lookup, projection, panic capture,
+PC-before-effects, counters and panic materialization rather than bypassing them.
+
+The first adapter merely converts back to the six-argument Rust entry. Its
+100,000-call generated probe costs 26,300,023 versus 26,100,023 instructions,
+despite reducing the native stub from 39 to 35 bytes. That adapter is not an
+optimization. The direct-body model removes the extra conversion call.
+
+Two complete direct-body profile sets reproduce identical instruction totals:
+scalar lookup 28,900,023 to 28,100,023; callback-shaped lookup 28,300,023 to
+27,500,023. Both save eight instructions per helper invocation, about 2.77%
+and 2.83% respectively. The callback shape imports the frozen workload's real
+source and derives its seven-register width, packed operands 327683 and source
+PC 5, returning the current callback reference. It does not execute the callback
+or the benchmark loop. Native stubs shrink 44 to 42 bytes for this shape.
+These are component instruction profiles, not whole-runtime speedups or hardware
+acceptance. Cross-build scalar totals are not comparable because helper outlining
+changes in the test artifact. Four of the eight saved instructions are an old
+entry shim in this artifact; production inlining may change that benefit.
+
+The encoding model checks 81 full-PC/reserved-bit combinations. Actual generated
+calls match the six-argument entry in 35 value/missing/metamethod/borrow-panic/null
+host cases across five PCs through u32::MAX. The existing helper differential now
+compares generic, prepared, wide-adapter and wide-direct entries. GNU passes
+29 helper tests, 20 heap integration tests and the four-way differential; the
+profile-only test remains explicitly ignored outside profiling. Stacked seed 0
+and Tree seed 1 each report 28+1+1 model passes, with existing warnings and no
+generated-code execution under Miri. No-feature/all-feature checks and formatting
+pass. Profile audits verify counters, source operands, exact native byte sizes,
+positive collection, source/image hashes and one executed test per capture.
+
+The shared macro refactor's actual production benchmark is rebuilt, still using
+the six-argument ABI. Its fresh nine-case smoke matches all eighteen non-timing
+records, and callback instruction profiles match exactly at 126,201,795. Neither
+check establishes elapsed-time or release acceptance.
+
+Next integrate the four-argument form only behind an experimental compiler
+selection, with an independently checked signature, both u64 constants, exact
+source PC/operands/hash, helper outcomes and charged declaration workspace.
+Keep generic/projected/resource fallback intact and reject corrupted calls before
+installation. Only a subsequent unchanged full-runtime comparison can establish
+whether the component saving survives native entry and register-allocation costs.
+Evidence: `target/jit-evidence/short-slice-performance/wide-helper-*`.
+
 #### Guarded built-in call fusion: hardware tradeoff rejected
 
 An exact-instance `setmetatable` fast path replaces the ordinary callback
