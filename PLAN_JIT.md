@@ -11,6 +11,21 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Strided metadata partition candidate — timing pending
+
+The test-only strided lowering now separates verified frame-metadata loads from
+other memory through Cranelift alias regions. Calls still invalidate memory;
+frame bases are not marked readonly. An independent checker accepts only the
+expected memory-flag changes and preserves all other IR. Table reservations
+remain charged through code generation.
+
+Focused validation passes 18 backend tests, including mutation rejection,
+quota refusal, scalar-store visibility and helper-driven frame rebinding.
+The seven-workload timing correctness/counter check also passes. These results
+are not performance acceptance: the candidate has not yet been timed, and the
+CPU 0 callback and CPU 16 integer regressions below remain unresolved.
+Production transport selection is unchanged.
+
 #### Paired elapsed-time screen — mixed results, no default switch
 
 `a7168b8` adds a separate warm-execution timing diagnostic without instrumenting

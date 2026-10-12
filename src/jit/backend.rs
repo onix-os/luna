@@ -1026,6 +1026,8 @@ fn compile_selected_rooted(
     let mut packed_signature_charge = None;
     #[cfg(test)]
     let universal_memory_charge;
+    #[cfg(test)]
+    let mut strided_memory_charge = None;
     let mut module = JITModule::new(jit);
     let ptr = module.target_config().pointer_type();
     let entry_types = [ptr, types::I64, types::I32, ptr, ptr];
@@ -1682,13 +1684,13 @@ fn compile_selected_rooted(
             return Err(JitError::Compilation("no proven payload tag writes".into()));
         }
         if failure == Failure::RequireStrided {
-            payload::strided::lower(
+            strided_memory_charge = Some(payload::strided::lower_partitioned(
                 &mut context.func,
                 parameters[0],
                 snapshot.registers,
                 snapshot.operations.allocator().clone(),
                 expansion,
-            )?;
+            )?);
         }
         cranelift_codegen::verify_function(&context.func, module.isa())
             .map_err(|error| JitError::Compilation(error.to_string()))?;
@@ -2137,6 +2139,8 @@ fn compile_selected_rooted(
     drop(packed_signature_charge);
     #[cfg(test)]
     drop(universal_memory_charge);
+    #[cfg(test)]
+    drop(strided_memory_charge);
     drop(signature_charge);
     drop(symbol_charge);
     drop(relocation_copy_charge);

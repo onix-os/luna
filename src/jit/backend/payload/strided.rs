@@ -2,6 +2,7 @@ use super::*;
 use crate::jit::abi::strided::frame::Header;
 
 mod guarded;
+mod memory;
 mod scalar_range;
 mod uniform;
 
@@ -189,11 +190,32 @@ pub(in crate::jit::backend) fn lower(
     allocator: BudgetAllocator,
     expansion: crate::jit::work::Expansion,
 ) -> Result<(), JitError> {
+    lower_impl(f, slots, registers, allocator, expansion, false).map(drop)
+}
+
+pub(in crate::jit::backend) fn lower_partitioned(
+    f: &mut Function,
+    slots: IrValue,
+    registers: usize,
+    allocator: BudgetAllocator,
+    expansion: crate::jit::work::Expansion,
+) -> Result<Reservation, JitError> {
+    lower_impl(f, slots, registers, allocator, expansion, true)?.ok_or_else(invalid)
+}
+
+fn lower_impl(
+    f: &mut Function,
+    slots: IrValue,
+    registers: usize,
+    allocator: BudgetAllocator,
+    expansion: crate::jit::work::Expansion,
+    partition: bool,
+) -> Result<Option<Reservation>, JitError> {
     if registers == 0 || registers > 256 {
         return Err(invalid());
     }
     let mut records = BudgetVec::new_in(allocator.clone());
-    let mut analysis = same_tag::Analysis::with_bound_stores(f, allocator)?;
+    let mut analysis = same_tag::Analysis::with_bound_stores(f, allocator.clone())?;
     let (mut instructions, blocks) = size(f);
     for block in f.layout.blocks() {
         for inst in f.layout.block_insts(block) {
@@ -264,8 +286,13 @@ pub(in crate::jit::backend) fn lower(
     if size(&candidate) != (instructions, blocks) {
         return Err(invalid());
     }
+    let charge = if partition {
+        Some(memory::lower(&mut candidate, slots, &records, allocator)?)
+    } else {
+        None
+    };
     *f = candidate;
-    Ok(())
+    Ok(charge)
 }
 
 #[cfg(test)]
