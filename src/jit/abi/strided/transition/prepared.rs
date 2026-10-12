@@ -320,6 +320,39 @@ fn compare(native: bool) {
                         _ => abi::HELPER_COMPLETED,
                     };
                     assert_eq!(reports[1].0.result & !READY, expected);
+                    let completed = u64::from(expected == abi::HELPER_COMPLETED);
+                    assert_eq!(
+                        reports[1].0.counts,
+                        [
+                            1,
+                            completed,
+                            u64::from(expected == abi::HELPER_DECLINED),
+                            completed,
+                            0,
+                            completed,
+                            0,
+                            0
+                        ]
+                    );
+                    assert_eq!(
+                        reports[1].0.pc,
+                        pc as usize + usize::from(expected != abi::HELPER_DECLINED)
+                    );
+                    assert_eq!(reports[1].0.fuel, 47);
+                    assert_eq!(reports[1].0.panicked, expected == abi::HELPER_PANICKED);
+                    let expected_value = if expected == abi::HELPER_COMPLETED {
+                        match if scenario == 8 { Value::Nil } else { value } {
+                            Value::Integer(v) => Value::Integer(v.wrapping_add(2)),
+                            other => other,
+                        }
+                    } else {
+                        Value::Integer(74)
+                    };
+                    abi::tests::assert_identical(reports[1].1[1], expected_value);
+                    assert_eq!(
+                        reports[1].0.result & READY != 0,
+                        completed == 1 && matches!(expected_value, Value::Integer(_))
+                    );
                     comparisons += 1;
                 }
             }
