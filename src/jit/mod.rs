@@ -3498,3 +3498,6 @@ mod transport_resource_tests;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod packed_runtime;
+
+#[cfg(test)]
+mod scheduled_import_tests;
