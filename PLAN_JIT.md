@@ -27226,6 +27226,21 @@ to this candidate. Only fresh build/configuration/hash/section outputs are curre
 - `target/jit-evidence/coverage-package/` — focused pass and failed build logs.
 - `target/jit-evidence/current-frame-upvalues/` — committed alias acceptance.
 
+### Guarded inline-loop source admission (experimental)
+
+`src/jit/inline_loop.rs` is test-only groundwork for removing repeated
+Rust call/return transitions from numeric loops containing scalar upvalue
+callees. It retains the existing aggregate source-identity and expansion
+checks, bounds the loop body, and rejects effects outside its admitted shape.
+`make jit-inline-loop-plan` passes four tests. The original positive `x=x+x`
+fixture actually contains two `GetUpValue` instructions; it now explicitly
+tests fallback instead of weakening the four-operation callee guard.
+
+This is not an integrated optimization or a runtime safety certificate.
+Generated execution, runtime closure/capture binding, fuel accounting,
+publication, native mutation tests and performance acceptance remain required.
+No original gate or supported-language contract has changed.
+
 ## 15. Primary references
 
 - [Cranelift project and backend scope](https://cranelift.dev/) — native code generator, targets, and security caveats; not a Lua runtime.
