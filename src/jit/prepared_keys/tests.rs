@@ -201,6 +201,8 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
         };
         let packed = (u32::from(dest.0) << 16) | (u32::from(table.0) << 8) | u32::from(index.0);
         let hash = snapshot.prepared_keys.as_ref().unwrap().hash(index.0);
+        let replacement = crate::Table::new(&ctx);
+        replacement.set(ctx, "target", -19).unwrap();
         for metamethod in [false, true] {
             let mt = crate::Table::new(&ctx);
             mt.set(ctx, "__index", crate::Table::new(&ctx)).unwrap();
@@ -215,7 +217,23 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
                 Value::Table(crate::Table::new(&ctx)),
             ] {
                 ctx.globals().set(ctx, "target", value).unwrap();
-                for borrowed in [false, true] {
+                for (environment, borrowed) in [
+                    Value::Table(ctx.globals()),
+                    Value::Nil,
+                    Value::Boolean(false),
+                    Value::Integer(29),
+                    Value::Number(-0.0),
+                    Value::String(ctx.intern(b"not a table")),
+                    Value::Table(replacement),
+                    Value::Table(ctx.globals()),
+                ]
+                .into_iter()
+                .flat_map(|environment| [false, true].map(|borrowed| (environment, borrowed)))
+                {
+                    closure.upvalues()[table.0 as usize].get().set(
+                        &ctx,
+                        crate::closure::UpValueState::Closed(environment),
+                    );
                     let results = [0, 1, 2, 3].map(|prepared| {
                         let mut canonical = std::vec![Value::Integer(73); snapshot.registers];
                         let mut pc = 0;
@@ -278,7 +296,10 @@ fn prepared_rust_helper_matches_generic_mutation_and_decline() {
                                         )
                                     }
                                 };
-                                assert_eq!(frame.panic.is_some(), borrowed);
+                                assert_eq!(
+                                    frame.panic.is_some(),
+                                    borrowed && matches!(environment, Value::Table(t) if t == ctx.globals()),
+                                );
                                 drop(guard);
                                 (
                                     status,
