@@ -9,6 +9,11 @@ upvalue threshold. Experimental strided/ordinary ratios are a separate diagnosti
 not the shipping Off/Auto acceptance gate. Performance and release acceptance
 remain open; `PLAN_JIT.md` records all results and collateral measurements.
 
+Fresh compiled-disabled cost checks also fail: shipping upvalue overhead is
+8–9% on CPU 0 and 23–25% on CPU 16, above the unchanged 5% ceiling. Speed-profile
+callback and other cost failures remain. These are separate from Auto speedups;
+enabling the feature is not yet performance-neutral when JIT is switched off.
+
 Ordinary constant-string upvalue-table reads can embed a process-seeded key hash.
 Each lookup still checks the current table and full key equality; no GC pointers
 or table values are cached. Optional, charged hash storage falls back to ordinary

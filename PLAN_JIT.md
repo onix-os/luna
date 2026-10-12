@@ -11,6 +11,72 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Current compiled-disabled cost gate — measured and still failing
+
+Fresh matched no-feature/JIT-Off cost probes at `f08cb70` replace stale cost
+assumptions with current evidence. Both shipping (`opt-level=s`) and speed
+(`opt-level=3`) retain LTO, one codegen unit and stripping. Builds finish before
+timing. Eight pinned `make jit-size-run` commands use 21 alternating process pairs,
+20 iterations per workload, all nine original workloads and the unchanged
+**JIT-Off/no-feature <= 1.05** ceiling. CPU order is 0/16/16/0; profile order
+reverses for the repeat. No owned build/test/profiler overlaps timing, and unrelated
+applications are not stopped.
+
+All eight commands fail their aggregate gate: shipping passes **32/36** case
+checks and speed **25/36**. Independent reconstruction from the printed pair
+durations verifies **72** gate reports and **60,480 measured workload iterations**
+(excluding warmups). Every cost worker verifies its result and zero native work;
+separate Auto proofs verify native execution for every warm case and none for
+cold configuration. Hashes, source manifests and before/after telemetry are
+retained. These are feature-cost comparisons, not before/after optimization gains.
+
+| Failing cost case | Profile / CPU | First / repeat ratio |
+|---|---|---:|
+| Closure/upvalue | Shipping / 0 | 1.088342 / 1.083011 |
+| Closure/upvalue | Shipping / 16 | 1.253950 / 1.233267 |
+| Closure/upvalue | Speed / 16 | 1.116814 / 1.121717 |
+| Rust callbacks | Speed / 0 | 1.060741 / 1.066102 |
+| Rust callbacks | Speed / 16 | 1.080592 / 1.065212 |
+| Metamethods | Speed / 0 | 1.059800 / 1.059585 |
+| Predicate | Speed / 0 | 1.051473 / 1.051818 |
+| Allocation/GC | Speed / 16 | 1.051903 / 1.049451 |
+
+All other cost combinations pass both repeats. Unlike the native performance
+gate, the feature-cost gate scores the predicate. Binary sizes are shipping
+**1,152,712 -> 4,719,680 bytes** (+3,566,968; 4.0944x) and speed
+**1,432,640 -> 7,226,304 bytes** (+5,793,664; 5.0440x). These are reported sizes,
+not a newly invented acceptance ceiling. No Cranelift dependency appears in the
+no-feature dependency tree.
+
+Exact symbol companions are recovered by replaying the original linker inputs
+without its strip switch, not by changing the Rust optimization/strip profile.
+All four recaptured stripped binaries match the timed binaries byte-for-byte.
+Program headers, allocated-section metadata and all **102** nonempty file-backed
+allocated sections match their respective companions. Four isolated upvalue
+profiles on CPU 16 verify results/native-zero work and artifact hashes:
+
+| Profile | No-feature instructions | JIT-Off instructions | Extra work |
+|---|---:|---:|---:|
+| Shipping | 79,372,477 | 89,176,738 | 12.35% |
+| Speed | 72,523,637 | 81,879,248 | 12.90% |
+
+In shipping, VM self work rises 30,553,915 -> 35,804,245, Executor::step
+13,611,680 -> 14,916,020, and register-view construction 3,600,180 -> 4,600,230.
+The statistics destructor adds 2,400,120 instructions. Some other functions get
+cheaper, so these components must not be treated as independent total deltas.
+Speed retains a 3,100,155-instruction ordinary-slice adapter. Isolated software
+profiles identify disabled VM/frame/accounting costs, not the hardware cause or
+full-context elapsed-time shares. Previously rejected adapter inlining,
+register-view/optional-fuel changes and statistics-finalization trials must not
+be repeated solely because their symbols remain visible.
+
+No runtime source or compiler defaults change. The ordinary native benchmark is
+restored and byte-matches `d38b7f5c98ab6de0a75cef2733c5098a4eaf6d057f3dd72142742f43707d4464`.
+The disabled-path upvalue overhead is a current, substantial performance target
+in addition to native callback/metamethod regressions; full release acceptance
+remains open. Evidence: `target/jit-evidence/short-slice-performance/compiled-off-refresh/`
+(`timing/`, frozen profile directories, exact-link captures and verified symbols).
+
 #### Closed-table helper trial — withdrawn after extended timing
 
 Separate production callback profiles record **126,201,795 Auto instructions**
