@@ -102,6 +102,18 @@ helper/VM costs, accounting for prior rejected SSA/cache experiments, rather tha
 another ordinary alias-label variant or an assumption that resumption edges can
 be removed.
 
+A specific unimplemented lead is in the strided address pass:
+`payload/strided/uniform.rs` emits a 12-instruction tag-range/null-select pattern
+for every pointer read, even though `payload/bound_reads.rs` already proves
+numeric state for some source descriptor-pointer loads using
+`same_tag::numeric_at`. Investigate carrying a fresh, source-verified numeric
+witness into the strided rewrite, so those sites can form the measured address
+without repeating the scalar/null predicate. Retain the existing guarded pattern
+for unproven sites and nonuniform layouts. The witness must survive the complete
+translation: source guards, helper invalidation, nil/reference behavior and every
+generated instruction still need independent verification and workload evidence.
+No guard has been removed and no performance result is claimed for this lead.
+
 #### Universal alias-region experiment — measured, no useful gain
 
 `1b98403` implements the previously proposed single-region experiment on the
