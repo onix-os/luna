@@ -11,7 +11,235 @@
 
 ### Progress snapshot — 2026-10-12
 
-#### Rooted preflight — capture outlining identified
+#### Precomputed string-key hashes — measured lookup model only
+
+`d87fc1c` adds a test-only, GC-free `PreparedHash(u64)` model and Make targets.
+Queries still inspect the current table, compare complete keys and upgrade weak
+values on every read. Three tests cover distinct equal string allocations,
+binary/long keys, missing/false/NaN values, growth, mutation, deletion,
+reinsertion, clearing, forced hash collisions and collection in all weak modes.
+GNU and fresh-target musl each pass all three tests. Stacked seed 61 and Tree
+seed 62 Miri each pass all three; one lookup diagnostic is deliberately ignored
+in each correctness run. Nightly warnings remain.
+
+The first musl invocation reports success but executes **zero matching tests**.
+Its cached dependency fingerprint points to an older isolated source checkout;
+that invocation is not validation. A dedicated fresh target executes the current
+three tests successfully. The new model targets now require a three-test success
+summary: a repeat against the stale target correctly fails with exit 2, while
+GNU and fresh musl pass. The failed initial fixture compilation is also retained.
+
+Shipping/speed test images complete **16 lookup-only software profiles**, four
+implementations with both identical and distinct-equal string allocations.
+Each executes 100,000 verified reads; binary/source checks and independent
+analysis of all thirteen event totals and summed self-costs pass.
+
+| Instructions per 100,000 same-allocation reads | Shipping | Speed |
+| --- | ---: | ---: |
+| Existing generic lookup | 22,600,023 | 16,900,023 |
+| String query, recomputed hash, canonical equality | 18,400,022 | 14,600,024 |
+| Same query with precomputed hash | 16,200,023 | 13,200,024 |
+| Precomputed hash and typed string equality | 15,200,023 | 11,600,024 |
+
+The isolated hash saving is approximately **22 / 14 instructions per read**;
+distinct-equal strings have the same deltas. Speed nevertheless adds roughly
+one data write per read between the recomputed and precomputed canonical forms.
+This is not a native callback timing result or evidence that instruction savings
+outweigh compiler/ABI integration costs. Existing string hashes already cache
+content hashing; the remaining work measured here is process-seeded key hashing.
+
+**Do not promote or claim a regression fix from this probe.** The production
+table layout, helper ABI, snapshot constants and interpreter are unchanged.
+The independent benefit is small and does not establish a solution to the
+callback gap. Any later native integration must retain randomized hashing,
+source-bound constants, metadata/work quotas, current-table/metamethod behavior
+and fresh callback state, then pass the original whole-program gates. Existing
+reference snapshot payloads remain zero; they cannot be silently repurposed.
+Evidence: `target/jit-evidence/short-slice-performance/prehashed-*`.
+
+#### Binding specialization — measured and rejected
+
+Fresh ordinary and activated checkouts at `13dd871` build both shipping and
+speed feature-cost images with linker-replayed symbol companions. All source,
+artifact, program-header and allocated-section comparisons pass. Both no-feature
+images are byte-identical across activation. **56 Off + 24 Auto/no-feature**
+profiles verify results, mode protocols, native counts and complete event/self-cost
+sums. Upvalue/callback/array Auto counts remain **298,428 / 99,375 / 121,166**.
+
+| Callback CPU instructions | Shipping | Speed |
+| --- | ---: | ---: |
+| Fresh ordinary transport | 63,638,089 | 50,865,992 |
+| Activated transport | 61,876,136 | 49,028,970 |
+| Only force `with_binding` inline | 62,695,889 | 49,028,970 |
+| Also inline binding loop and use direct conditional | 60,584,404 | 49,028,970 |
+
+Activation removes **2.77% / 3.61%** of callback instruction work, but adds
+**0.46% / 0.25%** to arrays and roughly **0.03% / 0.07%** to upvalues. Most Off
+totals remain identical. These are exact-image software profiles, not elapsed
+performance acceptance or proof of a hardware cause for earlier regressions.
+
+The first isolated trial forces only `with_binding` inline. Shipping instead
+outlines `Session::bind_selected` (**2,583,440** instructions) and a `bool::then`
+closure (**1,887,916**), replacing the original wrapper's **3,601,921** instructions.
+The enclosing transport saves **49,682**, leaving callbacks **819,753 / 1.325%**
+worse. **Reject this one-attribute form.** Its GNU/musl focused checks each pass
+**77 / 12 summaries**, no ignores, and another **80** profiles verify; passing
+tests and removing a symbol did not make it an optimization.
+
+The follow-up retains that attribute, forces the binding loop inline and replaces
+the non-test `CANONICAL.then` closure with an explicit conditional. All capacity,
+entry-kind, alias/borrow, panic, fuel/PC and quota checks remain. GNU/musl each
+again pass **77 / 12**, and another **80** profiles verify. Shipping callbacks
+remove **1,291,651 instructions / 2.087%** against their fresh activated control;
+speed callbacks show no instruction reduction. Array work is unchanged apart
+from small allocator differences; numeric Off totals remain identical.
+
+A same-image no-feature speed callback outlier adds **1,725,000 instructions /
+4.689%**, entirely in table/key/string probes. The executable bytes are identical;
+table hashing remains process-randomized. Retain that result rather than attributing
+it to binding changes, changing hash seeds or claiming deterministic total work.
+The shipping Off metamethod outlier in the first trial is likewise not a proven
+causal effect of its attribute. Every raw profile remains available.
+
+Fresh Stacked seed 59 and Tree seed 60 Miri runs pass **14 tests** in total,
+without failures or ignores. Full GNU Auto `make verify` passes **2,265 tests /
+177 summaries**, with eight existing ignores. Six native shipping/speed images
+build for ordinary production, activated control and the binding candidate.
+Experimental build and nightly Miri warnings remain; this is not warning-clean
+or new platform acceptance.
+
+Two balanced hardware campaigns complete **256 commands**: 128 feature-cost
+commands and 128 native commands, across CPUs 0/16 and shipping/speed profiles.
+Each uses eleven samples, original workloads and frozen thresholds; cost uses
+twenty iterations. Rotating controls, identical-image placebos, source/artifact
+checks and external-contention telemetry are retained. No owned build, test or
+profile overlaps timing. Independent analysis verifies **1,152 cost gates /
+2,816 worker records / 1,408 pairs**, **864 cost native-proof comparisons** and
+**1,152 complete candidate/placebo native non-timing comparisons**.
+
+Shipping callback control/candidate time ratios on CPU0 are **0.939662 and
+0.945527**, initial/repeat: the candidate is about **6.42% and 5.76% slower**.
+All eight windows lose, while same-image placebo ratios are **0.994038 and
+0.995236**. CPU16 ratios improve to **1.023049 and 1.015113**, but do not erase
+the repeated CPU0 regression. Speed callback ratios are close to one. Reduced
+instruction work therefore does not establish a useful elapsed-time gain;
+the hardware cause of the regression is not established.
+
+All **128 feature-cost aggregates** and all **64 checked speed native
+aggregates** fail the original gates. Candidate speed arrays fail **1/8 then
+3/8** windows, activated control **3/8 then 1/8**, and ordinary production
+**0/8 in both rounds**. Shipping native exit zero remains diagnostic, not
+acceptance. Callback and compiled-Off failures remain unresolved.
+
+The first native analysis stops on an unanticipated compiler-resource difference.
+Inspection of all **576 ordinary-production comparisons** finds identical
+execution fields, but activation raises metamethod native mapped code from
+**8 KiB to 12 KiB** and raises snapshot peaks for allocation, Oslo, metamethods
+and callbacks. Audited analysis permits only the exact observed case/field/value
+pairs; both rounds then pass. Candidate and placebo resources match their
+activated control exactly. The extra mapped-code cost and initial failed
+analysis log remain recorded, not dismissed as timing noise.
+
+**Reject the binding candidate; no runtime trial is promoted.** Correctness
+passes and instruction reductions do not compensate for repeated timing losses.
+Evidence is under
+`target/jit-evidence/short-slice-performance/transport-current-*` and
+`transport-binding-{inline,direct}-*`; production selection remains unchanged.
+
+#### Faster transport resource validation — repaired, not promoted
+
+`13dd871` adds permanent resource-boundary coverage for ordinary and preferred
+frame-bound lowering. The historical activated failures were fixture assumptions:
+the small table program emits five relocations ordinarily but zero with the
+frame-bound transport, while the small scalar program's peak-minus-one workspace
+refusal moves from scalar tag verification to frontend dominance storage. Neither
+observation establishes a quota bypass.
+
+Shared array/integer fixtures now exercise the intended relocation and scalar
+verifier boundaries in the public tests. The relocation-limit lowering test uses
+the same pressure fixture. All original exact error, peer survival, reclamation,
+fallback, native-work and explicit-retry assertions remain. Three internal tests
+also cover the original table/scalar programs under both selectors, actual emitted
+relocation-count boundaries, workspace peak-minus-one/exact-peak admission, GC,
+source survival and successful native recovery. `make jit-resources` includes the
+new `make jit-transport-resources` target. The initial test-only import error is
+corrected before validation; its failed log remains available.
+
+Root GNU and musl resource gates each pass **48 tests / four summaries**, none
+ignored. Root `make verify` passes **2,263 / 175**, with eight existing ignores.
+A fresh isolated checkout at `13dd871` replays only the experimental transport
+activation changes, retaining current tests and ordinary integer/array plans.
+Two additional non-test integration probes confirm actual activated admission
+and refusal behavior. Activated GNU and musl focused gates each pass **50 / five**;
+the full GNU `make jit-test-all JIT_MODE=auto` passes **1,811 / 89**, with six
+existing ignores and no failures. All fourteen public resource tests pass in
+that activated all-feature build. Source hashes remain unchanged during testing.
+The experimental non-test build still reports fourteen dead-code warnings.
+
+**This closes the two historical activated resource-test failures, not the
+performance gates.** Production selection remains unchanged. No new timing,
+Miri, aarch64 or release acceptance is claimed here. Next work returns to fresh
+ordinary/activated performance images and profiling, preserving callback, array
+and compiled-Off thresholds. Logs, the isolated activation patch, source hashes
+and probes are under
+`target/jit-evidence/short-slice-performance/transport-resource*`.
+
+#### Single-borrow callback replacement — measured and rejected
+
+`49bbe5c` adds five baseline-tested `Stack::replace` regressions and
+`make stack-replace` / `make stack-replace-miri`. They cover **624** combinations
+of prefixes, old/new lengths and value kinds, exact scalar bits/reference
+identities, conversion/iteration/destructor borrow boundaries and panic payloads,
+partial results after failure, refusal before mutation, independent-stack
+mutation and existing out-of-range substack truncation behavior. An initial
+test-only `Value: PartialEq` assumption fails compilation; explicit bit/identity
+comparisons correct it before validation.
+
+The isolated candidate combines `clear` and append under one stack write guard.
+Conversion already runs under the append guard in production; the candidate
+preserves that boundary and clearing/publication order. It adds no unsafe code,
+cached borrow, native-coverage change or configuration switch. GNU focused tests
+pass **39 / seven summaries**, musl **28 / six**, and fresh-target Miri passes
+five tests in each feature mode under Stacked seed 57 and Tree seed 58:
+**20 executions**, none ignored. Full GNU Auto `make verify` passes
+**2,260 / 175**, eight existing ignores; musl activation adds **11** passes.
+
+Fresh controls and candidates each build shipping/speed cost and native images.
+All **56 Off + 16 Auto/no-feature profiles** verify. Shipping callbacks execute
+**400,000 fewer instructions** in each image: 300,000 from the removed stack
+write call and 100,000 from replacement itself. Auto falls
+**63,638,089 → 63,238,089 (-0.629%)**. Speed instead adds **25,000 instructions**
+in each callback image, one per callback; Auto rises **0.049%**. Numeric Off
+instruction totals remain unchanged. These diagnostics do not prove elapsed-time
+gains, and both no-feature images legitimately change for this shared API edit.
+
+Two complete campaigns collect **96 cost commands / 864 case gates / 2,112
+worker records** and **72 native commands**, using CPUs 0/16, eleven samples,
+twenty cost iterations, rotated controls/placebos, identical invocation paths
+and contention telemetry. All **576 cost native-proof comparisons** and **864
+complete native non-timing comparisons** match. Artifact/source checks and
+independent raw-sample/threshold analysis pass. No owned build/test/profile
+overlaps timing. Cost aggregate failures are **91/96**; all **36** checked speed
+native commands fail. Shipping native exit zero remains diagnostic, not acceptance.
+
+Shipping CPU16 compiled-Off control/candidate time ratios are **0.893213 /
+0.891066** for integer loops (about **12% slower**) and **0.943627 / 0.941311**
+for arrays (about **6% slower**), initial/repeat. Integer same-image placebos
+are **0.996891 / 0.998596**. On that same profile/core, callback cost fails
+**three of four windows in each round**, and allocation/GC fails **all four**,
+against **zero** control failures in each case. Total candidate cost failures
+are **34/144 and 32/144**, versus control **25/144 and 28/144**. Large CPU0 native
+contention outliers, including same-image placebo variation above 2x, remain
+visible and are not credited as candidate gains.
+
+**Reject the runtime candidate; retain the tests.** The shipping callback work
+reduction does not compensate for repeated broad losses. The hardware cause of
+the numeric loss is not established by unchanged instruction totals. Production
+keeps the original two-borrow implementation; full performance/platform/resource/
+release acceptance remains open. Evidence is under
+`target/jit-evidence/short-slice-performance/replace-single-borrow-*`.
+
+#### Rooted preflight — code-generation variants rejected
 
 An isolated per-call preflight shares the caller/base/width/fixed-frame reads
 between capture lookup and snapshot-window admission. Its exclusive borrow
@@ -32,9 +260,40 @@ in shipping and increase by 81 in speed. All four no-feature totals are unchange
 
 Exact-PC attribution identifies a newly outlined capture closure with
 **2,673,660 / 2,090,316** self instructions in shipping/speed. Other reductions
-do not offset it in the speed build. A separate frozen-source experiment
-flattens that closure into ordinary matches without changing the checks.
-**No runtime candidate is promoted; no hardware speedup is claimed.**
+do not offset it in the speed build. Three separate frozen-source experiments
+then retain the preflight checks while changing only the capture/publication
+function boundaries:
+
+| Variant | Shipping upvalue instructions | Speed upvalue instructions |
+| --- | ---: | ---: |
+| Production | 87,129,491 | 62,486,177 |
+| Flatten capture closure into matches | 85,596,302 | 65,252,039 |
+| Also force-inline the capture getter | 84,758,300 | 64,268,339 |
+| Also isolate unchanged exit publication | 85,465,478 | 63,107,951 |
+
+Flattening eliminates the closure symbol but outlines the capture getter
+(1,118,076 self instructions in each profile) and speed statistics drop glue
+(2,326,752 additional instructions). Inlining removes the capture call, not
+the drop-glue cost. Isolating the original two statistics guards/drops and
+native-exit update in a non-inlined function removes that extra drop symbol;
+its call/body cost still leaves speed upvalues **0.995% above production**.
+Publication arithmetic, ordering and the post-commit observation boundary are
+unchanged; this is not the earlier combined-counter implementation.
+
+Each follow-up completes another **56 Off + eight Auto/no-feature profiles**,
+with event totals, summed function costs, native work and image/source identities
+verified. Exact-PC attribution covers the executed rooted/capture/publication
+functions where present. All six follow-up no-feature images are byte-identical
+to their production controls. Small allocator/traversal variations remain in
+the data and are not credited as gains. The flat variant repeats GNU **128 /
+14**, two existing ignores; the other two pass **10 / three** targeted tests.
+Each also passes **60 / six** statistics/activation tests and formatting/checks.
+No new full-suite, musl or Miri claim is made for these follow-ups.
+
+**Reject this preflight family at instruction-cost screening.** No variant
+reduces work in both profiles; no hardware timing was launched for them, so
+instruction changes are not claimed as elapsed-time changes. Production source
+remains unchanged and all original performance gates remain open.
 Evidence and reproducible analysis remain under
 `target/jit-evidence/short-slice-performance/rooted-preflight-*`.
 

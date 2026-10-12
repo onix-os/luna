@@ -1086,3 +1086,6 @@ mod key_hash_tests;
 
 #[cfg(test)]
 mod capacity_tests;
+
+#[cfg(all(test, feature = "jit"))]
+mod prehashed_tests;

@@ -9,6 +9,9 @@ use luna::{Closure, Executor, ExternError, JitConfig, JitError, JitMode, Lua, St
 #[path = "../examples/jit_support/churn.rs"]
 mod churn;
 
+#[path = "../examples/jit_support/resource_workloads.rs"]
+mod resource_workloads;
+
 #[test]
 fn public_cache_pressure_bounds_retries_and_preserves_reusable_sources() {
     for mode in [churn::Mode::Off, churn::Mode::Auto, churn::Mode::Prepared] {
@@ -89,11 +92,7 @@ fn relocation_refusal_preserves_peer_and_interpretation_until_explicit_retry(
     assert_eq!(lua.prepare_jit().unwrap(), 1);
     let baseline = lua.jit_stats();
     let candidate = lua.try_enter(|ctx| {
-        Ok(ctx.stash(Closure::load(
-            ctx,
-            None,
-            b"local t={} t.x=40 t.y=2 return t.x+t.y",
-        )?))
+        Ok(ctx.stash(Closure::load(ctx, None, resource_workloads::RELOCATIONS)?))
     })?;
     let prepared = lua.prepare_jit();
     assert!(
@@ -141,11 +140,7 @@ fn relocation_refusal_preserves_peer_and_interpretation_until_explicit_retry(
 fn lowering_relocation_limit_retires_code_and_queued_requests() -> Result<(), ExternError> {
     let mut lua = state();
     let candidate = lua.try_enter(|ctx| {
-        Ok(ctx.stash(Closure::load(
-            ctx,
-            None,
-            b"local t={} t.x=40 t.y=2 return t.x+t.y",
-        )?))
+        Ok(ctx.stash(Closure::load(ctx, None, resource_workloads::RELOCATIONS)?))
     })?;
     assert_eq!(lua.prepare_jit().unwrap(), 1);
     assert!(lua.jit_stats().code_bytes > 0);
@@ -260,7 +255,7 @@ fn source(lua: &mut Lua, text: &[u8]) -> Result<StashedExecutor, ExternError> {
 
 #[test]
 fn scalar_verifier_workspace_refusal_preserves_source_and_recovers() -> Result<(), ExternError> {
-    let script = b"local x=40 return x+2";
+    let script = resource_workloads::SCALAR_VERIFIER;
     let mut probe = state();
     let _probe = source(&mut probe, script)?;
     assert_eq!(probe.prepare_jit().unwrap(), 1);

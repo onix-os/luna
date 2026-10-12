@@ -129,6 +129,38 @@ table-access:
 table-access-miri:
 	@$(CARGO) miri test --locked -p luna --lib --target '$(MIRI_TARGET)' table::raw::access_tests -- --test-threads=1
 
+.PHONY: jit-prehash-model jit-prehash-model-miri jit-prehash-profile-build jit-prehash-profile-run
+PREHASH_DIR ?= target/jit-evidence/short-slice-performance/prehashed-lookup
+jit-prehash-model:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) table::raw::prehashed_tests $(ARGS) | awk '/^test result: ok[.] 3 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+jit-prehash-model-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' table::raw::prehashed_tests -- --test-threads=1 | awk '/^test result: ok[.] 3 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+jit-prehash-profile-build:
+	@mkdir -p '$(PREHASH_DIR)'
+	@CARGO_PROFILE_RELEASE_OPT_LEVEL=$(JIT_BENCH_OPT) CARGO_PROFILE_RELEASE_STRIP=false $(CARGO) test --locked --release -p luna --features jit --lib $(TARGET_ARG) --no-run --message-format=json-render-diagnostics > '$(PREHASH_DIR)/build.jsonl'
+	@jq -r 'select(.reason == "compiler-artifact" and .target.name == "luna" and .profile.test and .executable != null) | .executable' '$(PREHASH_DIR)/build.jsonl' > '$(PREHASH_DIR)/binary-path'
+	@test "$$(wc -l < '$(PREHASH_DIR)/binary-path')" -eq 1
+	@cp "$$(cat '$(PREHASH_DIR)/binary-path')" '$(PREHASH_DIR)/test-binary'
+	@sha256sum '$(PREHASH_DIR)/test-binary' > '$(PREHASH_DIR)/binary.sha256'
+	@{ find src -type f -name '*.rs' -print0; printf '%s\0' Cargo.toml Cargo.lock Makefile; } | sort -z | xargs -0 sha256sum > '$(PREHASH_DIR)/source.sha256'
+	@git diff --binary > '$(PREHASH_DIR)/source.patch'
+	@printf 'opt_level=%s\nreads=100000\ncollection=*prehashed_tests::profile_reads*\n' '$(JIT_BENCH_OPT)' > '$(PREHASH_DIR)/configuration'
+
+jit-prehash-profile-run: jit-profile-cpu-check
+	@sha256sum -c '$(PREHASH_DIR)/binary.sha256' '$(PREHASH_DIR)/source.sha256' > '$(PREHASH_DIR)/verification.log'
+	@valgrind --version > '$(PREHASH_DIR)/profiler.log'
+	@set -e; for separate in 0 1; do for mode in 0 1 2 3; do \
+		LUNA_PREHASH_MODE=$$mode LUNA_PREHASH_SEPARATE=$$separate taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*prehashed_tests::profile_reads*' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file='$(PREHASH_DIR)'/$$separate-$$mode.callgrind \
+			'$(PREHASH_DIR)/test-binary' table::raw::prehashed_tests::prepared_lookup_profile --ignored --exact --nocapture --test-threads=1 > '$(PREHASH_DIR)'/$$separate-$$mode.log 2>&1; \
+		grep -Fq "mode=$$mode separate=$$([ $$separate = 1 ] && echo true || echo false) reads=100000 sum=1700000" '$(PREHASH_DIR)'/$$separate-$$mode.log; \
+		grep -Fq 'test result: ok. 1 passed; 0 failed' '$(PREHASH_DIR)'/$$separate-$$mode.log; \
+		grep -Eq '^summary: [1-9][0-9]*' '$(PREHASH_DIR)'/$$separate-$$mode.callgrind; \
+		callgrind_annotate --inclusive=no --threshold=99 '$(PREHASH_DIR)'/$$separate-$$mode.callgrind > '$(PREHASH_DIR)'/$$separate-$$mode-annotation.log; \
+	done; done
+	@sha256sum -c '$(PREHASH_DIR)/binary.sha256' '$(PREHASH_DIR)/source.sha256' > '$(PREHASH_DIR)/verification-after.log'
+
 .PHONY: metamethod-keys metamethod-keys-miri
 metamethod-keys:
 	@$(CARGO) test --locked -p luna --no-default-features --test metamethod_keys $(TARGET_ARG)
@@ -1489,7 +1521,12 @@ jit-compiler-lifetimes:
 jit-resources:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::resources
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::registry::tests
+	@$(MAKE) --no-print-directory jit-transport-resources
 	@$(CARGO) test -p luna --features jit --test jit_resources $(TARGET_ARG)
+
+.PHONY: jit-transport-resources
+jit-transport-resources:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::transport_resource_tests:: $(ARGS)
 
 jit-registers:
 	@$(CARGO) test -p luna --test register_boundaries $(TARGET_ARG)
@@ -1683,6 +1720,15 @@ numeric-conversions:
 	@for mode in off auto force; do \
 		LUNA_TEST_JIT_MODE=$$mode $(CARGO) test --locked -p luna --features jit --test numeric_semantics $(TARGET_ARG) || exit $$?; \
 	done
+
+.PHONY: stack-replace stack-replace-miri
+stack-replace:
+	@$(CARGO) test --locked -p luna --no-default-features --lib $(TARGET_ARG) stack::replace_tests
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) stack::replace_tests
+
+stack-replace-miri:
+	@$(CARGO) miri test --locked -p luna --no-default-features --lib --target '$(MIRI_TARGET)' stack::replace_tests -- --test-threads=1
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' stack::replace_tests -- --test-threads=1
 
 .PHONY: stack-consume stack-consume-miri
 stack-consume:
