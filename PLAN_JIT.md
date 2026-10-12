@@ -11,6 +11,30 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Guarded built-in call fusion: test-only prototype
+
+An exact-instance `setmetatable` fast path replaces the ordinary callback
+transition only for fixed two-argument plain-table operations. The registry
+holds a weak identity, not a global-name or function-address assumption.
+Protected, weak/finalizing, borrowed or invalid tables, active hooks,
+interruption, insufficient boundary fuel, frame limits and relevant open
+captures/close slots retain the ordinary path. Normal and tail calls use the
+original fuel charges; transitions remain interpreted instructions in coverage.
+
+The GNU step oracle passes 196 paired schedules with collection between steps
+and 70 actual fused calls. In the metamethod case at budget 4096, 22 calls fuse:
+the two initializations and all twenty loop tail calls. Separate tests cover
+96 admission states, scope restoration on unwind and weak identity survival,
+collection and replacement. No-feature/all-feature checks and formatting pass.
+This is not yet a production optimization or measured speedup.
+
+A persistent instruction hook with zero fuel fails to complete even in the
+ordinary control. It remains covered by a 64-step bounded trace comparison;
+the completion matrix separately uses a self-clearing hook. No completion
+claim is made for the persistent-hook case. Memory-model checks, production
+activation review and unchanged hardware benchmarks remain pending.
+Evidence: `target/jit-evidence/short-slice-performance/builtin-*`.
+
 #### Branched integer-loop direction: hardware trial rejected
 
 The callback kernel computes both signed integer-limit comparisons before

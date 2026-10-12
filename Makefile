@@ -487,7 +487,20 @@ jit-chain:
 jit-backend:
 	@$(CARGO) test -p luna --features jit --test jit_backend $(TARGET_ARG)
 
-.PHONY: jit-entry-guard
+.PHONY: jit-entry-guard jit-builtin-fusion jit-builtin-identity jit-builtin-miri
+jit-builtin-fusion:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::thread::builtin::tests:: -- --nocapture
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::executor::builtin_tests:: -- --list | grep -F 'builtin_fusion_matches_every_step_and_collects_between_steps: test'
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::executor::builtin_tests:: -- --nocapture
+
+jit-builtin-identity:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::registry::intrinsic_tests:: -- --list | grep -F 'builtin_identity_is_instance_based_and_survives_registry_reset: test'
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::registry::intrinsic_tests:: -- --nocapture
+
+jit-builtin-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' thread::thread::builtin::tests:: -- --test-threads=1 | awk '/^test result: ok[.] 2 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::registry::intrinsic_tests:: -- --test-threads=1 | awk '/^test result: ok[.] 2 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
 jit-loop-direction:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::direction::tests:: -- --list | grep -F 'native_loop_direction_matches_control_and_model_at_all_boundaries: test'
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::direction::tests:: -- --nocapture

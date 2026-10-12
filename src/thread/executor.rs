@@ -185,9 +185,9 @@ impl<'gc> Hash for Executor<'gc> {
 impl<'gc> Executor<'gc> {
     const VM_GRANULARITY: u32 = 64;
 
-    const FUEL_PER_CALLBACK: i32 = 8;
+    pub(super) const FUEL_PER_CALLBACK: i32 = 8;
     const FUEL_PER_SEQ_STEP: i32 = 4;
-    const FUEL_PER_STEP: i32 = 4;
+    pub(super) const FUEL_PER_STEP: i32 = 4;
 
     /// Creates a new `Executor` with a stopped main thread.
     pub fn new(ctx: Context<'gc>) -> Self {
@@ -1132,7 +1132,7 @@ mod activation_tests {
     use crate::{Callback, Lua, Value};
 
     #[derive(Debug, PartialEq, Eq)]
-    struct Slice {
+    pub(super) struct Slice {
         done: bool,
         mode: ExecutorMode,
         fuel: i32,
@@ -1153,7 +1153,7 @@ mod activation_tests {
         }
     }
 
-    fn run(
+    pub(super) fn run(
         source: &str,
         budget: i32,
         native: bool,
@@ -1628,3 +1628,12 @@ mod activation_tests {
 
 #[cfg(test)]
 mod mode_tests;
+
+#[cfg(all(
+    test,
+    feature = "jit",
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod builtin_tests;
