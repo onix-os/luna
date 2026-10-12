@@ -11,6 +11,165 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Branched integer-loop direction: hardware trial rejected
+
+The callback kernel computes both signed integer-limit comparisons before
+selecting one according to step direction. A new test-only rewrite moves each
+comparison into its selected branch. It runs after ordinary source/entry/exit
+verification and retains the original comparisons, overflow handling, values,
+budgets and native instruction accounting. Shared comparison results, including
+successor arguments, are refused; there are fixed function-size/site caps.
+This is not the earlier combined numeric-tag guard experiment.
+
+The GNU native oracle covers 231,525 index/limit/step, PC and budget combinations
+against both the unchanged kernel and the scalar model. Candidate and control
+slots match bitwise; model NaN results are compared as NaNs. Bounds include
+signed integer overflow, negative/zero steps, mixed floats, infinities, invalid
+scalar kinds, zero budgets and unknown entry PCs. Pure IR tests check idempotence
+and refusal without mutation. These are prototype checks, not production
+activation or full performance acceptance.
+
+`make jit-disassembly` now imports the frozen callback workload and emits both
+ordinary and experimental kernels, including the prepared-helper address.
+Both initial x86-64 kernels occupy 2,160 bytes. Assembly confirms an actual
+direction branch replaces the integer conditional selection. The diagnostic
+invokes only the helper-free prefix, stopping at GetUpTable without a host;
+it does not claim to execute callbacks.
+
+The experimental production build then ran the unchanged real workloads.
+Two callback profiles collected 126,201,795 / 126,201,876 control instructions
+versus 126,137,027 for the candidate: only about 0.051% fewer overall. The
+metamethod profile instead increased from 78,328,922 to 78,446,840. All full
+non-timing records matched. Callgrind branch-miss estimates are not hardware
+branch-predictor measurements, and instrumented durations are not speedups.
+The first candidate build accidentally retained release stripping, producing
+zero collection at the named Executor boundary; the Make guard rejected it.
+Its failed log remains separate from six valid symbol-preserving captures.
+
+Two complete speed-profile screens ran 48 commands, with 864 timing-summary
+rows and 432 unchanged workload gates. Each screen used four rotated
+control/candidate/same-image-placebo windows on CPUs 0 and 16, eleven paired
+samples per workload, immutable binaries, identical hardlink launch paths,
+source/image hashes and contention telemetry. CPU order was reversed for the
+second screen. No owned build, test or profiler overlapped hardware timing.
+All non-timing fields matched in both screens, including native coverage,
+helper work and memory counters.
+
+| Control/candidate Auto time ratio | CPU 0 first / repeat | CPU 16 first / repeat |
+| --- | ---: | ---: |
+| Rust callbacks | 1.1275 / 0.9890 | 0.9889 / 0.9987 |
+| Metamethods | 1.0993 / 0.9713 | 0.9870 / 0.9959 |
+| Array tables | 0.8996 / 0.9672 | 0.9549 / 0.9894 |
+
+The first CPU-0 callback gain did not reproduce. Callback gates failed 6/8
+and 7/8; metamethod gates failed 3/8 in each screen. Aggregate acceptance
+failed 7/8 in each screen. Array Off control/candidate ratios also varied
+from 0.8546 / 0.9082 initially to 0.9976 / 0.9632 on repeat. These mixed
+results do not establish a hardware cause or justify activation.
+
+The production hook was removed; only the test-only rewrite, boundary corpus
+and disassembly diagnostics remain. No callback regression is fixed and no
+acceptance threshold is relaxed. The frozen candidate patch and executables
+remain available for reproducing the rejected trial. Further work must reduce
+the much larger entry/VM/helper costs rather than treat this local direction
+change as a solution to callback-transition overhead.
+
+Restoration passes 30 focused GNU test executions across five summaries,
+no-feature and all-feature compilation checks, and formatting. The subsequent
+host-ISA fixture correction passes all three direction tests again; it removes
+the hard-coded x86 backend requirement without claiming an ARM runtime run.
+The ordinary symbol-preserving benchmark was rebuilt after hook removal.
+Its nine-case smoke matches all 18 full non-timing records against the frozen
+control, with cold/Off/native-work checks and image hashes verified. This smoke
+does not use `--check` and is not hardware or full-release acceptance.
+Evidence: `target/jit-evidence/short-slice-performance/loop-direction-*`.
+
+#### Split scratch storage: prototype does not justify an ABI change
+
+`994b09a` adds a test-only split representation: aligned u64 payloads and u8
+tags, preserving every integer/float bit and keeping references in canonical
+values. Seven registers occupy 64 bytes instead of the ordinary 112. This is
+a storage-layout investigation, not the earlier split scalar-match experiment,
+and does not change public `Value`, the production ABI or generated coverage.
+
+The final model passes four tests on GNU with JIT and all features, four on
+i686-musl, and four each under Stacked and Tree Borrows Miri. The profile-only
+test is explicitly ignored in those correctness runs. Target layout assertions
+use the platform's u64 alignment rather than assuming eight-byte alignment on
+32-bit targets. No-feature checking and formatting pass; Miri reports 36 warnings
+and i686 reports 28, not warning-free builds.
+
+Four tests cover fourteen capacities through 256, 1,030 numeric bit patterns,
+all reference kinds, invalid-tag/bounds refusal and repeated opaque transport
+calls. The initial convenience-array/two-pointer cost probe is retained but
+is not the main comparison. The corrected control uses the production-shaped
+MaybeUninit/zip import and writeback, with one-pointer calls for both layouts.
+Each synthetic run performs 100,000 increments and checks every unchanged
+suffix value. No Cranelift-generated entry, helper, callback or projection path
+is claimed for this probe.
+
+| Collected CPU instructions | Ordinary | Initial split | Refined split |
+| --- | ---: | ---: | ---: |
+| Integer registers | 17,900,024 | 35,100,025 | 23,400,022 |
+| Mixed registers | 20,900,024 | 35,200,025 | 23,200,022 |
+
+`6accf65` removes checked-index packing and inlines writeback within the probe.
+Its extracted wrapper stack reservation falls from the control's 120 bytes to
+72 bytes, but it still costs 30.73% / 11.00% more instructions. Both matched
+four-run sets verify binary/source hashes before and after collection, exact
+results and one executed test per run. An independent audit checks their
+scope and totals. Profiled times are not hardware acceptance evidence.
+
+The unchanged real callback control is separately reprofiled: 126,201,795
+instructions, including 20,233,235 self instructions in seven-register ordinary
+transport. That locates relevant work; it does not turn the synthetic layout
+results into integrated performance evidence. **Do not switch the production
+ABI on the basis of the smaller buffer.** All original acceptance gates remain
+open. Evidence is under `split-scratch-*` in the short-slice evidence directory;
+use `make jit-split-scratch`, `jit-split-scratch-miri` and the two profile targets.
+
+#### Arithmetic entry precheck: rejected at profiling
+
+A fresh canonical operand check was tested before ordinary native scratch
+packing. It declined only Add/Sub/Mul/Div entries with a nonnumeric operand,
+without changing PC, values, fuel or statistics. Numeric strings still fell
+back to the interpreter; each invocation reread current operands rather than
+caching a failed type. No skipped attempt was recorded as a native invocation.
+
+Three candidate tests passed, including direct generated-code guard checks and
+table-to-number-to-table mutation across repeated runtime entries. Another 71
+test executions passed across native execution, numeric exits, errors,
+suspension and helper targets. Formatting and compilation checks passed.
+
+The actual metamethod workload disproved the proposed benefit. Fresh paired
+Callgrind profiles of the frozen integrated control and candidate both report
+25,751 native entries, 12,801 guard exits, 116,239 native bytecodes and 1,021
+interpreted bytecodes. Every non-timing benchmark field matches. Collected CPU
+instructions increase from 78,318,230 to 78,714,091 (0.5055%). Aggregate guard
+counts therefore did not establish avoidable zero-work arithmetic entries;
+the implemented check removes none in this workload. Profiled wall times are
+not hardware performance evidence, and no hardware campaign was started for
+this ineffective candidate.
+
+The production check and opcode accessor were removed. Only a generated-code
+regression test remains: 147,456 invocations cover four arithmetic operators,
+register/constant operands, destination aliases, reference and scalar values,
+numeric strings, NaN/infinities, signed zero and zero-budget priority. It checks
+that failed entry guards preserve all scratch slots and execute no bytecodes.
+Run it with `make jit-entry-guard`.
+
+The retained test passes on GNU and a fresh musl target directory. The existing
+musl target reused an older test binary and initially reported success with
+zero matching tests; that run is not validation. The Make target now requires
+the named test in the harness listing before execution. It rejects that stale
+binary with exit 2 and accepts both current binaries. No claim is made about
+the cause of Cargo's stale reuse.
+
+Candidate source patch, binary/hash, profiles, independent non-timing audit
+and validation logs are retained under
+`target/jit-evidence/short-slice-performance/entry-guard-*`. This is a rejected
+optimization, not a runtime regression fix or progress on performance gates.
+
 #### Held-out PGO on the integrated batching runtime: not accepted
 
 The unchanged held-out PGO pilot was rerun at `618a4c8`, with the current

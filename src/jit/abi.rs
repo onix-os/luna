@@ -3,6 +3,9 @@ use crate::{Constant, Value};
 pub(super) mod roots;
 
 #[cfg(test)]
+pub(crate) mod split;
+
+#[cfg(test)]
 pub(super) mod return_words;
 
 pub(super) const NIL: u64 = 0;
@@ -240,7 +243,7 @@ mod tests {
         }
     }
 
-    fn assert_identical<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
+    pub(super) fn assert_identical<'gc>(actual: Value<'gc>, expected: Value<'gc>) {
         match (actual, expected) {
             (Value::Nil, Value::Nil) => {}
             (Value::Boolean(a), Value::Boolean(b)) => assert_eq!(a, b),

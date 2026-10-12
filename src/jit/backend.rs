@@ -30,6 +30,10 @@ pub(super) mod calls;
 #[cfg(not(miri))]
 pub(super) mod compact;
 #[cfg(test)]
+mod direction;
+#[cfg(all(test, not(miri)))]
+mod entry_guard_tests;
+#[cfg(test)]
 mod exit_transport;
 #[cfg(not(miri))]
 pub(super) mod inline_loop;
@@ -363,6 +367,7 @@ pub(super) enum Failure {
     AuditPayloadReads,
     AuditPackedLowering,
     RequireReadCache,
+    BranchLoopDirection,
     RequireWriteback,
     RequireIntegerLoop,
     ProbeIntegerLoop,
@@ -1409,6 +1414,27 @@ fn compile_selected_rooted(
         } else {
             (instructions, block_count)
         }
+    } else {
+        (instructions, block_count)
+    };
+    #[cfg(test)]
+    let (instructions, block_count) = if failure == Failure::BranchLoopDirection {
+        if direction::rewrite(&mut context.func) == 0 {
+            return Err(JitError::Compilation(
+                "no integer direction selection".into(),
+            ));
+        }
+        cranelift_codegen::verify_function(&context.func, module.isa())
+            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        let actual = context
+            .func
+            .layout
+            .blocks()
+            .map(|block| context.func.layout.block_insts(block).count())
+            .sum();
+        let blocks = context.func.layout.blocks().count();
+        expansion.verify_actual(actual, blocks)?;
+        (actual, blocks)
     } else {
         (instructions, block_count)
     };
@@ -6114,6 +6140,17 @@ mod memory_tests {
     fn dump_finalized_native_kernels() {
         use std::{fmt::Write, fs, path::PathBuf};
 
+        #[allow(dead_code)]
+        mod workloads {
+            include!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/examples/jit_support/workloads.rs"
+            ));
+        }
+        let callback = workloads::WORKLOADS
+            .iter()
+            .find(|workload| workload.name == "rust_callbacks")
+            .unwrap();
         let directory = PathBuf::from(
             std::env::var_os("LUNA_JIT_DIAGNOSTIC_DIR")
                 .expect("make jit-disassembly must supply an output directory"),
@@ -6125,6 +6162,11 @@ mod memory_tests {
                 "local sum=0 for i=1,100 do sum=sum+i end return sum",
             ),
             ("table", "local t={10} local x=t[1] t[1]=x+1 return t[1]"),
+            ("callback", std::str::from_utf8(callback.source).unwrap()),
+            (
+                "callback_direction",
+                std::str::from_utf8(callback.source).unwrap(),
+            ),
         ];
         for (name, source) in fixtures {
             let mut lua = crate::Lua::empty();
@@ -6134,7 +6176,19 @@ mod memory_tests {
                 Snapshot::new(&prototype, 4096, 65536).unwrap()
             });
             let total = MappingCounter::new(crate::jit::resources::Ledger::new(usize::MAX));
-            let code = compile(&snapshot, total.clone(), 8 * 1024 * 1024).unwrap();
+            let code = if name == "callback_direction" {
+                compile_in(
+                    &snapshot,
+                    total.clone(),
+                    8 * 1024 * 1024,
+                    BudgetAllocator(super::super::resources::Ledger::new(32 * 1024 * 1024)),
+                    super::super::work::Limits::from(&super::super::JitConfig::default()),
+                    Failure::BranchLoopDirection,
+                )
+                .unwrap()
+            } else {
+                compile(&snapshot, total.clone(), 8 * 1024 * 1024).unwrap()
+            };
             assert!(code.byte_len > 0);
             assert!(code.byte_len <= total.load(Ordering::Relaxed));
             let address = code.entry as *const u8;
@@ -6153,6 +6207,12 @@ mod memory_tests {
             for (_, symbol, entry) in helpers::SYMBOLS {
                 writeln!(metadata, "helper={symbol} address={:#x}", entry as usize).unwrap();
             }
+            writeln!(
+                metadata,
+                "helper=prehashed_get_up_table address={:#x}",
+                helpers::PREHASHED_ENTRY as usize
+            )
+            .unwrap();
             for (pc, operation) in snapshot.operations.iter().enumerate() {
                 writeln!(
                     metadata,
@@ -6189,7 +6249,7 @@ mod memory_tests {
                 assert_eq!(count.to_constant(), Some(1));
                 let result = slots[usize::from(start.0)];
                 assert_eq!((result.tag, result.bits), (abi::INTEGER, 5050));
-            } else {
+            } else if name == "table" {
                 assert!(snapshot
                     .operations
                     .iter()
@@ -6198,6 +6258,13 @@ mod memory_tests {
                     snapshot.operations[pc],
                     Operation::NewTable { .. }
                 ));
+            } else {
+                assert!(instructions > 0);
+                assert!(matches!(
+                    snapshot.operations[pc],
+                    Operation::GetUpTable { .. }
+                ));
+                assert!(snapshot.prepared_keys.is_some());
             }
             writeln!(metadata, "native_instructions={instructions}\nexit_pc={pc}").unwrap();
             fs::write(directory.join(format!("{name}.metadata")), metadata).unwrap();
