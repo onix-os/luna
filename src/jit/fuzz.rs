@@ -171,6 +171,7 @@ impl Random {
         let mut constants = allocator_api2::vec::Vec::with_capacity_in(4, allocator);
         constants.extend((0..4).map(|_| self.slot()));
         Snapshot {
+            prepared_keys: None,
             operations,
             constants,
             registers: 8,

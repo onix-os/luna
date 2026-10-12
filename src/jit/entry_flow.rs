@@ -862,6 +862,7 @@ mod region_tests {
         write: bool,
     ) -> Result<(), JitError> {
         let source = Snapshot {
+            prepared_keys: None,
             operations: super::super::resources::owned(&[
                 Operation::Move {
                     dest: R(0),
@@ -1063,6 +1064,7 @@ mod tests {
 
     fn snapshot(length: usize) -> Snapshot {
         let mut source = Snapshot {
+            prepared_keys: None,
             operations: super::super::resources::owned(&[]),
             constants: super::super::resources::owned(&[]),
             registers: 1,

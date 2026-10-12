@@ -11,6 +11,168 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Prepared string-key lookups — incremental improvement integrated
+
+Commits `48d5928`, `69480f5`, `cfef771` and `4f83fa4` were developed and tested
+on `experiment/prepared-string-keys`, then fast-forwarded into this branch.
+Ordinary native `GetUpTable` operations with constant string keys embed the
+existing process-seeded hash. Every read still checks full key equality and
+current table/weak-value state. Register-key functions and other entry modes
+retain the original helper. The six-argument ABI packs three original byte
+operands into one word and carries the hash in two words; PC remains unchanged.
+No GC address is cached, no reference descriptor gains pointer bits, and no
+Value/String/raw-stack layout or public contract changes.
+
+Optional snapshot hashes cover only the required prefix, at most 256 entries.
+On resource refusal compilation releases them and retries ordinary lowering
+before the existing eviction policy; failure-injection modes do not retry.
+An exact-workspace-limit test demonstrates prepared refusal followed by ordinary
+success, with storage released. Generic C entries and the prepared Rust entry
+share one macro body for panic handling, PC, projection and writeback.
+
+The final source passes **1,824 GNU Auto executions / 88 summaries**, eight
+ignored diagnostics, plus nine focused GNU and nine focused musl executions.
+The latter covers all twenty helper-flow corruptions, exact resource fallback,
+borrow-conflict panic equivalence, actual native reads, and distinct cached keys
+through value mutation and GC. Three table tests pass on musl, with one ignored
+diagnostic. Stacked seed 76 and Tree seed 77 each pass five pure tests. Native
+Memcheck passes nine tests with zero errors and zero definite/indirect leaks;
+48 possible TLS bytes and 632 reachable bytes remain. These are targeted checks,
+not new ARM64/i686 or full release acceptance.
+
+Fresh final software profiles reduce callback instructions **5.953% shipping /
+4.560% speed**; allocation/GC instructions equal baseline. All thirteen event
+totals equal independently summed self-costs and all execution counters match.
+Callback snapshot peak grows **10,705 → 10,737 bytes**; code/retained metadata do
+not grow in this workload. Fewer instructions alone were insufficient: the
+intermediate direct-only entry regressed CPU0 speed callbacks in every window,
+and forcing a shared wrapper inline added allocation work. Both were rejected.
+
+Four fixed final timing campaigns retain **192 commands / 3,456 case rows /
+1,728 paired gates**, CPUs 0/16, four rotated windows per campaign, eleven paired
+samples and an identical-control placebo. No owned build/test/profile overlapped
+timing; external contention and every outlier remain recorded. Final median
+control/candidate callback ratios are **1.14860 / 1.03511** on CPU0 and
+**1.12238 / 1.05719** on CPU16 (shipping/speed); 63 of 64 candidate comparisons
+improve. Placebo medians are 0.99971/1.00456 and 1.00024/0.99584 respectively.
+These estimates describe this contended host, not general application speedups.
+
+Collateral results remain mixed: CPU16 speed arrays have a 0.98014 raw median
+ratio, versus 0.99047 placebo and 0.99322 using both controls; their interpreter
+ratio is 0.98585. CPU0 speed allocation has 0.99330 versus 0.99445 placebo.
+Do not erase these observations or treat control adjustment as acceptance.
+**187 of 192 callback gates still fail**, as do **92 of 96** checked speed aggregates.
+This integration is incremental opt-in development, not resolution of the full
+callback/upvalue, compiled-Off, platform, resource or release requirements.
+
+Evidence is under `target/jit-evidence/short-slice-performance/`: the frozen
+`prehashed-final-profile/`, `prehashed-final-screen/`, three
+`prehashed-final-repeat*/` directories, independent
+`prehashed-final-aggregate.json`, and `prehashed-final-*` validation logs.
+Earlier rejected variants and their failures are retained separately.
+
+#### Static-mask runtime imports — measured and rejected
+
+An isolated checkout at `466a24d` integrates safe Rust static-mask packers into
+ordinary seven-register entries. Source-derived read-before-definition masks
+cover at most 64 instructions; entries needing more than five inputs retain full
+packing. Omitted slots are initialized canonical proxies. Optional masks are
+charged and prepared after backend compilation; projected, array, scalar,
+payload and continuation entries keep their original transport. No native
+helper ABI, persistent value cache or public raw-stack API is changed.
+
+Five focused tests pass on GNU and fresh-target musl, including an independent
+path oracle and real-native full/selective comparisons across every PC, budget
+and current-frame alias in eight programs. Full GNU all-features Auto passes
+**1,820 executions / 88 summaries**, with eight ignored diagnostics, in addition
+to the five focused executions. Stacked seed 68 and Tree seed 69 each pass four
+pure tests. Native Memcheck passes one differential test with zero errors and
+zero definite/indirect leaks; 48 possible TLS bytes and 632 reachable bytes remain.
+The initial non-test build failure exposed a test-only canonical-slot constructor;
+the isolated candidate fixes it, and the failed build log is retained.
+
+Fresh shipping callback profiles fall **165,547,645 → 164,508,922 instructions**
+(0.627%); speed instead rises **132,231,624 → 133,073,775** (0.637%). Both add
+data reads/writes. All thirteen event totals equal summed self-costs, and all
+execution counters match, including **64,849 native entries / 259,431 native
+instructions**. Callback metadata grows **881 → 926 bytes**. A second shipping
+build is byte-identical and reproduces the instruction total. These software
+profiles are not elapsed-time gains or explanations of hardware behavior.
+
+The first speed candidate build reused the control executable without rebuilding:
+the images were byte-identical and no static packer executed. That result is
+invalid candidate evidence, not a zero-cost optimization. It remains under
+`static-import-speed/candidate-stale`; the strengthened audit rejects it. An
+explicit Luna-package clean and rebuild produces the actual candidate, whose
+executed packer, source/binary manifests and complete event/counter audit pass.
+
+The subsequent **48-command hardware screen** uses CPUs 0/16, both profiles,
+four rotated windows, eleven paired samples, unchanged workload thresholds,
+and same-image placebos at one verified launch path. All 864 result rows and
+432 paired gate records are complete. All **24 checked speed aggregates fail**;
+callback gates fail in all 48 commands, including controls/placebos. Source and
+artifact after-checks pass; no owned build/test/profile/source edit overlaps
+timing. External workloads and contention outliers remain recorded.
+
+Median control/candidate Auto ratios for callbacks are **0.98075 / 0.96383** on
+CPU 0 (shipping/speed), approximately **2.0% / 3.8% slower**. Every CPU 0 window
+is adverse. CPU 16 ratios are **0.99914 / 0.96735**; speed is adverse in every
+window. CPU 16 speed arrays also lose in all four windows (median ratio 0.95614).
+Placebo variation and large individual outliers are retained, not discarded or
+used to claim a hardware cause. Execution counters match throughout; explicit
+metadata increases are retained separately rather than treated as equal costs.
+
+**Reject this runtime candidate.** The isolated boundary saving does not fix
+the callback regression and does not justify the new transport/metadata costs.
+Production source was never changed. The candidate patch, new-source archive,
+tests, rejected stale artifacts, profiles and all timing samples remain under
+`target/jit-evidence/short-slice-performance/static-import-*`. Original native,
+compiled-Off, platform, resource and release acceptance remains incomplete.
+
+#### Scheduled input imports — boundary model, not a runtime fix
+
+`91ba2df` adds a test-only native boundary model and reproducible Make targets:
+`jit-import-model`, `jit-import-model-miri`, `jit-import-profile-build` and
+`jit-import-profile-run`. The model compares full seven-slot packing, individual
+checked importer calls, and one statically specialized bulk importer. Bulk
+imports initialize all slots; omitted inputs are canonical proxies, not cached
+values. Generated code checks import refusal before accessing scratch storage.
+
+GNU and fresh-target musl each pass three tests with one ignored diagnostic.
+Stacked seed 65 and Tree seed 66 each pass two pure tests. The native differential
+test compiles both import variants for every seven-bit mask, refreshes mutated
+inputs and exercises refusal with uninitialized scratch. Memcheck passes this
+test with zero errors and zero definite/indirect leaks; 48 possible TLS bytes and
+544 reachable bytes remain. This is not a whole-runtime memory validation.
+
+The refined model uses production-shaped full packing and six integer inputs
+plus nil. **24 profiles** each execute 100,000 verified entries; independent
+analysis checks all thirteen event totals against summed self-costs. Model
+source and binary checks pass. Initial mixed-value profiles are kept separately
+and are not pooled with these results.
+
+| Instructions per 100,000 entries | Shipping | Speed |
+| --- | ---: | ---: |
+| Five inputs used, full packing | 13,800,022 | 11,300,023 |
+| Five inputs used, individual imports | 21,800,022 | 19,500,023 |
+| Five inputs used, bulk import | 11,100,022 | 10,900,023 |
+| Seven inputs used, full packing | 14,400,022 | 11,900,023 |
+| Seven inputs used, bulk import | 15,000,022 | 15,000,023 |
+
+At five inputs, bulk saves **27 / 4 instructions per entry**, or approximately
+**19.6% / 3.5% of this boundary model**, while increasing data reads and writes.
+At seven inputs it loses **6 / 31 instructions per entry**. Individual checked
+calls lose at five and seven inputs. These are software instruction counts,
+not application speedups or evidence that the callback regression is fixed.
+
+Production import code is unchanged by this probe. A safe Rust static-mask packer
+can test whether compile-time specialization avoids the earlier dynamic-mask
+loop overhead without adding a native helper ABI. It still needs source-derived
+read-before-definition proofs, charged optional metadata, exact native coverage,
+alias/PC/budget/GC/borrow tests, and original end-to-end acceptance gates. Full
+packing must remain available for ineligible or unprofitable entries. Evidence:
+`target/jit-evidence/short-slice-performance/scheduled-import-final/`.
+
 #### Precomputed string-key hashes — measured lookup model only
 
 `d87fc1c` adds a test-only, GC-free `PreparedHash(u64)` model and Make targets.

@@ -44,6 +44,7 @@ mod tests {
             },
         };
         Snapshot {
+            prepared_keys: None,
             operations: super::super::resources::owned(&[
                 Operation::GetUpValue {
                     dest: read,

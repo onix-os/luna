@@ -17,6 +17,7 @@ pub(super) struct Record {
 }
 
 pub(super) struct Calls {
+    pub(super) prepared_keys: bool,
     records: Vec<Record, BudgetAllocator>,
     expected: Option<usize>,
     overflowed: bool,
@@ -39,6 +40,8 @@ pub(super) enum Fault {
     Pointer,
     Operand,
     ConstantFlag,
+    PreparedLow,
+    PreparedHigh,
     SourcePc,
     Signature,
     CompletedTest,
@@ -100,6 +103,7 @@ impl Calls {
         let mut records = Vec::new_in(snapshot.operations.allocator().clone());
         records.try_reserve_exact(count).map_err(|_| refused())?;
         Ok(Self {
+            prepared_keys: false,
             records,
             expected: Some(count),
             overflowed: false,
@@ -112,6 +116,7 @@ impl Calls {
             return Err(invalid());
         }
         Ok(Self {
+            prepared_keys: false,
             records: Vec::new_in(snapshot.operations.allocator().clone()),
             expected: Some(0),
             overflowed: false,
@@ -122,6 +127,7 @@ impl Calls {
     #[cfg(test)]
     pub fn empty(allocator: BudgetAllocator) -> Self {
         Self {
+            prepared_keys: false,
             records: Vec::new_in(allocator),
             expected: None,
             overflowed: false,
@@ -194,21 +200,27 @@ impl Calls {
                 };
                 *func_ref = wrong;
             }
-            Pointer | Operand | ConstantFlag | SourcePc => {
+            Pointer | Operand | ConstantFlag | SourcePc | PreparedLow | PreparedHigh => {
                 let mut values = args;
                 if fault == Pointer {
                     values.swap(0, 1);
                 } else {
                     let mut cursor = FuncCursor::new(function);
                     cursor.goto_inst(record.call);
-                    let index = if fault == Operand {
+                    let index = if fault == PreparedLow {
+                        3
+                    } else if fault == PreparedHigh {
+                        4
+                    } else if fault == Operand {
                         2
                     } else if fault == ConstantFlag {
                         3
                     } else {
                         5
                     };
-                    let wrong = if fault == ConstantFlag {
+                    let wrong = if matches!(fault, PreparedLow | PreparedHigh) {
+                        literal(cursor.func, args[index], types::I32).unwrap() ^ 1
+                    } else if fault == ConstantFlag {
                         literal(cursor.func, args[index], types::I32).unwrap()
                             ^ u64::from(abi::CONSTANT_OPERAND)
                     } else {
@@ -402,6 +414,25 @@ impl Calls {
             }
             let Some((kind, operands)) = expected(op, snapshot) else {
                 continue;
+            };
+            let operands = if self.prepared_keys && kind == abi::HELPER_GET_UP_TABLE {
+                let Operation::GetUpTable {
+                    dest,
+                    table,
+                    key: RCIndex::Constant(index),
+                } = op
+                else {
+                    return Err(invalid());
+                };
+                let keys = snapshot.prepared_keys.as_ref().ok_or_else(invalid)?;
+                let hash = keys.hash(index.0);
+                [
+                    u32::from(dest.0) * 65536 + u32::from(table.0) * 256 + u32::from(index.0),
+                    hash as u32,
+                    (hash >> 32) as u32,
+                ]
+            } else {
+                operands
             };
             let record = records.next().ok_or_else(invalid)?;
             if record.pc != pc {

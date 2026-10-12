@@ -77,6 +77,25 @@ fn hasher() -> &'static ahash::random_state::RandomState {
     HASHER.get_or_init(ahash::random_state::RandomState::new)
 }
 
+#[cfg(feature = "jit")]
+#[derive(Clone, Copy)]
+pub(crate) struct PreparedStringHash(u64);
+
+#[cfg(feature = "jit")]
+impl PreparedStringHash {
+    pub(crate) fn new(key: String<'_>) -> Self {
+        Self(hasher().hash_one(CanonicalKey::String(key)))
+    }
+
+    pub(crate) fn bits(self) -> u64 {
+        self.0
+    }
+
+    pub(crate) fn from_bits(bits: u64) -> Self {
+        Self(bits)
+    }
+}
+
 /// The hash an entry is stored under.
 ///
 /// A key that is not live carries its own, because it cannot be recomputed: a weak key may have
@@ -193,6 +212,19 @@ impl<'gc> RawTable<'gc> {
         } else {
             Value::Nil
         }
+    }
+
+    #[cfg(feature = "jit")]
+    pub(crate) fn get_prepared_string(
+        &self,
+        mc: &Mutation<'gc>,
+        key: String<'gc>,
+        hash: PreparedStringHash,
+    ) -> Value<'gc> {
+        self.map
+            .raw_entry()
+            .from_hash(hash.0, |stored| stored.eq_string(key))
+            .map_or(Value::Nil, |(_, slot)| slot.0.get(mc))
     }
 
     /// Hold this key the way this table holds keys.
@@ -1070,7 +1102,7 @@ impl<'gc> Slot<'gc> {
 #[cfg(test)]
 mod access_tests;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "jit"))]
 impl<'gc> Key<'gc> {
     fn eq_string(self, query: String<'gc>) -> bool {
         match self {

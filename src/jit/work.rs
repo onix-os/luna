@@ -144,6 +144,7 @@ mod tests {
             count: VarCount::constant(0),
         });
         Snapshot {
+            prepared_keys: None,
             operations,
             constants: allocator_api2::vec::Vec::new_in(allocator),
             registers: 256,

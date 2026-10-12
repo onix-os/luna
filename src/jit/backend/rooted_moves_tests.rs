@@ -9,6 +9,7 @@ mod preservation;
 
 fn source() -> Snapshot {
     Snapshot {
+        prepared_keys: None,
         operations: owned(&[
             Operation::Move {
                 dest: R(1),

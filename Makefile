@@ -161,6 +161,45 @@ jit-prehash-profile-run: jit-profile-cpu-check
 	done; done
 	@sha256sum -c '$(PREHASH_DIR)/binary.sha256' '$(PREHASH_DIR)/source.sha256' > '$(PREHASH_DIR)/verification-after.log'
 
+.PHONY: jit-prepared-keys jit-prepared-keys-miri
+jit-prepared-keys:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::prepared_keys::tests | awk '/^test result: ok[.] 9 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+jit-prepared-keys-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::prepared_keys::tests -- --test-threads=1 | awk '/^test result: ok[.] 5 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+.PHONY: jit-import-model jit-import-model-miri jit-import-profile-build jit-import-profile-run
+IMPORT_DIR ?= target/jit-evidence/short-slice-performance/scheduled-import-replay
+jit-import-model:
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::scheduled_import_tests $(ARGS) | awk '/^test result: ok[.] 3 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+jit-import-model-miri:
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::scheduled_import_tests -- --test-threads=1 | awk '/^test result: ok[.] 2 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+
+jit-import-profile-build:
+	@mkdir -p '$(IMPORT_DIR)'
+	@CARGO_PROFILE_RELEASE_OPT_LEVEL=$(JIT_BENCH_OPT) CARGO_PROFILE_RELEASE_STRIP=false $(CARGO) test --locked --release -p luna --features jit --lib $(TARGET_ARG) --no-run --message-format=json-render-diagnostics > '$(IMPORT_DIR)/build.jsonl'
+	@jq -er 'select(.reason == "compiler-artifact" and .target.name == "luna" and .profile.test and .executable != null) | .executable' '$(IMPORT_DIR)/build.jsonl' > '$(IMPORT_DIR)/binary-path'
+	@test "$$(wc -l < '$(IMPORT_DIR)/binary-path')" -eq 1
+	@cp "$$(cat '$(IMPORT_DIR)/binary-path')" '$(IMPORT_DIR)/test-binary'
+	@sha256sum '$(IMPORT_DIR)/test-binary' > '$(IMPORT_DIR)/binary.sha256'
+	@{ find src -type f -name '*.rs' -print0; printf '%s\0' Cargo.toml Cargo.lock Makefile; } | sort -z | xargs -0 sha256sum > '$(IMPORT_DIR)/source.sha256'
+	@git diff --binary > '$(IMPORT_DIR)/source.patch'
+	@printf 'opt_level=%s\nentries=100000\ncollection=*scheduled_import_tests::native::profile_entry*\n' '$(JIT_BENCH_OPT)' > '$(IMPORT_DIR)/configuration'
+
+jit-import-profile-run: jit-profile-cpu-check
+	@sha256sum -c '$(IMPORT_DIR)/binary.sha256' '$(IMPORT_DIR)/source.sha256' > '$(IMPORT_DIR)/verification.log'
+	@valgrind --version > '$(IMPORT_DIR)/profiler.log'
+	@set -e; for width in 1 3 5 7; do for mode in full scheduled bulk; do \
+		case $$mode in full) number=0;; scheduled) number=1;; bulk) number=2;; esac; \
+		LUNA_IMPORT_WIDTH=$$width LUNA_IMPORT_MODE=$$mode taskset -c '$(PROFILE_CPU)' valgrind --tool=callgrind --error-exitcode=99 --collect-atstart=no --toggle-collect='*scheduled_import_tests::native::profile_entry*' --cache-sim=yes --branch-sim=yes --dump-instr=yes --callgrind-out-file='$(IMPORT_DIR)'/$$width-$$mode.callgrind \
+			'$(IMPORT_DIR)/test-binary' jit::scheduled_import_tests::native::scheduled_import_profile --ignored --exact --nocapture --test-threads=1 > '$(IMPORT_DIR)'/$$width-$$mode.log 2>&1; \
+		grep -Fq "mode=$$number width=$$width entries=100000 verified=1" '$(IMPORT_DIR)'/$$width-$$mode.log; \
+		grep -Fq 'test result: ok. 1 passed; 0 failed; 0 ignored;' '$(IMPORT_DIR)'/$$width-$$mode.log; \
+		grep -Eq '^summary: [1-9][0-9]*' '$(IMPORT_DIR)'/$$width-$$mode.callgrind; \
+	done; done
+	@sha256sum -c '$(IMPORT_DIR)/binary.sha256' '$(IMPORT_DIR)/source.sha256' > '$(IMPORT_DIR)/verification-after.log'
+
 .PHONY: metamethod-keys metamethod-keys-miri
 metamethod-keys:
 	@$(CARGO) test --locked -p luna --no-default-features --test metamethod_keys $(TARGET_ARG)

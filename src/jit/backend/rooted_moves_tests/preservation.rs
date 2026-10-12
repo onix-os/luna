@@ -152,6 +152,7 @@ fn rooted_transfers_and_scalar_operations_preserve_snapshots_across_exits() {
                     _ => [None, None],
                 };
                 let source = Snapshot {
+                    prepared_keys: None,
                     operations: owned(&[
                         op,
                         Operation::LoadNil { dest: R(base + 3), count: 1 },

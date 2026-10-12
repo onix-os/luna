@@ -461,6 +461,7 @@ mod tests {
     fn snapshot_roots_are_not_interchangeable_even_for_identical_operations() {
         sources(|caller, callee, pc| {
             let copy = Snapshot {
+                prepared_keys: None,
                 operations: super::super::resources::owned(&caller.operations),
                 constants: super::super::resources::owned(&caller.constants),
                 registers: caller.registers,
