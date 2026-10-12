@@ -117,3 +117,68 @@ fn strided_frame_full_width_and_retirement() {
         }
     }
 }
+
+#[test]
+fn strided_frame_tracks_open_alias_kinds_inside_and_outside_prefix() {
+    crate::Lua::empty().enter(|ctx| {
+        let closure = crate::Closure::load(ctx, None, b"return _ENV").unwrap();
+        for next in [
+            Value::Nil,
+            Value::Boolean(false),
+            Value::Boolean(true),
+            Value::Integer(i64::MIN),
+            Value::Number(-0.0),
+            Value::Number(f64::from_bits(0x7ff8000000000042)),
+            Value::Table(crate::Table::new(&ctx)),
+            Value::Function(closure.into()),
+        ] {
+            for destination in 0..4 {
+                let source = if destination == 2 { 1 } else { 2 };
+                let mut values = [Value::Integer(17); 4];
+                values[source] = next;
+                let mut expected = values;
+                expected[destination] = next;
+                let mut pc = 0;
+                LuaRegisters::with_test_frame(ctx, &mut pc, &mut values, |mut registers| {
+                    let alias = registers
+                        .open_test_upvalue(&ctx, crate::types::RegisterIndex(destination as u8));
+                    closure.set_upvalue(&ctx, 0, alias);
+                    let mut frame = helpers::Frame {
+                        ctx,
+                        closure,
+                        registers: &mut registers,
+                        count: helpers::Counts::default(),
+                        slot_count: 3,
+                        panic: None,
+                        projection: None,
+                    };
+                    with_frame(&mut frame, false, |header, host| unsafe {
+                        assert_eq!(
+                            helper::<{ abi::HELPER_SET_UPVALUE }, false>(
+                                host.cast(),
+                                header.cast(),
+                                0,
+                                source as u32,
+                                0,
+                                11
+                            ),
+                            abi::HELPER_COMPLETED
+                        );
+                        for (i, value) in expected[..3].iter().copied().enumerate() {
+                            let actual = read(header, i);
+                            let expected = abi::Slot::from_value(value);
+                            assert_eq!((actual.tag, actual.bits), (expected.tag, expected.bits));
+                        }
+                    });
+                    assert_eq!(frame.count.upvalue_writes, 1);
+                    for (actual, expected) in
+                        frame.registers.stack_frame.iter().copied().zip(expected)
+                    {
+                        assert_identical(actual, expected);
+                    }
+                });
+                assert_eq!(pc, 12);
+            }
+        }
+    });
+}

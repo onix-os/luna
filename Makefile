@@ -1339,10 +1339,10 @@ jit-strided-runtime-profile-run: jit-profile-cpu-check
 
 STRIDED_DIR ?= target/jit-evidence/short-slice-performance/strided
 jit-strided:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::strided:: -- --test-threads=1 | awk '/^test result: ok[.] 14 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::strided:: -- --test-threads=1 | awk '/^test result: ok[.] 15 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 jit-strided-miri:
-	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::strided:: -- --test-threads=1 | awk '/^test result: ok[.] 10 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::abi::strided:: -- --test-threads=1 | awk '/^test result: ok[.] 11 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 .PHONY: jit-strided-prepared jit-strided-prepared-miri
 jit-strided-prepared:

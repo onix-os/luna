@@ -28,41 +28,40 @@ impl Header {
     fn bind(&mut self, values: &mut [Value<'_>]) {
         assert!(values.len() <= self.tags.len());
         self.retire();
-        let mut seen = 0;
         for (index, value) in values.iter().enumerate() {
-            let (tag, field, width, alignment) = match value {
-                Value::Nil => (abi::NIL, ptr::null(), 0, 1),
-                Value::Boolean(v) => (abi::BOOLEAN, ptr::from_ref(v).cast::<u8>(), 1, 1),
-                Value::Integer(v) => (
-                    abi::INTEGER,
-                    ptr::from_ref(v).cast::<u8>(),
-                    8,
-                    mem::align_of::<i64>(),
-                ),
-                Value::Number(v) => (
-                    abi::NUMBER,
-                    ptr::from_ref(v).cast::<u8>(),
-                    8,
-                    mem::align_of::<f64>(),
-                ),
-                _ => (abi::REFERENCE, ptr::null(), 0, 1),
-            };
-            self.tags[index] = tag as u8;
-            if !field.is_null() {
-                let offset = field
-                    .addr()
-                    .checked_sub(ptr::from_ref(value).addr())
-                    .unwrap();
-                assert!(offset + width <= mem::size_of::<Value<'_>>());
-                assert_eq!(offset % alignment, 0);
-                if seen & (1 << tag) != 0 {
-                    assert_eq!(self.offsets[tag as usize], offset);
-                }
-                self.offsets[tag as usize] = offset;
-                seen |= 1 << tag;
-            }
+            self.update(index, value);
         }
         self.base = values.as_mut_ptr().cast();
+    }
+
+    fn update(&mut self, index: usize, value: &Value<'_>) {
+        let (tag, field, width, alignment) = match value {
+            Value::Nil => (abi::NIL, ptr::null(), 0, 1),
+            Value::Boolean(v) => (abi::BOOLEAN, ptr::from_ref(v).cast::<u8>(), 1, 1),
+            Value::Integer(v) => (
+                abi::INTEGER,
+                ptr::from_ref(v).cast::<u8>(),
+                8,
+                mem::align_of::<i64>(),
+            ),
+            Value::Number(v) => (
+                abi::NUMBER,
+                ptr::from_ref(v).cast::<u8>(),
+                8,
+                mem::align_of::<f64>(),
+            ),
+            _ => (abi::REFERENCE, ptr::null(), 0, 1),
+        };
+        self.tags[index] = tag as u8;
+        if !field.is_null() {
+            let offset = field
+                .addr()
+                .checked_sub(ptr::from_ref(value).addr())
+                .unwrap();
+            assert!(offset + width <= mem::size_of::<Value<'_>>());
+            assert_eq!(offset % alignment, 0);
+            self.offsets[tag as usize] = offset;
+        }
     }
 
     unsafe fn pointer(&self, index: usize) -> *mut u8 {
@@ -118,6 +117,33 @@ const fn functions<const PREPARED: bool>() -> Functions {
 static GENERIC: Functions = functions::<false>();
 static PREPARED: Functions = functions::<true>();
 
+struct Tracked<'a> {
+    header: &'a mut Header,
+    count: usize,
+}
+
+impl<'gc> helpers::Transport<'gc> for Tracked<'_> {
+    fn read(&self, index: usize, canonical: Value<'gc>) -> Value<'gc> {
+        assert!(index < self.count);
+        canonical
+    }
+
+    fn read_alias(&self, _: usize, canonical: Value<'gc>) -> Value<'gc> {
+        canonical
+    }
+
+    fn write(&mut self, index: usize, value: Value<'gc>) {
+        assert!(index < self.count);
+        self.header.update(index, &value);
+    }
+
+    fn write_alias(&mut self, index: usize, value: Value<'gc>) {
+        if index < self.count {
+            self.header.update(index, &value);
+        }
+    }
+}
+
 struct Session<'s, 'gc, 'a, 'b, 'p> {
     frame: ptr::NonNull<helpers::Frame<'gc, 'a, 'b, 'p>>,
     terminal: Option<u32>,
@@ -130,6 +156,15 @@ impl Session<'_, '_, '_, '_, '_> {
         if self.terminal.is_none() {
             let frame = unsafe { self.frame.as_mut() };
             header.bind(&mut frame.registers.stack_frame[..frame.slot_count]);
+        }
+    }
+
+    fn renew(&mut self, header: &mut Header) {
+        if self.terminal.is_none() {
+            let frame = unsafe { self.frame.as_mut() };
+            header.base = frame.registers.stack_frame[..frame.slot_count]
+                .as_mut_ptr()
+                .cast();
         }
     }
 }
@@ -148,17 +183,17 @@ unsafe extern "C" fn helper<const KIND: u32, const PREHASHED: bool>(
     if let Some(status) = session.terminal {
         return status;
     }
-    let status = helpers::call_direct_selected::<KIND, PREHASHED>(
-        unsafe { session.frame.as_mut() },
-        a,
-        b,
-        c,
-        pc,
-    );
+    let frame = unsafe { session.frame.as_mut() };
+    let mut tracked = Tracked {
+        header,
+        count: frame.slot_count,
+    };
+    let status =
+        helpers::call_transport_selected::<KIND, PREHASHED>(frame, &mut tracked, a, b, c, pc);
     if status != abi::HELPER_COMPLETED {
         session.terminal = Some(status);
     }
-    session.bind(header);
+    session.renew(header);
     status
 }
 
@@ -188,7 +223,8 @@ unsafe extern "C" fn materialize<const COPY: bool>(
         }
     };
     frame.registers.stack_frame[index as usize] = value;
-    session.bind(header);
+    header.update(index as usize, &frame.registers.stack_frame[index as usize]);
+    session.renew(header);
 }
 
 pub(in crate::jit) fn with_frame<R>(
