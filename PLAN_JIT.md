@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-12
 
-#### Fresh transport profiles and binding specialization — timing pending
+#### Binding specialization — measured and rejected
 
 Fresh ordinary and activated checkouts at `13dd871` build both shipping and
 speed feature-cost images with linker-replayed symbol companions. All source,
@@ -55,11 +55,48 @@ it to binding changes, changing hash seeds or claiming deterministic total work.
 The shipping Off metamethod outlier in the first trial is likewise not a proven
 causal effect of its attribute. Every raw profile remains available.
 
-**No runtime trial is promoted and no new timing result is claimed.** The
-follow-up is undergoing fresh Stacked/Tree Miri, full Auto verification and
-native benchmark builds for ordinary, activated-control and candidate images.
-Those gates and subsequent repeated paired hardware/cost measurements must finish
-before any elapsed-time or broader acceptance conclusion. Evidence is under
+Fresh Stacked seed 59 and Tree seed 60 Miri runs pass **14 tests** in total,
+without failures or ignores. Full GNU Auto `make verify` passes **2,265 tests /
+177 summaries**, with eight existing ignores. Six native shipping/speed images
+build for ordinary production, activated control and the binding candidate.
+Experimental build and nightly Miri warnings remain; this is not warning-clean
+or new platform acceptance.
+
+Two balanced hardware campaigns complete **256 commands**: 128 feature-cost
+commands and 128 native commands, across CPUs 0/16 and shipping/speed profiles.
+Each uses eleven samples, original workloads and frozen thresholds; cost uses
+twenty iterations. Rotating controls, identical-image placebos, source/artifact
+checks and external-contention telemetry are retained. No owned build, test or
+profile overlaps timing. Independent analysis verifies **1,152 cost gates /
+2,816 worker records / 1,408 pairs**, **864 cost native-proof comparisons** and
+**1,152 complete candidate/placebo native non-timing comparisons**.
+
+Shipping callback control/candidate time ratios on CPU0 are **0.939662 and
+0.945527**, initial/repeat: the candidate is about **6.42% and 5.76% slower**.
+All eight windows lose, while same-image placebo ratios are **0.994038 and
+0.995236**. CPU16 ratios improve to **1.023049 and 1.015113**, but do not erase
+the repeated CPU0 regression. Speed callback ratios are close to one. Reduced
+instruction work therefore does not establish a useful elapsed-time gain;
+the hardware cause of the regression is not established.
+
+All **128 feature-cost aggregates** and all **64 checked speed native
+aggregates** fail the original gates. Candidate speed arrays fail **1/8 then
+3/8** windows, activated control **3/8 then 1/8**, and ordinary production
+**0/8 in both rounds**. Shipping native exit zero remains diagnostic, not
+acceptance. Callback and compiled-Off failures remain unresolved.
+
+The first native analysis stops on an unanticipated compiler-resource difference.
+Inspection of all **576 ordinary-production comparisons** finds identical
+execution fields, but activation raises metamethod native mapped code from
+**8 KiB to 12 KiB** and raises snapshot peaks for allocation, Oslo, metamethods
+and callbacks. Audited analysis permits only the exact observed case/field/value
+pairs; both rounds then pass. Candidate and placebo resources match their
+activated control exactly. The extra mapped-code cost and initial failed
+analysis log remain recorded, not dismissed as timing noise.
+
+**Reject the binding candidate; no runtime trial is promoted.** Correctness
+passes and instruction reductions do not compensate for repeated timing losses.
+Evidence is under
 `target/jit-evidence/short-slice-performance/transport-current-*` and
 `transport-binding-{inline,direct}-*`; production selection remains unchanged.
 
