@@ -11,6 +11,64 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Static-mask runtime imports — measured and rejected
+
+An isolated checkout at `466a24d` integrates safe Rust static-mask packers into
+ordinary seven-register entries. Source-derived read-before-definition masks
+cover at most 64 instructions; entries needing more than five inputs retain full
+packing. Omitted slots are initialized canonical proxies. Optional masks are
+charged and prepared after backend compilation; projected, array, scalar,
+payload and continuation entries keep their original transport. No native
+helper ABI, persistent value cache or public raw-stack API is changed.
+
+Five focused tests pass on GNU and fresh-target musl, including an independent
+path oracle and real-native full/selective comparisons across every PC, budget
+and current-frame alias in eight programs. Full GNU all-features Auto passes
+**1,820 executions / 88 summaries**, with eight ignored diagnostics, in addition
+to the five focused executions. Stacked seed 68 and Tree seed 69 each pass four
+pure tests. Native Memcheck passes one differential test with zero errors and
+zero definite/indirect leaks; 48 possible TLS bytes and 632 reachable bytes remain.
+The initial non-test build failure exposed a test-only canonical-slot constructor;
+the isolated candidate fixes it, and the failed build log is retained.
+
+Fresh shipping callback profiles fall **165,547,645 → 164,508,922 instructions**
+(0.627%); speed instead rises **132,231,624 → 133,073,775** (0.637%). Both add
+data reads/writes. All thirteen event totals equal summed self-costs, and all
+execution counters match, including **64,849 native entries / 259,431 native
+instructions**. Callback metadata grows **881 → 926 bytes**. A second shipping
+build is byte-identical and reproduces the instruction total. These software
+profiles are not elapsed-time gains or explanations of hardware behavior.
+
+The first speed candidate build reused the control executable without rebuilding:
+the images were byte-identical and no static packer executed. That result is
+invalid candidate evidence, not a zero-cost optimization. It remains under
+`static-import-speed/candidate-stale`; the strengthened audit rejects it. An
+explicit Luna-package clean and rebuild produces the actual candidate, whose
+executed packer, source/binary manifests and complete event/counter audit pass.
+
+The subsequent **48-command hardware screen** uses CPUs 0/16, both profiles,
+four rotated windows, eleven paired samples, unchanged workload thresholds,
+and same-image placebos at one verified launch path. All 864 result rows and
+432 paired gate records are complete. All **24 checked speed aggregates fail**;
+callback gates fail in all 48 commands, including controls/placebos. Source and
+artifact after-checks pass; no owned build/test/profile/source edit overlaps
+timing. External workloads and contention outliers remain recorded.
+
+Median control/candidate Auto ratios for callbacks are **0.98075 / 0.96383** on
+CPU 0 (shipping/speed), approximately **2.0% / 3.8% slower**. Every CPU 0 window
+is adverse. CPU 16 ratios are **0.99914 / 0.96735**; speed is adverse in every
+window. CPU 16 speed arrays also lose in all four windows (median ratio 0.95614).
+Placebo variation and large individual outliers are retained, not discarded or
+used to claim a hardware cause. Execution counters match throughout; explicit
+metadata increases are retained separately rather than treated as equal costs.
+
+**Reject this runtime candidate.** The isolated boundary saving does not fix
+the callback regression and does not justify the new transport/metadata costs.
+Production source was never changed. The candidate patch, new-source archive,
+tests, rejected stale artifacts, profiles and all timing samples remain under
+`target/jit-evidence/short-slice-performance/static-import-*`. Original native,
+compiled-Off, platform, resource and release acceptance remains incomplete.
+
 #### Scheduled input imports — boundary model, not a runtime fix
 
 `91ba2df` adds a test-only native boundary model and reproducible Make targets:
