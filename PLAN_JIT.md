@@ -9,7 +9,249 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Progress snapshot — 2026-10-13
+
+#### Prepared-key-only identity comparison — improvement with a rejected cost
+
+The earlier general string-key shortcut changed interpreter lookup. This trial
+changes only the JIT/test-gated prepared-key comparator: equal GC identities
+return immediately, while different allocations retain byte-content equality.
+Weak immediate strings retain the same behavior. No cached pointer, generated
+layout, GC root, native coverage or threshold changes. Commit `3c4813d` adds an
+independent baseline-tested collision fixture for strong/weak integer/string
+keys and distinct equal strings, and updates the exact Make test counts.
+
+The initial runtime candidate passes **40 focused tests**, **nine Rust-only
+Miri tests**, and **1,938 full Force executions / 88 summaries**, with 16 ignored
+diagnostics in the full suite. Five original stripped images have exact-link
+symbol companions; program headers and all **128** file-backed allocated
+sections match. Both no-feature cost binaries are byte-identical to controls.
+Nineteen isolated/full-context result records match all non-timing fields.
+
+Callback instructions fall **126,201,795 -> 123,997,452 (1.75%)**. Two full
+native timing campaigns, with 21 then 201 samples, execute **47,952 measured
+workloads** with zero counter/resource mismatches. Both keep old/new/old controls,
+CPU0/16 repeats and one hardlink invocation path. The longer campaign's callback
+control/candidate ratios are CPU0 **1.024137 / 1.023392**, CPU16
+**1.016509 / 1.030803**. Initial CPU0 control instability remains in the evidence;
+it is not discarded. All eight candidate callback gates still fail.
+
+The cost comparison independently audits **181,440 measured workload iterations
+and 216 original gate reports** across three interleaved controls/candidate
+campaigns. Speed-profile compiled-Off float overhead on CPU16 reaches
+**1.633792 / 1.648968**, against controls **1.0320–1.0700**. The unchanged
+1.05 ceiling fails badly. Further profiles execute exactly **20,204,995** JIT-Off
+float instructions in both images, with **20,325,225** in both no-feature images.
+Instruction counts do not explain the timing loss; its hardware cause is unproven.
+No owned build, test or profiler overlaps these timing campaigns.
+
+This initial runtime form is **not accepted**. A separate uncommitted variant
+outlines the content-comparison fallback; it must earn its own verification and
+timing evidence, not inherit the first variant's full-suite result. Evidence is
+under `target/jit-evidence/short-slice-performance/prepared-identity*`.
+Native callback, compiled-Off and full release acceptance remain open.
+
+#### Prepared-key outlined fallback — provisional, cold cost still failing
+
+A second image keeps the same identity check but places content equality in a
+private cold, non-inlined fallback. It passes **40 focused tests and nine Miri
+tests**. Its exact-link image checks and eighteen full-context non-timing records
+pass; both no-feature binaries again match the original controls byte-for-byte.
+The full Force suite for this second variant is still running, not inherited
+from the first variant.
+
+Callback instructions are **124,777,527**, 1.13% below baseline but 780,075 above
+the first variant. VM self-work increases 780,156 instructions between variants;
+helper and invocation self-work are unchanged in the isolated profile. The
+smaller fallback is not a whole-program instruction improvement over that trial.
+
+Another **47,952 native measured executions** and **181,440 cost workload
+iterations** complete with unchanged thresholds, interleaved controls, shared
+launch paths, all raw observations and zero native counter/resource mismatches.
+Speed-profile CPU16 float cost is **0.988344 / 0.988602**, removing the first
+variant's large loss. However, speed-profile CPU0 cold cost becomes
+**1.053006 / 1.050910**, versus controls **1.0372–1.0421**: a new repeated failure
+of the 1.05 ceiling, not an accepted tradeoff. Candidate cost failures are15/72,
+versus16/72 and18/72 controls; aggregate counts do not erase the cold regression.
+
+The 21-sample callback control/candidate ratios are CPU0 **1.035386 / 1.027824**,
+CPU16 **1.007079 / 1.016104**. The 201-sample repeat retains an unstable CPU0
+window with a **0.431203** same-image placebo; its apparent 1.57x gain is not
+claimed as an optimization. Seven of eight callback gates still fail. The
+runtime patch remains uncommitted and provisional while its remaining costs
+are investigated. Frozen images/logs are under `prepared-identity-outlined*` in
+the ignored performance directory. This is not full performance acceptance.
+
 ### Progress snapshot — 2026-10-12
+
+#### Borrowed dispatch ownership boundary — rejected
+
+A provisional trial kept the prepared-code owner in the VM prelude and passed
+a borrowed dispatch to one outlined execution closure. It retained a single
+opcode body, existing statistics, lease lifetime, hook ordering and fuel rules;
+it did not split Off/Auto interpreters or retain a lease across slices.
+
+The candidate passed **59 focused tests** and **13 Rust-only Miri tests**.
+Shipping/speed builds and four exact-image upvalue profiles completed. Verified
+symbol companions preserve the stripped images' program headers and allocated
+bytes. Whole-profile instruction counts, compared with the preceding cost
+refresh, show that this boundary adds work:
+
+| Profile / feature mode | Baseline instructions | Trial instructions | Change |
+|---|---:|---:|---:|
+| Shipping / no-feature | 79,372,477 | 79,323,559 | -0.06% |
+| Shipping / JIT-Off | 89,176,738 | 92,427,336 | +3.65% |
+| Speed / no-feature | 72,523,637 | 71,024,067 | -2.07% |
+| Speed / JIT-Off | 81,879,248 | 84,629,343 | +3.36% |
+
+The smaller opcode-body symbol is not a saving: shipping moves work from the
+35,804,245-instruction VM into a 30,554,010-instruction closure, an
+8,000,400-instruction prelude and a 500,025-instruction wrapper. The statistics
+destructor remains 2,400,120 instructions. These are software instruction counts,
+not hardware timings; no elapsed-time improvement or full-suite acceptance is
+claimed for the trial.
+
+Both runtime files are restored. Formatting and **58 focused tests** pass on
+the restored source; `make jit-bench-build` reproduces the prior native image
+byte-for-byte (`d38b7f5c98ab6de0a75cef2733c5098a4eaf6d057f3dd72142742f43707d4464`).
+The candidate patch, source manifests, images, profiles and logs remain under
+`target/jit-evidence/short-slice-performance/borrowed-dispatch*`. No ownership
+wrapper or candidate-only test is shipped. Native callback and compiled-Off
+cost gates remain open; the full plan is not complete.
+
+#### Current compiled-disabled cost gate — measured and still failing
+
+Fresh matched no-feature/JIT-Off cost probes at `f08cb70` replace stale cost
+assumptions with current evidence. Both shipping (`opt-level=s`) and speed
+(`opt-level=3`) retain LTO, one codegen unit and stripping. Builds finish before
+timing. Eight pinned `make jit-size-run` commands use 21 alternating process pairs,
+20 iterations per workload, all nine original workloads and the unchanged
+**JIT-Off/no-feature <= 1.05** ceiling. CPU order is 0/16/16/0; profile order
+reverses for the repeat. No owned build/test/profiler overlaps timing, and unrelated
+applications are not stopped.
+
+All eight commands fail their aggregate gate: shipping passes **32/36** case
+checks and speed **25/36**. Independent reconstruction from the printed pair
+durations verifies **72** gate reports and **60,480 measured workload iterations**
+(excluding warmups). Every cost worker verifies its result and zero native work;
+separate Auto proofs verify native execution for every warm case and none for
+cold configuration. Hashes, source manifests and before/after telemetry are
+retained. These are feature-cost comparisons, not before/after optimization gains.
+
+| Failing cost case | Profile / CPU | First / repeat ratio |
+|---|---|---:|
+| Closure/upvalue | Shipping / 0 | 1.088342 / 1.083011 |
+| Closure/upvalue | Shipping / 16 | 1.253950 / 1.233267 |
+| Closure/upvalue | Speed / 16 | 1.116814 / 1.121717 |
+| Rust callbacks | Speed / 0 | 1.060741 / 1.066102 |
+| Rust callbacks | Speed / 16 | 1.080592 / 1.065212 |
+| Metamethods | Speed / 0 | 1.059800 / 1.059585 |
+| Predicate | Speed / 0 | 1.051473 / 1.051818 |
+| Allocation/GC | Speed / 16 | 1.051903 / 1.049451 |
+
+All other cost combinations pass both repeats. Unlike the native performance
+gate, the feature-cost gate scores the predicate. Binary sizes are shipping
+**1,152,712 -> 4,719,680 bytes** (+3,566,968; 4.0944x) and speed
+**1,432,640 -> 7,226,304 bytes** (+5,793,664; 5.0440x). These are reported sizes,
+not a newly invented acceptance ceiling. No Cranelift dependency appears in the
+no-feature dependency tree.
+
+Exact symbol companions are recovered by replaying the original linker inputs
+without its strip switch, not by changing the Rust optimization/strip profile.
+All four recaptured stripped binaries match the timed binaries byte-for-byte.
+Program headers, allocated-section metadata and all **102** nonempty file-backed
+allocated sections match their respective companions. Four isolated upvalue
+profiles on CPU 16 verify results/native-zero work and artifact hashes:
+
+| Profile | No-feature instructions | JIT-Off instructions | Extra work |
+|---|---:|---:|---:|
+| Shipping | 79,372,477 | 89,176,738 | 12.35% |
+| Speed | 72,523,637 | 81,879,248 | 12.90% |
+
+In shipping, VM self work rises 30,553,915 -> 35,804,245, Executor::step
+13,611,680 -> 14,916,020, and register-view construction 3,600,180 -> 4,600,230.
+The statistics destructor adds 2,400,120 instructions. Some other functions get
+cheaper, so these components must not be treated as independent total deltas.
+Speed retains a 3,100,155-instruction ordinary-slice adapter. Isolated software
+profiles identify disabled VM/frame/accounting costs, not the hardware cause or
+full-context elapsed-time shares. Previously rejected adapter inlining,
+register-view/optional-fuel changes and statistics-finalization trials must not
+be repeated solely because their symbols remain visible.
+
+No runtime source or compiler defaults change. The ordinary native benchmark is
+restored and byte-matches `d38b7f5c98ab6de0a75cef2733c5098a4eaf6d057f3dd72142742f43707d4464`.
+The disabled-path upvalue overhead is a current, substantial performance target
+in addition to native callback/metamethod regressions; full release acceptance
+remains open. Evidence: `target/jit-evidence/short-slice-performance/compiled-off-refresh/`
+(`timing/`, frozen profile directories, exact-link captures and verified symbols).
+
+#### Closed-table helper trial — withdrawn after extended timing
+
+Separate production callback profiles record **126,201,795 Auto instructions**
+versus **102,871,353 Off instructions**. In Auto, ordinary register transport
+accounts for 20,233,235 self instructions (16.03%) and the prepared table helper
+for 11,281,464 (8.94%). These are software instruction counts, not elapsed-time
+shares. The bridge count reproduces earlier attribution; it is not a newly
+discovered hotspot or evidence that the interpreter should be bypassed.
+
+A runtime trial reads a current closed table upvalue directly in the prepared
+helper, preserving the original accessor for open/current-frame/foreign-stack
+aliases. It caches nothing and retains table guards, panic materialization,
+projection synchronization, fuel and counters. `fb726cf` independently expands
+generic/prepared/wide helper parity across environment replacement, non-table
+values, restoration and borrowed-table panics; that test is retained.
+
+Candidate correctness passes **1,937 full forced-JIT tests / 88 suites**, with
+16 ignored, 57 focused executions and five prepared-key Miri tests. The initial
+Miri invocation failed because the default shell lacks cargo-miri; the existing
+`.#miri` shell supplies the successful run. Passing these checks does not justify
+retaining a performance regression.
+
+Auto callback instructions fall **126,201,795 → 125,553,516 (0.514%)**. Two full
+paired profiles reproduce roughly 648,000 fewer callback instructions, with all
+37 compared complete non-timing report records matching, including resource and
+native-coverage fields. Other profile totals vary; for example the first paired
+metamethod interval adds 1,058,495 instructions, dominated by allocator work, while
+the repeat total decreases. No whole-program saving is inferred from a vanished
+or merged helper symbol. Symbolized profiling images are separate from stripped
+timing artifacts.
+
+Two 21-sample screens measure **9,072 executions**. An additional **201-sample**
+screen measures **43,416**, preserving full nine-case context, old-A/new/old-B
+controls, CPU order 0/16/16/0, original thresholds and host telemetry. All three
+audits report zero counter/resource mismatches. No owned build, test or profiler
+overlaps timing; unrelated applications remain untouched. Reports contain
+aggregates/min/max, not individual raw sample distributions.
+
+The extended screen gives these control/candidate Auto-time ratios (>1 is faster):
+
+| Workload | CPU 0, first / repeat | CPU 16, first / repeat |
+|---|---:|---:|
+| Rust callbacks | 1.009459 / 1.003033 | 0.993867 / 0.989490 |
+| Metamethods | 1.010182 / 1.013412 | 0.949107 / 0.969012 |
+| Upvalues | 0.998932 / 0.999166 | 0.991187 / 1.001473 |
+
+CPU 16 metamethod placebos are 1.002161 / 1.000792; the candidate is slower in
+both extended comparisons. Callback gates fail **12/12** across the three
+screens. Metamethod gates fail **4/12**, despite passing all four extended runs.
+Other scored workloads pass 12/12; the predicate remains unscored. Short-window
+CPU 16 integer placebos reach 0.485193 and large candidate slowdowns remain in
+the logs. Longer sampling reduces that variation but does not rescue this trial.
+No samples are discarded or hardware cause asserted.
+
+**The runtime change is withdrawn.** Production helper source is restored;
+the rebinding test and evidence remain. Restored formatting and 54 focused tests
+pass; rebuilding the stripped shipping benchmark reproduces the baseline
+SHA-256 byte-for-byte. Further small closed-table accessor
+rewrites are not the next performance direction. The larger ordinary transport
+cost, original callback/metamethod gates, disabled overhead and full release
+acceptance remain unresolved.
+
+Evidence: `target/jit-evidence/short-slice-performance/callback-separated-{auto,off}/`
+and `closed-table-helper-*`. Frozen candidate timing SHA-256:
+`a8778d2509a171ddffa6b41e44ef9f40e43783d092131ec3c22297bc071765ef`;
+baseline: `d38b7f5c98ab6de0a75cef2733c5098a4eaf6d057f3dd72142742f43707d4464`.
+The candidate remains an archived rejected artifact, not the shipping runtime.
 
 #### Retained preflight callee binding — tested; shipping gates still open
 

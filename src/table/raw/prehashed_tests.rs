@@ -151,6 +151,48 @@ fn prepared_collision_probes_still_check_key_equality() {
 }
 
 #[test]
+fn prepared_collision_checks_weak_keys_and_distinct_equal_strings() {
+    crate::Lua::empty().enter(|ctx| {
+        let keys = [ctx.intern(b"present"), ctx.intern(b"absent")];
+        let hash = PreparedHash::new(keys[0]);
+        for weak in [false, true] {
+            let mut table = RawTable::new(&ctx);
+            for (index, key) in [CanonicalKey::Integer(17), CanonicalKey::String(keys[0])]
+                .into_iter()
+                .enumerate()
+            {
+                let key = if weak {
+                    Key::Weak(weaken(key), hash.0)
+                } else {
+                    Key::Live(key)
+                };
+                table.map.raw_table_mut().insert(
+                    hash.0,
+                    (key, (Slot::Strong(Value::Integer(index as i64)), index)),
+                    |_| hash.0,
+                );
+            }
+            for (index, key) in keys.into_iter().enumerate() {
+                let distinct = String::from_buffer(&ctx, key.as_bytes().into());
+                assert!(!Gc::ptr_eq(key.into_inner(), distinct.into_inner()));
+                for query in [key, distinct] {
+                    let value = table.get_prepared_string(
+                        &ctx,
+                        query,
+                        PreparedStringHash::from_bits(hash.0),
+                    );
+                    if index == 0 {
+                        assert!(matches!(value, Value::Integer(1)));
+                    } else {
+                        assert!(value.is_nil());
+                    }
+                }
+            }
+        }
+    });
+}
+
+#[test]
 fn prepared_hash_does_not_keep_weak_values_alive() {
     fn static_word<T: Send + Sync + 'static>() {}
     static_word::<PreparedHash>();
