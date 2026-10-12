@@ -39,6 +39,52 @@ not counted as benchmark failures. The corrected Make campaign runs inside
 Nix and refuses incomplete gate output immediately. Evidence is under
 `target/jit-evidence/short-slice-performance/inline-batching-feature-cost/`.
 
+#### Prepared register-table keys: measured and rejected
+
+An ordinary-transport trial extends prepared string hashes from `GetUpTable`
+to eligible constant-string `GetTable` operations, without storing GC addresses
+or changing table equality, current-value reads, weak handling or metamethod
+declines. Register/non-string table keys retain ordinary lookup; their presence
+does not disable existing eligible upvalue-table preparation. Hash storage stays
+optional, charged and released before the existing resource-limited retry.
+
+Twelve focused tests pass, including register-source/destination aliasing,
+non-table receivers, borrowed-table panics, source eligibility, real native
+mutation/GC reads and forty malformed-helper-flow variants. Twenty public heap
+tests pass. The first broad boundary run passes 1,209 tests but fails one
+resource fixture: `peak - 1` admits ordinary compilation after optional hashes
+are dropped. The corrected fixture searches the actual minimum workspace and
+retains exact success/refusal checks at that minimum and one byte below it;
+all three transport-resource tests then pass. The original failure is retained.
+
+The actual metamethod Auto profile executes the new helper and reduces collected
+instructions from 78,314,650 to 76,762,439. Native/interpreted work, helper counts
+and retained code/metadata match; peak snapshot bytes rise from 16,177 to 16,185.
+This is software-profile evidence, not a hardware speedup claim.
+
+Two completed opt-level-3 screens retain 48 checked commands, 864 summary rows
+and 432 workload gates. Each uses four rotated control/candidate/placebo windows
+on CPUs 0 and 16, eleven alternating samples, matching launch paths, unchanged
+thresholds and checked source/image identity. No owned build/test/profile overlaps
+timing. Across-window median control/candidate Auto time ratios are:
+
+| Workload | CPU 0 first / repeat | CPU 16 first / repeat |
+| --- | --- | --- |
+| Metamethod | 0.9838 / 0.9950 | 1.0274 / 1.0146 |
+| Callback | 0.9741 / 0.9735 | 0.9819 / 0.9906 |
+| Upvalue | 0.9857 / 0.9952 | 0.9803 / 0.9742 |
+
+Candidate callback gates fail all sixteen windows and metamethod gates fail
+one of eight windows in each screen. CPU 0 callback placebo medians are 1.0093
+and 1.0013, rather than reproducing the candidate slowdown. CPU 16 metamethod
+gains do not establish a net improvement given the other regressions. No
+shipping, Miri or compiled-Off acceptance is claimed for this candidate.
+
+The runtime and candidate-only tests are removed; the independently useful
+minimum-workspace resource fixture is retained. Candidate patch, binary,
+profiles, tests and both audited screens remain under
+`target/jit-evidence/short-slice-performance/prepared-table-*`.
+
 #### Prepared string-key lookups — incremental improvement integrated
 
 Commits `48d5928`, `69480f5`, `cfef771` and `4f83fa4` were developed and tested
