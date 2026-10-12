@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-12
 
-#### Branched integer-loop direction: test-only performance probe
+#### Branched integer-loop direction: hardware trial rejected
 
 The callback kernel computes both signed integer-limit comparisons before
 selecting one according to step direction. A new test-only rewrite moves each
@@ -25,7 +25,7 @@ The GNU native oracle covers 231,525 index/limit/step, PC and budget combination
 against both the unchanged kernel and the scalar model. Candidate and control
 slots match bitwise; model NaN results are compared as NaNs. Bounds include
 signed integer overflow, negative/zero steps, mixed floats, infinities, invalid
-scalar kinds, zero fuel and unknown entry PCs. Pure IR tests check idempotence
+scalar kinds, zero budgets and unknown entry PCs. Pure IR tests check idempotence
 and refusal without mutation. These are prototype checks, not production
 activation or full performance acceptance.
 
@@ -34,7 +34,54 @@ ordinary and experimental kernels, including the prepared-helper address.
 Both initial x86-64 kernels occupy 2,160 bytes. Assembly confirms an actual
 direction branch replaces the integer conditional selection. The diagnostic
 invokes only the helper-free prefix, stopping at GetUpTable without a host;
-it does not claim to execute callbacks. Whole-workload profiling is next.
+it does not claim to execute callbacks.
+
+The experimental production build then ran the unchanged real workloads.
+Two callback profiles collected 126,201,795 / 126,201,876 control instructions
+versus 126,137,027 for the candidate: only about 0.051% fewer overall. The
+metamethod profile instead increased from 78,328,922 to 78,446,840. All full
+non-timing records matched. Callgrind branch-miss estimates are not hardware
+branch-predictor measurements, and instrumented durations are not speedups.
+The first candidate build accidentally retained release stripping, producing
+zero collection at the named Executor boundary; the Make guard rejected it.
+Its failed log remains separate from six valid symbol-preserving captures.
+
+Two complete speed-profile screens ran 48 commands, with 864 timing-summary
+rows and 432 unchanged workload gates. Each screen used four rotated
+control/candidate/same-image-placebo windows on CPUs 0 and 16, eleven paired
+samples per workload, immutable binaries, identical hardlink launch paths,
+source/image hashes and contention telemetry. CPU order was reversed for the
+second screen. No owned build, test or profiler overlapped hardware timing.
+All non-timing fields matched in both screens, including native coverage,
+helper work and memory counters.
+
+| Control/candidate Auto time ratio | CPU 0 first / repeat | CPU 16 first / repeat |
+| --- | ---: | ---: |
+| Rust callbacks | 1.1275 / 0.9890 | 0.9889 / 0.9987 |
+| Metamethods | 1.0993 / 0.9713 | 0.9870 / 0.9959 |
+| Array tables | 0.8996 / 0.9672 | 0.9549 / 0.9894 |
+
+The first CPU-0 callback gain did not reproduce. Callback gates failed 6/8
+and 7/8; metamethod gates failed 3/8 in each screen. Aggregate acceptance
+failed 7/8 in each screen. Array Off control/candidate ratios also varied
+from 0.8546 / 0.9082 initially to 0.9976 / 0.9632 on repeat. These mixed
+results do not establish a hardware cause or justify activation.
+
+The production hook was removed; only the test-only rewrite, boundary corpus
+and disassembly diagnostics remain. No callback regression is fixed and no
+acceptance threshold is relaxed. The frozen candidate patch and executables
+remain available for reproducing the rejected trial. Further work must reduce
+the much larger entry/VM/helper costs rather than treat this local direction
+change as a solution to callback-transition overhead.
+
+Restoration passes 30 focused GNU test executions across five summaries,
+no-feature and all-feature compilation checks, and formatting. The subsequent
+host-ISA fixture correction passes all three direction tests again; it removes
+the hard-coded x86 backend requirement without claiming an ARM runtime run.
+The ordinary symbol-preserving benchmark was rebuilt after hook removal.
+Its nine-case smoke matches all 18 full non-timing records against the frozen
+control, with cold/Off/native-work checks and image hashes verified. This smoke
+does not use `--check` and is not hardware or full-release acceptance.
 Evidence: `target/jit-evidence/short-slice-performance/loop-direction-*`.
 
 #### Split scratch storage: prototype does not justify an ABI change
