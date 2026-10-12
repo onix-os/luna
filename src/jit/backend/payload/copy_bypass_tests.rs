@@ -96,11 +96,25 @@ fn fixture(fault: u8) -> Fixture {
     if fault == 1 {
         c.ins().iadd(bits, bits);
     }
-    if fault == 9 {
+    if fault == 12 {
+        let alias = c.ins().iconst(types::I64, 0);
+        let alias_inst = c.func.dfg.value_def(alias).inst().unwrap();
+        c.func.dfg.detach_inst_results(alias_inst);
+        c.func.layout.remove_inst(alias_inst);
+        c.func.dfg.change_to_alias(alias, bits);
+        c.ins().iadd(alias, alias);
+    }
+    if matches!(fault, 9 | 11) {
         c.ins().load(types::I64, MemFlagsData::new(), slots, 8);
     }
-    if fault == 10 {
+    if matches!(fault, 10 | 11) {
         c.ins().load(types::I64, MemFlagsData::new(), slots, 24);
+    }
+    if fault == 13 {
+        let carried = reads::block(c.func);
+        c.func.dfg.append_block_param(carried, types::I64);
+        c.ins().jump(carried, &[bits.into()]);
+        c.goto_bottom(carried);
     }
     c.ins().return_(&[]);
     c.goto_bottom(reference);
@@ -202,7 +216,7 @@ fn staged(
 
 #[test]
 fn bypass_requires_exact_guard_sole_use_and_both_terminal_cells() {
-    for fault in 0..=10 {
+    for fault in 0..=13 {
         let f = fixture(fault);
         let memory = allocator();
         let mut output = f.f.clone();
@@ -234,12 +248,15 @@ fn bypass_requires_exact_guard_sole_use_and_both_terminal_cells() {
         );
         assert_eq!(
             source_shape,
-            matches!(fault, 0 | 1 | 9 | 10),
+            matches!(fault, 0 | 1 | 9..=13),
             "fault={fault}"
         );
         if fault <= 1 {
             let (_, _, _, records) = staged(&f, Contract::FrameBound, 8192);
             assert_eq!(records.len(), usize::from(fault == 0));
+        }
+        if fault >= 12 {
+            assert!(!sole_use(&f.f, f.bits, f.bits_store, &mut 8192));
         }
     }
 }
