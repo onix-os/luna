@@ -590,6 +590,69 @@ pub(crate) fn check_native_write(entry: unsafe extern "C" fn(*mut Payload, *mut 
     });
 }
 
+#[cfg(all(test, not(miri)))]
+pub(crate) fn check_native_bound_write_guards(
+    entry: unsafe extern "C" fn(*mut Payload, *mut Bridge, u64, u64),
+) {
+    unsafe extern "C" fn declined(host: *mut Bridge, _: *mut Payload, _: u32, _: u64, _: u64) {
+        unsafe { (*host).materializations += 1 };
+    }
+    let mut bridge = Bridge {
+        base: abi::Host {
+            data: std::ptr::null_mut(),
+            projection: std::ptr::null_mut(),
+        },
+        read: read_bits,
+        functions: &Functions {
+            helpers: [helper::<1>; 10],
+            write: declined,
+            terminal: declined,
+            copy: declined,
+        },
+        materializations: 0,
+    };
+    crate::Lua::empty().enter(|ctx| {
+        for initial in [
+            Value::Nil,
+            Value::Boolean(false),
+            Value::Boolean(true),
+            Value::Integer(i64::MIN),
+            Value::Number(-0.0),
+            Value::String(ctx.intern(b"guard")),
+        ] {
+            for tag in (NIL..=REFERENCE).chain([255, 1 << 63, u64::MAX]) {
+                for bits in [0, 1, 2, 255, 256, 1 << 63, u64::MAX] {
+                    let mut values = [initial, Value::Integer(12345)];
+                    let mut frame = Frame::new(&mut values);
+                    let mut descriptor = frame.bind(0).unwrap();
+                    let pointer = descriptor.pointer;
+                    let before = bridge.materializations;
+                    let direct = descriptor.tag == tag
+                        && (matches!(tag, NIL | INTEGER | NUMBER) || (tag == BOOLEAN && bits <= 1));
+                    unsafe { entry(&mut descriptor, &mut bridge, tag, bits) };
+                    assert_eq!(bridge.materializations - before, u64::from(!direct));
+                    assert_eq!(descriptor.tag, Slot::from_value(initial).tag);
+                    assert_eq!(descriptor.pointer, pointer);
+                    let expected = if direct {
+                        match tag {
+                            BOOLEAN => Value::Boolean(bits != 0),
+                            INTEGER => Value::Integer(bits as i64),
+                            NUMBER => Value::Number(f64::from_bits(bits)),
+                            _ => initial,
+                        }
+                    } else {
+                        initial
+                    };
+                    let actual = Slot::from_value(values[0]);
+                    let expected = Slot::from_value(expected);
+                    assert_eq!((actual.tag, actual.bits), (expected.tag, expected.bits));
+                    assert!(matches!(values[1], Value::Integer(12345)));
+                }
+            }
+        }
+    });
+}
+
 #[test]
 fn bridge_function_table_preserves_original_payload_and_host_pointers() {
     crate::Lua::empty().enter(|ctx| {

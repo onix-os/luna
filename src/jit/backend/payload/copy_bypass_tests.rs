@@ -178,7 +178,7 @@ fn staged(
         0,
         contract,
     ))];
-    let writes = [Write::Checked(writes::emit(
+    let writes = [Write::Checked(writes::emit_contract(
         &mut output,
         f.tag_store,
         f.bits_store,
@@ -193,6 +193,7 @@ fn staged(
             known_tag: None,
             copy: Some(proof),
         },
+        contract,
     ))];
     let mut records = BudgetVec::new_in(allocator());
     records.try_reserve_exact(1).unwrap();

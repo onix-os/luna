@@ -894,6 +894,13 @@ jit-array-transport-miri:
 jit-array-transport-runtime:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::array_window::runtime_tests::hybrid_array_ $(ARGS)
 
+.PHONY: jit-payload-generic-writes jit-payload-generic-writes-miri
+jit-payload-generic-writes:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::writes:: $(ARGS)
+
+jit-payload-generic-writes-miri:
+	@$(CARGO) miri test --locked -p luna --features jit --lib --target '$(MIRI_TARGET)' jit::backend::payload::writes:: -- --test-threads=1
+
 jit-payload-bound:
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::abi::payload::runtime::bound_tests:: $(ARGS)
 	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::backend::payload::bound_ $(ARGS)

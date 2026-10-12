@@ -471,6 +471,7 @@ pub(super) fn lower_contract(
     };
     let mut proven_writes = 0;
     let mut bound_count = 0;
+    let mut bound_generic_count = 0;
     let mut has_numeric = false;
     scan(function, slots, host, registers, helpers, |rewrite| {
         if let Rewrite::Read(inst, index) = rewrite {
@@ -586,7 +587,8 @@ pub(super) fn lower_contract(
                     );
                     copy_count += usize::from(copy.is_some());
                     let terminal_write = copy.is_some() || terminal.admits(bits_store, index);
-                    writes.push(Write::Checked(writes::emit(
+                    bound_generic_count += usize::from(contract == Contract::FrameBound);
+                    writes.push(Write::Checked(writes::emit_contract(
                         &mut candidate,
                         tag_store,
                         bits_store,
@@ -601,6 +603,7 @@ pub(super) fn lower_contract(
                             known_tag,
                             copy,
                         },
+                        contract,
                     )));
                 }
             }
@@ -659,6 +662,7 @@ pub(super) fn lower_contract(
                 - 13 * numeric_count
                 - 29 * bound_count
                 - bound_read_savings
+                - 5 * bound_generic_count
                 - 3 * bound_scalar_count,
             plan.blocks
                 - 2 * numeric_count
@@ -717,7 +721,7 @@ pub(super) fn lower_contract(
             Write::Checked(write) => {
                 writes::verify_source(function, write, &mut same_tag)?;
                 writes::verify_copy_source(function, write, &mut same_tag, &mut terminal)?;
-                writes::verify(&candidate, write)?;
+                writes::verify_contract(&candidate, write, contract)?;
                 writes::verify_guard(
                     &candidate,
                     write,
@@ -774,6 +778,7 @@ pub(super) fn lower_contract(
                 - 13 * numeric_count
                 - 29 * bound_count
                 - bound_read_savings
+                - 5 * bound_generic_count
                 - 3 * bound_scalar_count,
             plan.blocks
                 - 2 * numeric_count
