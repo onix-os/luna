@@ -11,6 +11,61 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Single-borrow callback replacement — measured and rejected
+
+`49bbe5c` adds five baseline-tested `Stack::replace` regressions and
+`make stack-replace` / `make stack-replace-miri`. They cover **624** combinations
+of prefixes, old/new lengths and value kinds, exact scalar bits/reference
+identities, conversion/iteration/destructor borrow boundaries and panic payloads,
+partial results after failure, refusal before mutation, independent-stack
+mutation and existing out-of-range substack truncation behavior. An initial
+test-only `Value: PartialEq` assumption fails compilation; explicit bit/identity
+comparisons correct it before validation.
+
+The isolated candidate combines `clear` and append under one stack write guard.
+Conversion already runs under the append guard in production; the candidate
+preserves that boundary and clearing/publication order. It adds no unsafe code,
+cached borrow, native-coverage change or configuration switch. GNU focused tests
+pass **39 / seven summaries**, musl **28 / six**, and fresh-target Miri passes
+five tests in each feature mode under Stacked seed 57 and Tree seed 58:
+**20 executions**, none ignored. Full GNU Auto `make verify` passes
+**2,260 / 175**, eight existing ignores; musl activation adds **11** passes.
+
+Fresh controls and candidates each build shipping/speed cost and native images.
+All **56 Off + 16 Auto/no-feature profiles** verify. Shipping callbacks execute
+**400,000 fewer instructions** in each image: 300,000 from the removed stack
+write call and 100,000 from replacement itself. Auto falls
+**63,638,089 → 63,238,089 (-0.629%)**. Speed instead adds **25,000 instructions**
+in each callback image, one per callback; Auto rises **0.049%**. Numeric Off
+instruction totals remain unchanged. These diagnostics do not prove elapsed-time
+gains, and both no-feature images legitimately change for this shared API edit.
+
+Two complete campaigns collect **96 cost commands / 864 case gates / 2,112
+worker records** and **72 native commands**, using CPUs 0/16, eleven samples,
+twenty cost iterations, rotated controls/placebos, identical invocation paths
+and contention telemetry. All **576 cost native-proof comparisons** and **864
+complete native non-timing comparisons** match. Artifact/source checks and
+independent raw-sample/threshold analysis pass. No owned build/test/profile
+overlaps timing. Cost aggregate failures are **91/96**; all **36** checked speed
+native commands fail. Shipping native exit zero remains diagnostic, not acceptance.
+
+Shipping CPU16 compiled-Off control/candidate time ratios are **0.893213 /
+0.891066** for integer loops (about **12% slower**) and **0.943627 / 0.941311**
+for arrays (about **6% slower**), initial/repeat. Integer same-image placebos
+are **0.996891 / 0.998596**. On that same profile/core, callback cost fails
+**three of four windows in each round**, and allocation/GC fails **all four**,
+against **zero** control failures in each case. Total candidate cost failures
+are **34/144 and 32/144**, versus control **25/144 and 28/144**. Large CPU0 native
+contention outliers, including same-image placebo variation above 2x, remain
+visible and are not credited as candidate gains.
+
+**Reject the runtime candidate; retain the tests.** The shipping callback work
+reduction does not compensate for repeated broad losses. The hardware cause of
+the numeric loss is not established by unchanged instruction totals. Production
+keeps the original two-borrow implementation; full performance/platform/resource/
+release acceptance remains open. Evidence is under
+`target/jit-evidence/short-slice-performance/replace-single-borrow-*`.
+
 #### Rooted preflight — code-generation variants rejected
 
 An isolated per-call preflight shares the caller/base/width/fixed-frame reads
