@@ -11,6 +11,80 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Classifier and address costs — measured reductions, rollout still withheld
+
+Three incremental changes continue the integrated transport experiment:
+
+- `c042c8d` inlines `Header::update`. Callback instructions fall from 12,605,394
+  to 11,890,273; the corresponding ordinary control remains 10,754,709.
+- `b57ae97` separates tag classification from scalar layout measurement.
+  Boolean/integer/number offsets are measured from Rust-constructed values once
+  per header, rather than recalculated for each register or helper write.
+  The classifier only writes a byte tag. Callback instructions fall to
+  11,230,077. A new test compares the measured layout against actual live scalar
+  field addresses across widths 1/7/16/64/256, preserving bit-exact reads.
+- `a79b185` specializes generated addresses when those three measured offsets
+  agree. The compiler emits one measured displacement instead of a runtime
+  offset-table lookup. It does not assume a numeric offset or an enum tag layout.
+  The generic table-based lowering remains available for nonuniform layouts.
+  Its checker verifies the measured offset and every emitted address/guard;
+  mutation tests cover both paths. Each specialized pointer rewrite adds 11
+  instructions rather than 16; admission retains the conservative existing bound.
+
+Each stage has its own immutable image and 16 full-workload software profiles.
+All pairs preserve all 25 execution counters and expected results. Final uniform
+profiles repeat these totals exactly:
+
+| Full workload | Ordinary instructions | Final candidate instructions | Change |
+| --- | ---: | ---: | ---: |
+| Rust callbacks | 10,754,709 | 11,185,063 | +4.002% |
+| Closure/upvalue | 32,916,853 | 33,421,700 | +1.534% |
+| Integer loop | 1,102,903 | 1,320,238 | +19.706% |
+| Float loop | 1,139,463 | 1,300,818 | +14.161% |
+
+The callback native-code mapping shrinks from 8,192 to 4,096 bytes, matching its
+ordinary control. Upvalue mappings remain 24,576 versus 20,480 bytes; numeric
+mappings remain 8,192 versus 4,096 bytes. The final callback candidate executes
+1,420,331 fewer instructions than the tracked-write starting point, but still
+430,354 more than ordinary transport. This is **not** a shipping speedup.
+
+Earlier-stage variation is retained rather than hidden: inline upvalue candidate
+totals differ by 1,956 instructions; its integer control differs by 7,512.
+The measured-layout stage's upvalue control differs by 1,956. Counter parity
+holds in those runs; use their raw per-pair results, not a claim of universal
+instruction determinism. No hardware timing or frozen threshold changes occurred.
+
+Final validation passes **1,871 tests / 87 summaries**, 13 ignored, in the Force
+workspace/all-target run, plus no/all-feature compilation and formatting.
+Every optimized stage passes runtime/resource tests and native Memcheck for the
+frame tests and all seven frozen workloads. Memcheck reports zero errors and no
+definite/indirect leaks, retaining the previously observed 48 possibly lost and
+632 reachable bytes. Layout changes pass Stacked/Tree Miri seeds 94/95; a
+separate `-Zrandomize-layout` Miri build passes the frame tests at seed 96.
+Final frame and compiler tests pass both Miri models at seeds 97/98.
+
+The remaining integer-loop regression is concentrated in generated code:
+exclusive profile counts are 733,416 versus 510,692 instructions for its native
+body. Frame invocation plus binding costs are already slightly below the
+ordinary wrapper in that pair. Investigate emitted code and alias information
+before assuming a smaller header alone fixes this. The pinned Cranelift 0.136.1
+supports disjoint `AliasRegion`s, but none are added here. Any experiment must
+prove header/canonical storage separation, preserve call invalidation and source
+checks, and account for compiler storage; marking mutable headers `readonly`
+would not be a valid substitute.
+
+Evidence directories under `target/jit-evidence/short-slice-performance/`:
+`strided-runtime-inline/` (SHA-256
+`0fe7e2170cbaed62793bf697e37fa0a9b2c53f90ca6b06cf2d0d7651808dcb66`),
+`strided-runtime-layout/`
+(`69b63574d221e84cf3778612f68964c347b91858a72ebd7851feb4cf410735e5`),
+and `strided-runtime-uniform/`
+(`4660e5f4b7d2ace64ee7abda1fc37d29d3adadf575cda7254698f8b3a7cde8ec`).
+Their validation/Miri/native/profile logs use corresponding `strided-inline-*`,
+`strided-layout-*` and `strided-uniform-*` prefixes. Production selection, all
+elapsed-time/compiled-Off gates, retained-public-alias stress and platform/release
+acceptance remain open. Off remains the default.
+
 #### Typed strided VM transport — integrated candidate, not a shipping selection
 
 `59fbb1b`, `70737fa` and `f5e7490` move the experiment beyond the one-field
