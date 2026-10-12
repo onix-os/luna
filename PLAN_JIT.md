@@ -11,20 +11,47 @@
 
 ### Progress snapshot — 2026-10-12
 
-#### Strided metadata partition candidate — timing pending
+#### Strided metadata partition — measured and removed
 
-The test-only strided lowering now separates verified frame-metadata loads from
-other memory through Cranelift alias regions. Calls still invalidate memory;
-frame bases are not marked readonly. An independent checker accepts only the
-expected memory-flag changes and preserves all other IR. Table reservations
-remain charged through code generation.
+Experimental commit `57dec11` separated verified frame-metadata loads from other
+memory through Cranelift alias regions, preserving helper-call invalidation.
+Its 18 backend tests, seven-workload correctness/counter check and six runtime
+tests passed; the optimized image also passed all 18 backend and six runtime
+tests. These checks did not establish a performance improvement.
 
-Focused validation passes 18 backend tests, including mutation rejection,
-quota refusal, scalar-store visibility and helper-driven frame rebinding.
-The seven-workload timing correctness/counter check also passes. These results
-are not performance acceptance: the candidate has not yet been timed, and the
-CPU 0 callback and CPU 16 integer regressions below remain unresolved.
-Production transport selection is unchanged.
+Four further 21-window screens retained **1,764 measured executions**, in CPU
+order 0/16/16/0, with all 25 counters equal. Pooled ordinary/strided ratios were:
+
+| Workload | CPU 0 | CPU 16 |
+| --- | ---: | ---: |
+| Integer loop | 1.082659 | 0.975010 |
+| Float loop | 1.212206 | 0.994205 |
+| Array/table | 1.208482 | 1.080068 |
+| Closure/upvalue | 1.022771 | 1.016346 |
+| Polymorphic metamethod | 1.052651 | 1.070066 |
+| Rust callbacks | 0.987510 | 0.996002 |
+| Allocation/GC | 1.067156 | 1.027573 |
+
+CPU 0 was noisy: integer placebo IQR was 0.800804–1.377074 and float placebo
+IQR was 0.859565–1.305193. Those apparent gains are not attributed to the
+optimization. CPU 16 integer regression persisted (ratio IQR
+0.965773–0.982330). These are separate-image screens, not a same-image direct
+comparison between partitioned and unpartitioned strided code.
+
+All 28 software profiles passed result/counter checks and complete native-cost
+address joins. Against the frozen byte-load image, integer and float instruction
+totals fell only 0.227% and 0.176%; strided callback totals stayed at 10,819,984
+and native-exclusive callback counts at 925,239. Array, metamethod and allocation
+totals varied across rounds; ordinary callback totals also varied in one round.
+Instruction counts alone do not resolve the elapsed-time regressions.
+
+The alias-partition candidate was removed: its added code, compile work and
+16 KiB table reservation did not demonstrate the targeted speedup. Frozen image
+SHA-256 is `bb8e8a41e286697a7df77cf0c39ecc7e068d717365a26709ebc1284a6a5f2140`.
+Evidence remains under `target/jit-evidence/short-slice-performance/` in
+`strided-memory-image/`, `strided-memory-screen-{0,1}-cpu{0,16}/`,
+`strided-memory-summary.json` and `strided-memory-profile-compare.log`.
+Production selection is unchanged; the performance gates remain open.
 
 #### Paired elapsed-time screen — mixed results, no default switch
 
