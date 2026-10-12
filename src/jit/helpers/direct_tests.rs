@@ -2,7 +2,7 @@ use super::*;
 
 struct Observation<'gc> {
     values: [Value<'gc>; 7],
-    table: [Value<'gc>; 3],
+    table: [Value<'gc>; 4],
     upvalue: Value<'gc>,
     counts: [u64; 8],
     pc: usize,
@@ -17,10 +17,11 @@ fn observe<'gc, const KIND: u32>(
     table: Table<'gc>,
     scenario: usize,
     direct: bool,
+    boundary: u8,
 ) -> Observation<'gc> {
     table.set_readonly(&ctx, false);
     table.set_metatable(ctx, None);
-    for key in [1, 2, 42] {
+    for key in [1, 2, 3, 42] {
         table
             .set_raw(&ctx, Value::Integer(key), Value::Nil)
             .unwrap();
@@ -109,7 +110,14 @@ fn observe<'gc, const KIND: u32>(
                 panic: None,
                 projection: None,
             };
-            let result = if direct {
+            if boundary != 0 && !direct && frame.slot_count > 1 {
+                if let Value::Integer(value) = &mut frame.registers.stack_frame[1] {
+                    *value = value.wrapping_add(1);
+                }
+            }
+            let result = if direct && boundary != 0 {
+                abi::strided::transition::probe::<KIND>(&mut frame, [a, b, c, 11], boundary == 2)
+            } else if direct {
                 call_direct::<KIND>(&mut frame, a, b, c, 11)
             } else {
                 let mut slots = vec![Slot::canonical(); count];
@@ -119,6 +127,11 @@ fn observe<'gc, const KIND: u32>(
                 };
                 unsafe { call::<KIND>(&mut host, slots.as_mut_ptr(), a, b, c, 11) }
             };
+            if boundary != 0 && !direct && result == abi::HELPER_COMPLETED && frame.slot_count > 1 {
+                if let Value::Integer(value) = &mut frame.registers.stack_frame[1] {
+                    *value = value.wrapping_add(2);
+                }
+            }
             let counts = [
                 frame.count.calls,
                 frame.count.completed,
@@ -139,7 +152,7 @@ fn observe<'gc, const KIND: u32>(
     );
     Observation {
         values,
-        table: [1, 2, 42].map(|key| table.get_raw(&ctx, Value::Integer(key))),
+        table: [1, 2, 3, 42].map(|key| table.get_raw(&ctx, Value::Integer(key))),
         upvalue,
         counts,
         pc,
@@ -149,10 +162,15 @@ fn observe<'gc, const KIND: u32>(
     }
 }
 
-fn compare<'gc, const KIND: u32>(ctx: Context<'gc>, closure: Closure<'gc>, table: Table<'gc>) {
+fn compare<'gc, const KIND: u32>(
+    ctx: Context<'gc>,
+    closure: Closure<'gc>,
+    table: Table<'gc>,
+    boundary: u8,
+) {
     for scenario in 0..10 {
-        let old = observe::<KIND>(ctx, closure, table, scenario, false);
-        let new = observe::<KIND>(ctx, closure, table, scenario, true);
+        let old = observe::<KIND>(ctx, closure, table, scenario, false, boundary);
+        let new = observe::<KIND>(ctx, closure, table, scenario, true, boundary);
         assert_eq!(
             (new.result, new.panicked, new.pc, new.fuel, new.counts),
             (old.result, old.panicked, old.pc, old.fuel, old.counts),
@@ -179,20 +197,39 @@ fn compare<'gc, const KIND: u32>(ctx: Context<'gc>, closure: Closure<'gc>, table
     }
 }
 
-#[test]
-fn direct_transport_matches_proxy_helpers_effects_aliases_and_panics() {
+fn compare_all(boundary: u8) {
     crate::Lua::empty().enter(|ctx| {
         let closure = Closure::load(ctx, None, b"local n = 42; return _ENV, n").unwrap();
         let table = Table::new(&ctx);
-        compare::<{ abi::HELPER_MOVE }>(ctx, closure, table);
-        compare::<{ abi::HELPER_CONSTANT }>(ctx, closure, table);
-        compare::<{ abi::HELPER_NEW_TABLE }>(ctx, closure, table);
-        compare::<{ abi::HELPER_GET_TABLE }>(ctx, closure, table);
-        compare::<{ abi::HELPER_SET_TABLE }>(ctx, closure, table);
-        compare::<{ abi::HELPER_GET_UP_TABLE }>(ctx, closure, table);
-        compare::<{ abi::HELPER_SET_UP_TABLE }>(ctx, closure, table);
-        compare::<{ abi::HELPER_GET_UPVALUE }>(ctx, closure, table);
-        compare::<{ abi::HELPER_SET_UPVALUE }>(ctx, closure, table);
-        compare::<{ abi::HELPER_SET_LIST }>(ctx, closure, table);
+        compare::<{ abi::HELPER_MOVE }>(ctx, closure, table, boundary);
+        compare::<{ abi::HELPER_CONSTANT }>(ctx, closure, table, boundary);
+        compare::<{ abi::HELPER_NEW_TABLE }>(ctx, closure, table, boundary);
+        compare::<{ abi::HELPER_GET_TABLE }>(ctx, closure, table, boundary);
+        compare::<{ abi::HELPER_SET_TABLE }>(ctx, closure, table, boundary);
+        compare::<{ abi::HELPER_GET_UP_TABLE }>(ctx, closure, table, boundary);
+        compare::<{ abi::HELPER_SET_UP_TABLE }>(ctx, closure, table, boundary);
+        compare::<{ abi::HELPER_GET_UPVALUE }>(ctx, closure, table, boundary);
+        compare::<{ abi::HELPER_SET_UPVALUE }>(ctx, closure, table, boundary);
+        compare::<{ abi::HELPER_SET_LIST }>(ctx, closure, table, boundary);
     });
+}
+
+#[test]
+fn direct_transport_matches_proxy_helpers_effects_aliases_and_panics() {
+    compare_all(0);
+}
+
+#[test]
+fn strided_helpers_match_all_proxy_effects_and_control() {
+    compare_all(1);
+}
+
+#[cfg(all(
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[test]
+fn strided_helpers_native_match_all_proxy_effects_and_control() {
+    compare_all(2);
 }

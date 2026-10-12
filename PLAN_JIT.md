@@ -11,6 +11,197 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Strided helper transitions — actual helpers verified, VM integration open
+
+`f4d51bd` extends the strided experiment across Luna's ten generic helper
+operations. A scoped session owns access to `helpers::Frame`; its mutable header
+is separate from the original immutable arithmetic window. The adapter retires
+the header before borrowing the canonical frame for a helper, then admits the
+current fields again after completion. Declines and caught panics stop that
+session, and re-entry returns the terminal status without repeating effects or
+incrementing counters. A completed helper that creates a noninteger value is
+still reported as completed, with subsequent integer access disabled separately.
+
+A real Cranelift controller performs integer arithmetic before and after the
+helper call, reloads the current header after the call, and skips the suffix when
+admission fails. Its Rust counterpart exercises the same boundary under Miri.
+The existing proxy-helper oracle now compares **10 helpers x 10 scenarios** for
+each controller. It checks canonical values/reference identities, table effects,
+open/closed upvalues, all eight helper counters, PC, fuel, declines and caught
+panics. The table oracle also checks key3, which the arithmetic prefix can affect
+through `SetList`. Additional tests cover all value kinds, integer restoration
+within one session, terminal re-entry and preexisting panics.
+
+Debug strided10/helper6/ABI10/native18/heap20 tests and no/all-feature checks pass.
+Final Miri checks pass under Stacked (helper4 seed81, complete model7 seed83) and
+Tree Borrows (helper4 plus complete model7, seed82). Generated execution is
+checked natively, not claimed under Miri. The frozen optimized image passes
+strided10 and helper6. Native Memcheck passes helper6 with zero reported errors,
+zero definitely/indirectly lost bytes, 48 possibly lost bytes and 632 reachable
+bytes. The residual allocations are retained in the report, not described as
+zero-allocation acceptance. Binary/source identities are checked before both
+optimized and Memcheck execution.
+
+This is not yet a backend mode, source/effect verifier or VM dispatch change.
+The existing helpers decline metamethod cases rather than invoke user callbacks,
+so this does not prove actual callback re-entry or stack relocation. The hot
+prepared-key `GetUpTable` entry is separate from generic `call_direct` and is not
+covered by this adapter; its seeded hash/packed operand contract must be retained.
+Projection, code-lease/resource accounting and full PC/fuel/native-coverage
+integration remain open. No helper-inclusive performance gain, production fix,
+hardware timing or release acceptance is claimed.
+
+Evidence: `target/jit-evidence/short-slice-performance/strided-helper-tests.log`,
+`strided-helper-validation.log`, `strided-helper-final-miri-{stacked,tree}.log`,
+`strided-helper-admission-miri-stacked.log`, `strided-helper-release.log` and
+`strided-helpers/`. Focused entry points are `make jit-strided-helpers` and
+`make jit-strided-helpers-miri`; the ignored `strided-helper-tools.mk` drives
+frozen optimized/native validation through Make.
+
+#### Strided integer-field transport — scoped model, not runtime acceptance
+
+`8bab591` adds a test-only alternative to per-register payload descriptors: a
+three-word header containing an integer-field base, the Rust `Value` stride and
+the current frame length. Admission matches the required current values as
+`Integer`, measures their payload offsets through Rust references, checks offset
+agreement and derives the final raw pointer from the whole mutable slice. It
+does not assume a private enum discriminant or payload offset, change the public
+`Vec<Value>` stack, cache values across host mutations, or write reference fields
+or enum tags. A noncopyable invocation window borrows both frame and code owner.
+
+Six focused tests pass, including an independently generated Cranelift entry
+running the same edge/seeded wrapping and preservation corpus as the Rust entry.
+Coverage includes same-index writes, first/last slots, frame width boundaries,
+all value kinds, current-value rebinding, unchanged neighboring references,
+scope unwinding and null/short headers. Four Rust-only tests also pass Miri
+Stacked Borrows seed74 and Tree Borrows seed75. Generated code is tested natively,
+not under Miri. Existing ABI10/native18/heap20 regressions and formatting pass.
+An initial `MemFlags` API mismatch was fixed to `MemFlagsData`; the failed build
+is retained separately from passing runs.
+
+This is not integrated into the VM or source/effect verifier. It cannot cover
+type-changing destinations, callbacks, helper reborrows or stack relocation
+without explicit retirement and fresh admission. It has no compiler/resource
+quota integration and does not establish a GC-lifecycle or release gate. Existing
+numeric kernels and production scratch transport remain unchanged.
+
+`make jit-strided-profile-build jit-strided-profile-run` compares this binding
+against full `Slot::from_value` packing and `write_back`, using the same generated
+integer-add entry and 100,000 calls per shape. Seven shapes include a single slot,
+mixed frames with two admitted fields, and dense admission at widths 7/16/256.
+The dense cases deliberately measure conservative admission of unused integer
+fields; they are not full dense arithmetic workloads. Collection excludes JIT
+construction and checks every resulting value and reference identity. Frozen
+binary/source hashes and positive execution checks accompany each software
+profile. These are synthetic transport costs, not callback execution, hardware
+timing, full-runtime speedups or acceptance.
+
+The first fourteen profiles show mixed-frame savings but dense-admission
+regressions. Disassembly identifies unnecessary checked reconstruction of each
+containing value's address. `fdd4386` measures the offset directly between the
+matched value reference and its payload reference instead. All admission checks
+remain; whole-slice provenance still supplies the final mutable pointer. Its
+six focused tests and four Miri tests under each borrowing model pass. Another
+fourteen profiles preserve identical packed-control instruction totals and
+validated results while removing the dense-frame instruction regression.
+The one-slot case remains adverse; none of this justifies unconditional selection.
+
+| Shape | Full packing | Initial binding | Direct field offset | Explicit mask loop |
+| --- | ---: | ---: | ---: | ---: |
+| Single slot | 6,500,023 | 14,400,025 | 11,900,025 | 8,200,025 |
+| Mixed7, two admitted | 24,400,023 | 18,000,025 | 13,700,025 | 9,300,025 |
+| Dense7, all admitted | 22,900,023 | 35,000,025 | 21,700,025 | 13,800,025 |
+| Mixed16, two admitted | 55,200,023 | 18,000,025 | 13,700,025 | 9,300,025 |
+| Dense16, all admitted | 47,400,023 | 65,600,025 | 36,100,025 | 21,900,025 |
+| Mixed256, two admitted | 862,600,023 | 18,100,025 | 13,800,025 | 9,400,025 |
+| Dense256, all admitted | 722,900,023 | 882,700,025 | 421,200,025 | 257,300,025 |
+
+These are collected instructions for 100,000 synthetic calls, including the
+collection loop and generated entry. Wide sparse-frame savings are deliberately
+favorable component bounds, not a representative whole-VM workload. Memcheck on
+the direct-offset binary passes all six tests with zero reported errors and
+zero definitely/indirectly lost bytes; it reports 48 possibly lost bytes and 632
+reachable bytes, so this is not a zero-residual-allocation claim. Formatting,
+no-feature and all-feature compilation checks also pass.
+
+`79a3b9f` replaces the flattened iterator in admission with an explicit mask-word
+loop and extends refusal tests across every word boundary. Another fourteen
+profiles bring the total to **42 profiles / 4.2 million checked calls**. Packed
+instruction totals still match. Final mixed7 and dense7 instruction reductions
+are **61.885% and 39.738%** respectively; single-slot binding still costs
+**26.154% more**. Both Miri models pass again (seeds 78/79), and native Memcheck
+reports the same zero-error/residual-allocation result. Final fmt/focused6/ABI10/
+native18/heap20 and no/all-feature checks pass.
+
+A first production benchmark build used the repository's default `strip=true`
+instead of the frozen control's `strip=false`; its identity check correctly
+failed. That image is preserved. The matching-configuration rebuild passes the
+byte-identity check, SHA256
+`73b609225834a42f9a2501be785a4f3fdd33d4e10dbf29eab15c3b03eef6090c`.
+No source activation was made. There is no production performance improvement
+or hardware campaign in this experiment. The next necessary work is helper/callback lifecycle integration:
+existing helpers must not invalidate a borrowed field view through an independent
+canonical-stack reborrow, and changed kinds/current values must be admitted
+again. Source/effect verification, PC/fuel/panic behavior, quota ownership and
+unchanged full-runtime coverage need proof before any runtime selection.
+
+Evidence: `target/jit-evidence/short-slice-performance/strided/`,
+`strided-tests-fixed.log`, `strided-profile-build.log`,
+`strided-miri-{stacked,tree}.log`, `strided-regression.log`,
+`strided-field-offset/`, `strided-field-offset-miri-{stacked,tree}.log` and
+`strided-final-checks.log`, `strided-mask-loop/`,
+`strided-mask-loop-miri-{stacked,tree}.log`, `strided-final-validation.log` and
+`strided-production-identity{,-unstripped}.log`. The first audit-script attempt incorrectly expected
+Memcheck's error-summary line in Callgrind output; the corrected audit checks
+Callgrind's collected count against its profile summary. Both attempts are kept.
+
+#### Borrowed scalar matching: runtime forms rejected, models retained
+
+`ad96fcb` retains two test-only import models and an 8,206-value differential.
+Both match a borrowed `Value` directly; the second keeps numeric values inline
+and outlines nonnumeric matching. This differs from the older borrowed-iterator
+trial, which still copied each value into `Slot::from_value`. Neither model
+changes value layout, tags, reference rooting, register coverage or public APIs.
+
+Three temporary runtime variants replaced ordinary scratch imports: direct
+borrowed matching, forced inlining of that match, and numeric-first matching
+with a cold remainder. The first and third passed ABI10/native18/heap20/
+upvalue7 tests and compilation checks; the annotation-only refinement reran
+ABI10/heap20. Twelve immutable full-runtime profiles compare all three
+variants with one control across callbacks, metamethods and upvalues. All
+eighteen smoke records and complete profile execution/resource records match.
+
+Callback instructions increase from **126,201,876** to **127,368,798** for
+both direct/forced-inline forms (+0.9246%), and **127,629,922** for the cold
+remainder (+1.1316%). The direct match increases seven-register wrapper self
+instructions from 20,233,235 to 21,400,157. Disassembly has fourteen static
+indirect jumps instead of seven; collected indirect branches increase by
+453,943, exactly seven per native entry. These are jump-table branches, not
+seven new function calls. Forced inlining leaves callback instruction totals
+unchanged. The numeric/cold refinement also raises metamethod instructions
+2.8344%; its lower upvalue instruction count does not fix the target regression.
+These are software profiles, not hardware timing or a claim about elapsed costs.
+
+No hardware campaign was run for these candidates. All production hooks and
+annotations are withdrawn; only the model/oracle and Make targets remain.
+The oracle covers every Value kind, integer extremes, signed zero, infinities,
+generated integer/float payloads and mutation between imports. Both final models
+pass Stacked Borrows seed72 and Tree Borrows seed73 under `nix develop .#miri`,
+one test each with 38 existing warnings. The default dev shell and separately
+installed dated rustup toolchain lacked Miri; both failed launch logs remain.
+
+Restored formatting, the focused oracle, ABI10/native18/heap20 and no-feature/
+all-feature checks pass. The rebuilt default executable is byte-identical to
+the frozen control, SHA256
+`73b609225834a42f9a2501be785a4f3fdd33d4e10dbf29eab15c3b03eef6090c`;
+all eighteen fresh non-timing smoke records match. Evidence is under
+`target/jit-evidence/short-slice-performance/reference-match/`, including all
+three patches/images, twelve profiles, disassembly and `audit.json`.
+`make jit-reference-import` and `make jit-reference-import-miri` rerun the
+retained oracle. Full performance/platform/resource/release acceptance remains
+open; do not retry borrowed matching or numeric-first import source rewrites
+without evidence of a different generated import sequence.
+
 #### Wide prepared-helper ABI: compiler validated, runtime trial withdrawn
 
 `cc5397f` and `be37d28` probe a four-argument GetUpTable entry: host, scratch,
