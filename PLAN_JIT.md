@@ -27236,10 +27236,44 @@ checks, bounds the loop body, and rejects effects outside its admitted shape.
 fixture actually contains two `GetUpValue` instructions; it now explicitly
 tests fallback instead of weakening the four-operation callee guard.
 
-This is not an integrated optimization or a runtime safety certificate.
-Generated execution, runtime closure/capture binding, fuel accounting,
-publication, native mutation tests and performance acceptance remain required.
-No original gate or supported-language contract has changed.
+The follow-on test-only `inline_loop/native.rs` emits a bounded native loop
+containing moves, a scalar captured-cell callee, full call-stack slot effects,
+and integer loop advancement. The generated function has no imported helpers;
+the native test also requires zero machine-code relocations. It rechecks the
+function root token on each call, scalar tags, fuel admission and work bounds,
+and compares the emitted program against source-derived reconstruction before
+execution. Actual IR expansion must fit the original aggregate bound.
+
+Focused GNU and musl checks pass four source tests and four native tests each.
+`make jit-test JIT_MODE=auto` passes 1,811 executions across 87 summaries,
+with eight ignored diagnostics (workspace/all-targets with `jit`, not the
+all-features or documentation-test targets).
+The native tests compare every work budget from zero through 64, complete slot
+state (including nil tails), fuel, negative/zero steps, arithmetic overflow,
+loop overflow, captures aliasing loop-control slots, and changed guards/writes.
+More than 12,000 additional cases replay generated progress through physical
+VM operations and real call/return transitions; this is not a shipping executor
+integration test. Stacked Borrows seed 78 and Tree Borrows seed 79 pass the four
+pure source tests; Miri does not execute the machine code. Native Memcheck
+passes all four tests with zero errors and no definite/indirect leaks; 48 bytes
+possibly lost and 632 bytes reachable remain in the test process.
+
+This is not an integrated optimization or a runtime safety certificate. The
+experimental 64-bytecode work bound is not the public per-activation budget.
+The runtime adapter must preserve slice accounting, pending caller-fragment
+charges, source/closure/capture binding, hooks, capacity and close guards,
+root ownership, publication, code leases and charged allocation. Physical
+upper-frame binding, fault injection at that boundary, and end-to-end timing
+acceptance remain required. No original gate or supported-language contract
+has changed, and shipping code still does not select this kernel.
+
+The preceding upvalue profile has now been independently audited: all 13
+events agree between self-cost sums, totals and summaries for both modes,
+the binary hashes match, and instruction coverage is unchanged (780,104
+reported instructions). Off/Auto simulated instruction counts are 213,407,295
+and 160,242,060 respectively. The audit is in
+`target/jit-evidence/short-slice-performance/prehashed-main-upvalue/audit.json`;
+these software-profiler counts are not hardware speed acceptance.
 
 ## 15. Primary references
 

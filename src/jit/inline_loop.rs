@@ -7,6 +7,8 @@ const MAX_OPERATIONS: usize = 32;
 
 pub(super) struct Plan<'a> {
     pair: calls::Plan<'a>,
+    caller: &'a Snapshot,
+    callee: &'a Snapshot,
     start: usize,
     call: usize,
     end: usize,
@@ -52,6 +54,8 @@ impl<'a> Plan<'a> {
             .ok_or_else(|| JitError::Compilation("unsupported inline loop region".into()))?;
         Ok(Self {
             pair,
+            caller,
+            callee,
             start,
             call,
             end,
@@ -61,6 +65,7 @@ impl<'a> Plan<'a> {
 
     pub(super) fn verify(&self, caller: &Snapshot, callee: &Snapshot) -> Result<(), JitError> {
         self.pair.verify(caller, callee)?;
+        self.pair.verify(self.caller, self.callee)?;
         if Self::region(caller, callee, self.call) != Some((self.start, self.end, self.base)) {
             return Err(JitError::Compilation("inline loop source mismatch".into()));
         }
@@ -70,3 +75,10 @@ impl<'a> Plan<'a> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(
+    not(miri),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod native;

@@ -1,10 +1,10 @@
 use super::*;
 use crate::{Closure, JitConfig, Lua};
 
-const SOURCE: &[u8] =
+pub(super) const SOURCE: &[u8] =
     b"local sum=0 local function add(v) sum=sum+v end for i=1,10000 do add(i) end return sum";
 
-fn sources(source: &[u8], test: impl FnOnce(Snapshot, Snapshot, usize)) {
+pub(super) fn sources(source: &[u8], test: impl FnOnce(Snapshot, Snapshot, usize)) {
     Lua::empty().enter(|ctx| {
         let closure = Closure::load(ctx, None, source).unwrap();
         let proto = closure.prototype();
