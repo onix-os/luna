@@ -1,0 +1,236 @@
+use super::*;
+use std::hint::black_box;
+
+#[derive(Clone, Copy)]
+struct PreparedHash(u64);
+
+impl PreparedHash {
+    fn new(key: String<'_>) -> Self {
+        Self(hasher().hash_one(CanonicalKey::String(key)))
+    }
+}
+
+#[inline(never)]
+fn prepared_read<'gc, const TYPED: bool>(
+    table: &RawTable<'gc>,
+    mc: &Mutation<'gc>,
+    key: String<'gc>,
+    hash: PreparedHash,
+) -> Value<'gc> {
+    table
+        .map
+        .raw_entry()
+        .from_hash(hash.0, |stored| {
+            if TYPED {
+                stored.eq_string(key)
+            } else {
+                stored.eq(CanonicalKey::String(key))
+            }
+        })
+        .map_or(Value::Nil, |(_, slot)| slot.0.get(mc))
+}
+
+fn compare<'gc>(table: &RawTable<'gc>, mc: &Mutation<'gc>, key: String<'gc>, hash: PreparedHash) {
+    let expected = table.get(mc, key.into());
+    for actual in [
+        prepared_read::<false>(table, mc, key, hash),
+        prepared_read::<true>(table, mc, key, hash),
+    ] {
+        match (actual, expected) {
+            (Value::Nil, Value::Nil) => {}
+            (Value::Boolean(a), Value::Boolean(b)) => assert_eq!(a, b),
+            (Value::Integer(a), Value::Integer(b)) => assert_eq!(a, b),
+            (Value::Number(a), Value::Number(b)) => assert_eq!(a.to_bits(), b.to_bits()),
+            (Value::Table(a), Value::Table(b)) => assert_eq!(a, b),
+            _ => panic!("prepared read mismatch: {actual:?} != {expected:?}"),
+        }
+    }
+}
+
+#[test]
+fn prepared_hash_follows_equal_keys_mutations_and_weak_modes() {
+    crate::Lua::empty().enter(|ctx| {
+        for bytes in [
+            &b""[..],
+            &b"callback"[..],
+            &b"\0\xffkey"[..],
+            &[b'x'; 257][..],
+        ] {
+            let keys = [
+                String::from_slice(&ctx, bytes),
+                String::from_buffer(&ctx, bytes.into()),
+            ];
+            assert!(!Gc::ptr_eq(keys[0].into_inner(), keys[1].into_inner()));
+            let hash = PreparedHash::new(keys[0]);
+            assert_eq!(hash.0, PreparedHash::new(keys[1]).0);
+            for mode in 0..4 {
+                let mut table = RawTable::new(&ctx);
+                if mode & 1 != 0 {
+                    table.make_keys_weak(&ctx);
+                }
+                if mode & 2 != 0 {
+                    table.make_values_weak(&ctx);
+                }
+                for key in keys {
+                    compare(&table, &ctx, key, hash);
+                }
+                for i in 0..128 {
+                    table
+                        .set(
+                            &ctx,
+                            ctx.intern(format!("growth-{i}").as_bytes()).into(),
+                            Value::Integer(i),
+                        )
+                        .unwrap();
+                }
+                for value in [
+                    Value::Boolean(false),
+                    Value::Integer(17),
+                    Value::Number(-0.0),
+                    Value::Number(f64::from_bits(0x7ff8_0000_0000_1234)),
+                    Value::Table(Table::new(&ctx)),
+                    Value::Nil,
+                ] {
+                    table.set(&ctx, keys[1].into(), value).unwrap();
+                    for key in keys {
+                        compare(&table, &ctx, key, hash);
+                    }
+                }
+                table.reserve_map(table.map.capacity() + 1);
+                table.set(&ctx, keys[0].into(), Value::Integer(42)).unwrap();
+                for key in keys {
+                    compare(&table, &ctx, key, hash);
+                }
+                table.clear();
+                for key in keys {
+                    compare(&table, &ctx, key, hash);
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn prepared_collision_probes_still_check_key_equality() {
+    crate::Lua::empty().enter(|ctx| {
+        let mut table = RawTable::new(&ctx);
+        let keys = [
+            ctx.intern(b"first"),
+            ctx.intern(b"second"),
+            ctx.intern(b"absent"),
+        ];
+        let hash = PreparedHash::new(keys[0]);
+        for (i, key) in keys[..2].iter().copied().enumerate() {
+            table.map.raw_table_mut().insert(
+                hash.0,
+                (
+                    Key::Live(CanonicalKey::String(key)),
+                    (Slot::Strong(Value::Integer(i as i64)), i),
+                ),
+                |_| hash.0,
+            );
+        }
+        for typed in [false, true] {
+            for (i, key) in keys.into_iter().enumerate() {
+                let actual = if typed {
+                    prepared_read::<true>(&table, &ctx, key, hash)
+                } else {
+                    prepared_read::<false>(&table, &ctx, key, hash)
+                };
+                if i == 2 {
+                    assert!(actual.is_nil());
+                } else {
+                    assert!(matches!(actual, Value::Integer(value) if value == i as i64));
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn prepared_hash_does_not_keep_weak_values_alive() {
+    fn static_word<T: Send + Sync + 'static>() {}
+    static_word::<PreparedHash>();
+    assert_eq!(std::mem::size_of::<PreparedHash>(), 8);
+    for mode in ["k", "v", "kv"] {
+        let mut lua = crate::Lua::empty();
+        let (root, hash) = lua.enter(|ctx| {
+            let key = ctx.intern(b"entry");
+            let hash = PreparedHash::new(key);
+            let table = Table::new(&ctx);
+            let meta = Table::new(&ctx);
+            meta.set_field(ctx, "__mode", mode);
+            table.set_metatable(ctx, Some(meta));
+            table.set(ctx, key, Table::new(&ctx)).unwrap();
+            compare(&table.into_inner().borrow().raw_table, &ctx, key, hash);
+            (ctx.stash(table), hash)
+        });
+        lua.gc_collect();
+        lua.gc_collect();
+        lua.enter(|ctx| {
+            let table = ctx.fetch(&root);
+            let key = String::from_slice(&ctx, b"entry");
+            let inner = table.into_inner().borrow();
+            compare(&inner.raw_table, &ctx, key, hash);
+            let actual = prepared_read::<false>(&inner.raw_table, &ctx, key, hash);
+            if mode == "k" {
+                assert!(matches!(actual, Value::Table(_)));
+            } else {
+                assert!(actual.is_nil());
+            }
+        });
+    }
+}
+
+#[inline(never)]
+fn profile_reads<'gc, const MODE: usize>(
+    table: &RawTable<'gc>,
+    mc: &Mutation<'gc>,
+    key: String<'gc>,
+    hash: PreparedHash,
+) -> i64 {
+    let mut sum = 0;
+    for _ in 0..100_000 {
+        let table = black_box(table);
+        let key = black_box(key);
+        let value = match MODE {
+            0 => table.get(mc, key.into()),
+            1 => prepared_read::<false>(table, mc, key, PreparedHash::new(key)),
+            2 => prepared_read::<false>(table, mc, key, black_box(hash)),
+            3 => prepared_read::<true>(table, mc, key, black_box(hash)),
+            _ => unreachable!(),
+        };
+        let Value::Integer(value) = black_box(value) else {
+            panic!("expected integer")
+        };
+        sum += value;
+    }
+    sum
+}
+
+#[test]
+#[ignore = "lookup-only instruction diagnostic, not native performance acceptance"]
+fn prepared_lookup_profile() {
+    let mode: usize = std::env::var("LUNA_PREHASH_MODE").unwrap().parse().unwrap();
+    let separate = std::env::var("LUNA_PREHASH_SEPARATE").unwrap() == "1";
+    crate::Lua::empty().enter(|ctx| {
+        let mut table = RawTable::new(&ctx);
+        let key = ctx.intern(b"callback");
+        let query = if separate {
+            String::from_slice(&ctx, b"callback")
+        } else {
+            key
+        };
+        table.set(&ctx, key.into(), Value::Integer(17)).unwrap();
+        let hash = PreparedHash::new(query);
+        let sum = match mode {
+            0 => profile_reads::<0>(&table, &ctx, query, hash),
+            1 => profile_reads::<1>(&table, &ctx, query, hash),
+            2 => profile_reads::<2>(&table, &ctx, query, hash),
+            3 => profile_reads::<3>(&table, &ctx, query, hash),
+            _ => panic!("invalid lookup mode"),
+        };
+        assert_eq!(sum, 1_700_000);
+        println!("mode={mode} separate={separate} reads=100000 sum={sum}");
+    });
+}
