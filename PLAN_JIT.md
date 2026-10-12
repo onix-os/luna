@@ -11,6 +11,56 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Held-out PGO on the integrated batching runtime: not accepted
+
+The unchanged held-out PGO pilot was rerun at `618a4c8`, with the current
+integrated batching runtime rather than reusing an older profile. Training uses
+scripts/callback/metamethod tests in Off/Auto/Force and self-configuring native/
+region tests once; no benchmark workload trains the profile. All 89 training
+and 129 profile-use correctness test executions pass. Eleven raw profiles,
+merged data, complete build logs and source/image manifests are retained.
+
+Training covers the new `Session::complete_inline` dispatch as well as region
+boundaries and rooted calls. Their summed host profile block counters are
+181,415 / 371,025 / 104,926 respectively, not native instruction or invocation
+counts. The candidate build reports 264 missing-profile warnings, including
+held-out executable-specific monomorphizations; this is not a warning-free or
+fully profiled application. Fresh matching control/candidate binaries both use
+`jit,async`, opt-level 3, LTO, one codegen unit, explicit GNU target and stripping.
+
+Two completed screens retain 48 checked commands, 864 summary rows and 432
+workload gates. Each uses four rotated control/candidate/same-image-placebo
+windows on CPUs 0 and 16, eleven alternating Off/Auto samples, matching launch
+paths, unchanged thresholds and contention telemetry. Independent audits verify
+all complete non-timing records are equal, plus source/profile/binary identity.
+No owned build, test, profiler or source edit overlaps hardware timing.
+
+| Control time / PGO time | CPU 0 first / repeat | CPU 16 first / repeat |
+| --- | --- | --- |
+| Callback Auto | 1.1724 / 1.2285 | 1.1373 / 1.1226 |
+| Callback Off | 1.3455 / 1.2269 | 1.2503 / 1.2442 |
+| Upvalue Auto | 1.0433 / 1.1426 | 1.0874 / 1.1014 |
+| Array Auto | 0.8112 / 0.9919 | 0.9812 / 0.9824 |
+| Metamethod Auto | 0.8893 / 1.1230 | 1.1124 / 1.0983 |
+
+Absolute callback gains do not close its relative JIT overhead: all sixteen
+candidate callback gates fail. Array and metamethod gates each fail twelve of
+sixteen windows. Every candidate aggregate fails. The first CPU 0 float Auto
+ratio of 0.6873 does not reproduce (repeat 1.0204); CPU 16 Off-float placebo
+variation is substantial (repeat median 1.3532). Those observations and adverse
+samples remain recorded, not removed or attributed to a hardware cause.
+
+Control/candidate executable sizes are 7,185,760 / 6,150,912 bytes. This is not
+matched no-feature/compiled-Off acceptance. No shipping, new platform or full
+feature-cost acceptance is claimed for PGO, and no default compiler flags change.
+Evidence is under `target/jit-evidence/short-slice-performance/inline-batching-pgo*`.
+
+After timing, the pilot's coverage checker was strengthened to require positive
+inline-batch dispatch coverage. It resets symbol ownership at each new profile
+record and rejects malformed counters, preventing an unrelated function's counts
+from satisfying a missing record. The Make preflight now runs a valid fixture
+and nine refusal cases; the fresh real profile passes the stronger checker.
+
 #### Integrated batching: refreshed compiled-Off and size evidence
 
 Matched stripped speed/shipping artifacts built at `99aba17` retain the
