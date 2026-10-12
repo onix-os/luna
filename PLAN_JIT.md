@@ -39,7 +39,7 @@ it is not discarded. All eight candidate callback gates still fail.
 The cost comparison independently audits **181,440 measured workload iterations
 and 216 original gate reports** across three interleaved controls/candidate
 campaigns. Speed-profile compiled-Off float overhead on CPU16 reaches
-**1.633792 / 1.648968**, against controls **1.032044–1.070033**. The unchanged
+**1.633792 / 1.648968**, against controls **1.0320–1.0700**. The unchanged
 1.05 ceiling fails badly. Further profiles execute exactly **20,204,995** JIT-Off
 float instructions in both images, with **20,325,225** in both no-feature images.
 Instruction counts do not explain the timing loss; its hardware cause is unproven.
@@ -50,6 +50,37 @@ outlines the content-comparison fallback; it must earn its own verification and
 timing evidence, not inherit the first variant's full-suite result. Evidence is
 under `target/jit-evidence/short-slice-performance/prepared-identity*`.
 Native callback, compiled-Off and full release acceptance remain open.
+
+#### Prepared-key outlined fallback — provisional, cold cost still failing
+
+A second image keeps the same identity check but places content equality in a
+private cold, non-inlined fallback. It passes **40 focused tests and nine Miri
+tests**. Its exact-link image checks and eighteen full-context non-timing records
+pass; both no-feature binaries again match the original controls byte-for-byte.
+The full Force suite for this second variant is still running, not inherited
+from the first variant.
+
+Callback instructions are **124,777,527**, 1.13% below baseline but 780,075 above
+the first variant. VM self-work increases 780,156 instructions between variants;
+helper and invocation self-work are unchanged in the isolated profile. The
+smaller fallback is not a whole-program instruction improvement over that trial.
+
+Another **47,952 native measured executions** and **181,440 cost workload
+iterations** complete with unchanged thresholds, interleaved controls, shared
+launch paths, all raw observations and zero native counter/resource mismatches.
+Speed-profile CPU16 float cost is **0.988344 / 0.988602**, removing the first
+variant's large loss. However, speed-profile CPU0 cold cost becomes
+**1.053006 / 1.050910**, versus controls **1.0372–1.0421**: a new repeated failure
+of the 1.05 ceiling, not an accepted tradeoff. Candidate cost failures are15/72,
+versus16/72 and18/72 controls; aggregate counts do not erase the cold regression.
+
+The 21-sample callback control/candidate ratios are CPU0 **1.035386 / 1.027824**,
+CPU16 **1.007079 / 1.016104**. The 201-sample repeat retains an unstable CPU0
+window with a **0.431203** same-image placebo; its apparent 1.57x gain is not
+claimed as an optimization. Seven of eight callback gates still fail. The
+runtime patch remains uncommitted and provisional while its remaining costs
+are investigated. Frozen images/logs are under `prepared-identity-outlined*` in
+the ignored performance directory. This is not full performance acceptance.
 
 ### Progress snapshot — 2026-10-12
 
