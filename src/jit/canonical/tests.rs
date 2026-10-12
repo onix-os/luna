@@ -896,9 +896,10 @@ fn physical_call_checks_replacements_and_refreshes_capture_after_preflight() {
                     let mut scratch = [MaybeUninit::uninit(); 256];
                     let mut session = Session::new(ctx, host, &site, &mut scratch);
                     assert!(session.preflight(64));
-                    if scenario >= 3 {
-                        session.callee = Some(original.prototype());
-                    }
+                    assert!(session
+                        .callee
+                        .is_some_and(|p| Gc::ptr_eq(p, original.prototype())));
+                    session.callee = (scenario >= 3).then_some(original.prototype());
                     session.host.with_registers(|_, registers| {
                         registers.stack_frame[usize::from(site.function.0)] = replacement.into();
                     });
@@ -951,6 +952,8 @@ fn changed_physical_prototype_refuses_leave_before_materialization() {
                                 .resolve(ctx, site.callee)
                                 .unwrap(),
                         );
+                    } else {
+                        session.callee = None;
                     }
                     let data = std::ptr::addr_of_mut!(session).cast();
                     let frame = unsafe {
@@ -979,6 +982,37 @@ fn changed_physical_prototype_refuses_leave_before_materialization() {
                 });
             });
         }
+    });
+}
+
+#[test]
+fn preflight_binds_current_prototype_and_clears_binding_on_refusal() {
+    fixture(ADD, |lua, closure, site, _code| {
+        lua.enter(|ctx| {
+            with_test_thread(ctx, ctx.fetch(&closure), &mut Fuel::with(10000), |host| {
+                position(host, ctx, site.pc);
+                let expected = ctx
+                    .jit_registry()
+                    .borrow()
+                    .resolve(ctx, site.callee)
+                    .unwrap();
+                let mut scratch = [MaybeUninit::uninit(); 256];
+                let mut session = Session::new(ctx, host, &site, &mut scratch);
+                assert!(session.callee.is_none());
+                assert!(session.preflight(64));
+                assert!(session.callee.is_some_and(|p| Gc::ptr_eq(p, expected)));
+                assert!(!session.preflight(0));
+                assert!(session.callee.is_none());
+                assert!(session.preflight(64));
+                let replacement = Closure::load(ctx, None, b"return 0").unwrap();
+                session.host.with_registers(|_, registers| {
+                    registers.stack_frame[usize::from(site.function.0)] = replacement.into();
+                });
+                assert!(!session.preflight(64));
+                assert!(session.callee.is_none());
+                assert_eq!((session.calls, session.returns), (0, 0));
+            });
+        });
     });
 }
 

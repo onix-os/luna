@@ -1376,6 +1376,23 @@ jit-universal-memory-profile-run: jit-profile-cpu-check
 STRIDED_CASES ?= rust_callbacks closure_upvalue integer_loop float_loop
 STRIDED_ROUNDS ?= 0 1
 STRIDED_DUMP ?= 0
+STRIDED_TIMING_DIR ?= target/jit-evidence/short-slice-performance/strided-timing
+STRIDED_TIMING_WINDOWS ?= 21
+.PHONY: jit-strided-runtime-timing jit-strided-timing-tests jit-strided-runtime-time-run jit-strided-runtime-time-audit
+jit-strided-runtime-timing:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::payload_runtime_tests::strided_profile::timing:: -- --test-threads=1
+
+jit-strided-timing-tests:
+	@bash -n examples/jit_support/strided_timing.sh
+	@perl -c examples/jit_support/strided_timing_audit.pl
+	@perl tests/test-jit-strided-timing.pl
+
+jit-strided-runtime-time-run: jit-profile-cpu-check
+	@bash examples/jit_support/strided_timing.sh '$(STRIDED_RUNTIME_DIR)' '$(STRIDED_TIMING_DIR)' '$(PROFILE_CPU)' '$(STRIDED_TIMING_WINDOWS)'
+
+jit-strided-runtime-time-audit:
+	@perl examples/jit_support/strided_timing_audit.pl '$(STRIDED_TIMING_DIR)'
+
 .PHONY: jit-strided-runtime-profile-build jit-strided-runtime-profile-run
 jit-strided-runtime-profile-build:
 	@$(MAKE) jit-strided-profile-build STRIDED_DIR='$(STRIDED_RUNTIME_DIR)'

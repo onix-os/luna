@@ -11,6 +11,233 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Retained preflight callee binding — tested; shipping gates still open
+
+`91b16ee` retains the exact callee prototype after successful canonical-call
+preflight, using the session's existing prototype-bound physical-frame checks
+instead of looking up the same registry identity again. Every refusal clears
+the binding. Current closure/capture state is still rechecked; no operand,
+upvalue value, frame pointer or long-lived code/GC cache is introduced.
+Replacement, changed-prototype, changed-capture and failed-admission tests retain
+both bound and unbound paths.
+
+Validation at this revision: 45 focused canonical tests, the seven-workload
+timing correctness/counter check, **1,916 full forced-JIT tests across 87 suites
+(16 ignored)**, and 45 optimized canonical tests both natively and under
+Memcheck. Memcheck reports zero errors/definite/indirect leaks; 48 possibly-lost
+bytes and 632 reachable bytes remain reported. Canonical code is excluded under
+Miri, so no Miri coverage is claimed for this change.
+
+All 28 software profiles pass result/counter and native-address audits. Against
+the byte-load baseline, upvalue instructions drop by 923,922 in both repeats:
+ordinary 32,916,853 → 31,992,931 (−2.807%); strided 32,789,196 → 31,865,274
+(−2.818%). Generated-code page counts remain unchanged. This is a runtime
+instruction reduction, not a claim of a matching elapsed-time speedup.
+
+The old shipping benchmark was frozen before building the new opt-level-3
+artifact. A focused upvalue campaign measured 504 executions; a full nine-case
+campaign measured 4,536. Each uses old-A/new/old-B controls, 21 Off/Auto paired
+samples per process, CPU order 0/16/16/0, `--check`, and retained host telemetry.
+All reported execution counters and resource-cost fields match across each
+old/new/control triplet. The benchmark prints aggregate/min/max timing reports,
+not individual sample times. No owned build/test/profiler overlaps these runs.
+
+The **new shipping artifact**, not the experimental strided comparison, gives:
+
+| Workload | Off/Auto range over four full runs | Frozen minimum | Result |
+| --- | ---: | ---: | --- |
+| Integer loop | 3.3115–3.7327 | 2.0 | 4/4 pass |
+| Float loop | 3.3321–3.7478 | 2.0 | 4/4 pass |
+| Array/table | 1.3858–1.6080 | 1.25 | 4/4 pass |
+| Closure/upvalue | 2.6421–2.8436 | 1.25 | 4/4 pass |
+| Polymorphic metamethod | 0.8218–0.8963 | 1/1.2 | 3/4 pass |
+| Rust callbacks | 0.7907–0.8304 | 1/1.2 | 0/4 pass |
+| Allocation/GC | 0.9971–1.0760 | 1/1.2 | 4/4 pass |
+| Cold config | 0.9859–1.0004 | 1/1.15 | 4/4 pass |
+
+The predicate case remains explicitly unscored. All twelve full old/new/control
+processes exit with the expected performance-gate failure; these are not green
+benchmark runs. Upvalues also passed in the **old artifact**, so this change did
+not newly clear that gate. Focused new upvalue ratios are 2.7504–2.8674.
+Full-run old/new upvalue time ratios are 1.0080–1.0288, but placebo differences
+and collateral changes prevent assigning a precise causal speedup. For example,
+CPU 16 array old/new ratios are 0.9833/0.9828, while CPU 0 float placebo reaches
+1.2717 in one round. These observations are retained, not filtered out.
+
+Next performance priority is the **shipping callback path**, plus reliable
+metamethod acceptance on CPU 0—not treating a strided/ordinary numeric difference
+as failure of the shipping Off/Auto numeric gate. No threshold or workload
+selection was weakened. Size/disabled-overhead and release revalidation remain
+independent open gates.
+
+Evidence prefix: `target/jit-evidence/short-slice-performance/canonical-preflight-binding-`.
+`image/` holds all profiles; `bench/` holds both frozen binaries;
+`upvalue-time/` and `full-time/` retain reports, status files, telemetry and
+audits. Baseline binary SHA-256:
+`ab7a3efa30ae82b7b64cd06d84d5da6b8b9ce5333eecca8b4dab77aec6ef9760`;
+new shipping binary:
+`d38b7f5c98ab6de0a75cef2733c5098a4eaf6d057f3dd72142742f43707d4464`;
+test image:
+`76124b5d66bcbe7ba1238c9954a77b28b3fdb1a7cf65db0a5dac565be00337b2`.
+
+#### Guarded write-pointer scheduling — measured and removed
+
+Experimental `7428ced` moved FrameBound descriptor-pointer loads into the
+wide/Boolean store blocks, after the existing matching-tag and scalar guards.
+Using the checked destination tag exposed a numeric witness to strided lowering.
+The exact checker and both expansion equations accounted for the changed IR;
+the Checked contract and production transport selection were unchanged.
+
+Focused validation passed 10 write tests, 14 strided backend tests and the
+seven-workload timing correctness check. Optimized write/backend/runtime tests
+passed 10/14/6. The complete forced-JIT run passed **1,916 tests across 87 suites,
+16 ignored**. All 28 software profiles passed counter and native-address audits.
+These results belong to the experimental source, not a release acceptance.
+
+Four further paired screens retained 1,764 measured executions, all 25 counters
+equal, CPU order 0/16/16/0, with no owned builds or validators during timing:
+
+| Workload | CPU 0 ordinary/strided | CPU 16 ordinary/strided |
+| --- | ---: | ---: |
+| Integer loop | 1.051948 | 0.968615 |
+| Float loop | 1.132619 | 0.990756 |
+| Array/table | 1.208411 | 1.154246 |
+| Closure/upvalue | 1.010372 | 1.017157 |
+| Polymorphic metamethod | 1.045635 | 1.005511 |
+| Rust callbacks | 0.968685 | 1.021590 |
+| Allocation/GC | 1.097717 | 1.041491 |
+
+CPU 0 short-workload placebo noise remained large (integer IQR
+0.793094–1.171302). CPU 16 integer regression persisted, with ratio IQR
+0.964809–0.979234; CPU 0 callbacks also remained slower. Separate-image results
+are not direct attribution of small old/new differences to this change.
+
+Callback native-exclusive instructions fell from 925,239 to 905,236, but total
+callback instructions fell only 0.185%. Upvalue totals fell 0.215%. Numeric
+totals barely changed. Float kernel bytes grew from 4,056 to 4,408 and allocation
+from 3,920 to 4,272, doubling each executable mapping from 4 KiB to 8 KiB.
+The candidate was removed rather than retaining code growth without a proven
+fix. Miri/Memcheck acceptance was not claimed for the rejected candidate.
+
+Frozen evidence is under `target/jit-evidence/short-slice-performance/`:
+`strided-guarded-write-image/`, `strided-guarded-write-screen-{0,1}-cpu{0,16}/`,
+`strided-guarded-write-summary.json`, `strided-guarded-write-profile-compare.log`
+and `strided-guarded-write-force.log`. Image SHA-256 is
+`27e9cb2a1687a558454d24f21a155156fc471013db927b5a88f80278c1bce045`.
+
+The exclusive software profile points to larger remaining costs: upvalue
+`Session::preflight` and `Session::leave` each account for about 8.1%, and
+`matches_callee` about 4.9%; integer `run_vm_slice` accounts for about 19.1% and
+`invoke_transport` about 8.9%. These are instruction shares, not elapsed-time
+shares. Further optimization should address verified hot-path redundancy rather
+than infer speedups from small generated-code instruction reductions.
+
+#### Strided metadata partition — measured and removed
+
+Experimental commit `57dec11` separated verified frame-metadata loads from other
+memory through Cranelift alias regions, preserving helper-call invalidation.
+Its 18 backend tests, seven-workload correctness/counter check and six runtime
+tests passed; the optimized image also passed all 18 backend and six runtime
+tests. These checks did not establish a performance improvement.
+
+Four further 21-window screens retained **1,764 measured executions**, in CPU
+order 0/16/16/0, with all 25 counters equal. Pooled ordinary/strided ratios were:
+
+| Workload | CPU 0 | CPU 16 |
+| --- | ---: | ---: |
+| Integer loop | 1.082659 | 0.975010 |
+| Float loop | 1.212206 | 0.994205 |
+| Array/table | 1.208482 | 1.080068 |
+| Closure/upvalue | 1.022771 | 1.016346 |
+| Polymorphic metamethod | 1.052651 | 1.070066 |
+| Rust callbacks | 0.987510 | 0.996002 |
+| Allocation/GC | 1.067156 | 1.027573 |
+
+CPU 0 was noisy: integer placebo IQR was 0.800804–1.377074 and float placebo
+IQR was 0.859565–1.305193. Those apparent gains are not attributed to the
+optimization. CPU 16 integer regression persisted (ratio IQR
+0.965773–0.982330). These are separate-image screens, not a same-image direct
+comparison between partitioned and unpartitioned strided code.
+
+All 28 software profiles passed result/counter checks and complete native-cost
+address joins. Against the frozen byte-load image, integer and float instruction
+totals fell only 0.227% and 0.176%; strided callback totals stayed at 10,819,984
+and native-exclusive callback counts at 925,239. Array, metamethod and allocation
+totals varied across rounds; ordinary callback totals also varied in one round.
+Instruction counts alone do not resolve the elapsed-time regressions.
+
+The alias-partition candidate was removed: its added code, compile work and
+16 KiB table reservation did not demonstrate the targeted speedup. Frozen image
+SHA-256 is `bb8e8a41e286697a7df77cf0c39ecc7e068d717365a26709ebc1284a6a5f2140`.
+Evidence remains under `target/jit-evidence/short-slice-performance/` in
+`strided-memory-image/`, `strided-memory-screen-{0,1}-cpu{0,16}/`,
+`strided-memory-summary.json` and `strided-memory-profile-compare.log`.
+Production selection is unchanged; the performance gates remain open.
+
+#### Paired elapsed-time screen — mixed results, no default switch
+
+`a7168b8` adds a separate warm-execution timing diagnostic without instrumenting
+the existing Callgrind path. Each process loads one frozen workload, performs
+two checked warmups and prepares an executor before starting `Instant`.
+Only execution is timed; setup, compilation, statistics, result/counter checks
+and cache cleanup remain outside the timer. Every sample requires the expected
+result, native execution, the requested entry kind and no new compilation.
+
+Four completed primary screens retain **1,764 measured executions**: two repeats
+on each of CPUs 0 and 16, each with 21 windows, all seven frozen workloads, and
+ordinary-A / strided / ordinary-B triplets. Six balanced run orders and rotated
+workload order reduce ordering bias. CPU order across screens is 0/16/16/0.
+All 25 counters match within triplets and across all four screens; no sample or
+outlier was removed. Ordinary/ordinary runs provide a same-image placebo.
+
+Below are pooled medians of the 42 paired ratios per workload and logical CPU.
+Ratios are geometric-mean ordinary time divided by strided time: above 1 favors
+strided. They are not ratios formed from independently pooled timing medians.
+
+| Workload | CPU 0 ordinary/strided | CPU 16 ordinary/strided |
+| --- | ---: | ---: |
+| Integer loop | 0.9959 | 0.9726 |
+| Float loop | 1.0135 | 0.9908 |
+| Array/table | 1.1655 | 1.1546 |
+| Closure/upvalue | 1.0154 | 1.0130 |
+| Metamethod | 1.0353 | 1.0160 |
+| Rust callbacks | 0.9605 | 1.0177 |
+| Allocation/GC | 1.0119 | 1.0453 |
+
+Array medians repeat at 1.1654/1.1655 on CPU 0 and 1.1516/1.1558 on CPU 16,
+despite their earlier positive instruction-count overhead. Callback medians
+repeat at 0.9580/0.9689 on CPU 0 but 1.0160/1.0194 on CPU 16. CPU 0's pooled
+callback ratio interquartile interval is 0.9376–0.9922, with placebo median
+0.9974; this is a remaining regression, not a confirmed callback improvement.
+CPU 16's integer regression also repeats. Smaller effects must be read with
+the retained dispersion and placebo results, not treated as universal gains.
+
+The host is an i7-13700KF. Kernel topology places CPU 0 in `cpu_core` (SMT sibling
+1, maximum reported frequency 5.3 GHz) and CPU 16 in `cpu_atom` (no SMT sibling,
+maximum 4.2 GHz). These are different core classes, not interchangeable replicas.
+Topology was captured after the primary screens; `c4cab56` additionally records
+it and available selected-CPU frequency fields for future windows. This topology
+is relevant context, not proof of the cause of the callback split. Every primary
+window retains load, CPU counters, pressure and process telemetry. No owned
+build/test/profiler overlapped timing; unrelated activity was not stopped. An
+unrelated molla build was identified during the initial smoke run.
+
+Focused timing verification passes for all seven workloads in both modes.
+The report audit passes its valid fixture and rejects eleven malformed screens.
+Separate three-window smoke runs verify the original and topology-aware runners;
+their raw samples remain separate from the predefined primary screens. All
+source/binary hashes and original collector/auditor versions are retained.
+
+Evidence: `target/jit-evidence/short-slice-performance/strided-timing-screen-{0,1}-cpu{0,16}/`,
+each `audit.json`, pooled `strided-timing-summary.json`, and
+`strided-timing-topology-after.log`. Immutable test image SHA-256:
+`04b5071479cd54a2a735b5eb4ba3fe0bb19a74a4dbfae6e20174dc4e98138d6b`.
+This is an ordinary-versus-strided test-image diagnosis, **not** the production
+Off/Auto acceptance gate. Keep production selection unchanged. Next performance
+work must address the measured CPU 0 callback and CPU 16 numeric regressions;
+instruction-count reductions alone are not a sufficient selection criterion.
+Compiled-Off, compiler/resource, platform and release acceptance remain open.
+
 #### Byte tag loads — explicit zero extension
 
 `146cdff` replaces strided `load.i8` plus `uextend.i64` with `uload8.i64`.
