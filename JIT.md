@@ -1,5 +1,14 @@
 # Native JIT: experimental scalar and heap tier
 
+At `91b16ee`, canonical-call preflight retains its validated callee prototype
+without caching mutable captures. Full forced-JIT tests and native Memcheck pass.
+Fresh controlled shipping-binary benchmarks pass numeric, array, upvalue,
+allocation and cold-config thresholds, but callbacks fail all four runs and
+metamethods fail one CPU 0 run. The old shipping artifact already passed the
+upvalue threshold. Experimental strided/ordinary ratios are a separate diagnostic,
+not the shipping Off/Auto acceptance gate. Performance and release acceptance
+remain open; `PLAN_JIT.md` records all results and collateral measurements.
+
 Ordinary constant-string upvalue-table reads can embed a process-seeded key hash.
 Each lookup still checks the current table and full key equality; no GC pointers
 or table values are cached. Optional, charged hash storage falls back to ordinary

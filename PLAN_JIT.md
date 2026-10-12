@@ -11,6 +11,75 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Retained preflight callee binding — tested; shipping gates still open
+
+`91b16ee` retains the exact callee prototype after successful canonical-call
+preflight, using the session's existing prototype-bound physical-frame checks
+instead of looking up the same registry identity again. Every refusal clears
+the binding. Current closure/capture state is still rechecked; no operand,
+upvalue value, frame pointer or long-lived code/GC cache is introduced.
+Replacement, changed-prototype, changed-capture and failed-admission tests retain
+both bound and unbound paths.
+
+Validation at this revision: 45 focused canonical tests, the seven-workload
+timing correctness/counter check, **1,916 full forced-JIT tests across 87 suites
+(16 ignored)**, and 45 optimized canonical tests both natively and under
+Memcheck. Memcheck reports zero errors/definite/indirect leaks; 48 possibly-lost
+bytes and 632 reachable bytes remain reported. Canonical code is excluded under
+Miri, so no Miri coverage is claimed for this change.
+
+All 28 software profiles pass result/counter and native-address audits. Against
+the byte-load baseline, upvalue instructions drop by 923,922 in both repeats:
+ordinary 32,916,853 → 31,992,931 (−2.807%); strided 32,789,196 → 31,865,274
+(−2.818%). Generated-code page counts remain unchanged. This is a runtime
+instruction reduction, not a claim of a matching elapsed-time speedup.
+
+The old shipping benchmark was frozen before building the new opt-level-3
+artifact. A focused upvalue campaign measured 504 executions; a full nine-case
+campaign measured 4,536. Each uses old-A/new/old-B controls, 21 Off/Auto paired
+samples per process, CPU order 0/16/16/0, `--check`, and retained host telemetry.
+All reported execution counters and resource-cost fields match across each
+old/new/control triplet. The benchmark prints aggregate/min/max timing reports,
+not individual sample times. No owned build/test/profiler overlaps these runs.
+
+The **new shipping artifact**, not the experimental strided comparison, gives:
+
+| Workload | Off/Auto range over four full runs | Frozen minimum | Result |
+| --- | ---: | ---: | --- |
+| Integer loop | 3.3115–3.7327 | 2.0 | 4/4 pass |
+| Float loop | 3.3321–3.7478 | 2.0 | 4/4 pass |
+| Array/table | 1.3858–1.6080 | 1.25 | 4/4 pass |
+| Closure/upvalue | 2.6421–2.8436 | 1.25 | 4/4 pass |
+| Polymorphic metamethod | 0.8218–0.8963 | 1/1.2 | 3/4 pass |
+| Rust callbacks | 0.7907–0.8304 | 1/1.2 | 0/4 pass |
+| Allocation/GC | 0.9971–1.0760 | 1/1.2 | 4/4 pass |
+| Cold config | 0.9859–1.0004 | 1/1.15 | 4/4 pass |
+
+The predicate case remains explicitly unscored. All twelve full old/new/control
+processes exit with the expected performance-gate failure; these are not green
+benchmark runs. Upvalues also passed in the **old artifact**, so this change did
+not newly clear that gate. Focused new upvalue ratios are 2.7504–2.8674.
+Full-run old/new upvalue time ratios are 1.0080–1.0288, but placebo differences
+and collateral changes prevent assigning a precise causal speedup. For example,
+CPU 16 array old/new ratios are 0.9833/0.9828, while CPU 0 float placebo reaches
+1.2717 in one round. These observations are retained, not filtered out.
+
+Next performance priority is the **shipping callback path**, plus reliable
+metamethod acceptance on CPU 0—not treating a strided/ordinary numeric difference
+as failure of the shipping Off/Auto numeric gate. No threshold or workload
+selection was weakened. Size/disabled-overhead and release revalidation remain
+independent open gates.
+
+Evidence prefix: `target/jit-evidence/short-slice-performance/canonical-preflight-binding-`.
+`image/` holds all profiles; `bench/` holds both frozen binaries;
+`upvalue-time/` and `full-time/` retain reports, status files, telemetry and
+audits. Baseline binary SHA-256:
+`ab7a3efa30ae82b7b64cd06d84d5da6b8b9ce5333eecca8b4dab77aec6ef9760`;
+new shipping binary:
+`d38b7f5c98ab6de0a75cef2733c5098a4eaf6d057f3dd72142742f43707d4464`;
+test image:
+`76124b5d66bcbe7ba1238c9954a77b28b3fdb1a7cf65db0a5dac565be00337b2`.
+
 #### Guarded write-pointer scheduling — measured and removed
 
 Experimental `7428ced` moved FrameBound descriptor-pointer loads into the
