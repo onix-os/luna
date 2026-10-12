@@ -33,6 +33,23 @@ fn masks_and_frame_boundaries() {
     assert!(Mask::new(&[256]).is_none());
     assert!(Mask::new(&[usize::MAX]).is_none());
     assert!(!mask.contains(usize::MAX));
+    let boundary_kernel = rust_kernel::<0, 255>(mask).unwrap();
+    let mut boundary_values = vec![Value::Integer(7); 256];
+    assert!(boundary_kernel.bind(&mut boundary_values[..255]).is_none());
+    for index in indices {
+        boundary_values[index] = Value::Nil;
+        assert!(boundary_kernel.bind(&mut boundary_values).is_none());
+        assert_identical(boundary_values[index], Value::Nil);
+        boundary_values[index] = Value::Integer(7);
+    }
+    assert_eq!(
+        boundary_kernel
+            .bind(&mut boundary_values)
+            .unwrap()
+            .invoke(1),
+        1
+    );
+    assert_identical(boundary_values[255], Value::Integer(8));
     assert!(rust_kernel::<0, 1>(Mask::new(&[0]).unwrap()).is_none());
     assert!(rust_kernel::<0, 0>(Mask::new(&[]).unwrap()).is_none());
     assert_eq!(mem::size_of::<Header>(), 3 * mem::size_of::<usize>());

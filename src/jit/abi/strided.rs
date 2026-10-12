@@ -69,21 +69,25 @@ impl<'code> Kernel<'code> {
         }
         let stride = mem::size_of::<Value<'gc>>();
         let mut offset = None;
-        for index in self.required.indices() {
-            let value = values.get(index)?;
-            let Value::Integer(payload) = value else {
-                return None;
-            };
-            let field = ptr::from_ref(payload)
-                .addr()
-                .checked_sub(ptr::from_ref(value).addr())?;
-            if field.checked_add(mem::size_of::<i64>())? > stride
-                || field % mem::align_of::<i64>() != 0
-                || offset.is_some_and(|previous| previous != field)
-            {
-                return None;
+        for (group, mut word) in self.required.0.into_iter().enumerate() {
+            while word != 0 {
+                let index = 64 * group + word.trailing_zeros() as usize;
+                word &= word - 1;
+                let value = values.get(index)?;
+                let Value::Integer(payload) = value else {
+                    return None;
+                };
+                let field = ptr::from_ref(payload)
+                    .addr()
+                    .checked_sub(ptr::from_ref(value).addr())?;
+                if field.checked_add(mem::size_of::<i64>())? > stride
+                    || field % mem::align_of::<i64>() != 0
+                    || offset.is_some_and(|previous| previous != field)
+                {
+                    return None;
+                }
+                offset = Some(field);
             }
-            offset = Some(field);
         }
         let offset = offset?;
         let len = values.len();
