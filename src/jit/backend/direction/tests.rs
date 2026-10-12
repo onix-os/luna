@@ -45,7 +45,7 @@ fn fixture(shared: bool, reversed: bool) -> Function {
     builder.ins().return_(&[result]);
     builder.seal_all_blocks();
     let flags = cranelift_codegen::settings::Flags::new(cranelift_codegen::settings::builder());
-    let isa = cranelift_codegen::isa::lookup("x86_64-unknown-linux-gnu".parse().unwrap())
+    let isa = cranelift_native::builder_with_options(false)
         .unwrap()
         .finish(flags)
         .unwrap();
