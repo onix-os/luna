@@ -163,6 +163,38 @@ remain under `target/jit-evidence/short-slice-performance/native-tier-outline*`.
 No candidate full-suite acceptance is claimed. Next investigate the proven
 extra table-key comparisons, not another ungrounded selector-layout change.
 
+#### Prepared-key stored-hash rejection — placement under investigation
+
+Commit `3758a01` adds a baseline-tested full stored-hash collision fixture.
+Distinct equal strings must still match, distinct same-length byte strings must
+not, and misses/deletion preserve results in all four weak modes. A test-only
+constructor gives these strings equal stored hashes; table lookup still uses
+its normal hash derivation. **Eleven normal and eight Rust-only Miri executions**
+pass before changing the comparator. The first fixture build failed because
+`Value` lacks `PartialEq`; explicit value matching fixes the test, not runtime.
+
+The first runtime placement adds a stored-hash inequality rejection between
+GC identity and cold content equality. It passes **43 focused executions**,
+**ten Rust-only Miri executions**, and its own **1,939 full Force executions /
+88 summaries**, with 16 ignored diagnostics. Five exact-link image companions
+verify; both no-feature cost images remain byte-identical to baseline. Eighteen
+full-context and three fresh-process non-timing record comparisons match.
+
+However, all three fresh callback profiles grow from **123,997,452** to
+**124,256,796** instructions on the observed low-probe paths. The prepared helper
+alone adds **259,344 instructions / 129,672 reads / 64,836 writes**, or four
+instructions per successful lookup. Its exact disassembly shows changed PC
+register/stack placement. No hardware speedup or elapsed regression is inferred
+from that diagnostic. No elapsed timing was run for this placement.
+
+The current uncommitted variant moves the stored-hash check inside the existing
+cold, non-inlined content fallback instead. Equal hashes still require byte
+equality. No process randomization, interpreter comparator, allocation layout,
+native coverage or resource/statistics contract changes. This variant must
+earn its own validation and timing; it does not inherit the first placement's
+full-suite result. Artifacts and logs remain under `prepared-hash-filter*` in
+the ignored short-slice performance directory. Full acceptance remains open.
+
 ### Progress snapshot — 2026-10-12
 
 #### Borrowed dispatch ownership boundary — rejected
