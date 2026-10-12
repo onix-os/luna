@@ -35,6 +35,8 @@ mod direction;
 mod entry_guard_tests;
 #[cfg(test)]
 mod exit_transport;
+#[cfg(test)]
+mod field_memory;
 #[cfg(not(miri))]
 pub(super) mod inline_loop;
 mod integer_loop;
@@ -365,6 +367,7 @@ pub(super) enum Failure {
     RequireBoundPayload,
     RequireStrided,
     RequireUniversalMemory,
+    RequireFieldMemory,
     PreferBoundPayload,
     RequireSparsePayload,
     RequireWriteBoundPayload,
@@ -780,6 +783,21 @@ fn compile_selected_rooted(
         selection.failure
     };
     #[cfg(test)]
+    if failure == Failure::RequireFieldMemory {
+        let incompatible = rooted_moves
+            || selection.projected
+            || selection.leaf
+            || selection.cell_kernel
+            || selection.integer_activation;
+        #[cfg(not(miri))]
+        let incompatible = incompatible || selection.scoped_helpers;
+        if incompatible {
+            return Err(JitError::Compilation(
+                "field memory requires ordinary lowering".into(),
+            ));
+        }
+    }
+    #[cfg(test)]
     if matches!(
         failure,
         Failure::RequirePayload
@@ -906,6 +924,7 @@ fn compile_selected_rooted(
                     | Failure::WidePrepared(_)
                     | Failure::RequireStrided
                     | Failure::RequireUniversalMemory
+                    | Failure::RequireFieldMemory
             ))
         && !selection.leaf
         && !selection.cell_kernel
@@ -1415,6 +1434,7 @@ fn compile_selected_rooted(
         failure,
         Failure::None
             | Failure::RequireUniversalMemory
+            | Failure::RequireFieldMemory
             | Failure::RequireIntegerLoop
             | Failure::ProbeIntegerLoop
             | Failure::RequirePayload
@@ -1928,6 +1948,15 @@ fn compile_selected_rooted(
                 snapshot.operations.allocator().clone(),
                 expansion,
             )?)
+        } else if failure == Failure::RequireFieldMemory {
+            Some(field_memory::lower(
+                &mut context.func,
+                parameters[0],
+                parameters[3],
+                snapshot.registers,
+                snapshot.operations.allocator().clone(),
+                expansion,
+            )?)
         } else {
             None
         };
@@ -1936,8 +1965,11 @@ fn compile_selected_rooted(
         .compile(module.isa(), &mut Default::default())
         .map_err(|error| {
             #[cfg(test)]
-            if failure == Failure::RequireUniversalMemory {
-                return JitError::Compilation(format!("universal memory compilation: {error:?}"));
+            if matches!(
+                failure,
+                Failure::RequireUniversalMemory | Failure::RequireFieldMemory
+            ) {
+                return JitError::Compilation(format!("memory region compilation: {error:?}"));
             }
             fail(error.into())
         })?;

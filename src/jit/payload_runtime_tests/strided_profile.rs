@@ -112,8 +112,27 @@ fn universal_memory_runtime_frozen_workloads_preserve_results_and_coverage() {
 #[test]
 #[ignore]
 fn profile_universal_memory_runtime() {
+    profile_memory_runtime(backend::Failure::RequireUniversalMemory, "universal_memory");
+}
+
+#[test]
+fn field_memory_runtime_frozen_workloads_preserve_results_and_coverage() {
+    for workload in workloads::WORKLOADS {
+        let (expected, _) = run(workload, backend::Failure::None, false);
+        let (actual, _) = run(workload, backend::Failure::RequireFieldMemory, false);
+        assert_eq!(actual, expected, "{}", workload.name);
+    }
+}
+
+#[test]
+#[ignore]
+fn profile_field_memory_runtime() {
+    profile_memory_runtime(backend::Failure::RequireFieldMemory, "field_memory");
+}
+
+fn profile_memory_runtime(candidate: backend::Failure, label: &str) {
     let name = std::env::var("LUNA_MEMORY_CASE").unwrap();
-    let selected = match std::env::var("LUNA_UNIVERSAL_MEMORY").unwrap().as_str() {
+    let selected = match std::env::var("LUNA_MEMORY_SELECTED").unwrap().as_str() {
         "0" => false,
         "1" => true,
         _ => panic!("invalid memory selection"),
@@ -123,11 +142,11 @@ fn profile_universal_memory_runtime() {
         .find(|w| w.name == name)
         .unwrap();
     let failure = if selected {
-        backend::Failure::RequireUniversalMemory
+        candidate
     } else {
         backend::Failure::None
     };
     let (delta, stats) = run(workload, failure, true);
-    println!("case={name} universal_memory={selected} validated=true counters={delta:?} code_bytes={} metadata_bytes={} metadata_peak_bytes={} snapshot_peak_bytes={}",
+    println!("case={name} {label}={selected} validated=true counters={delta:?} code_bytes={} metadata_bytes={} metadata_peak_bytes={} snapshot_peak_bytes={}",
         stats.code_bytes, stats.metadata_bytes, stats.metadata_peak_bytes, stats.snapshot_peak_bytes);
 }
