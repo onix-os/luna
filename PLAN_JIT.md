@@ -11,6 +11,52 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Precomputed string-key hashes — measured lookup model only
+
+`d87fc1c` adds a test-only, GC-free `PreparedHash(u64)` model and Make targets.
+Queries still inspect the current table, compare complete keys and upgrade weak
+values on every read. Three tests cover distinct equal string allocations,
+binary/long keys, missing/false/NaN values, growth, mutation, deletion,
+reinsertion, clearing, forced hash collisions and collection in all weak modes.
+GNU and fresh-target musl each pass all three tests. Stacked seed 61 and Tree
+seed 62 Miri each pass all three; one lookup diagnostic is deliberately ignored
+in each correctness run. Nightly warnings remain.
+
+The first musl invocation reports success but executes **zero matching tests**.
+Its cached dependency fingerprint points to an older isolated source checkout;
+that invocation is not validation. A dedicated fresh target executes the current
+three tests successfully. The new model targets now require a three-test success
+summary: a repeat against the stale target correctly fails with exit 2, while
+GNU and fresh musl pass. The failed initial fixture compilation is also retained.
+
+Shipping/speed test images complete **16 lookup-only software profiles**, four
+implementations with both identical and distinct-equal string allocations.
+Each executes 100,000 verified reads; binary/source checks and independent
+analysis of all thirteen event totals and summed self-costs pass.
+
+| Instructions per 100,000 same-allocation reads | Shipping | Speed |
+| --- | ---: | ---: |
+| Existing generic lookup | 22,600,023 | 16,900,023 |
+| String query, recomputed hash, canonical equality | 18,400,022 | 14,600,024 |
+| Same query with precomputed hash | 16,200,023 | 13,200,024 |
+| Precomputed hash and typed string equality | 15,200,023 | 11,600,024 |
+
+The isolated hash saving is approximately **22 / 14 instructions per read**;
+distinct-equal strings have the same deltas. Speed nevertheless adds roughly
+one data write per read between the recomputed and precomputed canonical forms.
+This is not a native callback timing result or evidence that instruction savings
+outweigh compiler/ABI integration costs. Existing string hashes already cache
+content hashing; the remaining work measured here is process-seeded key hashing.
+
+**Do not promote or claim a regression fix from this probe.** The production
+table layout, helper ABI, snapshot constants and interpreter are unchanged.
+The independent benefit is small and does not establish a solution to the
+callback gap. Any later native integration must retain randomized hashing,
+source-bound constants, metadata/work quotas, current-table/metamethod behavior
+and fresh callback state, then pass the original whole-program gates. Existing
+reference snapshot payloads remain zero; they cannot be silently repurposed.
+Evidence: `target/jit-evidence/short-slice-performance/prehashed-*`.
+
 #### Binding specialization — measured and rejected
 
 Fresh ordinary and activated checkouts at `13dd871` build both shipping and
