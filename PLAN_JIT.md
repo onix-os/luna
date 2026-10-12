@@ -11,6 +11,58 @@
 
 ### Progress snapshot — 2026-10-12
 
+#### Guarded write-pointer scheduling — measured and removed
+
+Experimental `7428ced` moved FrameBound descriptor-pointer loads into the
+wide/Boolean store blocks, after the existing matching-tag and scalar guards.
+Using the checked destination tag exposed a numeric witness to strided lowering.
+The exact checker and both expansion equations accounted for the changed IR;
+the Checked contract and production transport selection were unchanged.
+
+Focused validation passed 10 write tests, 14 strided backend tests and the
+seven-workload timing correctness check. Optimized write/backend/runtime tests
+passed 10/14/6. The complete forced-JIT run passed **1,916 tests across 87 suites,
+16 ignored**. All 28 software profiles passed counter and native-address audits.
+These results belong to the experimental source, not a release acceptance.
+
+Four further paired screens retained 1,764 measured executions, all 25 counters
+equal, CPU order 0/16/16/0, with no owned builds or validators during timing:
+
+| Workload | CPU 0 ordinary/strided | CPU 16 ordinary/strided |
+| --- | ---: | ---: |
+| Integer loop | 1.051948 | 0.968615 |
+| Float loop | 1.132619 | 0.990756 |
+| Array/table | 1.208411 | 1.154246 |
+| Closure/upvalue | 1.010372 | 1.017157 |
+| Polymorphic metamethod | 1.045635 | 1.005511 |
+| Rust callbacks | 0.968685 | 1.021590 |
+| Allocation/GC | 1.097717 | 1.041491 |
+
+CPU 0 short-workload placebo noise remained large (integer IQR
+0.793094–1.171302). CPU 16 integer regression persisted, with ratio IQR
+0.964809–0.979234; CPU 0 callbacks also remained slower. Separate-image results
+are not direct attribution of small old/new differences to this change.
+
+Callback native-exclusive instructions fell from 925,239 to 905,236, but total
+callback instructions fell only 0.185%. Upvalue totals fell 0.215%. Numeric
+totals barely changed. Float kernel bytes grew from 4,056 to 4,408 and allocation
+from 3,920 to 4,272, doubling each executable mapping from 4 KiB to 8 KiB.
+The candidate was removed rather than retaining code growth without a proven
+fix. Miri/Memcheck acceptance was not claimed for the rejected candidate.
+
+Frozen evidence is under `target/jit-evidence/short-slice-performance/`:
+`strided-guarded-write-image/`, `strided-guarded-write-screen-{0,1}-cpu{0,16}/`,
+`strided-guarded-write-summary.json`, `strided-guarded-write-profile-compare.log`
+and `strided-guarded-write-force.log`. Image SHA-256 is
+`27e9cb2a1687a558454d24f21a155156fc471013db927b5a88f80278c1bce045`.
+
+The exclusive software profile points to larger remaining costs: upvalue
+`Session::preflight` and `Session::leave` each account for about 8.1%, and
+`matches_callee` about 4.9%; integer `run_vm_slice` accounts for about 19.1% and
+`invoke_transport` about 8.9%. These are instruction shares, not elapsed-time
+shares. Further optimization should address verified hot-path redundancy rather
+than infer speedups from small generated-code instruction reductions.
+
 #### Strided metadata partition — measured and removed
 
 Experimental commit `57dec11` separated verified frame-metadata loads from other
