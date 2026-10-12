@@ -9,6 +9,48 @@
 - **Effort:** a substantial, plausibly multi-month compiler/runtime project. Estimates must be revised after the first integrated native slice is measured.
 - **Requested artifact:** this root-level `PLAN_JIT.md`; no separate plan index is required.
 
+### Progress snapshot — 2026-10-13
+
+#### Prepared-key-only identity comparison — improvement with a rejected cost
+
+The earlier general string-key shortcut changed interpreter lookup. This trial
+changes only the JIT/test-gated prepared-key comparator: equal GC identities
+return immediately, while different allocations retain byte-content equality.
+Weak immediate strings retain the same behavior. No cached pointer, generated
+layout, GC root, native coverage or threshold changes. Commit `3c4813d` adds an
+independent baseline-tested collision fixture for strong/weak integer/string
+keys and distinct equal strings, and updates the exact Make test counts.
+
+The initial runtime candidate passes **40 focused tests**, **nine Rust-only
+Miri tests**, and **1,938 full Force executions / 88 summaries**, with 16 ignored
+diagnostics in the full suite. Five original stripped images have exact-link
+symbol companions; program headers and all **128** file-backed allocated
+sections match. Both no-feature cost binaries are byte-identical to controls.
+Nineteen isolated/full-context result records match all non-timing fields.
+
+Callback instructions fall **126,201,795 -> 123,997,452 (1.75%)**. Two full
+native timing campaigns, with 21 then 201 samples, execute **47,952 measured
+workloads** with zero counter/resource mismatches. Both keep old/new/old controls,
+CPU0/16 repeats and one hardlink invocation path. The longer campaign's callback
+control/candidate ratios are CPU0 **1.024137 / 1.023392**, CPU16
+**1.016509 / 1.030803**. Initial CPU0 control instability remains in the evidence;
+it is not discarded. All eight candidate callback gates still fail.
+
+The cost comparison independently audits **181,440 measured workload iterations
+and 216 original gate reports** across three interleaved controls/candidate
+campaigns. Speed-profile compiled-Off float overhead on CPU16 reaches
+**1.633792 / 1.648968**, against controls **1.032044–1.070033**. The unchanged
+1.05 ceiling fails badly. Further profiles execute exactly **20,204,995** JIT-Off
+float instructions in both images, with **20,325,225** in both no-feature images.
+Instruction counts do not explain the timing loss; its hardware cause is unproven.
+No owned build, test or profiler overlaps these timing campaigns.
+
+This initial runtime form is **not accepted**. A separate uncommitted variant
+outlines the content-comparison fallback; it must earn its own verification and
+timing evidence, not inherit the first variant's full-suite result. Evidence is
+under `target/jit-evidence/short-slice-performance/prepared-identity*`.
+Native callback, compiled-Off and full release acceptance remain open.
+
 ### Progress snapshot — 2026-10-12
 
 #### Borrowed dispatch ownership boundary — rejected
