@@ -1489,7 +1489,12 @@ jit-compiler-lifetimes:
 jit-resources:
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::resources
 	@$(CARGO) test -p luna --features jit --lib $(TARGET_ARG) jit::registry::tests
+	@$(MAKE) --no-print-directory jit-transport-resources
 	@$(CARGO) test -p luna --features jit --test jit_resources $(TARGET_ARG)
+
+.PHONY: jit-transport-resources
+jit-transport-resources:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::transport_resource_tests:: $(ARGS)
 
 jit-registers:
 	@$(CARGO) test -p luna --test register_boundaries $(TARGET_ARG)
