@@ -15,10 +15,15 @@ impl<const N: usize> Scratch<N> {
             bits: [0; N],
             tags: [0; N],
         };
-        for (index, value) in values.iter().copied().enumerate() {
+        for ((bits, tag), value) in scratch
+            .bits
+            .iter_mut()
+            .zip(scratch.tags.iter_mut())
+            .zip(values.iter().copied())
+        {
             let slot = Slot::from_value(value);
-            scratch.bits[index] = slot.bits;
-            scratch.tags[index] = slot.tag as u8;
+            *bits = slot.bits;
+            *tag = slot.tag as u8;
         }
         scratch
     }
@@ -39,9 +44,19 @@ impl<const N: usize> Scratch<N> {
         true
     }
 
+    #[inline(always)]
     pub(crate) fn restore(&self, values: &mut [Value<'_>; N]) {
-        for (index, value) in values.iter_mut().enumerate() {
-            self.slot(index).write_back(value);
+        for ((bits, tag), value) in self
+            .bits
+            .iter()
+            .zip(self.tags.iter())
+            .zip(values.iter_mut())
+        {
+            Slot {
+                bits: *bits,
+                tag: u64::from(*tag),
+            }
+            .write_back(value);
         }
     }
 
