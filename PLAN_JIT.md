@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-13
 
-#### Call-site paired-policy query — first form withdrawn
+#### Call-site paired-policy query — both forms withdrawn
 
 Exact restored shipping disassembly already branches directly from a single
 inactive-dispatch test to opcode decode. There is no redundant inactive switch
@@ -86,7 +86,29 @@ control, rebuilt under `call-state-policy/baseline`, matches the original
 `call-site-policy/baseline` executables byte-for-byte. Refinement focused
 verification passes **58 executions / 10 summaries**, formatting and all-feature
 checking. Numeric and upvalue exact-image profiles precede elapsed acceptance;
-the refinement remains unaccepted pending those measurements.
+the refinement was not accepted from correctness alone.
+
+Refinement `de054a2` does not remove the increased speed-profile work. Sixteen
+exact-image profiles verify results, zero native work, independent exclusive
+event totals and stable source manifests:
+
+| Profile / workload, JIT-Off | Restored control instructions | Dispatch-state refinement |
+| --- | ---: | ---: |
+| Speed float | 20,204,995 | 20,777,065 |
+| Speed upvalue | 81,879,656 | 82,479,363 |
+| Shipping integer | 19,540,720 | 19,518,810 |
+| Shipping upvalue | 89,177,146 | 88,827,111 |
+
+The speed float increase remains **572,070 instructions**, close to the rejected
+first form, and the upvalue target also gains work under the speed profile.
+Shipping savings do not justify another full elapsed campaign for this form.
+This is an early code-generation rejection, **not a measured timing regression**
+for the refinement. No-feature numeric and shipping upvalue totals are unchanged;
+speed no-feature upvalues vary by 158 instructions outside the VM. Do not infer
+that reusing a source-level state necessarily prevents an extra generated live
+value, or repeat flag reshuffling without new machine-code evidence.
+Commit `9821505` withdraws the refinement; production VM source again matches
+`7329363`. The independent 48-combination observation regression remains.
 
 #### Register-view base redundancy — measured and withdrawn
 
