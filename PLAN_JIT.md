@@ -11,6 +11,61 @@
 
 ### Progress snapshot — 2026-10-13
 
+#### Register-view base redundancy — runtime trial, timing pending
+
+All three `LuaRegisters` constructors set `base` to the length of `upper_stack`:
+the physical and projection constructors use `split_at_mut(base)`, while the
+test-only detached constructor uses an empty upper slice and zero base.
+The private view therefore stores the same boundary twice. The next isolated
+trial removes only that duplicate word, deriving capture, close-list and JIT
+projection boundaries from the existing upper slice. Physical `Frame::Lua`
+bases remain unchanged; no stack pointer/value survives a callback or reborrow.
+The scoped raw-pointer accessor must read only its already-permitted upper-stack
+field, never borrow the current-frame values while field loans exist.
+
+This differs from the rejected register-view constructor inlining and frame
+tuple/accessor trials. It adds no inline hint, cache, mode split or accounting
+change. The hypothesized benefit is less frame-view materialization and fewer
+redundant boundary loads, not a measured speedup. Freeze current production
+and no-feature controls, verify split/close/capture semantics and footprint,
+then compare exact-image profiles and both native/feature-cost timing gates.
+
+The duplicate word is now removed. Dedicated native tests verify **64-byte
+no-feature / 80-byte JIT views on x86-64**, every split boundary from zero through
+the complete stack, capture read/write hook coordinates, capture reuse and
+closing, close-list order, and unchanged PC/fuel. Focused verification passes
+**83 executions / 15 summaries**, with formatting and all-feature checking.
+The first fixture compile failed because `Value` deliberately has no `PartialEq`;
+the corrected fixture matches exact integer variants rather than changing
+runtime equality. That failed log is retained separately.
+
+Miri passes **19 model executions**: the two new tests with and without JIT,
+four existing view tests, six aliased/foreign/panicking upvalue-read tests and
+five terminal/liveness models. The packed upvalue sibling-loan test additionally
+passes once under default Stacked Borrows and once under Tree Borrows. These
+are Rust alias/model checks, not generated native execution under Miri.
+
+Fresh baseline/candidate opt3 benchmark and both feature-cost profiles have
+exact-link symbol companions; their program headers and allocated sections
+match the corresponding timing images. Eight warm upvalue software profiles
+verify results and zero native work:
+
+| Profile | Build | Baseline instructions | Candidate instructions |
+| --- | --- | ---: | ---: |
+| Shipping | No feature | 79,372,477 | 78,922,472 |
+| Shipping | JIT-Off | 89,176,738 | 88,676,733 |
+| Speed | No feature | 72,523,479 | 71,473,434 |
+| Speed | JIT-Off | 81,879,248 | 81,479,651 |
+
+Shipping JIT-Off view-constructor self-work falls **4,600,230 -> 4,500,225**
+instructions and loses **100,005 stores**. VM self-work falls by **150,000**
+instructions in shipping and **250,005** in speed; the executor and statistics
+destructor do not become cheaper in these profiles. Whole totals include other
+functions and minor allocator variation. Profiling overlapped owned correctness
+validation; none of its elapsed durations is performance evidence. Fresh native
+and compiled-Off timing waits until all owned validation/profiling is terminal.
+No acceptance gate is closed by the smaller representation or instruction counts.
+
 The bounded-verifier baseline at `b9e9e9f` completed
 `make jit-test JIT_MODE=force`: **1,936 passed, zero failed, 18 ignored,
 87 summaries**. This includes the explicitly selected preferred-entry tests;
