@@ -16,22 +16,22 @@ The bounded-verifier baseline at `b9e9e9f` completed
 87 summaries**. This includes the explicitly selected preferred-entry tests;
 ordinary production selection was still unchanged. The full-suite log is
 `preferred-entry-bounded-force.log` in the ignored short-slice evidence directory.
-A fresh production benchmark and both feature-cost profiles are being frozen
+A fresh production benchmark and both feature-cost profiles were frozen
 before trying automatic guarded-entry selection. No production speedup or
 release acceptance follows from the test result.
 
 #### Automatic preferred-entry production trial — measured and withdrawn
 
-Fresh baseline images are frozen under `preferred-production/baseline` before
-editing the selector. Its optimized benchmark SHA256 is
+Fresh baseline images were frozen under `preferred-production/baseline` before
+editing the selector. The optimized baseline benchmark SHA256 is
 `470a17c68355fe65fba764d417b317c555533b3b09b57467e2a1da6e99e5d610`,
 different from the older prepared-identity baseline; the older image is not
 substituted for this control. Shipping and speed feature-cost controls were
 also rebuilt, with source manifests verified after all builds.
 
-The working trial enables the bounded rewrite for eligible ordinary lowering.
-Projected, rooted, scoped and alternate test-only lowerings are excluded;
-ineligible sources keep their original dispatcher. The independent clone/display
+The trial enabled the bounded rewrite for eligible ordinary lowering.
+Projected, rooted, scoped and alternate test-only lowerings were excluded;
+ineligible sources kept their original dispatcher. The independent clone/display
 oracle and native test module remain test-only. There is no new production
 runtime field, ABI, persistent selector state or callback-spanning value cache.
 
@@ -98,6 +98,17 @@ binary timing predicted a production improvement. The frozen candidate patch,
 all successful/failed runs and audits remain under `preferred-production` in
 the ignored short-slice evidence directory. No original performance threshold
 was lowered; performance/resource/platform/release acceptance remains open.
+
+After withdrawal, **10 model, six native and three runtime tests** pass
+(two diagnostic tests ignored), as do formatting and all-feature checking.
+The retained test-only controls are committed in `b3a6f2b`; rejection evidence
+is committed in `e0e931e`. A fresh optimized ordinary production build has SHA256
+`ef4b37355968fddc8606786afdabe8d8b4012910ffac6cefccf319cad6c4b92b`.
+It is not byte-identical to the earlier frozen baseline, so a separate
+post-withdrawal **4,536-execution** paired screen checks the actual rebuilt
+image. All execution-counter and resource fields match controls. CPU0 callback
+gates still fail both rounds; CPU16 passes both narrowly (**0.8335 / 0.8370**).
+That short restoration check is not a claim of a new speedup or full acceptance.
 
 #### Preferred call-resumption dispatcher — test-only prototype
 
