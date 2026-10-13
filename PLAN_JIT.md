@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-13
 
-#### Register-view base redundancy — runtime trial, timing pending
+#### Register-view base redundancy — measured and withdrawn
 
 All three `LuaRegisters` constructors set `base` to the length of `upper_stack`:
 the physical and projection constructors use `split_at_mut(base)`, while the
@@ -30,7 +30,7 @@ redundant boundary loads, not a measured speedup. Freeze current production
 and no-feature controls, verify split/close/capture semantics and footprint,
 then compare exact-image profiles and both native/feature-cost timing gates.
 
-The duplicate word is now removed. Dedicated native tests verify **64-byte
+The trial removed the duplicate word. Dedicated native tests verified **64-byte
 no-feature / 80-byte JIT views on x86-64**, every split boundary from zero through
 the complete stack, capture read/write hook coordinates, capture reuse and
 closing, close-list order, and unchanged PC/fuel. Focused verification passes
@@ -65,6 +65,46 @@ functions and minor allocator variation. Profiling overlapped owned correctness
 validation; none of its elapsed durations is performance evidence. Fresh native
 and compiled-Off timing waits until all owned validation/profiling is terminal.
 No acceptance gate is closed by the smaller representation or instruction counts.
+
+The trial was committed as `8aa360f`. Full no-feature/documentation/Force
+validation completed **2,395 executions / 174 summaries**, zero failures and
+20 ignored tests. Two native screens then completed **47,952 measured
+executions** (21 and 201 samples, two CPUs, two outer orders, ordinary-A /
+candidate / ordinary-B). All native execution-counter/resource comparisons
+match exactly. Two feature-cost campaigns add **362,880 measured workload
+iterations** across both profiles, CPUs and three arms. All owned builds,
+tests and instruction profiles were terminal before timing. Original thresholds,
+all raw samples and external-load telemetry are retained. All eight software
+profiles also pass independent exclusive-self-count audits and artifact checks.
+
+The elapsed results reject the representation change:
+
+- Native upvalue time is worse in **seven of eight** comparisons. Sustained
+  CPU16 control/candidate ratios are **0.979017 / 0.975687**, with same-image
+  placebos **0.997168 / 0.998958**. CPU0 native allocation ratios in that repeat
+  are **0.981684 / 0.973410**.
+- CPU0 callbacks improve around **1.2–1.6%** in the sustained screen, but still
+  fail their original performance gate. This does not offset the other losses.
+- Shipping CPU16 upvalue cost ratios appear better, around **1.12** rather than
+  **1.23**, but direct JIT-Off timings are essentially unchanged. The four
+  direct no-feature control/candidate ratios are **0.915470 / 0.909728** and
+  **0.908608 / 0.911847**: the interpreter-only control gets about **9–10% slower**.
+  A lower relative overhead caused by slowing the control is not an overhead fix.
+- Speed CPU16 table JIT-Off ratios are **0.975708 / 0.980819**, then
+  **0.953655 / 0.949961**. Some other no-feature cases get faster; those mixed
+  changes and co-moving outliers are preserved rather than pooled into a gain.
+- Candidate feature-cost failures total **20/72**, then **16/72**, versus
+  controls **22/72 and 21/72**, then **18/72 and 16/72**. Aggregate counts alone
+  conceal the slower controls and do not establish a generally faster runtime.
+
+**Decision:** withdraw duplicate-base removal. Preserve the independent
+split/capture/close-coordinate regression; remove the candidate-only footprint
+assertion with the layout it described. Its module declaration moves inside the
+existing test module, leaving production `thread.rs` identical to `d13a157`
+instead of shifting production panic-location metadata for a test-only addition.
+The compact-layout patch, exact images, profiles and repeated timing evidence
+remain under the ignored `register-base` directory. The full goal remains open;
+this is a rejected performance trial, not a fix for the original regressions.
 
 The bounded-verifier baseline at `b9e9e9f` completed
 `make jit-test JIT_MODE=force`: **1,936 passed, zero failed, 18 ignored,
