@@ -102,6 +102,18 @@ all profiles and source/binary integrity checks pass. The local audit's initial
 Perl capture-variable error is retained in its first log; its corrected rerun
 passes the independent self-total checks for all six profiles.
 
+The test-only elapsed harness now reuses the existing three-arm timing runner
+with an explicit `preferred_entry` experiment rather than mislabeling it as a
+strided transport. It preserves fresh-process warmups, all six arm orders,
+two ordinary controls per candidate, per-window contention telemetry and
+before/after binary/source/tool integrity checks. The older seven-workload
+strided protocol remains supported. Audit fixtures pass the legacy protocol,
+both six-order experiment scopes and 26 malformed-screen refusals; three
+preferred runtime tests, formatting and all-feature checking pass. Dedicated
+Make build/run/audit targets freeze the timing image and label this callback-only
+test-image screen as **not release acceptance**. Timing results remain to be
+collected and audited before any elapsed-improvement claim.
+
 #### Prepared-key-only identity comparison — improvement with a rejected cost
 
 The earlier general string-key shortcut changed interpreter lookup. This trial

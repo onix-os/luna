@@ -28,7 +28,13 @@ my ($cpu) = $config =~ /^cpu=(\d+)$/m;
 my ($windows) = $config =~ /^windows=(\d+)$/m;
 die "invalid configuration\n" unless defined $cpu && defined $windows && $windows >= 3 && $windows <= 1000;
 die "missing final verification\n" unless slurp("$directory/verification-after.log") =~ /: OK\n/;
-my @cases = qw(integer_loop float_loop array_table closure_upvalue polymorphic_metamethod rust_callbacks allocation_gc);
+my ($experiment) = $config =~ /^experiment=(.*)$/m;
+$experiment //= 'strided';
+die "unknown timing experiment\n" unless $experiment eq 'strided' || $experiment eq 'preferred_entry';
+my $field = $experiment eq 'strided' ? 'strided' : 'preferred';
+my @cases = $experiment eq 'strided'
+    ? qw(integer_loop float_loop array_table closure_upvalue polymorphic_metamethod rust_callbacks allocation_gc)
+    : ('rust_callbacks');
 my @orders = ([qw(a candidate b)], [qw(candidate b a)], [qw(b a candidate)],
     [qw(b candidate a)], [qw(candidate a b)], [qw(a b candidate)]);
 my $expected_order = '';
@@ -56,7 +62,7 @@ for my $case (@cases) {
             my @lines = $log =~ /^(TIMING_V1 .*)$/mg;
             die "invalid record count $path\n" unless @lines == 1;
             my $mode = $label eq 'candidate' ? 'true' : 'false';
-            $lines[0] =~ /^TIMING_V1 case=\Q$case\E strided=$mode elapsed_ns=([1-9]\d*) counters=\[([\d, ]+)\] code_bytes=(\d+) metadata_bytes=(\d+) metadata_peak_bytes=(\d+) snapshot_peak_bytes=(\d+)$/
+            $lines[0] =~ /^TIMING_V1 case=\Q$case\E \Q$field\E=$mode elapsed_ns=([1-9]\d*) counters=\[([\d, ]+)\] code_bytes=(\d+) metadata_bytes=(\d+) metadata_peak_bytes=(\d+) snapshot_peak_bytes=(\d+)$/
                 or die "invalid record $path\n";
             my ($ns, $raw, $code, $metadata, $peak, $snapshot) = ($1, $2, $3, $4, $5, $6);
             my @counters = split /,\s*/, $raw;
@@ -86,5 +92,6 @@ for my $case (@cases) {
 }
 open my $output, '>', "$directory/audit.json" or die "$!\n";
 print $output JSON::PP->new->canonical->pretty->encode({ cpu => 0 + $cpu, windows => 0 + $windows,
+    experiment => $experiment,
     scope => 'warm execution only; same test image; external contention retained',
     performance_acceptance => JSON::PP::false, reports => \@reports });

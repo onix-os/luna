@@ -1,10 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
-test "$#" -eq 4
+(( $# == 4 || $# == 5 ))
 image=$(realpath "$1")
 out=$2
 cpu=$3
 windows=$4
+experiment=${5:-strided}
+case $experiment in
+    strided)
+        cases=(integer_loop float_loop array_table closure_upvalue polymorphic_metamethod rust_callbacks allocation_gc)
+        case_variable=LUNA_STRIDED_CASE
+        mode_variable=LUNA_STRIDED
+        field=strided
+        test_name=jit::payload_runtime_tests::strided_profile::timing::time_strided_runtime
+        ;;
+    preferred_entry)
+        cases=(rust_callbacks)
+        case_variable=LUNA_PREFERRED_CASE
+        mode_variable=LUNA_PREFERRED_ENTRY
+        field=preferred
+        test_name=jit::payload_runtime_tests::preferred_entry::timing::time_preferred_runtime
+        ;;
+    *) echo 'unknown timing experiment' >&2; exit 2;;
+esac
 [[ $cpu =~ ^[0-9]+$ && $windows =~ ^[0-9]+$ ]]
 (( windows >= 3 && windows <= 1000 ))
 test -x "$image/test-binary"
@@ -30,8 +48,7 @@ verify > "$out/verification-before.log"
 { awk '/^model name/{print; exit}' /proc/cpuinfo; lscpu -e=CPU,CORE,SOCKET,NODE,ONLINE,MAXMHZ,MINMHZ; } > "$out/host-topology"
 sha256sum "$image/test-binary" > "$out/binary.sha256"
 sha256sum "$0" "${BASH_SOURCE[0]%/*}/strided_timing_audit.pl" > "$out/tools.sha256"
-printf 'protocol=1\ncpu=%s\nwindows=%s\nimage=%s\nwarmups=2\nmeasured_executions=1\nscope=warm execution only; test image; not release acceptance\n' "$cpu" "$windows" "$image" > "$out/configuration"
-cases=(integer_loop float_loop array_table closure_upvalue polymorphic_metamethod rust_callbacks allocation_gc)
+printf 'protocol=1\nexperiment=%s\ncpu=%s\nwindows=%s\nimage=%s\nwarmups=2\nmeasured_executions=1\nscope=warm execution only; test image; not release acceptance\n' "$experiment" "$cpu" "$windows" "$image" > "$out/configuration"
 for (( window=0; window<windows; window++ )); do
     telemetry > "$out/$window-before.telemetry"
     for (( position=0; position<${#cases[@]}; position++ )); do
@@ -49,11 +66,11 @@ for (( window=0; window<windows; window++ )); do
             test "$label" != candidate || mode=1
             log="$out/$window-$shape-$label.log"
             printf '%s %s %s\n' "$window" "$shape" "$label" >> "$out/order.log"
-            LUNA_STRIDED_CASE=$shape LUNA_STRIDED=$mode taskset -c "$cpu" \
-                "$image/test-binary" jit::payload_runtime_tests::strided_profile::timing::time_strided_runtime \
+            env "$case_variable=$shape" "$mode_variable=$mode" taskset -c "$cpu" \
+                "$image/test-binary" "$test_name" \
                 --ignored --exact --nocapture --test-threads=1 > "$log" 2>&1
             grep -Fq 'test result: ok. 1 passed; 0 failed' "$log"
-            grep -Eq "^TIMING_V1 case=$shape strided=$([[ $mode == 1 ]] && echo true || echo false) elapsed_ns=[1-9][0-9]* " "$log"
+            grep -Eq "^TIMING_V1 case=$shape $field=$([[ $mode == 1 ]] && echo true || echo false) elapsed_ns=[1-9][0-9]* " "$log"
         done
     done
     telemetry > "$out/$window-after.telemetry"
