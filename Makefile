@@ -2305,7 +2305,7 @@ jit-preferred-entry-miri:
 
 .PHONY: jit-preferred-entry-native
 jit-preferred-entry-native:
-	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::preferred::native | awk '/^test result: ok[.] 5 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
+	@set -o pipefail; $(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) jit::entry_flow::preferred::native | awk '/^test result: ok[.] 6 passed; 0 failed;/ { valid=1 } { print } END { exit !valid }'
 
 .PHONY: jit-preferred-entry-runtime
 jit-preferred-entry-runtime:

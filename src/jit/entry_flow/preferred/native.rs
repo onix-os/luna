@@ -46,8 +46,10 @@ fn required_route_refuses_ineligible_sources_without_retained_resources() {
 fn native_route_matches_all_entries_budgets_and_scalar_tags() {
     let source = super::tests::source();
     source.verify().unwrap();
-    let ordinary = compile(&source, Failure::None);
+    let ordinary = compile(&source, Failure::DisablePreferredEntry);
     let preferred = compile(&source, Failure::RequirePreferredEntry);
+    assert!(!ordinary.preferred_entry);
+    assert!(preferred.preferred_entry);
     assert_eq!(ordinary.entries, preferred.entries);
     let values = [
         Slot {
@@ -159,6 +161,24 @@ fn native_route_matches_all_entries_budgets_and_scalar_tags() {
 }
 
 #[test]
+fn default_and_disabled_selection_keep_ordinary_dispatch() {
+    for eligible in [true, false] {
+        let mut source = super::tests::source();
+        if !eligible {
+            source.operations[2] = source.operations[5];
+        }
+        let code = compile(&source, Failure::None);
+        assert!(!code.preferred_entry);
+        let ordinary = compile(&source, Failure::DisablePreferredEntry);
+        assert!(!ordinary.preferred_entry);
+        assert_eq!(code.entries, ordinary.entries);
+        if eligible {
+            assert!(compile(&source, Failure::RequirePreferredEntry).preferred_entry);
+        }
+    }
+}
+
+#[test]
 fn preferred_compiler_workspace_boundary_refuses_and_recovers_without_leaks() {
     use std::sync::atomic::Ordering;
     crate::Lua::empty().enter(|ctx| {
@@ -167,7 +187,7 @@ fn preferred_compiler_workspace_boundary_refuses_and_recovers_without_leaks() {
             "local total=0 for i=1,3 do host_increment(i); total=target end return total",
         ] {
             let closure = crate::Closure::load(ctx, None, script.as_bytes()).unwrap();
-            let attempt = |limit, accepted| {
+            let attempt = |limit, accepted, failure| {
                 let workspace = Ledger::new(limit);
                 let metadata = Ledger::new(2 << 20);
                 let memory = MappingCounter::new(Ledger::new(usize::MAX));
@@ -184,7 +204,7 @@ fn preferred_compiler_workspace_boundary_refuses_and_recovers_without_leaks() {
                     8 << 20,
                     BudgetAllocator(metadata.clone()),
                     work::Limits::from(&JitConfig::default()),
-                    Failure::RequirePreferredEntry,
+                    failure,
                 );
                 if accepted {
                     assert!(result.is_ok(), "{:?}", result.as_ref().err());
@@ -202,10 +222,12 @@ fn preferred_compiler_workspace_boundary_refuses_and_recovers_without_leaks() {
                 assert!(workspace.peak() <= limit);
                 workspace.peak()
             };
-            let peak = attempt(8 << 20, true);
-            assert!(peak > 0);
-            attempt(peak - 1, false);
-            assert_eq!(attempt(peak, true), peak);
+            for failure in [Failure::None, Failure::RequirePreferredEntry] {
+                let peak = attempt(8 << 20, true, failure);
+                assert!(peak > 0);
+                attempt(peak - 1, false, failure);
+                assert_eq!(attempt(peak, true, failure), peak);
+            }
         }
     });
 }

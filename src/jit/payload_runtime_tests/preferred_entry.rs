@@ -20,7 +20,7 @@ fn configured(mode: JitMode, preferred: bool, references: bool) -> Lua {
         ctx.jit().0.borrow_mut().memory_failure = if preferred {
             backend::Failure::RequirePreferredEntry
         } else {
-            backend::Failure::None
+            backend::Failure::DisablePreferredEntry
         };
         let callback = Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let value: i64 = stack.consume(ctx)?;
@@ -55,14 +55,25 @@ fn preferred_runtime_preserves_callback_mutation_fuel_and_gc() {
                 configured(JitMode::Off, false, references),
                 configured(JitMode::Auto, false, references),
                 configured(JitMode::Auto, true, references),
+                {
+                    let mut lua = configured(JitMode::Auto, true, references);
+                    lua.enter(|ctx| ctx.jit().0.borrow_mut().memory_failure = backend::Failure::None);
+                    lua
+                },
             ];
             let executors = states.each_mut().map(|lua| source(lua, script));
             let mut finished = false;
+            let mut default_installed = false;
             for turn in 0..4096 {
                 for lua in &mut states[1..] {
                     lua.prepare_jit().unwrap_or_else(|error| panic!("{script} initial={initial} turn={turn}: {error:?}"));
                     assert_eq!(lua.jit_stats().compilation_failures, 0);
                 }
+                default_installed |= states[3].enter(|ctx| {
+                    let manager = ctx.jit().0.borrow();
+                    assert!(manager.code.values().all(|cached| !cached.code.preferred_entry));
+                    !manager.code.is_empty()
+                });
                 let budget = if turn == 0 { initial } else { [-1, 0, 1, 63, 64, 65][turn % 6] };
                 let reports: Vec<_> = states.iter_mut().zip(&executors).map(|(lua, executor)| {
                     lua.enter(|ctx| {
@@ -75,7 +86,9 @@ fn preferred_runtime_preserves_callback_mutation_fuel_and_gc() {
                 }).collect();
                 assert_eq!(reports[0], reports[1], "initial={initial} turn={turn}");
                 assert_eq!(reports[1], reports[2], "initial={initial} turn={turn}");
+                assert_eq!(reports[2], reports[3], "initial={initial} turn={turn}");
                 assert_eq!(counters(states[1].jit_stats()), counters(states[2].jit_stats()));
+                assert_eq!(counters(states[2].jit_stats()), counters(states[3].jit_stats()));
                 assert_eq!(states[0].jit_stats().total_dispatches, states[2].jit_stats().total_dispatches);
                 if reports[2].0 { finished = true; break; }
                 if turn % 11 == 0 {
@@ -88,6 +101,8 @@ fn preferred_runtime_preserves_callback_mutation_fuel_and_gc() {
             }
             assert!(states[2].jit_stats().native_instructions > 0);
             assert_eq!(states[2].jit_stats().installed_regions, 1);
+            assert!(default_installed);
+            assert_eq!(states[3].jit_stats().installed_regions, 1);
             for lua in &mut states {
                 lua.clear_jit_cache();
                 assert_eq!(lua.jit_stats().code_bytes, 0);
