@@ -123,6 +123,51 @@ environment/test selection and the final audit. They fail against the original
 bug and pass after restoration. Timing restarts with a separately frozen image
 directory and fresh output paths; no partial sample is silently discarded.
 
+Six corrected screens now complete **846 three-arm windows / 2,538 measured
+executions**, plus the separately retained initial partial sample. Both CPUs
+run 21-window screens, 201-window screens and independent 201-window repeats.
+Each fresh process executes two warmups and one checked measurement from the
+same optimized test image. No owned build, test or profiler overlaps timing.
+All six order/telemetry/source/binary/tool audits pass. An independent campaign
+audit rereads every raw record, recomputes every paired ratio, and finds zero
+25-counter or reported-resource mismatches across the completed screens.
+
+Ratios above one favor the preferred route; the placebo compares the two
+ordinary controls:
+
+| CPU | Windows | Ordinary / preferred median | Ordinary / ordinary median |
+| --- | ---: | ---: | ---: |
+| 0 | 21 | 1.004968 | 0.994888 |
+| 16 | 21 | 1.003487 | 0.973911 |
+| 16 | 201 | 1.008847 | 1.002515 |
+| 0 | 201 | 0.852879 | 1.007886 |
+| 0 | 201 repeat | 1.011463 | 0.996873 |
+| 16 | 201 repeat | 1.011697 | 1.001854 |
+
+CPU16's long-screen candidate-ratio interquartile ranges are **0.976158–1.028874**
+and **0.994293–1.037917**; its placebo ranges are **0.978024–1.030744** and
+**0.978203–1.025576**. CPU0's first long screen is much less stable: candidate
+**0.615081–1.735262**, placebo **0.532456–1.808353**. The repeat narrows to
+candidate **0.979841–1.034836**, placebo **0.972024–1.027371**. All outliers and
+external-load observations remain included; there is no causal hardware
+attribution for the adverse CPU0 screen and no waiver for it.
+
+This provides a small repeated CPU16 elapsed signal, **not release acceptance
+or a solution to the original callback/compiled-Off regressions**. It is one
+callback workload in an opt3 test image, not a shipping full-workload or
+feature-disabled comparison. Reported mapping/metadata/snapshot fields agree,
+but native requested size differs as already recorded, and the clone/display
+oracle is still unbounded test machinery. Keep this route test-only. Any next
+production trial must first replace that oracle with bounded source/entry-flow
+verification, then run its own full correctness/resource and unchanged native
+and compiled-Off gates; a one-percent diagnostic gain is not a substitute.
+
+Evidence: `preferred-entry-timing-image-v2` (binary SHA-256
+`8054d79806d65740ba2c6ce6adae8180dc36303c2cf0fdeca71a0a1410ad45af`),
+all six `preferred-entry-timing-v2-*` screen directories and
+`preferred-entry-timing-audit.json`. Production source/default selection and the
+shipping benchmark image remain unchanged.
+
 #### Prepared-key-only identity comparison — improvement with a rejected cost
 
 The earlier general string-key shortcut changed interpreter lookup. This trial
