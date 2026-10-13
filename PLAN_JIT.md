@@ -11,6 +11,37 @@
 
 ### Progress snapshot — 2026-10-13
 
+#### Call-site paired-policy query — unaccepted trial
+
+Exact restored shipping disassembly already branches directly from a single
+inactive-dispatch test to opcode decode. There is no redundant inactive switch
+to remove. A separate per-slice `call_pairs_enabled` query still runs on Return,
+TailCall, budget exits and other slices without calls. The trial moves that
+unchanged query into the two existing Call observation sites, both of which end
+the VM slice. It preserves the slice's hook flag and observation ordering before
+`call_function`, and introduces no extra cached policy, manager borrow, pointer,
+value or lifetime across callbacks. This is not the previously rejected
+native-active flag or combined-policy snapshot experiment.
+
+Independent test `bf2bc90` passes on the unchanged runtime and the candidate:
+48 combinations of Off/Auto, prepared/unprepared code, enabled/disabled pair
+state, real debug hooks and fuel budgets 1/64/65,536. It checks exactly seven
+eligible call observations, zero in refused configurations, the result, hook
+execution, collection between steps, and native work for prepared unhooked
+large-budget runs. `make jit-call-observation` exposes this regression.
+Candidate focused verification passes **58 executions / 10 summaries**, plus
+formatting and all-feature checking. Timing acceptance remains unproven.
+
+The first baseline fixture used a count-one debug hook and failed to finish
+within 10,000 steps before any runtime edit. The passing policy fixture uses
+interval seven. The count-one progress failure is a separate unresolved
+baseline finding, not a fixed behavior or evidence against this candidate;
+its failing log is retained. Full debug/release acceptance must not overlook it.
+
+Fresh baseline/candidate images and evidence live under the ignored
+`target/jit-evidence/short-slice-performance/call-site-policy` prefix.
+Original performance thresholds and full-plan scope remain unchanged.
+
 #### Register-view base redundancy — measured and withdrawn
 
 All three `LuaRegisters` constructors set `base` to the length of `upper_stack`:
