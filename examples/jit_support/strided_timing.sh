@@ -11,14 +11,14 @@ case $experiment in
         cases=(integer_loop float_loop array_table closure_upvalue polymorphic_metamethod rust_callbacks allocation_gc)
         case_variable=LUNA_STRIDED_CASE
         mode_variable=LUNA_STRIDED
-        field=strided
+        record_field=strided
         test_name=jit::payload_runtime_tests::strided_profile::timing::time_strided_runtime
         ;;
     preferred_entry)
         cases=(rust_callbacks)
         case_variable=LUNA_PREFERRED_CASE
         mode_variable=LUNA_PREFERRED_ENTRY
-        field=preferred
+        record_field=preferred
         test_name=jit::payload_runtime_tests::preferred_entry::timing::time_preferred_runtime
         ;;
     *) echo 'unknown timing experiment' >&2; exit 2;;
@@ -70,7 +70,7 @@ for (( window=0; window<windows; window++ )); do
                 "$image/test-binary" "$test_name" \
                 --ignored --exact --nocapture --test-threads=1 > "$log" 2>&1
             grep -Fq 'test result: ok. 1 passed; 0 failed' "$log"
-            grep -Eq "^TIMING_V1 case=$shape $field=$([[ $mode == 1 ]] && echo true || echo false) elapsed_ns=[1-9][0-9]* " "$log"
+            grep -Eq "^TIMING_V1 case=$shape $record_field=$([[ $mode == 1 ]] && echo true || echo false) elapsed_ns=[1-9][0-9]* " "$log"
         done
     done
     telemetry > "$out/$window-after.telemetry"

@@ -103,3 +103,55 @@ for my $experiment (qw(strided preferred_entry)) {
     }
 }
 print "Timing audit: legacy and both six-order experiments; 26 malformed screens refused\n";
+
+my $image = "$root/runner-image";
+my $bin = "$root/runner-bin";
+mkdir $image or die $!;
+mkdir $bin or die $!;
+write_file("$bin/taskset", "#!$^X\n" . <<'TASKSET');
+use strict;
+use warnings;
+die 'affinity option' unless shift(@ARGV) eq '-c';
+die 'affinity CPU' unless shift(@ARGV) =~ /^\d+$/;
+exec @ARGV;
+die $!;
+TASKSET
+write_file("$image/test-binary", "#!$^X\n" . <<'BINARY');
+use strict;
+use warnings;
+my $preferred = exists $ENV{LUNA_PREFERRED_ENTRY};
+my $case = $ENV{$preferred ? 'LUNA_PREFERRED_CASE' : 'LUNA_STRIDED_CASE'};
+my $mode = $ENV{$preferred ? 'LUNA_PREFERRED_ENTRY' : 'LUNA_STRIDED'};
+my $test = $preferred ? 'preferred_entry::timing::time_preferred_runtime' : 'strided_profile::timing::time_strided_runtime';
+die 'test selection' unless $ARGV[0] eq "jit::payload_runtime_tests::$test";
+die 'case and mode required' unless defined $case && defined $mode && $mode =~ /^[01]$/;
+my $field = $preferred ? 'preferred' : 'strided';
+my $selected = $mode ? 'true' : 'false';
+my $ns = $mode ? 500 : 1000;
+my $counters = join ', ', (1) x 25;
+print "TIMING_V1 case=$case $field=$selected elapsed_ns=$ns counters=[$counters] code_bytes=4096 metadata_bytes=16 metadata_peak_bytes=32 snapshot_peak_bytes=64\n";
+print "test result: ok. 1 passed; 0 failed;\n";
+BINARY
+chmod 0755, "$bin/taskset", "$image/test-binary" or die $!;
+open my $checksums, '-|', 'sha256sum', "$image/test-binary" or die $!;
+my $manifest = do { local $/; <$checksums> };
+close $checksums or die 'checksum failure';
+write_file("$image/binary.sha256", $manifest);
+write_file("$image/source.sha256", $manifest);
+for my $experiment (qw(strided preferred_entry)) {
+    my $out = "$root/runner-$experiment";
+    my $pid = fork();
+    die $! unless defined $pid;
+    if (!$pid) {
+        local $ENV{PATH} = "$bin:$ENV{PATH}";
+        delete @ENV{qw(LUNA_STRIDED_CASE LUNA_STRIDED LUNA_PREFERRED_CASE LUNA_PREFERRED_ENTRY)};
+        open STDOUT, '>', "$root/runner-$experiment.stdout" or die $!;
+        open STDERR, '>', "$root/runner-$experiment.stderr" or die $!;
+        exec 'bash', 'examples/jit_support/strided_timing.sh', $image, $out, 0, 3, $experiment;
+        die $!;
+    }
+    waitpid($pid, 0);
+    die "runner failed $experiment; inspect $root" unless $? == 0;
+    die "runner output audit failed $experiment" unless audit($out);
+}
+print "Timing runner: both experiment selectors, telemetry and record checks passed with synthetic workers\n";

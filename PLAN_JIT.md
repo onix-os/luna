@@ -114,6 +114,15 @@ Make build/run/audit targets freeze the timing image and label this callback-onl
 test-image screen as **not release acceptance**. Timing results remain to be
 collected and audited before any elapsed-improvement claim.
 
+The first timing launch stopped after one valid ordinary sample: the shell
+telemetry loop overwrote the newly added record-field selector, so validation
+incorrectly refused that log. The partial directory is retained, not treated as
+a completed comparison. A distinct record selector fixes the bug; end-to-end
+runner tests with synthetic workers now exercise both experiments, telemetry,
+environment/test selection and the final audit. They fail against the original
+bug and pass after restoration. Timing restarts with a separately frozen image
+directory and fresh output paths; no partial sample is silently discarded.
+
 #### Prepared-key-only identity comparison — improvement with a rejected cost
 
 The earlier general string-key shortcut changed interpreter lookup. This trial
