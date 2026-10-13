@@ -106,6 +106,15 @@ The compact-layout patch, exact images, profiles and repeated timing evidence
 remain under the ignored `register-base` directory. The full goal remains open;
 this is a rejected performance trial, not a fix for the original regressions.
 
+Post-withdrawal focused verification passes **83 executions / 15 summaries**,
+zero failures or ignored tests, plus formatting and all-feature checking.
+The retained split/capture/close regression passes Miri once without JIT and
+once with JIT. All five freshly rebuilt restored executables are byte-identical
+to their pre-trial controls: the native benchmark and shipping/speed no-feature
+and JIT-Off images. The retained test therefore changes none of these measured
+production binaries. The full-suite counts above describe the rejected trial,
+not a new full-suite run on the restored source.
+
 The bounded-verifier baseline at `b9e9e9f` completed
 `make jit-test JIT_MODE=force`: **1,936 passed, zero failed, 18 ignored,
 87 summaries**. This includes the explicitly selected preferred-entry tests;
