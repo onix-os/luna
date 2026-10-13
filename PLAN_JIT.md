@@ -11,7 +11,7 @@
 
 ### Progress snapshot — 2026-10-13
 
-#### Call-site paired-policy query — unaccepted trial
+#### Call-site paired-policy query — first form withdrawn
 
 Exact restored shipping disassembly already branches directly from a single
 inactive-dispatch test to opcode decode. There is no redundant inactive switch
@@ -41,6 +41,42 @@ its failing log is retained. Full debug/release acceptance must not overlook it.
 Fresh baseline/candidate images and evidence live under the ignored
 `target/jit-evidence/short-slice-performance/call-site-policy` prefix.
 Original performance thresholds and full-plan scope remain unchanged.
+
+The first form (`8e489e8`) completes **4,536 native measured executions** with
+zero execution-counter/resource mismatches and **181,440 feature-cost workload
+iterations**. No owned build, test or profile overlaps elapsed measurements.
+CPU0/16, both outer orders, paired modes, same-image A/B controls, every raw
+sample and external contention telemetry remain intact.
+
+Shipping upvalue software work falls **89,176,738 -> 88,926,708 instructions**,
+entirely VM self-work (**250,030 fewer instructions**). Shipping CPU16 direct
+JIT-Off control/candidate timing ratios improve **1.010454 / 1.013767**, but
+cost ratios remain **1.2111 / 1.2142**, failing the original 1.05 ceiling.
+The first form also introduces losses:
+
+- Speed CPU0 float JIT-Off control/candidate ratios **0.914974 / 0.922108**,
+  with same-image placebos **0.999868 / 1.002984**. One float cost check newly
+  fails at **1.0590**; the other narrowly passes at **1.0482**.
+- Speed CPU0 integer ratios **0.936984 / 0.934158**, and CPU16 upvalue
+  **0.975616 / 0.977622**, with upvalue cost ratios **1.1439 / 1.1310**.
+- Native callbacks are slower in all four comparisons: CPU0 **0.992979 /
+  0.991472**, CPU16 **0.986377 / 0.993650**. All four callback gates fail.
+- Candidate cost failures total **18/72**, versus controls **19/72 and 18/72**.
+  Similar failure counts conceal individual regressions. Shipping CPU0's second
+  window has major co-moving timing changes; retain it without causal claims.
+
+Post-timing exact-image profiles show speed float JIT-Off work **20,204,995 ->
+20,783,330 instructions**, all **578,335 extra** in the VM; no-feature work is
+unchanged at **20,325,225**. Shipping integer JIT-Off work instead falls
+**19,540,720 -> 19,521,940**, despite its initial CPU0 timing loss. All twelve
+profiles pass exclusive event-count audits. Instruction counts do not establish
+a hardware cause or performance acceptance. Commit `b48d575` restores the VM
+source exactly to `7329363`; the independent observation regression remains.
+
+A possible refinement must avoid extending `hook_enabled` through the opcode
+loop: the existing `Dispatch::Hooked` state already expresses the same choice,
+and a compiled dispatch cannot be hooked. This is an unverified code-generation
+hypothesis, not a claim that an extra live flag caused the measured losses.
 
 #### Register-view base redundancy — measured and withdrawn
 
