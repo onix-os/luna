@@ -1,5 +1,20 @@
 use super::*;
 
+#[cfg(feature = "jit")]
+pub(crate) fn collision_string<'gc>(
+    mc: &Mutation<'gc>,
+    bytes: &'static [u8],
+    hash: u64,
+) -> String<'gc> {
+    String(Gc::new(
+        mc,
+        StringInner {
+            hash,
+            buffer: Buffer::Indirect(bytes),
+        },
+    ))
+}
+
 #[derive(Copy, Clone)]
 enum ExtendedBuffer {
     Indirect(*const [u8]),

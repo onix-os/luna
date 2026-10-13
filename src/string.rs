@@ -457,4 +457,4 @@ mod tests {
 }
 
 #[cfg(test)]
-mod key_hash_tests;
+pub(crate) mod key_hash_tests;

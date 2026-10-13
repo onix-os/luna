@@ -2,6 +2,7 @@ use super::*;
 use crate::{Closure, Executor, Fuel, Lua, StashedExecutor};
 
 mod field_memory;
+mod preferred_entry;
 mod strided_profile;
 
 fn state(mode: JitMode, payload: bool) -> Lua {

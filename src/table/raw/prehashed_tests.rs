@@ -227,6 +227,80 @@ fn prepared_hash_does_not_keep_weak_values_alive() {
     }
 }
 
+#[test]
+fn prepared_stored_hash_collisions_preserve_content_equality() {
+    use crate::string::key_hash_tests::collision_string;
+
+    fn assert_expected(actual: Value<'_>, expected: Value<'_>) {
+        match (actual, expected) {
+            (Value::Integer(a), Value::Integer(b)) => assert_eq!(a, b),
+            (Value::Boolean(a), Value::Boolean(b)) => assert_eq!(a, b),
+            (Value::Nil, Value::Nil) => {}
+            _ => panic!("collision mismatch: {actual:?} != {expected:?}"),
+        }
+    }
+
+    crate::Lua::empty().enter(|ctx| {
+        for stored_hash in [0, 1, u64::MAX] {
+            for mode in 0..4 {
+                let mut table = RawTable::new(&ctx);
+                if mode & 1 != 0 {
+                    table.make_keys_weak(&ctx);
+                }
+                if mode & 2 != 0 {
+                    table.make_values_weak(&ctx);
+                }
+                let first = collision_string(&ctx, b"present", stored_hash);
+                let second = collision_string(&ctx, b"another", stored_hash);
+                let hash = PreparedHash::new(first);
+                assert_eq!(hash.0, PreparedHash::new(second).0);
+                table.set(&ctx, first.into(), Value::Integer(17)).unwrap();
+                table
+                    .set(&ctx, second.into(), Value::Boolean(false))
+                    .unwrap();
+                for key in [first, second] {
+                    compare(&table, &ctx, key, hash);
+                }
+                for (bytes, expected) in [
+                    (&b"present"[..], Value::Integer(17)),
+                    (&b"another"[..], Value::Boolean(false)),
+                    (&b"absent!"[..], Value::Nil),
+                ] {
+                    let query = collision_string(&ctx, bytes, stored_hash);
+                    assert!(!Gc::ptr_eq(query.into_inner(), first.into_inner()));
+                    assert!(!Gc::ptr_eq(query.into_inner(), second.into_inner()));
+                    assert_eq!(query.stored_hash(), first.stored_hash());
+                    compare(&table, &ctx, query, hash);
+                    assert_expected(
+                        table.get_prepared_string(
+                            &ctx,
+                            query,
+                            PreparedStringHash::from_bits(hash.0),
+                        ),
+                        expected,
+                    );
+                }
+                table.set(&ctx, first.into(), Value::Nil).unwrap();
+                for (bytes, expected) in [
+                    (&b"present"[..], Value::Nil),
+                    (&b"another"[..], Value::Boolean(false)),
+                ] {
+                    let query = collision_string(&ctx, bytes, stored_hash);
+                    compare(&table, &ctx, query, hash);
+                    assert_expected(
+                        table.get_prepared_string(
+                            &ctx,
+                            query,
+                            PreparedStringHash::from_bits(hash.0),
+                        ),
+                        expected,
+                    );
+                }
+            }
+        }
+    });
+}
+
 #[inline(never)]
 fn profile_reads<'gc, const MODE: usize>(
     table: &RawTable<'gc>,

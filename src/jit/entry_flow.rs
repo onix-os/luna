@@ -1081,6 +1081,22 @@ mod tests {
     }
 
     fn fixture(length: usize, fault: Option<Fault>) -> Result<(), JitError> {
+        fixture_with(length, fault, |_, _, _, _, _, _, _| Ok(()))
+    }
+
+    pub(super) fn fixture_with(
+        length: usize,
+        fault: Option<Fault>,
+        inspect: impl FnOnce(
+            &mut Function,
+            &Snapshot,
+            &Paths,
+            &[Block],
+            Root,
+            Block,
+            Block,
+        ) -> Result<(), JitError>,
+    ) -> Result<(), JitError> {
         let source = snapshot(length);
         let ledger = source.operations.allocator().0.clone();
         let baseline = ledger.current();
@@ -1158,7 +1174,19 @@ mod tests {
             &cranelift_codegen::settings::Flags::new(cranelift_codegen::settings::builder()),
         )
         .unwrap();
-        let result = paths.verify(&function, &source, &headers, root, fallback, exhausted);
+        let result = paths
+            .verify(&function, &source, &headers, root, fallback, exhausted)
+            .and_then(|()| {
+                inspect(
+                    &mut function,
+                    &source,
+                    &paths,
+                    &headers,
+                    root,
+                    fallback,
+                    exhausted,
+                )
+            });
         drop(paths);
         assert_eq!(ledger.current(), baseline);
         result
@@ -1224,3 +1252,6 @@ mod tests {
     rejected!(growth_is_refused, Growth);
     rejected!(root_is_refused, Root);
 }
+
+#[cfg(test)]
+pub(super) mod preferred;

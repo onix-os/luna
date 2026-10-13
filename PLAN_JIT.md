@@ -11,6 +11,97 @@
 
 ### Progress snapshot — 2026-10-13
 
+#### Preferred call-resumption dispatcher — test-only prototype
+
+`84beab8` adds a source selector for one reachable fixed-arity Call enclosed by
+a numeric-loop backedge, with a native post-call operation. It refuses ambiguous,
+variable, unreachable, non-native and non-enclosing cases without adding storage.
+This is a source-shape heuristic, not evidence that the selected PC is hot.
+
+The test-only CLIF prototype keeps the original full-width entry bounds check,
+all operation trampolines and budget headers. Inside the valid-PC dispatcher it
+adds an equality guard leading directly to the selected existing trampoline;
+the original jump-table instruction moves to the false branch. No PC is removed,
+no body is entered past its budget guard, and no value or lease survives a new
+callback boundary. Cranelift verification and an independent restoration check
+compare the remaining original function after removing only the added routing.
+Wrong selected PC, inverted comparison, budget bypass and altered budget checks
+are explicitly refused; invalid preferred indices leave the function unchanged.
+
+The expanded model and existing entry checks pass **52 executions / three
+summaries**; all-feature checking and formatting pass. All **six new model
+tests** also pass under Miri. These are Rust/CLIF checks, **not native execution
+or performance evidence**. The restoration oracle clones/formats functions and
+is not a bounded production verifier. Native all-PC/all-budget differential
+execution, bounded compiler-resource integration and paired profiling/timing
+remain necessary before enabling this route. Shipping dispatch is unchanged.
+
+The explicit test-only backend mode now requires selection and the guarded
+rewrite; it refuses ineligible sources rather than silently testing baseline
+code. Original source, helper, entry, region and binding verification run first.
+The mode retains prepared-key helpers and the ordinary integer-loop pass, and
+checks the expanded IR counts before compilation. Its clone/display restoration
+oracle remains unbounded test machinery, not production resource acceptance.
+
+Two native tests pass: ineligible-source refusal releases tracked resources,
+and **104,104 native invocations** compare ordinary/preferred entries across all
+six source PCs, end/unknown/full-width PCs, seven budgets, scalar extremes,
+NaNs and reference sentinels. Slots and exit PC/count/reason match; zero-budget,
+unknown-PC and interpreter-only entries also have independent expected results.
+These are fragment differentials, not end-to-end Lua callback execution or a
+speed measurement. Live helper-frame/GC/mutation coverage and performance
+profiling remain open. Logs: `preferred-entry-native*.log` under the ignored
+short-slice evidence directory; the initial compile error is retained separately.
+
+Follow-up native coverage now uses real helper frames and checks reference
+identities, all four weak modes, environment rebinding, completed/declined reads
+and borrow panics, including the expected panic PC. Seven restoration/model
+tests cover the original bounds, generic table/default/index, false branch and
+initial counts, and prove repeated application refuses without mutation.
+All seven model/restoration tests also pass under Miri (194.15 seconds).
+
+Two integrated runtime tests also pass: Off/ordinary/preferred execution matches
+every fuel/interrupt boundary, counters and final results across 16 scalar or
+reference-mutating callback scenarios with interleaved GC; the unchanged frozen
+5,000-callback workload matches its expected result and all 25 execution counters.
+These dedicated fixtures use an empty Lua state: explicitly preparing a core
+state also prepares unrelated library prototypes, which the required mode
+correctly refuses. This is not an all-workload acceptance result.
+
+`make jit-preferred-entry-profile-build` and `jit-preferred-entry-profile-run`
+freeze a symbol-retaining optimized test executable and collect three ordered
+control/candidate pairs for that callback workload, including finalized native
+code and source/binary hashes. This is a diagnostic instruction profile, not the
+shipping performance or compiled-Off overhead gate. Results must be inspected
+before claiming the preferred route reduces actual work.
+
+The six optimized diagnostic runs are now complete. All three fresh-process
+pairs have exactly **10,596,104 -> 10,556,107 instructions (-0.37747%)**.
+An independent Callgrind self-cost audit sums every function back to each
+whole-profile total and attributes the entire **39,997-instruction reduction**
+to the finalized native entry (**730,160 -> 690,163**); Rust function self-work
+is unchanged. All 25 execution counters and the expected result agree across
+all six runs. Reads fall by 15,000, writes are unchanged, and indirect branches
+fall by 5,000. These are software-profile events, not hardware timing.
+
+Disassembly confirms the original full-width bound precedes the preferred-PC
+guard and generic dispatcher. Finalized native code grows **2,160 -> 2,176
+bytes**; provider-requested storage grows **2,184 -> 2,200**, while both use one
+4,096-byte mapping. Reported metadata and snapshot peaks match, but those
+counters do not account for the test-only clone/display oracle and cannot
+establish production workspace acceptance.
+
+The preferred route remains **test-only**, not a claimed regression fix.
+This small whole-workload instruction reduction cannot establish an elapsed
+benefit or close callback/compiled-Off gates. The same control profile attributes
+19.59% of instructions to `run_vm_slice`, 16.33% to `invoke_transport` and 15.12%
+to `Executor::step`; these costs are untouched. Any promotion still requires
+bounded verification, full workload/resource checks and paired elapsed results.
+Evidence: `preferred-entry-profile/{audit.json,*-annotation.log,*-native/}`;
+all profiles and source/binary integrity checks pass. The local audit's initial
+Perl capture-variable error is retained in its first log; its corrected rerun
+passes the independent self-total checks for all six profiles.
+
 #### Prepared-key-only identity comparison — improvement with a rejected cost
 
 The earlier general string-key shortcut changed interpreter lookup. This trial
@@ -57,13 +148,14 @@ A second image keeps the same identity check but places content equality in a
 private cold, non-inlined fallback. It passes **40 focused tests and nine Miri
 tests**. Its exact-link image checks and eighteen full-context non-timing records
 pass; both no-feature binaries again match the original controls byte-for-byte.
-The full Force suite for this second variant is still running, not inherited
-from the first variant.
+Its own full Force suite passes **1,938 executions / 88 summaries**, with 16
+ignored diagnostics; formatting and all-feature checking also pass.
 
 Callback instructions are **124,777,527**, 1.13% below baseline but 780,075 above
 the first variant. VM self-work increases 780,156 instructions between variants;
 helper and invocation self-work are unchanged in the isolated profile. The
-smaller fallback is not a whole-program instruction improvement over that trial.
+single profile does not establish the variant's instruction effect: the
+fresh-process repeats below change VM work without changing the binary.
 
 Another **47,952 native measured executions** and **181,440 cost workload
 iterations** complete with unchanged thresholds, interleaved controls, shared
@@ -78,9 +170,142 @@ The 21-sample callback control/candidate ratios are CPU0 **1.035386 / 1.027824**
 CPU16 **1.007079 / 1.016104**. The 201-sample repeat retains an unstable CPU0
 window with a **0.431203** same-image placebo; its apparent 1.57x gain is not
 claimed as an optimization. Seven of eight callback gates still fail. The
-runtime patch remains uncommitted and provisional while its remaining costs
-are investigated. Frozen images/logs are under `prepared-identity-outlined*` in
+runtime form is checkpointed in `3abd2d0` as provisional development work while
+its remaining costs are investigated; this does not accept the new cold-cost
+failure. Frozen images/logs are under `prepared-identity-outlined*` in
 the ignored performance directory. This is not full performance acceptance.
+
+#### Native selector boundary — withdrawn; fresh-process attribution corrected
+
+Exact assembly exposes fourteen native transport tier calls inside the VM. A
+trial marks only `Runtime::run` non-inlined, keeping its original guard ordering,
+prepared-code ownership, register selection and counters. The speed cost VM
+shrinks from `0xde08` to `0xd92f` bytes and gains a separate `0x1ea`-byte selector.
+Formatting/checking and **65 focused executions** pass. Three feature images
+have fresh exact-link symbol companions; two cached, byte-identical no-feature
+companions are explicitly reused and reverified, not called fresh captures.
+
+The first callback profile misleadingly suggests an instruction regression:
+**127,768,425** instructions versus the prior **124,777,527**. Three fresh
+processes with the same candidate image instead execute **123,737,277 /
+123,737,277 / 123,737,196**. Three fresh processes with the unchanged prior image
+each execute **123,997,452**. All complete result/resource/counter records match;
+the image hashes remain unchanged. The prior image's 780,156-instruction VM
+difference is therefore not stable and cannot be attributed to fallback
+outlining alone.
+
+An independent raw-PC audit explains the candidate's table-probe variation:
+
+| Same candidate image | Key identity checks | Content fallback calls | Successful value loads |
+|---|---:|---:|---:|
+| Initial process | 129,672 | 64,836 | 64,836 |
+| Each of three fresh processes | 64,836 | 0 | 64,836 |
+
+The initial process checks an extra rejected key for each successful native
+lookup. These are real costs in the process-seeded hash table, not extra Lua
+operations. Longer sampling inside one process does not resample that table
+layout. Keep all observations and add independent process repetitions; do not
+disable hashing randomness or waive existing gates. VM metadata lookups also
+use a map, but this audit does not prove the cause of their variation.
+
+Matched low-probe profiles save roughly **0.21%** of callback instructions, not
+an elapsed-time acceptance result. Three full fresh-process timing campaigns
+complete **13,608 native measured executions** with zero counter/resource
+mismatches. All twelve candidate callback gates still fail. Another **181,440
+cost workload iterations / 216 audited gate reports** produce candidate
+failures **25/72**, versus **11/72** in each prior-image control. Repeated new
+losses include CPU16 shipping allocation (**1.071537 / 1.089526**) and predicate
+(**1.065536 / 1.059279**), and speed integer (**1.051847 / 1.053135**).
+
+The selector annotation is removed. Restored formatting/checking and **65
+focused executions** pass, and Make reproduces the `3abd2d0` benchmark image
+byte-for-byte (`43873296e21d4337aecf8ef44a957c2d434662d70dd7d53746b104855c5cfc64`).
+The cost driver finished all measurements but failed its final audit because a
+path substitution named a nonexistent script. A separate Make recovery verifies
+all original source/tool/image hashes and audits all records; the failed log and
+executed script remain unchanged. No measurement is rerun or omitted to recover
+the audit. Evidence is under `native-selector-outline*`, including the raw-PC
+`probe-variance.json` and disassembly. Full performance acceptance remains open.
+
+#### Narrow register-tier boundary — rejected
+
+This trial keeps admission guards in the VM and outlines only the fourteen
+register-capacity choices. Formatting/checking and **65 focused executions**
+pass; exact-image profiles, source manifests and three fresh callback process
+pairs complete. Low-probe callback work grows from **123,997,452** to
+**124,321,723** instructions. One candidate process reaches **125,101,879**;
+that same-image variation is retained rather than attributed to the patch.
+
+Three native campaigns complete **13,608 measured executions**, with zero
+counter/resource mismatches. Eleven of twelve callback gates fail. Upvalue
+control/candidate ratios range **0.962814–1.001060**, with eleven of twelve
+below one. The narrower boundary does not yield a dependable callback gain.
+Another **181,440 cost workload iterations / 216 audited reports** finish;
+the driver and audits exit successfully. Candidate failures are **14/72**,
+versus **15/72** and **14/72** controls. Speed CPU0 predicate cost introduces
+repeated failures at **1.055860 / 1.054968**; fewer aggregate failures would not
+justify a new regression. All original gates, outliers and contention records
+remain, with no owned validation overlapping timing.
+
+The trial is removed; restoration checks are recorded separately in the
+ignored `native-tier-outline-restored.log`. The frozen patch, binaries, exact
+symbol companions, fresh-process profiles and complete audited timing records
+remain under `target/jit-evidence/short-slice-performance/native-tier-outline*`.
+No candidate full-suite acceptance is claimed. Next investigate the proven
+extra table-key comparisons, not another ungrounded selector-layout change.
+
+#### Prepared-key stored-hash rejection — both placements withdrawn
+
+Commit `3758a01` adds a baseline-tested full stored-hash collision fixture.
+Distinct equal strings must still match, distinct same-length byte strings must
+not, and misses/deletion preserve results in all four weak modes. A test-only
+constructor gives these strings equal stored hashes; table lookup still uses
+its normal hash derivation. **Eleven normal and eight Rust-only Miri executions**
+pass before changing the comparator. The first fixture build failed because
+`Value` lacks `PartialEq`; explicit value matching fixes the test, not runtime.
+
+The first runtime placement adds a stored-hash inequality rejection between
+GC identity and cold content equality. It passes **43 focused executions**,
+**ten Rust-only Miri executions**, and its own **1,939 full Force executions /
+88 summaries**, with 16 ignored diagnostics. Five exact-link image companions
+verify; both no-feature cost images remain byte-identical to baseline. Eighteen
+full-context and three fresh-process non-timing record comparisons match.
+
+However, all three fresh callback profiles grow from **123,997,452** to
+**124,256,796** instructions on the observed low-probe paths. The prepared helper
+alone adds **259,344 instructions / 129,672 reads / 64,836 writes**, or four
+instructions per successful lookup. Its exact disassembly shows changed PC
+register/stack placement. No hardware speedup or elapsed regression is inferred
+from that diagnostic. No elapsed timing was run for this placement.
+
+A second variant moves the stored-hash check inside the existing cold,
+non-inlined content fallback. It passes its own **43 focused and ten Rust-only
+Miri executions**, exact-image verification, eighteen full-context and three
+isolated non-timing comparisons. All three fresh callback profiles match the
+control's **123,997,452 instructions / 39,031,239 reads / 25,754,795 writes**.
+This removes the first placement's observed successful-path instruction cost;
+no high-probe process was observed in these profiles, so a negative-probe saving
+is not measured. Changed simulated branch misses are not hardware evidence.
+
+Three native timing campaigns finish **13,608 measured executions** with zero
+counter/resource mismatches. Ten of twelve callback control/candidate ratios
+are below one; ten of twelve candidate callback gates and four metamethod gates
+fail. Remaining scored native gates pass. Another **181,440 cost workload
+iterations / 216 audited gate reports** finish, with candidate failures **21/72**
+versus **14/72** and **16/72** controls. CPU0 speed has broad noisy windows in
+both candidate and controls; those observations remain, without a clean-host
+attribution. CPU16 speed allocation instead repeatedly fails at **1.055287 /
+1.052795**, versus four controls **1.042566–1.047525**, all passing the unchanged
+1.05 ceiling. Instruction parity does not justify this elapsed-time tradeoff.
+
+Both runtime placements are withdrawn; the independent collision fixture stays.
+Restored formatting/checking and **43 focused executions** pass, and Make
+reproduces the baseline benchmark byte-for-byte (`43873296e21d4337aecf8ef44a957c2d434662d70dd7d53746b104855c5cfc64`).
+The cold variant did not run its own full Force suite; the first placement's
+result is not substituted. No owned validation/profiling overlaps elapsed
+timing. Frozen patches, images, profiles, all adverse windows and audits remain
+under `prepared-hash-filter*` in the ignored short-slice performance directory.
+The original callback and disabled-cost failures remain unresolved.
 
 ### Progress snapshot — 2026-10-12
 

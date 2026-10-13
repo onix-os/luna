@@ -392,6 +392,7 @@ pub(super) enum Failure {
     RequireStrided,
     RequireUniversalMemory,
     RequireFieldMemory,
+    RequirePreferredEntry,
     PreferBoundPayload,
     RequireSparsePayload,
     RequireWriteBoundPayload,
@@ -807,7 +808,10 @@ fn compile_selected_rooted(
         selection.failure
     };
     #[cfg(test)]
-    if failure == Failure::RequireFieldMemory {
+    if matches!(
+        failure,
+        Failure::RequireFieldMemory | Failure::RequirePreferredEntry
+    ) {
         let incompatible = rooted_moves
             || selection.projected
             || selection.leaf
@@ -817,7 +821,12 @@ fn compile_selected_rooted(
         let incompatible = incompatible || selection.scoped_helpers;
         if incompatible {
             return Err(JitError::Compilation(
-                "field memory requires ordinary lowering".into(),
+                if failure == Failure::RequirePreferredEntry {
+                    "preferred entry requires ordinary lowering"
+                } else {
+                    "field memory requires ordinary lowering"
+                }
+                .into(),
             ));
         }
     }
@@ -879,6 +888,15 @@ fn compile_selected_rooted(
         expansion
     };
     let graph = super::flow::FlowGraph::new(snapshot)?;
+    #[cfg(test)]
+    let preferred_entry = if failure == Failure::RequirePreferredEntry {
+        Some(
+            super::entry_flow::preferred::Plan::new(snapshot, &graph)
+                .ok_or_else(|| JitError::Compilation("preferred entry unavailable".into()))?,
+        )
+    } else {
+        None
+    };
     let mut stores = super::tags::Stores::new(&graph, snapshot)?;
     if rooted_moves {
         stores.helper_calls = super::helper_flow::Calls::rooted(snapshot)?;
@@ -949,6 +967,7 @@ fn compile_selected_rooted(
                     | Failure::RequireStrided
                     | Failure::RequireUniversalMemory
                     | Failure::RequireFieldMemory
+                    | Failure::RequirePreferredEntry
             ))
         && !selection.leaf
         && !selection.cell_kernel
@@ -1447,6 +1466,26 @@ fn compile_selected_rooted(
     }
     stores.verify_bindings(&context.func, parameters[0], &paths, &graph)?;
     #[cfg(test)]
+    let (instructions, block_count) = if let Some(plan) = preferred_entry {
+        let original = context.func.clone();
+        let rewrite =
+            super::entry_flow::preferred::Rewrite::apply(plan, &mut context.func, &paths, root)?;
+        rewrite.verify(&original, &context.func, &paths, root)?;
+        cranelift_codegen::verify_function(&context.func, module.isa())
+            .map_err(|error| JitError::Compilation(error.to_string()))?;
+        let actual = context
+            .func
+            .layout
+            .blocks()
+            .map(|block| context.func.layout.block_insts(block).count())
+            .sum();
+        let count = context.func.layout.blocks().count();
+        expansion.verify_actual(actual, count)?;
+        (actual, count)
+    } else {
+        (instructions, block_count)
+    };
+    #[cfg(test)]
     if failure == Failure::AuditIntegerLoop {
         integer_loop::audit::run(&context.func, snapshot, &blocks, exhausted, expansion)?;
         return Err(JitError::Compilation("integer loop audit complete".into()));
@@ -1459,6 +1498,7 @@ fn compile_selected_rooted(
         Failure::None
             | Failure::RequireUniversalMemory
             | Failure::RequireFieldMemory
+            | Failure::RequirePreferredEntry
             | Failure::RequireIntegerLoop
             | Failure::ProbeIntegerLoop
             | Failure::RequirePayload
