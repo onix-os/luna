@@ -11,6 +11,15 @@
 
 ### Progress snapshot — 2026-10-13
 
+The bounded-verifier baseline at `b9e9e9f` completed
+`make jit-test JIT_MODE=force`: **1,936 passed, zero failed, 18 ignored,
+87 summaries**. This includes the explicitly selected preferred-entry tests;
+ordinary production selection was still unchanged. The full-suite log is
+`preferred-entry-bounded-force.log` in the ignored short-slice evidence directory.
+A fresh production benchmark and both feature-cost profiles are being frozen
+before trying automatic guarded-entry selection. No production speedup or
+release acceptance follows from the test result.
+
 #### Preferred call-resumption dispatcher — test-only prototype
 
 `84beab8` adds a source selector for one reachable fixed-arity Call enclosed by
