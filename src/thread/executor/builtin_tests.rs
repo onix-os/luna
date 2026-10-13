@@ -50,7 +50,7 @@ fn builtin_fusion_matches_every_step_and_collects_between_steps() {
 }
 
 #[test]
-fn builtin_persistent_hook_zero_fuel_prefix_matches_without_completion() {
+fn builtin_persistent_hook_zero_fuel_trace_matches_through_completion() {
     use super::*;
     use crate::{JitConfig, JitMode, Lua, Value};
     let run = |enabled, native| {
@@ -94,7 +94,22 @@ fn builtin_persistent_hook_zero_fuel_prefix_matches_without_completion() {
                     (done, executor.mode(), fuel.remaining(), fuel.is_interrupted(), states, ctx.jit().0.borrow().stats.total_dispatches)
                 }));
                 lua.gc_collect();
+                if trace.last().unwrap().0 {
+                    break;
+                }
             }
+            assert!(
+                trace.last().unwrap().0,
+                "hooked program did not finish in 64 steps"
+            );
+            assert_eq!(
+                lua.enter(|ctx| ctx
+                    .fetch(&executor)
+                    .take_result::<i64>(ctx)
+                    .unwrap()
+                    .unwrap()),
+                12
+            );
             trace
         })
     };
@@ -103,6 +118,6 @@ fn builtin_persistent_hook_zero_fuel_prefix_matches_without_completion() {
         let (candidate, hits) = run(true, native);
         assert_eq!(control, candidate);
         assert_eq!(hits, 0);
-        assert!(candidate.iter().all(|entry| !entry.0));
+        assert!(candidate.last().unwrap().0);
     }
 }

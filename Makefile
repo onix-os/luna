@@ -1298,6 +1298,10 @@ hook-progress:
 	@$(CARGO) test --locked -p luna --features jit --test hook_progress $(TARGET_ARG) $(ARGS)
 
 .PHONY: hook-progress-miri
+.PHONY: hook-progress-builtin
+hook-progress-builtin:
+	@$(CARGO) test --locked -p luna --features jit --lib $(TARGET_ARG) thread::executor::builtin_tests::builtin_persistent_hook_zero_fuel_trace_matches_through_completion -- --exact
+
 hook-progress-miri:
 	@$(CARGO) miri test --locked -p luna --no-default-features --test hook_progress --target '$(MIRI_TARGET)' -- --test-threads=1
 	@$(CARGO) miri test --locked -p luna --features jit --test hook_progress --target '$(MIRI_TARGET)' -- --test-threads=1
